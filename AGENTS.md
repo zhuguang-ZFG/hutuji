@@ -21,7 +21,7 @@
 ## 已锁定的架构决策（2026-07-24）
 
 1. **双芯片**：S3 跑 xiaozhi（AI/语音/WiFi），独立 ESP32 跑 Grbl（运动+换纸）。禁止合并固件。
-2. **板间通讯 = USB Host**：S3 原生 USB（Host 模式）+ `usb_host_ch34x_vcp` 枚举写字机的 CH340，115200 8N1 透传。不用蓝牙、不用 WiFi 走正式链路；TTL 飞线仅备用；WiFi 仅 Grbl Telnet 调试。
+2. **板间通讯 = WiFi Telnet（方案 E）**：写字机 Grbl WebUI Telnet :23，STA 连家用路由器 + 固定 IP；S3 TCP 客户端直连，断线指数退避重连。S3 原生 USB 被板载 CH334F HUB 占为设备口（Host 不可行）；CH9350 仅 HID 不枚举 CH340（已否决）；拆机 TTL 仅备用（`docs/hardware.md`）。
 3. **哑管道原则**：G-code 在云端（阿里云 VPS 的 MCP 服务）生成并转换完毕，S3 板只下载+校验+流控转发，不做任何生成/编辑。
 4. **AI 服务用小智官方云**，自定义能力走 MCP 接入点 + 设备侧 MCP 工具。
 5. **换纸机械与逻辑不动**——现役固件 `PaperSystem.cpp`（M701/M704/M721/M30）已是成熟商业方案。
