@@ -1,0 +1,19 @@
+https://github.com/zhuguang-ZFG/Grbl_Esp32.git 
+版本: c19a382fa76afd4e36ebdfda55fbfa64fe6e76b6
+作者: zhuguang-ZFG <168892777+zhuguang-ZFG@users.noreply.github.com>
+日期: 2026/7/25 1:56:16
+信息:
+docs: record P100 defaults and 0x0 merge repair SOP
+
+Capture today's lessons: auto full-flash image each release build, UTF-16 merge script detection/fix, and NVS/$RST caveats.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+----
+已修改: docs/FIRMWARE_CI.md
+已修改: docs/PROJECT_LESSONS.md
+
+
+https://github.com/zhuguang-ZFG/xiaozhi-esp32.git  使用立创实战派esp32s3
+
+
+两个项目结合做成 ai 绘图自动换纸写字机   通讯使用串口 或者wifi；重点是ai绘图
