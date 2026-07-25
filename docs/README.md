@@ -58,6 +58,7 @@
 | `hardware/MK38-总图.pdf` | 硬件 | MK38 原理图总图归档 | 原始图纸 |
 | `hardware/lichuang-szpi-esp32s3-board.md` | 硬件 / xiaozhi agent | **立创实战派 S3** 引脚与原理图索引 | 板级真值 |
 | `hardware/lichuang-szpi-esp32s3-sch.pdf` | 硬件 | 实战派 S3 原理图 V1.0.1 归档 | 原始图纸 |
+| `hardware/lichuang-szpi-official/` | 硬件 | 官方 wiki 资源标注图 + 电路截图补档 | 板级附图 |
 
 记录模板位于 `docs/templates/`（`device-test-record.md`、`release-manifest.md`）；部署模板位于仓库根 `deploy/`（systemd / nginx / `env.example`）。  
 生产落点**仅京东云** `117.72.118.95`。模板中的占位字段必须在批次放行前填写，禁止删掉未通过项目来“做绿”。  

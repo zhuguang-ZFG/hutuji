@@ -15,7 +15,8 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | 已推/待推 | 门禁、防幻觉、约束矩阵 | ① 文档 + agent 约束闭环 | 见 `foundation-checklist.md` / `agent-constraint-matrix.md` |
-| **本提交** | `docs/hardware/*`（MK38 + 实战派 S3 原理图/对照页）+ 挂链 | 双板级资料归档 | 推远程后保持；禁改固件脚位 |
+| 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
+| **本提交** | `docs/hardware/lichuang-szpi-official/` | 官方资源标注图 + ES7210/GC0308 等补档 | 推远程 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
 
 ## Grbl_Esp32 `D:/Users/Grbl_Esp32`  

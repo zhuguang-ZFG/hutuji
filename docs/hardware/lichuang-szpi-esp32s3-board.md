@@ -3,6 +3,7 @@
 > **板名**：立创开发板 · 实战派 ESP32-S3（原理图标题 ESP32S3-GMK2 / `ESP32-S3-V1_0_1`，V1.0.1）  
 > **固件板型**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/`（`config.h` + `lichuang_dev_board.cc`）  
 > **原理图归档**：[`lichuang-szpi-esp32s3-sch.pdf`](./lichuang-szpi-esp32s3-sch.pdf)（同内容别名 [`立创实战派-ESP32-S3-原理图-V1.0.1.pdf`](./立创实战派-ESP32-S3-原理图-V1.0.1.pdf)）  
+> **官方资料补档包**：[`lichuang-szpi-official/`](./lichuang-szpi-official/)（资源标注图 + ES7210/GC0308 等电路截图；索引见包内 `README.md`）  
 > **官方入口**：[wiki 总览](https://wiki.lckfb.com/zh-hans/szpi-esp32s3/) · [下载中心（百度网盘 pwd=`lckf`）](https://wiki.lckfb.com/zh-hans/szpi-esp32s3/download-center.html) · [OSHWHUB 工程](https://oshwhub.com/li-chuang-kai-fa-ban/li-chuang-shi-zhan-pai-esp32-s3-kai-fa-ban)  
 > **hutuji 角色**：S3 跑 xiaozhi（AI/语音/WiFi），板间出图走方案 E WiFi Telnet（**不占** IO10/IO11）；IO10/IO11 仅备用方案 B。
 
@@ -92,8 +93,9 @@
 | 原理图 PDF V1.0.1（3 页）本仓归档 | ✅ |
 | 固件脚位对照表（上表） | ✅ |
 | 官方 wiki / OSHWHUB / 网盘链接 | ✅ |
-| 资源标注图（丝印照片）本仓位图 | 🟡 wiki 页有图但未落盘；需要时从[下载中心](https://wiki.lckfb.com/zh-hans/szpi-esp32s3/download-center.html)资料包补 |
-| ES7210 / GC0308 子页细节 | 🟡 以 wiki「电路介绍」+ 固件为准；完整包见网盘 |
+| 资源标注图 / 结构尺寸本仓位图 | ✅ `lichuang-szpi-official/named/resource-annotation-*.png` |
+| ES7210 / GC0308 等电路截图 | ✅ `lichuang-szpi-official/named/sch-audio-es7210-*.png`、`sch-camera-gc0308.png` 等 |
+| 百度网盘整包（含 SDK/例程） | ⚪ 不入库；板级硬件闭环不依赖 |
 
 ## 5. Agent 禁令
 

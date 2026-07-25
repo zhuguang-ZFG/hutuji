@@ -1,0 +1,7 @@
+# 二进制资料勿按文本做 CRLF 转换
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.zip binary

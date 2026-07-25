@@ -14,6 +14,7 @@
 
 - **板级资料真值**：[`hardware/lichuang-szpi-esp32s3-board.md`](hardware/lichuang-szpi-esp32s3-board.md)  
 - **原理图归档**：[`hardware/lichuang-szpi-esp32s3-sch.pdf`](hardware/lichuang-szpi-esp32s3-sch.pdf)（V1.0.1，3 页；中文别名同目录）  
+- **官方补档包**：[`hardware/lichuang-szpi-official/`](hardware/lichuang-szpi-official/)（资源标注图 + ES7210/GC0308 等）  
 - **固件板型**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/`（脚位以 `config.h` 为准，**禁止轻易改脚**）  
 - 哑管道说明：`firmware/README.md`。**不是** MK38。
 

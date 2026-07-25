@@ -41,6 +41,7 @@ REQUIRED_FILES = [
     "docs/hardware.md",
     "docs/hardware/mk38-board.md",
     "docs/hardware/lichuang-szpi-esp32s3-board.md",
+    "docs/hardware/lichuang-szpi-official/README.md",
     "docs/templates/device-test-record.md",
     "docs/templates/release-manifest.md",
     "mcp-server/README.md",
