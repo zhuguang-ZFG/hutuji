@@ -38,6 +38,14 @@ SYSTEM_PROMPT = f"""你是写字机「单线笔画」SVG 生成器。根据用�
 
 _SVG_RE = re.compile(r"<svg[\s\S]*?</svg>", re.IGNORECASE)
 
+# DTD / 实体声明一律拒（纵深防御，非修补已知漏洞）。
+# 现状：xml.etree 不解析外部实体（file://、http:// 均抛 ParseError）；内部实体虽会
+# 递归展开，但 _SVG_RE 从 `<svg` 起切片，DTD 落在根元素之前必被丢弃，实体随即
+# "undefined" 而解析失败——已实测 DOCTYPE 前置/夹废话/双 svg 三种变体均被拒。
+# 即：拦截不是靠本规则，而是靠切片的副作用。这里显式拒 DTD，把它变成写明的契约，
+# 避免日后放宽 _SVG_RE（如允许 XML 声明）时静默恢复实体展开面。
+_DOCTYPE_RE = re.compile(r"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
+
 # 元素/属性白名单（组 1.1 + 2.1）——LLM 输出的主防线。
 # 命名空间前缀已在 _local_name 里剥掉，这里比较的是本地名。
 _ALLOWED_TAGS = frozenset({"svg", "g", "path", "line", "polyline"})
@@ -84,6 +92,9 @@ def _validate_svg(svg: str) -> None:
 
     违规抛 `LlmError` 带具体标签/属性名，方便追溯是哪种越权。
     """
+    if _DOCTYPE_RE.search(svg):
+        raise LlmError("SVG 含 DTD/实体声明（<!DOCTYPE/<!ENTITY>），一律拒绝")
+
     try:
         root = ET.fromstring(svg)
     except ET.ParseError as e:

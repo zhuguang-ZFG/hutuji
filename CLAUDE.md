@@ -69,10 +69,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 本仓库已有可构建的 `mcp-server/`（③）。权威状态见 `docs/release-readiness.md`。
 
 - **本仓门禁（推荐入口）**：仓库根 `python scripts/agent_gate.py` → `results/hutuji_gate_last.md`
-- **③ MCP（本仓）**：在 `mcp-server/` 执行
-  - `.venv/Scripts/pip install -r requirements-dev.txt`
+  - `--profile docs`（仅文档一致性）/ `hub`（默认，含 MCP pytest + e2e）/ `full`（追加 Grbl §9 源码标记）
+  - `full` 的坑：**`GRBL_ROOT` 未设时 §9 层是 skip 而非 fail**，overall 照样 pass 却什么都没查。改了 Grbl 必须 `set GRBL_ROOT=D:\Users\Grbl_Esp32` 再跑，且另跑 fz
+- **③ MCP（本仓）**：在 `mcp-server/` 执行（`.venv` 已 gitignore，新克隆需先 `python -m venv .venv`，否则门禁 pytest/e2e 层直接 fail）
+  - `.venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt`
   - `.venv/Scripts/python -m pytest -q`（契约/注入/限流等）
-  - `.venv/Scripts/python scripts/e2e_local.py`（须输出 `PASS`）
+  - 单个测试：`.venv/Scripts/python -m pytest tests/test_injection.py -q`；单条用例加 `-k <名字>`
+  - `.venv/Scripts/python scripts/e2e_local.py`（须输出 `PASS`；无硬件闭环 = `grbl_sim` 假 Grbl:2323 ← `pipe_sim` 模拟 S3 转发 ← 测试 SVG）
+  - 起服务：`.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300`（**`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`。生产用 systemd，已显式带 `--host`）；单独起假 Grbl 调转发：`python -m hutuji_mcp.grbl_sim`
+  - 关键环境变量（全表见 `mcp-server/README.md`）：`HUTUJI_LLM_API_KEY`（未配置时 `hutuji_draw` 报错）、`HUTUJI_LLM_BASE_URL`/`_MODEL`、`HUTUJI_PUBLIC_BASE_URL`（返回给 S3 的下载前缀）、`HUTUJI_OUTPUT_TTL_SECONDS`（默认 600，过期下载 404）
+  - 公网只经 nginx 暴露 `/files/`；`/mcp` 在 `deploy/nginx-hutuji.conf` 里显式 404，安全组不放行 8300
   - 小智云工具发现：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）
 - **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建（IDF ≥5.5.2，仓要求 v6.0.2）：
   `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。

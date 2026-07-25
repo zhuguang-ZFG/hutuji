@@ -39,6 +39,13 @@ _DRAW_FILE_RE = re.compile(
     r"^draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(?:gcode|svg)$"
 )
 
+# 同一个式子按结构分组，供脱敏使用：token 用的是 URL-safe base64 字母表，
+# **本身可能含 `_`**，所以绝不能靠「最后一个下划线」切分（会把 token 前缀
+# 当成时间戳留在输出里；实测约 29% 的 token 会这样泄露）。
+_DRAW_FILE_PARTS_RE = re.compile(
+    r"^(draw_\d{8}_\d{6})_(?P<token>[A-Za-z0-9_-]{22})\.(?P<ext>gcode|svg)$"
+)
+
 
 class DrawLimitError(RuntimeError):
     """LLM 生成入口超过本进程安全限额。"""
@@ -116,12 +123,12 @@ def _new_basename() -> str:
 
 def _redact_capability_name(name: str) -> str:
     """status 对外展示时隐藏 token，避免经 MCP 泄露 capability URL。"""
-    if not _DRAW_FILE_RE.fullmatch(name):
+    m = _DRAW_FILE_PARTS_RE.fullmatch(name)
+    if not m:
         return "*.gcode"
     # draw_YYYYMMDD_HHMMSS_<token>.ext → draw_YYYYMMDD_HHMMSS_*.ext
-    stem, _, ext = name.rpartition(".")
-    prefix, _, _token = stem.rpartition("_")
-    return f"{prefix}_*.{ext}"
+    # 用结构化分组去掉整个 token（含其中的下划线），不做字符串切分。
+    return f"{m.group(1)}_*.{m.group('ext')}"
 
 
 def _delete_output_pair(stem: str) -> None:
