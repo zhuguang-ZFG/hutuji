@@ -114,6 +114,16 @@ def _new_basename() -> str:
     )
 
 
+def _redact_capability_name(name: str) -> str:
+    """status 对外展示时隐藏 token，避免经 MCP 泄露 capability URL。"""
+    if not _DRAW_FILE_RE.fullmatch(name):
+        return "*.gcode"
+    # draw_YYYYMMDD_HHMMSS_<token>.ext → draw_YYYYMMDD_HHMMSS_*.ext
+    stem, _, ext = name.rpartition(".")
+    prefix, _, _token = stem.rpartition("_")
+    return f"{prefix}_*.{ext}"
+
+
 def _delete_output_pair(stem: str) -> None:
     """删除同一产物的 SVG/G-code；文件本就可能只生成了一半。"""
     for suffix in (".svg", ".gcode"):
@@ -195,7 +205,7 @@ async def hutuji_status() -> str:
         "llm_configured": settings.llm_configured,
         "llm_model": settings.llm_model,
         "gcode_files": len(files),
-        "latest": files[-1].name if files else None,
+        "latest": _redact_capability_name(files[-1].name) if files else None,
     }, ensure_ascii=False)
 
 

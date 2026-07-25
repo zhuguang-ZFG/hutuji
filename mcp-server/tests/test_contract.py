@@ -118,6 +118,29 @@ def test_draw_limiter_rejects_rate_and_concurrency() -> None:
     asyncio.run(limiter.leave())
 
 
+def test_status_latest_filename_is_redacted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    base = server._new_basename()
+    name = f"{base}.gcode"
+    (tmp_path / name).write_text("G21\nG90\n", encoding="utf-8")
+    # basename 含 token；status 不得回显完整 capability 名
+    token = base.rsplit("_", 1)[-1]
+    assert len(token) >= 16
+
+    payload = asyncio.run(server.hutuji_status())
+    import json
+
+    data = json.loads(payload)
+    assert data["gcode_files"] == 1
+    assert data["latest"] is not None
+    assert token not in data["latest"]
+    assert data["latest"].startswith("draw_")
+    assert data["latest"].endswith(".gcode")
+    assert "*" in data["latest"]
+
+
 def test_draw_limiter_rejects_minute_window() -> None:
     now = [0.0]
     limiter = server.DrawLimiter(

@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -22,6 +23,11 @@ logger = logging.getLogger("HUTUJI_MCP_BRIDGE")
 
 INITIAL_BACKOFF_SECONDS = 1
 MAX_BACKOFF_SECONDS = 60
+
+# mcp-proxy stderr 可能回显 URL；禁止把 token / wss 原文写入日志。
+_SECRETISH_RE = re.compile(
+    r"(?i)(token=)([^&\s]+)|(wss://\S+)|(https?://\S+)"
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,25 @@ def _message_label(message: str | bytes) -> str:
     return "unknown"
 
 
+def _safe_stderr_line(line: str | bytes) -> str:
+    """脱敏 mcp-proxy stderr：去掉 token=… / wss|http(s) URL，并截断过长行。"""
+    if isinstance(line, bytes):
+        text = line.decode("utf-8", errors="replace")
+    else:
+        text = line
+    text = text.rstrip("\r\n")
+
+    def _sub(match: re.Match[str]) -> str:
+        if match.group(1):
+            return f"{match.group(1)}<redacted>"
+        return "<redacted-url>"
+
+    redacted = _SECRETISH_RE.sub(_sub, text)
+    if len(redacted) > 200:
+        return redacted[:200] + "…"
+    return redacted
+
+
 async def _cloud_to_proxy(websocket, process: asyncio.subprocess.Process) -> None:
     assert process.stdin is not None
     async for message in websocket:
@@ -101,7 +126,7 @@ async def _proxy_to_cloud(process: asyncio.subprocess.Process, websocket) -> Non
 async def _proxy_stderr(process: asyncio.subprocess.Process) -> None:
     assert process.stderr is not None
     while line := await process.stderr.readline():
-        logger.info("mcp-proxy: %s", line.decode("utf-8", errors="replace").rstrip())
+        logger.info("mcp-proxy: %s", _safe_stderr_line(line))
 
 
 async def bridge_once(config: BridgeConfig) -> None:

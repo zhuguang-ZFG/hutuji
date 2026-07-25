@@ -6,7 +6,12 @@ import sys
 
 import pytest
 
-from hutuji_mcp.cloud_bridge import _message_label, load_config, proxy_command
+from hutuji_mcp.cloud_bridge import (
+    _message_label,
+    _safe_stderr_line,
+    load_config,
+    proxy_command,
+)
 
 
 def test_bridge_config_requires_secret_environment(
@@ -38,4 +43,16 @@ def test_proxy_command_uses_current_interpreter() -> None:
 def test_message_log_never_contains_params() -> None:
     message = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"token":"secret"}}'
     assert _message_label(message) == "tools/call"
+
+
+def test_proxy_stderr_redacts_token_and_wss_urls() -> None:
+    raw = "connecting wss://api.xiaozhi.me/mcp/?token=super-secret-value ok"
+    safe = _safe_stderr_line(raw)
+    assert "super-secret-value" not in safe
+    assert "token=" not in safe.lower() or "redacted" in safe.lower()
+    assert "wss://api.xiaozhi.me" not in safe
+
+
+def test_proxy_stderr_keeps_benign_short_lines() -> None:
+    assert _safe_stderr_line("listening on stdio") == "listening on stdio"
 
