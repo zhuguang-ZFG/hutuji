@@ -41,22 +41,26 @@
 
 ### 阶段 0 清单
 
-- [x] 主机可登录；已建用户 `hutuji`、`/opt/hutuji`、`/etc/hutuji/{mcp,bridge}.env`（600）、`/etc/nginx/ssl/hutuji/`（2026-07-26 登机准备）  
+- [x] 主机可登录；已建用户 `hutuji`、`/opt/hutuji`、`/etc/hutuji/{mcp,bridge}.env`（600）、`/etc/nginx/ssl/hutuji/`  
+- [x] 点名业务已停删（dlc-drawing / MySQL / Redis / qwen-gateway / nginx new-api）；UFW 仅 22/80/443  
 - [ ] `/opt/hutuji` **本仓代码**就位（目前仅空目录 + output 坑位）  
-- [ ] 安全组/UFW：确认无 8300；收紧与 ③ 无关的公网端口（见下「共存业务」）  
-- [ ] 确认专机策略：决策 #5 为「专机只跑 ③」——实机上仍有其它业务，**停迁须用户点名**  
+- [ ] 控制台安全组复核无 8300（与 UFW 一致）  
 - [ ] env 去掉 `REPLACE_ME` 并放好 TLS（阶段 1）
 
-### 共存业务（2026-07-26 勘察，未擅自停）
+### 实机清理（2026-07-26，用户点名后已执行）
 
-| 服务 | 端口/路径 | 备注 |
-|------|-----------|------|
-| nginx | 80/443 公网 | 现为 default site；hutuji site 未装 |
-| dlc-drawing | 127.0.0.1:8081；`/opt/dlc-drawing` | unit `dlc-drawing.service` |
-| qwen-gateway | 0.0.0.0:3002 | 公网暴露 |
-| MySQL / Redis | 3306/6379（UFW 限来源） | 疑似其它项目 |
-| cloudflared / tailscaled | 本机 | 隧道/组网 |
-| UFW 另放行 | 8080/8081/8443/9090 等 | 与「只跑 ③」不符，待你决定是否收口 |
+已停并删除：
+
+| 项 | 处置 |
+|----|------|
+| dlc-drawing + `/opt/dlc-drawing` | unit/目录删除；`chat.donglicao.com` nginx 配置删除 |
+| qwen-gateway + `/opt/qwen-gateway` | 进程/目录删除；3002 已释放 |
+| MySQL / Redis | 包 purge + 数据目录删除；3306/6379 已释放 |
+| nginx new-api / newapi / newapi-managed | sites-available 删除；`/root/newapi-backups` 删除 |
+| UFW | 仅保留 22/80/443 |
+
+仍保留（未点名）：nginx 本体（当前主要听 80；443 随原站点配置移除）、cloudflared、tailscaled、京东云 agent、`/opt/hutuji` 坑位。  
+内存约释放至 available ~1.7Gi（原 ~1.2Gi）。**本仓代码尚未同步到 `/opt/hutuji`。**
 
 ## 首次上线（阶段 1）
 

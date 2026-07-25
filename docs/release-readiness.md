@@ -24,7 +24,7 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | S3 M1 | 🟡 有未提交补丁 | `firmware/m1-usb-pipe.md` 代码评审记录 | 在 fork 中确认 diff、构建、提交、烧录 |
 | S3 M2 哑管道 | 🔴 未实现 | v0.5 设计与待办完整 | 下载/校验/授权/流控/恢复/abort 全实现并测试 |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
-| 京东云生产环境 | 🟡 坑位已建、未上业务 | 2026-07-26 登机：用户/`/etc/hutuji`/`/opt/hutuji` 就绪；机上仍有 dlc-drawing/MySQL/Redis/qwen-gateway 等（见 `deployment.md` 共存表） | 专机化（停迁杂业务须点名）；同步代码；填密钥+TLS；`preflight`；阶段 6 |
+| 京东云生产环境 | 🟡 专机已清、未上业务 | 2026-07-26：点名业务已删；UFW 22/80/443；hutuji 坑位在；见 `deployment.md` | 同步本仓到 `/opt/hutuji`；填密钥+TLS；`install-from-repo` + `preflight`；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
