@@ -1,6 +1,8 @@
 [Unit]
 Description=hutuji MCP server (localhost only)
-After=network.target
+Documentation=file:///opt/hutuji/docs/deployment.md
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -8,10 +10,18 @@ User=hutuji
 Group=hutuji
 WorkingDirectory=/opt/hutuji/mcp-server
 EnvironmentFile=/etc/hutuji/mcp.env
-ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn hutuji_mcp.server:app --host ${HUTUJI_HOST} --port ${HUTUJI_PORT}
+# 明确绑 loopback，避免 EnvironmentFile 缺失时误听 0.0.0.0
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300
 Restart=on-failure
 RestartSec=5
-# 不在此文件写密钥
+TimeoutStartSec=30
+
+# 基础加固（无密钥写进本 unit）
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/hutuji/mcp-server/output
 
 [Install]
 WantedBy=multi-user.target

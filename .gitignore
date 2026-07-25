@@ -2,6 +2,15 @@
 results/
 firmware_out/
 
+# 凭据 / 实机 EnvironmentFile（永不入库）
+.env
+.env.*
+**/mcp.env
+**/bridge.env
+!deploy/env.mcp.example
+!deploy/env.bridge.example
+!deploy/env.example
+
 # Python
 __pycache__/
 *.py[cod]

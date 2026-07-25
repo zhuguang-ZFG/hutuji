@@ -4,11 +4,13 @@
 
 ## 常驻进程
 
-| unit | 职责 | 健康信号 |
-|------|------|----------|
-| `hutuji-mcp` | uvicorn：`/mcp` + `/files`（仅本机） | `curl -sf http://127.0.0.1:8300/...` 或 `hutuji_status` |
-| `hutuji-cloud-bridge` | 小智 WSS ↔ 本机 MCP | journal 无连续鉴权失败；控制台工具在线 |
-| `nginx` | TLS + 仅 `/files` | `https://…/files/` 可达；`/mcp` 404 |
+| unit | 职责 | EnvironmentFile | 健康信号 |
+|------|------|-----------------|----------|
+| `hutuji-mcp` | uvicorn：`/mcp` + `/files`（仅本机） | `/etc/hutuji/mcp.env` | `preflight.sh`；或本机 curl `:8300` |
+| `hutuji-cloud-bridge` | 小智 WSS ↔ 本机 MCP | `/etc/hutuji/bridge.env` | journal 无连续鉴权失败；控制台工具在线 |
+| `nginx` | TLS + 仅 `/files` | — | `https://…/files/` 可达；`/mcp` 404 |
+
+上线前准备 / 安装脚本：`../deploy/prepare-host.sh`、`install-from-repo.sh`、`preflight.sh`。
 
 ## 监控（最低集）
 

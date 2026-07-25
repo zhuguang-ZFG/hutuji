@@ -1,6 +1,8 @@
 [Unit]
 Description=hutuji Xiaozhi MCP cloud bridge
-After=network.target hutuji-mcp.service
+Documentation=file:///opt/hutuji/docs/deployment.md
+After=network-online.target hutuji-mcp.service
+Wants=network-online.target
 Requires=hutuji-mcp.service
 
 [Service]
@@ -8,10 +10,16 @@ Type=simple
 User=hutuji
 Group=hutuji
 WorkingDirectory=/opt/hutuji/mcp-server
-EnvironmentFile=/etc/hutuji/mcp.env
+EnvironmentFile=/etc/hutuji/bridge.env
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.cloud_bridge
 Restart=on-failure
 RestartSec=5
+TimeoutStartSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target

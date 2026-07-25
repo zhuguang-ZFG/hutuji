@@ -32,7 +32,7 @@
 
 ## C. 部署 / 生产模板（有模板 ≠ 已上线）
 
-- [x] `docs/deployment.md` + `deploy/`（systemd / nginx / env.example）
+- [x] `docs/deployment.md` + `deploy/`（拆分 env、prepare/install/preflight 脚本；实机仍未上线）
 - [x] `docs/operations.md` 值守骨架
 - [x] `docs/production-sop.md` + `docs/release-checklist.md` + `docs/compliance.md`
 - [x] `docs/templates/device-test-record.md` + `release-manifest.md`
@@ -60,7 +60,7 @@
 | Grbl §9 烧录 + bringup 阶段 2 | 工程下一刀 | 🟡 源码/fz 可绿；实机未验则**未**完成 |
 | S3 M2 哑管道 | 路线图 ② | 🔴 |
 | 硬件联调证据 | bringup 0–8 | 🔴 |
-| 京东云实机 | 路线图 ③ / deployment | 🔴 |
+| 京东云实机上线 | 路线图 ③ / deployment | 🟡 模板预置；阶段 0/1 未在 VPS 勾完 |
 | 出货签核 | 路线图 ④ | 🔴 |
 
 ## G. 交接时必做

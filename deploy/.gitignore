@@ -1,0 +1,8 @@
+# 实机 EnvironmentFile / 本地填好的密钥 — 永不入库
+*.env
+!env.mcp.example
+!env.bridge.example
+local/
+*.pem
+*.key
+id_rsa*

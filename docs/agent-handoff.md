@@ -121,7 +121,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
 | 批次模板 | `docs/templates/` |
-| 京东云模板 | `deploy/` |
+| 京东云模板 | `deploy/`（`prepare-host.sh` 可先做阶段 0；实机未上线） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |
 | Cursor 硬轨 | `.cursor/rules/hutuji-agent-rails.mdc` |

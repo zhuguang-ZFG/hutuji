@@ -24,7 +24,7 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | S3 M1 | 🟡 有未提交补丁 | `firmware/m1-usb-pipe.md` 代码评审记录 | 在 fork 中确认 diff、构建、提交、烧录 |
 | S3 M2 哑管道 | 🔴 未实现 | v0.5 设计与待办完整 | 下载/校验/授权/流控/恢复/abort 全实现并测试 |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
-| 京东云生产环境 | 🔴 未部署 | `deployment.md` + `deploy/` 模板已齐 | systemd/nginx/TLS/密钥/监控/回滚演练 |
+| 京东云生产环境 | 🟡 模板已预置、实机未上 | `deployment.md` 阶段 0；`deploy/prepare-host.sh` 等；env 已拆 mcp/bridge | 安全组+主机准备勾选；TLS；`preflight.sh` PASS；公网 `/mcp` 不可达；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
