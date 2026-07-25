@@ -3,14 +3,16 @@
 > **给下一个 AI / 人类代理**：先读本页 5 分钟，再动代码。  
 > 状态真值：`release-readiness.md`。契约真值：`protocol.md` **v0.5**。  
 > **完成定义 / 可跑门禁**：`agent-gate.md` + `python scripts/agent_gate.py`。  
+> **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
 ## 0. 一句话现状（2026-07-26）
 
 枢纽仓 `hutuji` 已有：协议 v0.5、文档地图、**本仓门禁**（`scripts/agent_gate.py`）、京东云 `deploy/` 模板、③ MCP 本地加固 + 小智云工具发现。  
-**没有**：Grbl §9 经 fz 门禁的完成宣称、S3 M2、硬件联调证据、京东云实机、出货签核。  
+Grbl：§9 源码 + host-testable `*Core.h` 已齐，**fz `standard` overall=pass**（仍须烧录与 bringup 阶段 2 才算 §9 闭环）。  
+**没有**：S3 M2、硬件联调证据、京东云实机、出货签核。  
 → **不可商业出货**。  
-→ 用户未指定任务时：按 §6 工程序；**禁止**再写一版文档地图当进度。  
+→ 用户未指定任务时：默认下一刀 = **烧录 §9 → bringup 阶段 2**，然后 S3 M2；**禁止**再写一版文档地图当进度。  
 → ① 基础建设闭环清单：`foundation-checklist.md`（须门禁 `hub` 绿才算勾完）。
 
 ## 1. 三仓与代码在哪
@@ -52,12 +54,13 @@
 
 ## 4. 动手前强制顺序
 
-1. 本页 → `release-readiness.md` → `agent-gate.md`  
-2. 根 `README.md` 决策表 + `AGENTS.md`  
-3. `protocol.md` §1.1 / §1.2 / §2.1 / §4.1 / §5.1 / §9  
-4. `git status --short` — **不覆盖**用户已有改动  
-5. 按任务打开：`bringup-sop.md` / `mcp-server/README.md` / `deployment.md`  
-6. 结束前跑本仓门禁；动过 Grbl 再跑 fz 门禁
+1. 本页 → `agent-anti-drift.md` → `worktree-inventory.md`  
+2. `release-readiness.md` → `agent-gate.md`  
+3. 根 `README.md` 决策表 + `AGENTS.md`  
+4. `protocol.md` §1.1 / §1.2 / §2.1 / §4.1 / §5.1 / §9  
+5. 三仓 `git status --short` — **不覆盖**用户已有改动；对照 inventory  
+6. 按任务打开：`bringup-sop.md` / `mcp-server/README.md` / `deployment.md`  
+7. 结束前跑本仓门禁；动过 Grbl 再跑 fz 门禁；更新 inventory / readiness
 
 ## 5. 本仓立刻能跑的命令（无硬件）
 
@@ -78,12 +81,12 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. `D:/Users/Grbl_Esp32`：`protocol.md` §9 A / B1′ / B2′ → **fz** `agent_gate.py` overall=pass → 烧录  
+1. `D:/Users/Grbl_Esp32`：§9 已改且 fz pass → **提交/烧录** → bringup 阶段 2 实机  
 2. `D:/Users/xiaozhi-esp32`：M2 哑管道 → IDF 构建  
 3. `bringup-sop.md` 阶段 0 起留真实设备证据  
 4. 京东云按 `deployment.md` + `deploy/` 上线并验收 `/mcp` 不上公网  
 
-> 注意：Grbl 工作树若已有 §9 相关未提交改动，属于用户资产——核对、跑 fz、更新状态，**不要** `git checkout` 清掉，也**不要**在 fz 非 pass 时宣称完成。
+> 注意：Grbl 工作树若已有 §9 / `*Core.h` 未提交改动，属于用户资产——核对、保留、提交，**不要** `git checkout` 清掉。fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
 ## 7. 改完必须同步的文件
 
@@ -93,6 +96,8 @@ cd D:\Users\hutuji\mcp-server
 | 进度/证据 | `release-readiness.md` |
 | 结构/约定/命令 | `AGENTS.md` + `README.md` + `CLAUDE.md` |
 | 门禁定义 | `docs/agent-gate.md` + 必要时 `scripts/agent_gate.py` |
+| 防幻觉/白名单 | `docs/agent-anti-drift.md` + `docs/agent-edit-allowlist.json` |
+| 跨仓脏树 | `docs/worktree-inventory.md` |
 | ① 闭环勾选 | `docs/foundation-checklist.md` |
 | ③ 行为/验收 | `mcp-server/README.md` |
 | 批次出货 | `docs/templates/*` |
@@ -106,6 +111,9 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 文档总入口 | `docs/README.md` |
 | 本防呆页 | `docs/agent-handoff.md` |
 | **本仓门禁** | `docs/agent-gate.md` / `scripts/agent_gate.py` |
+| 防幻觉/禁乱改 | `docs/agent-anti-drift.md` |
+| 改码白名单 | `docs/agent-edit-allowlist.json` |
+| 工作树清单 | `docs/worktree-inventory.md` |
 | ① 闭环清单 | `docs/foundation-checklist.md` |
 | 状态 | `docs/release-readiness.md` |
 | 契约 | `docs/protocol.md` |

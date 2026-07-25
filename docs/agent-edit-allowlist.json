@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
+  "decision_count": 7,
+  "grbl_section9_only": [
+    "Grbl_Esp32/src/WebUI/TelnetServer.cpp",
+    "Grbl_Esp32/src/PaperSystem.cpp"
+  ],
+  "grbl_core_headers_restore_only": [
+    "Grbl_Esp32/src/LicenseCore.h",
+    "Grbl_Esp32/src/PaperBtAckCore.h",
+    "Grbl_Esp32/src/PaperSearchCore.h",
+    "Grbl_Esp32/src/PaperSystemCore.h",
+    "Grbl_Esp32/src/ProtocolDecisionCore.h",
+    "Grbl_Esp32/src/WebUI/BTStateCore.h"
+  ],
+  "grbl_forbidden_symbols": [
+    "report_realtime_status",
+    "report_state_text"
+  ],
+  "grbl_forbidden_intents": [
+    "change_paper_mechanics_or_timing",
+    "change_motion_planner",
+    "change_license_algorithm_behavior",
+    "change_u1_grbl_protocol",
+    "broadcast_all_paper_auto_messages_client_all"
+  ],
+  "hub_safe_doc_globs": [
+    "docs/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    ".cursor/rules/**",
+    "scripts/agent_gate.py",
+    "deploy/**",
+    "firmware/*.md"
+  ],
+  "claims_forbidden": [
+    "可出货",
+    "商业放行",
+    "§9 已完成",
+    "§9 已修好",
+    "硬件已验证",
+    "联调完成",
+    "京东云已上线",
+    "M2 已完成"
+  ],
+  "rejected_current_link": [
+    "USB Host as current board link",
+    "CH9350 as current board link",
+    "Aliyun as production VPS"
+  ]
+}

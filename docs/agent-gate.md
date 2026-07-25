@@ -14,8 +14,11 @@
 - 改 Grbl 后不跑 fz 门禁就声称修好
 - 跳过 `bringup-sop` 阶段直接写上层代码
 - 把 MCP 验收清单组 0–3 当待办重做一遍
+- **幻觉**：编造测试结果 / commit / 硬件现象
+- **乱改**：为门禁绿改换纸常量、覆盖用户工作树、越权「顺手重构」
 
-本门禁用**可跑检查 + 禁止宣称表**把这些钉死。
+本门禁用**可跑检查 + 禁止宣称表 + 防幻觉资料齐套**把这些钉死。  
+行为细则：`agent-anti-drift.md`；改码白名单：`agent-edit-allowlist.json`；脏树：`worktree-inventory.md`。
 
 ## 2. Profile（选一个跑，禁止自造）
 
@@ -38,6 +41,9 @@
 | `AGENTS.md` / `CLAUDE.md` | 代理硬规则 |
 | `docs/agent-handoff.md` | 防呆页 |
 | `docs/agent-gate.md` | 本文件 |
+| `docs/agent-anti-drift.md` | 防幻觉 / 禁乱改铁律 |
+| `docs/worktree-inventory.md` | 跨仓脏树清单 |
+| `docs/agent-edit-allowlist.json` | 改码白名单（机读） |
 | `docs/foundation-checklist.md` | ① 基础建设闭环清单 |
 | `docs/release-readiness.md` | 状态真值 |
 | `docs/protocol.md` | 契约 v0.5 |

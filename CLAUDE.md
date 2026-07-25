@@ -22,13 +22,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 按顺序读这几份，它们是决策与契约的唯一真值，其它文件都是它们的展开：
 
 0. `docs/agent-handoff.md` — **防呆页**（误判表、禁止重开项、默认下一刀）；不明所以先回这里
-1. `docs/agent-gate.md` — **本仓门禁定义**；结束前跑 `python scripts/agent_gate.py`
-2. `docs/foundation-checklist.md` — ① 基础建设闭环勾选
-3. `README.md` — 决策记录表（2026-07-24 逐项锁定，**7 条**；编号以此为准）
-4. `AGENTS.md` — 三仓布局、硬规则、开发约定
-5. `docs/protocol.md` — 板间链路协议 + G-code 契约（**v0.5**，②③ 共同契约，改动需两侧同步评审）。§9 是 Grbl 侧小改清单（完成须 fz pass，禁止口头宣称）
-6. `docs/hardware.md` — 关键硬件事实 + 备用方案 B（拆机 TTL）与已否决方案（CH9350 / USB Host）的留档依据
-7. `docs/release-readiness.md` — 当前真实进度；不得把“文档/代码已齐”说成“可出货”
+1. `docs/agent-anti-drift.md` — **防幻觉 / 禁乱改**；白名单 `docs/agent-edit-allowlist.json`；脏树 `docs/worktree-inventory.md`
+2. `docs/agent-gate.md` — **本仓门禁定义**；结束前跑 `python scripts/agent_gate.py`
+3. `docs/foundation-checklist.md` — ① 基础建设闭环勾选
+4. `README.md` — 决策记录表（2026-07-24 逐项锁定，**7 条**；编号以此为准）
+5. `AGENTS.md` — 三仓布局、硬规则、开发约定
+6. `docs/protocol.md` — 板间链路协议 + G-code 契约（**v0.5**，②③ 共同契约，改动需两侧同步评审）。§9 是 Grbl 侧小改清单（完成须 fz pass + 烧录实机，禁止口头宣称）
+7. `docs/hardware.md` — 关键硬件事实 + 备用方案 B（拆机 TTL）与已否决方案（CH9350 / USB Host）的留档依据
+8. `docs/release-readiness.md` — 当前真实进度；不得把“文档/代码已齐”说成“可出货”
 
 ## 架构要点（读多个文件才能拼出的大图）
 
@@ -61,7 +62,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `python D:/Users/zhugu/fz/scripts/agent_gate.py`（先设好 `FZ_ROOT`/`GRBL_ROOT`）。overall 非 pass **不得声称修好**。细则见 `D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。本仓 `--profile full` 的源码标记检查**不替代** fz。
 - **改 Grbl 的边界**：换纸机械/时序、运动、授权、U1-Grbl 协议不改；**禁止**碰 `report_realtime_status()`（固定 `char[200]` + 无边界 `strcat`，有栈溢出风险）与 `report_state_text()`（状态字被现役商业上位机依赖）。
 - **凭据禁入库**：`D:/Downloads/VPS.txt` 含 VPS 明文密码与 API key，绝不复制、引用、提交到任何仓库。
-- **禁止自由发挥**：不重开 USB Host/CH9350/阿里云；不跳 `bringup-sop` 阶段；不把 MCP 组 0–3 当待办重做；用户未指定时按 handoff §6 默认下一刀。
+- **禁止自由发挥 / 幻觉 / 乱改**：见 `docs/agent-anti-drift.md`。不重开 USB Host/CH9350/阿里云；不跳 `bringup-sop`；不把 MCP 组 0–3 当待办重做；不覆盖 `worktree-inventory.md` 记载的脏树；不为门禁绿改换纸常量；用户未指定时按 handoff §6。
 
 ## 构建与测试
 

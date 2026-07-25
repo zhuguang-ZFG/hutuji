@@ -44,10 +44,13 @@
 ## 目录
 
 - `docs/agent-handoff.md` — **Agent 防呆页**（误判表 / 默认下一刀；接手先读）
+- `docs/agent-anti-drift.md` — **防幻觉 / 禁乱改**铁律
+- `docs/agent-edit-allowlist.json` — 改码白名单（机读）
+- `docs/worktree-inventory.md` — 跨仓未提交资产清单
 - `docs/agent-gate.md` — **本仓门禁定义**（profile / 禁止宣称）
 - `docs/foundation-checklist.md` — ① 基础建设闭环勾选
 - `scripts/agent_gate.py` — **可跑门禁**（默认 `hub` → `results/hutuji_gate_last.md`）
-- `.cursor/rules/hutuji-agent-rails.mdc` — Cursor 硬轨（防跑偏）
+- `.cursor/rules/hutuji-agent-rails.mdc` — Cursor 硬轨（防跑偏 / 防幻觉）
 - `docs/README.md` — **文档总入口**：新 agent/开发/测试/运维/生产从这里开始
 - `docs/release-readiness.md` — 当前真实就绪度与出货阻断项
 - `docs/protocol.md` — 板间链路协议与 G-code 文件约定（**v0.5**，②③ 的共同契约）

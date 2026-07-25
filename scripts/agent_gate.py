@@ -28,6 +28,9 @@ REQUIRED_FILES = [
     "CLAUDE.md",
     "docs/agent-handoff.md",
     "docs/agent-gate.md",
+    "docs/agent-anti-drift.md",
+    "docs/worktree-inventory.md",
+    "docs/agent-edit-allowlist.json",
     "docs/foundation-checklist.md",
     "docs/release-readiness.md",
     "docs/protocol.md",
@@ -41,6 +44,21 @@ REQUIRED_FILES = [
     "deploy/README.md",
     "deploy/env.example",
     ".cursor/rules/hutuji-agent-rails.mdc",
+]
+
+ALLOWLIST_REQUIRED_KEYS = [
+    "version",
+    "grbl_section9_only",
+    "grbl_core_headers_restore_only",
+    "grbl_forbidden_symbols",
+    "claims_forbidden",
+]
+
+ANTI_DRIFT_MARKERS = [
+    "无证据不宣称",
+    "无清单不改代码",
+    "不覆盖用户工作树",
+    "不为门禁绿去改产品行为",
 ]
 
 # 根 README 决策锚点（缺失 = 文档层红）
@@ -167,6 +185,37 @@ def check_revived_decisions() -> dict[str, Any]:
     if hits:
         return _layer("revived_decisions", "否决项复活扫描", "fail", "; ".join(hits[:5]))
     return _layer("revived_decisions", "否决项复活扫描", "pass", "no revival")
+
+
+def check_edit_allowlist() -> dict[str, Any]:
+    path = ROOT / "docs/agent-edit-allowlist.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _layer("edit_allowlist", "改码白名单 JSON", "fail", str(exc))
+    missing = [k for k in ALLOWLIST_REQUIRED_KEYS if k not in data]
+    if missing:
+        return _layer("edit_allowlist", "改码白名单 JSON", "fail", f"missing_keys={missing}")
+    if not isinstance(data.get("grbl_section9_only"), list) or not data["grbl_section9_only"]:
+        return _layer("edit_allowlist", "改码白名单 JSON", "fail", "grbl_section9_only empty")
+    if "report_realtime_status" not in data.get("grbl_forbidden_symbols", []):
+        return _layer("edit_allowlist", "改码白名单 JSON", "fail", "forbidden symbols incomplete")
+    return _layer("edit_allowlist", "改码白名单 JSON", "pass", f"keys={len(data)}")
+
+
+def check_anti_drift_doc() -> dict[str, Any]:
+    path = ROOT / "docs/agent-anti-drift.md"
+    text = path.read_text(encoding="utf-8", errors="replace")
+    missing = [m for m in ANTI_DRIFT_MARKERS if m not in text]
+    inv = ROOT / "docs/worktree-inventory.md"
+    if not inv.is_file():
+        return _layer("anti_drift", "防幻觉文档", "fail", "missing worktree-inventory.md")
+    inv_text = inv.read_text(encoding="utf-8", errors="replace")
+    if "Grbl_Esp32" not in inv_text or "不要" not in inv_text:
+        return _layer("anti_drift", "防幻觉文档", "fail", "worktree-inventory 缺三仓/禁令要点")
+    if missing:
+        return _layer("anti_drift", "防幻觉文档", "fail", f"anti-drift missing={missing}")
+    return _layer("anti_drift", "防幻觉文档", "pass", "iron laws + inventory present")
 
 
 def _mcp_python() -> Path | None:
@@ -297,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     layers.append(check_required_files())
     layers.append(check_decision_anchors())
     layers.append(check_revived_decisions())
+    layers.append(check_edit_allowlist())
+    layers.append(check_anti_drift_doc())
 
     if args.profile in ("hub", "full"):
         layers.append(run_pytest())

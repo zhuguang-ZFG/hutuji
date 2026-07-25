@@ -10,6 +10,7 @@
 - 本仓库是**枢纽仓库**：放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。固件本体在两个独立 fork 中，不向本仓库合并。
 - 架构与全部已确认决策见 `README.md` 决策记录表（**7 条，编号以此为准**）；板间契约见 `docs/protocol.md`（**v0.5**）。这两份文件是权威来源，动手前先读。
 - **接手防呆（先读）**：`docs/agent-handoff.md`——常见误判、禁止重开的决策、默认下一刀。
+- **防幻觉 / 禁乱改（必读）**：`docs/agent-anti-drift.md`；白名单 `docs/agent-edit-allowlist.json`；脏树 `docs/worktree-inventory.md`。
 - **本仓门禁（必跑）**：`docs/agent-gate.md` + `python scripts/agent_gate.py`（默认 `--profile hub`）。报告在 `results/hutuji_gate_last.md`。
 - **① 闭环清单**：`docs/foundation-checklist.md`。
 - 全部资料入口见 `docs/README.md`；当前真实进度与阻断项见 `docs/release-readiness.md`。不得把“代码已写”表述成“硬件已验证/可出货”。
@@ -37,9 +38,11 @@
 
 ## 硬规则
 
+- **无证据不宣称 / 无清单不改代码 / 不覆盖用户工作树**——详见 `docs/agent-anti-drift.md`。
 - **本仓改动后**：跑 `python scripts/agent_gate.py`（文档用 `--profile docs`，默认 `hub`）。overall 非 pass 不得宣称本仓通过。
 - **改 `D:/Users/Grbl_Esp32` 的任何代码后（含 §9 消息路由/状态字段/keepalive），必须自己跑**：
   `python D:/Users/zhugu/fz/scripts/agent_gate.py`（设好 `FZ_ROOT`/`GRBL_ROOT`），overall 非 pass 不得声称修好。细则：`D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。本仓 `full` profile 的 §9 源码标记检查**不替代** fz。
+- **Grbl 白名单外禁止改**：换纸机械/时序/运动/授权/U1；禁止碰 `report_realtime_status` / `report_state_text`；不为仿真绿改商业常量。
 - **凭据禁入库**：`D:/Downloads/VPS.txt` 含 VPS 明文密码与 API key，绝不复制、引用、提交到任何仓库。
 
 ## 构建与测试

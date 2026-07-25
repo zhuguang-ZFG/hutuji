@@ -12,6 +12,9 @@
 - [x] `docs/protocol.md` **v0.5** 为板间契约真值（含 §9 清单）
 - [x] `docs/agent-handoff.md` 防呆页（误判表 + 禁止重开 + 默认下一刀）
 - [x] `docs/agent-gate.md` 本仓门禁定义
+- [x] `docs/agent-anti-drift.md` 防幻觉 / 禁乱改
+- [x] `docs/agent-edit-allowlist.json` 改码白名单（机读）
+- [x] `docs/worktree-inventory.md` 跨仓脏树清单
 - [x] `.cursor/rules/hutuji-agent-rails.mdc` Cursor 硬轨（alwaysApply）
 - [x] `docs/README.md` 真值优先级与文档地图
 - [x] `AGENTS.md` / `CLAUDE.md` 与决策编号对齐

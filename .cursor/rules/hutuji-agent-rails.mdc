@@ -1,17 +1,24 @@
 ---
-description: hutuji 枢纽仓硬轨——防呆、门禁、禁止重开决策，阻止代理自由发挥跑偏
+description: hutuji 硬轨——防幻觉、禁乱改、门禁与禁止重开决策
 alwaysApply: true
 ---
 
 # hutuji Agent 硬轨
 
-动手前强制顺序（不可跳）：
+## 动手前（不可跳）
 
 1. `docs/agent-handoff.md`
-2. `docs/release-readiness.md`（状态真值）
-3. `docs/agent-gate.md`（本仓完成定义）
-4. 任务相关的 `protocol.md` / `bringup-sop.md` / `mcp-server/README.md`
-5. `git status --short`——**不覆盖**用户已有改动
+2. `docs/agent-anti-drift.md`（防幻觉 / 禁乱改铁律）
+3. `docs/worktree-inventory.md` + 三仓 `git status --short`（**不覆盖**已有改动）
+4. `docs/release-readiness.md`（状态真值）
+5. `docs/agent-gate.md` + 任务相关契约（`protocol.md` / bringup / mcp-server README）
+
+## 防幻觉
+
+- 未跑的测试 / 未见的 commit / 未实测的硬件现象 → 写「未验证」，禁止编造。
+- 外部记忆可能过时；冲突以本仓文档为准。
+- 改代码前必须能指出：白名单路径 + 契约段落或用户原话。指不出 → 只读或问用户。
+- 机读白名单：`docs/agent-edit-allowlist.json`
 
 ## 禁止重开（根 README 决策 7 条）
 
@@ -20,35 +27,38 @@ alwaysApply: true
 - 哑管道：G-code 只在云端 MCP 生成
 - AI = 小智官方云 + MCP
 - 部署 = **仅京东云** `117.72.118.95`
-- 换纸机械/时序/运动/授权/U1 不改；§9 小改可做且必过 fz 门禁
-- 本仓是枢纽，固件在 `D:/Users/Grbl_Esp32` 与 `D:/Users/xiaozhi-esp32`
+- 换纸机械/时序/运动/授权/U1 不改；§9 仅协议清单内小改且必过 fz
+- 本仓是枢纽；固件在 `D:/Users/Grbl_Esp32` 与 `D:/Users/xiaozhi-esp32`
 
-## 门禁（宣称完成前必跑）
+## 禁乱改（Grbl）
+
+- 可碰：`protocol.md` §9 列出的文件意图；以及 `*Core.h` header-only 恢复
+- 禁止：换纸机械常量「对齐仿真」、碰 `report_realtime_status` / `report_state_text`、全量 `CLIENT_ALL`、顺手重构
+
+## 门禁
 
 ```powershell
 cd D:\Users\hutuji
 python scripts\agent_gate.py --profile hub
 ```
 
-- 只改文档：`--profile docs`
-- 改了 Grbl：本仓 `--profile full`（设 `GRBL_ROOT`）**且**另跑  
-  `python D:/Users/zhugu/fz/scripts/agent_gate.py --profile standard`  
-  overall 非 pass **不得**声称修好
+- 文档：`--profile docs`
+- 改 Grbl：`--profile full`（`GRBL_ROOT`）**且** fz `agent_gate.py --profile standard`
 - 报告：`results/hutuji_gate_last.md`
 
 ## 禁止宣称（除非 release-readiness 对应行已 ✅）
 
 可出货 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成
 
-## 默认下一刀（用户未指定任务时）
+## 默认下一刀（用户未指定时）
 
-1. Grbl `protocol.md` §9 → fz pass → 烧录  
+1. 提交并烧录 Grbl §9（工作树已有，见 worktree-inventory）→ bringup 阶段 2  
 2. S3 M2  
 3. bringup 阶段 0 起留证据  
 4. 京东云上线  
 
-禁止：重写文档地图当进度、跳阶段、把组 0–3 验收清单当待办重做、把凭据写入仓库/`.env`。
+禁止：重写文档地图当进度、跳阶段、把 MCP 组 0–3 当待办重做、凭据入库、为门禁绿改产品行为。
 
 ## 改完必同步
 
-契约 → `protocol.md`；进度 → `release-readiness.md`；结构/约定 → `AGENTS.md` + `README.md` + `CLAUDE.md`；门禁定义 → `docs/agent-gate.md`。
+契约 → `protocol.md`；进度 → `release-readiness.md`；工作树 → `worktree-inventory.md`；结构 → `AGENTS.md` + `README.md` + `CLAUDE.md`；门禁 → `agent-gate.md`。

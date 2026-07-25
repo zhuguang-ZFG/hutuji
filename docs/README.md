@@ -17,22 +17,26 @@
 ## 新 agent 的前 30 分钟
 
 0. **必读防呆**：`agent-handoff.md`（常见误判、禁止重开的决策、默认下一刀）。不明所以时先回到该页。
-1. **读门禁定义**：`agent-gate.md`；结束前跑 `python ../scripts/agent_gate.py`（在仓库根）。
-2. 读根目录 `AGENTS.md`、`README.md`（决策 **7 条**，编号以此为准）。
-3. 读 `protocol.md`，重点看 §1.1、§1.2、§2.1、§4.1、§5.1、§9。
-4. 读 `release-readiness.md`，不要把“代码存在”误报成“硬件已验证”。
-5. 按任务选择：
+1. **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；对照 `worktree-inventory.md`。
+2. **读门禁定义**：`agent-gate.md`；结束前跑 `python ../scripts/agent_gate.py`（在仓库根）。
+3. 读根目录 `AGENTS.md`、`README.md`（决策 **7 条**，编号以此为准）。
+4. 读 `protocol.md`，重点看 §1.1、§1.2、§2.1、§4.1、§5.1、§9。
+5. 读 `release-readiness.md`，不要把“代码存在”误报成“硬件已验证”。
+6. 按任务选择：
    - MCP/云端：`development.md` → `../mcp-server/README.md`（组 0–3 **多已落地**，勿当待办重做）。
    - Grbl/S3/硬件联调：`bringup-sop.md` → `../firmware/README.md`；改 Grbl 另跑 fz 门禁。
    - 京东云：`deployment.md` → `operations.md` → `../deploy/README.md`。
    - 小批量出货：`production-sop.md` → `release-checklist.md` → `compliance.md`。
-6. 运行 `git status --short`，保留所有已有修改；凭据只进进程环境，不进仓库。
+7. 三仓运行 `git status --short`，保留所有已有修改；凭据只进进程环境，不进仓库。
 
 ## 文档地图
 
 | 文档 | 读者 | 用途 | 是否权威 |
 |------|------|------|----------|
 | `agent-handoff.md` | **AI agent（首选）** | 防呆、误判表、默认下一刀 | 接手导向 |
+| `agent-anti-drift.md` | AI agent | 防幻觉铁律、改码白名单思维、证据最小集 | **行为约束** |
+| `agent-edit-allowlist.json` | AI agent / 门禁 | 机读改码白名单与禁止符号 | 机读约束 |
+| `worktree-inventory.md` | AI agent | 跨仓未提交资产，防误删/重复做 | 工作树真值辅助 |
 | `agent-gate.md` | AI agent / 评审 | 本仓完成定义、profile、禁止宣称 | **本仓门禁真值** |
 | `foundation-checklist.md` | AI agent / 负责人 | ① 基础建设闭环勾选 | ① 完成定义 |
 | `protocol.md` | 固件/MCP 开发 | 板间协议、状态机、G-code、错误语义 | **契约真值** |
