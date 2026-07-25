@@ -1,6 +1,6 @@
 # 开发规范
 
-> 面向软件开发与 AI agent。契约真值：`protocol.md` v0.5。联调顺序：`bringup-sop.md`。状态：`release-readiness.md`。
+> 面向软件开发与 AI agent。接手防呆：`agent-handoff.md`。契约真值：`protocol.md` v0.5。联调顺序：`bringup-sop.md`。状态：`release-readiness.md`。
 
 ## 环境
 

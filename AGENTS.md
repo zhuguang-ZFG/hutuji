@@ -9,9 +9,11 @@
 - 仓库：`https://github.com/zhuguang-ZFG/hutuji`（本地 `origin` 已指向此处）
 - 本仓库是**枢纽仓库**：放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。固件本体在两个独立 fork 中，不向本仓库合并。
 - 架构与全部已确认决策见 `README.md` 决策记录表（**7 条，编号以此为准**）；板间契约见 `docs/protocol.md`（**v0.5**）。这两份文件是权威来源，动手前先读。
+- **接手防呆（先读）**：`docs/agent-handoff.md`——常见误判、禁止重开的决策、默认下一刀。
 - 全部资料入口见 `docs/README.md`；当前真实进度与阻断项见 `docs/release-readiness.md`。不得把“代码已写”表述成“硬件已验证/可出货”。
 - 要动手实测/联调，按 `docs/bringup-sop.md`（9 阶段，逐阶段有通过判据，未过不得进下一阶段）。
 - 外部来源/上游服务约束（含 LLM 限流阈值）查 `docs/research.md` 的「外部参考索引」。
+- 外部记忆文件可能过时；**以本仓库文档为准**（记忆路径见文末，已于 2026-07-25 校正）。
 
 ## 三仓布局
 
@@ -57,14 +59,15 @@
 
 ## Agent 接手与完成定义
 
-1. 先读 `docs/README.md` 的真值优先级与角色路由，再看 `git status --short`。
+1. 先读 `docs/agent-handoff.md`，再读 `docs/README.md` 真值优先级，然后 `git status --short`。
 2. 只改任务范围文件；工作树已有修改属于用户，不得覆盖或回退。
 3. 软件改动必须给出测试命令和结果；硬件结论必须给出设备编号、固件 commit、实测记录。
 4. 涉及 Grbl 任何改动（含 §9）仍须跑上文强制门禁；文档不能替代门禁。
 5. “可出货”仅在 `docs/production-sop.md` 与 `docs/release-checklist.md` 全部签核、且 `bringup-sop` 阶段 0–8 有证据后成立。
-6. 交接时更新 `docs/release-readiness.md`，列清已完成、证据、未完成和下一条命令。
+6. 交接时更新 `docs/release-readiness.md`，列清已完成、证据、未完成和下一条命令；重大口径变更同步 `docs/agent-handoff.md`。
 
 ## 给代理的提醒
 
 - 不要假设任何固件代码在本仓库——运动控制去 `D:/Users/Grbl_Esp32` 查，AI 交互去 `D:/Users/xiaozhi-esp32` 查。
-- 项目记忆文件：`C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md`（决策日志）。
+- 不要按过时记忆重开 USB Host / 阿里云 /「仓库无代码」；现行口径见 `docs/agent-handoff.md`。
+- 项目记忆文件：`C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md`（须与本仓一致；冲突以本仓为准）。

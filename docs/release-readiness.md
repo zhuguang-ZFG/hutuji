@@ -11,9 +11,9 @@
 | 层 | 当前状态 | 已有证据 | 出货前缺口 |
 |----|----------|----------|------------|
 | 架构/协议 | ✅ 已定案 | `README.md` 决策表；`protocol.md` v0.5 | 实测数字回填后评审 v0.6/或保留 v0.5 实测附录 |
-| 基础文档地图 | ✅ 已齐 | `docs/README.md` 所列规范 + `docs/templates/` + `deploy/` | 按阶段回填 🔬 与签核，不把文档当证据 |
-| MCP 本地服务 | ✅ 自动化通过 | pytest 20 项；`e2e_local.py` 15/15 行 PASS | 在发布 commit 上重跑并归档输出 |
-| MCP 安全基础 | ✅ 代码/测试通过 | CRC32、512KiB、SVG 白名单、TTL、限流、localhost | 京东云 nginx/TLS/防火墙实机验证 |
+| 基础文档地图 | ✅ 已齐 | `docs/README.md` + `agent-handoff.md` + `docs/templates/` + `deploy/` | 按阶段回填 🔬 与签核，不把文档当证据 |
+| MCP 本地服务 | ✅ 自动化通过 | pytest **23** 项；`e2e_local.py` 15/15 行 PASS | 在发布 commit 上重跑并归档输出 |
+| MCP 安全基础 | ✅ 代码/测试通过 | CRC32、512KiB、SVG 白名单、TTL、限流、localhost；stderr/status 脱敏 | 京东云 nginx/TLS/防火墙实机验证 |
 | 小智云桥接 | 🟡 工具发现通过 | WSS 鉴权、`initialize`、`tools/list` PASS | 实际 `hutuji_status`/`hutuji_draw`、长期重连 |
 | Grbl §9 加固 | 🔴 待实施 | `protocol.md` §9 有评审清单 | 修改、`agent_gate.py overall=pass`、烧录、实机验证 |
 | S3 M1 | 🟡 有未提交补丁 | `firmware/m1-usb-pipe.md` 代码评审记录 | 在 fork 中确认 diff、构建、提交、烧录 |

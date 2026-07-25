@@ -43,6 +43,7 @@
 
 ## 目录
 
+- `docs/agent-handoff.md` — **Agent 防呆页**（误判表 / 默认下一刀；接手先读）
 - `docs/README.md` — **文档总入口**：新 agent/开发/测试/运维/生产从这里开始
 - `docs/release-readiness.md` — 当前真实就绪度与出货阻断项
 - `docs/protocol.md` — 板间链路协议与 G-code 文件约定（**v0.5**，②③ 的共同契约）

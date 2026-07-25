@@ -21,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 按顺序读这几份，它们是决策与契约的唯一真值，其它文件都是它们的展开：
 
+0. `docs/agent-handoff.md` — **防呆页**（误判表、禁止重开项、默认下一刀）；不明所以先回这里
 1. `README.md` — 决策记录表（2026-07-24 逐项锁定，**7 条**；编号以此为准）
 2. `AGENTS.md` — 三仓布局、硬规则、开发约定
 3. `docs/protocol.md` — 板间链路协议 + G-code 契约（**v0.5**，②③ 共同契约，改动需两侧同步评审）。§9 是待实施的 Grbl 侧改动清单
