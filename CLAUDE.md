@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **hutuji** = AI 绘图自动换纸写字机：语音 → 云端 AI 生成 G-code → 写字机执行并自动换纸。
 
-本仓库是**枢纽仓库**，只放 MCP 生成服务、协议文档、接线图、部署脚本、联调 SOP。**固件本体不在这里**——分散在两个独立 fork，且不向本仓库合并：
+本仓库是**枢纽仓库**，只放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。**固件本体不在这里**——分散在两个独立 fork，且不向本仓库合并：
 
 | 代码去哪找 | 本地路径 | 角色 |
 |-----------|----------|------|
@@ -21,10 +21,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 按顺序读这几份，它们是决策与契约的唯一真值，其它文件都是它们的展开：
 
-1. `README.md` — 决策记录表（2026-07-24 逐项锁定，7 条）
+1. `README.md` — 决策记录表（2026-07-24 逐项锁定，**7 条**；编号以此为准）
 2. `AGENTS.md` — 三仓布局、硬规则、开发约定
 3. `docs/protocol.md` — 板间链路协议 + G-code 契约（**v0.5**，②③ 共同契约，改动需两侧同步评审）。§9 是待实施的 Grbl 侧改动清单
 4. `docs/hardware.md` — 关键硬件事实 + 备用方案 B（拆机 TTL）与已否决方案（CH9350 / USB Host）的留档依据
+5. `docs/release-readiness.md` — 当前真实进度；不得把“文档/代码已齐”说成“可出货”
 
 ## 架构要点（读多个文件才能拼出的大图）
 
@@ -38,7 +39,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Telnet 收不到换纸消息（v0.5 勘察纠错，别再照旧假设）**：`PaperSystem.cpp` 63 处 `grbl_msg_sendf` 路由**全为 `CLIENT_SERIAL`，`CLIENT_ALL` 出现 0 次**——`[PaperAuto-N]` 进度、`[PaperStatus] N` 结果码**S3 一个字节也收不到**。Telnet 只收 `ok`/`error:NN`、`?` 的 `<...>` 状态行、banner。故 S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing`（需 §9 小改）+ `?` 探活（已验证换纸期可响应）。CH340 串口仍是最全诊断口。
 
-**Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（`PaperSystem.cpp` 的 M701/M711/M712/M713/M30 是成熟商业方案）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**——当前待实施清单见 `docs/protocol.md` §9（keepalive + `[PaperStatus]` 路由 + `Changing` 字段，约 12 行）。**改后必跑门禁**。
+**Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**——当前待实施清单见 `docs/protocol.md` §9（keepalive + `[PaperStatus]` 路由 + `Changing` 字段，约 12 行）。**改后必跑门禁**。
 
 ## 转发状态机的关键坑（protocol.md 详列）
 
@@ -52,24 +53,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 硬规则
 
-- **改了 `D:/Users/Grbl_Esp32` 的任何代码后（含 §9 的消息路由/状态字段小改），必须自己跑门禁**：
+- **改了 `D:/Users/Grbl_Esp32` 的任何代码后（含 §9 的消息路由/状态字段/keepalive 小改），必须自己跑门禁**：
   `python D:/Users/zhugu/fz/scripts/agent_gate.py`（先设好 `FZ_ROOT`/`GRBL_ROOT`）。overall 非 pass **不得声称修好**。细则见 `D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。
 - **改 Grbl 的边界**：换纸机械/时序、运动、授权、U1-Grbl 协议不改；**禁止**碰 `report_realtime_status()`（固定 `char[200]` + 无边界 `strcat`，有栈溢出风险）与 `report_state_text()`（状态字被现役商业上位机依赖）。
 - **凭据禁入库**：`D:/Downloads/VPS.txt` 含 VPS 明文密码与 API key，绝不复制、引用、提交到任何仓库。
 
 ## 构建与测试
 
-本仓库目前**只有文档，无可构建代码**。落地后补记于此：
+本仓库已有可构建的 `mcp-server/`（③）。权威状态见 `docs/release-readiness.md`。
 
-- `mcp-server/`（③，Python 服务，待建）：构建/测试命令待补。
-- S3 固件补丁（②）：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建（IDF ≥5.5.2，仓要求 v6.0.2）：
-  `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。本机无 IDF/ESP 环境，固件为评审级自查。
+- **③ MCP（本仓）**：在 `mcp-server/` 执行
+  - `.venv/Scripts/pip install -r requirements-dev.txt`
+  - `.venv/Scripts/python -m pytest -q`（契约/注入/限流等）
+  - `.venv/Scripts/python scripts/e2e_local.py`（须输出 `PASS`）
+  - 小智云工具发现：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）
+- **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建（IDF ≥5.5.2，仓要求 v6.0.2）：
+  `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
+- **京东云部署模板**：`deploy/` + `docs/deployment.md`（尚未实机验收）。
 
 ## 路线图（当前进度）
 
-1. **① 仓库奠基**（协议文档、目录结构）— 已完成首个提交
-2. **② 哑管道**（S3 固件补丁：设备侧 MCP 工具 `hutuji.draw/status/abort` + HTTP 全量下载校验 + Telnet 流控转发）— 补丁在 xiaozhi fork 分支 `feat/hutuji-usb-pipe`（分支名沿用历史，链路已改方案 E），说明见 `firmware/m1-usb-pipe.md`。**开工前先实施 `docs/protocol.md` §9 的 Grbl 侧小改**（否则 S3 收不到换纸状态）；协议 v0.5 的自动化动作均标 🔬 待冒烟实测。
-3. **③ 智能端**（MCP 生成服务：LLM → SVG/字体笔画 → G-code，官方云联调，**部署京东云 VPS** `117.72.118.95`）— 本地基础加固与小智云 `initialize/tools/list` 已通过，VPS/TLS/实际工具调用待联调，权威验收项见 `mcp-server/README.md`「实施验收清单」
+1. **① 仓库奠基**（协议、文档地图、SOP、京东云 deploy 模板）— ✅ 已齐；实时状态见 `docs/release-readiness.md`
+2. **② 哑管道**（S3 设备侧 MCP 工具 `hutuji.draw/status/abort` + HTTP 全量下载校验 + Telnet 流控转发）— 补丁在 xiaozhi fork 分支 `feat/hutuji-usb-pipe`（分支名沿用历史，链路已改方案 E），说明见 `firmware/m1-usb-pipe.md`。**开工前先实施 `docs/protocol.md` §9 的 Grbl 侧小改**（否则 S3 收不到换纸状态）；协议 v0.5 的自动化动作均标 🔬 待冒烟实测。
+3. **③ 智能端**（MCP 生成服务：LLM → SVG → G-code，官方云联调，**部署京东云 VPS** `117.72.118.95`）— 本地基础加固与小智云 `initialize/tools/list` 已通过，京东云 TLS/实际工具调用待联调，权威验收项见 `mcp-server/README.md`「实施验收清单」
 
 ## 约定
 

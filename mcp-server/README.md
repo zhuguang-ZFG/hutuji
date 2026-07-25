@@ -129,35 +129,32 @@ output/      生成产物（运行时创建）
 > 每条含：**改哪里 / 改什么 / 为什么（契约依据）/ 验收标准**。按组顺序实施即可。
 > 契约真值永远以 `../docs/protocol.md`（当前 **v0.5**）为准；本清单与契约冲突时以契约为准并回报。
 
-## 组 0：契约漂移修正（bug，最优先）
+## 组 0：契约漂移修正（✅ 代码已落地，保留作验收记录）
 
-这三条是当前代码/文档与 v0.5 契约已经对不上的地方，不是新设计。
+> 2026-07-25：下列三项已在 `hutuji_mcp/` 实现，并由 `tests/test_contract.py` 回归。下文保留「改了什么 / 为何 / 如何再验」，**不要**再按「待改 StaticFiles」去重做。
 
-### 0.1 全仓旧版协议 → v0.5 引用更新
-- **改哪里**：本 README 顶部（已改）、代码注释里凡引用旧版 `protocol.md` 节号处（`gcode_gen.py` docstring、`server.py` 注释等）。
-- **改什么**：统一改为 v0.5，并核对引用的节号在 v0.5 下是否仍对（v0.5 新增了 §1.1/§1.2/§2.1/§4.1/§5.1/§9，节号有移动）。
-- **验收**：全仓检索旧版协议号无残留。
+### 0.1 全仓协议引用 → v0.5 ✅
+- **状态**：文档与代码注释统一为 v0.5；节号以 `../docs/protocol.md` 为准。
+- **再验**：全仓检索不得把现行契约写成 v0.2–v0.4（修订史除外）。
 
-### 0.2 下载响应补 `X-Hutuji-CRC32` 头（完整性契约，链路当前是断的）
-- **改哪里**：`server.py` 的 `/files` 下载端点。**当前用 `app.mount("/files", StaticFiles(...))`，StaticFiles 不产自定义头 —— 必须改造**。
-- **改什么**：不再用裸 `StaticFiles`。改成自定义路由（`@app.get("/files/{name}")`），返回时带两个响应头：
-  - `Content-Length`（字节数，StaticFiles 本有，自定义路由要自己带）
-  - `X-Hutuji-CRC32`：文件内容的 CRC32，**十六进制小写字符串**。
-- **为什么**：v0.5 §5.1 完整性契约要求 MCP 侧产出 `Content-Length` + `X-Hutuji-CRC32`，S3 侧下完先比长度再比 CRC32 才开画。**现在服务不产 CRC 头，S3 按 v0.5 一定校验失败 —— 出图链断。**
-- **CRC32 变体（必须与 S3 侧一致）**：用 Python `zlib.crc32(data) & 0xFFFFFFFF`（即 zlib/IEEE 802.3 变体，多项式 0xEDB88320，初值/异或/反射按 zlib 默认）。S3 (ESP32) 侧必须用同变体。⚠️ 变体不一致会导致每次校验都失败且极难排查 —— 两侧务必写死同一个并在联调首包核对。
-- **验收**：`curl -sI <url>` 能看到 `X-Hutuji-CRC32` 与 `Content-Length`；`python -c "import zlib;print(hex(zlib.crc32(open('f.gcode','rb').read())&0xffffffff))"` 与响应头一致。
+### 0.2 下载响应 `X-Hutuji-CRC32` + `Content-Length` ✅
+- **实现**：`server.py` 自定义 `@app.get("/files/{name}")`（**不是** `StaticFiles`），返回：
+  - `Content-Length`
+  - `X-Hutuji-CRC32`：`format(zlib.crc32(data) & 0xFFFFFFFF, "08x")`（zlib/IEEE，小写 8 位 hex）
+- **为什么**：v0.5 §5.1；S3 侧下完先比长度再比 CRC32 才开画。
+- **🔬 仍待**：与 S3 固件首包核对变体一致（两侧必须同为 zlib/IEEE）。
+- **再验**：`curl -sI <url>` 见两头；`tests/test_contract.py` 相关用例。
 
-### 0.3 `validate_gcode` 补 512KB 上限校验
-- **改哪里**：`gcode_gen.py` 的 `validate_gcode()`。
-- **改什么**：函数末尾（或开头拿到 `text` 后）加总字节校验：`len(text.encode("utf-8")) > 512*1024` 抛 `GcodeError`。**上限含**（`> 512*1024` 才拒，即 ≤512KiB 放行）。
-- **为什么**：v0.5 §5 定死单文件 ≤512KB，这是 **S3 侧 PSRAM 缓冲**的硬约束（与 VPS 内存无关，别因京东 4G 内存就放宽）。当前 `validate_gcode` 查了行长/越界/换纸触发，唯独漏了总大小。
-- **验收**：构造一个 >512KB 的 G-code 文本，`validate_gcode` 抛 `GcodeError` 且信息含实际大小。
+### 0.3 `validate_gcode` 512KB 上限 ✅
+- **实现**：`gcode_gen.py`：`MAX_BYTES = 512 * 1024`；`total_bytes > MAX_BYTES` 抛 `GcodeError`（上限含，≤512KiB 放行）。
+- **为什么**：protocol §5，S3 PSRAM 硬约束（与京东云内存无关，勿放宽）。
+- **再验**：`tests/test_contract.py` 超限用例；或构造 >512KiB 文本调用 `validate_gcode`。
 
-## 组 1：单线画约束（Q1，档2 = 质量下限，非字面单线）
+## 组 1：单线画约束（Q1）✅ 已落地
 
-产品定位是**简笔画 / 单线画**。当前只靠 prompt 一句话 + `_validate_svg` 查 XML 合法性，保证不了。定案：**元素白名单 + 抬笔统计**，允许多笔画但禁填充/闭合形状。
+> 白名单 + 抬笔软阈值已在 `llm_svg.py` / `gcode_gen.py` 实现；`tests/test_injection.py` 覆盖禁元素。下文保留设计依据。
 
-### 1.1 `_validate_svg` 加元素白名单
+### 1.1 `_validate_svg` 加元素白名单 ✅
 - **改哪里**：`llm_svg.py` 的 `_validate_svg()`。当前只查「合法 XML + 根是 svg」。
 - **改什么**：遍历所有元素（`ET` 递归），标签只放行白名单 **`{svg, g, path, line, polyline}`**（去命名空间前缀后小写比较）；出现 `circle/rect/ellipse/polygon/text/image/script/foreignObject/style` 等一律抛 `LlmError`，信息带**违规标签名**。
 - **为什么**：`<circle>/<rect>` 是填充/闭合形状，vpype 会转成闭合环，与「描线简笔画」哲学冲突；圆应让模型用 `<path>` 的 `A`/`C` 命令描出，vpype 转出来才是一段笔画。此白名单同时是 Q2 注入防御的主防线（`<script>/<image>` 一并被挡）。
@@ -175,11 +172,13 @@ output/      生成产物（运行时创建）
 - **为什么**：抬笔次数反映「碎线程度」，但硬阈值需 ② 实测机头 Z 抬落速度/简笔画典型复杂度才能定 —— 现在硬拍会误杀。故先出可观测数据，硬门 🔬 待 ② 实测。
 - **验收**：`hutuji_draw` 返回含 `pen_lifts`；构造 >50 抬笔的 G-code 有 warning 日志、但不失败。
 
-## 组 2：注入防御（Q2，主防线在输出侧确定性校验）
+## 组 2：注入防御（Q2）✅ 已落地
 
-**威胁模型**：`description` 经小智云 LLM 转述后进本服务的 prompt（`llm_svg.py` 第 69 行 `f"请画：{description}"`），可被构造成「忽略规则、输出恶意 SVG」。**LLM 层注入靠 prompt 防不住，只能靠输出侧确定性代码拦死。**（本次 grill 中读 `llm_svg.py` 时，文件内容里就夹带过伪造的 `System:` 注入提示 —— 佐证外部内容不可信。）
+> 输出侧白名单为主防线；`tests/test_injection.py` 回归。下文保留威胁模型与验收口径。
 
-### 2.1 白名单连属性一起查（不只标签）
+**威胁模型**：`description` 经小智云 LLM 转述后进本服务的 prompt，可被构造成「忽略规则、输出恶意 SVG」。**LLM 层注入靠 prompt 防不住，只能靠输出侧确定性代码拦死。**
+
+### 2.1 白名单连属性一起查 ✅
 - **改哪里**：`llm_svg.py` `_validate_svg()`，在 1.1 标签白名单基础上加属性检查。
 - **改什么**：遍历每个元素的 `attrib`，拒绝：任何 `on*` 事件属性（onload/onclick…）、`<script>`/`<style>` 元素、`href`/`xlink:href` 外链属性。命中抛 `LlmError` 带属性名。
 - **为什么**：SVG 的 XSS 常藏在属性里，只查标签名挡不住。SVG 最终虽是给 vpype 转码（不执行 script），但 `output/` 经 `/files` 静态暴露，若有人浏览器直开 `.svg`，script 会活 —— 属性白名单是这条的闸。
@@ -214,23 +213,17 @@ output/      生成产物（运行时创建）
 - **实现选项**：① 拆两个监听（`/mcp` 绑 localhost，`/files` 绑 0.0.0.0）；或 ② 全绑 localhost + 反代（nginx）只把 `/files` 暴露公网并加 TLS。**推荐 ②**（顺带上 HTTPS）。
 - **验收**：公网 `curl <公网IP>:端口/mcp` 不可达；`/files/<有效名>` 可达。
 
-### 3.2 `/files` 文件名加不可猜随机 token（capability URL）
-- **改哪里**：`server.py` `_new_basename()`（当前 `draw_ + 时间戳`，可枚举）。
-- **改什么**：改为 `draw_<时间戳>_<token>`，token = `secrets.token_urlsafe(16)`。URL 本身即凭证。
-- **为什么**：时间戳可枚举 → 别人能猜到/下全部产物。随机 token 让 URL 不可猜；同时满足 v0.5 §5.1「短时效签名 URL」——URL 只需保证一次下载有效期。
-- **验收**：两次 `hutuji_draw` 的文件名 token 段不同、不可预测。
+### 3.2 `/files` 文件名加不可猜随机 token（capability URL）✅
+- **实现**：`_new_basename()` → `draw_<时间戳>_<token>`，`secrets.token_urlsafe(16)`；下载路径正则拒绝旧式可枚举名。
+- **再验**：`tests/test_contract.py`；两次 draw 的 token 段不同。
 
-### 3.3 产出文件短时效清理
-- **改哪里**：新增清理逻辑（后台任务或每次 draw 时顺带清）。
-- **改什么**：`output/` 里超过 TTL（建议 10 分钟）的 `.svg`/`.gcode` 删除。v0 可简单实现：每次 `hutuji_draw` 时扫描并清过期文件。
-- **为什么**：配合 3.2 capability URL，缩短枚举/泄露窗口；也防 `output/` 无限涨（README 部署段原有「M2 加 TTL」备注，此处落地）。
-- **验收**：生成文件 10 分钟后不再可下载（404）。
+### 3.3 产出文件短时效清理 ✅
+- **实现**：默认 TTL 600s（`HUTUJI_OUTPUT_TTL_SECONDS`）；draw/status/下载路径触发清理；过期下载 404。
+- **再验**：`tests/test_contract.py` TTL 用例。
 
-### 3.4 全局限流（对齐上游 FreeModel 硬限）
-- **改哪里**：全部调 LLM 的入口（`hutuji_draw` 与调试工具 `hutuji_preview_svg` 共用限流器）。
-- **改什么**：全局限流器（进程内即可，v0 单实例）。**上游 FreeModel 硬限：每分钟 40 次 / 每秒 2 次 / 每天 100 万 tokens**。③ 设更低余量：建议**每分钟 ≤30、每秒 ≤1、并发 ≤2**；超限返回明确错误（非崩溃）。
-- **为什么**：`hutuji_draw` 每次调一次 LLM，是最贵操作。不限流则被刷爆或触发上游拒绝。数字来自实测的服务商限制，不是拍脑袋。
-- **验收**：短时间内超阈调用被拒并返回清晰提示，不触发上游 429。
+### 3.4 全局限流（对齐上游 FreeModel 硬限）✅
+- **实现**：`DrawLimiter`——每秒 ≤1、每分钟 ≤30、并发 ≤2；`hutuji_draw` 与 `hutuji_preview_svg` 共用。
+- **再验**：`tests/test_contract.py` 限流用例。
 
 ## 组 4：部署（Q4/Q5）
 
@@ -251,12 +244,14 @@ output/      生成产物（运行时创建）
 > **执行顺序与每阶段通过判据**，见 `../docs/bringup-sop.md`（9 阶段 SOP）。
 > 本清单的组 3/4 对应 SOP 的**阶段 3–4**（③ 本地跑通 + 契约合规），组 0–2 是其前置。
 
-1. **组 0**（契约漂移，链路当前是断的）→ 2. **组 3.1/3.2**（安全，上公网前必做）→ 3. **组 1/2**（生成质量与注入）→ 4. **组 3.3/3.4**（清理/限流）→ 5. **组 4**（部署）。
-组 0.2（CRC 头）与 3.2（随机文件名）都改 `/files` 端点，一起做。
+**当前进度**：组 0–2、3.2–3.4 代码与 pytest 已绿；组 3.1 代码默认 localhost + `deploy/nginx-hutuji.conf` 已备，**须京东云实机验收**；组 4 未部署。
+
+历史实施顺序（已完成项勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → **组 4（下一步）**。
 
 ## 仍未闭合（🔬 待实测，非设计缺口）
 
 - 抬笔次数硬阈值（组 1.3）—— 待 ② 实测机头 Z 抬落速度。
-- CRC32 两侧变体一致性（组 0.2）—— ② 联调首包核对。
-- 京东上行带宽（组 4.1）—— ② 实测下载耗时。
-- 小智云实际 `tools/call` 与 VPS 常驻重连（组 4.2）—— 阶段 6 联调。
+- CRC32 两侧变体一致性（组 0.2）—— ② 联调首包核对（Python 侧已钉死 zlib/IEEE）。
+- 京东上行带宽（组 4.1 / 决策 **#5** 规格）—— 阶段 6/8 实测下载耗时。
+- 小智云实际 `tools/call` 与京东云常驻重连（组 4.2）—— 阶段 6 联调。
+- 公网 `/mcp` 不可达、`/files`+TLS（组 3.1）—— 京东云验收。

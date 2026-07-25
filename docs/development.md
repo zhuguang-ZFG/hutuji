@@ -48,5 +48,5 @@ cd D:\Users\hutuji\mcp-server
 | 联调卡住 | `bringup-sop.md` 当前阶段判据 |
 | 现象排障 | `troubleshooting.md` |
 | MCP 实现细节 | `../mcp-server/README.md` |
-| S3 补丁 | `../firmware/README.md`、`m1-usb-pipe.md` |
+| S3 补丁 | `../firmware/README.md`、`../firmware/m1-usb-pipe.md` |
 | 京东云上线 | `deployment.md`、`../deploy/README.md` |

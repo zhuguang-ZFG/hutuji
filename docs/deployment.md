@@ -61,6 +61,6 @@
 2. 检出上一发布 commit / 恢复上一 venv 或发布包
 3. 恢复对应 EnvironmentFile 与 nginx conf
 4. 再 `start`；跑 smoke：本机 pytest 子集或 `hutuji_status` 一次
-5. 在 `templates/release-manifest.md` 记回滚原因与时间
+5. 在 `docs/templates/release-manifest.md` 记回滚原因与时间
 
 详细 unit / nginx 片段见 `../deploy/README.md`。运维日常见 `operations.md`。

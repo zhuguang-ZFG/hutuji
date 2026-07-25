@@ -10,7 +10,7 @@
 4. 包装与附件
 5. 放行签字（对照 `release-checklist.md` + `compliance.md`）
 
-每台填 `templates/device-test-record.md`；每批填 `templates/release-manifest.md`。
+每台填 `docs/templates/device-test-record.md`；每批填 `docs/templates/release-manifest.md`。
 
 ## 1. 首件
 

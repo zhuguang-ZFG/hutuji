@@ -45,7 +45,7 @@
 | `reference-projects.md` | 研发/合规 | 参考仓库、许可证、采用边界 | 选型与许可边界 |
 | `hardware.md` | 硬件研发 | 当前链路与备用接线 | 硬件留档 |
 
-记录模板位于 `templates/`（`device-test-record.md`、`release-manifest.md`）；部署模板位于 `../deploy/`（systemd / nginx / `env.example`）。  
+记录模板位于 `docs/templates/`（`device-test-record.md`、`release-manifest.md`）；部署模板位于仓库根 `deploy/`（systemd / nginx / `env.example`）。  
 生产落点**仅京东云** `117.72.118.95`。模板中的占位字段必须在批次放行前填写，禁止删掉未通过项目来“做绿”。
 
 ## 完成定义

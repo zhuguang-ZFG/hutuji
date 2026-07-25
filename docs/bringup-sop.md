@@ -14,7 +14,7 @@
 | 0 | 写字机自身可用（授权/机械/串口） | 无 | 串口 `$I` 有 `[VER:]` + `[License] Authorized` |
 | 1 | 写字机 WiFi + Telnet 可达 | 0 | PC `telnet <IP> 23` 发 `?` 回 `<Idle\|…>` |
 | 2 | Grbl 侧 §9 三处小改已生效 | 1 | `[ESP901]` 回显含 `Changing=`；keepalive 生效 |
-| 3 | ③ MCP 服务本地跑通（无硬件） | 无 | `scripts/e2e_local.py` 输出 PASS |
+| 3 | ③ MCP 服务本地跑通（无硬件） | 无 | `mcp-server/scripts/e2e_local.py` 输出 PASS |
 | 4 | ③ 产出契约合规（CRC32/512KB/限幅） | 3 | `curl -I` 见 `X-Hutuji-CRC32`；越界样本被拒 |
 | 5 | S3 固件下载+转发（哑管道） | 1,2,4 | `hutuji.status` 显示 connected/ready/authorized |
 | 6 | 小智云 MCP + 京东云 | 3,4 | 云端成功调用 `hutuji_status` |
@@ -113,7 +113,7 @@
 
 ## 阶段 5：S3 固件（②）刷入与 Telnet 探活
 
-补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`（分支名沿用历史，链路已是方案 E）。说明见 `firmware/m1-usb-pipe.md`。
+补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`（分支名沿用历史，链路已是方案 E）。说明见本仓 `firmware/m1-usb-pipe.md`。
 
 1. **改目标地址**：`hutuji_pipe.cc` 文件头 `HUTUJI_PIPE_HOST` 改成阶段 1 记下的写字机固定 IP（占位值是 `192.168.1.50`，**必须改**）。
 2. 构建：`python3 scripts/release.py lichuang-dev`（仓库要求 IDF v6.0.2，≥5.5.2）。
@@ -198,7 +198,7 @@
 
 1. 按 `release-checklist.md` 冻结三仓版本、依赖、构建环境和回滚包。
 2. 按 `production-sop.md` 做首件确认、逐台功能测试、老化、抽样故障注入和包装检查。
-3. 每台填写 `templates/device-test-record.md`；每批填写 `templates/release-manifest.md`。
+3. 每台填写 `docs/templates/device-test-record.md`；每批填写 `docs/templates/release-manifest.md`。
 4. 按 `compliance.md` 完成电气/无线/标签/开源许可/隐私/商业条款负责人签核。
 5. 把客户版 `customer-quickstart.md` 的支持联系方式、型号、批次和安全信息替换为正式内容。
 6. 发布负责人复核所有偏差；未关闭偏差必须有书面风险接受人与截止日期。
