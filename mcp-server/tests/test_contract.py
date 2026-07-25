@@ -177,11 +177,32 @@ def test_draw_limiter_rejects_minute_window() -> None:
         ("G2 X999 Y999 I1 J1", "越界"),  # 圆弧曾完全不限幅
         ("G3 X5 Y999 I1 J1", "越界"),
         ("G1 X-5 Y5", "越界"),
+        # 以下为 2026-07-26 二次评审新增（都是我引入 _WORD_RE 时的遗留缺陷）：
+        ("G1E400 X5 Y5", "非有限"),       # int(float('1E400'))=int(inf) 曾抛 OverflowError（非 GcodeError）
+        ("M1E400", "非有限"),
+        ("G1 X1E400 Y5", "越界"),         # inf 坐标应判越界，不得崩栈
+        ("G1 XNAN Y5", "无法解析"),       # NAN 曾让该轴坐标被静默丢弃 → 限幅失效
+        ("G1 XINF Y5", "无法解析"),
+        ("G1 X1.5.5 Y5", "无法解析"),     # 残缺写法曾被截成 1.5 静默放行
+        ("G1 X Y5", "无法解析"),          # 缺值
     ],
 )
 def test_gcode_rejects_bypass_variants(line: str, reason: str) -> None:
     with pytest.raises(GcodeError, match=reason):
         validate_gcode(_minimal_gcode(line + "\n"))
+
+
+def test_malformed_gcode_never_raises_non_gcode_error() -> None:
+    """闸门只应抛 GcodeError；任何畸形输入都不得漏出 OverflowError/ValueError 等，
+    否则会穿透 svg_to_gcode 变成 hutuji_draw 的未捕获 500。"""
+    import re as _re
+    for line in ["G1E400", "M9E999", "G1 X1E400 Y1E400", "G9999999999999999999 X5 Y5"]:
+        try:
+            validate_gcode(_minimal_gcode(line + "\n"))
+        except GcodeError:
+            pass  # 预期内的拒绝
+        except Exception as exc:  # noqa: BLE001 —— 正是要证明这里抓不到东西
+            raise AssertionError(f"{line!r} 漏出非 GcodeError 异常：{type(exc).__name__}: {exc}")
 
 
 @pytest.mark.parametrize(

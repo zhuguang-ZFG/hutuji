@@ -7,6 +7,7 @@ vpype 管线：read → linesort → gwrite --profile hutuji
 from __future__ import annotations
 
 import logging
+import math
 import re
 import shutil
 import subprocess
@@ -31,6 +32,14 @@ PEN_LIFT_WARN_THRESHOLD = 50
 # 匹配不到坐标，导致 X0Y0 禁令被绕过）。
 # 数值容忍 `01`、`1.0`、`.5`、`1e3`——`1e3` 必须认，否则会被截成 `1` 而漏放 1000mm。
 _WORD_RE = re.compile(r"([A-Z])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[Ee][+-]?\d+)?)")
+
+# X/Y 后面**必须**紧跟一个合法有限数值。`_WORD_RE` 只挑合法数值，`XNAN`、`X `、
+# `X1.5.5` 这类畸形写法会让坐标被静默跳过，越界值就此从限幅里消失（静默漏放比
+# 误拒危险）。`_AXIS_CAND_RE` 抓住轴字及其后连续的「数值样」字符整体，再用
+# `_FINITE_NUM_RE` 判其是否为合法有限数——`X1.5.5` 会被 `_WORD_RE` 截成 `1.5`
+# 留下残片，这里能整体识别为非法。
+_AXIS_CAND_RE = re.compile(r"([XY])\s*([0-9+\-.Ee]*)")
+_FINITE_NUM_RE = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[Ee][+-]?\d+)?$")
 
 logger = logging.getLogger(__name__)
 
@@ -112,11 +121,27 @@ def validate_gcode(text: str) -> GcodeStats:
         # 指令与坐标共用这一份结果，避免两套正则口径不一致（早先 motion_re 的
         # `\b` 在 `G0X0Y0` 里不成立，导致坐标一个都没匹配到）。
         words = _WORD_RE.findall(upper)
-        codes = {
-            f"{letter}{int(float(number))}"
-            for letter, number in words
-            if letter in ("G", "M")
-        }
+
+        # 轴字后连续的「数值样」字符整体必须是合法有限数。`XNAN`/`X `（缺值）、
+        # `X1.5.5`（残片）都会让 _WORD_RE 静默丢掉该轴坐标——等于把未知坐标当
+        # 「本行没有该轴」放行，限幅形同虚设。故独立扫轴字，非法即拒。
+        for m in _AXIS_CAND_RE.finditer(upper):
+            if not _FINITE_NUM_RE.match(m.group(2)):
+                raise GcodeError(
+                    f"第 {idx} 行 {m.group(1)} 轴数值无法解析（禁 NAN/INF/残缺写法）：{line}"
+                )
+
+        codes = set()
+        for letter, number in words:
+            if letter not in ("G", "M"):
+                continue
+            value = float(number)
+            # `G1E400` 之类会 float() 成 inf，int(inf) 抛 OverflowError——那是
+            # 非 GcodeError 异常，会穿透闸门变成 500 而不是「拒绝并说明原因」。
+            if not math.isfinite(value):
+                raise GcodeError(f"第 {idx} 行 {letter} 字号数值非有限：{line}")
+            codes.add(f"{letter}{int(value)}")
+
         coords = [(a, float(v)) for a, v in words if a in ("X", "Y")]
 
         # M5 是本机 profile 的抬笔命令；统计用于发现过度碎线，不在 v0 硬拒。
