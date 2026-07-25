@@ -59,8 +59,10 @@
 | nginx new-api / newapi / newapi-managed | sites-available 删除；`/root/newapi-backups` 删除 |
 | UFW | 仅保留 22/80/443 |
 
-仍保留（未点名）：nginx 本体（当前主要听 80；443 随原站点配置移除）、cloudflared、tailscaled、京东云 agent、`/opt/hutuji` 坑位。  
-内存约释放至 available ~1.7Gi（原 ~1.2Gi）。**本仓代码尚未同步到 `/opt/hutuji`。**
+第二轮（建议可删，已执行）：cloudflared（含空转隧道配置）、Docker/containerd、lima 残留与 `/root` 杂目录（openclaw/prometheus/dlc-retire 等）。
+
+仍保留：nginx 本体（主要听 80）、Tailscale、京东云 agent（jdog/ifrit/jcs）、`/opt/hutuji` 坑位。  
+内存 available ~1.8Gi。**本仓代码尚未同步到 `/opt/hutuji`。**
 
 ## 首次上线（阶段 1）
 
