@@ -36,8 +36,8 @@
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| **已提交** `305b016` | 根 `AGENTS.md` hutuji 专节 | 约束入口 | 可推远程 |
-| **未提交** | `main/boards/lichuang-dev/hutuji_pipe.cc` | M1 keepalive 参数等 | **保留**；功能补丁，与约束文档分开提交 |
+| **已提交** `305b016` | 根 `AGENTS.md` hutuji 专节 | 约束入口 | 已推远程 |
+| **已提交**（keepalive 续） | `main/boards/lichuang-dev/hutuji_pipe.cc` | TCP keepalive 10/3/3 | 已推远程；M2 仍未做 |
 
 ## 明确不要做的事
 
