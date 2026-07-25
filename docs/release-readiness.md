@@ -16,10 +16,11 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | 基础文档地图 | ✅ 已齐 | `docs/README.md` + `agent-handoff.md` + `docs/templates/` + `deploy/` | 按阶段回填 🔬 与签核，不把文档当证据 |
 | **本仓 Agent 门禁** | ✅ 已建立 | `agent-gate.md` + `scripts/agent_gate.py` + Cursor 硬轨 + `foundation-checklist.md` | 交接前重跑 `hub`；报告归档 `results/hutuji_gate_last.md` |
 | **防幻觉 / 禁乱改资料** | ✅ 已建立 | `agent-anti-drift.md` + `agent-edit-allowlist.json` + `worktree-inventory.md`（门禁 docs 层校验） | 提交/丢弃脏树后更新 inventory；白名单外改动须用户点名 |
+| **三仓 agent 约束闭环** | ✅ 已建立 | `agent-constraint-matrix.md`；Grbl/xiaozhi/fz 根 `AGENTS.md` 入口；门禁校验 Grbl AGENTS 存在 | 外仓 AGENTS 变更须保持指向 hutuji；工程完成仍看下方各层 |
 | MCP 本地服务 | ✅ 自动化通过 | pytest；`e2e_local.py` PASS（经本仓门禁 `hub`） | 在发布 commit 上重跑并归档输出 |
 | MCP 安全基础 | ✅ 代码/测试通过 | CRC32、512KiB、SVG 白名单、TTL、限流、localhost；stderr/status 脱敏 | 京东云 nginx/TLS/防火墙实机验证 |
 | 小智云桥接 | 🟡 工具发现通过 | WSS 鉴权、`initialize`、`tools/list` PASS | 实际 `hutuji_status`/`hutuji_draw`、长期重连 |
-| Grbl §9 加固 | 🟡 源码+fz 绿、未烧录实机 | A/B1′/B2′ 已在 `fix/panel-hold-after-align-116687e` 工作树；补 `*Core.h` 供 native_sim；fz `standard` **overall=pass**（2026-07-26） | 提交/烧录、bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
+| Grbl §9 加固 | 🟡 已提交+fz 绿、未烧录实机 | Grbl `cdf923f`（§9+`*Core.h`+AGENTS）；fz `4c26bbc` 契约对齐；fz `standard` 曾 **overall=pass**（2026-07-26） | **烧录** + bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
 | S3 M1 | 🟡 有未提交补丁 | `firmware/m1-usb-pipe.md` 代码评审记录 | 在 fork 中确认 diff、构建、提交、烧录 |
 | S3 M2 哑管道 | 🔴 未实现 | v0.5 设计与待办完整 | 下载/校验/授权/流控/恢复/abort 全实现并测试 |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |

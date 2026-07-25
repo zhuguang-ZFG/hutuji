@@ -29,6 +29,7 @@ REQUIRED_FILES = [
     "docs/agent-handoff.md",
     "docs/agent-gate.md",
     "docs/agent-anti-drift.md",
+    "docs/agent-constraint-matrix.md",
     "docs/worktree-inventory.md",
     "docs/agent-edit-allowlist.json",
     "docs/foundation-checklist.md",
@@ -59,6 +60,14 @@ ANTI_DRIFT_MARKERS = [
     "无清单不改代码",
     "不覆盖用户工作树",
     "不为门禁绿去改产品行为",
+]
+
+CONSTRAINT_MATRIX_MARKERS = [
+    "三仓 Agent 开发约束矩阵",
+    "门禁矩阵",
+    "禁止改动矩阵",
+    "Grbl_Esp32",
+    "xiaozhi-esp32",
 ]
 
 # 根 README 决策锚点（缺失 = 文档层红）
@@ -218,6 +227,29 @@ def check_anti_drift_doc() -> dict[str, Any]:
     return _layer("anti_drift", "防幻觉文档", "pass", "iron laws + inventory present")
 
 
+def check_constraint_matrix() -> dict[str, Any]:
+    path = ROOT / "docs/agent-constraint-matrix.md"
+    text = path.read_text(encoding="utf-8", errors="replace")
+    missing = [m for m in CONSTRAINT_MATRIX_MARKERS if m not in text]
+    # 外仓 AGENTS 入口：存在则记入 detail；缺失只 warn 不红（外仓可能未检出）
+    external = {
+        "Grbl_Esp32/AGENTS.md": Path("D:/Users/Grbl_Esp32/AGENTS.md"),
+        "xiaozhi-esp32/AGENTS.md": Path("D:/Users/xiaozhi-esp32/AGENTS.md"),
+        "fz/AGENTS.md": Path("D:/Users/zhugu/fz/AGENTS.md"),
+    }
+    present = [name for name, p in external.items() if p.is_file()]
+    absent = [name for name, p in external.items() if not p.is_file()]
+    if missing:
+        return _layer("constraint_matrix", "三仓约束矩阵", "fail", f"missing={missing}")
+    detail = f"matrix_ok; external_agents_present={present}"
+    if absent:
+        detail += f"; absent={absent}（请在外仓补齐 AGENTS.md）"
+        # Grbl 缺失视为红：商业固件无入口即约束未闭环
+        if "Grbl_Esp32/AGENTS.md" in absent:
+            return _layer("constraint_matrix", "三仓约束矩阵", "fail", detail)
+    return _layer("constraint_matrix", "三仓约束矩阵", "pass", detail)
+
+
 def _mcp_python() -> Path | None:
     win = ROOT / "mcp-server" / ".venv" / "Scripts" / "python.exe"
     unix = ROOT / "mcp-server" / ".venv" / "bin" / "python"
@@ -348,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     layers.append(check_revived_decisions())
     layers.append(check_edit_allowlist())
     layers.append(check_anti_drift_doc())
+    layers.append(check_constraint_matrix())
 
     if args.profile in ("hub", "full"):
         layers.append(run_pytest())

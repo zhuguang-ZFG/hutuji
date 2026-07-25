@@ -1,6 +1,6 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **状态日期：2026-07-26。**  
+> **状态日期：2026-07-26（约束闭环 + §9 源码已提交）。**  
 > 用途：告诉下一任代理「哪些改动已经在磁盘上、不要当不存在、不要 checkout 清掉」。  
 > 每次相关提交或丢弃后**必须更新**本页；与 `git status` 冲突时以 `git status` 为准并回写本页。
 
@@ -14,38 +14,33 @@
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| 可能已脏 | `docs/agent-handoff.md`、`docs/release-readiness.md` | §9/fz 绿后的状态回填 | 与防跑偏文档一并提交 |
-| 已提交基线 | `docs/agent-gate.md`、`scripts/agent_gate.py`、`.cursor/rules/` 等 | ① 门禁闭环（commit `e314042`） | 勿删 |
-| 本地忽略 | `results/`、`firmware_out/` | 门禁报告 / 构建产物 | 不入库（见 `.gitignore`） |
+| 已推/待推 | 门禁、防幻觉、约束矩阵 | ① 文档 + agent 约束闭环 | 见 `foundation-checklist.md` / `agent-constraint-matrix.md` |
+| 本地忽略 | `results/` | 门禁报告 | 不入库 |
 
 ## Grbl_Esp32 `D:/Users/Grbl_Esp32`  
 分支：`fix/panel-hold-after-align-116687e`
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| 未提交修改 | `Grbl_Esp32/src/WebUI/TelnetServer.cpp` | §9-A keepalive 四参数 | **保留**；随 §9 提交 |
-| 未提交修改 | `Grbl_Esp32/src/PaperSystem.cpp` | §9-B1′ `[PaperStatus]`→`CLIENT_ALL`；§9-B2′ `Changing=` | **保留**；勿改换纸步进/延时 |
-| 已暂存/新增 | `LicenseCore.h` `PaperBtAckCore.h` `PaperSearchCore.h` `PaperSystemCore.h` `ProtocolDecisionCore.h` `WebUI/BTStateCore.h` | 从 `Branch_736afa70` **header-only** 恢复，供 fz native_sim | **保留**；不要改成去动换纸机械 |
+| **已提交** `cdf923f` | §9（Telnet keepalive / PaperStatus→CLIENT_ALL / Changing=）+ 六份 `*Core.h` + 根 `AGENTS.md` | 源码就绪；fz 曾 pass | **仍须烧录 + bringup 阶段 2** 才算 §9 完成；可推远程 |
 | 未跟踪 | `firmware_out/` | 本地构建输出 | 勿提交 |
-
-**证据**：fz `standard` 曾报 `overall_status=pass`（2026-07-26）。  
-**仍缺**：提交、烧录、bringup 阶段 2 → 故 **不得**写「§9 已完成」。
 
 ## fz `D:/Users/zhugu/fz`
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| 未提交 | `hardware_sim/paper_firmware_contract.json` | 契约对齐商业分支常量（timeout=10000、yield=50、Plant 1/4 等） | **保留**；不要改回旧分支 15000/25 除非商业分支也变 |
-| 未提交 | `scripts/agent_gate.py` | wokwi 可选失败不进 hard_fail；protocol 超时 600s | **保留** |
+| **已提交** `4c26bbc` | `paper_firmware_contract.json`；`scripts/agent_gate.py`；`AGENTS.md` | 商业基线契约 + wokwi 软失败 | 可推远程 |
 
-## xiaozhi-esp32 `D:/Users/xiaozhi-esp32`
+## xiaozhi-esp32 `D:/Users/xiaozhi-esp32`  
+分支：`feat/hutuji-usb-pipe`
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| 可能脏 | `main/boards/lichuang-dev/hutuji_pipe.cc` | M1 keepalive 参数修正等 | 属用户/既有补丁；勿覆盖；M2 另开任务 |
+| **已提交** `305b016` | 根 `AGENTS.md` hutuji 专节 | 约束入口 | 可推远程 |
+| **未提交** | `main/boards/lichuang-dev/hutuji_pipe.cc` | M1 keepalive 参数等 | **保留**；功能补丁，与约束文档分开提交 |
 
 ## 明确不要做的事
 
-- 不要为了「工作区干净」丢弃上表资产。  
+- 不要为了「工作区干净」丢弃上表未提交资产。  
 - 不要把 `Branch_736afa70` 整支合并进商业分支「图省事」。  
-- 不要在未读本页时重做 §9 或重写 paper_contract。  
+- 约束矩阵闭环 ≠ §9 已烧录 ≠ M2 完成 ≠ 可出货。  

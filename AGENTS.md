@@ -10,7 +10,7 @@
 - 本仓库是**枢纽仓库**：放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。固件本体在两个独立 fork 中，不向本仓库合并。
 - 架构与全部已确认决策见 `README.md` 决策记录表（**7 条，编号以此为准**）；板间契约见 `docs/protocol.md`（**v0.5**）。这两份文件是权威来源，动手前先读。
 - **接手防呆（先读）**：`docs/agent-handoff.md`——常见误判、禁止重开的决策、默认下一刀。
-- **防幻觉 / 禁乱改（必读）**：`docs/agent-anti-drift.md`；白名单 `docs/agent-edit-allowlist.json`；脏树 `docs/worktree-inventory.md`。
+- **防幻觉 / 禁乱改（必读）**：`docs/agent-anti-drift.md`；白名单 `docs/agent-edit-allowlist.json`；三仓矩阵 `docs/agent-constraint-matrix.md`；脏树 `docs/worktree-inventory.md`。
 - **本仓门禁（必跑）**：`docs/agent-gate.md` + `python scripts/agent_gate.py`（默认 `--profile hub`）。报告在 `results/hutuji_gate_last.md`。
 - **① 闭环清单**：`docs/foundation-checklist.md`。
 - 全部资料入口见 `docs/README.md`；当前真实进度与阻断项见 `docs/release-readiness.md`。不得把“代码已写”表述成“硬件已验证/可出货”。

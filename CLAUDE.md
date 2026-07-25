@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 按顺序读这几份，它们是决策与契约的唯一真值，其它文件都是它们的展开：
 
 0. `docs/agent-handoff.md` — **防呆页**（误判表、禁止重开项、默认下一刀）；不明所以先回这里
-1. `docs/agent-anti-drift.md` — **防幻觉 / 禁乱改**；白名单 `docs/agent-edit-allowlist.json`；脏树 `docs/worktree-inventory.md`
+1. `docs/agent-anti-drift.md` — **防幻觉 / 禁乱改**；白名单 `docs/agent-edit-allowlist.json`；三仓矩阵 `docs/agent-constraint-matrix.md`；脏树 `docs/worktree-inventory.md`
 2. `docs/agent-gate.md` — **本仓门禁定义**；结束前跑 `python scripts/agent_gate.py`
 3. `docs/foundation-checklist.md` — ① 基础建设闭环勾选
 4. `README.md` — 决策记录表（2026-07-24 逐项锁定，**7 条**；编号以此为准）

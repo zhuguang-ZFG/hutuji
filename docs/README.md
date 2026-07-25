@@ -17,7 +17,7 @@
 ## 新 agent 的前 30 分钟
 
 0. **必读防呆**：`agent-handoff.md`（常见误判、禁止重开的决策、默认下一刀）。不明所以时先回到该页。
-1. **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；对照 `worktree-inventory.md`。
+1. **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓约束矩阵 `agent-constraint-matrix.md`；对照 `worktree-inventory.md`。
 2. **读门禁定义**：`agent-gate.md`；结束前跑 `python ../scripts/agent_gate.py`（在仓库根）。
 3. 读根目录 `AGENTS.md`、`README.md`（决策 **7 条**，编号以此为准）。
 4. 读 `protocol.md`，重点看 §1.1、§1.2、§2.1、§4.1、§5.1、§9。
@@ -35,6 +35,7 @@
 |------|------|------|----------|
 | `agent-handoff.md` | **AI agent（首选）** | 防呆、误判表、默认下一刀 | 接手导向 |
 | `agent-anti-drift.md` | AI agent | 防幻觉铁律、改码白名单思维、证据最小集 | **行为约束** |
+| `agent-constraint-matrix.md` | AI agent / 评审 | 三仓读什么、跑哪扇门禁、禁改什么 | **约束闭环定义** |
 | `agent-edit-allowlist.json` | AI agent / 门禁 | 机读改码白名单与禁止符号 | 机读约束 |
 | `worktree-inventory.md` | AI agent | 跨仓未提交资产，防误删/重复做 | 工作树真值辅助 |
 | `agent-gate.md` | AI agent / 评审 | 本仓完成定义、profile、禁止宣称 | **本仓门禁真值** |

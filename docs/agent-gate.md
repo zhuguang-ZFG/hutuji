@@ -42,6 +42,7 @@
 | `docs/agent-handoff.md` | 防呆页 |
 | `docs/agent-gate.md` | 本文件 |
 | `docs/agent-anti-drift.md` | 防幻觉 / 禁乱改铁律 |
+| `docs/agent-constraint-matrix.md` | 三仓约束 / 门禁矩阵 |
 | `docs/worktree-inventory.md` | 跨仓脏树清单 |
 | `docs/agent-edit-allowlist.json` | 改码白名单（机读） |
 | `docs/foundation-checklist.md` | ① 基础建设闭环清单 |

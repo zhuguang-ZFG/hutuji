@@ -45,6 +45,7 @@
 
 - `docs/agent-handoff.md` — **Agent 防呆页**（误判表 / 默认下一刀；接手先读）
 - `docs/agent-anti-drift.md` — **防幻觉 / 禁乱改**铁律
+- `docs/agent-constraint-matrix.md` — 三仓 agent 开发约束矩阵
 - `docs/agent-edit-allowlist.json` — 改码白名单（机读）
 - `docs/worktree-inventory.md` — 跨仓未提交资产清单
 - `docs/agent-gate.md` — **本仓门禁定义**（profile / 禁止宣称）

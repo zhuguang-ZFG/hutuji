@@ -13,6 +13,7 @@
 - [x] `docs/agent-handoff.md` 防呆页（误判表 + 禁止重开 + 默认下一刀）
 - [x] `docs/agent-gate.md` 本仓门禁定义
 - [x] `docs/agent-anti-drift.md` 防幻觉 / 禁乱改
+- [x] `docs/agent-constraint-matrix.md` 三仓 agent 开发约束矩阵
 - [x] `docs/agent-edit-allowlist.json` 改码白名单（机读）
 - [x] `docs/worktree-inventory.md` 跨仓脏树清单
 - [x] `.cursor/rules/hutuji-agent-rails.mdc` Cursor 硬轨（alwaysApply）
@@ -40,17 +41,26 @@
 - [x] `scripts/agent_gate.py` 枢纽门禁可跑
 - [x] 已建立并可跑：`python scripts/agent_gate.py --profile hub` → overall pass（证据：`results/hutuji_gate_last.md`；**每次交接前重跑**）
 
-## E. 明确不属 ① 闭环（禁止勾进本页假装完成）
+## E. Agent 开发约束跨仓闭环
+
+- [x] Grbl 根 `AGENTS.md`（指向 hutuji §9 + fz 门禁）
+- [x] xiaozhi `AGENTS.md` hutuji 专节
+- [x] fz `AGENTS.md` 商业基线 + 契约对齐口径
+- [x] 枢纽门禁 `docs` 层校验约束矩阵 + Grbl `AGENTS.md` 存在
+
+详见 `docs/agent-constraint-matrix.md`。
+
+## F. 明确不属 ① 闭环（禁止勾进本页假装完成）
 
 | 项 | 归属 | 当前 |
 |----|------|------|
-| Grbl §9 实改 + fz pass | 工程下一刀 / bringup 阶段 2 | 🟡 工作树可能有未提交改动；**未**宣称完成 |
+| Grbl §9 烧录 + bringup 阶段 2 | 工程下一刀 | 🟡 源码/fz 可绿；实机未验则**未**完成 |
 | S3 M2 哑管道 | 路线图 ② | 🔴 |
 | 硬件联调证据 | bringup 0–8 | 🔴 |
 | 京东云实机 | 路线图 ③ / deployment | 🔴 |
 | 出货签核 | 路线图 ④ | 🔴 |
 
-## F. 交接时必做
+## G. 交接时必做
 
 1. 跑 `python scripts/agent_gate.py --profile hub`，把 `results/hutuji_gate_last.md` 路径写入会话结论。  
 2. 若动过 Grbl：另跑 fz 门禁，**分别**报告两个 overall。  

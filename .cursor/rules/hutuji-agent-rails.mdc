@@ -9,9 +9,11 @@ alwaysApply: true
 
 1. `docs/agent-handoff.md`
 2. `docs/agent-anti-drift.md`（防幻觉 / 禁乱改铁律）
-3. `docs/worktree-inventory.md` + 三仓 `git status --short`（**不覆盖**已有改动）
-4. `docs/release-readiness.md`（状态真值）
-5. `docs/agent-gate.md` + 任务相关契约（`protocol.md` / bringup / mcp-server README）
+3. `docs/agent-constraint-matrix.md`（三仓门禁与禁改矩阵）
+4. `docs/worktree-inventory.md` + 三仓 `git status --short`（**不覆盖**已有改动）
+5. `docs/release-readiness.md`（状态真值）
+6. `docs/agent-gate.md` + 任务相关契约（`protocol.md` / bringup / mcp-server README）
+7. 外仓动手前还要读该仓根 `AGENTS.md`（Grbl / xiaozhi / fz）
 
 ## 防幻觉
 

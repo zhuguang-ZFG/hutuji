@@ -3,7 +3,7 @@
 > **给下一个 AI / 人类代理**：先读本页 5 分钟，再动代码。  
 > 状态真值：`release-readiness.md`。契约真值：`protocol.md` **v0.5**。  
 > **完成定义 / 可跑门禁**：`agent-gate.md` + `python scripts/agent_gate.py`。  
-> **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；脏树见 `worktree-inventory.md`。  
+> **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
 ## 0. 一句话现状（2026-07-26）
