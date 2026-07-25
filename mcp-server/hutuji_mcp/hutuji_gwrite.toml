@@ -1,0 +1,20 @@
+# hutuji 写字机 gwrite profile（vpype-gcode）
+# 契约来源：docs/protocol.md §5
+#   - 文件头 G21(mm)/G90(绝对)/F 进给
+#   - 落笔 M3、抬笔 M5 + G4 P0.2 稳定
+#   - 收尾禁止 G0 X0 Y0（触发自动换纸），抬笔后停当前位置即可
+#   - 坐标系：vertical_flip 把 SVG 左上角原点翻转为 G-code 左下角原点
+
+[gwrite.hutuji]
+unit = "mm"
+vertical_flip = true
+document_start = "G21\nG90\nF1500\n"
+# 每条笔画：抬笔状态快移到起点（F2500）→ 落笔 M3 → 稳定 0.2s
+segment_first = "G0 X{x:.3f} Y{y:.3f} F2500\nM3\nG4 P0.2\n"
+# 画线段（F1500）
+segment = "G1 X{x:.3f} Y{y:.3f} F1500\n"
+# 笔画结束：抬笔 M5 + 稳定
+line_end = "M5\nG4 P0.2\n"
+# 文件收尾：只抬笔，不做任何回原点动作（禁止 G0 X0 Y0 / M30 / M2）
+document_end = "M5\nG4 P0.2\n"
+info = "hutuji 写字机：M3 落笔 / M5 抬笔，行程 190x190mm"

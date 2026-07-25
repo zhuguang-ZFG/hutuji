@@ -1,0 +1,7 @@
+# Python 虚拟环境与依赖
+.venv/
+__pycache__/
+*.pyc
+
+# 运行期产物（G-code/SVG 生成输出）
+output/

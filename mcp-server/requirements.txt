@@ -1,0 +1,8 @@
+# hutuji ③ MCP 生成服务依赖
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
+vpype>=1.14
+vpype-gcode>=0.13
+# MCP 官方 Python SDK（v1.x 稳定线；v2 预发布有破坏性变更，暂不跟）
+mcp>=1.27,<2
