@@ -17,21 +17,24 @@
 ## 新 agent 的前 30 分钟
 
 0. **必读防呆**：`agent-handoff.md`（常见误判、禁止重开的决策、默认下一刀）。不明所以时先回到该页。
-1. 读根目录 `AGENTS.md`、`README.md`（决策 **7 条**，编号以此为准）。
-2. 读 `protocol.md`，重点看 §1.1、§1.2、§2.1、§4.1、§5.1、§9。
-3. 读 `release-readiness.md`，不要把“代码存在”误报成“硬件已验证”。
-4. 按任务选择：
+1. **读门禁定义**：`agent-gate.md`；结束前跑 `python ../scripts/agent_gate.py`（在仓库根）。
+2. 读根目录 `AGENTS.md`、`README.md`（决策 **7 条**，编号以此为准）。
+3. 读 `protocol.md`，重点看 §1.1、§1.2、§2.1、§4.1、§5.1、§9。
+4. 读 `release-readiness.md`，不要把“代码存在”误报成“硬件已验证”。
+5. 按任务选择：
    - MCP/云端：`development.md` → `../mcp-server/README.md`（组 0–3 **多已落地**，勿当待办重做）。
-   - Grbl/S3/硬件联调：`bringup-sop.md` → `../firmware/README.md`。
+   - Grbl/S3/硬件联调：`bringup-sop.md` → `../firmware/README.md`；改 Grbl 另跑 fz 门禁。
    - 京东云：`deployment.md` → `operations.md` → `../deploy/README.md`。
    - 小批量出货：`production-sop.md` → `release-checklist.md` → `compliance.md`。
-5. 运行 `git status --short`，保留所有已有修改；凭据只进进程环境，不进仓库。
+6. 运行 `git status --short`，保留所有已有修改；凭据只进进程环境，不进仓库。
 
 ## 文档地图
 
 | 文档 | 读者 | 用途 | 是否权威 |
 |------|------|------|----------|
 | `agent-handoff.md` | **AI agent（首选）** | 防呆、误判表、默认下一刀 | 接手导向 |
+| `agent-gate.md` | AI agent / 评审 | 本仓完成定义、profile、禁止宣称 | **本仓门禁真值** |
+| `foundation-checklist.md` | AI agent / 负责人 | ① 基础建设闭环勾选 | ① 完成定义 |
 | `protocol.md` | 固件/MCP 开发 | 板间协议、状态机、G-code、错误语义 | **契约真值** |
 | `bringup-sop.md` | 联调/测试 | 阶段 0–9，从写字机到出货门禁 | **执行顺序** |
 | `release-readiness.md` | 全员 | 当前证据、阻断项、下一步 | **状态真值** |
@@ -48,14 +51,16 @@
 | `hardware.md` | 硬件研发 | 当前链路与备用接线 | 硬件留档 |
 
 记录模板位于 `docs/templates/`（`device-test-record.md`、`release-manifest.md`）；部署模板位于仓库根 `deploy/`（systemd / nginx / `env.example`）。  
-生产落点**仅京东云** `117.72.118.95`。模板中的占位字段必须在批次放行前填写，禁止删掉未通过项目来“做绿”。
+生产落点**仅京东云** `117.72.118.95`。模板中的占位字段必须在批次放行前填写，禁止删掉未通过项目来“做绿”。  
+Cursor 硬轨：`.cursor/rules/hutuji-agent-rails.mdc`。可跑门禁：仓库根 `python scripts/agent_gate.py`。
 
 ## 完成定义
 
 “开发完成”“联调完成”“可出货”是三个不同状态：
 
-- 开发完成：代码评审、自动化测试和文档同步完成。
+- 本仓开发完成：`scripts/agent_gate.py --profile hub` overall=pass，且文档已同步。
+- Grbl 相关完成：另加 fz `agent_gate.py` overall=pass（本仓门禁不替代）。
 - 联调完成：`bringup-sop.md` 对应阶段有真实设备证据。
 - 可出货：阶段 0–9 全过，逐台记录、版本清单、合规审批和客户资料齐全。
 
-任一 agent 只有在相应证据存在时才能使用上述表述。
+任一 agent 只有在相应证据存在时才能使用上述表述；禁止宣称表见 `agent-gate.md` §5。

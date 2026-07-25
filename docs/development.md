@@ -1,6 +1,6 @@
 # 开发规范
 
-> 面向软件开发与 AI agent。接手防呆：`agent-handoff.md`。契约真值：`protocol.md` v0.5。联调顺序：`bringup-sop.md`。状态：`release-readiness.md`。
+> 面向软件开发与 AI agent。接手防呆：`agent-handoff.md`。本仓门禁：`agent-gate.md`。契约真值：`protocol.md` v0.5。联调顺序：`bringup-sop.md`。状态：`release-readiness.md`。
 
 ## 环境
 
@@ -8,7 +8,7 @@
 |----|------|
 | 本仓 MCP（③） | Python ≥3.10；在 `mcp-server/` 建 venv，装 `requirements-dev.txt` |
 | S3 固件（②） | `D:/Users/xiaozhi-esp32`；ESP-IDF ≥5.5.2（仓要求 v6.0.2）；板型 `lichuang-dev` |
-| Grbl（① 运动） | `D:/Users/Grbl_Esp32`；分支 `fix/panel-hold-after-align-116687e`；改 §9 后必跑门禁 |
+| Grbl（运动） | `D:/Users/Grbl_Esp32`；分支 `fix/panel-hold-after-align-116687e`；改 §9 后必跑 **fz** 门禁 |
 | 部署目标 | **仅京东云** VPS：`117.72.118.95`（2核4G / 5Mbps，专机只跑 ③） |
 
 凭据只进进程环境（`HUTUJI_LLM_API_KEY`、`MCP_ENDPOINT` 等）。禁止写入仓库、`.env`、systemd unit 正文。
@@ -16,6 +16,10 @@
 ## 日常命令（本仓）
 
 ```powershell
+# 推荐：本仓门禁（文档锚点 + pytest + e2e）
+cd D:\Users\hutuji
+python scripts\agent_gate.py --profile hub
+
 cd D:\Users\hutuji\mcp-server
 .venv\Scripts\pip install -r requirements-dev.txt
 .venv\Scripts\python -m pytest -q
@@ -36,9 +40,10 @@ cd D:\Users\hutuji\mcp-server
 
 改动合并前至少具备：
 
-1. 相关自动化：本仓 pytest / e2e；Grbl 则门禁；S3 则构建日志。
-2. 文档同步：契约变更 → `protocol.md`；进度 → `release-readiness.md`；结构/约定 → `AGENTS.md` + 根 `README.md`。
+1. 相关自动化：本仓 `scripts/agent_gate.py`；Grbl 则 **另跑** fz `agent_gate.py`；S3 则构建日志。
+2. 文档同步：契约变更 → `protocol.md`；进度 → `release-readiness.md`；结构/约定 → `AGENTS.md` + 根 `README.md`；门禁定义 → `agent-gate.md`。
 3. 不得用“代码已写”替代“硬件已验证”。硬件结论须设备编号、固件 commit、实测记录。
+4. 遵守 `agent-gate.md` 禁止宣称表；不得删改 `claims_forbidden` 做绿。
 
 ## 调试入口
 

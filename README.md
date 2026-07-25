@@ -44,6 +44,10 @@
 ## 目录
 
 - `docs/agent-handoff.md` — **Agent 防呆页**（误判表 / 默认下一刀；接手先读）
+- `docs/agent-gate.md` — **本仓门禁定义**（profile / 禁止宣称）
+- `docs/foundation-checklist.md` — ① 基础建设闭环勾选
+- `scripts/agent_gate.py` — **可跑门禁**（默认 `hub` → `results/hutuji_gate_last.md`）
+- `.cursor/rules/hutuji-agent-rails.mdc` — Cursor 硬轨（防跑偏）
 - `docs/README.md` — **文档总入口**：新 agent/开发/测试/运维/生产从这里开始
 - `docs/release-readiness.md` — 当前真实就绪度与出货阻断项
 - `docs/protocol.md` — 板间链路协议与 G-code 文件约定（**v0.5**，②③ 的共同契约）
@@ -56,9 +60,9 @@
 
 ## 路线图
 
-1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板 — ✅ 文档地图已齐（含 `docs/templates/`、京东云 `deploy/`）
+1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、**本仓门禁/硬轨** — 见 `docs/foundation-checklist.md`
 2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 M1 有补丁，M2/构建/实机未完成
 3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 本地与工具发现通过，京东云实机未部署
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
-实时状态以 `docs/release-readiness.md` 为准。
+实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。

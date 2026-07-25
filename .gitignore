@@ -1,0 +1,18 @@
+# 本仓门禁/本地产物
+results/
+firmware_out/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+mcp-server/.venv/
+
+# 编辑器/系统
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

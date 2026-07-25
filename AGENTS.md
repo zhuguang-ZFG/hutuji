@@ -10,6 +10,8 @@
 - 本仓库是**枢纽仓库**：放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。固件本体在两个独立 fork 中，不向本仓库合并。
 - 架构与全部已确认决策见 `README.md` 决策记录表（**7 条，编号以此为准**）；板间契约见 `docs/protocol.md`（**v0.5**）。这两份文件是权威来源，动手前先读。
 - **接手防呆（先读）**：`docs/agent-handoff.md`——常见误判、禁止重开的决策、默认下一刀。
+- **本仓门禁（必跑）**：`docs/agent-gate.md` + `python scripts/agent_gate.py`（默认 `--profile hub`）。报告在 `results/hutuji_gate_last.md`。
+- **① 闭环清单**：`docs/foundation-checklist.md`。
 - 全部资料入口见 `docs/README.md`；当前真实进度与阻断项见 `docs/release-readiness.md`。不得把“代码已写”表述成“硬件已验证/可出货”。
 - 要动手实测/联调，按 `docs/bringup-sop.md`（9 阶段，逐阶段有通过判据，未过不得进下一阶段）。
 - 外部来源/上游服务约束（含 LLM 限流阈值）查 `docs/research.md` 的「外部参考索引」。
@@ -19,9 +21,9 @@
 
 | 仓库 | 本地路径 | 角色 | 当前基线 |
 |------|----------|------|----------|
-| hutuji（本仓库） | `D:/Users/hutuji` | 枢纽：MCP + 协议 + 文档 + 京东云 deploy 模板 | 文档地图已齐；③ 本地加固通过；京东云未部署 |
-| Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`，HEAD `c19a382`；§9 待实施 |
-| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | main `38bc4f4`；M1 有补丁、M2 未完成 |
+| hutuji（本仓库） | `D:/Users/hutuji` | 枢纽：MCP + 协议 + 文档 + 京东云 deploy + 本仓门禁 | ① 文档/门禁闭环；③ 本地加固通过；京东云未部署 |
+| Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`；§9 未完成宣称（须 fz pass） |
+| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | 分支含 M1 补丁；M2 未完成 |
 
 ## 已锁定的架构决策（与根 `README.md` 同编号）
 
@@ -35,14 +37,16 @@
 
 ## 硬规则
 
+- **本仓改动后**：跑 `python scripts/agent_gate.py`（文档用 `--profile docs`，默认 `hub`）。overall 非 pass 不得宣称本仓通过。
 - **改 `D:/Users/Grbl_Esp32` 的任何代码后（含 §9 消息路由/状态字段/keepalive），必须自己跑**：
-  `python D:/Users/zhugu/fz/scripts/agent_gate.py`（设好 `FZ_ROOT`/`GRBL_ROOT`），overall 非 pass 不得声称修好。细则：`D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。
+  `python D:/Users/zhugu/fz/scripts/agent_gate.py`（设好 `FZ_ROOT`/`GRBL_ROOT`），overall 非 pass 不得声称修好。细则：`D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。本仓 `full` profile 的 §9 源码标记检查**不替代** fz。
 - **凭据禁入库**：`D:/Downloads/VPS.txt` 含 VPS 明文密码与 API key，绝不复制、引用、提交到任何仓库。
 
 ## 构建与测试
 
 本仓库已有 `mcp-server/` Python 服务；无硬件测试命令：
 
+- **推荐入口**：仓库根 `python scripts/agent_gate.py`（含文档锚点 + pytest + e2e）。
 - 安装开发依赖：在 `mcp-server/` 执行 `.venv/Scripts/pip install -r requirements-dev.txt`。
 - 契约/安全回归：`.venv/Scripts/python -m pytest -q`。
 - MCP → G-code → 假 Grbl 闭环：`.venv/Scripts/python scripts/e2e_local.py`，必须输出 `PASS`。
@@ -52,22 +56,23 @@
 ## 开发约定
 
 - 文档与注释用**中文**。
-- 路线图：① 仓库奠基 → ② S3 哑管道 → ③ MCP+云端 → ④ 小批量商业出货。当前：①文档地图与京东云部署模板已齐；② M2/构建/实机未完成；③本地与工具发现通过、京东云未部署；④仅流程就绪。
-- 修改项目结构、约定或工作流后，同步更新本文件与 `README.md`、`CLAUDE.md`。
+- 路线图：① 仓库奠基 → ② S3 哑管道 → ③ MCP+云端 → ④ 小批量商业出货。当前：①文档地图 + **本仓门禁/硬轨**已齐；② M2/构建/实机未完成；③本地与工具发现通过、京东云未部署；④仅流程就绪。
+- 修改项目结构、约定或工作流后，同步更新本文件与 `README.md`、`CLAUDE.md`、`docs/agent-gate.md`。
 - 生产落点仅京东云 `117.72.118.95`；部署见 `docs/deployment.md` 与 `deploy/`。
 - 批次模板路径：`docs/templates/`（勿写成仓库根下的 `templates/`）。
 
 ## Agent 接手与完成定义
 
-1. 先读 `docs/agent-handoff.md`，再读 `docs/README.md` 真值优先级，然后 `git status --short`。
+1. 先读 `docs/agent-handoff.md` → `docs/agent-gate.md` → `docs/README.md` 真值优先级，然后 `git status --short`。
 2. 只改任务范围文件；工作树已有修改属于用户，不得覆盖或回退。
 3. 软件改动必须给出测试命令和结果；硬件结论必须给出设备编号、固件 commit、实测记录。
-4. 涉及 Grbl 任何改动（含 §9）仍须跑上文强制门禁；文档不能替代门禁。
+4. 本仓门禁与 fz 门禁分开报；文档不能替代任一扇门禁。
 5. “可出货”仅在 `docs/production-sop.md` 与 `docs/release-checklist.md` 全部签核、且 `bringup-sop` 阶段 0–8 有证据后成立。
-6. 交接时更新 `docs/release-readiness.md`，列清已完成、证据、未完成和下一条命令；重大口径变更同步 `docs/agent-handoff.md`。
+6. 交接时更新 `docs/release-readiness.md`，附上 `results/hutuji_gate_last.md`；重大口径变更同步 `docs/agent-handoff.md`。
 
 ## 给代理的提醒
 
 - 不要假设任何固件代码在本仓库——运动控制去 `D:/Users/Grbl_Esp32` 查，AI 交互去 `D:/Users/xiaozhi-esp32` 查。
 - 不要按过时记忆重开 USB Host / 阿里云 /「仓库无代码」；现行口径见 `docs/agent-handoff.md`。
+- 不要自由发挥跳阶段或重写文档地图；默认下一刀见 handoff §6。
 - 项目记忆文件：`C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md`（须与本仓一致；冲突以本仓为准）。

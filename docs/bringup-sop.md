@@ -69,8 +69,10 @@
 口径提醒：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**；这三处只是消息路由 + 状态字段 + 网络层加固。
 
 1. 实施 §9 的 A / B1′ / B2′（约 12 行）。
-2. ⛔ **跑门禁**：`python D:/Users/zhugu/fz/scripts/agent_gate.py`（先设 `FZ_ROOT`/`GRBL_ROOT`）。
-   **overall 非 pass 不得继续，也不得声称改好。**
+2. ⛔ **跑门禁（两扇，缺一不可）**：
+   - 本仓抽检：`set GRBL_ROOT=D:\Users\Grbl_Esp32` 后 `python D:/Users/hutuji/scripts/agent_gate.py --profile full`（仅源码标记）。
+   - **fz 真门禁**：`python D:/Users/zhugu/fz/scripts/agent_gate.py`（先设 `FZ_ROOT`/`GRBL_ROOT`）。
+   **fz overall 非 pass 不得继续，也不得声称改好。** 本仓 `full` 绿 ≠ §9 完成。
 3. 重烧固件（NVS 不覆盖，授权与 `$` 设置保留）。
 4. 验 B2′：Telnet（或串口）发 `[ESP901]` → 回显应含 **`Changing=Off`**（原本只有 `Paper=/MotorEn=/PanelHold=`）。
 5. 验 B1′：触发一次换纸（`M30` 或面板），确认 **Telnet 侧**能收到 `[PaperStatus] N`（改动前只有串口能收到）。

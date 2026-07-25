@@ -1,0 +1,54 @@
+---
+description: hutuji 枢纽仓硬轨——防呆、门禁、禁止重开决策，阻止代理自由发挥跑偏
+alwaysApply: true
+---
+
+# hutuji Agent 硬轨
+
+动手前强制顺序（不可跳）：
+
+1. `docs/agent-handoff.md`
+2. `docs/release-readiness.md`（状态真值）
+3. `docs/agent-gate.md`（本仓完成定义）
+4. 任务相关的 `protocol.md` / `bringup-sop.md` / `mcp-server/README.md`
+5. `git status --short`——**不覆盖**用户已有改动
+
+## 禁止重开（根 README 决策 7 条）
+
+- 双芯片，不合并固件
+- 板间 = **WiFi Telnet :23**（USB Host / CH9350 已否决）
+- 哑管道：G-code 只在云端 MCP 生成
+- AI = 小智官方云 + MCP
+- 部署 = **仅京东云** `117.72.118.95`
+- 换纸机械/时序/运动/授权/U1 不改；§9 小改可做且必过 fz 门禁
+- 本仓是枢纽，固件在 `D:/Users/Grbl_Esp32` 与 `D:/Users/xiaozhi-esp32`
+
+## 门禁（宣称完成前必跑）
+
+```powershell
+cd D:\Users\hutuji
+python scripts\agent_gate.py --profile hub
+```
+
+- 只改文档：`--profile docs`
+- 改了 Grbl：本仓 `--profile full`（设 `GRBL_ROOT`）**且**另跑  
+  `python D:/Users/zhugu/fz/scripts/agent_gate.py --profile standard`  
+  overall 非 pass **不得**声称修好
+- 报告：`results/hutuji_gate_last.md`
+
+## 禁止宣称（除非 release-readiness 对应行已 ✅）
+
+可出货 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成
+
+## 默认下一刀（用户未指定任务时）
+
+1. Grbl `protocol.md` §9 → fz pass → 烧录  
+2. S3 M2  
+3. bringup 阶段 0 起留证据  
+4. 京东云上线  
+
+禁止：重写文档地图当进度、跳阶段、把组 0–3 验收清单当待办重做、把凭据写入仓库/`.env`。
+
+## 改完必同步
+
+契约 → `protocol.md`；进度 → `release-readiness.md`；结构/约定 → `AGENTS.md` + `README.md` + `CLAUDE.md`；门禁定义 → `docs/agent-gate.md`。
