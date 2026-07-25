@@ -1,0 +1,17 @@
+[Unit]
+Description=hutuji MCP server (localhost only)
+After=network.target
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/mcp-server
+EnvironmentFile=/etc/hutuji/mcp.env
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn hutuji_mcp.server:app --host ${HUTUJI_HOST} --port ${HUTUJI_PORT}
+Restart=on-failure
+RestartSec=5
+# 不在此文件写密钥
+
+[Install]
+WantedBy=multi-user.target

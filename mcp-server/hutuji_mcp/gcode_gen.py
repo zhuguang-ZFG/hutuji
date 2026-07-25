@@ -6,6 +6,7 @@ vpype 管线：read → linesort → gwrite --profile hutuji
 """
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -19,6 +20,14 @@ _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 MAX_MM = 190.0
 _EPS = 0.01
 
+# 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；上限含，即 > 该值才拒）
+MAX_BYTES = 512 * 1024
+
+# 抬笔次数目前只做可观测告警；硬阈值须等机头实测后再锁定（README 组 1.3）。
+PEN_LIFT_WARN_THRESHOLD = 50
+
+logger = logging.getLogger(__name__)
+
 
 class GcodeError(RuntimeError):
     """G-code 转换或合同校验失败。"""
@@ -28,6 +37,7 @@ class GcodeError(RuntimeError):
 class GcodeStats:
     lines: int
     bytes: int
+    pen_lifts: int
 
 
 def _vpype_cmd() -> list[str]:
@@ -65,11 +75,19 @@ def validate_gcode(text: str) -> GcodeStats:
     if not lines or not any(l.strip() for l in lines):
         raise GcodeError("G-code 为空")
 
+    # 单文件 ≤ 512KB（protocol §5，S3 侧 PSRAM 缓冲硬约束；与 VPS 内存无关）
+    total_bytes = len(text.encode("utf-8"))
+    if total_bytes > MAX_BYTES:
+        raise GcodeError(
+            f"G-code 总大小 {total_bytes} 字节超上限 {MAX_BYTES}（512KB，protocol §5）"
+        )
+
     head = "\n".join(lines[:10])
     if "G21" not in head or "G90" not in head:
         raise GcodeError("文件头缺少 G21/G90（§5 自包含要求）")
 
     motion_re = re.compile(r"\b([XY])(-?\d+(?:\.\d+)?)")
+    pen_lifts = 0
 
     for idx, raw in enumerate(lines, start=1):
         line = raw.strip()
@@ -84,6 +102,9 @@ def validate_gcode(text: str) -> GcodeStats:
             raise GcodeError("首行是 G0 X0 Y0 Z0（会触发自动换纸，§5 禁止）")
 
         tokens = upper.split()
+        # M5 是本机 profile 的抬笔命令；统计用于发现过度碎线，不在 v0 硬拒。
+        if "M5" in tokens or "M05" in tokens:
+            pen_lifts += 1
         # 禁 G28 / G30（回原点触发自动换纸）
         if "G28" in tokens or "G30" in tokens:
             raise GcodeError(f"第 {idx} 行含 G28/G30（§5 禁止）：{line}")
@@ -101,4 +122,11 @@ def validate_gcode(text: str) -> GcodeStats:
                 if val < -_EPS or val > MAX_MM + 1.0:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{MAX_MM}mm）：{line}")
 
-    return GcodeStats(lines=len(lines), bytes=len(text.encode("utf-8")))
+    if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
+        logger.warning(
+            "G-code 抬笔 %d 次，超过软阈值 %d；本次仍放行",
+            pen_lifts,
+            PEN_LIFT_WARN_THRESHOLD,
+        )
+
+    return GcodeStats(lines=len(lines), bytes=total_bytes, pen_lifts=pen_lifts)

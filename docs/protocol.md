@@ -1,4 +1,4 @@
-# hutuji 板间协议与 G-code 契约 v0.4
+# hutuji 板间协议与 G-code 契约 v0.5
 
 本文是 ②（S3 固件补丁）与 ③（MCP 服务）的共同契约。改动需两侧同步评审。
 
@@ -6,6 +6,8 @@
 - v0.2：按两仓代码勘察修订（Grbl_Esp32 `c19a382`、xiaozhi-esp32 `38bc4f4`）。
 - v0.3：物理层改 CH9350 桥接——**已否决**：CH9350 仅支持 HID 类（键盘/鼠标/扫码枪），不枚举 CH340（[WCH 官方手册](https://www.wch.cn/products/CH9350.html)）。
 - v0.4：物理层改 **WiFi Telnet**（方案 E）。依据：Grbl_Esp32 内置 ESP3D WebUI 开放 Telnet:23，社区成熟模式；本机商业上位机已用 BT SPP 无线流式出图（`PAPER_AUTO_CHANGE_ON_BT_CONNECT`），无线流控经量产验证。USB Host 方案不可行的结论保留（实战派 C 口被 CH334F HUB 占为设备口）。
+- **v0.5（2026-07-25，逐项 grill 定案）**：按 Grbl_Esp32 源码逐处核对修订。**纠正 v0.4 的关键错误假设**——`PaperSystem.cpp` 63 处消息路由全为 `CLIENT_SERIAL`、零 `CLIENT_ALL`，**S3 经 Telnet 收不到任何换纸进度/状态消息**（v0.4 的 §2/§3/§7 均误以为能收到）。据此新增 Grbl 侧最小改动清单（§9），并定案：Telnet 独占、半开连接 keepalive、断连物理复位与半成品纸处置、先下完再校验后发、授权前置门、abort 分状态、status 分级与单写者。
+  > **标注约定**：本版全部自动化动作均为**源码级推导，零硬件实测**。带 🔬 标记的条目为「待 ② 冒烟实测验证」。
 
 ## 1. 物理/链路层（方案 E：WiFi Telnet）
 
@@ -19,14 +21,58 @@
 | 链路 | S3 TCP 客户端 → 写字机 **Telnet :23**（Grbl_Esp32 WebUI 原生，Config.h 已启用 WiFi） |
 | 寻址 | 写字机**固定 IP**：路由器静态 DHCP 租约（首选）或 `$Sta/IPMode=Static` + `$Sta/IP` |
 | 参数 | 链路内即原串口字节流：115200 语义不变，行协议逐行 `ok`/`error:NN` |
-| 流向 | S3 → Grbl：G-code 行；Grbl → S3：`ok` / `error:NN` / `[MSG:]` / 状态报告 |
-| 重连 | TCP 断开 = 链路丢失：S3 指数退避自动重连（1s/2s/4s…上限 30s），重连成功后按 §2 重新探活；进行中的任务置 `error`（不做断点续传，v0 从头发） |
+| 流向 | S3 → Grbl：G-code 行；Grbl → S3：`ok` / `error:NN` / 部分 `[MSG:]` / `?` 状态报告（**换纸消息不在其中，见下方「重要认知」**） |
+| 重连 | TCP 断开 = 链路丢失：S3 指数退避自动重连（1s/2s/4s…上限 30s），重连成功后按 §2 重新探活；进行中的任务按 §2.2 处置 |
 
-**重要认知**：串口日志仍是最全诊断口，但 Telnet 通道同样承载 `ok`/`error:`/`[MSG:]` 应答（`grbl_msg_sendf` 按 client 路由，`CLIENT_ALL` 消息 Telnet 也收得到）。S3 解析器按 §2 容忍全部输出类型。
+### 1.1 Telnet 独占（固件硬约束）
 
-**备用链路**（WiFi 实测抖动不可接受时回退）：方案 B 拆机 TTL——写字机内 ESP32 GPIO1/3（CH340 输出侧）飞线 → 实战派多功能口 UART（IO10/IO11），3.3V、TX/RX 交叉 + GND。M1 代码的 UART 传输层实现已留档可切换。
+`TelnetServer.h:31` **`MAX_TLNT_CLIENTS = 1`**——Telnet 服务器同时只接受 **1 个**客户端，第二个客户端被 `clearClients()`（`TelnetServer.cpp:98`）直接 `.stop()` 拒绝。
 
-### 1.1 写字机 WiFi 开通与验证（②开工第一步）
+**因此格局定为：Telnet 数据链 = S3 独占；CH340 串口 = PC 只读旁观。**
+
+- PC 侧 `telnet <IP> 23` **仅用于 §1.3 一次性验链路**，验完**必须显式退出**，否则 S3 连不上。
+- PC 全程观测走 CH340 串口——它是最全诊断口，且换纸消息**只**发这里（见「重要认知」）。
+- 「PC 常连只读 + S3 独占发送」在物理上不可行（客户端上限为 1），不要尝试。
+
+### 1.2 半开连接与 keepalive
+
+`MAX_TLNT_CLIENTS=1` 叠加半开连接会产生**重连盲区**：S3 掉电/WiFi 瞬断/路由器 NAT 表项超时时**不发 FIN**，Grbl 侧 `_telnetClients[i].connected()` 可能仍为 true，唯一槽位被死连接占住，S3 重连一路撞 `.stop()` 拒绝，直到底层 socket 超时回收——**默认无 keepalive 时该盲区可能无限长**（`TelnetServer.cpp` 未设任何 keepalive；`WiFiClient.cpp:287` 有一处注释掉的 `SO_KEEPALIVE`，说明原作者考虑过但未启用）。
+
+三层处置，全部必做：
+
+| 层 | 动作 | 覆盖场景 |
+|----|------|----------|
+| S3 | 每次重连前对旧 socket 显式 `close()`（发 FIN）；`abort`/错误路径同样保证 FIN 发出 | 优雅断连、主动 abort |
+| S3（已修） | `SO_KEEPALIVE` **必须同时设 `TCP_KEEPIDLE=10`/`KEEPINTVL=3`/`KEEPCNT=3`** | 写字机掉电/断网时 S3 侧的发现 |
+| 写字机（§9-A） | `clearClients()` 取得新客户端后同样设这四项（~20s 回收） | **S3 掉电、瞬断、NAT 超时**（FIN 发不出，S3 侧无法自救） |
+
+> ⚠️ **只开 `SO_KEEPALIVE` 开关等于没开**：lwip 默认 `TCP_KEEPIDLE=7200s`(2h) / `KEEPINTVL=75s` / `KEEPCNT=9`，合计 **≈2h11m** 才发现死连接。M1 代码原本只设了开关（注释却写「尽快发现对端断电」），已于 v0.5 修正为显式三参数。
+
+#### 断连发现时间常数（从代码算出，非实测）
+
+| 场景 | 发现耗时 | 依据 |
+|------|---------|------|
+| 写字机优雅关闭（发 FIN） | **立即** | `recv` 返回 0 |
+| 写字机断电/断网，S3 空闲等 `ok` | 默认 ≈2h11m → **改后 ≈19s** | `KEEPIDLE 10 + 3×3` |
+| 写字机断电，S3 正在 `send` | 数十秒 | TCP 重传耗尽，`send` 返回 <0 |
+| S3 掉电后重连（写字机侧） | 默认**可能永久** → §9-A 改后 ≈20s | `MAX_TLNT_CLIENTS=1` 槽位被死连接独占 |
+
+**方案 E 验收判据**：判据**不以延迟/抖动为准**——严格逐行 `ok` 应答是 req/ack 协议，网络延迟只降吞吐、不破坏正确性。真正要标定的是上表四个时间常数，其中三个已由代码常量确定（不需实测）。
+
+🔬 **仅剩两项需冒烟实测**：
+1. **掉线频率**（取决于路由器/WiFi 环境，代码中不存在此数）：达标 = 代表性多页会话（连续流式 ≥10 分钟）TCP 零掉线。超阈或**换纸阻塞窗口内掉线**才评估回退备用链路。
+2. **上表第 4 行实测值**（拔 S3 电 → 写字机回收槽位 → 重连成功的总时长），验证 §9-A 生效。
+
+**重要认知（v0.5 更正）**：串口是最全诊断口，Telnet 只承载**一部分**输出。经源码核对：
+
+- Telnet **收得到**：`ok` / `error:NN`、`?` 触发的 `<...>` 状态行（`report_realtime_status(client)` 按 client 直接回）、`report_init_message` banner、`CLIENT_ALL` 类消息。
+- Telnet **收不到**：**全部换纸消息**——`PaperSystem.cpp` 63 处 `grbl_msg_sendf` 路由**全为 `CLIENT_SERIAL`**，`CLIENT_ALL` 出现 0 次；`GCode.cpp:1728` 的 `[MSG:PAGE_END_IMMINENT]`、`:1791` 的 `[Paper] page end` 同为 `CLIENT_SERIAL`。故 `[PaperAuto-N]` 进度、`[PaperStatus] N` 结果码在**未做 §9 改动前，S3 一个字节也收不到**。
+
+**备用链路**（回退判据见 §1.2）：方案 B 拆机 TTL——写字机内 ESP32 GPIO1/3（CH340 输出侧）飞线 → 实战派多功能口 UART（IO10/IO11），3.3V、TX/RX 交叉 + GND。M1 代码的 UART 传输层实现已留档可切换。
+
+### 1.3 写字机 WiFi 开通与验证（②开工第一步）
+
+> ⚠️ 下列 `$Sta/...`、`$Telnet/...` 设置名沿用 ESP3D 通用写法，**本 fork 的确切拼写未经核对（🔬 串口一试便知）**。
 
 1. PC 串口工具接写字机 CH340（115200），依次下发：
    - `$Sta/SSID=<家里WiFi>` / `$Sta/Password=<密码>`（写入即存 NVS）
@@ -38,17 +84,36 @@
 
 ## 2. 就绪检测与会话重建
 
-- **就绪判据（Telnet 版）**：TCP 连接建立后 S3 **主动探活**——发 `$I`，收到 `[VER:…]`/`[OPT:…]` 即视为就绪；banner 文本（`Grbl 1.3a ['$' for help]`）在对端复位重放时也会出现，收到时按"对端复位"处理（重置状态机、当前任务置 error）。
-- **授权前置不变**：探活后检查 `[License] Authorized`（banner 或 `$I` 上下文），未授权见 §6。
-- **解析器必须容忍**（异步混入字节流，均非应答）：`[MSG:…]`（含 `[MSG:[PaperAuto-N] …]`、`[MSG:[PaperStatus] N]` 双层括号）、`?` 触发的 `<Idle|MPos:…|FS:…>`、`ALARM:n`、`[BT-EOL …]` 等裸 `[…]` 行。
+- **就绪判据（Telnet 版）**：TCP 连接建立后 S3 **主动探活**——发 `$I`，收到 `[VER:…]`/`[OPT:…]` 即视为就绪；此前不得发任何 G-code。Telnet 不保证连上就有 banner（`report_init_message` 仅在 `ENABLE_TELNET_WELCOME_MSG` 下按新 IP 触发），故**不得被动等 banner**。
+- **banner 语义 = 对端复位**：连接期间收到 `Grbl 1.3a ['$' for help]` 视为写字机复位（欠压等）→ 复位状态机、当前任务置 error、重新探活。
+- **授权前置**：探活后检查 `[License] Authorized`（banner 或 `$I` 上下文），未授权见 §6。授权态缓存供 §4 `draw` 前置门使用。
+- **解析器必须容忍**（异步混入字节流，均非应答）：`[MSG:…]`、`?` 触发的 `<Idle|MPos:…|Bf:…|FS:…>`、`ALARM:n`、`[VER:/[OPT:/[License]` 等裸 `[…]` 行。
+  > 注意：`[MSG:[PaperAuto-N] …]` / `[MSG:[PaperStatus] N]` 这类**换纸消息在 §9 改动落地前不会出现在 Telnet**（见 §1.2）。解析器仍应容忍其格式（§9 落地后 `[PaperStatus]` 会到达）。
+
+### 2.1 断连后的物理复位与半成品纸处置
+
+**事实（已核对源码）**：TCP 断连**不改变 Grbl 任何状态**——`TelnetServer` 的断连路径不触发软复位/feed hold。写字机停在断连时的 `sys.state`（`Cycle` 或 `Idle`，**非 ALARM**），且会**继续画完 planner 缓冲内已排队的行**。因 `execute_line`（`Protocol.cpp:91`）只拦 `Alarm`/`Jog`，故重连后 `M30` 可正常执行；`0x18` 软复位后落 `State::Idle`（`Grbl.cpp:56`，本 fork 未定义 `FORCE_INITIALIZATION_ALARM`），亦不进 ALARM。
+
+**混合分流**（重连并探活就绪后，按对端是否在换纸分两支）：
+
+| 场景 | 判定方式 | S3 动作 |
+|------|----------|---------|
+| **普通画线行断连** | `[ESP901]` 查 `Changing=Off`（需 §9-B2′） | **全自动**：发 `0x18` 软复位（清 planner、停残余运动、落 Idle）→ 发 `M30`（完整换纸，废纸走掉上新纸）→ 从头重发（数据源见 §5.1） |
+| **换纸窗口内断连** | `[ESP901]` 查 `Changing=On`，或本次断连前最后发出的是 M30/M721/[ESP910] | **不发 `0x18`、不发 `M30`**（`0x18` 会被 8s 窗吞、`M30` 会叠成二次换纸）；抬笔停机 + 推送提示用户，由人决定重画 |
+
+- **`[ESP901]` 可达性已源码验证**（非推断，v0.5 勘察）：① `anyState()` 恒返回 `false`（`Settings.cpp:6-8`，守卫语义是「是否拒绝」）→ 任何 `sys.state` 下都不拒；② 换纸阻塞期 `protocol_poll_client()` 的换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`；③ 响应经 `ESPResponseStream(client)` → `grbl_send(CLIENT_TELNET)` 回给发命令的 client（`ESPResponse.cpp:46,99`，且 `:55` 专为 Telnet 用 `\r\n`）。**故换纸期间 S3 发 `[ESP901]` 收得到含 `Changing` 的响应。**
+- 🔬 **仍待 ② 冒烟实测**：整套自动序列的**硬件时序**（`0x18`→`M30` 的实际间隔、换纸物理耗时、抬笔是否洇墨），非机制可达性。
+- **v1 再做**：自动穿越换纸续接（在未完成的换纸上安全接续），v0 不赌机械安全。
 
 ## 3. 流控（Grbl 行协议）
 
 - **逐行发送，收到 `ok\r\n` 才发下一行**；`error:NN\r\n`（数字格式）按 §7 处理。**无 character-counting**，禁止预发抢跑（client_buffer 溢出会丢字节）。
 - **单行 ≤ 255 字符**（`LINE_BUFFER_SIZE 256`），超长回 `error:11`。MCP 生成端折行负责。
-- **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s，期间用 `[MSG:[PaperAuto-N]…]` 进度行做 UI 反馈；且此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。
-- 实时命令（`!` 暂停、`~` 恢复、`?` 状态、`0x18` 软复位）单字节立即生效，Telnet 流中同样可混发；`?` 的应答只回给发送 client。
-- **`0x18` 特例**：换纸开始后 8s 窗口内被忽略；窗口后才中止换纸。`abort` 实现须注意（§4）。
+- **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s（换纸行放宽到 90s）。此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。
+  - ⚠️ **进度反馈不能靠 `[PaperAuto-N]`**（§2：那些走 CLIENT_SERIAL，Telnet 收不到）。S3 判「仍在换纸」的手段只有：**自己发的是 M30/M721**（自知，正常出图期够用），或换纸期周期性 `?` 探活（走实时旁路、换纸期可响应，见 §2）。结果码 `[PaperStatus] N` 须靠 §9 的路由改动才能到达。
+- 实时命令（`!` 暂停、`~` 恢复、`?` 状态、`0x18` 软复位）单字节立即生效，走实时旁路**不进 client_buffer、不吃 `ok`**（`is_realtime_command` 仅认这四个 + `≥0x80`）；`?` 的应答只回给发送 client。
+- **`0x18` 特例**：换纸开始后 8s 窗口内被 `paper_should_ignore_host_reset()` 忽略（且「已忽略」提示只发 CLIENT_SERIAL，Telnet 收不到）；窗口后才中止换纸。`abort` 实现须注意（§4）。
+- **单写者纪律（关键）**：S3 是 Telnet 唯一客户端（`MAX_TLNT_CLIENTS=1`），但其 `draw` 转发任务与 `status` 查询**不得并发写同一 socket**——否则 `M704`/`[ESP901]`（普通命令，吃 `ok`）会插进逐行流，打乱 `ok` 配对、或字节交错拼成 Grbl 认不得的行。全部 Telnet 写必须串行化（同一发送队列或一把发送锁）。
 - 空行、注释（`;` 与 `()`）由 S3 转发前剔除。
 
 ## 4. 任务协议（S3 设备侧 MCP 工具）
@@ -57,14 +122,28 @@
 
 | 工具 | 参数 | 行为 |
 |------|------|------|
-| `hutuji.draw` | `url` | 回调仅校验参数+幂等检查 → 立即返回 `"started"`；独立任务执行：HTTP 流式下载（`Board::GetNetwork()->CreateHttp()` + `Read()` 循环，模板见 `ota.cc:299-367`）→ 校验（§5）→ 按行切分 → Telnet 写 → 等 ok |
-| `hutuji.status` | — | 同步快速执行：返回 TCP 连接/就绪状态；已连接时透传 `?` + `[ESP901]`（纸/电机/PanelHold）+ `M704`（GPIO34 纸传感器）汇总 |
-| `hutuji.abort` | — | 发 `!` 暂停 → 延迟 ≥8s 后发 `0x18`（避开换纸忽略窗）；终止下载转发任务 |
+| `hutuji.draw` | `url` | 回调仅校验参数+幂等检查 → 立即返回 `"started"`（任务进行中则返回 `"busy"` **直接拒绝**，不排队不抢占）；独立任务执行：**① 全量下载**（`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:292-322`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 才开始按行切分 → Telnet 写 → 等 ok。**不边下边转** |
+| `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者） |
+| `hutuji.abort` | — | **分状态**（§4.1）：非换纸态 `!` → ≥8s → `0x18`；换纸活动态**不发 `0x18`**（会被吞），诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
 
 - 任务完成/失败经 `Application::SendMcpMessage` **设备侧主动推送**；同步查询走 `hutuji.status`。
-- 状态机：`idle → downloading → streaming → (paper_change) → done | error`；`abort → idle`；TCP 断开/banner 重放 → `error`。
-- 同一时刻只允许一个任务。
+- 状态机：`idle → downloading → verifying → streaming → (paper_change) → done | error | aborted`；TCP 断开/banner 重放 → `error`（按 §2 走物理复位分流）。
+- **同一时刻只允许一个任务**；任务期间 PSRAM 缓存（§5.1）持有至任务终结（done/error/aborted 均释放）。
 - 代码挂点：`lichuang-dev` 板级 `InitializeTools()`；**板级行为不进核心模块**。
+
+### 4.1 abort 语义（重要：不是万能急停）
+
+**物理限制：换纸一旦启动，abort 打不断它。** `paper_auto_change` 是 ≥60s 的阻塞流程，固件**故意**在开始 8s 窗口内忽略 `0x18`（`paper_should_ignore_host_reset()`）以保护换纸不被中途打断；且「已忽略」提示只发 CLIENT_SERIAL，S3 **收不到任何失败回执**。
+
+故 abort 语义定义为「**尽快中止**」而非「立即中止」：
+
+| 时机 | S3 行为 | 回报用户 |
+|------|---------|----------|
+| 非换纸态 | `!` 暂停 → ≥8s → `0x18` 软复位 → 停止续发 | 「已中止」 |
+| 换纸活动态 | **不发 `0x18`**；置 abort 挂起，停止后续 G-code 下发 | 「写字机正在换纸，无法即停；换纸完成后任务将停止」 |
+
+- 换纸挂起态下，等该行 `ok`/`error:90` 返回后**不再发任何后续行**，任务落 `aborted`。
+- ⚠️ 上层（云端 LLM / 用户提示语）**不得把 abort 描述为急停**，否则换纸中喊停无反应会被误判为系统故障。
 
 ## 5. G-code 文件契约（MCP 服务产出）
 
@@ -74,34 +153,86 @@
   - `G28` / `G30`，以及执行后工件坐标 XY≈0 的 `G0`（回原点触发，含 `G0 X0 Y0` 收尾！）
   - **结论：分页节奏必须显式控制**——页尾用 `M30`（自动走完整换纸流程），队首可用 `M721`；收尾**不要**用 `G0 X0 Y0`，抬笔后停当前位置即可。
 - **抬/落笔**：机头用 `USE_M3_M5_AS_PEN_UP_DOWN`（M3=落笔 / M5=抬笔，Z 步进非伺服）。现役样例 `两页示例_插入换页.gcode` 用 `Z30` 落 / `Z0` 抬 + `G4 P0.2` 稳定，机头默认 `PEN_UP/DOWN_Z_MM=0/5`——**以 ② 实测锁定**（先查 `$102` Z steps/mm）。
-- **坐标范围**：`$130/$131 = 200/200mm`（`custom_3axis_hr4988.h`），**软限位 `$20=0` 关闭**——越界不报错只撞机，MCP 生成端必须自行限幅（建议 ≤190×190 留边距）。
+- **坐标范围与越界策略（拒绝，不裁剪）**：`$130/$131 = 200/200mm`（`custom_3axis_hr4988.h`），**软限位 `$20=0` 关闭**——越界不报错**只撞机**，Grbl 侧无任何保护，限幅责任 100% 在 MCP 生成端。
+  - **可用画幅**：≤ **190×190mm**（留 5mm 边距），坐标须落在 `0 ≤ X,Y ≤ 190`。
+  - **越界处理 = 拒绝生成 + 明确告知用户**，**不得裁剪 / 不得缩放后静默出图**：任一坐标超界 → MCP 不产出文件，向云端回明确原因（超界轴 + 实际值 + 上限），由用户决定改小内容或换尺寸。
+  - 理由：裁剪会把「越界」变成一张**静默残缺**的画（与 §5.1 静默截断同类失败——用户拿到看似完成实则缺一块的纸）；拒绝把失败前移到落笔之前，**零废纸**。自动缩放同理否决：改变用户预期的构图属于静默篡改。
+  - MCP 生成端应在**输出前**统一做一次全量坐标扫描（含圆弧 `G2/G3` 的包围盒，不只是端点），越界即整单拒绝。
 - **换纸失败语义**：`error:90`；`[MSG:[PaperStatus] N]`：0=成功，2=进纸超时，3=回找未定位，4=卡纸，5=缺纸。N≠0 → 暂停任务 + 云端提示用户，不自动重试。
-- **大小上限**：单文件 ≤ 512KB（边下边转，②实测修订）。
+  > ⚠️ `[PaperStatus] N` 经 Telnet 可达**以 §9 的 B1′ 改动为前提**（原路由为 `CLIENT_SERIAL`，S3 收不到）。未改动前 S3 只能靠 `error:90` 判失败、拿不到具体码。
+- **大小上限**：单文件 ≤ **512KB（含，即 ≤ 512×1024 字节）**，超一字节直接拒。
+
+### 5.1 下载完整性契约（先下完 + 校验 + 再发）
+
+**放弃「边下边转」**：流式边下边发若中途截断，前半已画在纸上，且提前 EOF 可能不报错——会静默产出「看似画完实则缺半」的纸。故把完整性校验**前移到落笔之前**。
+
+| 方向 | 约定 |
+|------|------|
+| MCP 服务产出 | HTTP 响应头给 `Content-Length` + `X-Hutuji-CRC32:<hex>` |
+| 校验算法 | **CRC32**（防传输截断/位翻转足够；威胁模型内无中间人，不上 SHA256）。⚠️ **变体两侧必须钉死同一个**（建议 zlib/IEEE，Python `zlib.crc32` ↔ ESP32 侧同变体）——🔬 ② 开工时确认 |
+| S3 侧流程 | 全量下载入 PSRAM（`GetBodyLength()` / `GetResponseHeader()` / `Read()` 循环，模板 `ota.cc:292-321`）→ **先比长度**（快速失败）→ **再比 CRC32** → 全部通过**才**发第一行 |
+| 任一不符 | 任务 error，**一个字节都不发写字机**，推送提示（见 §7） |
+| URL 时效 | 只需保证**一次成功下载**（几分钟即可），**可用短时效签名 URL**——因重发走 PSRAM 缓存（§4），不再回源 |
+
+**PSRAM 缓存生命周期**：校验通过后持有至任务终结（`done`/`error`/`aborted` 均释放）。S3-N16R8 有 8MB PSRAM，512KB 占得起。跨多次重连、跨 ≥60s 换纸期间均须存活。
 
 ## 6. 授权前置
 
-- 未授权芯片上电后 **G0–G3 全部回 `error:110`**。探活后必须确认 `[License] Authorized`。
+- **拦截范围（源码勘察）**：未授权时**只拦 G0–G3 运动**（执行阶段 `check_license()`，见 `GCode.cpp:1104` 注释）；`$I`、`?`、`M...`（含 `M800` 授权本身）**照常执行**。`error:110` = `Error::AuthenticationFailed`（`Error.h:84`）。
+- **因此授权态在落笔之前即可知** → `draw` **加授权前置门**：下载校验通过后、发第一条 G-code 之前，确认最近一次 `$I` 探活的授权标志为 Authorized；未授权则**直接任务 error、零字节下发**，绝不撞 `error:110`（与 §5.1 同构：危险动作前先把能确定的确掉）。
+- `hutuji.status` 暴露 `authorized` 字段 → ② 冒烟第一步即可一眼诊断。
 - 未授权 → 走人工 SOP（按 ChipID 算授权码，`M800 P<码>` 写 NVS），**S3 不自动授权**。
 - 烧录不覆盖 NVS，授权与 `$` 设置持久；改机头默认需 `$RST=$`（联调 SOP 记录，非 S3 职责）。
+- **联调前置条件**：② 冒烟测试前先确认 `status.authorized==true`（或串口 banner 含 `[License] Authorized`）；未授权先走授权 SOP 再开测。授权持久，实际上是**一次性**的。
 
 ## 7. 错误处理
 
 | 情况 | 含义 | S3 行为 |
 |------|------|---------|
-| `error:8` | 换纸进行中，运动行被推迟 | **不算失败**：暂停发送，等换纸行 ok / `[PaperStatus]` 后继续 |
+| `error:8` | 换纸进行中，运动行被推迟（实为 `Error::IdleError`，`Protocol.cpp:186`） | **不算失败**，但 **⚠️ 该行已被 `empty_line()` 丢弃、不会排队**——S3 必须**自己重发这一行**，不可假设写字机记着。做法：暂停发送、等换纸行 ok 后**重发被拒的那一行**再继续（`[PaperStatus]` 须先做 §9 B1′ 才可达）。注：写字机侧的 `[MSG:]` 推迟提示有 3s 节流（`protocol_notify_paper_motion_deferred`）且只发 SERIAL，S3 只看得到 `error:8` 本身 |
 | `error:11` | 行超 255 字符 | 任务 error，上报（MCP 生成端 bug） |
-| `error:90` | 换纸失败 | 任务 error，按 `[PaperStatus]` 码提示用户 |
-| `error:110` | 未授权 | 停止全部发送，提示走授权 SOP |
+| `error:90` | 换纸失败 | 任务 error，按 `[PaperStatus]` 码提示用户（**依赖 §9 B1′**；未改动前只能报「换纸失败，原因未知」） |
+| `error:110` | 未授权 | 停止全部发送，提示走授权 SOP。**正常不应出现**——§6 前置门已挡住。该行同样被 `empty_line()` 丢弃（`Protocol.cpp:195-204`） |
 | 其他 `error:NN` | 语法/参数错 | 停止，记录行号，任务 error 上报 |
 | `ALARM:n` | 报警 | 停止；`$X`/`$RST` 解锁走人工 SOP，不自动解锁 |
 | banner 重放 | 对端复位（欠压等） | 状态机复位，任务 error，上报 |
-| TCP 断开 | 链路丢失/对端断电 | 指数退避重连；进行中任务置 error |
-| 下载失败/超时 | — | 不发任何字节，任务 error |
-| 60s 无 `ok`（换纸行 90s） | 链路异常 | 发 `?` 探活一次，仍无则任务 error |
+| TCP 断开 | 链路丢失/对端断电 | 指数退避重连；进行中任务置 error，按 §2.1 分流处置 |
+| **下载完整性校验失败** | 长度 ≠ `Content-Length` 或 CRC32 不符 | **不发任何字节**，任务 error 上报（§5.1） |
+| **下载超长** | 文件 > 512KB | 直接拒绝，零字节下发 |
+| 下载失败/超时/HTTP 非 2xx | 含一次性 URL 已失效（403） | 不发任何字节，任务 error |
+| 60s 无 `ok`（换纸行 90s） | 链路异常 | 发 `?` 探活一次（实时旁路，换纸阻塞期亦可响应），仍无则任务 error |
+| 任务进行中收到新 `draw` | 并发冲突 | 拒绝，返回 `"busy"`，不排队不抢占 |
 
 ## 8. 明确不做
 
 - 不用蓝牙走正式数据链路；WiFi 只走 Telnet 这一条（Grbl WebUI 其余功能不依赖）。
 - S3 不做 G-code 生成/编辑/预览，只做校验与转发（哑管道原则）。
-- 不改动 Grbl 侧任何代码（现役商业固件；其 Telnet/换纸/授权行为已满足全部对接需求）。
+- **不改动 Grbl 侧的换纸机械/时序、运动、授权、U1-Grbl 协议逻辑**。消息路由与状态字段的小加固见 §9（口径已于 2026-07-25 放宽）。
 - S3 不自动授权、不自动 `$X` 解锁、不在换纸 8s 窗口内发 `0x18`、不做断点续传。
+- S3 不重新下载做重发（用 PSRAM 缓存，§4）、不排队并发任务、不把 abort 当急停。
+
+## 9. Grbl 侧改动清单（待评审实施，约 12 行）
+
+> 口径：**换纸机械/时序、运动、授权、U1-Grbl 协议一律不改**；消息路由、状态字段、WebUI 网络层等**不影响商业出图行为**的小加固可接受。**改后必跑 `python D:/Users/zhugu/fz/scripts/agent_gate.py`，overall 非 pass 不得声称完成。**
+
+| # | 文件:行 | 改动 | 为什么必须 |
+|---|---------|------|-----------|
+| A | `WebUI/TelnetServer.cpp:92` | 新客户端 `available()` 后设 **4 个** socket 选项：`SO_KEEPALIVE=1` + `TCP_KEEPIDLE=10` + `TCP_KEEPINTVL=3` + `TCP_KEEPCNT=3`（~19s 回收） | `MAX_TLNT_CLIENTS=1` + 无 keepalive → 半开死连接独占唯一槽位，S3 重连被 `:98` 拒死（§1.2）。`WiFiClient::setSocketOption(level, option, value, len)` 已暴露（`WiFiClient.h:90`，已核验） |
+
+> ⚠️ **A 条必须设全 4 个参数，只开 `SO_KEEPALIVE` 是无效的**——lwip 默认 `KEEPIDLE=7200s`(2h)/`INTVL=75s`/`CNT=9`，等于 2h11m 后才回收，形同没有保活。同一坑在 S3 侧 M1 代码中已实际发生并修复（`hutuji_pipe.cc` 原仅设 `SO_KEEPALIVE`，注释却写「尽快发现对端断电」）。
+| B1′ | `PaperSystem.cpp:802,807,929,1006` | `[PaperStatus] %d` 的 `CLIENT_SERIAL` → `CLIENT_ALL` | §7 换纸失败码（0/2/3/4/5）的唯一来源；不改则 S3 永远收不到，§7 表空转 |
+| B2′ | `PaperSystem.cpp:351` | `paper_get_status_str()` 的 `snprintf` 增 `Changing=%s` 字段，取现成 `paper_auto_change_is_running()`（`PaperSystem.cpp:50`，现成 `volatile bool`） | §2.1/§4.1 abort 分流的**唯一跨 session 地基** |
+
+**B2′ 的可行性已逐环核验（不再是推断）**：
+1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1008`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
+2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1121`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
+3. **换纸阻塞期可分发**：换纸中 `protocol_service_during_blocking()` 遍历全部 client 调 `protocol_poll_client()`；其换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`。
+4. **响应回得到 S3**：`ESPResponseStream stream(client, true)`（`ProcessSettings.cpp:615`）用**发命令进来的 client** 构造 → `_client = CLIENT_TELNET`（`ESPResponse.cpp:46`）→ `grbl_send(_client, data)`（`:99`）；`println` 还专为 `CLIENT_TELNET` 用 `\r\n` 行尾（`:55`）。
+5. **调用时机安全**：`[ESP901]` 是普通命令会吃 `ok`（§3 单写者），但 Q5/Q8 需要它的时刻正是**重连后、尚未开始发 G-code** 的流控空闲期——恰好契合。
+
+**明确不改**（评估后否决）：
+- `report_realtime_status()`（Report.cpp:583）——固定 `char status[200]` + 一路无边界 `strcat`，加字段有栈溢出风险。
+- `report_state_text()`——状态字 `<Idle|…>` 是 Grbl 协议核心，现役商业上位机与 ESP3D WebUI 均依赖，加非标状态会破坏商业出图。
+- 换纸消息全量改 `CLIENT_ALL`（63 处）——无必要，徒增 Telnet 流量；v0 有 `?` + `[ESP901]` 已够。
+
+**留档备用**：`Protocol.cpp:257-266` 有 BT 专属的 400ms 主动状态保活（「部分上位机只等状态行、不主动发 `?`」），**Telnet 无此待遇**。若 ② 实测 S3 在换纸长阻塞期判死，可考虑同类小改扩至 Telnet。

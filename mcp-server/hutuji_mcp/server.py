@@ -11,13 +11,20 @@
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
+import re
+import secrets
+import time
+import zlib
+from collections import deque
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from mcp.server.fastmcp import FastMCP
 
 from .config import settings
@@ -28,20 +35,137 @@ from .llm_svg import generate_svg
 # 避免 Mount("/mcp") 对裸 /mcp 产生 307 跳转（POST 桥接器不一定跟随重定向）
 mcp = FastMCP("hutuji")
 
+_DRAW_FILE_RE = re.compile(
+    r"^draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(?:gcode|svg)$"
+)
+
+
+class DrawLimitError(RuntimeError):
+    """LLM 生成入口超过本进程安全限额。"""
+
+
+class DrawLimiter:
+    """单实例全局限流：1 次/秒、30 次/分钟、最多 2 个并发。"""
+
+    def __init__(
+        self,
+        *,
+        per_second: int = 1,
+        per_minute: int = 30,
+        max_concurrent: int = 2,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.per_second = per_second
+        self.per_minute = per_minute
+        self.max_concurrent = max_concurrent
+        self._clock = clock
+        self._starts: deque[float] = deque()
+        self._active = 0
+        self._lock = asyncio.Lock()
+
+    async def enter(self) -> None:
+        """占用一个生成名额；超限立即报错，不排队等待。"""
+        async with self._lock:
+            now = self._clock()
+            while self._starts and now - self._starts[0] >= 60.0:
+                self._starts.popleft()
+
+            if self._active >= self.max_concurrent:
+                raise DrawLimitError(
+                    f"生成任务并发已达上限 {self.max_concurrent}，请稍后重试"
+                )
+            recent_second = sum(now - started < 1.0 for started in self._starts)
+            if recent_second >= self.per_second:
+                raise DrawLimitError(
+                    f"生成请求超过每秒 {self.per_second} 次限制，请稍后重试"
+                )
+            if len(self._starts) >= self.per_minute:
+                raise DrawLimitError(
+                    f"生成请求超过每分钟 {self.per_minute} 次限制，请稍后重试"
+                )
+
+            self._starts.append(now)
+            self._active += 1
+
+    async def leave(self) -> None:
+        """释放并发名额；速率时间戳保留到滑动窗口自然过期。"""
+        async with self._lock:
+            if self._active > 0:
+                self._active -= 1
+
+    @contextlib.asynccontextmanager
+    async def slot(self):
+        await self.enter()
+        try:
+            yield
+        finally:
+            await self.leave()
+
+
+_draw_limiter = DrawLimiter()
+
 
 def _new_basename() -> str:
-    return "draw_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    """文件名带不可猜随机 token（capability URL，见 protocol §5.1 + mcp-server README 组 3.2）。
+    格式：draw_<时间戳>_<token>。token 让 URL 本身即凭证，防时间戳枚举。"""
+    return "draw_{}_{}".format(
+        datetime.now().strftime("%Y%m%d_%H%M%S"),
+        secrets.token_urlsafe(16),
+    )
+
+
+def _delete_output_pair(stem: str) -> None:
+    """删除同一产物的 SVG/G-code；文件本就可能只生成了一半。"""
+    for suffix in (".svg", ".gcode"):
+        (settings.output_dir / f"{stem}{suffix}").unlink(missing_ok=True)
+
+
+def _is_expired(path: Path, *, now: float | None = None) -> bool:
+    """按 mtime 判断 capability URL 是否已超过公开窗口。"""
+    now = time.time() if now is None else now
+    return now - path.stat().st_mtime >= settings.output_ttl_seconds
+
+
+def _cleanup_expired_outputs(*, now: float | None = None) -> int:
+    """清除超过 TTL 的 draw_*.svg/gcode，返回删除的文件数。"""
+    if not settings.output_dir.is_dir():
+        return 0
+    now = time.time() if now is None else now
+    expired_stems: set[str] = set()
+    for path in settings.output_dir.iterdir():
+        if path.is_file() and _DRAW_FILE_RE.fullmatch(path.name):
+            try:
+                if _is_expired(path, now=now):
+                    expired_stems.add(path.stem)
+            except FileNotFoundError:
+                continue
+
+    deleted = 0
+    for stem in expired_stems:
+        for suffix in (".svg", ".gcode"):
+            path = settings.output_dir / f"{stem}{suffix}"
+            try:
+                path.unlink()
+                deleted += 1
+            except FileNotFoundError:
+                pass
+    return deleted
+
+
+async def _generate_svg_limited(description: str) -> str:
+    """所有会调用付费 LLM 的工具共用同一个进程内限流器。"""
+    async with _draw_limiter.slot():
+        return await generate_svg(description)
 
 
 @mcp.tool()
 async def hutuji_draw(description: str) -> str:
     """让写字机画一幅画：输入自然语言描述（如"一只站在树枝上的小鸟"），
     生成单线笔画 G-code 并返回下载 URL，供设备侧 hutuji.draw 拉取执行。"""
-    import asyncio
-
-    svg = await generate_svg(description)
-
     settings.output_dir.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(_cleanup_expired_outputs)
+    svg = await _generate_svg_limited(description)
+
     base = _new_basename()
     svg_path = settings.output_dir / f"{base}.svg"
     gcode_path = settings.output_dir / f"{base}.gcode"
@@ -51,13 +175,18 @@ async def hutuji_draw(description: str) -> str:
     stats = await asyncio.to_thread(svg_to_gcode, svg_path, gcode_path)
 
     url = f"{settings.public_base_url.rstrip('/')}/files/{gcode_path.name}"
-    return json.dumps({"url": url, "lines": stats.lines, "bytes": stats.bytes},
-                      ensure_ascii=False)
+    return json.dumps({
+        "url": url,
+        "lines": stats.lines,
+        "bytes": stats.bytes,
+        "pen_lifts": stats.pen_lifts,
+    }, ensure_ascii=False)
 
 
 @mcp.tool()
 async def hutuji_status() -> str:
     """查询 hutuji MCP 生成服务状态（输出目录、最近文件、LLM 是否配置）。"""
+    await asyncio.to_thread(_cleanup_expired_outputs)
     out = settings.output_dir
     files = sorted(out.glob("*.gcode"), key=lambda p: p.stat().st_mtime) if out.is_dir() else []
     return json.dumps({
@@ -73,7 +202,7 @@ async def hutuji_status() -> str:
 @mcp.tool()
 async def hutuji_preview_svg(description: str) -> str:
     """只生成 SVG 不转 G-code（调试用）：返回 SVG 文本前 2000 字符。"""
-    svg = await generate_svg(description)
+    svg = await _generate_svg_limited(description)
     return svg[:2000]
 
 
@@ -92,12 +221,38 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="hutuji MCP 生成服务", lifespan=lifespan)
 
-# 静态文件源必须在根挂载之前注册，路由按注册顺序匹配
-app.mount("/files", StaticFiles(directory=settings.output_dir, check_dir=False), name="files")
+# 静态文件源：自定义路由（非裸 StaticFiles），以带 protocol §5.1 完整性头
+# Content-Length + X-Hutuji-CRC32。S3 侧下完先比长度再比 CRC32 才开画（见 mcp-server README 组 0.2）。
+@app.get("/files/{name}")
+async def _serve_file(name: str):
+    # 只接受带 128-bit 随机 token 的 capability 文件名；旧时间戳名不再公开。
+    if not _DRAW_FILE_RE.fullmatch(name):
+        raise HTTPException(status_code=404, detail="not found")
+    path = settings.output_dir / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    try:
+        if _is_expired(path):
+            _delete_output_pair(path.stem)
+            raise HTTPException(status_code=404, detail="expired")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="not found") from None
+    data = path.read_bytes()
+    crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")  # zlib/IEEE 变体，须与 S3 侧一致
+    return FileResponse(
+        path,
+        headers={
+            "Content-Length": str(len(data)),
+            "X-Hutuji-CRC32": crc,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
 app.mount("/", _mcp_app)
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=settings.port)
+    uvicorn.run(app, host=settings.host, port=settings.port)

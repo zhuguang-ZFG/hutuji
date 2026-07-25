@@ -15,8 +15,10 @@ class Settings:
     # G-code 产出目录与对外 URL 前缀
     output_dir: Path
     public_base_url: str
-    # HTTP 服务端口
+    # HTTP 服务监听与产物生命周期
+    host: str
     port: int
+    output_ttl_seconds: int
 
     @property
     def llm_configured(self) -> bool:
@@ -31,7 +33,10 @@ def load_settings() -> Settings:
         llm_model=os.environ.get("HUTUJI_LLM_MODEL", "auto"),
         output_dir=Path(os.environ.get("HUTUJI_OUTPUT_DIR", "./output")).resolve(),
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
+        # 默认仅本机监听；公网只让 nginx 反代 /files，绝不直曝 /mcp。
+        host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=int(os.environ.get("HUTUJI_PORT", "8300")),
+        output_ttl_seconds=int(os.environ.get("HUTUJI_OUTPUT_TTL_SECONDS", "600")),
     )
 
 

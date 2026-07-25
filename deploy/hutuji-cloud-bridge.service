@@ -1,0 +1,17 @@
+[Unit]
+Description=hutuji Xiaozhi MCP cloud bridge
+After=network.target hutuji-mcp.service
+Requires=hutuji-mcp.service
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/mcp-server
+EnvironmentFile=/etc/hutuji/mcp.env
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.cloud_bridge
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

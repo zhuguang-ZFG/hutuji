@@ -6,3 +6,6 @@ vpype>=1.14
 vpype-gcode>=0.13
 # MCP 官方 Python SDK（v1.x 稳定线；v2 预发布有破坏性变更，暂不跟）
 mcp>=1.27,<2
+# 小智官方云 WSS ↔ 本机 streamable HTTP 桥接（cloud_bridge.py 直接依赖）
+mcp-proxy>=0.8.2,<1
+websockets>=13,<17
