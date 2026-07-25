@@ -41,11 +41,22 @@
 
 ### 阶段 0 清单
 
-- [ ] 安全组无 8300  
-- [ ] `/opt/hutuji` 代码就位（无本机 `.venv` 误传）  
-- [ ] `prepare-host.sh` 已跑：用户 `hutuji`、`/etc/hutuji`、`output/`  
-- [ ] `/etc/hutuji/mcp.env`、`bridge.env` 存在且 `chmod 600`（内容可仍为 REPLACE_ME）  
-- [ ] 确认专机无其它占端口业务（或已迁走）
+- [x] 主机可登录；已建用户 `hutuji`、`/opt/hutuji`、`/etc/hutuji/{mcp,bridge}.env`（600）、`/etc/nginx/ssl/hutuji/`（2026-07-26 登机准备）  
+- [ ] `/opt/hutuji` **本仓代码**就位（目前仅空目录 + output 坑位）  
+- [ ] 安全组/UFW：确认无 8300；收紧与 ③ 无关的公网端口（见下「共存业务」）  
+- [ ] 确认专机策略：决策 #5 为「专机只跑 ③」——实机上仍有其它业务，**停迁须用户点名**  
+- [ ] env 去掉 `REPLACE_ME` 并放好 TLS（阶段 1）
+
+### 共存业务（2026-07-26 勘察，未擅自停）
+
+| 服务 | 端口/路径 | 备注 |
+|------|-----------|------|
+| nginx | 80/443 公网 | 现为 default site；hutuji site 未装 |
+| dlc-drawing | 127.0.0.1:8081；`/opt/dlc-drawing` | unit `dlc-drawing.service` |
+| qwen-gateway | 0.0.0.0:3002 | 公网暴露 |
+| MySQL / Redis | 3306/6379（UFW 限来源） | 疑似其它项目 |
+| cloudflared / tailscaled | 本机 | 隧道/组网 |
+| UFW 另放行 | 8080/8081/8443/9090 等 | 与「只跑 ③」不符，待你决定是否收口 |
 
 ## 首次上线（阶段 1）
 
