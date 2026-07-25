@@ -2,7 +2,12 @@
 
 import pytest
 
-from hutuji_mcp.llm_svg import LlmError, _sanitize_description, _validate_svg
+from hutuji_mcp.llm_svg import (
+    LlmError,
+    _extract_svg,
+    _sanitize_description,
+    _validate_svg,
+)
 
 
 @pytest.mark.parametrize(
@@ -47,3 +52,45 @@ def test_description_is_bounded_and_control_chars_are_removed() -> None:
     assert "\x1f" not in cleaned
     assert len(cleaned) == 200
 
+
+
+# ---- DTD / 实体声明（2026-07-26 深度评审）----
+# xml.etree 默认拒外部实体（file:// / http:// 都抛 ParseError），内部实体则会
+# 递归展开。真实路径 _extract_svg 的正则从 <svg 起切片，DOCTYPE 落在根元素之前
+# 会被切掉从而变成 undefined entity——即当前不可利用。这里把「拒 DTD」固化成
+# 显式契约，不再依赖切片这一隐式行为。
+
+
+def test_rejects_doctype_and_entity_declarations() -> None:
+    svg = (
+        "<!DOCTYPE svg [<!ENTITY a 'M10 10 L20 20'>]>"
+        "<svg viewBox='0 0 190 190'>"
+        "<path d='&a;' fill='none' stroke='black'/>"
+        "</svg>"
+    )
+    with pytest.raises(LlmError, match="DTD"):
+        _validate_svg(svg)
+
+
+def test_external_entity_file_read_is_rejected() -> None:
+    svg = (
+        "<!DOCTYPE svg [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>"
+        "<svg viewBox='0 0 190 190'>"
+        "<path d='&xxe;' fill='none' stroke='black'/>"
+        "</svg>"
+    )
+    with pytest.raises(LlmError):
+        _validate_svg(svg)
+
+
+def test_entity_expansion_is_not_reachable_via_extract() -> None:
+    # 端到端形状：模型回复里带 DOCTYPE。_extract_svg 必须拒（无论靠切片还是靠 DTD 闸）。
+    reply = (
+        "这是你要的图：\n"
+        "<!DOCTYPE svg [<!ENTITY a 'M0 0'><!ENTITY b '&a;&a;&a;'>]>"
+        "<svg viewBox='0 0 190 190'>"
+        "<path d='&b;' fill='none' stroke='black'/>"
+        "</svg>"
+    )
+    with pytest.raises(LlmError):
+        _extract_svg(reply)

@@ -125,9 +125,11 @@ def test_status_latest_filename_is_redacted(
     base = server._new_basename()
     name = f"{base}.gcode"
     (tmp_path / name).write_text("G21\nG90\n", encoding="utf-8")
-    # basename 含 token；status 不得回显完整 capability 名
-    token = base.rsplit("_", 1)[-1]
-    assert len(token) >= 16
+    # basename 含 token；status 不得回显完整 capability 名。
+    # token 是 URL-safe base64，本身可能含 `_`，故按结构取而不是 rsplit("_")
+    # ——旧写法会在约 29% 的随机 token 上取到残缺 token，让本断言时好时坏。
+    token = server._DRAW_FILE_PARTS_RE.fullmatch(name)["token"]
+    assert len(token) == 22
 
     payload = asyncio.run(server.hutuji_status())
     import json
@@ -154,3 +156,82 @@ def test_draw_limiter_rejects_minute_window() -> None:
     with pytest.raises(server.DrawLimitError, match="每分钟"):
         asyncio.run(limiter.enter())
 
+
+
+# ---- §5 校验器绕过回归（2026-07-26 深度评审）----
+# 这些写法曾全部被放行：指令识别依赖空格切分，坐标正则不认 `1e3` / `.5`,
+# 且 G2/G3 圆弧不限幅。校验器是下发前最后一道闸，不能只对 vpype 当前输出成立。
+
+
+@pytest.mark.parametrize(
+    "line, reason",
+    [
+        ("G0 X0 Y0", "自动换纸"),
+        ("G0X0Y0", "自动换纸"),          # 无空格：整行曾是一个 token
+        ("G90 G0 X0 Y0", "自动换纸"),    # 模态前缀：首个 token 曾是 G90
+        ("g0x0y0", "自动换纸"),          # 小写 + 无空格
+        ("G0X0Y0Z0", "自动换纸"),
+        ("G28X1", "G28/G30"),
+        ("G1 X1e3 Y5", "越界"),          # 科学计数法曾被截成 X1
+        ("G1 X.5e3 Y5", "越界"),         # 前导小数点 + 指数
+        ("G2 X999 Y999 I1 J1", "越界"),  # 圆弧曾完全不限幅
+        ("G3 X5 Y999 I1 J1", "越界"),
+        ("G1 X-5 Y5", "越界"),
+    ],
+)
+def test_gcode_rejects_bypass_variants(line: str, reason: str) -> None:
+    with pytest.raises(GcodeError, match=reason):
+        validate_gcode(_minimal_gcode(line + "\n"))
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "G0 X95.000 Y175.000 F2500",  # vpype segment_first 实际形状
+        "G1 X100.000 Y100.000 F1500",
+        "G1 X.5 Y.5",                 # 前导小数点但在范围内
+        "G1 X1e-3 Y5",                # 负指数 = 0.001mm
+        "G2 X100 Y100 I1 J1",         # 圆弧在范围内
+        "G4 P0.2",
+        "M5",
+        "; comment",
+    ],
+)
+def test_gcode_accepts_legit_lines(line: str) -> None:
+    validate_gcode(_minimal_gcode(line + "\n"))
+
+
+def test_pen_lift_counts_glued_and_padded_forms() -> None:
+    # M5 / M05 / 与前一个字粘连的 M5 都要计数，M3 落笔不算
+    stats = validate_gcode(_minimal_gcode("M5\nM05\nG4P0.2M5\nM3\n"))
+    assert stats.pen_lifts == 3
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "xDNlk73FAJubla7zE_HDGg",   # 下划线在尾部
+        "_iIT-11Xvigmh8ODcPG20Q",   # 下划线在首位
+        "w2PMOJF_LKJ6XT-EB6DVxg",   # 下划线在中间
+        "SlIdJ_-X4lLi25a4F1oR2g",   # 下划线紧跟连字符
+    ],
+)
+def test_redaction_never_leaks_token_containing_underscore(token: str) -> None:
+    """token 用 URL-safe base64，含 `_` 是常态（约 29%）。
+    脱敏必须按结构切，不能靠最后一个下划线，否则 status 会回显 token 前缀。"""
+    name = f"draw_20260726_010101_{token}.gcode"
+    redacted = server._redact_capability_name(name)
+    assert redacted == "draw_20260726_010101_*.gcode"
+    assert token not in redacted
+    # 逐段确认没有残留任何非平凡 token 片段
+    for size in range(4, len(token) + 1):
+        assert token[:size] not in redacted
+
+
+def test_redaction_preserves_extension_and_rejects_unknown_names() -> None:
+    base = "draw_20260726_010101_" + "a" * 22
+    assert server._redact_capability_name(f"{base}.svg").endswith("_*.svg")
+    assert server._redact_capability_name(f"{base}.gcode").endswith("_*.gcode")
+    # 不符合 capability 命名的一律退化为通配，不回显原名
+    for bad in ("../../etc/passwd", "draw_1_2_short.gcode", "random.gcode"):
+        assert server._redact_capability_name(bad) == "*.gcode"
