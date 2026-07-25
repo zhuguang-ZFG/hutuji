@@ -29,6 +29,7 @@
 - [x] `docs/hardware/mk38-board.md` + `MK38-总图.pdf`（写字机 Grbl 主控板资料）
 - [x] `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf`（小智实战派 S3 资料）
 - [x] `docs/hardware/lichuang-szpi-official/`（官方资源标注图 + ES7210/GC0308 等补档）
+- [x] `docs/xiaozhi-agent/`（小智角色提示 + 知识库文稿；控制台需人工粘贴/关联）
 
 ## C. 部署 / 生产模板（有模板 ≠ 已上线）
 

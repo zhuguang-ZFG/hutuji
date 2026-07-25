@@ -170,8 +170,14 @@ async def _generate_svg_limited(description: str) -> str:
 
 @mcp.tool()
 async def hutuji_draw(description: str) -> str:
-    """让写字机画一幅画：输入自然语言描述（如"一只站在树枝上的小鸟"），
-    生成单线笔画 G-code 并返回下载 URL，供设备侧 hutuji.draw 拉取执行。"""
+    """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
+
+    参数 description：简短中文主题，建议 10～40 字，带「单线/简笔」更稳。
+    好例子：「单线简笔侧脸小猫」「站在树枝上的小鸟轮廓」。
+    坏例子：长篇故事、要求填色/照片写实、无主题的空话。
+
+    返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址）、lines/bytes/pen_lifts。
+    不要编造 url；失败时根据错误白话说明。"""
     settings.output_dir.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(_cleanup_expired_outputs)
     svg = await _generate_svg_limited(description)
@@ -195,7 +201,10 @@ async def hutuji_draw(description: str) -> str:
 
 @mcp.tool()
 async def hutuji_status() -> str:
-    """查询 hutuji MCP 生成服务状态（输出目录、最近文件、LLM 是否配置）。"""
+    """查询云端「绘图生成服务」是否就绪：LLM 是否配置、产出目录、最近 G-code 数量。
+
+    在用户问「能不能画了」「服务正常吗」「刚才生成成功没」时使用。
+    这不是写字机笔尖实时位置；设备连线请用设备侧 hutuji.status。"""
     await asyncio.to_thread(_cleanup_expired_outputs)
     out = settings.output_dir
     files = sorted(out.glob("*.gcode"), key=lambda p: p.stat().st_mtime) if out.is_dir() else []
@@ -211,7 +220,9 @@ async def hutuji_status() -> str:
 
 @mcp.tool()
 async def hutuji_preview_svg(description: str) -> str:
-    """只生成 SVG 不转 G-code（调试用）：返回 SVG 文本前 2000 字符。"""
+    """只预览矢量草稿、不生成 G-code、不驱动写字机。调试构图或用户说「先看看别出纸」时用。
+
+    参数 description 同 hutuji_draw。返回 SVG 文本截断（前 2000 字符）。"""
     svg = await _generate_svg_limited(description)
     return svg[:2000]
 

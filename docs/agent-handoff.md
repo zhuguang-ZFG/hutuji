@@ -122,6 +122,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 联调 SOP | `docs/bringup-sop.md` |
 | 批次模板 | `docs/templates/` |
 | 京东云模板 | `deploy/`（`prepare-host.sh` 可先做阶段 0；实机未上线） |
+| 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |
 | Cursor 硬轨 | `.cursor/rules/hutuji-agent-rails.mdc` |
