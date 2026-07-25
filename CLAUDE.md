@@ -28,7 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 4. `README.md` — 决策记录表（2026-07-24 逐项锁定，**7 条**；编号以此为准）
 5. `AGENTS.md` — 三仓布局、硬规则、开发约定
 6. `docs/protocol.md` — 板间链路协议 + G-code 契约（**v0.5**，②③ 共同契约，改动需两侧同步评审）。§9 是 Grbl 侧小改清单（完成须 fz pass + 烧录实机，禁止口头宣称）
-7. `docs/hardware.md` — 关键硬件事实 + 备用方案 B（拆机 TTL）与已否决方案（CH9350 / USB Host）的留档依据
+7. `docs/hardware.md` — 链路/备用接线；**MK38**见 `docs/hardware/mk38-board.md`；**实战派 S3**见 `docs/hardware/lichuang-szpi-esp32s3-board.md`
 8. `docs/release-readiness.md` — 当前真实进度；不得把“文档/代码已齐”说成“可出货”
 
 ## 架构要点（读多个文件才能拼出的大图）

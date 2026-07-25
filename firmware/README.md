@@ -6,6 +6,7 @@
 ## 当前链路与契约
 
 - 板型：`lichuang-dev`（立创实战派 ESP32-S3）。
+- 板级原理图/脚位对照：`../docs/hardware/lichuang-szpi-esp32s3-board.md`（**以板级 `config.h` 为准，禁止轻易改脚**）。
 - 正式板间链路：**WiFi Telnet :23**，S3 做 TCP 客户端；不使用 USB Host/CH9350。
 - 设备侧工具：`hutuji.draw(url)` / `hutuji.status()` / `hutuji.abort()`。
 - S3 是哑管道：全量下载 → 长度/CRC32 校验 → 授权门 → 逐行发送/等 `ok`。

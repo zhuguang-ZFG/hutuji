@@ -7,7 +7,7 @@
 **hutuji** 是一台 **AI 绘图自动换纸写字机**：语音指令 → 云端 AI 生成绘图内容 → 写字机执行并自动换纸。
 
 - 仓库：`https://github.com/zhuguang-ZFG/hutuji`（本地 `origin` 已指向此处）
-- 本仓库是**枢纽仓库**：放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。固件本体在两个独立 fork 中，不向本仓库合并。
+- 本仓库是**枢纽仓库**：放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`；写字机板 `docs/hardware/mk38-board.md`；S3 板 `docs/hardware/lichuang-szpi-esp32s3-board.md`）、部署脚本、联调 SOP。固件本体在两个独立 fork 中，不向本仓库合并。
 - 架构与全部已确认决策见 `README.md` 决策记录表（**7 条，编号以此为准**）；板间契约见 `docs/protocol.md`（**v0.5**）。这两份文件是权威来源，动手前先读。
 - **接手防呆（先读）**：`docs/agent-handoff.md`——常见误判、禁止重开的决策、默认下一刀。
 - **防幻觉 / 禁乱改（必读）**：`docs/agent-anti-drift.md`；白名单 `docs/agent-edit-allowlist.json`；三仓矩阵 `docs/agent-constraint-matrix.md`；脏树 `docs/worktree-inventory.md`。

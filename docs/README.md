@@ -54,6 +54,10 @@
 | `research.md` | 研发 | 外部来源与待复核事实 | 来源索引 |
 | `reference-projects.md` | 研发/合规 | 参考仓库、许可证、采用边界 | 选型与许可边界 |
 | `hardware.md` | 硬件研发 | 当前链路与备用接线 | 硬件留档 |
+| `hardware/mk38-board.md` | 硬件 / Grbl agent | **MK38 写字机主控板**引脚与原理图索引 | 板级真值 |
+| `hardware/MK38-总图.pdf` | 硬件 | MK38 原理图总图归档 | 原始图纸 |
+| `hardware/lichuang-szpi-esp32s3-board.md` | 硬件 / xiaozhi agent | **立创实战派 S3** 引脚与原理图索引 | 板级真值 |
+| `hardware/lichuang-szpi-esp32s3-sch.pdf` | 硬件 | 实战派 S3 原理图 V1.0.1 归档 | 原始图纸 |
 
 记录模板位于 `docs/templates/`（`device-test-record.md`、`release-manifest.md`）；部署模板位于仓库根 `deploy/`（systemd / nginx / `env.example`）。  
 生产落点**仅京东云** `117.72.118.95`。模板中的占位字段必须在批次放行前填写，禁止删掉未通过项目来“做绿”。  

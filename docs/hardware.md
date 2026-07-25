@@ -3,6 +3,20 @@
 > **当前链路为方案 E（WiFi Telnet），零额外硬件**，见 `protocol.md` §1。
 > 本文保留备用方案 B（拆机 TTL）接线与已否决方案 D（CH9350）的否决依据。
 
+## 写字机主控板 MK38（Grbl）
+
+- **板级资料真值**：[`hardware/mk38-board.md`](hardware/mk38-board.md)  
+- **原理图归档**：[`hardware/MK38-总图.pdf`](hardware/MK38-总图.pdf)（MK38-总图，2026-01-15）  
+- **固件机型头**：`D:/Users/Grbl_Esp32/.../Machines/custom_3axis_hr4988.h`（引脚以该头 `#define` + 上表为准）  
+- 组成摘要：ESP32 + 多路 HR4988 + 74HC595 纸路扩展 + CH340 USB-B 调试口。
+
+## 小智侧：立创·实战派 ESP32-S3（`lichuang-dev`）
+
+- **板级资料真值**：[`hardware/lichuang-szpi-esp32s3-board.md`](hardware/lichuang-szpi-esp32s3-board.md)  
+- **原理图归档**：[`hardware/lichuang-szpi-esp32s3-sch.pdf`](hardware/lichuang-szpi-esp32s3-sch.pdf)（V1.0.1，3 页；中文别名同目录）  
+- **固件板型**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/`（脚位以 `config.h` 为准，**禁止轻易改脚**）  
+- 哑管道说明：`firmware/README.md`。**不是** MK38。
+
 ## 备用方案 B：拆机 TTL（WiFi 实测抖动不可接受时启用）
 
 | 写字机侧 | 实战派多功能外拓口（GH1.25） | 说明 |

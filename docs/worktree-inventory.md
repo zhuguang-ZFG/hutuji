@@ -15,6 +15,7 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | 已推/待推 | 门禁、防幻觉、约束矩阵 | ① 文档 + agent 约束闭环 | 见 `foundation-checklist.md` / `agent-constraint-matrix.md` |
+| **本提交** | `docs/hardware/*`（MK38 + 实战派 S3 原理图/对照页）+ 挂链 | 双板级资料归档 | 推远程后保持；禁改固件脚位 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
 
 ## Grbl_Esp32 `D:/Users/Grbl_Esp32`  
@@ -23,6 +24,8 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已提交** `cdf923f` | §9（Telnet keepalive / PaperStatus→CLIENT_ALL / Changing=）+ 六份 `*Core.h` + 根 `AGENTS.md` | 源码就绪；fz 曾 pass | **仍须烧录 + bringup 阶段 2** 才算 §9 完成；可推远程 |
+| 干净（头文件） | `custom_3axis_hr4988.h` | `#define` 未改；误改注释已还原 | 勿动脚位 |
+| **外仓提交** | 根 `AGENTS.md` 硬件链（MK38 指针 + 禁改脚） | 仅文档 | 随 Grbl 仓推送 |
 | 未跟踪 | `firmware_out/` | 本地构建输出 | 勿提交 |
 
 ## fz `D:/Users/zhugu/fz`

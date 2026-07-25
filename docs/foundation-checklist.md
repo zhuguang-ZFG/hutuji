@@ -26,6 +26,8 @@
 - [x] `docs/release-readiness.md` 证据矩阵（唯一状态页）
 - [x] `docs/development.md` 开发边界与命令
 - [x] `docs/troubleshooting.md` 分层排障入口
+- [x] `docs/hardware/mk38-board.md` + `MK38-总图.pdf`（写字机 Grbl 主控板资料）
+- [x] `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf`（小智实战派 S3 资料）
 
 ## C. 部署 / 生产模板（有模板 ≠ 已上线）
 

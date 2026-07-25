@@ -117,6 +117,8 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | ① 闭环清单 | `docs/foundation-checklist.md` |
 | 状态 | `docs/release-readiness.md` |
 | 契约 | `docs/protocol.md` |
+| MK38 写字机板 | `docs/hardware/mk38-board.md` + `docs/hardware/MK38-总图.pdf` |
+| 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
 | 批次模板 | `docs/templates/` |
 | 京东云模板 | `deploy/` |
