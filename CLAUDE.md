@@ -76,13 +76,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 小智云工具发现：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）
 - **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建（IDF ≥5.5.2，仓要求 v6.0.2）：
   `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
-- **京东云部署模板**：`deploy/` + `docs/deployment.md`（尚未实机验收）。
+- **京东云**：`deploy/` + `docs/deployment.md`。**2026-07-26 实机已上**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx（80/443 `/files`）；llm7 出图；本机 `tools/call` 已通。正式 TLS / App 对话验收 / 设备链仍缺。权威进度见 `docs/release-readiness.md`。
 
 ## 路线图（当前进度）
 
-1. **① 仓库奠基**（协议、文档地图、SOP、京东云 deploy、**本仓门禁/Cursor 硬轨**）— 见 `docs/foundation-checklist.md`；实时状态见 `docs/release-readiness.md`
-2. **② 哑管道**（S3 设备侧 MCP 工具 `hutuji.draw/status/abort` + HTTP 全量下载校验 + Telnet 流控转发）— 补丁在 xiaozhi fork 分支 `feat/hutuji-usb-pipe`（分支名沿用历史，链路已改方案 E），说明见 `firmware/m1-usb-pipe.md`。**开工前先完成 `docs/protocol.md` §9 并过 fz 门禁**（否则 S3 收不到换纸状态）；协议 v0.5 的自动化动作均标 🔬 待冒烟实测。
-3. **③ 智能端**（MCP 生成服务：LLM → SVG → G-code，官方云联调，**部署京东云 VPS** `117.72.118.95`）— 本地基础加固与小智云 `initialize/tools/list` 已通过，京东云 TLS/实际工具调用待联调，权威验收项见 `mcp-server/README.md`「实施验收清单」
+1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
+2. **② 哑管道** — 🟡 M2 **代码已写未构建/未烧录**（xiaozhi `feat/hutuji-usb-pipe`：`hutuji_job.*` + Pipe `WaitResponse`；说明 `firmware/m1-usb-pipe.md`）。断连复位重发仍缺。Grbl §9 源码+fz 绿、**未烧录实机**。
+3. **③ 智能端** — 🟡 京东云 MCP+桥接已常驻；llm7；知识库文稿已上传控制台。缺：设备在线后的端到端语音、正式 TLS。
+4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
+
+> **不可出货**。无设备时默认下一刀见 `docs/agent-handoff.md` §6；有设备优先烧录 §9 + S3 M2 构建烧录。
 
 ## 约定
 

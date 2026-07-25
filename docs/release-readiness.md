@@ -19,20 +19,19 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | **三仓 agent 约束闭环** | ✅ 已建立 | `agent-constraint-matrix.md`；Grbl/xiaozhi/fz 根 `AGENTS.md` 入口；门禁校验 Grbl AGENTS 存在 | 外仓 AGENTS 变更须保持指向 hutuji；工程完成仍看下方各层 |
 | MCP 本地服务 | ✅ 自动化通过 | pytest；`e2e_local.py` PASS（经本仓门禁 `hub`） | 在发布 commit 上重跑并归档输出 |
 | MCP 安全基础 | ✅ 代码/测试通过 | CRC32、512KiB、SVG 白名单、TTL、限流、localhost；stderr/status 脱敏 | 京东云 nginx/TLS/防火墙实机验证 |
-| 小智云桥接 | 🟡 工具发现通过 | WSS 鉴权、`initialize`、`tools/list` PASS | 实际 `hutuji_status`/`hutuji_draw`、长期重连 |
+| 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
 | Grbl §9 加固 | 🟡 已提交+fz 绿、未烧录实机 | Grbl `cdf923f`（§9+`*Core.h`+AGENTS）；fz `4c26bbc` 契约对齐；fz `standard` 曾 **overall=pass**（2026-07-26） | **烧录** + bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
-| S3 M1 | 🟡 有未提交补丁 | `firmware/m1-usb-pipe.md` 代码评审记录 | 在 fork 中确认 diff、构建、提交、烧录 |
-| S3 M2 哑管道 | 🔴 未实现 | v0.5 设计与待办完整 | 下载/校验/授权/流控/恢复/abort 全实现并测试 |
+| S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
+| S3 M2 哑管道 | 🟡 已提交、未构建实机 | xiaozhi `3730136`：`hutuji_job.*` + Pipe `WaitResponse`/单写者/abort；见 `firmware/m1-usb-pipe.md` | IDF 构建；断连复位重发仍缺；实机 bringup |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
-| 京东云生产环境 | 🟡 专机已清、未上业务 | 2026-07-26：点名业务已删；UFW 22/80/443；hutuji 坑位在；见 `deployment.md` | 同步本仓到 `/opt/hutuji`；填密钥+TLS；`install-from-repo` + `preflight`；阶段 6 |
+| 京东云生产环境 | 🟡 桥接已连、待对话验收 | MCP+bridge+nginx；llm7；`tools/call` 出图 OK；80/443 `/files`；知识库已上传 | App 对话验收；正式 TLS；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
 
-1. 将 `D:/Users/Grbl_Esp32` 上 §9 + `*Core.h` 改动提交并烧录 → `bringup-sop` 阶段 2 实机判据。  
-2. 本仓交接：`python scripts/agent_gate.py --profile hub`（动过 Grbl 再加 `--profile full`）。  
-3. 在 `D:/Users/xiaozhi-esp32` 完成 M2，并用规定 ESP-IDF 版本构建。  
-4. 按 `bringup-sop.md` 自阶段 0 起留真实证据，禁止跳阶段。
+1. 有设备后：烧录 Grbl §9 → bringup 阶段 2；S3 构建 `feat/hutuji-usb-pipe`（改 `HUTUJI_PIPE_HOST`）烧录 → 阶段 3+。  
+2. 无设备时：IDF 构建验证 M2；补断连复位重发（M2 #5）。（App 试画无板不可行）  
+3. 本仓交接：`python scripts/agent_gate.py --profile hub`。
 
 ## 状态更新规则
 

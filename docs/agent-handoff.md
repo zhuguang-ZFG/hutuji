@@ -6,14 +6,15 @@
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
-## 0. 一句话现状（2026-07-26）
+## 0. 一句话现状（2026-07-26 晚）
 
-枢纽仓 `hutuji` 已有：协议 v0.5、文档地图、**本仓门禁**（`scripts/agent_gate.py`）、京东云 `deploy/` 模板、③ MCP 本地加固 + 小智云工具发现。  
-Grbl：§9 源码 + host-testable `*Core.h` 已齐，**fz `standard` overall=pass**（仍须烧录与 bringup 阶段 2 才算 §9 闭环）。  
-**没有**：S3 M2、硬件联调证据、京东云实机、出货签核。  
+枢纽仓：协议 v0.5、门禁、③ **京东云已上**（`hutuji-mcp`+bridge+nginx；llm7；本机 `tools/call` 出图 OK；知识库文稿已上传）。  
+Grbl：§9 已提交+fz 绿，**未烧录**（阶段 2 未做）。  
+S3：`feat/hutuji-usb-pipe` 上 M2 **已提交**（`hutuji_job`），**未 IDF 构建 / 未烧录**；断连复位重发仍缺。  
+**没有**：设备联调证据、App 端到端（无板说不了）、出货签核。  
 → **不可商业出货**。  
-→ 用户未指定任务时：默认下一刀 = **烧录 §9 → bringup 阶段 2**，然后 S3 M2；**禁止**再写一版文档地图当进度。  
-→ ① 基础建设闭环清单：`foundation-checklist.md`（须门禁 `hub` 绿才算勾完）。
+→ 有设备：烧录 §9 → bringup 2 → S3 构建烧录 M2。无设备：IDF 构建 M2 / 补断连重发。  
+→ **禁止**再写一版文档地图当进度；真值页 `release-readiness.md`。
 
 ## 1. 三仓与代码在哪
 
@@ -81,12 +82,12 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. `D:/Users/Grbl_Esp32`：§9 已改且 fz pass → **提交/烧录** → bringup 阶段 2 实机  
-2. `D:/Users/xiaozhi-esp32`：M2 哑管道 → IDF 构建  
-3. `bringup-sop.md` 阶段 0 起留真实设备证据  
-4. 京东云按 `deployment.md` + `deploy/` 上线并验收 `/mcp` 不上公网  
+1. **有设备**：Grbl 烧录 §9 → bringup 阶段 2；S3 改 `HUTUJI_PIPE_HOST` → IDF 构建烧录 M2 → bringup 3+  
+2. **无设备**：IDF 构建验证 M2；补断连复位重发（M2 #5）；本仓门禁绿  
+3. 京东云已常驻——勿再「从零部署」；余正式 TLS、设备端到端  
+4. `bringup-sop.md` 自阶段 0 留真实证据；出货签核另线  
 
-> 注意：Grbl 工作树若已有 §9 / `*Core.h` 未提交改动，属于用户资产——核对、保留、提交，**不要** `git checkout` 清掉。fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
+> fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
 ## 7. 改完必须同步的文件
 

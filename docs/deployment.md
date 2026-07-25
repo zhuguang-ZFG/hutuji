@@ -12,6 +12,7 @@
 | 上行实测 | **2026-07-26**：公网拉 512KiB 中位 **1.13s / ~3.72 Mbps**（本机→`http://117.72.118.95/…`，3 轮；测完文件已删） |
 | 角色 | 专机只跑 ③（uvicorn + 小智桥接 + nginx） |
 | 冗余 | 无；单点 |
+| 实机业务 | **2026-07-26**：`hutuji-mcp` + nginx 自签 TLS + **`hutuji-cloud-bridge` 已连小智 WSS**（initialize / tools/list 已见日志）；绘图 LLM = llm7；endpoint 仅在 `/etc/hutuji/bridge.env` |
 
 ## 拓扑
 
@@ -44,9 +45,10 @@
 
 - [x] 主机可登录；已建用户 `hutuji`、`/opt/hutuji`、`/etc/hutuji/{mcp,bridge}.env`（600）、`/etc/nginx/ssl/hutuji/`  
 - [x] 点名业务已停删（dlc-drawing / MySQL / Redis / qwen-gateway / nginx new-api）；UFW 仅 22/80/443  
-- [ ] `/opt/hutuji` **本仓代码**就位（目前仅空目录 + output 坑位）  
-- [ ] 控制台安全组复核无 8300（与 UFW 一致）  
-- [ ] env 去掉 `REPLACE_ME` 并放好 TLS（阶段 1）
+- [x] `/opt/hutuji` **本仓代码**就位  
+- [x] UFW 仅 22/80/443；8300 未放行（安全组请再复核一眼）  
+- [x] `mcp.env` 已填（llm7）；TLS 自签已放 `/etc/nginx/ssl/hutuji/`  
+- [x] `bridge.env` 已填真实 `MCP_ENDPOINT`（600；禁入库）
 
 ### 实机清理（2026-07-26，用户点名后已执行）
 
@@ -62,22 +64,29 @@
 
 第二轮（建议可删，已执行）：cloudflared（含空转隧道配置）、Docker/containerd、lima 残留与 `/root` 杂目录（openclaw/prometheus/dlc-retire 等）。
 
-仍保留：nginx 本体（主要听 80）、Tailscale、京东云 agent（jdog/ifrit/jcs）、`/opt/hutuji` 坑位。  
-内存 available ~1.8Gi。**本仓代码尚未同步到 `/opt/hutuji`。**
+仍保留：nginx、Tailscale、京东云 agent（jdog/ifrit/jcs）、hutuji 业务。
 
-## 首次上线（阶段 1）
+### 阶段 1 进度（2026-07-26）
 
-1. 填写 `/etc/hutuji/mcp.env`（LLM + `HUTUJI_PUBLIC_BASE_URL=https://117.72.118.95` 或域名）。  
-2. 填写 `/etc/hutuji/bridge.env`（`MCP_ENDPOINT`；勿写入 mcp.env）。  
-3. 安装 TLS 到 nginx 配置所指路径（默认 `/etc/nginx/ssl/hutuji/`）。  
-4. `bash /opt/hutuji/deploy/install-from-repo.sh`  
-5. `systemctl enable --now hutuji-mcp hutuji-cloud-bridge nginx`  
-6. `bash /opt/hutuji/deploy/preflight.sh` 须 PASS。  
-7. 公网验收：  
-   - `curl -sI https://117.72.118.95/mcp` **失败/404**  
-   - `https://…/files/…` 经 nginx；响应可见 `X-Hutuji-CRC32`（有有效文件时）  
-8. 小智控制台工具发现 / `hutuji_status`（bringup 阶段 6）。  
-9. 证据写入 `docs/templates/release-manifest.md`。
+| 项 | 状态 | 证据 |
+|----|------|------|
+| 代码 → `/opt/hutuji` | ✅ | `requirements.txt` 在位；venv IMPORT_OK |
+| `mcp.env`（llm7） | ✅ | 本机 `generate_svg` 出 SVG_LEN≈1.4k |
+| TLS 自签 + nginx `/files` | ✅ | 公网 `https://IP/mcp`→404；`/files/…` 经 443 |
+| `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
+| `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
+| `preflight.sh` 全 PASS | ✅ | `pass=8 fail=0`（2026-07-26） |
+| 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
+| 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
+
+> 自签证书：S3/`curl` 需 `-k` 或后续换 Let’s Encrypt / 正式证书。  
+> `install-from-repo.sh` 默认清华 PyPI 源（京东云直连 PyPI 易卡住）。
+
+## 首次上线（阶段 1）剩余
+
+1. 小智控制台：确认知识库已**关联到智能体**；刷新 MCP 工具列表；试 `hutuji_status` / 语音「画一只侧脸简笔小猫」。  
+2. 角色提示若未贴：`docs/xiaozhi-agent/role-prompt.md`。  
+3. 证据写入 `docs/templates/release-manifest.md`。
 
 ## 环境变量
 

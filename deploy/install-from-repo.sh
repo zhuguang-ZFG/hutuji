@@ -20,12 +20,15 @@ if grep -q 'REPLACE_ME' /etc/hutuji/mcp.env /etc/hutuji/bridge.env 2>/dev/null; 
 fi
 
 echo "==> Python venv + 生产依赖"
+# 京东云直连 PyPI 常卡住；默认清华源（可用 HUTUJI_PIP_INDEX 覆盖）
+PIP_INDEX="${HUTUJI_PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+PIP_TRUSTED="${HUTUJI_PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}"
 sudo -u "${APP_USER}" bash -lc "
   set -euo pipefail
   cd '${MCP_DIR}'
   python3 -m venv .venv
-  .venv/bin/pip install -U pip
-  .venv/bin/pip install -r requirements.txt
+  .venv/bin/pip install -U pip -i '${PIP_INDEX}' --trusted-host '${PIP_TRUSTED}'
+  .venv/bin/pip install -r requirements.txt -i '${PIP_INDEX}' --trusted-host '${PIP_TRUSTED}'
 "
 
 echo "==> systemd units"
