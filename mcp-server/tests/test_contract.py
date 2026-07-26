@@ -212,7 +212,6 @@ def test_malformed_gcode_never_raises_non_gcode_error() -> None:
         "G1 X100.000 Y100.000 F1500",
         "G1 X.5 Y.5",                 # 前导小数点但在范围内
         "G1 X1e-3 Y5",                # 负指数 = 0.001mm
-        "G2 X100 Y100 I1 J1",         # 圆弧在范围内
         "G4 P0.2",
         "M5",
         "; comment",
@@ -220,6 +219,51 @@ def test_malformed_gcode_never_raises_non_gcode_error() -> None:
 )
 def test_gcode_accepts_legit_lines(line: str) -> None:
     validate_gcode(_minimal_gcode(line + "\n"))
+
+
+# 圆弧：端点在界内不代表整条弧在界内——弧中途会凸到象限点。
+# 每例都先用 G0 给出起点，否则校验器会以「起点未知」拒绝。
+def test_arc_bulge_outside_limit_is_rejected() -> None:
+    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=195 > 190。
+    只看端点会放行这条弧，实机就是撞机。"""
+    text = _minimal_gcode("G0 X100 Y185\nG2 X120 Y185 I10 J0\n")
+    with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
+        validate_gcode(text)
+
+
+def test_arc_fully_inside_limit_passes() -> None:
+    # 同一条弧整体下移：凸点 Y=110，稳在界内
+    text = _minimal_gcode("G0 X100 Y100\nG2 X120 Y100 I10 J0\n")
+    stats = validate_gcode(text)
+    assert stats.lines == 5
+
+
+def test_arc_opposite_direction_bulges_the_other_way() -> None:
+    """同样的起终点与 I/J，G3 走下半圈——凸向 Y=175，仍在界内。
+    方向决定凸向，故限幅必须按实际扫过的角度区间算，不能取外接正方形。"""
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y185\nG3 X120 Y185 I10 J0\n"))
+    assert stats.lines == 5
+
+
+def test_arc_without_known_start_is_rejected() -> None:
+    """圆弧的包围盒依赖起点；前面没有定位指令时必须拒，不能猜 (0,0)。"""
+    with pytest.raises(GcodeError, match="缺少已知起点"):
+        validate_gcode(_minimal_gcode("G2 X50 Y50 I5 J5\n"))
+
+
+def test_arc_with_inconsistent_radius_is_rejected() -> None:
+    """I/J 给出的圆心到起点、终点半径不一致 —— Grbl 自身也会报 invalid target
+    （`GCode.cpp` delta_r > 0.5mm）。校验器须在落笔前拦住，否则包围盒本身就失真。
+
+    起点不能用 (0,0)：那会先撞上 G0 X0 Y0 换纸禁令，测不到圆弧这条。"""
+    with pytest.raises(GcodeError, match="半径不自洽"):
+        validate_gcode(_minimal_gcode("G0 X10 Y10\nG2 X100 Y100 I1 J1\n"))
+
+
+def test_mid_file_g91_is_rejected() -> None:
+    """位置跟踪假定 G90 绝对坐标；中途切 G91 会让此后所有圆弧起点失真。"""
+    with pytest.raises(GcodeError, match="G91"):
+        validate_gcode(_minimal_gcode("G0 X10 Y10\nG91\nG1 X5 Y5\n"))
 
 
 def test_pen_lift_counts_glued_and_padded_forms() -> None:

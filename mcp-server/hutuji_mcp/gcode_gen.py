@@ -48,6 +48,82 @@ class GcodeError(RuntimeError):
     """G-code 转换或合同校验失败。"""
 
 
+def _arc_center(
+    x0: float, y0: float, x1: float, y1: float,
+    i: float | None, j: float | None, r: float | None,
+    clockwise: bool,
+) -> tuple[float, float]:
+    """求 G2/G3 圆心。复刻 Grbl `GCode.cpp` 的两种模式，保持行为一致。
+
+    - IJ 偏移模式：圆心 = 起点 + (I, J)（`GCode.cpp:1266-1270` 以此反推 target_r）
+    - R 半径模式：解出经过起终点、半径为 |R| 的圆心（`GCode.cpp:1216-1251`）；
+      **负 R 表示「走超过 180° 的那条弧」**，靠翻转 h 的符号把圆心放到行程线另一侧。
+    """
+    if r is not None:
+        dx, dy = x1 - x0, y1 - y0
+        if dx == 0.0 and dy == 0.0:
+            # Grbl: R 模式下起终点相同即 GcodeInvalidTarget
+            raise GcodeError("G2/G3 半径模式起终点重合（Grbl 会报 invalid target）")
+        h_x2_div_d = 4.0 * r * r - dx * dx - dy * dy
+        if h_x2_div_d < 0:
+            raise GcodeError(f"G2/G3 半径 {r} 不足以连接起终点（Grbl 会报 arc radius error）")
+        h_x2_div_d = -math.sqrt(h_x2_div_d) / math.hypot(dx, dy)
+        if not clockwise:
+            h_x2_div_d = -h_x2_div_d
+        if r < 0:
+            h_x2_div_d = -h_x2_div_d
+        return x0 + 0.5 * (dx - dy * h_x2_div_d), y0 + 0.5 * (dy + dx * h_x2_div_d)
+
+    # IJ 偏移模式：圆心 = 起点 + (I, J)
+    cx, cy = x0 + (i or 0.0), y0 + (j or 0.0)
+    # Grbl 会校验「起点到圆心」与「终点到圆心」的半径是否自洽，不自洽即
+    # GcodeInvalidTarget（`GCode.cpp:1272-1279`：>0.5mm，或 >0.005mm 且 >0.1% 半径）。
+    # 不照做的话，畸形圆弧会在这里算出一个失真的包围盒——可能过大而误拒，也可能
+    # 过小而漏放。阈值与固件保持一致，避免云端放行了机器却报 error 的割裂。
+    r_start = math.hypot(x0 - cx, y0 - cy)
+    r_end = math.hypot(x1 - cx, y1 - cy)
+    delta_r = abs(r_end - r_start)
+    if delta_r > 0.005 and (delta_r > 0.5 or delta_r > 0.001 * r_start):
+        raise GcodeError(
+            f"G2/G3 圆弧半径不自洽（起点半径 {r_start:.4f} / 终点半径 {r_end:.4f}，"
+            f"差 {delta_r:.4f}mm；Grbl 会报 invalid target）"
+        )
+    return cx, cy
+
+
+def _arc_bbox(
+    x0: float, y0: float, x1: float, y1: float,
+    i: float | None, j: float | None, r: float | None,
+    clockwise: bool,
+) -> tuple[float, float, float, float]:
+    """圆弧包围盒 (min_x, min_y, max_x, max_y)。
+
+    端点不足以定界：圆弧中途会凸出到象限点（0°/90°/180°/270°）。只有**落在实际
+    扫过角度区间内**的象限点才算，否则会把整个外接正方形当包围盒而误拒合法弧。
+    """
+    cx, cy = _arc_center(x0, y0, x1, y1, i, j, r, clockwise)
+    radius = math.hypot(x0 - cx, y0 - cy)
+
+    a0 = math.atan2(y0 - cy, x0 - cx)
+    a1 = math.atan2(y1 - cy, x1 - cx)
+    # 扫过的角度跨度，统一折算成 CCW 正向 [0, 2π)；起终点重合 = 整圆
+    sweep = (a1 - a0) if not clockwise else (a0 - a1)
+    sweep %= 2.0 * math.pi
+    if sweep == 0.0:
+        sweep = 2.0 * math.pi
+
+    xs, ys = [x0, x1], [y0, y1]
+    for k in range(4):
+        ang = k * math.pi / 2.0
+        # 该象限点相对起点、沿运动方向走过的角度是否落在 sweep 内
+        delta = (ang - a0) if not clockwise else (a0 - ang)
+        delta %= 2.0 * math.pi
+        if delta <= sweep:
+            xs.append(cx + radius * math.cos(ang))
+            ys.append(cy + radius * math.sin(ang))
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 @dataclass(frozen=True)
 class GcodeStats:
     lines: int
@@ -102,6 +178,9 @@ def validate_gcode(text: str) -> GcodeStats:
         raise GcodeError("文件头缺少 G21/G90（§5 自包含要求）")
 
     pen_lifts = 0
+    # 圆弧包围盒需要起点，故逐行跟踪当前 XY。None = 尚无已知位置（首个定位前）。
+    cur_x: float | None = None
+    cur_y: float | None = None
 
     for idx, raw in enumerate(lines, start=1):
         line = raw.strip()
@@ -152,6 +231,12 @@ def validate_gcode(text: str) -> GcodeStats:
         if "G28" in codes or "G30" in codes:
             raise GcodeError(f"第 {idx} 行含 G28/G30（§5 禁止）：{line}")
 
+        # 禁 G91 相对坐标。§5 要求文件头 G90（上面已强制），但中途切到 G91 会让
+        # 下面的位置跟踪全部失效——之后每个圆弧起点都是错的，包围盒随之失真而
+        # 静默漏放越界。本 profile 只产 G90，故直接拒绝而非去实现相对模式。
+        if "G91" in codes:
+            raise GcodeError(f"第 {idx} 行含 G91 相对坐标（§5 要求全程 G90）：{line}")
+
         # G0 落点 XY≈0 = 回原点触发（含 G0 X0 Y0 收尾），一律禁止
         if "G0" in codes:
             xy = dict(coords)
@@ -164,6 +249,32 @@ def validate_gcode(text: str) -> GcodeStats:
             for axis, val in coords:
                 if val < -_EPS or val > MAX_MM + 1.0:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{MAX_MM}mm）：{line}")
+
+        # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
+        # 需要起点，故逐行跟踪当前位置；G90 绝对坐标下省略的轴沿用上一个值。
+        xy = dict(coords)
+        if codes & {"G2", "G3"}:
+            if cur_x is None or cur_y is None:
+                raise GcodeError(f"第 {idx} 行 G2/G3 缺少已知起点（前面没有定位指令）：{line}")
+            others = {a: float(v) for a, v in words if a in ("I", "J", "R")}
+            x1 = xy.get("X", cur_x)
+            y1 = xy.get("Y", cur_y)
+            min_x, min_y, max_x, max_y = _arc_bbox(
+                cur_x, cur_y, x1, y1,
+                others.get("I"), others.get("J"), others.get("R"),
+                clockwise="G2" in codes,
+            )
+            for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
+                if lo < -_EPS or hi > MAX_MM + 1.0:
+                    raise GcodeError(
+                        f"第 {idx} 行圆弧 {label} 包围盒 [{lo:.3f}, {hi:.3f}] "
+                        f"越界（限幅 0~{MAX_MM}mm）：{line}"
+                    )
+
+        # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）
+        if codes & {"G0", "G1", "G2", "G3"}:
+            cur_x = xy.get("X", cur_x)
+            cur_y = xy.get("Y", cur_y)
 
     if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
         logger.warning(
