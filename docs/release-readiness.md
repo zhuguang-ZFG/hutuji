@@ -22,7 +22,7 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC；**智能体已配**：DeepSeek V4 + 角色提示(few-shot) + 知识库(召回OK) + 助手名=呼图机（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
 | Grbl §9 加固 | 🟡 已提交+fz 绿、未烧录实机 | Grbl `cdf923f`（§9+`*Core.h`+AGENTS）；fz `4c26bbc` 契约对齐；fz `standard` 曾 **overall=pass**（2026-07-26） | **烧录** + bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
-| S3 M2 哑管道 | 🟡 已构建烧录+配网验证、未联调 Grbl | xiaozhi `673be32`→正在构建新版（UI 定制+出图进度显示）：IDF 6.0.1；屏幕文案「呼图机」品牌化；出图时显示「画画中 35% (120/340)」进度；WiFi 配网实测 OK（ChinaNet-jJmz IP=192.168.1.12）；MCP 工具注册 OK；Pipe 指数退避正常 | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
+| S3 M2 哑管道 | 🟡 已构建烧录+配网验证、未联调 Grbl | xiaozhi `945fc44`（IDF 6.0.1）：暗色主题强制+图灵风格机器人眼睛（三层辉光/虹膜/脉动轨道/HUD）+眨眼频率 2~6s；屏幕文案「呼图机」品牌化；出图进度显示；WiFi 配网实测 OK（ChinaNet-jJmz IP=192.168.1.12）；MCP 工具注册 OK；Pipe 指数退避正常 | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
 | 京东云生产环境 | 🟡 安全补丁已部署、待对话验收 | MCP+bridge+nginx；llm7；`tools/call` 出图 OK；80→301 HTTPS；443 `/files`；知识库已上传；**安全审计 11 项全修已部署**（2026-07-26，preflight 8/8，公网复验通过） | App 对话验收；正式 TLS；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
