@@ -199,6 +199,7 @@ async def hutuji_draw(description: str) -> str:
         stats = await asyncio.to_thread(svg_to_gcode, svg_path, gcode_path)
     except Exception:
         svg_path.unlink(missing_ok=True)
+        gcode_path.unlink(missing_ok=True)
         raise
 
     url = f"{settings.public_base_url.rstrip('/')}/files/{gcode_path.name}"
@@ -218,7 +219,15 @@ async def hutuji_status() -> str:
     这不是写字机笔尖实时位置；设备连线请用设备侧 hutuji.status。"""
     await asyncio.to_thread(_cleanup_expired_outputs)
     out = settings.output_dir
-    files = sorted(out.glob("*.gcode"), key=lambda p: p.stat().st_mtime) if out.is_dir() else []
+    def _safe_mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except FileNotFoundError:
+            return 0.0
+    files = sorted(
+        [p for p in out.glob("*.gcode") if p.is_file()],
+        key=_safe_mtime,
+    ) if out.is_dir() else []
     return json.dumps({
         "output_dir_exists": out.is_dir(),
         "public_base_url": settings.public_base_url,

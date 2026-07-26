@@ -185,7 +185,9 @@ def validate_gcode(text: str) -> GcodeStats:
 
     for idx, raw in enumerate(lines, start=1):
         line = raw.strip()
-        upper = line.upper()
+        # 剥掉 G-code 行注释（`;` 及其后内容），避免注释中的 X/Y 字母触发轴字检查
+        code_part = line.split(";", 1)[0].strip()
+        upper = code_part.upper()
 
         # 单行 ≤255 字符（Grbl LINE_BUFFER_SIZE 256）
         if len(raw) > 255:
