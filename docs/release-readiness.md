@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-26。本文是“现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-26（S3 M2 构建烧录实测更新）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 
@@ -22,15 +22,15 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
 | Grbl §9 加固 | 🟡 已提交+fz 绿、未烧录实机 | Grbl `cdf923f`（§9+`*Core.h`+AGENTS）；fz `4c26bbc` 契约对齐；fz `standard` 曾 **overall=pass**（2026-07-26） | **烧录** + bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
-| S3 M2 哑管道 | 🟡 已提交、未构建实机 | xiaozhi `3730136`：`hutuji_job.*` + Pipe `WaitResponse`/单写者/abort；见 `firmware/m1-usb-pipe.md` | IDF 构建；断连复位重发仍缺；实机 bringup |
+| S3 M2 哑管道 | 🟡 已构建烧录、未联调 Grbl | xiaozhi `673be32`：IDF 6.0.1 构建通过+烧录实机；MCP 工具 `hutuji.status/draw/abort` 已注册；Pipe 等 lwip 就绪+指数退避重连正常；见 `firmware/m1-usb-pipe.md` | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
 | 京东云生产环境 | 🟡 桥接已连、待对话验收 | MCP+bridge+nginx；llm7；`tools/call` 出图 OK；80/443 `/files`；知识库已上传 | App 对话验收；正式 TLS；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
 
-1. 有设备后：烧录 Grbl §9 → bringup 阶段 2；S3 构建 `feat/hutuji-usb-pipe`（改 `HUTUJI_PIPE_HOST`）烧录 → 阶段 3+。  
-2. 无设备时：IDF 构建验证 M2；补断连复位重发（M2 #5）。（App 试画无板不可行）  
+1. 有 Grbl 写字机后：烧录 Grbl §9 → bringup 阶段 2；S3 改 `HUTUJI_PIPE_HOST` 为写字机实际 IP → 重新构建烧录 → 阶段 3+ Telnet 联调。  
+2. 无 Grbl 时：S3 已烧录（`673be32`），可验证 WiFi 配网 + MCP 工具注册 + `hutuji.status` 返回（connected=false）；补断连复位重发（M2 #5）。  
 3. 本仓交接：`python scripts/agent_gate.py --profile hub`。
 
 ## 状态更新规则

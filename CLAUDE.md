@@ -45,15 +45,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**——当前待实施清单见 `docs/protocol.md` §9（keepalive + `[PaperStatus]` 路由 + `Changing` 字段，约 12 行）。**改后必跑门禁**。
 
-## 转发状态机的关键坑（protocol.md 详列）
+## 转发状态机的关键坑
 
-- **就绪探活**：Telnet 不保证连上就有 banner，故 TCP 建连后 S3 **主动发 `$I`，收到 `[VER:…]`/`[OPT:…]` 才算就绪**，此前不得发任何 G-code。banner `Grbl 1.3a ['$' for help]` 语义改为**对端复位**（欠压等）：收到就复位状态机、当前任务置 error。
-- **严格逐行流控**：发一行、等 `ok\r\n` 才发下一行，无 character-counting，禁止预发抢跑。换纸行的 ok 可能阻塞 ≥60s，期间禁发 G0–G3（回 `error:8`）。
-- **单写者铁律**：`is_realtime_command` 只认 `0x18`/`?`/`~`/`!`（走旁路不吃 ok）；`M704`/`[ESP901]` 是**普通命令、进 client_buffer 吃一个 `ok`**——出图中发它们会**打乱 ok 配对**。故出图中 status **只发 `?`**；且 S3 侧任何时刻**只允许一个逻辑往 Telnet 写字节**（draw 转发与 status 查询必须串行化，否则字节在 TCP 流里交错拼成乱码行）。
-- **Telnet 独占**：`MAX_TLNT_CLIENTS=1` 是固件硬上限。PC telnet 与 S3 **互斥**，PC 观测一律走 CH340 串口。
-- **先下完再落笔**：全量下载 + 长度/CRC32 校验 + 授权门**全部通过后**才发第一个字节（防「静默半成品纸」）。重发用 PSRAM 缓存，**不重新下载**（URL 可短时效）。
-- **授权前置**：未授权芯片 G0–G3 全回 `error:110`（只拦 G0–G3，`$I`/`M...` 照常）；`draw` 开画前查授权门。S3 不自动授权、不自动 `$X` 解锁、不在换纸开始 8s 窗口内发 `0x18`。
-- **abort 不是急停**：换纸一旦启动**物理上打不断**（`0x18` 被吞且 ignored 回执只发 SERIAL）。abort 分状态：换纸中诚实回报「无法即停、完成后即停」，不硬发 `0x18`。
+详见 `docs/protocol.md`（v0.5）。摘要：逐行流控（一行一 ok，无 character-counting）、单写者（出图中只发 `?`，不发 M 命令）、Telnet 独占（`MAX_TLNT_CLIENTS=1`）、先下完再落笔（全量下载 + CRC32 + 授权门 → 才发第一字节）、abort ≠ 急停（换纸物理上打不断）。改转发逻辑前**必读原文**。
 
 ## 硬规则
 
@@ -66,34 +60,73 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 构建与测试
 
-本仓库已有可构建的 `mcp-server/`（③）。权威状态见 `docs/release-readiness.md`。
+Python ≥3.12（当前 3.13）。无 linter/formatter 配置（无 ruff/black/mypy）。无 `pyproject.toml`，纯 `requirements.txt` + 手动 venv。权威状态见 `docs/release-readiness.md`。
 
-- **本仓门禁（推荐入口）**：仓库根 `python scripts/agent_gate.py` → `results/hutuji_gate_last.md`
-  - `--profile docs`（仅文档一致性）/ `hub`（默认，含 MCP pytest + e2e）/ `full`（追加 Grbl §9 源码标记）
-  - `full` 的坑：**`GRBL_ROOT` 未设时 §9 层是 skip 而非 fail**，overall 照样 pass 却什么都没查。改了 Grbl 必须 `set GRBL_ROOT=D:\Users\Grbl_Esp32` 再跑，且另跑 fz
-- **③ MCP（本仓）**：在 `mcp-server/` 执行（`.venv` 已 gitignore，新克隆需先 `python -m venv .venv`，否则门禁 pytest/e2e 层直接 fail）
-  - `.venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt`
-  - `.venv/Scripts/python -m pytest -q`（契约/注入/限流等）
-  - 单个测试：`.venv/Scripts/python -m pytest tests/test_injection.py -q`；单条用例加 `-k <名字>`
-  - `.venv/Scripts/python scripts/e2e_local.py`（须输出 `PASS`；无硬件闭环 = `grbl_sim` 假 Grbl:2323 ← `pipe_sim` 模拟 S3 转发 ← 测试 SVG）
-  - 起服务：`.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300`（**`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`。生产用 systemd，已显式带 `--host`）；单独起假 Grbl 调转发：`python -m hutuji_mcp.grbl_sim`
-  - 关键环境变量（全表见 `mcp-server/README.md`）：`HUTUJI_LLM_API_KEY`（未配置时 `hutuji_draw` 报错）、`HUTUJI_LLM_BASE_URL`/`_MODEL`、`HUTUJI_PUBLIC_BASE_URL`（返回给 S3 的下载前缀）、`HUTUJI_OUTPUT_TTL_SECONDS`（默认 600，过期下载 404）
-  - 公网只经 nginx 暴露 `/files/`；`/mcp` 在 `deploy/nginx-hutuji.conf` 里显式 404，安全组不放行 8300
-  - 小智云工具发现：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）
-- **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建 `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
-  - **版本用 v6.0.1，不是 6.0.2/5.5.2**：`lichuang-dev` 在 xiaozhi `docs/esp-idf-6-migration.md`（板级矩阵行）记为 **IDF 6.0.1 full build passed**——那才是这块板实测过的版本。README 首选 6.0.2、5.5.2 仅留 legacy 板，都不是本板依据。
-  - **IDF 已在本机，别重装（省 2–4GB）**：源码 `C:\Users\zhugu\.espressif\v6.0.1\v6.0.1\esp-idf`（`git describe`=v6.0.1，子模块完整），工具链 `C:\Espressif`（含 S3 的 `xtensa-esp-elf`）。`C:\Users\zhugu\.espressif` 是指向 `D:\zhugu-home\.espressif` 的**符号链接**，直接 `du` 会看到 0 字节，别据此判断"没装"。
-  - **缺的只有 Python venv，且 Git Bash 装不了**：`export.sh` 报找不到 `idf6.0_py3.13_env` 时，须在 **PowerShell** 跑 `$env:IDF_PATH="…\esp-idf"; .\install.ps1 esp32s3`。在 Git Bash / MSys 下跑 `idf_tools.py install-python-env` 会被 IDF 直接拒（`ERROR: MSys/Mingw is not supported`）；**用 `timeout` 包装会把这个 exit=1 吞成 0**，看起来"装好了"其实没建 venv。
-- **串口识别别靠芯片名猜**：实战派 S3 板载 CH334F HUB + CH340K 做 UART 桥，故 **S3 会以 `USB-SERIAL CH340K` 枚举**，同时它的原生 USB 口报 `USB JTAG/serial debug unit`——**两个口可能都是同一块 S3**。「CH340 是写字机最全诊断口」不能反推「CH340 就是写字机」。判定一律看**被动串口日志自证**（S3 会打 `Project name: xiaozhi` + `octal_psram` + `GPIO 44/43 console UART`），不要为读芯片 ID 去 `esptool chip_id`（会把板拉进 bootloader，打断运行中的固件）。
-- **京东云**：`deploy/` + `docs/deployment.md`。**2026-07-26 实机已上**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx（80/443 `/files`）；llm7 出图；本机 `tools/call` 已通。正式 TLS / App 对话验收 / 设备链仍缺。权威进度见 `docs/release-readiness.md`。
-  - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 是 rsync/scp 铺上去的，**没有 `.git`**（`deploy/README.md` 说的「git clone / rsync」二选一，实机选了后者）。改完推具体文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
-  - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py`（可用）与直接 import 校验函数实测；别指望在机上跑 pytest。
-  - 改动前先备份被覆盖的文件（本轮放在 `/root/hutuji_rollback_<时间戳>/`），重启后跑 `deploy/preflight.sh`（应 8/8）+ 公网复验 `/mcp` 须 404、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**——后者在 Git Bash 下对不可达端口会假阳性报「可达」。
+### 从零搭建（新克隆）
+
+```bash
+cd mcp-server
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
+```
+
+`.venv` 已 gitignore；**未建 venv 则门禁 pytest/e2e 层直接 fail**。
+
+### 常用命令（均在 `mcp-server/` 下执行）
+
+| 场景 | 命令 |
+|------|------|
+| 全量测试 | `.venv/Scripts/python -m pytest -q` |
+| 单文件 | `.venv/Scripts/python -m pytest tests/test_injection.py -q` |
+| 单用例 | `.venv/Scripts/python -m pytest -k <名字> -q` |
+| e2e 闭环 | `.venv/Scripts/python scripts/e2e_local.py`（须输出 `PASS`） |
+| 起开发服务 | `.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300` |
+| 起假 Grbl | `.venv/Scripts/python -m hutuji_mcp.grbl_sim` |
+
+> **`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`。
+
+### 本仓门禁
+
+仓库根执行 `python scripts/agent_gate.py` → `results/hutuji_gate_last.md`
+
+| Profile | 内容 |
+|---------|------|
+| `docs` | 仅文档锚点/一致性检查 |
+| `hub`（默认） | `docs` + pytest + e2e |
+| `full` | `hub` + Grbl §9 源码标记（需 `GRBL_ROOT`；**未设时 §9 层 skip 而非 fail**，overall 假绿） |
+
+### 环境变量
+
+关键变量（全表见 `mcp-server/README.md`）：`HUTUJI_LLM_API_KEY`（未配置时 `hutuji_draw` 报错）、`HUTUJI_LLM_BASE_URL`/`_MODEL`、`HUTUJI_PUBLIC_BASE_URL`（返回给 S3 的下载前缀）、`HUTUJI_OUTPUT_TTL_SECONDS`（默认 600）。配置全走环境变量，**无 `.env` 文件**。
+
+### 网络安全
+
+公网只经 nginx 暴露 `/files/`；`/mcp` 在 `deploy/nginx-hutuji.conf` 里显式 404，安全组不放行 8300。小智云工具发现冒烟：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）。
+
+### ② S3 固件补丁（不在本仓构建）
+
+在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建 `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
+
+- **版本用 v6.0.1，不是 6.0.2/5.5.2**：`lichuang-dev` 在 xiaozhi `docs/esp-idf-6-migration.md`（板级矩阵行）记为 **IDF 6.0.1 full build passed**——那才是这块板实测过的版本。
+- **IDF 已在本机，别重装（省 2–4GB）**：源码 `C:\Users\zhugu\.espressif\v6.0.1\v6.0.1\esp-idf`，工具链 `C:\Espressif`。`C:\Users\zhugu\.espressif` 是指向 `D:\zhugu-home\.espressif` 的**符号链接**，`du` 显示 0 字节不代表"没装"。
+- **缺的只有 Python venv，且 Git Bash 装不了**：须在 **PowerShell** 跑 `$env:IDF_PATH="…\esp-idf"; .\install.ps1 esp32s3`。Git Bash / MSys 下 IDF 直接拒绝（`ERROR: MSys/Mingw is not supported`）。
+
+### 串口识别
+
+实战派 S3 板载 CH334F HUB + CH340K 做 UART 桥，故 **S3 会以 `USB-SERIAL CH340K` 枚举**——「CH340 是写字机最全诊断口」不能反推「CH340 就是写字机」。判定一律看**被动串口日志自证**（S3 打 `Project name: xiaozhi`），不要用 `esptool chip_id`（会打断运行中固件）。
+
+### 京东云部署
+
+`deploy/` + `docs/deployment.md`。**2026-07-26 实机已上**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx（80/443 `/files`）。权威进度见 `docs/release-readiness.md`。
+
+- **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
+- **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
+- 改动前先备份，重启后跑 `deploy/preflight.sh`（应 8/8）+ 公网复验 `/mcp` 须 404、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
 
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 M2 **代码已写未构建/未烧录**（xiaozhi `feat/hutuji-usb-pipe`：`hutuji_job.*` + Pipe `WaitResponse`；说明 `firmware/m1-usb-pipe.md`）。断连复位重发仍缺。Grbl §9 源码+fz 绿、**未烧录实机**。
+2. **② 哑管道** — 🟡 M2 **已构建烧录实机**（xiaozhi `673be32`：IDF 6.0.1 构建通过，MCP 工具 `hutuji.status/draw/abort` 注册 OK，Pipe 等 lwip 就绪+指数退避重连正常）。断连复位重发仍缺。**缺 Grbl 写字机联调**。Grbl §9 源码+fz 绿、**未烧录实机**。
 3. **③ 智能端** — 🟡 京东云 MCP+桥接已常驻；llm7；知识库文稿已上传控制台。缺：设备在线后的端到端语音、正式 TLS。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 
@@ -101,5 +134,5 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 约定
 
-- 修改项目结构、约定或工作流后，同步更新本文件、`README.md`、`AGENTS.md`、`docs/agent-gate.md`。
+- 修改项目结构、约定或工作流后，同步更新本文件、`README.md`、`AGENTS.md`、`docs/agent-gate.md`，以及 `.cursor/rules/hutuji-agent-rails.mdc`（`alwaysApply` 硬轨，与本文件的「禁止重开 / 禁乱改 / 门禁 / 默认下一刀」同源，改口径时勿漏）。
 - 项目记忆/决策日志：`C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md`。

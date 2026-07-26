@@ -24,7 +24,7 @@
 |------|----------|------|----------|
 | hutuji（本仓库） | `D:/Users/hutuji` | 枢纽：MCP + 协议 + 文档 + 京东云 deploy + 本仓门禁 | ① 闭环；③ **京东云已上**（mcp+bridge+nginx，llm7）；见 `release-readiness.md` |
 | Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`；§9 已提交+fz 绿、**未烧录**（禁口头「§9 完成」） |
-| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe`；M2 **已提交、未 IDF 构建/未烧录** |
+| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe` `673be32`；M2 **已 IDF 6.0.1 构建+烧录实机**（MCP 工具注册 OK，Pipe 指数退避重连正常；缺 Grbl 联调） |
 
 ## 已锁定的架构决策（与根 `README.md` 同编号）
 
@@ -59,7 +59,7 @@
 ## 开发约定
 
 - 文档与注释用**中文**。
-- 路线图：① 仓库奠基 → ② S3 哑管道 → ③ MCP+云端 → ④ 小批量商业出货。当前：①✅；② M2 代码🟡、构建/实机🔴；③ 京东云常驻🟡（缺正式 TLS / 设备端到端）；④🔴。真值页：`docs/release-readiness.md`。
+- 路线图：① 仓库奠基 → ② S3 哑管道 → ③ MCP+云端 → ④ 小批量商业出货。当前：①✅；② M2 已构建烧录🟡（缺 Grbl 联调）；③ 京东云常驻🟡（缺正式 TLS / 设备端到端）；④🔴。真值页：`docs/release-readiness.md`。
 - 修改项目结构、约定或工作流后，同步更新本文件与 `README.md`、`CLAUDE.md`、`docs/agent-gate.md`。
 - 生产落点仅京东云 `117.72.118.95`；部署见 `docs/deployment.md` 与 `deploy/`。
 - 批次模板路径：`docs/templates/`（勿写成仓库根下的 `templates/`）。
