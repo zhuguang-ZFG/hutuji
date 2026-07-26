@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" viewBox="0 0 190 190">
+<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" viewBox="0 0 190 277">
   <!-- 五角星（单线连续笔画），e2e 闭环测试用，避免依赖 LLM -->
-  <polyline points="95,15 142.02,159.72 18.92,70.28 171.08,70.28 47.98,159.72 95,15"
+  <polyline points="95,58.5 142.02,203.22 18.92,113.78 171.08,113.78 47.98,203.22 95,58.5"
             fill="none" stroke="black" stroke-width="0.5"/>
 </svg>

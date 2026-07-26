@@ -312,9 +312,9 @@ def test_gcode_accepts_legit_lines(line: str) -> None:
 # 圆弧：端点在界内不代表整条弧在界内——弧中途会凸到象限点。
 # 每例都先用 G0 给出起点，否则校验器会以「起点未知」拒绝。
 def test_arc_bulge_outside_limit_is_rejected() -> None:
-    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=195 > 190。
+    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=280 > 277。
     只看端点会放行这条弧，实机就是撞机。"""
-    text = _minimal_gcode("G0 X100 Y185\nG2 X120 Y185 I10 J0\n")
+    text = _minimal_gcode("G0 X100 Y270\nG2 X120 Y270 I10 J0\n")
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)
 
@@ -350,7 +350,7 @@ def test_arc_with_inconsistent_radius_is_rejected() -> None:
 
 def test_near_full_circle_arc_checks_all_quadrants() -> None:
     """#8 浮点精度：起终点几乎重合的圆弧应按整圆算包围盒，不能退化为点。
-    圆心 (100,100)，半径 95 → 圆顶 Y=195 > 190，必须拦住。"""
+    圆心 (100,100)，半径 95 → X 最大 195 > 190（X 限幅），必须拦住。"""
     text = _minimal_gcode("G0 X100 Y5\nG2 X100.0001 Y5 I0 J95\n")
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(text)
@@ -362,9 +362,15 @@ def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:
         validate_gcode(_minimal_gcode("G1 X190.5 Y5\n"))
 
 
-def test_coordinate_at_190mm_passes() -> None:
-    """190.0mm 恰好在界内。"""
-    validate_gcode(_minimal_gcode("G1 X190 Y190\n"))
+def test_coordinate_at_boundary_passes() -> None:
+    """X=190 和 Y=277 恰好在各自界内。"""
+    validate_gcode(_minimal_gcode("G1 X190 Y277\n"))
+
+
+def test_y_over_277mm_rejected() -> None:
+    """Y=277.5 超出 Y 轴限幅 277mm。"""
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(_minimal_gcode("G1 X5 Y277.5\n"))
 
 
 def test_mid_file_g91_is_rejected() -> None:

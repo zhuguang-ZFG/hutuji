@@ -1,7 +1,7 @@
 """调 OpenAI 兼容 LLM 生成单线笔画 SVG。
 
 写字机画的是"笔画"不是"填充"。prompt 强制模型只输出 path/line/polyline
-的描线图形，并限制在 190×190mm 画布内。**LLM 输出不可信**：`_validate_svg`
+的描线图形，并限制在 A4 画布内（X短Y长）。**LLM 输出不可信**：`_validate_svg`
 在标签+属性两层做确定性白名单，是本模块的主防线（见 mcp-server README 组 1/2）。
 """
 from __future__ import annotations
@@ -14,7 +14,9 @@ import httpx
 from .config import settings
 
 # 画布与 system prompt（单线笔画约束是本模块的核心）
-CANVAS_MM = 190
+# A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
+CANVAS_X_MM = 190
+CANVAS_Y_MM = 277
 
 # description 输入侧缓解：字数上限 + 剥控制字符（辅助防线，不当主防线）
 _DESCRIPTION_MAX_CHARS = 200
@@ -25,7 +27,7 @@ SYSTEM_PROMPT = f"""你是写字机「单线笔画」SVG 生成器。根据用�
 
 硬性要求：
 1. 只输出一个 <svg> 文档；不要解释、不要 Markdown 代码块、不要 XML 声明以外的废话。
-2. 画布：width="{CANVAS_MM}mm" height="{CANVAS_MM}mm" viewBox="0 0 {CANVAS_MM} {CANVAS_MM}"；内容居中，四周至少留约 10 的边距；坐标必须在 0~{CANVAS_MM}。
+2. 画布：width="{CANVAS_X_MM}mm" height="{CANVAS_Y_MM}mm" viewBox="0 0 {CANVAS_X_MM} {CANVAS_Y_MM}"；内容居中，四周至少留约 10 的边距；X 坐标 0~{CANVAS_X_MM}，Y 坐标 0~{CANVAS_Y_MM}。
 3. **只能用 <path>、<line>、<polyline>**（可用 <g> 分组）；禁止 circle/rect/ellipse/polygon/text/image 等。
    圆弧与曲线用 path 的 A/C/Q 命令描出。
 4. 只描边：fill="none"，stroke="black"，stroke-width 在 0.3~1；stroke-linecap="round" 优先。

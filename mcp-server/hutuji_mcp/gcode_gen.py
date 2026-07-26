@@ -17,8 +17,9 @@ from pathlib import Path
 
 _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 
-# 坐标限幅：机器 200×200 软限位关，生成端限 190×190 留边距（容忍微小浮点越界）
-MAX_MM = 190.0
+# 坐标限幅：A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
+MAX_X_MM = 190.0
+MAX_Y_MM = 277.0
 _EPS = 0.01
 
 # 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；恰好 512KiB 放行，再多一字节才拒）
@@ -253,12 +254,13 @@ def validate_gcode(text: str) -> GcodeStats:
             if abs(xy.get("X", 1.0)) < _EPS and abs(xy.get("Y", 1.0)) < _EPS:
                 raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
 
-        # 坐标限幅 190×190mm（软限位关闭，越界撞机不报错）。
+        # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。
         # G2/G3 圆弧同样产生实际位移，必须一起限幅。
         if codes & {"G0", "G1", "G2", "G3"}:
             for axis, val in coords:
-                if val < -_EPS or val > MAX_MM + _EPS:
-                    raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{MAX_MM}mm）：{line}")
+                limit = MAX_X_MM if axis == "X" else MAX_Y_MM
+                if val < -_EPS or val > limit + _EPS:
+                    raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{limit}mm）：{line}")
 
         # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
         # 需要起点，故逐行跟踪当前位置；G90 绝对坐标下省略的轴沿用上一个值。
@@ -275,10 +277,11 @@ def validate_gcode(text: str) -> GcodeStats:
                 clockwise="G2" in codes,
             )
             for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
-                if lo < -_EPS or hi > MAX_MM + _EPS:
+                limit = MAX_X_MM if label == "X" else MAX_Y_MM
+                if lo < -_EPS or hi > limit + _EPS:
                     raise GcodeError(
                         f"第 {idx} 行圆弧 {label} 包围盒 [{lo:.3f}, {hi:.3f}] "
-                        f"越界（限幅 0~{MAX_MM}mm）：{line}"
+                        f"越界（限幅 0~{limit}mm）：{line}"
                     )
 
         # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）
