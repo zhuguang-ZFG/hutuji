@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-27（A4 画布限幅 + Grbl 行程参数 + Cloudflare Tunnel HTTPS）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-27（坐标原点验证 + Telnet 流控 8/8 + 串口画星 + $120 恢复出厂）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 
@@ -23,17 +23,19 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | Grbl §9 加固 | ✅ 已烧录+实机验证 | Grbl `e7f373f`（§9 keepalive 改 setsockopt 修编译）；fz `standard` **overall=pass**；**实机验证（2026-07-27）**：COM3 烧录 OK → WiFi STA ChinaNet-jJmz 信号 100% IP=192.168.1.13 → Telnet:23 连通收 banner+`?`状态 → `[ESP901]` 返回 `Paper=No Changing=Off` → §9-A keepalive/§9-B ESP901/§9-C Changing 字段均通过 | bringup 阶段 2（换纸中 `Changing=On` 验证须有纸）；S3 Telnet 联调 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
 | S3 M2 哑管道 | ✅ Telnet 联调通过 + 连接优化 | xiaozhi `414bb04`（IDF 6.0.1）：Telnet 联调首次通过（2026-07-27）；**连接优化**：去掉 mDNS（阻塞 7-60s）+ NVS IP 缓存（命中 2s 超时）+ 非阻塞 connect + DHCP 门控 → 冷启 ~10s 连通；双端 TCP keepalive（10s+3×3s≈19s 发现死连）；MCP 工具 hutuji.status/draw/abort 注册 OK | 逐行流控验证（发 G-code 看 ok 计数）；断连复位重发；端到端语音出图 |
-| 写字机实机 | 🟡 阶段 0 通电+WiFi+Telnet+行程参数 | MK38 板；COM3 CH340；WiFi STA IP=192.168.1.13；Telnet:23 连通；`[ESP901]` OK；`[License] Authorized`；**`$130=210 $131=297`（A4 行程已设）**；无限位开关（$20/$22 不能开，MCP 端限幅兜底）（2026-07-27） | 坐标原点验证（G0 X50 Y50 确认方向）；阶段 1–2（出图/换纸）；7–8 真实记录 |
+| 写字机实机 | 🟡 阶段 1 流控已验证 | MK38 板；COM3 CH340；WiFi STA IP=192.168.1.13；Telnet:23 连通；`[ESP901]` OK；`[License] Authorized`；**`$130=210 $131=297`（A4 行程已设）**；`$120=3000`（X 加速度已恢复出厂）；无限位开关（$20/$22 不能开，MCP 端限幅兜底）；**坐标原点已验证（2026-07-27）**：左下角死点=(0,0)，X+向右 Y+向前，$3 不需改，手动推死点归零；换纸自动触发正常；**Telnet 逐行流控 8/8 ok**；串口画五角星 G-code 14 行执行完成（M3/M5 笔控正确，落笔待确认纸面效果） | 阶段 2（落笔出图确认/换纸）；S3 Pipe 端到端；7–8 真实记录 |
 | 京东云生产环境 | ✅ HTTPS 已通 | MCP+bridge+nginx+**Cloudflare Tunnel**；llm7；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；Let's Encrypt 证书（ESP-IDF cert bundle 信任）；preflight 8/8（2026-07-27）；安全审计 11 项全修已部署 | App 对话验收；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
 
-1. **坐标原点验证**：发 `G0 X50 Y50 F3000` 确认笔头方向和原点位置，决定是否需要 `G92` 设零。
-2. **逐行流控验证**：通过 Pipe 发几行 G-code，确认 ok 逐行返回、S3 计数正确。
-3. **阶段 1–2 bringup**：手动 G-code 出图 → 换纸触发 `Changing=On` 验证。
-3. **端到端语音出图**：App 语音 → 小智云 → MCP 生成 → S3 下载 → Pipe 转发 → Grbl 画。
-4. 本仓交接：`python scripts/agent_gate.py --profile hub`。
+1. ~~**坐标原点验证**~~：✅ 已验证（2026-07-27）——左下角死点=(0,0)，X+右 Y+前，方向正确。
+2. ~~**Telnet 逐行流控**~~：✅ PC 直连 Telnet 8/8 ok（2026-07-27）。S3 Pipe 端到端待验。
+3. **落笔出图确认**：串口 G-code 已执行（XY 运动正常），需确认纸面有笔迹（Z 轴 M3→5mm 行程是否够触纸）。
+4. **S3 Pipe 端到端**：S3 下载 G-code → Telnet 转发 → ok 计数。
+5. **换纸 `Changing=On` 验证**：有纸时触发换纸，`[ESP901]` 返回 `Changing=On`。
+6. **端到端语音出图**：App 语音 → 小智云 → MCP 生成 → S3 下载 → Pipe 转发 → Grbl 画。
+7. 本仓交接：`python scripts/agent_gate.py --profile hub`。
 
 ## 状态更新规则
 
