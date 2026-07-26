@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-26（安全审计 11 项全修 + code review 7 项修复 + VPS 部署）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-27（Grbl §9 实机烧录验证 + WiFi/Telnet 联通）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 
@@ -20,17 +20,17 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | MCP 本地服务 | ✅ 自动化通过 | pytest；`e2e_local.py` PASS（经本仓门禁 `hub`） | 在发布 commit 上重跑并归档输出 |
 | MCP 安全基础 | ✅ 代码/测试/VPS 部署均通过 | CRC32、512KiB、SVG 白名单（256KB 上限+64 层深度限制）、TTL、限流、localhost；stderr/status 脱敏（不泄露绝对路径）；§5 M-code 黑名单；TOCTOU 竞态修复（Response 内存发送+status glob _safe_mtime）；SVG+gcode 孤文件清理（svg_to_gcode 和 validate_gcode 失败均清理）；Content-Disposition attachment；坐标容差对称（±0.01mm）；圆弧整圆浮点精度修复；grbl_sim 绑 127.0.0.1；**G-code 注释剥离（`;`后 X/Y 不再误拒）**。**安全审计 11 项 + code review 7 项全修**（2026-07-26，84 条测试，门禁 pass） | ✅ 已部署 VPS（2026-07-26）：preflight 8/8；HTTPS 301 跳转生效；`/mcp` 404；8300 不可达 |
 | 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC；**智能体已配**：DeepSeek V4 + 角色提示(few-shot) + 知识库(召回OK) + 助手名=呼图机（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
-| Grbl §9 加固 | 🟡 已提交+fz 绿、未烧录实机 | Grbl `cdf923f`（§9+`*Core.h`+AGENTS）；fz `4c26bbc` 契约对齐；fz `standard` 曾 **overall=pass**（2026-07-26） | **烧录** + bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
+| Grbl §9 加固 | ✅ 已烧录+实机验证 | Grbl `e7f373f`（§9 keepalive 改 setsockopt 修编译）；fz `standard` **overall=pass**；**实机验证（2026-07-27）**：COM3 烧录 OK → WiFi STA ChinaNet-jJmz 信号 100% IP=192.168.1.13 → Telnet:23 连通收 banner+`?`状态 → `[ESP901]` 返回 `Paper=No Changing=Off` → §9-A keepalive/§9-B ESP901/§9-C Changing 字段均通过 | bringup 阶段 2（换纸中 `Changing=On` 验证须有纸）；S3 Telnet 联调 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
 | S3 M2 哑管道 | 🟡 已构建烧录+配网验证、未联调 Grbl | xiaozhi `69cd8d9`（IDF 6.0.1）：暗色主题强制+图灵风格机器人眼睛（三层辉光/虹膜/脉动轨道/HUD）+眨眼频率 2~6s；屏幕文案「呼图机」品牌化；出图进度显示；WiFi 配网实测 OK（ChinaNet-jJmz IP=192.168.1.12）；MCP 工具注册 OK；Pipe 指数退避正常；**code review：canvas_ 析构修复+frame_ 死变量移除** | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
-| 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
+| 写字机实机 | 🟡 阶段 0 通电+WiFi+Telnet 验证 | MK38 板 ChipID=0000FC7742C63C94；COM3 CH340（VID:1A86 PID:7523）；WiFi STA IP=192.168.1.13；Telnet:23 连通；`[ESP901]` OK；`[License] Authorized`（2026-07-27） | 阶段 1–2（归零/换纸/出图）、7–8 真实记录 |
 | 京东云生产环境 | 🟡 安全补丁已部署、待对话验收 | MCP+bridge+nginx；llm7；`tools/call` 出图 OK；80→301 HTTPS；443 `/files`；知识库已上传；**安全审计 11 项全修已部署**（2026-07-26，preflight 8/8，公网复验通过） | App 对话验收；正式 TLS；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
 
-1. 有 Grbl 写字机后：烧录 Grbl §9 → bringup 阶段 2；S3 改 `HUTUJI_PIPE_HOST` 为写字机实际 IP → 重新构建烧录 → 阶段 3+ Telnet 联调。  
-2. 无 Grbl 时：S3 已烧录+配网验证通过（`673be32`，WiFi=ChinaNet-jJmz，MQTT 连通，MCP 工具注册 OK，Pipe 指数退避正常）；补断连复位重发（M2 #5）。  
+1. **S3 Telnet 联调**：S3 的 `HUTUJI_PIPE_HOST` 改为 `192.168.1.13` → 重新构建烧录 → 验证 Pipe TCP 连通 + `?` 状态查询 + `[ESP901]` 换纸轮询。
+2. **阶段 1–2 bringup**：归零（`$H`）→ 手动 G-code 出图 → 换纸触发 `Changing=On` 验证。
 3. 本仓交接：`python scripts/agent_gate.py --profile hub`。
 
 ## 状态更新规则
