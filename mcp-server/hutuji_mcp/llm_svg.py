@@ -74,12 +74,16 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].lower()
 
 
+MAX_SVG_BYTES = 256 * 1024
+
 def _extract_svg(text: str) -> str:
     """从模型回复中提取 <svg…</svg>，容忍代码块包裹与前后废话。"""
     match = _SVG_RE.search(text)
     if not match:
         raise LlmError(f"LLM 回复中未找到 <svg> 内容：{text[:200]}...")
     svg = match.group(0)
+    if len(svg.encode("utf-8")) > MAX_SVG_BYTES:
+        raise LlmError(f"SVG 大小 {len(svg.encode('utf-8'))} 字节超上限 {MAX_SVG_BYTES}（256KB）")
     _validate_svg(svg)
     return svg
 
@@ -125,16 +129,18 @@ def _validate_svg(svg: str) -> None:
             if "url(" in attr_val.lower():
                 raise LlmError(f"禁用 URL 属性值 {attr_local}（<{local}>）")
 
-    def check_effective_fill(elem: ET.Element, inherited_fill: str | None) -> None:
-        """SVG 默认 fill=black；每个绘图元素的有效 fill 必须显式继承/设置为 none。"""
+    _MAX_DEPTH = 64
+    stack: list[tuple[ET.Element, str | None, int]] = [(root, None, 0)]
+    while stack:
+        elem, inherited_fill, depth = stack.pop()
+        if depth > _MAX_DEPTH:
+            raise LlmError(f"SVG 嵌套深度超过 {_MAX_DEPTH} 层")
         fill = elem.attrib.get("fill", inherited_fill)
         local = _local_name(elem.tag)
         if local in {"path", "line", "polyline"} and (fill or "").lower() != "none":
             raise LlmError(f"<{local}> 的有效 fill 必须为 none")
         for child in elem:
-            check_effective_fill(child, fill)
-
-    check_effective_fill(root, None)
+            stack.append((child, fill, depth + 1))
 
 
 def _sanitize_description(description: str) -> str:

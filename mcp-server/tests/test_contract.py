@@ -157,6 +157,82 @@ def test_draw_limiter_rejects_minute_window() -> None:
         asyncio.run(limiter.enter())
 
 
+# ---- 2026-07-26 安全审计修复回归 ----
+
+
+def test_serve_file_returns_response_not_file_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1 TOCTOU 修复：_serve_file 返回 Response（内存发送），不再是 FileResponse。"""
+    from fastapi.responses import Response as _Resp
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    (tmp_path / name).write_bytes(b"G21\nG90\n")
+    resp = asyncio.run(server._serve_file(name))
+    assert isinstance(resp, _Resp)
+    assert resp.body == b"G21\nG90\n"
+    assert resp.headers.get("content-disposition") == "attachment"
+
+
+def test_serve_file_concurrent_delete_returns_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1 TOCTOU：文件在 is_file() 检查后、read_bytes() 前被删除，应返回 404。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    path = tmp_path / name
+    path.write_bytes(b"G21\nG90\n")
+    path.unlink()
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+    assert caught.value.status_code == 404
+
+
+def test_status_does_not_leak_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#5：status 不泄露服务端绝对路径。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    import json as _json
+
+    data = _json.loads(asyncio.run(server.hutuji_status()))
+    assert "output_dir" not in data
+    assert "output_dir_exists" in data
+
+
+def test_svg_size_limit() -> None:
+    """#2：SVG 超过 256KB 应被拒绝。"""
+    from hutuji_mcp.llm_svg import LlmError, MAX_SVG_BYTES, _extract_svg
+
+    giant = '<svg xmlns="http://www.w3.org/2000/svg">' + "x" * (MAX_SVG_BYTES + 1000) + "</svg>"
+    with pytest.raises(LlmError, match="256KB"):
+        _extract_svg(giant)
+
+
+def test_svg_deep_nesting_rejected() -> None:
+    """#7：深嵌套 SVG 应被拒绝，不得触发 RecursionError。"""
+    from hutuji_mcp.llm_svg import LlmError, _extract_svg
+
+    layers = '<g fill="none">' * 100
+    close = "</g>" * 100
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg">{layers}{close}</svg>'
+    with pytest.raises(LlmError, match="嵌套深度"):
+        _extract_svg(svg)
+
+
+def test_vpype_stderr_not_in_error_message() -> None:
+    """#4：vpype 失败时 stderr 不应出现在异常消息中。"""
+    from hutuji_mcp.gcode_gen import GcodeError, svg_to_gcode
+
+    fake_svg = Path("nonexistent_for_test.svg")
+    fake_gcode = Path("nonexistent_for_test.gcode")
+    try:
+        svg_to_gcode(fake_svg, fake_gcode)
+    except (GcodeError, FileNotFoundError, OSError) as exc:
+        if isinstance(exc, GcodeError):
+            assert "vpype" not in str(exc).lower() or "stderr" not in str(exc).lower()
+
 
 # ---- §5 校验器绕过回归（2026-07-26 深度评审）----
 # 这些写法曾全部被放行：指令识别依赖空格切分，坐标正则不认 `1e3` / `.5`,

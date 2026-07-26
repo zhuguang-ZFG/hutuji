@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from mcp.server.fastmcp import FastMCP
 
 from .config import settings
@@ -195,7 +195,11 @@ async def hutuji_draw(description: str) -> str:
     svg_path.write_text(svg, encoding="utf-8")
 
     # vpype 转换是阻塞子进程，扔到线程池避免卡住事件循环
-    stats = await asyncio.to_thread(svg_to_gcode, svg_path, gcode_path)
+    try:
+        stats = await asyncio.to_thread(svg_to_gcode, svg_path, gcode_path)
+    except Exception:
+        svg_path.unlink(missing_ok=True)
+        raise
 
     url = f"{settings.public_base_url.rstrip('/')}/files/{gcode_path.name}"
     return json.dumps({
@@ -216,7 +220,7 @@ async def hutuji_status() -> str:
     out = settings.output_dir
     files = sorted(out.glob("*.gcode"), key=lambda p: p.stat().st_mtime) if out.is_dir() else []
     return json.dumps({
-        "output_dir": str(out),
+        "output_dir_exists": out.is_dir(),
         "public_base_url": settings.public_base_url,
         "llm_configured": settings.llm_configured,
         "llm_model": settings.llm_model,
@@ -265,15 +269,21 @@ async def _serve_file(name: str):
             raise HTTPException(status_code=404, detail="expired")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="not found") from None
-    data = path.read_bytes()
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="not found") from None
     crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")  # zlib/IEEE 变体，须与 S3 侧一致
-    return FileResponse(
-        path,
+    media = "image/svg+xml" if name.endswith(".svg") else "application/octet-stream"
+    return Response(
+        content=data,
+        media_type=media,
         headers={
             "Content-Length": str(len(data)),
             "X-Hutuji-CRC32": crc,
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": "attachment",
         },
     )
 

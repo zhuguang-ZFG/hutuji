@@ -155,7 +155,8 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
     proc = subprocess.run(cmd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=300)
     if proc.returncode != 0:
-        raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）：{proc.stderr[-500:]}")
+        logger.error("vpype 转换失败（exit %d）：%s", proc.returncode, proc.stderr[-500:])
+        raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）")
     text = gcode_path.read_text(encoding="utf-8")
     return validate_gcode(text)
 
