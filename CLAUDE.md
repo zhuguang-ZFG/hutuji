@@ -80,8 +80,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 关键环境变量（全表见 `mcp-server/README.md`）：`HUTUJI_LLM_API_KEY`（未配置时 `hutuji_draw` 报错）、`HUTUJI_LLM_BASE_URL`/`_MODEL`、`HUTUJI_PUBLIC_BASE_URL`（返回给 S3 的下载前缀）、`HUTUJI_OUTPUT_TTL_SECONDS`（默认 600，过期下载 404）
   - 公网只经 nginx 暴露 `/files/`；`/mcp` 在 `deploy/nginx-hutuji.conf` 里显式 404，安全组不放行 8300
   - 小智云工具发现：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）
-- **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建（IDF ≥5.5.2，仓要求 v6.0.2）：
-  `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
+- **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建 `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
+  - **版本用 v6.0.1，不是 6.0.2/5.5.2**：`lichuang-dev` 在 xiaozhi `docs/esp-idf-6-migration.md`（板级矩阵行）记为 **IDF 6.0.1 full build passed**——那才是这块板实测过的版本。README 首选 6.0.2、5.5.2 仅留 legacy 板，都不是本板依据。
+  - **IDF 已在本机，别重装（省 2–4GB）**：源码 `C:\Users\zhugu\.espressif\v6.0.1\v6.0.1\esp-idf`（`git describe`=v6.0.1，子模块完整），工具链 `C:\Espressif`（含 S3 的 `xtensa-esp-elf`）。`C:\Users\zhugu\.espressif` 是指向 `D:\zhugu-home\.espressif` 的**符号链接**，直接 `du` 会看到 0 字节，别据此判断"没装"。
+  - **缺的只有 Python venv，且 Git Bash 装不了**：`export.sh` 报找不到 `idf6.0_py3.13_env` 时，须在 **PowerShell** 跑 `$env:IDF_PATH="…\esp-idf"; .\install.ps1 esp32s3`。在 Git Bash / MSys 下跑 `idf_tools.py install-python-env` 会被 IDF 直接拒（`ERROR: MSys/Mingw is not supported`）；**用 `timeout` 包装会把这个 exit=1 吞成 0**，看起来"装好了"其实没建 venv。
+- **串口识别别靠芯片名猜**：实战派 S3 板载 CH334F HUB + CH340K 做 UART 桥，故 **S3 会以 `USB-SERIAL CH340K` 枚举**，同时它的原生 USB 口报 `USB JTAG/serial debug unit`——**两个口可能都是同一块 S3**。「CH340 是写字机最全诊断口」不能反推「CH340 就是写字机」。判定一律看**被动串口日志自证**（S3 会打 `Project name: xiaozhi` + `octal_psram` + `GPIO 44/43 console UART`），不要为读芯片 ID 去 `esptool chip_id`（会把板拉进 bootloader，打断运行中的固件）。
 - **京东云**：`deploy/` + `docs/deployment.md`。**2026-07-26 实机已上**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx（80/443 `/files`）；llm7 出图；本机 `tools/call` 已通。正式 TLS / App 对话验收 / 设备链仍缺。权威进度见 `docs/release-readiness.md`。
   - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 是 rsync/scp 铺上去的，**没有 `.git`**（`deploy/README.md` 说的「git clone / rsync」二选一，实机选了后者）。改完推具体文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
   - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py`（可用）与直接 import 校验函数实测；别指望在机上跑 pytest。
