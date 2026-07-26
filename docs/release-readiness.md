@@ -19,10 +19,10 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | **三仓 agent 约束闭环** | ✅ 已建立 | `agent-constraint-matrix.md`；Grbl/xiaozhi/fz 根 `AGENTS.md` 入口；门禁校验 Grbl AGENTS 存在 | 外仓 AGENTS 变更须保持指向 hutuji；工程完成仍看下方各层 |
 | MCP 本地服务 | ✅ 自动化通过 | pytest；`e2e_local.py` PASS（经本仓门禁 `hub`） | 在发布 commit 上重跑并归档输出 |
 | MCP 安全基础 | ✅ 代码/测试通过 | CRC32、512KiB、SVG 白名单、TTL、限流、localhost；stderr/status 脱敏 | 京东云 nginx/TLS/防火墙实机验证 |
-| 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
+| 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC；**智能体已配**：DeepSeek V4 + 角色提示(few-shot) + 知识库(召回OK) + 助手名=呼图机（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
 | Grbl §9 加固 | 🟡 已提交+fz 绿、未烧录实机 | Grbl `cdf923f`（§9+`*Core.h`+AGENTS）；fz `4c26bbc` 契约对齐；fz `standard` 曾 **overall=pass**（2026-07-26） | **烧录** + bringup 阶段 2 实机（`Changing=` / Telnet `[PaperStatus]`）；**禁止**口头「§9 已完成」直至阶段 2 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
-| S3 M2 哑管道 | 🟡 已构建烧录+配网验证、未联调 Grbl | xiaozhi `673be32`：IDF 6.0.1 构建+烧录+WiFi 配网实测（ChinaNet-jJmz IP=192.168.1.12）；MCP 工具 `hutuji.status/draw/abort` 注册 OK；Pipe 等 lwip 就绪+指数退避重连正常（192.168.1.50:23 无 Grbl 预期失败）；小智激活+MQTT 连通；见 `firmware/m1-usb-pipe.md` | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
+| S3 M2 哑管道 | 🟡 已构建烧录+配网验证、未联调 Grbl | xiaozhi `673be32`→正在构建新版（UI 定制+出图进度显示）：IDF 6.0.1；屏幕文案「呼图机」品牌化；出图时显示「画画中 35% (120/340)」进度；WiFi 配网实测 OK（ChinaNet-jJmz IP=192.168.1.12）；MCP 工具注册 OK；Pipe 指数退避正常 | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
 | 写字机实机 | 🔴 零本批次证据 | 仅成熟现役固件事实与源码推导 | 阶段 0–2、7–8 真实记录 |
 | 京东云生产环境 | 🟡 桥接已连、待对话验收 | MCP+bridge+nginx；llm7；`tools/call` 出图 OK；80/443 `/files`；知识库已上传 | App 对话验收；正式 TLS；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
