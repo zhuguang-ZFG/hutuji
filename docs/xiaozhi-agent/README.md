@@ -14,6 +14,23 @@
 
 > 官方云 UI 可能改版：若找不到「知识库」，至少完成第 2、4 步；知识库文稿仍可作角色补充材料手工粘贴。
 
+## 脚本自动化（推荐）
+
+角色提示可通过 API 自动更新，免去手动粘贴：
+
+```bash
+# 1. 获取 token（一次性）：浏览器 F12 → Network → 复制 Authorization 头的 Bearer 值
+set XIAOZHI_TOKEN=eyJhbG...
+
+# 2. 查看智能体列表，记下 agent_id
+python scripts/xiaozhi_console.py list
+
+# 3. 一键同步角色提示（从 role-prompt.md 读取并推送）
+python scripts/xiaozhi_console.py sync <agent_id>
+```
+
+> 知识库文件上传暂需在控制台手动操作（API 不支持文件上传）。脚本详见 `scripts/xiaozhi_console.py`。
+
 ## 两层脑（勿混）
 
 | 层 | 谁 | 变聪明靠什么 |
