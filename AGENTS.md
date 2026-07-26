@@ -24,7 +24,7 @@
 |------|----------|------|----------|
 | hutuji（本仓库） | `D:/Users/hutuji` | 枢纽：MCP + 协议 + 文档 + 京东云 deploy + 本仓门禁 | ① 闭环；③ **京东云已上**（mcp+bridge+nginx，llm7）；见 `release-readiness.md` |
 | Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`；§9 已提交+fz 绿、**未烧录**（禁口头「§9 完成」） |
-| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe` `673be32`；M2 **已 IDF 6.0.1 构建+烧录实机**（MCP 工具注册 OK，Pipe 指数退避重连正常；缺 Grbl 联调） |
+| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe` `673be32`；M2 **已构建+烧录+配网验证**（WiFi+MQTT+MCP 工具注册 OK，Pipe 指数退避重连正常；缺 Grbl 联调） |
 
 ## 已锁定的架构决策（与根 `README.md` 同编号）
 
