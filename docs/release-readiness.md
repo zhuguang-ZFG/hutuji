@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-27（Cloudflare Tunnel HTTPS 上线 + S3 连接速度优化）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-27（A4 画布限幅 + Grbl 行程参数 + Cloudflare Tunnel HTTPS）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 
@@ -18,19 +18,20 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | **防幻觉 / 禁乱改资料** | ✅ 已建立 | `agent-anti-drift.md` + `agent-edit-allowlist.json` + `worktree-inventory.md`（门禁 docs 层校验） | 提交/丢弃脏树后更新 inventory；白名单外改动须用户点名 |
 | **三仓 agent 约束闭环** | ✅ 已建立 | `agent-constraint-matrix.md`；Grbl/xiaozhi/fz 根 `AGENTS.md` 入口；门禁校验 Grbl AGENTS 存在 | 外仓 AGENTS 变更须保持指向 hutuji；工程完成仍看下方各层 |
 | MCP 本地服务 | ✅ 自动化通过 | pytest；`e2e_local.py` PASS（经本仓门禁 `hub`） | 在发布 commit 上重跑并归档输出 |
-| MCP 安全基础 | ✅ 代码/测试/VPS 部署均通过 | CRC32、512KiB、SVG 白名单（256KB 上限+64 层深度限制）、TTL、限流、localhost；stderr/status 脱敏（不泄露绝对路径）；§5 M-code 黑名单；TOCTOU 竞态修复（Response 内存发送+status glob _safe_mtime）；SVG+gcode 孤文件清理（svg_to_gcode 和 validate_gcode 失败均清理）；Content-Disposition attachment；坐标容差对称（±0.01mm）；圆弧整圆浮点精度修复；grbl_sim 绑 127.0.0.1；**G-code 注释剥离（`;`后 X/Y 不再误拒）**。**安全审计 11 项 + code review 7 项全修**（2026-07-26，84 条测试，门禁 pass） | ✅ 已部署 VPS（2026-07-26）：preflight 8/8；HTTPS 301 跳转生效；`/mcp` 404；8300 不可达 |
+| MCP 安全基础 | ✅ 代码/测试/VPS 部署均通过 | CRC32、512KiB、SVG 白名单（256KB 上限+64 层深度限制）、TTL、限流、localhost；stderr/status 脱敏；§5 M-code 黑名单；TOCTOU 竞态修复；孤文件清理；Content-Disposition attachment；**A4 画布限幅（X≤190 Y≤277mm，四周 10mm 边距）**；圆弧包围盒校验；G-code 注释剥离。安全审计 11 项 + code review 7 项全修（85 条测试，门禁 pass） | ✅ 已部署 VPS（2026-07-27）：preflight 8/8 |
 | 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC；**智能体已配**：DeepSeek V4 + 角色提示(few-shot) + 知识库(召回OK) + 助手名=呼图机（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
 | Grbl §9 加固 | ✅ 已烧录+实机验证 | Grbl `e7f373f`（§9 keepalive 改 setsockopt 修编译）；fz `standard` **overall=pass**；**实机验证（2026-07-27）**：COM3 烧录 OK → WiFi STA ChinaNet-jJmz 信号 100% IP=192.168.1.13 → Telnet:23 连通收 banner+`?`状态 → `[ESP901]` 返回 `Paper=No Changing=Off` → §9-A keepalive/§9-B ESP901/§9-C Changing 字段均通过 | bringup 阶段 2（换纸中 `Changing=On` 验证须有纸）；S3 Telnet 联调 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
 | S3 M2 哑管道 | ✅ Telnet 联调通过 + 连接优化 | xiaozhi `414bb04`（IDF 6.0.1）：Telnet 联调首次通过（2026-07-27）；**连接优化**：去掉 mDNS（阻塞 7-60s）+ NVS IP 缓存（命中 2s 超时）+ 非阻塞 connect + DHCP 门控 → 冷启 ~10s 连通；双端 TCP keepalive（10s+3×3s≈19s 发现死连）；MCP 工具 hutuji.status/draw/abort 注册 OK | 逐行流控验证（发 G-code 看 ok 计数）；断连复位重发；端到端语音出图 |
-| 写字机实机 | 🟡 阶段 0 通电+WiFi+Telnet 验证 | MK38 板 ChipID=0000FC7742C63C94；COM3 CH340（VID:1A86 PID:7523）；WiFi STA IP=192.168.1.13；Telnet:23 连通；`[ESP901]` OK；`[License] Authorized`（2026-07-27） | 阶段 1–2（归零/换纸/出图）、7–8 真实记录 |
+| 写字机实机 | 🟡 阶段 0 通电+WiFi+Telnet+行程参数 | MK38 板；COM3 CH340；WiFi STA IP=192.168.1.13；Telnet:23 连通；`[ESP901]` OK；`[License] Authorized`；**`$130=210 $131=297`（A4 行程已设）**；无限位开关（$20/$22 不能开，MCP 端限幅兜底）（2026-07-27） | 坐标原点验证（G0 X50 Y50 确认方向）；阶段 1–2（出图/换纸）；7–8 真实记录 |
 | 京东云生产环境 | ✅ HTTPS 已通 | MCP+bridge+nginx+**Cloudflare Tunnel**；llm7；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；Let's Encrypt 证书（ESP-IDF cert bundle 信任）；preflight 8/8（2026-07-27）；安全审计 11 项全修已部署 | App 对话验收；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
 
-1. **逐行流控验证**：通过 Pipe 发几行 G-code，确认 ok 逐行返回、S3 计数正确。
-2. **阶段 1–2 bringup**：归零（`$H`）→ 手动 G-code 出图 → 换纸触发 `Changing=On` 验证。
+1. **坐标原点验证**：发 `G0 X50 Y50 F3000` 确认笔头方向和原点位置，决定是否需要 `G92` 设零。
+2. **逐行流控验证**：通过 Pipe 发几行 G-code，确认 ok 逐行返回、S3 计数正确。
+3. **阶段 1–2 bringup**：手动 G-code 出图 → 换纸触发 `Changing=On` 验证。
 3. **端到端语音出图**：App 语音 → 小智云 → MCP 生成 → S3 下载 → Pipe 转发 → Grbl 画。
 4. 本仓交接：`python scripts/agent_gate.py --profile hub`。
 

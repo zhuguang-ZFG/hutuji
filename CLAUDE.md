@@ -45,6 +45,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**——当前待实施清单见 `docs/protocol.md` §9（keepalive + `[PaperStatus]` 路由 + `Changing` 字段，约 12 行）。**改后必跑门禁**。
 
+**画布与行程安全**：A4 纸 210×297mm（X 短边 Y 长边）。MCP 生成端限幅 X≤190 Y≤277mm（四周 10mm 边距），Grbl 行程 `$130=210 $131=297`。**无限位开关**（引脚注释掉了），软限位/归零不可用，MCP 端校验是唯一安全防线。坐标原点待实机验证。
+
 ## 转发状态机的关键坑
 
 详见 `docs/protocol.md`（v0.5）。摘要：逐行流控（一行一 ok，无 character-counting）、单写者（出图中只发 `?`，不发 M 命令）、Telnet 独占（`MAX_TLNT_CLIENTS=1`）、先下完再落笔（全量下载 + CRC32 + 授权门 → 才发第一字节）、abort ≠ 急停（换纸物理上打不断）。改转发逻辑前**必读原文**。
