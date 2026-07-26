@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-27（Grbl §9 实机烧录验证 + WiFi/Telnet 联通）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-27（S3↔Grbl WiFi Telnet 哑管道首次联通）。本文是”现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 
@@ -22,16 +22,17 @@ Grbl §9（须 fz pass）、S3 M2、真实硬件联调、VPS 常驻、法规/客
 | 小智云桥接 | 🟡 工具发现+本机 call 通过 | WSS `tools/list`；本机 `tools/call hutuji_draw`→`/files`+CRC；**智能体已配**：DeepSeek V4 + 角色提示(few-shot) + 知识库(召回OK) + 助手名=呼图机（2026-07-26） | App/控制台真实对话 `tools/call`；长期重连 |
 | Grbl §9 加固 | ✅ 已烧录+实机验证 | Grbl `e7f373f`（§9 keepalive 改 setsockopt 修编译）；fz `standard` **overall=pass**；**实机验证（2026-07-27）**：COM3 烧录 OK → WiFi STA ChinaNet-jJmz 信号 100% IP=192.168.1.13 → Telnet:23 连通收 banner+`?`状态 → `[ESP901]` 返回 `Paper=No Changing=Off` → §9-A keepalive/§9-B ESP901/§9-C Changing 字段均通过 | bringup 阶段 2（换纸中 `Changing=On` 验证须有纸）；S3 Telnet 联调 |
 | S3 M1 | 🟡 已在分支 | `feat/hutuji-usb-pipe`；`firmware/m1-usb-pipe.md` | 构建/烧录 |
-| S3 M2 哑管道 | 🟡 已构建烧录+配网验证、未联调 Grbl | xiaozhi `69cd8d9`（IDF 6.0.1）：暗色主题强制+图灵风格机器人眼睛（三层辉光/虹膜/脉动轨道/HUD）+眨眼频率 2~6s；屏幕文案「呼图机」品牌化；出图进度显示；WiFi 配网实测 OK（ChinaNet-jJmz IP=192.168.1.12）；MCP 工具注册 OK；Pipe 指数退避正常；**code review：canvas_ 析构修复+frame_ 死变量移除** | Grbl 写字机联调（Telnet 连通+逐行流控）；断连复位重发仍缺 |
+| S3 M2 哑管道 | ✅ Telnet 联调通过 | xiaozhi `4485d3a`（IDF 6.0.1）：**Telnet 联调首次通过（2026-07-27）**：S3(192.168.1.12)→Grbl(192.168.1.13:23) Telnet 连通，收到 banner `Grbl 1.3a`+版本 `[VER:1.3a.20211103:]`+机型 `Custom 3-Axis HR4988`；指数退避重连正常（WiFi 未就绪时 1→2→4s）；MQTT 连通 `mqtt.xiaozhi.me`；MCP 工具 hutuji.status/draw/abort 注册 OK | 逐行流控验证（发 G-code 看 ok 计数）；断连复位重发；端到端语音出图 |
 | 写字机实机 | 🟡 阶段 0 通电+WiFi+Telnet 验证 | MK38 板 ChipID=0000FC7742C63C94；COM3 CH340（VID:1A86 PID:7523）；WiFi STA IP=192.168.1.13；Telnet:23 连通；`[ESP901]` OK；`[License] Authorized`（2026-07-27） | 阶段 1–2（归零/换纸/出图）、7–8 真实记录 |
 | 京东云生产环境 | 🟡 安全补丁已部署、待对话验收 | MCP+bridge+nginx；llm7；`tools/call` 出图 OK；80→301 HTTPS；443 `/files`；知识库已上传；**安全审计 11 项全修已部署**（2026-07-26，preflight 8/8，公网复验通过） | App 对话验收；正式 TLS；阶段 6 |
 | 生产/合规 | 🔴 未签核 | SOP + `docs/templates/` + `compliance.md` | BOM、标签、法规、开源通知、保修/售后负责人签核 |
 
 ## 当前最近一步
 
-1. **S3 Telnet 联调**：S3 的 `HUTUJI_PIPE_HOST` 改为 `192.168.1.13` → 重新构建烧录 → 验证 Pipe TCP 连通 + `?` 状态查询 + `[ESP901]` 换纸轮询。
+1. **逐行流控验证**：通过 Pipe 发几行 G-code，确认 ok 逐行返回、S3 计数正确。
 2. **阶段 1–2 bringup**：归零（`$H`）→ 手动 G-code 出图 → 换纸触发 `Changing=On` 验证。
-3. 本仓交接：`python scripts/agent_gate.py --profile hub`。
+3. **端到端语音出图**：App 语音 → 小智云 → MCP 生成 → S3 下载 → Pipe 转发 → Grbl 画。
+4. 本仓交接：`python scripts/agent_gate.py --profile hub`。
 
 ## 状态更新规则
 
