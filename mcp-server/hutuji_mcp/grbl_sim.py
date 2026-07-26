@@ -53,7 +53,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
 
 async def serve(port: int = DEFAULT_PORT) -> asyncio.AbstractServer:
-    server = await asyncio.start_server(handle_client, "0.0.0.0", port)
+    server = await asyncio.start_server(handle_client, "127.0.0.1", port)
     logger.info("grbl_sim 监听 :%d", port)
     return server
 

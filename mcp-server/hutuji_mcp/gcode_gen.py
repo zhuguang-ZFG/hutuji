@@ -109,7 +109,7 @@ def _arc_bbox(
     # 扫过的角度跨度，统一折算成 CCW 正向 [0, 2π)；起终点重合 = 整圆
     sweep = (a1 - a0) if not clockwise else (a0 - a1)
     sweep %= 2.0 * math.pi
-    if sweep == 0.0:
+    if sweep < 1e-9:
         sweep = 2.0 * math.pi
 
     xs, ys = [x0, x1], [y0, y1]
@@ -155,7 +155,8 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
     proc = subprocess.run(cmd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=300)
     if proc.returncode != 0:
-        raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）：{proc.stderr[-500:]}")
+        logger.error("vpype 转换失败（exit %d）：%s", proc.returncode, proc.stderr[-500:])
+        raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）")
     text = gcode_path.read_text(encoding="utf-8")
     return validate_gcode(text)
 
@@ -231,6 +232,13 @@ def validate_gcode(text: str) -> GcodeStats:
         if "G28" in codes or "G30" in codes:
             raise GcodeError(f"第 {idx} 行含 G28/G30（§5 禁止）：{line}")
 
+        # 禁 M30/M2（程序结束触发自动换纸）及换纸系统指令
+        _forbidden_m = codes & {"M2", "M30", "M701", "M704", "M711", "M712", "M713", "M721"}
+        if _forbidden_m:
+            raise GcodeError(
+                f"第 {idx} 行含 {'/'.join(sorted(_forbidden_m))}（换纸/结束指令，§5 禁止）：{line}"
+            )
+
         # 禁 G91 相对坐标。§5 要求文件头 G90（上面已强制），但中途切到 G91 会让
         # 下面的位置跟踪全部失效——之后每个圆弧起点都是错的，包围盒随之失真而
         # 静默漏放越界。本 profile 只产 G90，故直接拒绝而非去实现相对模式。
@@ -247,7 +255,7 @@ def validate_gcode(text: str) -> GcodeStats:
         # G2/G3 圆弧同样产生实际位移，必须一起限幅。
         if codes & {"G0", "G1", "G2", "G3"}:
             for axis, val in coords:
-                if val < -_EPS or val > MAX_MM + 1.0:
+                if val < -_EPS or val > MAX_MM + _EPS:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{MAX_MM}mm）：{line}")
 
         # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
@@ -265,7 +273,7 @@ def validate_gcode(text: str) -> GcodeStats:
                 clockwise="G2" in codes,
             )
             for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
-                if lo < -_EPS or hi > MAX_MM + 1.0:
+                if lo < -_EPS or hi > MAX_MM + _EPS:
                     raise GcodeError(
                         f"第 {idx} 行圆弧 {label} 包围盒 [{lo:.3f}, {hi:.3f}] "
                         f"越界（限幅 0~{MAX_MM}mm）：{line}"

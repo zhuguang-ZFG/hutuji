@@ -157,6 +157,82 @@ def test_draw_limiter_rejects_minute_window() -> None:
         asyncio.run(limiter.enter())
 
 
+# ---- 2026-07-26 安全审计修复回归 ----
+
+
+def test_serve_file_returns_response_not_file_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1 TOCTOU 修复：_serve_file 返回 Response（内存发送），不再是 FileResponse。"""
+    from fastapi.responses import Response as _Resp
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    (tmp_path / name).write_bytes(b"G21\nG90\n")
+    resp = asyncio.run(server._serve_file(name))
+    assert isinstance(resp, _Resp)
+    assert resp.body == b"G21\nG90\n"
+    assert resp.headers.get("content-disposition") == "attachment"
+
+
+def test_serve_file_concurrent_delete_returns_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1 TOCTOU：文件在 is_file() 检查后、read_bytes() 前被删除，应返回 404。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    path = tmp_path / name
+    path.write_bytes(b"G21\nG90\n")
+    path.unlink()
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+    assert caught.value.status_code == 404
+
+
+def test_status_does_not_leak_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#5：status 不泄露服务端绝对路径。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    import json as _json
+
+    data = _json.loads(asyncio.run(server.hutuji_status()))
+    assert "output_dir" not in data
+    assert "output_dir_exists" in data
+
+
+def test_svg_size_limit() -> None:
+    """#2：SVG 超过 256KB 应被拒绝。"""
+    from hutuji_mcp.llm_svg import LlmError, MAX_SVG_BYTES, _extract_svg
+
+    giant = '<svg xmlns="http://www.w3.org/2000/svg">' + "x" * (MAX_SVG_BYTES + 1000) + "</svg>"
+    with pytest.raises(LlmError, match="256KB"):
+        _extract_svg(giant)
+
+
+def test_svg_deep_nesting_rejected() -> None:
+    """#7：深嵌套 SVG 应被拒绝，不得触发 RecursionError。"""
+    from hutuji_mcp.llm_svg import LlmError, _extract_svg
+
+    layers = '<g fill="none">' * 100
+    close = "</g>" * 100
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg">{layers}{close}</svg>'
+    with pytest.raises(LlmError, match="嵌套深度"):
+        _extract_svg(svg)
+
+
+def test_vpype_stderr_not_in_error_message() -> None:
+    """#4：vpype 失败时 stderr 不应出现在异常消息中。"""
+    from hutuji_mcp.gcode_gen import GcodeError, svg_to_gcode
+
+    fake_svg = Path("nonexistent_for_test.svg")
+    fake_gcode = Path("nonexistent_for_test.gcode")
+    try:
+        svg_to_gcode(fake_svg, fake_gcode)
+    except (GcodeError, FileNotFoundError, OSError) as exc:
+        if isinstance(exc, GcodeError):
+            assert "vpype" not in str(exc).lower() or "stderr" not in str(exc).lower()
+
 
 # ---- §5 校验器绕过回归（2026-07-26 深度评审）----
 # 这些写法曾全部被放行：指令识别依赖空格切分，坐标正则不认 `1e3` / `.5`,
@@ -185,6 +261,16 @@ def test_draw_limiter_rejects_minute_window() -> None:
         ("G1 XINF Y5", "无法解析"),
         ("G1 X1.5.5 Y5", "无法解析"),     # 残缺写法曾被截成 1.5 静默放行
         ("G1 X Y5", "无法解析"),          # 缺值
+        # 换纸/程序结束 M 指令必须拦截
+        ("M30", "换纸/结束"),             # 程序结束触发自动换纸
+        ("M2", "换纸/结束"),              # 程序结束
+        ("M701", "换纸/结束"),            # 换纸系统指令
+        ("M704", "换纸/结束"),
+        ("M711", "换纸/结束"),
+        ("M712", "换纸/结束"),
+        ("M713", "换纸/结束"),
+        ("M721", "换纸/结束"),
+        ("G1 X50 Y50 M30", "换纸/结束"), # M30 粘在运动指令后面
     ],
 )
 def test_gcode_rejects_bypass_variants(line: str, reason: str) -> None:
@@ -258,6 +344,25 @@ def test_arc_with_inconsistent_radius_is_rejected() -> None:
     起点不能用 (0,0)：那会先撞上 G0 X0 Y0 换纸禁令，测不到圆弧这条。"""
     with pytest.raises(GcodeError, match="半径不自洽"):
         validate_gcode(_minimal_gcode("G0 X10 Y10\nG2 X100 Y100 I1 J1\n"))
+
+
+def test_near_full_circle_arc_checks_all_quadrants() -> None:
+    """#8 浮点精度：起终点几乎重合的圆弧应按整圆算包围盒，不能退化为点。
+    圆心 (100,100)，半径 95 → 圆顶 Y=195 > 190，必须拦住。"""
+    text = _minimal_gcode("G0 X100 Y5\nG2 X100.0001 Y5 I0 J95\n")
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(text)
+
+
+def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:
+    """#9 容差对称：190.5mm 不应放行（旧 +1.0mm 容差会放行）。"""
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(_minimal_gcode("G1 X190.5 Y5\n"))
+
+
+def test_coordinate_at_190mm_passes() -> None:
+    """190.0mm 恰好在界内。"""
+    validate_gcode(_minimal_gcode("G1 X190 Y190\n"))
 
 
 def test_mid_file_g91_is_rejected() -> None:
