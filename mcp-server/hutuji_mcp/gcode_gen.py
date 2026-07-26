@@ -231,6 +231,13 @@ def validate_gcode(text: str) -> GcodeStats:
         if "G28" in codes or "G30" in codes:
             raise GcodeError(f"第 {idx} 行含 G28/G30（§5 禁止）：{line}")
 
+        # 禁 M30/M2（程序结束触发自动换纸）及换纸系统指令
+        _forbidden_m = codes & {"M2", "M30", "M701", "M704", "M711", "M712", "M713", "M721"}
+        if _forbidden_m:
+            raise GcodeError(
+                f"第 {idx} 行含 {'/'.join(sorted(_forbidden_m))}（换纸/结束指令，§5 禁止）：{line}"
+            )
+
         # 禁 G91 相对坐标。§5 要求文件头 G90（上面已强制），但中途切到 G91 会让
         # 下面的位置跟踪全部失效——之后每个圆弧起点都是错的，包围盒随之失真而
         # 静默漏放越界。本 profile 只产 G90，故直接拒绝而非去实现相对模式。
