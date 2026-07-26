@@ -12,23 +12,44 @@
 | 上行实测 | **2026-07-26**：公网拉 512KiB 中位 **1.13s / ~3.72 Mbps**（本机→`http://117.72.118.95/…`，3 轮；测完文件已删） |
 | 角色 | 专机只跑 ③（uvicorn + 小智桥接 + nginx） |
 | 冗余 | 无；单点 |
-| 实机业务 | **2026-07-26**：`hutuji-mcp` + nginx 自签 TLS + **`hutuji-cloud-bridge` 已连小智 WSS**（initialize / tools/list 已见日志）；绘图 LLM = llm7；endpoint 仅在 `/etc/hutuji/bridge.env` |
+| 实机业务 | **2026-07-27**：`hutuji-mcp` + **Cloudflare Tunnel HTTPS**（Let's Encrypt） + `hutuji-cloud-bridge` 已连小智 WSS；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；绘图 LLM = llm7 |
 
 ## 拓扑
 
 ```
 公网客户端 / S3 板
-        │ HTTPS（仅 /files）
+        │ HTTPS（hutuji.donglicao.com）
         ▼
-   nginx :443  ──► 127.0.0.1:8300/files
+   Cloudflare (Let's Encrypt 证书)
+        │ Cloudflare Tunnel（QUIC，出站连接绕过京东云 ICP）
+        ▼
+   cloudflared (localhost)  ──► nginx :80 /files  ──► 127.0.0.1:8300/files
         │
-        ✗  /mcp  公网 404（禁止暴露）
+        ✗  /mcp  nginx 404（禁止暴露）
 
 小智官方云 WSS
         │
         ▼
  hutuji-cloud-bridge（本机）──mcp-proxy──► 127.0.0.1:8300/mcp
 ```
+
+### Cloudflare Tunnel（2026-07-27 上线）
+
+京东云对未备案域名做 HTTP Host + TLS SNI 双重拦截，无法直连 HTTPS。
+使用 Cloudflare Tunnel（免费）从 VPS 出站建隧道，完全绕过。
+
+| 项 | 值 |
+|----|-----|
+| 隧道名 | `hutuji` |
+| 域名 | `hutuji.donglicao.com` |
+| DNS 记录 | CNAME → `<tunnel-id>.cfargotunnel.com`（已代理） |
+| 证书 | Let's Encrypt（Cloudflare 管理），ESP-IDF cert bundle 信任 |
+| cloudflared 配置 | `/etc/cloudflared/config.yml`（本地管理模式） |
+| 服务 | `systemctl status cloudflared`（enabled，开机自启） |
+| 入口规则 | `hutuji.donglicao.com` → `http://localhost:80`；其余 404 |
+| Cloudflare 账号 | 域名 `donglicao.com` 托管于 Cloudflare |
+
+> 尝试过的失败方案：Flexible SSL（JD Cloud SNI 拦截）、Origin Rules（付费功能）、Workers（fetch 不允许裸 IP → 1003）。
 
 ## 阶段 0：上线前准备（可先做、不启业务）
 
@@ -62,7 +83,7 @@
 | nginx new-api / newapi / newapi-managed | sites-available 删除；`/root/newapi-backups` 删除 |
 | UFW | 仅保留 22/80/443 |
 
-第二轮（建议可删，已执行）：cloudflared（含空转隧道配置）、Docker/containerd、lima 残留与 `/root` 杂目录（openclaw/prometheus/dlc-retire 等）。
+第二轮（建议可删，已执行）：Docker/containerd、lima 残留与 `/root` 杂目录（openclaw/prometheus/dlc-retire 等）。cloudflared 已重新安装用于 Cloudflare Tunnel。
 
 仍保留：nginx、Tailscale、京东云 agent（jdog/ifrit/jcs）、hutuji 业务。
 
@@ -72,14 +93,14 @@
 |----|------|------|
 | 代码 → `/opt/hutuji` | ✅ | `requirements.txt` 在位；venv IMPORT_OK |
 | `mcp.env`（llm7） | ✅ | 本机 `generate_svg` 出 SVG_LEN≈1.4k |
-| TLS 自签 + nginx `/files` | ✅ | 公网 `https://IP/mcp`→404；`/files/…` 经 443 |
+| Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
 | `preflight.sh` 全 PASS | ✅ | `pass=8 fail=0`（2026-07-26） |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
-> 自签证书：S3/`curl` 需 `-k` 或后续换 Let’s Encrypt / 正式证书。  
+> TLS 已切 Cloudflare Tunnel + Let’s Encrypt（2026-07-27），ESP-IDF cert bundle 信任，S3 无需 `-k`。  
 > `install-from-repo.sh` 默认清华 PyPI 源（京东云直连 PyPI 易卡住）。
 
 ## 首次上线（阶段 1）剩余

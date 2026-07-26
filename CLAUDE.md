@@ -117,7 +117,7 @@ python -m venv .venv
 
 ### 京东云部署
 
-`deploy/` + `docs/deployment.md`。**2026-07-26 实机已上**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx（80/443 `/files`）。权威进度见 `docs/release-readiness.md`。
+`deploy/` + `docs/deployment.md`。**2026-07-27 HTTPS 已通**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx + **Cloudflare Tunnel**（`hutuji.donglicao.com`，Let's Encrypt 证书，绕过京东云 ICP 拦截）。`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`。权威进度见 `docs/release-readiness.md`。
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
@@ -126,8 +126,8 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 M2 **已构建烧录实机**（xiaozhi `673be32`：IDF 6.0.1 构建通过，MCP 工具 `hutuji.status/draw/abort` 注册 OK，Pipe 等 lwip 就绪+指数退避重连正常）。断连复位重发仍缺。**缺 Grbl 写字机联调**。Grbl §9 源码+fz 绿、**未烧录实机**。
-3. **③ 智能端** — 🟡 京东云 MCP+桥接已常驻；llm7；知识库文稿已上传控制台。缺：设备在线后的端到端语音、正式 TLS。
+2. **② 哑管道** — 🟡 S3↔Grbl WiFi Telnet 首次联通（2026-07-27）；连接优化（NVS 缓存+去 mDNS+非阻塞 connect，冷启 ~10s）；双端 keepalive。断连复位重发仍缺。
+3. **③ 智能端** — ✅ HTTPS 已通（Cloudflare Tunnel + Let's Encrypt）；京东云 MCP+桥接已常驻；llm7。缺：端到端语音出图验证。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 
 > **不可出货**。无设备时默认下一刀见 `docs/agent-handoff.md` §6；有设备优先烧录 §9 + S3 M2 构建烧录。
