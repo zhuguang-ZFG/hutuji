@@ -109,7 +109,7 @@ def _arc_bbox(
     # 扫过的角度跨度，统一折算成 CCW 正向 [0, 2π)；起终点重合 = 整圆
     sweep = (a1 - a0) if not clockwise else (a0 - a1)
     sweep %= 2.0 * math.pi
-    if sweep == 0.0:
+    if sweep < 1e-9:
         sweep = 2.0 * math.pi
 
     xs, ys = [x0, x1], [y0, y1]
@@ -255,7 +255,7 @@ def validate_gcode(text: str) -> GcodeStats:
         # G2/G3 圆弧同样产生实际位移，必须一起限幅。
         if codes & {"G0", "G1", "G2", "G3"}:
             for axis, val in coords:
-                if val < -_EPS or val > MAX_MM + 1.0:
+                if val < -_EPS or val > MAX_MM + _EPS:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{MAX_MM}mm）：{line}")
 
         # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
@@ -273,7 +273,7 @@ def validate_gcode(text: str) -> GcodeStats:
                 clockwise="G2" in codes,
             )
             for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
-                if lo < -_EPS or hi > MAX_MM + 1.0:
+                if lo < -_EPS or hi > MAX_MM + _EPS:
                     raise GcodeError(
                         f"第 {idx} 行圆弧 {label} 包围盒 [{lo:.3f}, {hi:.3f}] "
                         f"越界（限幅 0~{MAX_MM}mm）：{line}"

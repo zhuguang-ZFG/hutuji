@@ -346,6 +346,25 @@ def test_arc_with_inconsistent_radius_is_rejected() -> None:
         validate_gcode(_minimal_gcode("G0 X10 Y10\nG2 X100 Y100 I1 J1\n"))
 
 
+def test_near_full_circle_arc_checks_all_quadrants() -> None:
+    """#8 浮点精度：起终点几乎重合的圆弧应按整圆算包围盒，不能退化为点。
+    圆心 (100,100)，半径 95 → 圆顶 Y=195 > 190，必须拦住。"""
+    text = _minimal_gcode("G0 X100 Y5\nG2 X100.0001 Y5 I0 J95\n")
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(text)
+
+
+def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:
+    """#9 容差对称：190.5mm 不应放行（旧 +1.0mm 容差会放行）。"""
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(_minimal_gcode("G1 X190.5 Y5\n"))
+
+
+def test_coordinate_at_190mm_passes() -> None:
+    """190.0mm 恰好在界内。"""
+    validate_gcode(_minimal_gcode("G1 X190 Y190\n"))
+
+
 def test_mid_file_g91_is_rejected() -> None:
     """位置跟踪假定 G90 绝对坐标；中途切 G91 会让此后所有圆弧起点失真。"""
     with pytest.raises(GcodeError, match="G91"):
