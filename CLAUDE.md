@@ -83,6 +83,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **② S3 固件补丁**：在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建（IDF ≥5.5.2，仓要求 v6.0.2）：
   `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
 - **京东云**：`deploy/` + `docs/deployment.md`。**2026-07-26 实机已上**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx（80/443 `/files`）；llm7 出图；本机 `tools/call` 已通。正式 TLS / App 对话验收 / 设备链仍缺。权威进度见 `docs/release-readiness.md`。
+  - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 是 rsync/scp 铺上去的，**没有 `.git`**（`deploy/README.md` 说的「git clone / rsync」二选一，实机选了后者）。改完推具体文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
+  - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py`（可用）与直接 import 校验函数实测；别指望在机上跑 pytest。
+  - 改动前先备份被覆盖的文件（本轮放在 `/root/hutuji_rollback_<时间戳>/`），重启后跑 `deploy/preflight.sh`（应 8/8）+ 公网复验 `/mcp` 须 404、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**——后者在 Git Bash 下对不可达端口会假阳性报「可达」。
 
 ## 路线图（当前进度）
 
