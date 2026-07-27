@@ -51,12 +51,16 @@
 - `RequestPause`/`RequestResume` 检查 `SendRealtime` 返回值，失败即回滚本地状态，不把断链说成已暂停/已继续。
 - `stream_mutex_` 让「检查 `paused_` + 写入该行」成为临界区，暂停命令发出后不会再多灌一行进 planner。
 - `pen_test` 通过 `busy_` 与出图互斥；`pen_test_active_` 让试笔期间的 pause/resume 返回「正在试笔，请稍候」。
+- 暂停超过 10 分钟自动取消并向云端通知，避免 `busy_` 无限占用使全部工具返回 `busy`。
+- 下载/校验或换纸结束时，任务状态按 `paused_` 写为 `paused` 或 `streaming`，不得谎报正在画。
 - `hutuji.status` 新增 `repeat_available`，智能体据此判断「再画一张」是否可执行。
 
 ## M2 进度（2026-07-27，新增体验控制工具）
 
 > 代码在 `feat/hutuji-usb-pipe`（含 `hutuji_job.*`，板级 `lichuang-dev`）。  
-> **新增的暂停/恢复/重画/试笔四个工具：IDF v6.0.1 `release.py lichuang-dev` 构建通过（2026-07-27，`xiaozhi.bin` 0x2cabe0，余量 29%）；尚未烧录、未实机**——不可宣称已联调完成。  
+> **新增的暂停/恢复/重画/试笔四个工具（2026-07-27）**：IDF v6.0.1 `release.py lichuang-dev` 构建通过；已烧录 **COM8**（S3 的 COM 口由 COM7 变为 COM8，每次须重查）；串口日志确认七个 `hutuji.*` 工具全部注册、Telnet 探活 `[VER:1.3a...]` 正常。
+> 底层动作已在 COM3 对 Grbl 实测：`pen_test` 序列 `M5`→`M3`→`M5` 三条均回 `ok` 且 Z=0→5→0；`!` 使状态进入 `Hold:0` 且坐标冻结，`~` 从冻结处续跑至终点（未丢行程）。
+> **仍未验证**：经小智云真实调用这四个工具（设备侧工具只能由云端 WS 触发，本机无直连脚本）、`repeat` 的 PSRAM 快路、暂停 10 分钟自动取消。不可宣称已联调完成。  
 > Grbl §9 仍建议烧录后再做换纸态精确分流；无 §9 时靠 `error:8` 重发 + 换纸行长超时。
 
 | # | 项 | 状态 |
