@@ -28,6 +28,14 @@ MAX_BYTES = 512 * 1024
 # 抬笔次数目前只做可观测告警；硬阈值须等机头实测后再锁定（README 组 1.3）。
 PEN_LIFT_WARN_THRESHOLD = 50
 
+# 线简化容差（mm）：直接决定 G1 行数，从而决定逐行流控下的出图流畅度。
+# 机器笔触精度约 0.1mm，0.2mm 在笔宽量级内，肉眼看不出差别。
+# 实测同一张图：无简化 9266 行 → 0.2mm 172 行 → 0.3mm 126 行 → 0.5mm 116 行。
+# 调大更流畅但曲线会显棱角，调小更精细但会回到走停顿的状态。
+LINESIMPLIFY_TOLERANCE_MM = 0.2
+# 碎笔画合并容差（mm）：仅合并首尾几乎相接的线，取值远小于简化容差以免改变构图。
+LINEMERGE_TOLERANCE_MM = 0.05
+
 # G-code 字（字母 + 数值）。整行唯一的解析入口：G/M 字号与 X/Y 坐标都从这里取，
 # 避免两套正则口径不一致（旧代码 `\b([XY])` 在 `G0X0Y0` 里因 X 紧跟数字而无词边界，
 # 匹配不到坐标，导致 X0Y0 禁令被绕过）。
@@ -150,7 +158,14 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
     cmd = _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
+        # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
+        "linemerge", "--tolerance", f"{LINEMERGE_TOLERANCE_MM}mm",
         "linesort",
+        # linesimplify：SVG 曲线默认离散得极密（实测一张图 9266 行 G1，步长
+        # 0.12mm）。逐行流控下每行都要一次 Telnet 往返（~20ms），而 0.12mm @
+        # F1500 只需 4.9ms 执行——电机走完就干等，表现为「笔走停停」。
+        # 简化到笔宽量级内可把行数降一个数量级，肉眼无差别。
+        "linesimplify", "--tolerance", f"{LINESIMPLIFY_TOLERANCE_MM}mm",
         "gwrite", "--profile", "hutuji", str(gcode_path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True,
