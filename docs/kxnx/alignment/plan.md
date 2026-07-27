@@ -1,7 +1,7 @@
 # 对齐计划：hutuji 笔控改走奎享 Stepper 模式
 
 > 状态：**待实施**。本文件是执行清单，每步做完打勾。
-> 依据：`docs/kxnx/findings/01-pen-control.md` 起四份发现文档。
+> 依据：`docs/kxnx/findings/` 全 13 份发现文档，收口见 `12-summary-and-action-list.md`。
 
 ## 背景
 

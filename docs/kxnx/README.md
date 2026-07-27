@@ -21,6 +21,7 @@ docs/kxnx/
 │   ├── 09-flow-control-deep.md   ← 流控引擎：窗口 100 字节 character-counting
 │   ├── 10-transport-layer.md     ← 传输层：串口 vs WiFi，与 hutuji Telnet 对照
 │   ├── 11-esp32grbl-wifi-connect.md ← WiFi 连接与 mDNS 设备发现
+│   ├── 13-path-params-and-quality.md ← 路径参数与画质档位（simplePaths / nearDst / DrawQuality）
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
