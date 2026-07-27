@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（8 份，深度递进）
+├── findings/                      ← 逆向发现（12 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -17,7 +17,11 @@ docs/kxnx/
 │   ├── 05-grbl-controller-deep.md ← Grbl 控制器逐方法剖析（连接握手/ESP 路由/笔控三方法）
 │   ├── 06-cross-firmware-pen-control.md ← 跨固件对比（Grbl/Marlin/EBB/KAT）
 │   ├── 07-gcode-generation-deep.md ← G-code 生成与校准测试图
-│   └── 08-config-architecture.md  ← 配置三层架构（properties→POJO→出图参数）
+│   ├── 08-config-architecture.md  ← 配置三层架构（properties→POJO→出图参数）
+│   ├── 09-flow-control-deep.md   ← 流控引擎：窗口 100 字节 character-counting
+│   ├── 10-transport-layer.md     ← 传输层：串口 vs WiFi，与 hutuji Telnet 对照
+│   ├── 11-esp32grbl-wifi-connect.md ← WiFi 连接与 mDNS 设备发现
+│   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
 ```
