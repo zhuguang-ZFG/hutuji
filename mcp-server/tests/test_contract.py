@@ -234,6 +234,40 @@ def test_vpype_stderr_not_in_error_message(tmp_path: Path) -> None:
     assert "/" not in msg and "\\" not in msg, f"stderr 泄露了路径信息：{msg}"
 
 
+def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) -> None:
+    """回归：管线必须含 linemerge + linesimplify，且顺序在 gwrite 之前。
+
+    这两步是「笔走停停」修复的实体（commit 2aead01）：SVG 曲线离散成 0.12mm
+    步长的密点，逐行流控下每行执行 4.9ms < Telnet 往返 ~20ms，电机干等。
+    若有人清理管线时删掉这两行，其余测试照样全绿，卡顿静默回归。
+    """
+    import subprocess as _sp
+
+    from hutuji_mcp import gcode_gen
+
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        captured["cmd"] = cmd
+        # 伪造 vpype 成功：往输出路径写一份最小合法 G-code
+        Path(cmd[-1]).write_text("G21\nG90\nF1500\n", encoding="utf-8")
+        return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
+    svg = tmp_path / "in.svg"
+    svg.write_text("<svg/>", encoding="utf-8")
+    gcode_gen.svg_to_gcode(svg, tmp_path / "out.gcode")
+
+    cmd = captured["cmd"]
+    for step in ("linemerge", "linesort", "linesimplify", "gwrite"):
+        assert step in cmd, f"vpype 管线缺少 {step}"
+    order = [cmd.index(s) for s in ("linemerge", "linesort", "linesimplify", "gwrite")]
+    assert order == sorted(order), f"管线顺序被破坏：{cmd}"
+    # 容差必须显式给出（默认容差未必等于已验证的 0.2/0.05mm）
+    assert cmd[cmd.index("linesimplify") + 1] == "--tolerance"
+    assert cmd[cmd.index("linemerge") + 1] == "--tolerance"
+
+
 # ---- §5 校验器绕过回归（2026-07-26 深度评审）----
 # 这些写法曾全部被放行：指令识别依赖空格切分，坐标正则不认 `1e3` / `.5`,
 # 且 G2/G3 圆弧不限幅。校验器是下发前最后一道闸，不能只对 vpype 当前输出成立。

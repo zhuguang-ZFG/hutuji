@@ -1,6 +1,6 @@
 """SVG → G-code 转换（vpype + vpype-gcode）与 §5 合同校验。
 
-vpype 管线：read → linesort → gwrite --profile hutuji
+vpype 管线：read → linemerge → linesort → linesimplify → gwrite --profile hutuji
 （hutuji profile 见 hutuji_gwrite.toml，格式参考 vpype-gcode README）
 转换产物必须再过 validate_gcode() 逐行断言 §5 禁令才允许下发。
 """
