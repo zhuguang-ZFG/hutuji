@@ -18,7 +18,8 @@
 |------|------|
 | `main/idf_component.yml` | 无 hutuji 相关依赖（lwip socket 走 IDF 内置） |
 | `main/boards/lichuang-dev/hutuji_pipe.h/.cc` | `hutuji::Pipe` 单例：lwip socket 轻量同步 TCP 客户端 |
-| `main/boards/lichuang-dev/lichuang_dev_board.cc` | `InitializeTools()` 里 `Pipe::Start()` + 三个 MCP 工具（三次改版均零改动，仅注释随方案更新） |
+| `main/boards/lichuang-dev/lichuang_dev_board.cc` | `InitializeTools()` 注册 Pipe 与设备侧 MCP 控制工具 |
+| `main/boards/lichuang-dev/hutuji_job.h/.cc` | M2 Job：下载/CRC/逐行转发，以及暂停、恢复、重画、试笔控制 |
 
 未改任何核心模块（`mcp_server.cc`、`main/CMakeLists.txt` 等未动）。
 
@@ -32,16 +33,30 @@
 - `IsConnected()` = TCP 已连接；`IsReady()` = 探活成功；`GetLastLine()` 不变。
 - banner `Grbl ` 前缀检测保留，语义改为**对端复位**：清 `ready_` + 清应答位 + 重新发 `$I` 探活。
 
-## MCP 工具（不变）
+## 设备侧 MCP 工具（2026-07-27）
 
-- `hutuji.status`：返回 JSON `{connected, ready, last_line}`。
-- `hutuji.draw(url)`：M1 仅校验 url 非空并返回 `"started"`，下载+转发为 M2。
-- `hutuji.abort`：M1 占位返回 `"ok"`。
+| 工具 | 用户意图 | 动作与边界 |
+|------|----------|------------|
+| `hutuji.status` |「连上了吗 / 画完了吗」| 返回链路、授权、任务、Grbl 状态与坐标。出图中只发实时 `?`。|
+| `hutuji.draw(url)` | 云端生成后执行 | 全量下载、CRC 校验、授权门、逐行 Telnet 转发。|
+| `hutuji.abort` |「停下 / 取消」| `!` 后等待 8 秒再 `Ctrl-X`；换纸期间延后中止。|
+| `hutuji.pause` |「暂停 / 等一下」| 发实时 `!`，Job 在行边界停止继续灌入；**不丢进度**，换纸中拒绝暂停。|
+| `hutuji.resume` |「继续 / 接着画」| 发实时 `~`，清除 Job 暂停门，原地续画。|
+| `hutuji.repeat` |「再画一张 / 一样的再画一次」| 成功出图后留存一份最多 512KiB 的 PSRAM G-code，优先跳过下载+CRC 重画；留存不存在则用上次 URL 重下。用户须先换上白纸。|
+| `hutuji.pen_test` |「试一下笔 / 笔能用吗」| 独占任务：`M5`→`M3 S1000`→停 1 秒→`M5`，每步等 `ok`；先抬笔建立确定起点，否则已落笔时 `M3` 是零位移、纸上不留点。结束以 MCP notification 提醒检查点迹。|
 
-## M2 进度（2026-07-26，无设备代码落地）
+并发与超时约束（code review 后加固）：
 
-> 代码在 `feat/hutuji-usb-pipe`（含 `hutuji_job.*`，已提交）。  
-> **未 IDF 构建 / 未烧录 / 未实机**——不可宣称联调完成。  
+- 暂停与已发出行的 `ok` 等待都冻结超时计数，避免长暂停被误判为转发失败。
+- `RequestPause`/`RequestResume` 检查 `SendRealtime` 返回值，失败即回滚本地状态，不把断链说成已暂停/已继续。
+- `stream_mutex_` 让「检查 `paused_` + 写入该行」成为临界区，暂停命令发出后不会再多灌一行进 planner。
+- `pen_test` 通过 `busy_` 与出图互斥；`pen_test_active_` 让试笔期间的 pause/resume 返回「正在试笔，请稍候」。
+- `hutuji.status` 新增 `repeat_available`，智能体据此判断「再画一张」是否可执行。
+
+## M2 进度（2026-07-27，新增体验控制工具）
+
+> 代码在 `feat/hutuji-usb-pipe`（含 `hutuji_job.*`，板级 `lichuang-dev`）。  
+> **新增的暂停/恢复/重画/试笔四个工具：IDF v6.0.1 `release.py lichuang-dev` 构建通过（2026-07-27，`xiaozhi.bin` 0x2cabe0，余量 29%）；尚未烧录、未实机**——不可宣称已联调完成。  
 > Grbl §9 仍建议烧录后再做换纸态精确分流；无 §9 时靠 `error:8` 重发 + 换纸行长超时。
 
 | # | 项 | 状态 |
@@ -54,6 +69,9 @@
 | 5 | 断连物理复位（`0x18`→`M30`→缓存重发） | 🔴 未做（无设备；重连后当前任务 error） |
 | 6 | status 含 `authorized` + MCP notify | ✅ 代码 |
 | 7 | 写字机固定 IP / Telnet | 🔬 实机 |
+| 8 | `pause`/`resume`：`!`/`~` + 行边界暂停门 + 冻结 ok 超时；发送失败回滚状态 | 🟡 代码（未构建/未实机） |
+| 9 | `repeat`：成功后留存 PSRAM buffer 跳下载+CRC，回落重下；`status` 报 `repeat_available` | 🟡 代码（未构建/未实机） |
+| 10 | `pen_test`：`M5`→`M3`→1s→`M5` 建立确定起点；`pen_test_active_` 挡 pause | 🟡 代码（未构建/未实机） |
 
 ### 联调注意
 
