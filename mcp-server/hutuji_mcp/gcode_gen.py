@@ -30,11 +30,14 @@ PEN_LIFT_WARN_THRESHOLD = 50
 
 # 线简化容差（mm）：直接决定 G1 行数，从而决定逐行流控下的出图流畅度。
 # 机器笔触精度约 0.1mm，0.2mm 在笔宽量级内，肉眼看不出差别。
-# 实测同一张图：无简化 9266 行 → 0.2mm 172 行 → 0.3mm 126 行 → 0.5mm 116 行。
-# 调大更流畅但曲线会显棱角，调小更精细但会回到走停顿的状态。
-LINESIMPLIFY_TOLERANCE_MM = 0.2
-# 碎笔画合并容差（mm）：仅合并首尾几乎相接的线，取值远小于简化容差以免改变构图。
-LINEMERGE_TOLERANCE_MM = 0.05
+# 实测同一张图：无简化 9266 行 → 0.1mm 143 行 → 0.2mm 172 行 → 0.5mm 116 行。
+# 逐行流控下每行一次 WiFi 往返（~25ms），F8000=133mm/s。
+# 拐点在 0.1mm：运动时间(~4.8s)刚好盖过往返(~3.6s)，0.05mm 以下往返反超开始卡顿。
+# 奎享靠窗口化流控保留 0.02mm；我们逐行流控下 0.1mm 是流畅极限的最低简化。
+LINESIMPLIFY_TOLERANCE_MM = 0.1
+# 碎笔画合并容差（mm）：对齐奎享 nearDst=0.3，减少抬落笔次数。
+# 合并端点几乎相接的线；0.3mm 内并笔不改变构图（奎享现役值，实测安全）。
+LINEMERGE_TOLERANCE_MM = 0.3
 
 # G-code 字（字母 + 数值）。整行唯一的解析入口：G/M 字号与 X/Y 坐标都从这里取，
 # 避免两套正则口径不一致（旧代码 `\b([XY])` 在 `G0X0Y0` 里因 X 紧跟数字而无词边界，
@@ -242,9 +245,12 @@ def validate_gcode(text: str) -> GcodeStats:
 
         coords = [(a, float(v)) for a, v in words if a in ("X", "Y")]
 
-        # M5 是本机 profile 的抬笔命令；统计用于发现过度碎线，不在 v0 硬拒。
-        if "M5" in codes:
-            pen_lifts += 1
+        # 抬笔 = Z 回 0 的运动（本 profile 不产 M3/M5，笔控纯 Z 运动）。
+        # 统计用于发现过度碎线，不在 v0 硬拒。
+        if codes & {"G0", "G1"}:
+            _z = next((float(v) for a, v in words if a == "Z"), None)
+            if _z is not None and abs(_z) < _EPS:
+                pen_lifts += 1
 
         # 禁 G28 / G30（回原点触发自动换纸）
         if "G28" in codes or "G30" in codes:

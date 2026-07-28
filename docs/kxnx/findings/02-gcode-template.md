@@ -1,78 +1,96 @@
 # 发现 02：出图 G-code 完整模板
 
-> 源文件：`decompiled/com/kenjoy/kenjoycnc/h/d.java:22-60`（校准测试图，含完整头-笔控-画线-尾结构）
+> **证据等级已升级（2026-07-27）**：本篇原先只依据反编译源码 `h/d.java:22-60`（那是**校准测试图**的拼接代码，不是出图主路径）推导。
+> 现已拿到**奎享真实出图产物**：`C:\Program Files (x86)\kdraw(x64)\cache\2..10.gcode` 共 9 份，头尾/Z 行/进给完全一致。
+> **以真实产物为准**，源码推导中被推翻的四条结论见文末「已纠正」。
 
-## 完整模板（Grbl + Stepper，逆向还原）
+## 真实模板（Grbl + Stepper，来自 9 份实际产物）
 
 ```gcode
-G21                  # 单位 mm
-G90                  # 绝对坐标
-F1500                # 进给速率（mm/min = 25mm/s）
-G1X{x0}Y{y0}         # 空走到第一段起点（不带 F，继承上面 F1500；注：奎享用 G1 不是 G0）
-G1G90 Z5.0F3000      # 落笔（b(false)，zOn=5）
-G1X{x1}Y{y1}         # 画第一段
-G1X{x2}Y{y2}         # 画第二段
-G1G90 Z0.0F3000      # 抬笔（b(true)，zOff=0）
-G1X{x3}Y{y3}         # 空走到下一段起点
-G1G90 Z5.0F3000      # 落笔
+G21                      # 单位 mm
+G90                      # 绝对坐标
+F8000                    # 全局进给 8000mm/min = 133mm/s
+G1G90 Z0.0F10000         # 抬笔（第 1 次）——建立 Z 基准，见下方要点 2
+G1G90 Z0.0F10000         # 抬笔（第 2 次，完全重复）
+G0 X-2.205Y1.092F8000    # G0 空走到第一段起点，带 F
+G1G90 Z5.0F10000         # 落笔（zOn=5）
+G1 X-2.132Y1.169F8000    # 画线，每行都带 F8000
+G1 X-2.174Y1.183F8000
+G1G90 Z0.0F10000         # 抬笔（zOff=0）
+G0 X-4.582Y0.000F8000    # G0 空走到下一段起点
+G1G90 Z5.0F10000         # 落笔
 ...
-G1G90 Z0.0F3000      # 收尾抬笔
+G1G90 Z0.0F10000         # 收尾抬笔
+G90G0 X0Y0               # 收尾回原点（**本项目禁用**，见要点 5）
 ```
 
-## 逐字段说明（奎享实际拼接顺序，源码 `h/d.java:40-49`）
+单文件统计（`2.gcode`，9 份一致）：946 行 = 673 个 `G1` 画线 + 90 个 `G0` 空走 + 180 个 Z 笔控行（89 落 / 91 抬）。
+**全文 0 个 M 码** —— 笔控纯 Z 运动，不用 M3/M5。
+Z 行去重后只有两种字面量：`G1G90 Z0.0F10000` 与 `G1G90 Z5.0F10000`。
 
-```java
-stringBuilder.append("G21\n");
-stringBuilder.append("G90\n");
-stringBuilder.append("F1500\n");
-stringBuilder.append("G1X" + x2 + "Y" + y3 + "\n");     // 起点（G1，不是 G0！）
-stringBuilder.append("G1X" + x4 + "Y" + y5 + "\n");
-stringBuilder.append(c2.b(true) + "\n");                 // 抬笔
-stringBuilder.append("G1X" + x2 + "Y" + y3 + "\n");
-stringBuilder.append(c2.b(false) + "\n");                // 落笔
-stringBuilder.append("G1X" + x6 + "Y" + y7 + "\n");
-stringBuilder.append(c2.b(true) + "\n");                 // 抬笔
-```
+## 关键要点
 
-## 关键细节
+1. **空走用 `G0`，画线用 `G1`，两者都带 `F8000`。**
+   G0 在 Grbl 里走 `$110/$111` 最大速率（本机 12000），F 参数对 G0 无实际约束，属冗余但无害。
 
-1. **空走用 `G1`，不是 `G0`**。奎享所有移动（含抬笔状态下的空走）都用 `G1` + F1500。G0（rapid）只在归零（`a.java:297` 的 `G90G0 X0Y0`）等场景出现。
-   - 好处：抬笔空走也限速，避免惯性抖动；对带弹簧的笔架尤其稳。
+2. **不发 `G92 Z0`。** 9 份产物里一个都没有。Z 基准靠**开头连发两次真实 `G1 Z0` 运动**建立：
+   上电后弹簧把 Z 拉到物理原点，`Z0` 即抬笔位，两次重复是一次幂等的归位保险。
+   反编译里确实有 `G92 Z0`（`machine/grbl/a.java:250-260`，`a(boolean)` 首次笔控时发），但那属于
+   **点动面板 / 连接握手路径**，不进文件输出。
+   本机固件另有一层原因必须避开 `G92`：`GCode.cpp:1484-1496` 的 `USE_M3_M5_AS_PEN_UP_DOWN` 宏
+   直接把 `PEN_*_Z_MM` 当机械坐标写 `pen_target[Z_AXIS]`，与 `G92` 建立的工件坐标会错开。
 
-2. **落笔/抬笔无 `G4` 停顿**。`toolOnDelay`/`toolOffDelay` 配置项在 Stepper 模式下**不被使用**（代码路径不经过）。
-   - 我们现在的 `G4 P0.2` 是 vpype profile 自加的，奎享没有。每次落笔/抬笔省 0.2s，一幅画几十次笔控，能省十几秒。
+3. **进给远高于此前推测**：画线/空走 `F8000`，笔控 `F10000`。
+   `F10000` 正好等于本机 `$112=10000`（Z 轴最大速率）——奎享是让 Z **跑满速**抬落笔。
+   `F8000` 也在 `$110/$111=12000` 之内。这解释了奎享如何在保留 `simplePaths=0.02mm` 高精度的同时不卡顿。
 
-3. **F 只声明一次**（开头 `F1500`），后续 `G1X..Y..` 不重复带 F。Z 运动单独带 `F3000`。
+4. **落笔/抬笔无 `G4` 停顿**。`toolOnDelay`/`toolOffDelay`（默认 0.2s）在 Stepper 分支的代码路径上不被使用，
+   真实产物中也确认无 `G4`。
 
-4. **Z 运动显式重声明 `G90`**：`G1G90 Z5`。防止前面的 G91（如果有）残留。
+5. **收尾 `G90G0 X0Y0` 本项目必须禁用**：奎享靠它回原点，但本机固件把 `G0 X0 Y0` 判为自动换纸触发
+   （`docs/protocol.md §5`）。我们只抬笔，停在当前位置。
 
-5. **无 `M30`/`M2`/`G0 X0 Y0`** 收尾——与我们 `docs/protocol.md §5` 禁令一致（这些会触发自动换纸）。
+6. **数值格式**：Z 用一位小数（`Z5.0`/`Z0.0`），XY 用三位小数，坐标与 F 之间无空格（`X-2.205Y1.092F8000`）。
 
-## 对比 hutuji 现状（hutuji_gwrite.toml）
+## 机型分支决定笔控指令（`machine/grbl/a.java:264-292`）
+
+`b(boolean bl)`（`bl=true` 为抬笔）按 `GrblSettings.type` 分派——**笔控差异来自机型，不是传输方式**：
+
+| type | 抬笔 | 落笔 |
+|---|---|---|
+| `Servo` / `Laser` | `M5` | `M3S<laserS>` |
+| `Stepper` | `G1G90 Z<zOff> F<zSpeed>` | `G1G90 Z<zOn> F<zSpeed>` |
+| `Servo_bachin` | `M3S<penUpPos>` | `M3S<penDownPos>` |
+| `Custom` | `customOffCode` | `customOnCode` |
+
+`default.properties` 里 `grbl_type=Servo` 只是软件默认值；本机是步进笔架，真实产物全是 `G1G90 Z`，
+即实际走 `Stepper` 分支。蓝牙那类机器配 `Servo`，故走 `M3S`/`M5`——这是同一软件面对不同机型的两条路径。
+
+Stepper 分支独有一个功能：`enableLongPenUp` + `longPenUpMM`——开启后抬笔走一个更大的 Z 值
+（跨障碍 / 防拖墨），落笔仍是 `zOn`。
+
+## 当前 hutuji_gwrite.toml（已逐字对齐真实产物）
 
 ```toml
-document_start = "G21\nG90\nF1500\n"                              # ✓ 一致
-segment_first = "G0 X{x} Y{y} F2500\nM3\nG4 P0.2\n"               # ✗ G0+M3+G4
-segment       = "G1 X{x} Y{y} F1500\n"                            # ~ 带F（奎享不带）
-line_end      = "M5\nG4 P0.2\n"                                   # ✗ M5+G4
-document_end  = "M5\nG4 P0.2\n"                                   # ✗ M5+G4
+document_start = "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+segment_first  = "G0 X{x:.3f}Y{y:.3f}F8000\nG1G90 Z5.0F10000\n"
+segment        = "G1 X{x:.3f}Y{y:.3f}F8000\n"
+line_end       = "G1G90 Z0.0F10000\n"
+document_end   = "G1G90 Z0.0F10000\n"
 ```
 
-差异精确定位在**笔控行**（segment_first / line_end / document_end）和**空走指令**（G0 vs G1）。
+唯一与奎享的有意偏差：`document_end` 不含 `G90G0 X0Y0`（要点 5）。
 
-## 对齐后的 hutuji_gwrite.toml
+实机验证（2026-07-27，COM3 直连，`$1=25` 电机会失能）：14 行 0 错误，落笔 2/2 到 `Z=5.000`，
+抬笔 5/5 到 `Z=0.000`。串口 `ok` 稳定 6ms 且与位移大小无关（Grbl 收到即确认，不等运动完成），
+40 段 0.25mm 连续线共 0.26s —— **串口侧无流控瓶颈**，此前卡顿全部来自 WiFi 往返。
 
-```toml
-document_start = "G21\nG90\nF1500\n"
-# 先 G1 空走到起点（F2500），再 G1 落笔（F3000，Z=zOn）
-segment_first = "G1 X{x:.3f} Y{y:.3f} F2500\nG1 G90 Z5.000 F3000\n"
-segment       = "G1 X{x:.3f} Y{y:.3f}\n"
-line_end      = "G1 G90 Z0.000 F3000\n"
-document_end  = "G1 G90 Z0.000 F3000\n"
-```
+## 已纠正（原基于源码推导的错误结论）
 
-要点：
-- `segment_first` 用 `G1`（不是 G0）+ F2500 空走，对齐奎享。
-- 落笔/抬笔 `G1 G90 Z5/Z0 F3000`，对齐奎享 Stepper 模式。
-- 去掉 `G4 P0.2`（奎享 Stepper 不用）。
-- `segment` 去掉 F（继承 document_start 的 F1500）。
+| 原结论 | 真实产物 |
+|---|---|
+| 空走用 `G1`，G0 只用于归零 | **G0** 空走（我们最初的写法本来就对） |
+| 全局 `F1500`，画线行不带 F | **F8000**，且**每行都带 F** |
+| 笔控 `F3000`（取 `zSpeed` 默认值） | **F10000**（= Z 轴最大速率） |
+| 需在 `document_start` 发 `G92 Z0` 校准 | **无 G92**，改为两次真实 `G1 Z0` |
+| Z 格式 `Z5.000` | `Z5.0` |

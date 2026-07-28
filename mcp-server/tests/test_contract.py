@@ -46,7 +46,8 @@ def test_gcode_rejects_more_than_512_kib() -> None:
 
 
 def test_pen_lifts_are_reported_but_not_rejected(caplog: pytest.LogCaptureFixture) -> None:
-    text = _minimal_gcode("M5\n" * (PEN_LIFT_WARN_THRESHOLD + 1))
+    # 抬笔 = Z 回 0 的运动（对齐奎享 Stepper 产物，本 profile 不产 M5）
+    text = _minimal_gcode("G1G90 Z0.0F10000\n" * (PEN_LIFT_WARN_THRESHOLD + 1))
     with caplog.at_level(logging.WARNING):
         stats = validate_gcode(text)
     assert stats.pen_lifts == PEN_LIFT_WARN_THRESHOLD + 1
@@ -414,8 +415,14 @@ def test_mid_file_g91_is_rejected() -> None:
 
 
 def test_pen_lift_counts_glued_and_padded_forms() -> None:
-    # M5 / M05 / 与前一个字粘连的 M5 都要计数，M3 落笔不算
-    stats = validate_gcode(_minimal_gcode("M5\nM05\nG4P0.2M5\nM3\n"))
+    # 抬笔 = Z 回 0：紧凑写法 G1G90 Z0.0、带空格、G0 Z0 都要计数；
+    # 落笔 Z5 与不含 Z 的画线行不算。
+    stats = validate_gcode(
+        _minimal_gcode(
+            "G1G90 Z0.0F10000\nG1 G90 Z0.000 F10000\nG0 Z0\n"
+            "G1G90 Z5.0F10000\nG1 X10.000Y10.000F8000\n"
+        )
+    )
     assert stats.pen_lifts == 3
 
 

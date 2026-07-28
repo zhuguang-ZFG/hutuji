@@ -37,6 +37,24 @@ public class PathParameters {
 | `notAutoReturn` | `not_go_zero`，默认 false | §5 禁令「收尾禁止 G0 X0 Y0」 | 恒不回零 |
 | `paperWidth/Height` | 运行时传入 | MCP 端限幅 X≤190 Y≤277 | 已有 |
 
+> **本表依据真实产物核对后修正**：`notAutoReturn` 默认 false 即"收尾会回原点"——
+> 9 份真实产物末尾确实是 `G90G0 X0Y0`。我们是**故意偏离**（本机固件判为换纸触发，§5 禁止），不是对齐。
+
+## 1.5 关键发现：G-code 生成在云端，不在上位机本地
+
+`h/c.java` 的 `b()` 把整个**路径列表 GZIP 压缩后 HTTP POST 到云端**（`drawsoftapp`），
+请求体带 `pathParam`(PathParameters JSON)、`createrParam`(CreaterParameters JSON)、
+`machineType`、`pathsBounds*` 等；云端返回 G-code，本地解压接收（`DataInputStream.readInt` = 总长）。
+
+也就是说：
+- **几何→G-code 的转换（简化/合并/排序/进给装配）发生在云端服务端**，本地只做参数装配与收发。
+- 反编译的客户端里**没有** `linesimplify`/`linemerge` 的实现代码——那是服务端逻辑。
+- 我们能从客户端确定的只有**参数值**（`simplePaths=0.02`、`nearDst=0.3`、画质档表）和
+  **产物格式**（真实 G-code 文本，见 [[02-gcode-template]]）；具体算法（Douglas-Peucker? 路径排序启发式?）
+  不可见，只能由产物反推。
+- 这和我们 hutuji 架构**同构**：我们也在云端（京东云 VPS）用 vpype 做几何处理，S3 只转发。
+  奎享用这个架构是为了"手机/电脑共用同一台设备、随时切换"，我们是为了"S3 算力不足"。殊途同归。
+
 ## 2. 最重要的一条：奎享几乎不做线简化
 
 **`simplePaths = 0.02mm`，比我们的 `0.2mm` 小一个数量级。**
@@ -117,10 +135,26 @@ public class PathParameters {
 
 | 优先级 | 事项 | 依据 |
 |---|---|---|
-| P2（随窗口流控一起） | `linesimplify` 容差从 0.2mm 回调到 0.02–0.05mm | 奎享 `simplePaths=0.02`；前提是先做窗口化流控 |
-| P3（需用户确认画质） | `linemerge` 容差从 0.05mm 提到 0.2–0.3mm | 奎享 `nearDst=0.3`，减少抬落笔次数 |
-| P3（若做调速工具） | 画质档位表直接引用奎享映射 | `getFeedRate` 表，注意 High=慢 |
+| ✅ 已做 | `linesimplify` 容差 0.2mm → **0.1mm** | 实测算法拐点：逐行流控下 0.1mm 是"运动时间盖过往返"的最低简化；0.05mm 以下开始卡顿。比 0.2mm 细节密度翻倍 |
+| ✅ 已做 | `linemerge` 容差 0.05mm → **0.3mm** | 奎享 `nearDst=0.3` 现役值，实测安全，减少抬落笔次数 |
+| P2（若上窗口化流控） | 容差可再降到 0.02–0.05mm 对齐奎享 | 需先做窗口化流控 |
 
 **不建议对齐的**：`autoReconnect=false`（我们无人值守场景需要自动重连）、`drawQuality` 默认 `VeryLow`（我们优先画质）、`singleStep`（已有 pause/resume）。
+
+## 7. 实测数据：我们能追到什么密度（2026-07-27）
+
+步长中位数对比（实测）：
+
+| 源 | 行数 | 中位步长 | 说明 |
+|---|---|---|---|
+| 奎享 2.gcode（手写字，云端 0.02 容差） | 946 | **0.254mm** | 靠窗口化流控 |
+| 我们 0.2mm 容差 | 131 | 4.4mm | 几何过简化 |
+| **我们 0.1mm 容差（现值）** | 143 | 4.4mm（曲线分段更密） | **逐行流控的流畅极限** |
+| 我们 0.05mm 容差 | 249 | 2.2mm | 开始卡顿（往返>运动） |
+| 我们 0.02mm 容差 | 279 | 2.2mm | 明显卡顿 |
+| 我们 未简化 | 6407 | 0.1mm | 完全走停顿 |
+
+结论：逐行流控下 0.1mm 是甜点（实机串口 92 行全在 6ms 收到 ok、0 行阻塞、整图 6.3s）。
+要再追奎享的 0.254mm 密度，**只能上窗口化流控**（P2），几何侧已无余量。
 
 相关：[[09-flow-control-deep]]（为什么奎享能不简化）、[[02-gcode-template]]（头尾模板）、[[12-summary-and-action-list]]（总清单）

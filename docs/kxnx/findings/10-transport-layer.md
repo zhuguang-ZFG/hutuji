@@ -243,11 +243,40 @@ public final class f extends a implements SerialPortEventListener {
 且我们的瓶颈是逐行等 ok（往返延迟），不是发送系统调用数。
 **不改**，除非将来改窗口化流控时顺手做。
 
-### B. 应用层探活看门狗（可选）
+### B. 应用层探活看门狗 —— **旧结论已推翻，这是我们真实的缺口**
 
-我们靠 TCP keepalive（19s 发现死链，见记忆）。奎享的应用层探活能更快
-（`connectTimeout` 可配），但要占带宽发探活命令。**不改**——
-TCP keepalive 已够用，且不占 G-code 通道带宽。
+> 本节 2026-07-28 重写。旧结论是「TCP keepalive 已够用，不改」，**错**。
+> keepalive 只能发现「TCP 连接断了」，发现不了「TCP 活着但 Grbl 主循环假死」。
+
+奎享在这件事上有**两级**判定，我们只有一级：
+
+| | 第一级（探活） | 第二级（判死） |
+|---|---|---|
+| 奎享串口 | 静默 `connectTimeout`(默认 5s) → 发 `?` | 再静默 5s → `b(false)` 断链（`machine/b/b.java:20-28`） |
+| 奎享 Grbl WiFi | 1s 周期发 `?`（`grbl/a.java:382-404`） | 计数器 `r` 累计 **20 拍**没收到 `<...>` → `g.b(false)` 断链 |
+| 奎享 KAT WiFi | 5s 周期检查 | **20s** 无 `[ESP]` 消息 → 断链（`kat/c.java:19`） |
+| **hutuji 现状** | `SO_RCVTIMEO=3s` 超时 → 发 `?`（`hutuji_pipe.cc:118-122`） | **没有**——`continue` 无条件回到 `recv` |
+
+**已实机抽验确认的固件缺陷**（`hutuji_pipe.cc:118-123`）：
+
+```cpp
+if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    // recv 超时：发 ? 轮询 Grbl 状态
+    std::lock_guard<std::mutex> wlock(write_mutex_);
+    SendRawLocked("?", 1);
+    continue;                      // ← 无计数、无上限，永远转圈
+}
+```
+
+若对端 TCP 栈存活（keepalive 因此**不会**触发）而 Grbl 主循环假死，
+S3 会每 3s 发一个 `?`、永远收不到 `<...>`、**永不 break、永不重连**。
+出图中撞上这种状态，任务会挂在等 ok 上直到 60s 超时报错，而链路本身
+不会复位——下一次 `draw` 仍然连着一条死链。
+
+**建议改法**（一个计数器，约 6 行）：连续 N 次 `EAGAIN` 且期间未收到任何
+行 → 主动 `break` 走重连；收到任何数据即清零。N 取 7（≈21s，与奎享
+20s 判死同量级，也与我们 keepalive 的 ~19s 相当）。这条**独立于 P2**，
+优先级高于开窗口——死链不复位是稳定性问题，不是性能问题。
 
 ### C. 连接健康双标志 `l` / `m`（参考）
 
@@ -258,7 +287,12 @@ TCP keepalive 已够用，且不占 G-code 通道带宽。
 ## 六、证据边界
 
 - 全部静态阅读，未运行奎享抓包验证。
-- `a.b.b` 是环形缓冲实现，未读源码（在 `machine/b/a/b/b.java`，反编译树里
-  可能被清理掉了），但从用法推断是 2048 字节环形缓冲，语义明确。
-- `Settings.connectTimeout` 默认值未在反编译树里找到（在 `model/Settings.java`，
-  已被清理），但奎享 UI 里有"连接超时"设置项，典型 5-10s。
+- **勘误（2026-07-28）**：本节早先写「`Settings.connectTimeout` 默认值未在反编译树里
+  找到，已被清理」是**错的**。`model/Settings.java` 完整存在，且已读到两个关键默认值：
+  `connectTimeout = a.a().a("connect_timeout", 5)`（:62，**5 秒**）、
+  `autoReconnect = a.a().a("auto_reconnect", false)`（:49，**默认关闭**）。
+- `a.b.b` 的底层实现（`a(boolean)` 是 autoExpand 还是 autoShrink）**仍未查证**，
+  故「2048 是初始容量还是硬上限」未定，组帧层的溢出行为随之未定。
+  影响有限：我们不照抄这一层（有 `kRxLineMax=512` 显式防护）。
+- 奎享 WiFi 判死时长 **20s** 来自 `grbl/a.java:382-404` 的计数器逻辑推算
+  （1s/拍 × 20 拍），**未实机计时验证**。

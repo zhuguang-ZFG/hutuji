@@ -11,19 +11,22 @@
 
 | 文件 | 角色 |
 |------|------|
-| `machine/f/b.java` | **窗口化流控核心**（双 Deque + 字节计数） |
-| `machine/f/f.java` | 定时发送泵（10ms Timer，行数窗口版） |
-| `machine/f/k.java` | 命令队列源（LinkedList，逐行 pop） |
+| `machine/f/b.java` | **窗口化流控核心**（双 Deque + 字节计数 + 泵 `g()`） |
+| `machine/f/f.java` | 任务级喂料/编排器（**ok 事件驱动，非定时轮询**；暂停/恢复/中止/计时） |
+| `machine/f/k.java` | 命令队列源（LinkedList，`e()`=peek / `c()`=pop） |
 | `machine/f/e.java` | 队列源抽象（进度 = a/b） |
-| `machine/f/c.java` | ok 回调处理（出队 + 错误记录） |
-| `machine/f/l.java` | 任务状态容器（计数/耗时/暂停标志） |
+| `machine/f/c.java` | **KAT/WiFi 文件级调度器**（发 `[ESP913]` 上传 SD；**与 error 处理无关**） |
+| `machine/f/l.java` | 多文件/重复出图调度器（文件队列 + 重复次数 + 换纸对话框） |
 | `machine/f/i.java` | 出图总调度（多文件队列 + 续打 + 进度事件） |
 | `machine/c.java` | 控制器基类，`a(String, boolean)` 是单行发送出口 |
 | `machine/grbl/a.java` | `g()` 返回窗口大小 100 |
 
-## 一、两套并存的流控实现
+## 一、流控的两层结构（不是两套并存实现）
 
-奎享代码里有**两个**发送器，用途不同。
+早前本文写「两个发送器并存」，措辞会误导。实际是**同一条链路的两层**：
+`machine/f/f.java`（任务级喂料器，决定发哪些行、何时停）套在
+`machine/f/b.java`（字节窗口在途记账 + 发送泵）之上，两层各自维护一份字节计数
+（`f.n()` 的局部 `l2` 镜像 `b.e`），构成双层预填充。**只有一套字节窗口机制。**
 
 ### 1. `machine/f/b.java` — character-counting（出图主用）
 
@@ -87,46 +90,83 @@ case "FirmwareEventResponse_OK":
 每收一个 `ok`：在途队列出队一条、在途字节数减回去、**立刻再调 `g()` 补发**。
 所以发送是**连续的流**，不存在「发一行→干等→再发一行」。
 
-### 3. `machine/f/f.java` — 定时轮询（行数窗口版）
+### 3. `machine/f/f.java` — 任务级喂料器（**不是**定时轮询）
+
+> **勘误（2026-07-28 直读 `f.java` 全文 194 行推翻）**：本文早前在此处写
+> 「`f.java` 是 10ms Timer 定时轮询 + 按在途**条数**限窗」，并附了一段
+> `new Timer("Sender")` / `l2.n().size()` 的代码。**这段代码在反编译树里不存在**：
+> `f.java` 全文**零个 Timer/schedule**，全树搜 `l2.n()` 零匹配。
+> 「行数窗口」这套实现根本不存在——奎享**只有字节窗口一套**。
+
+真实实现是**事件驱动的喂料函数** `n()`（`f.java:101-126`）：
 
 ```java
-public final void a(l l2) {
-    this.c = new Timer("Sender", true);
-    this.c.schedule((TimerTask)new d(this), 0L, 10L);   // 每 10ms 跑一次
-}
-
-final void a() {
-    if (this.d == null || !this.d.f()) return;      // 任务未运行
-    if (this.d.g()) return;                        // ← 暂停中，直接返回（不发）
-    l l2 = this.d;
-    if (l2.n().size() >= this.b.g()) return;       // ← 在途「条数」已达窗口，不发
-    String string = l2.a().a();                    // 取下一行
-    if (string == null) return;                    // 队列空
-    l2.n().add(string);                            // 记入在途
-    this.b.a(string, false);                       // 发送（不等 ok）
-    l2.a(l2.h() + 1);                              // 已发计数 +1
+private void n() {
+    if (this.d) return;                       // :105 暂停中 → 停灌（d = 暂停标志）
+    if (!this.e) return;                      // :107 任务未运行
+    this.a(new machine.d.a("Progress", this));      // :111 推进度事件
+    long l2 = this.c.e();                            // :112 取 b 的当前在途字节
+    while (this.a.a()) {                             // :113 还有待发行
+        i.a a2 = this.a.e();                         // :115 peek 下一行（不弹出）
+        boolean bl = this.b.g() > 0;                 // :116 窗口是否有限
+        if (l2 + a2.b() + 1L >= this.b.g() && bl) break;  // :117 塞不下就停（R1 的 +1）
+        a2 = this.a.c();                             // :118 真弹出
+        this.c.a(a2);                                // :119 交给 b（b 内部再泵）
+        l2 += a2.b() + 1;                            // :120 镜像累加
+        if (this.c.a() || !bl) break;                // :121 单步或无限窗口则只发一条
+    }
+    if (this.c.b()) this.m();                        // :123 双队列皆空 → 任务完成（R4）
 }
 ```
 
-这一版更简单：**10ms 定时轮询 + 按「在途条数」限窗**（而非字节数）。
-同样不等 `ok`。`f` 用于 `machine/f/l.java` 那套任务模型。
+驱动源是 `onEvent`（`f.java:143-148`）：收到 `FirmwareEventResponse_OK` 就调 `n()`。
+**没有任何定时器**——是「ok 到达即续灌」的纯事件驱动。
 
-对应的 ok 处理在 `machine/f/c.java`：
+两点值得注意：
+
+- **窗口算术在 `f.java` 与 `b.java` 各算了一遍**（`l2` 镜像 `b.e`），形成双层预填充。
+- **`e()` = peek 是窗口化的硬前提**（`k.java:52` 的 `getFirst()` 不移除，`c():41` 才 `pop()`）。
+  这正是我方 S2 必须先做预解析拿到 peek 能力的原因。
+
+### 勘误：「奎享 error 只记录不中断」是错的（2026-07-28 直读源码推翻）
+
+本文早前此处引用过一段署名 `machine/f/c.java` 的 `a(l l2, String string)` 代码，
+声称「记录错误但不中断」。**该代码在反编译树里不存在**：
+`machine/f/c.java` 全文（127 行）是 KAT/WiFi 的文件级调度器（发 `[ESP913]` 上传 SD），
+没有任何 error 处理；全树搜 `n().remove(0)` 零匹配，`f/l.java` 也没有 `n()`/`m()` 方法。
+那段代码是早前会话的臆造，由它推出的「error 容忍」结论随之作废。
+
+**实际实现：奎享对 `error` 同样中止。** 全树仅一处 `startsWith("error")`，
+在 `machine/grbl/a.java:82-101`：
 
 ```java
-public void a(l l2, String string) {
-    if (l2.n().isEmpty()) return;
-    l2.n().remove(0);              // 在途出队
-    l2.b(l2.i() + 1);              // 已确认计数 +1
-    if (string.startsWith("error")) {
-        l2.a(string);              // 记录错误，但不中断
+if (((String)object).startsWith("error") && this.t()) {
+    boolean bl = false;
+    object = ((String)object).substring(6);          // 取 NN
+    int n3 = Integer.parseInt((String)object);
+    if (n3 == 120) {
+        bl = true;                                   // ← error:120 白名单，静默忽略
+    } else if (n3 == 9 && JOptionPane.showConfirmDialog(...) == 0) {
+        bl = true;                                   // ← error:9(locked) 弹框问用户
+        this.l();                                    //    确认则发 $X 解锁并继续
+    }
+    ...
+    if (!bl) {
+        // 其余一律发 FirmwareEventError
+        this.a(new machine.d.b("FirmwareEventError", this));
     }
 }
 ```
 
-注意：**`error` 只记录不中断**。奎享对单行错误是容忍的——记下最后一个错误
-（`l.m()` 可读），继续发后面的行。这和我们 `StreamToGrbl` 遇 `error:NN` 直接
-`return false` 放弃整幅画的策略不同。
+`FirmwareEventError` 的**唯一订阅者**是 `machine/f/b.java:28`，其处理（`:155`）调
+`this.f()` = 清空待发队列 + 清空在途队列 + 窗口计数归零（`b.java:94-98`），
+即**终止当前 job**。
+
+**修正后的对照**：双方都对 error 中止。差别只在奎享有两个例外——
+`error:120`（原版 Grbl 无此码，应为其固件私有）静默忽略；
+`error:9`（locked）弹对话框，用户确认后 `$X` 解锁续打。
+我们无人值守/语音远程场景不能弹框，故保持无条件中止——
+**理由是「场景不允许交互」，不是「我们比奎享严格」**。
 
 ## 二、窗口大小
 
@@ -140,38 +180,35 @@ public void a(l l2, String string) {
 
 | 固件 | 窗口 | 说明 |
 |------|------|------|
-| Grbl | **100** 字节 | 保守值。Grbl 官方 RX 缓冲是 128 字节，留 28 字节余量防溢出 |
-| Marlin | **96** 字节 | Marlin RX 缓冲典型 96–128，取下界 |
-| KAT | **1** | `machine/kat/b.java::g()` 返回 1 = **逐行等 ok**（无窗口） |
+| Grbl | **100** 字节 | `grbl/a.java:312`。Grbl 官方 RX 缓冲是 128 字节，留 28 字节余量 |
+| Marlin | **96** 字节 | `marlin/a.java:230`。Marlin RX 缓冲典型 96–128，取下界 |
+| KAT / K_MT | **96** | 无 override，直接继承 `marlin/a.g()`（`kat/b.java:37` extends marlin.a） |
+| ESP32Grbl | **100** | 无 override，继承 `grbl/a.g()` |
+| EBB | **-1**（无限） | `ebb/a.java:93` |
 
-窗口是**字节数**（`b.java`）或**条数**（`f.java`），取决于用哪套发送器。
-`b.java` 的字节版更精确，是 Grbl 官方推荐做法。
+窗口是**字节数**（`b.java`）。「单步/逐行」不是某机型的窗口值，而是
+`f.java:26` 把 `任务强制 || Settings.singleStep` 传给 `b`，由 `b.java:66`
+的「在途非空即停」退化成窗口 = 1 行。
 
-### KAT 窗口 = 1 是个关键反例
+### 勘误：「KAT 窗口 = 1」是错的（2026-07-28 二次深挖）
 
-`machine/kat/b.java`：
-
-```java
-@Override
-public int g() { return 1; }
-```
-
-KAT 是奎享**自家机型**，却用最保守的逐行模式（窗口 1 = 发一条等一条）。
-这说明窗口大小是**按固件 RX 缓冲能力逐个配置**的，不是一刀切的优化：
-
-- Grbl / Marlin 是通用固件，RX 缓冲规格公开（128 / 96 字节），可以安全开窗口
-- KAT 是私有固件，或缓冲小、或行为不确定，奎享选择不冒险
+早前本节写「`machine/kat/b.java::g()` 返回 1 = 逐行等 ok」，**这是错的**。
+反编译全树只有 4 个 `int g()` override（grbl/marlin/ebb + 一个无关的 `f/l.java`），
+**`kat/b.java` 没有 `g()`**，从 Marlin 继承 = 96。窗口=1 的真实来源是 `singleStep`
+布尔开关，与机型无关。原先「奎享自家机型最保守所以窗口=1」的解读不成立。
 
 **对我们的意义**：窗口值必须有**实测依据**，不能照抄 100。
-我们的 Grbl_Esp32 改过缓冲（`Bf` 第二个数实测 1200，远大于原版 128），
-所以既不能直接用 100（太保守，浪费能力），也不能想当然开到 1200
-（Telnet 链路下这个数是否仍代表真实可用余量，未验证）。
-取值前必须实测：见本文 §八「若要落地窗口化流控」的验证步骤。
 
-> hutuji 实测：我们的 Grbl_Esp32 `?` 状态报告里 `Bf:249,1200` —— 第二个数
-> 1200 是 **RX 缓冲余量**（远大于原版 Grbl 的 128）。这个数字来自
-> `Grbl_Esp32` 加大的串口缓冲。理论上我们的窗口可以开到 ~1000 字节，
-> 但要实测确认 Telnet 链路下这个数是否仍然可信。
+> hutuji 实测 + 源码核对（2026-07-28 更新，**修正了本文早前一处错误**）：
+> - **早前写「`Bf` 第二个数实测 1200」是错的**。COM3 实测串口路径下该值**恒为 128**
+>   （`<Idle|...|Bf:249,128|...>`），因为 `Report.cpp:603` 的 `DEFAULTBUFFERSIZE = 64`
+>   与 `client_get_rx_buffer_available(CLIENT_SERIAL)` 走的是另一条分支。
+> - **1200 只在 Telnet 客户端查询时出现** = `TELNETRXBUFFERSIZE`（`WebUI/TelnetServer.h:33`）。
+>   `Report.cpp:605-607`：`client == CLIENT_TELNET` 才取 `telnet_server.get_rx_buffer_available()`。
+>   所以「S3 自己 `?` 读到的余量是自己的」这条成立，但**不能用串口抓的数字代测**。
+> - **planner 反压实测存在**：连灌 30 行短段时 `Bf` 第一数从 249 掉到 **222**，
+>   证明 planner 深度是真实反压信号。
+> - 详细设计见 `docs/design/p2-windowed-flow-control.md`。
 
 ## 三、命令队列源（`k.java` / `e.java`）
 
@@ -207,30 +244,36 @@ public k(List list) {
 
 ## 四、暂停 / 恢复 / 中止
 
-### 暂停恢复：只停发送泵，不发实时字符
+### 暂停恢复：停灌 + 主动注入笔控（不是"纯停灌"）
+
+> **勘误（2026-07-28 直读 `f/f.java` 全文 194 行推翻）**：本节早前引用过一段署名
+> `machine/f/l.java` 的 `b()/c()/d()/e()` + "启动/停止 Sender Timer" 代码，并说
+> "发送泵每 10ms 查一次"。**那段代码不存在**：`f/l.java` 的 `e()` 实际返回
+> `Vector`（`l.java:74`），该文件无 `clear()`+Timer 的暂停语义；`f/f.java` 全文
+> **零个 Timer/schedule**。这是本文第三处臆造代码（另两处见 §一.3 与 §一.4 的勘误框）。
+
+真实实现在 `machine/f/f.java:56-68`，**两件事**：置标志停灌 + 往队列注入笔控命令。
 
 ```java
-// machine/f/l.java
-public final void b() {                  // 开始
-    this.e = true;   this.f = false;
-    this.i = System.currentTimeMillis();
-    this.b.a(this);                      // 启动 Sender Timer
+public final void e() {                  // :63  暂停
+    this.d = true;                       //      置标志；n():105 靠它 return 停灌
+    this.h = System.currentTimeMillis(); //      记本次暂停起点（用于扣净作画时长）
+    this.c.a(new i.a(this.b.b(true)));   //      ← 注入抬笔 G1G90 Z0
 }
-public final void c() { this.f = true; }   // 暂停 = 置标志
-public final void d() { this.f = false; }  // 恢复 = 清标志
-public final void e() {                    // 停止
-    this.e = false;  this.f = false;
-    this.c.clear();                        // 清在途
-    this.b.b(this);                        // 停 Timer
+public final void d() {                  // :56  恢复
+    this.d = false;
+    this.g += System.currentTimeMillis() - this.h;   // 累加暂停总时长
+    this.c.a(new i.a(this.b.b(false)));  //      ← 注入落笔 G1G90 Z5
 }
-public final boolean g() { return this.f; }   // 供发送泵查询
 ```
 
-发送泵每 10ms 查一次 `g()`，暂停时直接 `return` 不发新行。
+停灌本身在 `n():101-110` 的 `if (this.d) return`。注意**注入的笔控行是普通受控行**，
+仍进 `b` 的队列并占窗口字节。
 
-**关键差异**：这一层的暂停**不发 Grbl 实时字符 `!`**，只是停止灌新行。
-已经在 Grbl planner 里的行会继续走完。所以奎享这个"暂停"是**软暂停**——
-机器会把缓冲里的动作做完才停，不是立即减速。
+**关键差异**：这一层的暂停**不发 Grbl 实时字符 `!`**，只停止灌新行。
+已经在 Grbl planner 里的行会继续走完，所以是**软暂停**——机器把缓冲里的动作做完才停。
+但它同时**抬了笔**，所以长暂停不会渗墨；我方发 `!` 停得更快，代价是 Z 停在纸面。
+详细对照与可借鉴项见 `docs/design/p2-windowed-flow-control.md` §8.3。
 
 `grbl/a.java` 里另有真正的实时控制（`b()`/`z()`/`A()` 走 `machine/c` 基类），
 以及中止：
@@ -321,7 +364,7 @@ vpype-gcode 可能产出注释行。
 | **流控** | character-counting 窗口 100 字节 | 逐行等 ok | **卡顿根源**：每行付一次往返 |
 | peek 能力 | `e()` 可看下一行长度 | 边解析边发，无 peek | 改窗口化的前置障碍 |
 | ok 处理 | 出队 + 释放窗口 + 立刻补发 | 解除阻塞，继续下一行 | — |
-| `error:NN` | 记录不中断 | 直接放弃整幅 | 我们更严格（可能过严） |
+| `error:NN` | **也中止**（清空双队列），但有 2 个白名单码 | 直接放弃整幅 | 双方同向；差别在白名单与交互解锁 |
 | 暂停 | 软暂停（停灌新行） | `!` 进给保持 + 停灌 | 我们更硬（能立即停） |
 | 中止 | `0x18` 软复位 + 清 Z 基准标志 | `!` → 8s → `0x18` | 我们有 grace period |
 | 进度 | `?` 状态事件驱动 | 行计数 + 5s 定时推送 | — |
@@ -331,10 +374,17 @@ vpype-gcode 可能产出注释行。
 
 ## 七、对 hutuji 的可行改进（按性价比排序）
 
-### A. 补 `G92 Z0`（必须，且最简单）
+### A. ~~补 `G92 Z0`~~ —— **已作废，反向执行**
 
-见 [[03-init-sequence]]。这是当前落笔失败的直接原因之一。
-一行改动，风险极低。
+早前此处写「补 `G92 Z0` 是落笔失败的直接原因之一，必须加」。
+**这条已被奎享 9 份真实产物推翻**：产物里**一个 `G92` 都没有**，
+奎享靠开头连发两次 `G1G90 Z0.0F10000`（真实运动）做机械自校准。
+反编译里的 `G92 Z0`（`grbl/a.java` 读设置后）属**连接/点动路径，不进文件输出**。
+
+现行做法（`hutuji_gwrite.toml`）已按真实产物对齐：**不发 `G92 Z0`**，
+改为两次 `G1G90 Z0.0F10000`。另有一层原因：固件宏 `USE_M3_M5_AS_PEN_UP_DOWN`
+直接用机械坐标（`GCode.cpp:1488`），一旦发过 `G92` 就与工件坐标错开。
+详见 [[02-gcode-template]]、[[12-summary-and-action-list]] §五。
 
 ### B. 窗口化流控（收益最大，但需重构）
 
@@ -345,23 +395,41 @@ vpype-gcode 可能产出注释行。
 1. `StreamToGrbl` 先把 buffer 预解析成 `vector<string>`（获得 peek 能力）
 2. 维护 `in_flight_bytes` + 在途队列
 3. `Pipe::WaitResponse` 改成「消费一个 ok 事件」而非「阻塞等一个 ok」
-4. 窗口大小取值需实测（Grbl_Esp32 的 `Bf:,1200` 暗示可以开大）
+4. 窗口起步 512 字节（依据 Telnet `_RXbuffer` = 1200，见设计文档 §3）
 
-**风险**：这是 `docs/protocol.md` 定的契约（§7 逐行流控），改动需要
-两侧同步评审 + fz 门禁 + 实机验证。**不建议现在做**——先把落笔修好，
-出图跑通，再考虑。
+**完整设计已独立成文**：`docs/design/p2-windowed-flow-control.md`
+（含官方 `stream.py` 的 R1–R4 四条必抄规则、缓冲链路反压分析、四阶段落地）。
 
-### C. `error:NN` 容忍策略（存疑，暂不改）
+**风险**：这是 `docs/protocol.md` 定的契约（§3 逐行流控），改动需要
+两侧同步评审 + 实机验证。
 
-奎享记录不中断。但我们的场景不同：奎享是本地串口，用户看着屏幕；
-我们是语音远程出图，用户不在跟前。单行 error 继续画可能产出废图。
-**保持现状（严格中止）更安全**。
+> **2026-07-28 实测修正**：窗口化的收益**只存在于高往返链路**。
+> COM3 串口直连做过 A/B（183 行，窗口 1 vs 512）：40.38s vs 40.42s，**无差异**——
+> 串口往返 6ms，瓶颈 100% 是电机运动时间，无可隐藏的延迟。
+> 所以这条改进的**唯一适用场景是 S3 的 WiFi Telnet 链路**（往返 20–40ms），
+> 且必须在 Telnet 链路上验收，串口实测不能作为收益证据。
 
-### D. 软暂停 vs 硬暂停（我们的实现更好）
+### C. `error:NN` 处理（双方都中止，理由不同，不改）
 
-我们的 `hutuji.pause` 发 `!` 能立即减速停住，奎享的软暂停要等
-planner 排空。用户说「暂停」时期望立刻停 —— 我们的行为更符合直觉。
-**不改**。
+**2026-07-28 勘误**：本文早前写「奎享 error 只记录不中断」是错的，见上文
+「二次勘误」。真实情况是**双方都中止**，差别只在两个白名单码和交互解锁：
+
+| | 奎享 | hutuji |
+|---|---|---|
+| 一般 `error:NN` | 清空待发+在途+计数（`b.java:155`→`f()`），终止 job | `return false` 放弃整幅 |
+| `error:120` | **静默忽略**（`grbl/a.java:88` `bl=true`） | 无特例 |
+| `error:9`（locked） | **弹框问用户**，确认则 `$X` 解锁继续（`:90-93`） | 无交互，直接失败 |
+
+**保持现状**。理由不是「我们更严格」（这个说法已被推翻），而是
+**无人值守语音场景不能弹框**——`error:9` 我们没法问用户，只能失败上报。
+`error:120` 是奎享固件私有码，我们的 Grbl_Esp32 不产生它，无需特例。
+
+### D. 暂停机制对照（不改，但可借鉴抬笔）
+
+我们的 `hutuji.pause` 发 `!` 立即进给保持；奎享是应用层停灌
+（`f.java:105` 的 `if (d) return`）**并主动注入一条抬笔**（`f.java:67`）。
+停得快是我们的优势，**但笔停在纸上会渗墨**——注入抬笔这点值得借鉴。
+详见 `docs/design/p2-windowed-flow-control.md` §8.3。
 
 ## 八、证据边界
 

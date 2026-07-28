@@ -7,6 +7,7 @@ firmware_out/
 .env.*
 **/mcp.env
 **/bridge.env
+小智控制台token.txt
 !deploy/env.mcp.example
 !deploy/env.bridge.example
 !deploy/env.example
@@ -25,3 +26,7 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# 本地构建产物日志 / Claude 工作树
+build*_out.txt
+.claude/
