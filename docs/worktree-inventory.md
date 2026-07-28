@@ -14,8 +14,8 @@
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| **已推** `1186948` | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
-| **已推** `2c6f174` | `AGENTS.md`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 Grbl `8d13b5c` 已提交/推送、fz `standard` pass、PlatformIO `release` pass；保留未新增烧录/换纸验收边界 | 不替代烧录/换纸验收 |
+| **已推** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
+| **已推** | `AGENTS.md`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 Grbl `8d13b5c` 已提交/推送、fz `standard` pass、PlatformIO `release` pass，并登记 `.claude/`/`firmware_out/` 本地忽略；保留未新增烧录/换纸验收边界 | 不替代烧录/换纸验收 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
 | **提交后工作树** | tracked clean | 本批次提交后 `git status --short` 应无输出 | 若不符，以 Git 为准回写本页 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
