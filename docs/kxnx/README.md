@@ -58,7 +58,8 @@ docs/kxnx/
 | `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）；`a(boolean)` 的 `G92 Z0`（行 250-260）**只在点动/连接路径**，出图产物无 G92（见 findings/02、12）|
 | `com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java` | `zOn/zOff/zSpeed/type` 字段定义 |
 | `com/kenjoy/kenjoycnc/machine/marlin/a.java` | Stepper 笔控跨固件一致性（行 196-200）|
-| `com/kenjoy/kenjoycnc/h/d.java` | 完整 G-code 拼接器模板（行 22-60）|
+| `com/kenjoy/kenjoycnc/h/d.java` | **校准测试图案**生成器（固定箭头+10×10方框+追加 test.gcode），**不是**出图拼接模板；勿据此推出图序列 |
+| `com/kenjoy/kenjoycnc/machine/grbl/a.java` `b()` :297 | 出图收尾回原点 = `G90G0 X0Y0`（我方 toml 有意省略：本机固件判为换纸触发）|
 | `com/kvenjoy/drawsoft/lib/grbl/Type.java` | 笔控类型枚举 |
 
 ## 合规说明

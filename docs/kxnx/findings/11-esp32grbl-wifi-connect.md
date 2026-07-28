@@ -1,10 +1,16 @@
-# 11 · esp32grbl WiFi 连接与设备发现
+# 11 · esp32grbl WiFi 连接与设备发现（已被 finding 16 超越，本页仅留独有内容）
 
-> 源文件：`machine/ui/esp32grbl/*.java`（11 文件）
+> ⚠️ **2026-07-28 收口**：本页早先的两条结论——「奎享 WiFi 逻辑与我方**高度同构**」
+> 和「发现走**单一 mDNS**」——都不准确，已由 **[finding 16](16-wifi-discovery-and-connect.md)**
+> 用逐行源码更正：
+> - 发现是**三级回退**（历史 / 自动搜索 / 手输），不是单一 mDNS；
+> - 自动搜索是 **mDNS + SSDP 双通道并行**，不是只有 mDNS；
+> - 并排两边策略后暴露了**我方一处真实固件缺陷**（缓存 IP 活锁，见 finding 16 §四）。
 >
-> 结论先行：**奎享的 WiFi 连接逻辑和我们 hutuji 高度同构**——TCP 直连 IP:port、
-> 用 mDNS `_http._tcp.local.` 自动发现、靠 `description.xml` 识别设备类型。
-> 但奎享默认 **port 23（Telnet）**，Marlin 才用 8080。这印证了我们"方案 E: WiFi Telnet"是对的。
+> **发现/连接/端口/协议校验的权威内容一律看 finding 16。** 本页只保留 16 未覆盖的两点：
+> `isNetAddress()` 数据模型（§四）、我方去除 mDNS 的历史缘由（§二末）。其余段落停止维护。
+>
+> 源文件：`machine/ui/esp32grbl/*.java`（11 文件）
 
 ## 一、连接入口 `esp32grbl/a.java`（JDialog 选择器）
 
@@ -109,10 +115,13 @@ public MachineItem(f obj, int port, JList jList) {
 }
 ```
 
-抓设备的 `description.xml`（UPnP/Solidoodle 风格的设备描述），解析 XML 里的
-`<device><modelNumber>` 字段。若 = "Marlin" 才认。**Grbl_Esp32 的 WebUI 也
-暴露 description.xml**——奎享只认 Marlin 的，说明它对 Grbl_Esp32 的发现可能
-走另一条路（或 `_http._tcp` 名字里带标识）。
+抓设备的 `description.xml`（UPnP 风格的设备描述），解析 XML 里的
+`<device><modelNumber>` 字段，若 = "Marlin" 才认。
+
+> **本页当年留的那句猜测（「对 Grbl_Esp32 的发现可能走另一条路」）已由
+> finding 16 §二 用源码解答**：这段属于**独立的 SSDP/UPnP 通道**（`d.java` 回调），
+> 与 mDNS 通道并行、各自往同一列表加候选。`modelNumber == "Marlin"` 是
+> ESP3D WebUI 的固定值，不代表运动固件类型。细节看 16，本页不再维护。
 
 ### 对 hutuji 的启示
 
