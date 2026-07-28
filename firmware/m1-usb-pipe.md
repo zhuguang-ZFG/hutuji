@@ -1,10 +1,11 @@
 # M1 最小管道固件补丁（feat/hutuji-usb-pipe，方案 E：WiFi Telnet）
 
 > 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 HEAD
-> `27eff73`（`05f4563` 行为基线 + 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入）。
-> 实机烧录基线仍为 `05f4563`：该 commit 已构建并
-> 烧录 COM6，启动/Telnet/授权/fresh-`Idle` 核验通过；**仍不得表述为断连重画、
-> 有纸换纸、App 语音或发布验收通过。**
+> `3ca9d31`（`05f4563` 行为基线 + `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入
+> + `M3/M5` planner-sync `ok` 长等待修复）。
+> 8.3 自动触发镜像已构建并烧录 COM6；普通画线断连后已实测到废纸 `M30`、PSRAM 从第 1 行重画、
+> 55/55 行完成与 fresh `Idle`。最终页尾自动换纸因无纸返回 `error:90`，**仍不得表述为有纸换纸、
+> App 语音或发布验收通过。**
 > 目标板型：`lichuang-dev`（立创实战派 ESP32-S3）。
 > **2026-07-24 传输层第三版**：USB Host（硬件被 CH334F 占用否决）→ UART/CH9350（否决）
 > → **方案 E：写字机 Grbl_Esp32 内置 WebUI 的 Telnet 服务（端口 23），S3 做 TCP 客户端直连**。
@@ -25,7 +26,7 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 | `main/CMakeLists.txt` | `27eff73` 新增 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 调试构建选项；默认 OFF，且仅允许 `lichuang-dev` |
 | `main/boards/lichuang-dev/hutuji_pipe.h/.cc` | `hutuji::Pipe` 单例：lwip socket 轻量同步 TCP 客户端 |
 | `main/boards/lichuang-dev/lichuang_dev_board.cc` | `InitializeTools()` 注册 Pipe 与设备侧 MCP 控制工具 |
-| `main/boards/lichuang-dev/hutuji_job.h/.cc` | M2 Job：下载/CRC/逐行转发，以及暂停、恢复、重画、试笔控制 |
+| `main/boards/lichuang-dev/hutuji_job.h/.cc` | M2 Job：下载/CRC/逐行转发，以及暂停、恢复、重画、试笔控制；`3ca9d31` 将 `M3/M5` 笔控行按 planner-sync 行等待，避免页尾 `M5` 在剩余绘图时间较长时被普通 60s `ok` 超时误杀 |
 
 未改运行期核心模块（`mcp_server.cc`、协议层、音频链路等未动）。`main/CMakeLists.txt` 仅承载默认关闭的调试编译定义，常规构建不启用自动测试。
 
@@ -64,6 +65,9 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 - `pen_test` 通过 `busy_` 与出图互斥；`pen_test_active_` 让试笔期间的 pause/resume 返回「正在试笔，请稍候」。
 - 暂停仅用实时 `!`/`~`；Hold 中普通 Z 行只会排入 planner，并会破坏 `ok` 配对，因此不再在 pause/resume 中注入抬落笔。
 - 暂停超过 10 分钟自动取消并向云端通知，避免 `busy_` 无限占用使全部工具返回 `busy`。
+- Grbl fork 中 `M3/M5` 笔控会同步 planner 后才返回 `ok`；`3ca9d31` 将 `M3/M5` 行的
+  `ok` 等待窗口放宽到任务级 idle 超时。纸张指令仍优先使用 90s 换纸等待，普通 G0–G3 与普通
+  M-code timeout 不变。
 - 下载/校验或换纸结束时，任务状态按 `paused_` 写为 `paused` 或 `streaming`，不得谎报正在画。
 - 文件最后一行收到 `ok` 只表示进入 planner；任务还会发 `?` 并等待一份**新解析的**
   `Idle` 状态报告；随后 S3 单独发 `M30`，等换纸最终 `ok/error:90`，并再次确认 fresh
@@ -97,14 +101,14 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 | 2b | `OnRxData` 先拆行再丢超长残段 | ✅ 代码 |
 | 3 | abort 分状态；`!` 后轮询 `Hold/Idle` 再 `0x18`；仅自发复位受限 `$X`，显式 Z=0 后重探活；换纸中不发 `0x18` | ✅ 实机回归 |
 | 4 | 单写者 `write_mutex_`；出图中 status 只 `?` | ✅ 代码 |
-| 5 | 断连物理复位、废纸换纸与缓存重发 | 🟡 已编码/构建/烧录；当前 abort 自恢复不等于断连重放，仍待完整实测 |
+| 5 | 断连物理复位、废纸换纸与缓存重发 | 🟡 已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成与 fresh `Idle`；最终无纸自动换纸 `error:90`，完整任务仍未 `done` |
 | 6 | status 含 `authorized` + MCP notify | ✅ 代码 |
 | 7 | 写字机固定 IP / Telnet | 🔬 实机 |
 | 8 | `pause`/`resume`：`!`/`~` + 行边界暂停门 + 冻结 ok 超时；发送失败回滚状态 | 🟡 底层实机；最新云端路径未单独回归 |
 | 9 | `repeat`：成功后留存 PSRAM buffer 跳下载+CRC，回落重下；`status` 报 `repeat_available` | 🟡 `repeat_available=true` 已实测；快路重画未验 |
 | 10 | `pen_test`：`M5`→`M3`→1s→`M5` 建立确定起点；`pen_test_active_` 挡 pause | 🟡 底层动作已实测；最新云端路径未单独回归 |
 | 11 | 最后一行后等待 fresh `Idle`，禁止 `done/Run` | ✅ 实机回归 |
-| 12 | 绘图 fresh `Idle` 后显式 `M30`，等最终应答和第二次 fresh `Idle`；与 abort 提交点互斥 | 🟡 IDF 6.0.1 构建/COM6 烧录通过；待有纸实测 |
+| 12 | 绘图 fresh `Idle` 后显式 `M30`，等最终应答和第二次 fresh `Idle`；与 abort 提交点互斥 | 🟡 无纸状态下已收到 `[PaperStatus] 2` + `error:90` 并落 error；待有纸成功换纸实测 |
 
 ### 联调注意
 
@@ -130,10 +134,20 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 - `27eff73` 已提交并推送：移除过期硬编码自动测试 URL，改为 CMake 选项注入。
   IDF v6.0.1 验证两条构建路径：默认构建通过（`xiaozhi.bin=0x2ccde0`，余 29%，自动测试关闭）；
   `-DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='http://127.0.0.1/files/test.gcode'`
-  dummy URL 构建通过（`xiaozhi.bin=0x2ccfe0`，余 29%）。该提交未烧录，不证明 8.3 通过。
+  dummy URL 构建通过（`xiaozhi.bin=0x2ccfe0`，余 29%）。
+- `3ca9d31` 已提交/推送：修复 `M3/M5` planner-sync `ok` 等待窗口。IDF v6.0.1 默认构建通过
+  （`xiaozhi.bin=0x2cce30`，余 `0x1231d0`/29%，SHA256
+  `5D5FE23CE0DF6EE364EBACC2503E8374174781AEAE5E9BFC9BACDF227987BBA6`）；8.3 自动触发镜像构建通过并
+  烧录 COM6（`xiaozhi.bin=0x2cd070`，余 `0x122f90`/29%，SHA256
+  `98C3B6AF0CB136AF79A0256B5FB8A5279FE0715FE087322419A791D3BD3C122C`）。
+- 8.3 复测证据：`results/bringup-8.3-fault-capture-20260729-010436.md` 和
+  `results/s3-3ca9d31-8.3-pen-timeout-evidence-20260729.md`。本次看到断连、重连、
+  `Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成与
+  fresh `Idle`；上一轮页尾 `M5` 60s 误超时未复现。最终页尾自动换纸在无纸状态下返回
+  `[PaperStatus] 2` + `error:90`，任务 `state=error`，不能判 8.3 完整通过。
 - 已证：七工具云端发现、`draw/status/abort` 云端路径、abort 后受限恢复、Z=0、
-  fresh-`Idle` 完成判定、`done/Idle`。
-- 未证：App 语音对话、纸面笔迹、`Changing=On`、自动换纸、完整断连复位/重发实测、P2 S3/S4、
+  fresh-`Idle` 完成判定、`done/Idle`；普通画线断连后的废纸处理和缓存重发主路径。
+- 未证：App 语音对话、纸面笔迹、`Changing=On`、有纸自动换纸成功、8.3 最终 `done/Idle`、P2 S3/S4、
   小批量出货。
 
 ## 历史留档

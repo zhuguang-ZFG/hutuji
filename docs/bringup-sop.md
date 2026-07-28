@@ -127,13 +127,18 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 1. **确认发现链**：S3 与写字机接入同一路由器；连接器先试 NVS 缓存，失败后扫本机 `/24`。只有返回 Grbl banner 的 :23 候选可进入 ready，禁止只凭“端口可连”缓存目标。
 2. 构建：使用 **ESP-IDF v6.0.1** 执行 `python3 scripts/release.py lichuang-dev`。
    - 2026-07-28 证据：`05f4563` 已提交并以 IDF 6.0.1 构建通过（`0x2ccde0`，SHA256 `A77C8635...F29F80CC`），已烧录 COM6；esptool 对 bootloader/partition/OTA/assets/app 全部写入哈希校验通过。
+   - 2026-07-29 证据：`3ca9d31` 默认构建通过（`0x2cce30`，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`0x2cd070`，SHA256 `98C3B6AF...C122C`）。
 3. 刷入后看日志：应见候选 banner 校验通过、已连接写字机 Telnet 与 Grbl 探活成功。
 4. 调 `hutuji.status` → 应返回 `connected=true, ready=true`。
 5. ⛔ **确认 `authorized`**（组 0 之后 status 应含此字段）——未授权则回阶段 1 步骤 5 走授权 SOP。
 
 **通过判据**：`hutuji.status` 显示 connected + ready + authorized。
 
-**当前记录（2026-07-28）**：S3-LC-01 已烧录 `05f4563`。COM9 两轮启动日志确认 IDF 6.0.1、8MB PSRAM、七个 `hutuji.*` 工具、Telnet 连接 `192.168.1.13:23`、授权零位移探测通过与持续 fresh `Idle`，未见 panic/assert/backtrace。Pipe 全量下载、长度/CRC、逐行 `ok` 配对和 fresh-`Idle` 完成判定此前已实机回归。仍缺完整断连重发、`Changing=On`、自动换纸实测与 App 真实语音。
+**当前记录（2026-07-29）**：S3-LC-01 已烧录 `3ca9d31` 的 8.3 自动触发镜像。COM9/COM3 采集
+`results/bringup-8.3-fault-capture-20260729-010436.md` 确认普通画线断连后完成重连、`Changing=Off`、
+废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成与 fresh `Idle`；最终页尾自动换纸
+因无纸返回 `[PaperStatus] 2` + `error:90`，任务最终 `state=error`。因此阶段 5 的构建/烧录与
+断连重发主路径有证据，但仍缺有纸 `Changing=On`、有纸自动换纸成功、App 真实语音。
 
 **排障**：
 - 连不上 → 查 S3 与写字机是否同一路由器、IP 是否写对、写字机 Telnet 是否开。
@@ -196,6 +201,13 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 | 8.6 | **下载中断/CRC 不符** | **零字节下发**，任务 error，一张纸都不废 | 是否真的没落笔 |
 | 8.7 | **超 190mm 越界样本** | ③ 侧**拒绝生成**（不裁剪、不缩放） | 拒绝提示是否说清超界轴与值 |
 | 8.8 | **缺纸/卡纸** | `error:90` + `[PaperStatus] N`（N=2/3/4/5）→ 暂停 + 提示，不自动重试 | 各故障码是否都经 Telnet 到达（依赖 §9-B1′） |
+
+**当前 8.3 记录（2026-07-29）**：`3ca9d31` 自动触发镜像 + 本地 658B/CRC32 `2290095f` G-code；
+采集报告 `results/bringup-8.3-fault-capture-20260729-010436.md`。本次通过的子项：WiFi OFF/ON 注入后
+S3 检测断连并重连；`[ESP901]` 返回 `Changing=Off`；S3 做受限 reset/恢复后发废纸 `M30`；
+Grbl 返回 `[PaperStatus] 0`；S3 从 PSRAM 第 1 行重画；第二轮页尾 `M5` 未再 60s 误超时；
+重画到 55/55 并 `Run -> Idle`。未通过项：页尾自动换纸无纸返回 `[PaperStatus] 2` + `error:90`，
+任务最终 `state=error`，不能判定 8.3 完整通过。
 
 **8.3 实验台注入建议**：若不方便物理断开路由器，可在普通画线已经进入 `streaming/Run`
 后，通过写字机 CH340 串口发送 `[ESP115]OFF`，等待数秒后发送 `[ESP115]ON`。该方式关闭/恢复

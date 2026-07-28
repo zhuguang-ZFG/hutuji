@@ -1,6 +1,6 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **状态日期：2026-07-28（Grbl `8d13b5c` 已提交/推送/烧录；xiaozhi `27eff73` 已提交/推送但未烧录；三仓 `git status` 已复核）。**
+> **状态日期：2026-07-29（Grbl `8d13b5c` 已提交/推送/烧录；xiaozhi `3ca9d31` 已提交/推送，8.3 自动触发镜像已烧录 COM6；三仓 `git status` 已复核）。**
 > 用途：告诉下一任代理「哪些改动已经在磁盘上、不要当不存在、不要 checkout 清掉」。  
 > 每次相关提交或丢弃后**必须更新**本页；与 `git status` 冲突时以 `git status` 为准并回写本页。
 
@@ -15,7 +15,7 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已推** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
-| **已推** | `AGENTS.md`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/bringup-sop.md`、`docs/worktree-inventory.md` | 同步 Grbl `8d13b5c` 已 COM3 烧录并完成空闲最小核验；保留有纸换纸/断连重画未验边界 | 不替代有纸换纸/断连重画验收 |
+| **本轮同步** | `AGENTS.md`、`README.md`、`CLAUDE.md`、`.cursor/rules/hutuji-agent-rails.mdc`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/bringup-sop.md`、`docs/protocol.md`、`docs/worktree-inventory.md`、`firmware/m1-usb-pipe.md` | 同步 S3 `3ca9d31` 构建/烧录与 8.3 复测结论：断连重发主路径到 55/55+fresh `Idle`，最终无纸自动换纸 `error:90`，仍不可商业出货 | 已跑本仓 docs/hub 门禁；不替代有纸 `Changing=On`/自动换纸验收 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
 | **提交后工作树** | tracked clean | 本批次提交后 `git status --short` 应无输出 | 若不符，以 Git 为准回写本页 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
@@ -42,9 +42,9 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已提交** `305b016` | 根 `AGENTS.md` hutuji 专节 | 约束入口 | 已推远程 |
-| **当前源码 HEAD** `27eff73` | `feat/hutuji-usb-pipe` | `05f4563` 行为基线 + `a4b92b1` 移除过期自动测试 URL + `27eff73` 新增默认关闭的 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 注入 | 已推远程；默认 IDF 6.0.1 构建通过（`xiaozhi.bin=0x2ccde0`，余 29%）；dummy URL 自动测试构建通过（`xiaozhi.bin=0x2ccfe0`，余 29%）。**尚未烧录**，不等于断连/换纸实测 |
-| **当前实机烧录基线** `05f4563` | `feat/hutuji-usb-pipe` | 5 文件 S3 资产已提交；含显式 `M30`、重连先判 `Changing`、受限 reset、废纸换纸与 PSRAM 从头重发 | IDF 6.0.1 构建并烧录 COM6；`xiaozhi.bin=0x2ccde0`，余 `0x123220`/29%，app SHA256 `A77C8635405B7FB18B18CE2486621A7635374D75FEE37E0078CD1423F29F80CC`，merged SHA256 `9328F2B71CAC67603E9B9BF063980AE11D575A749CE7F124A4F13C0CFA690E1D`，release zip SHA256 `F11E51853E0D6E7CD223344F748330CCB583E7CC913E02E43DCD4E08D52941C2`；S3-LC-01 启动核验通过，不等于断连/换纸实测 |
-| **工作树** | tracked clean | `git status --short` 无输出 | `build/`、`sdkconfig*`、`releases/` 为生成/忽略产物，不提交；下一步做完整断连重画实测 |
+| **当前源码 HEAD** `3ca9d31` | `feat/hutuji-usb-pipe` | `05f4563` 行为基线 + `27eff73` 默认关闭的 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 注入 + `M3/M5` planner-sync `ok` 长等待修复 | 已提交/推送；默认 IDF 6.0.1 构建通过（`xiaozhi.bin=0x2cce30`，余 `0x1231d0`/29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，余 `0x122f90`/29%，SHA256 `98C3B6AF...C122C`） |
+| **当前实机烧录基线** `3ca9d31` 自动测试镜像 | `feat/hutuji-usb-pipe` | 含显式 `M30`、重连先判 `Changing`、受限 reset、废纸换纸与 PSRAM 从头重发；修复页尾 `M5` 长等待 | S3-LC-01/MK38 8.3 复测：`results/bringup-8.3-fault-capture-20260729-010436.md`。普通画线断连后已出现重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 重画、55/55 行完成与 fresh `Idle`；最终页尾自动换纸因无纸 `[PaperStatus] 2` + `error:90`，任务 `state=error`，不等于有纸自动换纸或完整 `done/Idle` |
+| **工作树** | untracked build dir only | `git status --short` 显示 `?? build-hutuji-8_3-autodraw/` | 构建产物，不提交；不要为工作树干净删除。下一步做有纸自动换纸/`Changing=On` |
 
 ## 明确不要做的事
 

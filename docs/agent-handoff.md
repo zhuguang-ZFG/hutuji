@@ -6,14 +6,14 @@
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
-## 0. 一句话现状（2026-07-28）
+## 0. 一句话现状（2026-07-29）
 
 枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8；官方云路径已实际触发 `draw/status/abort`。
 Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；仍缺有纸 `Changing=On` 与自动换纸实测。
-S3：`feat/hutuji-usb-pipe` 源码 HEAD `27eff73` 已提交并推送；实机烧录基线仍为 `05f4563`。`05f4563` 已完成 Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定及 abort 恢复实机回归，含“绘图 fresh `Idle` → 显式 `M30` → 最终 fresh `Idle`”和完整断连安全重画代码，已用 IDF 6.0.1 构建并烧录 COM6（`xiaozhi.bin=0x2ccde0`，app 余 29%，SHA256 `A77C8635...F29F80CC`）；S3-LC-01 启动日志确认 8MB PSRAM、七工具注册、Telnet/授权探测通过及持续 fresh `Idle`，两轮未见 panic。`27eff73` 只新增默认关闭的 8.3 自动测试 URL 参数化与 CMake 注入，默认构建和 dummy URL 自动测试构建均通过，尚未烧录。**尚未做有纸自动换纸/断连重画实测**。
-**没有**：App 真实语音、有纸 `Changing=On`/自动换纸验收、完整断连复位/废纸换纸/缓存重发实测、P2 S3/S4、生产签核。
+S3：`feat/hutuji-usb-pipe` 源码 HEAD `3ca9d31` 已提交/推送；该提交在 `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入基础上，修复 Grbl 笔控 `M3/M5` 会等 planner 同步后才回 `ok` 导致的 60s 误超时。IDF 6.0.1 默认构建通过（`xiaozhi.bin=0x2cce30`，app 余 29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，SHA256 `98C3B6AF...C122C`）。S3-LC-01/MK38 复测 `results/bringup-8.3-fault-capture-20260729-010436.md`：普通画线断连后已看到重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；最终页尾自动换纸因无纸返回 `[PaperStatus] 2` + `error:90`，任务仍 `state=error`。**断连重发主路径已推进，但 8.3 不能判完整通过。**
+**没有**：App 真实语音、有纸 `Changing=On`/自动换纸验收、8.3 最终 `done/Idle`、P2 S3/S4、生产签核。
 → **不可商业出货**。  
-→ 下一刀：bringup 8.3 完整断连重画 → 有纸 `Changing=On`/显式 `M30` → App 真实语音。
+→ 下一刀：有纸页尾自动换纸成功 + `Changing=On`/换纸态分流 → App 真实语音。
 → **禁止**再写一版文档地图当进度；真值页 `release-readiness.md`。
 
 ## 1. 三仓与代码在哪
@@ -82,8 +82,8 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. **先做完整断连**：按 bringup 阶段 8.3 验证复位、废纸换纸与 PSRAM 从头重发；换纸态断连必须停止自动续画。
-2. **再做有纸换纸**：验证 `Changing=On`、页尾显式 `M30` 成功、`error:90` 与换纸中 abort。
+1. **先做有纸页尾换纸**：`3ca9d31` 已证明普通画线断连可走到 PSRAM 重画完成，但最终 `M30` 无纸 `error:90`；下一步必须有纸验证页尾显式 `M30` 成功并最终 `done/Idle`。
+2. **再做换纸态分流**：验证 `Changing=On`、换纸态断连不发 reset/M30、`error:90` 与换纸中 abort。
 3. **云端/App**：完成 App 真实语音 → 小智云 → MCP → S3 → Grbl 的端到端验收，并补七工具逐项云端行为回归。
 4. **P2/生产**：完成 P2 S3/S4；`bringup-sop.md` 与生产签核按证据补齐。京东云已常驻，勿再「从零部署」。
 
