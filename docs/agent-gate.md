@@ -106,9 +106,10 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
-1. bringup 8.3 完整断连复位/废纸换纸/PSRAM 重发实测（S3 `05f4563` 已烧录并通过启动核验；若采用自动触发绘图调试入口，需构建并烧录 `27eff73` 的 `HUTUJI_AUTO_TEST_DRAW` 镜像）
-2. 有纸 `Changing=On` + 自动换纸
-3. App 真实语音端到端 + P2 S3/S4 + 生产签核
+1. 有纸验证页尾显式 `M30` 自动换纸成功，并确认任务最终 `done/Idle`（`3ca9d31` 的 8.3 自动触发镜像已烧录；无纸复测止于 `error:90`）
+2. 有纸验证 `Changing=On` 与换纸态断连分流：不得发 reset/M30，并覆盖 `error:90` 与换纸中 abort
+3. 完成 App 真实语音端到端及七工具逐项云端行为回归
+4. 完成 P2 S3/S4 与生产签核
 
 用户明确指定任务时可偏离；**不得**在未指定时重写文档地图或重开否决项。
 
@@ -121,8 +122,10 @@ python scripts\agent_gate.py --profile docs
 python scripts\agent_gate.py --profile full   # 需 GRBL_ROOT；仍要另跑 fz
 ```
 
-`hub`/`full` 跑 pytest 时，脚本会把临时目录固定到仓库内 `results/.tmp/pytest`
-并禁用 pytest cache 写入，避免 Windows 系统 `%TEMP%` 权限导致假失败。
+`hub`/`full` 跑 pytest 时，脚本会把临时目录放到仓库内 `results/.tmp/pytest`
+并禁用 pytest cache 写入，避免 Windows 系统 `%TEMP%` 权限导致假失败。若该目录
+被其它账号（如沙箱进程）占用而当前用户不可读写，脚本自动退到
+`results/.tmp/pytest-<pid>`；两者都不可用才判 fail。
 
 报告固定写到：
 

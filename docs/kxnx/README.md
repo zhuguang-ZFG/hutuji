@@ -36,11 +36,13 @@ docs/kxnx/
 1. **Stepper 笔控 = `G1 Z` 运动指令**（`zOn` 落笔 / `zOff` 抬笔，带 `F<zSpeed>`），**不用 M3/M5**。Servo/Laser 才用 M3/M5。
 2. **出图文件开头不发 `G92 Z0`**，而是连发**两次真实 `G1G90 Z0`** 做机械自校准。
    （反编译里确实有 `G92 Z0`，但那在**点动/连接握手**路径 `grbl/a.java:250-260`，不在出图文件里——
-   依据是 kdraw 缓存的 9 份真实产物，**无一含 G92**。别再照抄旧结论。）
+   依据是 kdraw 缓存中 9 个字节完全相同的文件，即 **1 个唯一产物的 9 个副本**；
+   该唯一内容不含 G92。别再照抄旧结论。）
 3. **进给 F8000（画线与空走）、Z 轴 F10000**，无 G4 停顿；**每行都带 F**。
    （早期文档写的 F1500/F3000 来自代码默认值误读，已被真实产物推翻。）
 
-详见各 `findings/*.md`，对齐步骤见 `alignment/plan.md`。
+`findings/*.md` 保留逆向过程，正文中的早期 hutuji 建议可能已被后续证据推翻；当前落地结果见
+`findings/02-gcode-template.md`、`findings/12-summary-and-action-list.md` 与 `alignment/plan.md`。
 
 ## 笔控核心速查
 

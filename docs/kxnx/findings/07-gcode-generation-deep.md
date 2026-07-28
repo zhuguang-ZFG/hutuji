@@ -7,9 +7,14 @@
 
 > **2026-07-28 勘误**：`h/d.java` 生成的是校准测试图，不能代表普通出图的收尾。
 > 普通 Grbl 出图由 `Settings.notAutoReturn`（配置键 `not_go_zero`，默认 `false`）控制，
-> 经 `PathParameters` 传到生成端；9 份真实产物均以 `G90G0 X0Y0` 回原点结束。
+> 经 `PathParameters` 传到生成端；缓存目录的 9 个文件字节完全相同，只能算 1 个唯一产物，
+> 该唯一内容以 `G90G0 X0Y0` 回原点结束。
 > `not_go_zero=true` 和 CardWriter 是例外。下文“无 M30/M2”仍成立，但“结束就是抬笔”
 > 只适用于该校准生成器，不能外推为普通出图不回原点。
+>
+> **hutuji profile 勘误（2026-07-29）**：当前生产 profile 无 `G92`，开头两次
+> `G1G90 Z0.0F10000`；空走/画线 `F8000`，Z 抬落笔 `F10000`。本文中从校准生成器推导出的
+> 旧 hutuji 模板已作废。
 
 ## h/d.java：校准测试图生成器
 
@@ -123,7 +128,8 @@ G1G90 Z0.0F3000              ← 抬笔
 
 为什么？因为 G92 Z0 在**连接时**已发（见 `findings/03` 的 `a(boolean)` 首次笔控前校准）。校准图是连接后画的，Z 基准已建立。
 
-> **对 hutuji 的含义**：我们的出图 document_start 里加 `G92 Z0`，是把"每次出图都重新校准 Z"作为保险。奎享是"连接一次，全程复用"。两种都可行，我们更保守（每次出图都校准，防 Z 基准漂移）。
+> **历史推论（已作废）**：这里曾建议 hutuji 每次出图修改 Z 工件坐标。后续缓存核对证明
+> 普通出图文件没有该指令；当前 profile 使用两次真实 Z0 运动，见 findings/02。
 
 ## f/a/d.java：批量出图（KAT 模式）
 
@@ -154,34 +160,35 @@ string += "M107";                                            // 关风扇
 
 这是 KAT 自动上纸机的控制（风扇吸附走纸），hutuji 的换纸走 M30 触发固件内置流程，不同。
 
-## hutuji 对齐后的 document_start 对比
+## document_start 对比（已按当前 profile 修正）
 
 | 来源 | document_start |
 |------|----------------|
 | 奎享校准图 | `G21\nG90\nF1500` |
 | 奎享批量出图 | `G21\nG90` + 换纸指令 |
-| hutuji（对齐后）| `G21\nG90\nG92 Z0\nF1500` |
+| hutuji 当前生产 profile | `G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000` |
 
-hutuji 多一个 `G92 Z0`（每次出图校准，比奎享保守）。其余与奎享一致。
+校准图生成器与普通出图文件不是同一路径，不能据前者决定 hutuji 模板。当前模板取自缓存中
+唯一 G-code 内容，并有意省略其回原点收尾。
 
-## 完整 G-code 模板（hutuji 对齐版，综合发现 02 + 05 + 07）
+## 当前 hutuji 生产模板
 
 ```gcode
 G21                              # document_start
 G90
-G92 Z0                           # ← hutuji 加的保险（奎享连接时已发）
-F1500
-G1 X{x0} Y{y0} F2500             # segment_first：G1 空走到起点
-G1 G90 Z5.000 F3000              # 落笔
-G1 X{x1} Y{y1}                   # segment：画线（无 F，继承 F1500）
-G1 X{x2} Y{y2}
-G1 G90 Z0.000 F3000              # line_end：抬笔
-G1 X{x3} Y{y3} F2500             # segment_first：下一段空走
-G1 G90 Z5.000 F3000              # 落笔
+F8000
+G1G90 Z0.0F10000                 # 开头第 1 次抬笔
+G1G90 Z0.0F10000                 # 开头第 2 次抬笔
+G0 X{x0}Y{y0}F8000               # segment_first：空走到起点
+G1G90 Z5.0F10000                 # 落笔
+G1 X{x1}Y{y1}F8000               # segment：画线
+G1 X{x2}Y{y2}F8000
+G1G90 Z0.0F10000                 # line_end：抬笔
+G0 X{x3}Y{y3}F8000               # 下一段空走
+G1G90 Z5.0F10000                 # 落笔
 ...
-G1 G90 Z0.000 F3000              # document_end：收尾抬笔
+G1G90 Z0.0F10000                 # document_end：收尾抬笔
 ```
 
-此段是早期依据校准生成器整理的示意，不是当前 hutuji 实际 profile。当前真值见
-`findings/02-gcode-template.md` 与 `mcp-server/hutuji_mcp/hutuji_gwrite.toml`：无 `G92`，
-使用 G0 空走、F8000/F10000，且有意省略奎享普通出图末尾的 `G90G0 X0Y0`。
+当前真值仍以 `mcp-server/hutuji_mcp/hutuji_gwrite.toml` 为准；这里用于解释逆向来源与
+“省略 `G90G0 X0Y0`”这一有意差异。

@@ -272,12 +272,36 @@ def _mcp_python() -> Path | None:
     return None
 
 
+def _pytest_tmp() -> Path:
+    """挑一个当前用户真正可读写的 pytest basetemp。
+
+    固定用 results/.tmp/pytest；若该目录被其它账号（如沙箱进程）占用导致
+    无法列目录或写入，则退到带后缀的兄弟目录，避免 pytest 清空 basetemp 时
+    因 PermissionError 让所有 tmp fixture 用例在 setup 阶段假失败。
+    """
+    base = RESULTS / ".tmp"
+    for name in ("pytest", f"pytest-{os.getpid()}"):
+        candidate = base / name
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+            os.listdir(candidate)
+        except OSError:
+            continue
+        return candidate
+    raise RuntimeError(f"无可写的 pytest basetemp（检查 {base} 权限）")
+
+
 def run_pytest() -> dict[str, Any]:
     py = _mcp_python()
     if py is None:
         return _layer("pytest", "mcp-server pytest", "fail", "缺少 mcp-server/.venv，请先建 venv")
-    pytest_tmp = RESULTS / ".tmp" / "pytest"
-    pytest_tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        pytest_tmp = _pytest_tmp()
+    except RuntimeError as exc:
+        return _layer("pytest", "mcp-server pytest", "fail", str(exc))
     env = os.environ.copy()
     env.update(
         {

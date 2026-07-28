@@ -7,7 +7,7 @@
 | 项目 | 用在哪 | 怎么用 |
 |------|--------|--------|
 | [abey79/vpype](https://github.com/abey79/vpype) | ③ MCP 服务 | `pip install vpype`，SVG 读入 + `linesort`/`linemerge` 路径优化 |
-| [plottertools/vpype-gcode](https://github.com/plottertools/vpype-gcode) | ③ MCP 服务 | 写一个 `hutuji` gwrite profile（笔起落 M3/M5、200×200 行程、进给率），`vpype read in.svg linesort gwrite --profile hutuji out.gcode` 一条命令出成品 |
+| [plottertools/vpype-gcode](https://github.com/plottertools/vpype-gcode) | ③ MCP 服务 | 已落地 `hutuji` gwrite profile：`G21/G90/F8000`，纯 Z 笔控 `Z5/Z0 F10000`，无 `G92`、`M3/M5`、`G4`；`vpype read in.svg linesort gwrite --profile hutuji out.gcode` 生成后再由本项目做 A4 限幅与安全校验 |
 | [78/xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) | ② 固件基座 | 官方设备侧 MCP 框架内加 hutuji 工具（已在做） |
 | [modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk) | ③ MCP 服务 | 官方 Python SDK / FastMCP，当前钉在 v1 稳定线 |
 | [sparfenyuk/mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) | ③ 云桥接 | streamable HTTP ↔ stdio，供 `cloud_bridge.py` 调用 |
