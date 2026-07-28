@@ -17,7 +17,7 @@
 | **已推** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
 | **本轮同步** | `AGENTS.md`、`README.md`、`CLAUDE.md`、`.cursor/rules/hutuji-agent-rails.mdc`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/bringup-sop.md`、`docs/protocol.md`、`docs/worktree-inventory.md`、`firmware/m1-usb-pipe.md` | 同步 S3 `3ca9d31` 构建/烧录与 8.3 复测结论：断连重发主路径到 55/55+fresh `Idle`，最终无纸自动换纸 `error:90`，仍不可商业出货 | 已跑本仓 docs/hub 门禁；不替代有纸 `Changing=On`/自动换纸验收 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
-| **当前未提交** | `AGENTS.md`、`docs/protocol.md`、`docs/research.md`、`mcp-server/README.md`、`mcp-server/hutuji_mcp/hutuji_gwrite.toml`（仅注释）、`docs/kxnx/{README.md,alignment/plan.md,findings/02,06,07,09,12,13*.md}`；以及此前已有的 `docs/agent-gate.md`、`firmware/README.md`、`scripts/agent_gate.py` | 同步 S3 `3ca9d31`/8.3 证据，修正生产 G-code 纯 Z、F8000/F10000、页尾编排和奎享缓存证据边界的文档漂移；门禁 pytest basetemp 改为可写探测（`results/.tmp/pytest` 被其它账号占用时退到 `pytest-<pid>`） | 已跑 `docs` + `hub` profile pass（`hub`：pytest 86 passed、e2e PASS）；提交前保留并整体复核，不能为“干净”回退 |
+| **已提交** `61f487d`（未推） | `AGENTS.md`、`docs/agent-gate.md`、`docs/protocol.md`、`docs/research.md`、`mcp-server/README.md`、`mcp-server/hutuji_mcp/hutuji_gwrite.toml`（仅注释）、`docs/kxnx/{README.md,alignment/plan.md,findings/02,06,07,09,12,13*.md}`、`firmware/README.md`、`scripts/agent_gate.py` | 同步 S3 `3ca9d31`/8.3 证据，修正生产 G-code 纯 Z、F8000/F10000、页尾编排和奎享缓存证据边界的文档漂移；门禁 pytest basetemp 改为可写探测（`results/.tmp/pytest` 被其它账号占用时退到 `pytest-<pid>`） | 已跑 `docs` + `hub` profile pass（`hub`：pytest 86 passed、e2e PASS）；待推 `origin`；不替代硬件验收 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
 
 ## Grbl_Esp32 `D:/Users/Grbl_Esp32`  
