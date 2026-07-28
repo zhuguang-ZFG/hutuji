@@ -106,7 +106,7 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
-1. bringup 8.3 完整断连复位/废纸换纸/PSRAM 重发实测（S3 `05f4563` 已烧录并通过启动核验）
+1. bringup 8.3 完整断连复位/废纸换纸/PSRAM 重发实测（S3 `05f4563` 已烧录并通过启动核验；若采用自动触发绘图调试入口，需构建并烧录 `27eff73` 的 `HUTUJI_AUTO_TEST_DRAW` 镜像）
 2. 有纸 `Changing=On` + 自动换纸
 3. App 真实语音端到端 + P2 S3/S4 + 生产签核
 

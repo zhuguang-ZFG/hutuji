@@ -128,7 +128,7 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 `05f4563` 已提交、以 IDF 6.0.1 构建并烧录 COM6；七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。缺断连复位/废纸换纸/缓存重发实测、`Changing=On`、P2 S3/S4。
+2. **② 哑管道** — 🟡 源码 `27eff73` 已提交/推送；实机烧录基线仍为 `05f4563`（IDF 6.0.1 构建并烧录 COM6）。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。`27eff73` 只补默认关闭的 8.3 自动测试 URL/CMake 注入，未烧录。缺断连复位/废纸换纸/缓存重发实测、`Changing=On`、P2 S3/S4。
 3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 

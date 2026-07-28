@@ -31,17 +31,19 @@
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；完整断连重发已编码/构建，仍未实测 |
 | 硬件冒烟与多页换纸 | 🔴 未闭合 | S3 绘图后显式 `M30` 与断连废纸重画已编码；`Changing=On`、自动换纸、断连重画与 App 语音仍未实测 |
 
-当前源码基线是 `05f4563`，5 个 S3 源文件已提交；IDF 6.0.1 构建产物 `0x2ccde0`，app 分区剩余 `0x123220`/29%，
+当前源码 HEAD 是 `27eff73`，已提交并推送；实机烧录基线仍为 `05f4563`。`05f4563` 的 5 个 S3 源文件已提交；IDF 6.0.1 构建产物 `0x2ccde0`，app 分区剩余 `0x123220`/29%，
 `xiaozhi.bin` SHA256 `A77C8635405B7FB18B18CE2486621A7635374D75FEE37E0078CD1423F29F80CC`，
 `merged-binary.bin` SHA256 `9328F2B71CAC67603E9B9BF063980AE11D575A749CE7F124A4F13C0CFA690E1D`，
 `releases/v2.4.0_lichuang-dev.zip` SHA256 `F11E51853E0D6E7CD223344F748330CCB583E7CC913E02E43DCD4E08D52941C2`。
 该 commit 已烧录 COM6；S3-LC-01 两轮 COM9 启动日志确认七工具注册、Telnet/授权探测通过、持续 fresh `Idle` 且无 panic。不得扩大为断连或换纸验收。
+`27eff73` 只新增默认关闭的 8.3 自动测试 URL/CMake 注入；默认构建与 dummy URL 自动测试构建均通过，但尚未烧录。
 
 ## 开发与构建
 
 1. 在 `D:/Users/xiaozhi-esp32` 确认目标分支和基线，保存 `git status --short`。
 2. 开工前读该仓自身 `AGENTS.md`，使用已验证的 ESP-IDF **v6.0.1**。
 3. 构建入口：`python3 scripts/release.py lichuang-dev`；若上游脚本要求名称参数，以该仓 `--help` 为准。
+   8.3 自动触发绘图调试镜像使用：`idf.py -DBOARD_NAME=lichuang-dev -DBOARD_TYPE=lichuang-dev -DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='<短时效 G-code URL>' build`；真实 URL/token 不入库。
 4. 产物必须记录：fork commit、是否 dirty、IDF 版本、板型、sdkconfig、构建命令、二进制 SHA256。
 5. 烧录前确认 S3 与写字机在同一网络；连接器会先试 NVS 缓存，再扫描本机 `/24`，候选只有通过 Grbl banner 校验后才写回缓存。不得绕过 banner 校验固定错误主机。
 

@@ -1,7 +1,8 @@
 # M1 最小管道固件补丁（feat/hutuji-usb-pipe，方案 E：WiFi Telnet）
 
-> 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 commit
-> `05f4563`（`hutuji_job.*`、`hutuji_pipe.*`、`mqtt_protocol.cc`）。该 commit 已构建并
+> 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 HEAD
+> `27eff73`（`05f4563` 行为基线 + 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入）。
+> 实机烧录基线仍为 `05f4563`：该 commit 已构建并
 > 烧录 COM6，启动/Telnet/授权/fresh-`Idle` 核验通过；**仍不得表述为断连重画、
 > 有纸换纸、App 语音或发布验收通过。**
 > 目标板型：`lichuang-dev`（立创实战派 ESP32-S3）。
@@ -21,11 +22,12 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 | 文件 | 说明 |
 |------|------|
 | `main/idf_component.yml` | 无 hutuji 相关依赖（lwip socket 走 IDF 内置） |
+| `main/CMakeLists.txt` | `27eff73` 新增 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 调试构建选项；默认 OFF，且仅允许 `lichuang-dev` |
 | `main/boards/lichuang-dev/hutuji_pipe.h/.cc` | `hutuji::Pipe` 单例：lwip socket 轻量同步 TCP 客户端 |
 | `main/boards/lichuang-dev/lichuang_dev_board.cc` | `InitializeTools()` 注册 Pipe 与设备侧 MCP 控制工具 |
 | `main/boards/lichuang-dev/hutuji_job.h/.cc` | M2 Job：下载/CRC/逐行转发，以及暂停、恢复、重画、试笔控制 |
 
-未改任何核心模块（`mcp_server.cc`、`main/CMakeLists.txt` 等未动）。
+未改运行期核心模块（`mcp_server.cc`、协议层、音频链路等未动）。`main/CMakeLists.txt` 仅承载默认关闭的调试编译定义，常规构建不启用自动测试。
 
 ## hutuji::Pipe API（对外语义不变）
 
@@ -109,6 +111,9 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 - 自动发现当前只扫描 `/24`；缓存与候选均先校验 Grbl banner。错误但可连的 :23 主机自愈路径
   已写入固件，恶意/错误候选场景尚未做专门 HIL。
 - 公网文件入口使用 `https://hutuji.donglicao.com`；真实 MCP 接入点和 token 不入库。
+- 需要烧录自动触发绘图的 8.3 调试镜像时，用 CMake 选项注入短时效 G-code URL，不要手写
+  `CMAKE_CXX_FLAGS` 字符串宏转义，也不要把真实 URL/token 写入源码：
+  `idf.py -DBOARD_NAME=lichuang-dev -DBOARD_TYPE=lichuang-dev -DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='<当前短时效 /files/*.gcode URL>' build`。
 - `[License] Authorized` 只发串口、Telnet 不可见；Pipe 以抬笔后的 `G53 G1` 零位移探测
   `ok/error:110`。探测完成前 `ready=false`，禁止 draw 抢跑。
 
@@ -122,6 +127,10 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   `xiaozhi.bin` SHA256 `A77C8635405B7FB18B18CE2486621A7635374D75FEE37E0078CD1423F29F80CC`，
   `merged-binary.bin` SHA256 `9328F2B71CAC67603E9B9BF063980AE11D575A749CE7F124A4F13C0CFA690E1D`，
   `releases/v2.4.0_lichuang-dev.zip` SHA256 `F11E51853E0D6E7CD223344F748330CCB583E7CC913E02E43DCD4E08D52941C2`。
+- `27eff73` 已提交并推送：移除过期硬编码自动测试 URL，改为 CMake 选项注入。
+  IDF v6.0.1 验证两条构建路径：默认构建通过（`xiaozhi.bin=0x2ccde0`，余 29%，自动测试关闭）；
+  `-DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='http://127.0.0.1/files/test.gcode'`
+  dummy URL 构建通过（`xiaozhi.bin=0x2ccfe0`，余 29%）。该提交未烧录，不证明 8.3 通过。
 - 已证：七工具云端发现、`draw/status/abort` 云端路径、abort 后受限恢复、Z=0、
   fresh-`Idle` 完成判定、`done/Idle`。
 - 未证：App 语音对话、纸面笔迹、`Changing=On`、自动换纸、完整断连复位/重发实测、P2 S3/S4、

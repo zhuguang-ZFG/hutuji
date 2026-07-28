@@ -10,7 +10,7 @@
 
 枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8；官方云路径已实际触发 `draw/status/abort`。
 Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；仍缺有纸 `Changing=On` 与自动换纸实测。
-S3：`feat/hutuji-usb-pipe` `05f4563` 已提交；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定及 abort 恢复已实机回归。当前 commit 含“绘图 fresh `Idle` → 显式 `M30` → 最终 fresh `Idle`”和完整断连安全重画代码，已用 IDF 6.0.1 构建并烧录 COM6（`xiaozhi.bin=0x2ccde0`，app 余 29%，SHA256 `A77C8635...F29F80CC`）；S3-LC-01 启动日志确认 8MB PSRAM、七工具注册、Telnet/授权探测通过及持续 fresh `Idle`，两轮未见 panic。**尚未做有纸自动换纸/断连重画实测**。
+S3：`feat/hutuji-usb-pipe` 源码 HEAD `27eff73` 已提交并推送；实机烧录基线仍为 `05f4563`。`05f4563` 已完成 Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定及 abort 恢复实机回归，含“绘图 fresh `Idle` → 显式 `M30` → 最终 fresh `Idle`”和完整断连安全重画代码，已用 IDF 6.0.1 构建并烧录 COM6（`xiaozhi.bin=0x2ccde0`，app 余 29%，SHA256 `A77C8635...F29F80CC`）；S3-LC-01 启动日志确认 8MB PSRAM、七工具注册、Telnet/授权探测通过及持续 fresh `Idle`，两轮未见 panic。`27eff73` 只新增默认关闭的 8.3 自动测试 URL 参数化与 CMake 注入，默认构建和 dummy URL 自动测试构建均通过，尚未烧录。**尚未做有纸自动换纸/断连重画实测**。
 **没有**：App 真实语音、有纸 `Changing=On`/自动换纸验收、完整断连复位/废纸换纸/缓存重发实测、P2 S3/S4、生产签核。
 → **不可商业出货**。  
 → 下一刀：bringup 8.3 完整断连重画 → 有纸 `Changing=On`/显式 `M30` → App 真实语音。
