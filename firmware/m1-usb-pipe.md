@@ -1,8 +1,9 @@
 # M1 最小管道固件补丁（feat/hutuji-usb-pipe，方案 E：WiFi Telnet）
 
 > 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 commit
-> `05f4563`（`hutuji_job.*`、`hutuji_pipe.*`、`mqtt_protocol.cc`）。该 commit 已构建但
-> **尚未烧录/实测，不得把构建通过表述为发布固件或硬件验收。**
+> `05f4563`（`hutuji_job.*`、`hutuji_pipe.*`、`mqtt_protocol.cc`）。该 commit 已构建并
+> 烧录 COM6，启动/Telnet/授权/fresh-`Idle` 核验通过；**仍不得表述为断连重画、
+> 有纸换纸、App 语音或发布验收通过。**
 > 目标板型：`lichuang-dev`（立创实战派 ESP32-S3）。
 > **2026-07-24 传输层第三版**：USB Host（硬件被 CH334F 占用否决）→ UART/CH9350（否决）
 > → **方案 E：写字机 Grbl_Esp32 内置 WebUI 的 Telnet 服务（端口 23），S3 做 TCP 客户端直连**。
@@ -94,7 +95,7 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 | 2b | `OnRxData` 先拆行再丢超长残段 | ✅ 代码 |
 | 3 | abort 分状态；`!` 后轮询 `Hold/Idle` 再 `0x18`；仅自发复位受限 `$X`，显式 Z=0 后重探活；换纸中不发 `0x18` | ✅ 实机回归 |
 | 4 | 单写者 `write_mutex_`；出图中 status 只 `?` | ✅ 代码 |
-| 5 | 断连物理复位、废纸换纸与缓存重发 | 🔴 未做；当前 abort 自恢复不等于断连重放 |
+| 5 | 断连物理复位、废纸换纸与缓存重发 | 🟡 已编码/构建/烧录；当前 abort 自恢复不等于断连重放，仍待完整实测 |
 | 6 | status 含 `authorized` + MCP notify | ✅ 代码 |
 | 7 | 写字机固定 IP / Telnet | 🔬 实机 |
 | 8 | `pause`/`resume`：`!`/`~` + 行边界暂停门 + 冻结 ok 超时；发送失败回滚状态 | 🟡 底层实机；最新云端路径未单独回归 |
@@ -113,12 +114,14 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 
 ## 验证状态
 
-- 提交前候选镜像已用 IDF v6.0.1 构建并烧录 COM6；COM9 日志持续收到 Grbl
-  `<Idle|MPos:100.000,100.000,0.000|...>`，未见 panic/assert/error。这只证明当时候选的
-  基础启动与 Telnet 探活，不证明自动换纸。
-- `05f4563` 已重新以 IDF v6.0.1 构建：`xiaozhi.bin=0x2ccde0`，最小 app 分区剩余
-  `0x123220`（29%），SHA256 `5C79178B65A095CBFEFDE8108FE13291914C14253DD2D6B9688CC4F695392ABD`；
-  两个 hutuji 对象文件时间戳均晚于源码变更。该 commit 尚未烧录。
+- `05f4563` 已用 IDF v6.0.1 构建并烧录 COM6；esptool 对 bootloader、partition、OTA、
+  assets、app 均报告 `Hash of data verified`。COM9 两轮启动日志确认 IDF 6.0.1、8MB PSRAM、
+  七个 `hutuji.*` 工具、Telnet 连接、授权零位移探测与持续 fresh `Idle`，未见
+  panic/assert/backtrace。这只证明当前基线的基础启动与 Telnet 探活，不证明自动换纸或断连重画。
+- `05f4563` 最终构建：`xiaozhi.bin=0x2ccde0`，最小 app 分区剩余 `0x123220`（29%），
+  `xiaozhi.bin` SHA256 `A77C8635405B7FB18B18CE2486621A7635374D75FEE37E0078CD1423F29F80CC`，
+  `merged-binary.bin` SHA256 `9328F2B71CAC67603E9B9BF063980AE11D575A749CE7F124A4F13C0CFA690E1D`，
+  `releases/v2.4.0_lichuang-dev.zip` SHA256 `F11E51853E0D6E7CD223344F748330CCB583E7CC913E02E43DCD4E08D52941C2`。
 - 已证：七工具云端发现、`draw/status/abort` 云端路径、abort 后受限恢复、Z=0、
   fresh-`Idle` 完成判定、`done/Idle`。
 - 未证：App 语音对话、纸面笔迹、`Changing=On`、自动换纸、完整断连复位/重发实测、P2 S3/S4、

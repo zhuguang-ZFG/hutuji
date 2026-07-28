@@ -26,12 +26,16 @@
 
 | 里程碑 | 状态 | 说明 |
 |--------|------|------|
-| M1 Telnet 连接、发现、探活 | 🟡 已烧录实测 | NVS IP 缓存 + `/24` 扫描，候选须通过 Grbl banner 校验；双端 keepalive 已验证 |
+| M1 Telnet 连接、发现、探活 | ✅ 已烧录实测 | NVS IP 缓存 + `/24` 扫描，候选须通过 Grbl banner 校验；`05f4563` 启动后 Telnet/授权/fresh-`Idle` 核验通过，双端 keepalive 已验证 |
 | M2 下载/CRC/授权/逐行流控 | 🟡 关键闭环已实测 | 全量下载、长度/CRC、授权门、逐行 `ok` 配对和 fresh-`Idle` 完成判定已回归 |
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；完整断连重发已编码/构建，仍未实测 |
 | 硬件冒烟与多页换纸 | 🔴 未闭合 | S3 绘图后显式 `M30` 与断连废纸重画已编码；`Changing=On`、自动换纸、断连重画与 App 语音仍未实测 |
 
-当前源码基线是 `05f4563`，5 个 S3 源文件已提交；IDF 6.0.1 构建产物 `0x2ccde0`、SHA256 `5C79178B...92ABD`，但尚未烧录该 commit。COM6/COM9 证据来自提交前候选镜像，不得扩大为断连或换纸验收。
+当前源码基线是 `05f4563`，5 个 S3 源文件已提交；IDF 6.0.1 构建产物 `0x2ccde0`，app 分区剩余 `0x123220`/29%，
+`xiaozhi.bin` SHA256 `A77C8635405B7FB18B18CE2486621A7635374D75FEE37E0078CD1423F29F80CC`，
+`merged-binary.bin` SHA256 `9328F2B71CAC67603E9B9BF063980AE11D575A749CE7F124A4F13C0CFA690E1D`，
+`releases/v2.4.0_lichuang-dev.zip` SHA256 `F11E51853E0D6E7CD223344F748330CCB583E7CC913E02E43DCD4E08D52941C2`。
+该 commit 已烧录 COM6；S3-LC-01 两轮 COM9 启动日志确认七工具注册、Telnet/授权探测通过、持续 fresh `Idle` 且无 panic。不得扩大为断连或换纸验收。
 
 ## 开发与构建
 

@@ -10,10 +10,10 @@
 
 枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8；官方云路径已实际触发 `draw/status/abort`。
 Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证，仍缺有纸 `Changing=On` 与自动换纸实测。
-S3：`feat/hutuji-usb-pipe` `05f4563` 已提交；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定及 abort 恢复已实机回归。当前 commit 含“绘图 fresh `Idle` → 显式 `M30` → 最终 fresh `Idle`”和完整断连安全重画代码，已用 IDF 6.0.1 构建（`xiaozhi.bin=0x2ccde0`，app 余 29%，SHA256 `5C79178B...92ABD`）；**尚未烧录该 commit，也未做有纸自动换纸/断连重画实测**。此前 COM6 候选镜像与 COM9 `Idle` 探活证据仍有效，但不覆盖新增断连保护。
+S3：`feat/hutuji-usb-pipe` `05f4563` 已提交；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定及 abort 恢复已实机回归。当前 commit 含“绘图 fresh `Idle` → 显式 `M30` → 最终 fresh `Idle`”和完整断连安全重画代码，已用 IDF 6.0.1 构建并烧录 COM6（`xiaozhi.bin=0x2ccde0`，app 余 29%，SHA256 `A77C8635...F29F80CC`）；S3-LC-01 启动日志确认 8MB PSRAM、七工具注册、Telnet/授权探测通过及持续 fresh `Idle`，两轮未见 panic。**尚未做有纸自动换纸/断连重画实测**。
 **没有**：App 真实语音、有纸 `Changing=On`/自动换纸验收、完整断连复位/废纸换纸/缓存重发实测、P2 S3/S4、生产签核。
 → **不可商业出货**。  
-→ 下一刀：烧录/启动核验 `05f4563` → bringup 8.3 完整断连重画 → 有纸 `Changing=On`/显式 `M30` → App 真实语音。
+→ 下一刀：bringup 8.3 完整断连重画 → 有纸 `Changing=On`/显式 `M30` → App 真实语音。
 → **禁止**再写一版文档地图当进度；真值页 `release-readiness.md`。
 
 ## 1. 三仓与代码在哪
@@ -82,8 +82,8 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. **先上板当前基线**：烧录并启动核验 S3 `05f4563`；记录 IDF 6.0.1 镜像哈希与串口证据。
-2. **有设备**：按 bringup 阶段 8.3 验证完整断连复位/废纸换纸/PSRAM 从头重发；再做有纸 `Changing=On` 与自动换纸。
+1. **先做完整断连**：按 bringup 阶段 8.3 验证复位、废纸换纸与 PSRAM 从头重发；换纸态断连必须停止自动续画。
+2. **再做有纸换纸**：验证 `Changing=On`、页尾显式 `M30` 成功、`error:90` 与换纸中 abort。
 3. **云端/App**：完成 App 真实语音 → 小智云 → MCP → S3 → Grbl 的端到端验收，并补七工具逐项云端行为回归。
 4. **P2/生产**：完成 P2 S3/S4；`bringup-sop.md` 与生产签核按证据补齐。京东云已常驻，勿再「从零部署」。
 

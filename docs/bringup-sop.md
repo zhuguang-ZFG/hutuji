@@ -120,14 +120,14 @@
 
 1. **确认发现链**：S3 与写字机接入同一路由器；连接器先试 NVS 缓存，失败后扫本机 `/24`。只有返回 Grbl banner 的 :23 候选可进入 ready，禁止只凭“端口可连”缓存目标。
 2. 构建：使用 **ESP-IDF v6.0.1** 执行 `python3 scripts/release.py lichuang-dev`。
-   - 2026-07-28 证据：`05f4563` 已提交并以 IDF 6.0.1 构建通过（`0x2ccde0`，SHA256 `5C79178B...92ABD`）；尚未烧录该 commit。COM6 上仍是提交前候选镜像。
+   - 2026-07-28 证据：`05f4563` 已提交并以 IDF 6.0.1 构建通过（`0x2ccde0`，SHA256 `A77C8635...F29F80CC`），已烧录 COM6；esptool 对 bootloader/partition/OTA/assets/app 全部写入哈希校验通过。
 3. 刷入后看日志：应见候选 banner 校验通过、已连接写字机 Telnet 与 Grbl 探活成功。
 4. 调 `hutuji.status` → 应返回 `connected=true, ready=true`。
 5. ⛔ **确认 `authorized`**（组 0 之后 status 应含此字段）——未授权则回阶段 1 步骤 5 走授权 SOP。
 
 **通过判据**：`hutuji.status` 显示 connected + ready + authorized。
 
-**当前记录（2026-07-28）**：上述连接/授权已通过；Pipe 全量下载、长度/CRC、逐行 `ok` 配对和 fresh-`Idle` 完成判定已实机回归。提交前候选镜像的显式 `M30` 路径曾烧录 COM6，COM9 日志确认恢复 Grbl `Idle` 探活；`05f4563` 又加入完整断连安全重画并构建通过，但尚未烧录。仍缺完整断连重发、`Changing=On`、自动换纸实测与 App 真实语音。
+**当前记录（2026-07-28）**：S3-LC-01 已烧录 `05f4563`。COM9 两轮启动日志确认 IDF 6.0.1、8MB PSRAM、七个 `hutuji.*` 工具、Telnet 连接 `192.168.1.13:23`、授权零位移探测通过与持续 fresh `Idle`，未见 panic/assert/backtrace。Pipe 全量下载、长度/CRC、逐行 `ok` 配对和 fresh-`Idle` 完成判定此前已实机回归。仍缺完整断连重发、`Changing=On`、自动换纸实测与 App 真实语音。
 
 **排障**：
 - 连不上 → 查 S3 与写字机是否同一路由器、IP 是否写对、写字机 Telnet 是否开。
