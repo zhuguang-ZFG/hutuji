@@ -1,6 +1,6 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **状态日期：2026-07-28（S3 `05f4563` 烧录/启动核验后，三仓 `git status` 已复核）。**
+> **状态日期：2026-07-28（Grbl `8d13b5c` 已提交/推送后，三仓 `git status` 已复核）。**
 > 用途：告诉下一任代理「哪些改动已经在磁盘上、不要当不存在、不要 checkout 清掉」。  
 > 每次相关提交或丢弃后**必须更新**本页；与 `git status` 冲突时以 `git status` 为准并回写本页。
 
@@ -14,8 +14,8 @@
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| **已推** `8f9b0db` | 规则/状态/SOP/逆向/固件说明 | `05f4563` 已烧录 COM6、COM9 启动核验、最终构建哈希与剩余缺口同步 | 不包含业务代码；提交后 tracked clean |
-| **本轮新增** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 通过本仓门禁后提交；不替代硬件验收 |
+| **已推** `1186948` | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
+| **本轮待提交** | `AGENTS.md`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 Grbl `8d13b5c` 已提交/推送、fz `standard` pass、PlatformIO `release` pass；保留未新增烧录/换纸验收边界 | 跑本仓门禁后提交 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
 | **提交后工作树** | tracked clean | 本批次提交后 `git status --short` 应无输出 | 若不符，以 Git 为准回写本页 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
@@ -26,7 +26,7 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已提交** `e7f373f` | §9 keepalive 编译修复及既有 §9 改动 | fz `standard` 曾 pass；已烧录并通过 keepalive、`[ESP901]`/`Changing=Off` 实机项 | 仍缺有纸 `Changing=On`；不要把已过子项扩大成完整换纸验收 |
-| **本地修改（用户资产）** | `Grbl_Esp32/src/GCode.cpp`、`Protocol.cpp`、`Machines/custom_3axis_hr4988.h` | 当前工作树已有的笔控/运动相关改动；本次续接未修改 | **禁止回退、清理或顺手调整**；若后续任务要碰，先重读白名单并单独跑 fz 门禁 |
+| **已提交/已推** `8d13b5c` | `Grbl_Esp32/src/GCode.cpp`、`Protocol.cpp`、`Machines/custom_3axis_hr4988.h` | 固化此前未提交的笔控/运动相关改动：M3/M5 `protocol_buffer_synchronize()`、A4 默认行程 210×297、segment underflow 收敛；fz `standard` pass（208.91s）+ PlatformIO `release` pass | 尚未新增烧录/实机回归证据；不要把源码提交扩大成 `Changing=On` 或自动换纸验收 |
 | **外仓提交** | 根 `AGENTS.md` 硬件链（MK38 指针 + 禁改脚） | 仅文档 | 随 Grbl 仓推送 |
 | 未跟踪 | `firmware_out/` | 本地构建输出 | 勿提交 |
 

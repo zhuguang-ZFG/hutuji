@@ -22,7 +22,7 @@
 | 仓库 | 本地路径 | 角色 | 当前基线（详见 `docs/release-readiness.md`） |
 |------|----------|------|----------|
 | hutuji（本仓库） | `D:/Users/hutuji` | 枢纽：MCP + 协议 + 文档 + 京东云 deploy + 本仓门禁 | ① 闭环；③ **京东云 HTTPS 已通**（mcp+bridge+nginx+Cloudflare Tunnel，llm7，preflight 8/8） |
-| Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`；§9 `e7f373f` 已提交 + fz `standard` pass + **已烧录实机验证**（2026-07-27：Telnet:23、`[ESP901]` `Paper/Changing` 字段、keepalive 均过）；缺 bringup 阶段 2（有纸 `Changing=On`） |
+| Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`；§9 `e7f373f` 已提交 + fz `standard` pass + **已烧录实机验证**（2026-07-27：Telnet:23、`[ESP901]` `Paper/Changing` 字段、keepalive 均过）；当前源码 `8d13b5c` 已提交/推送并通过 fz `standard` + PlatformIO `release` 构建，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛；`8d13b5c` 尚未新增烧录证据，仍缺 bringup 阶段 2（有纸 `Changing=On`） |
 | xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe` `05f4563`（IDF 6.0.1 构建并烧录 COM6）；七个 `hutuji.*` 工具已注册，启动后 Telnet/授权/fresh-`Idle` 核验通过，官方云路径已触发 `draw/status/abort`；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；仍缺有纸换纸/断连实测、App 真实语音、P2 S3/S4 |
 
 写字机实机侧：MK38 板，WiFi STA 固定 IP `192.168.1.13`，Telnet:23 连通；A4 行程已设（`$130=210 $131=297`）；坐标原点已验证（左下角死点=(0,0)，X+右 Y+前）；M3/M5 笔控 Z 轴已修复验证；PC 直连 Telnet 逐行流控 8/8 ok。**无限位开关，MCP 端限幅是唯一安全防线。**
