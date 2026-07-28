@@ -4,11 +4,11 @@
 
 语音 → 小智官方云 LLM → 调 MCP 工具 `hutuji_draw(自然语言)` → 本服务：
 LLM 生成单线笔画 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验）→ 存本地并经 HTTP 暴露 URL
-→ 返回 URL 给云端 →（后续）S3 板经 `hutuji.draw` 下载转发给写字机。
+→ 返回 URL 给云端 → S3 板经 `hutuji.draw` 下载、校验并转发给写字机。
 
-契约见 `../docs/protocol.md` **v0.5** §3/§4/§5/§5.1。部署目标：**京东云 VPS 单点**（2核4G / 5Mbps / 公网 `117.72.118.95`，专机只跑 ③）；本期 Windows PC 跑通。
+契约见 `../docs/protocol.md` **v0.5** §3/§4/§5/§5.1。生产已部署到**京东云 VPS 单点**（2核4G / 5Mbps / 公网 `117.72.118.95`，专机只跑 ③），经 nginx + Cloudflare Tunnel 提供 HTTPS。
 
-> ✅ **本地服务基础已加固**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流和 localhost 监听均已落地，并有无硬件回归测试。仍不得直接宣称“公网可用”：nginx/TLS、VPS 实际部署和小智云桥接尚待阶段 4–5 联调。
+> ✅ **服务基础与生产边界已验证**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流和 localhost 监听均已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8。官方云路径已实际触发设备侧 `draw/status/abort`，但 **App 真实语音仍未验收**。
 
 ## 架构
 
@@ -64,7 +64,7 @@ python -m venv .venv
 # 4) 单独跑假 Grbl（调转发用）：python -m hutuji_mcp.grbl_sim
 ```
 
-## 小智云 MCP 接入点接法（本机工具发现已验证）
+## 小智云 MCP 接入点接法（生产常驻与云端调用已验证）
 
 查证结论：小智官方云的 MCP 接入点是 **WebSocket**（`wss://api.xiaozhi.me/mcp/?token=xxxx`，
 小智控制台 → 智能体 → MCP 接入点获取），外部工具服务需经**桥接器**接入：
@@ -87,7 +87,7 @@ $env:MCP_ENDPOINT = "wss://api.xiaozhi.me/mcp/?token=<TOKEN>"
 ```
 
 - 2026-07-25 本机实测：WSS 鉴权通过，云端发出 `initialize`，并完成 `tools/list`，冒烟脚本 PASS。
-- 尚未验证：VPS 常驻重连、云端实际调用 `hutuji_status`、完整 `hutuji_draw`（阶段 6/7）。
+- 2026-07-28：京东云 bridge 已常驻；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。这不等于 App 真实语音已验收。
 - 权威接法来源：[小智 MCP 接入点飞书文档](https://my.feishu.cn/wiki/HiPEwZ37XiitnwktX13cEM5KnSb)、
   [官方关联示例 78/mcp-calculator](https://github.com/78/mcp-calculator)；两者均使用 `MCP_ENDPOINT` 环境变量。
 
@@ -112,7 +112,7 @@ location / { return 404; }
 
 文件头 `G21`/`G90`/`F1500`；落笔 `M3`、抬笔 `M5`+`G4 P0.2`；快移 F2500 / 画线 F1500；
 禁 `G28`/`G30`、禁任何 `G0` 落点 X0Y0（触发自动换纸）、首行禁 `G0 X0Y0Z0`、行 ≤255 字符、
-坐标限幅 190×190mm（机器 200×200 软限位关）。profile 见 `hutuji_mcp/hutuji_gwrite.toml`。
+坐标限幅 `0≤X≤190mm`、`0≤Y≤277mm`（A4 四周 10mm 边距；写字机无限位开关，MCP 校验是唯一安全防线）。profile 见 `hutuji_mcp/hutuji_gwrite.toml`。
 
 ## 目录
 
@@ -128,7 +128,7 @@ output/      生成产物（运行时创建）
 # 实施验收清单（2026-07-25 grill-me 定案）
 
 > **给下一任 agent**：组 0、1、2、3.2、3.3、3.4 的代码与自动化回归**已经落地**（pytest 含契约/注入/脱敏）；**不要**把下文「改哪里」当成待办再实现一遍。  
-> 组 3.1：代码默认 localhost + `../deploy/nginx-hutuji.conf` 已备，**须京东云实机验收**。组 4：部署/实机项，**当前缺口**。  
+> 组 3.1 与组 4 已在京东云实机验收：uvicorn localhost、nginx 公网只放 `/files/`、Cloudflare Tunnel TLS、bridge 常驻与 preflight 8/8。
 > 全文是验收记录 + 再验方法。契约真值：`../docs/protocol.md` **v0.5**。接手全貌见 `../docs/agent-handoff.md`。
 
 ## 组 0：契约漂移修正（✅ 代码已落地，保留作验收记录）
@@ -144,7 +144,7 @@ output/      生成产物（运行时创建）
   - `Content-Length`
   - `X-Hutuji-CRC32`：`format(zlib.crc32(data) & 0xFFFFFFFF, "08x")`（zlib/IEEE，小写 8 位 hex）
 - **为什么**：v0.5 §5.1；S3 侧下完先比长度再比 CRC32 才开画。
-- **🔬 仍待**：与 S3 固件首包核对变体一致（两侧必须同为 zlib/IEEE）。
+- **实机证据（2026-07-28）**：S3 已经生产 `/files/` 链路完成全量下载、长度与 CRC32 校验后才开始逐行转发，两侧 zlib/IEEE 变体一致。
 - **再验**：`curl -sI <url>` 见两头；`tests/test_contract.py` 相关用例。
 
 ### 0.3 `validate_gcode` 512KB 上限 ✅
@@ -242,9 +242,9 @@ output/      生成产物（运行时创建）
 - **为什么**：决策 #5（2026-07-25 锁定，唯一生产落点）。
 - **上行带宽**：2026-07-26 实测公网拉 512KiB 中位 ~1.13s / ~3.72 Mbps（见 `../docs/deployment.md`）；阶段 6/8 仍可用实机 S3 复测。
 
-### 4.2 小智云 MCP 桥接（沿用官方云，工具发现已验证）
+### 4.2 小智云 MCP 桥接（沿用官方云，生产常驻与云端调用已验证）
 - 决策 #4 维持**官方云**，不自部署小智 server。桥接模块、环境变量接法和无 LLM 冒烟已落地；2026-07-25 本机 `initialize` + `tools/list` PASS。
-- 🔬 仍待阶段 6：部署到京东云后常驻运行，并由小智云实际调用一次 `hutuji_status`。
+- 2026-07-28：京东云已常驻；官方小智消息 API 已发现七个设备侧工具，并实际触发 `draw/status/abort`。App 真实语音和七工具逐项行为回归仍待完成。
 - **open 项**：若官方云 MCP 接入点实测受限（调用频率/超时/桥接不稳），再评估自部署 `xiaozhi-esp32-server`——届时收益是可把 ③ 直接注册进自己的 server，省掉 ws 桥接层。**非 v0 任务。**
 
 ## 实施顺序建议
@@ -253,14 +253,14 @@ output/      生成产物（运行时创建）
 > **执行顺序与每阶段通过判据**，见 `../docs/bringup-sop.md`（9 阶段 SOP）。
 > 本清单的组 3/4 对应 SOP 的**阶段 3–4**（③ 本地跑通 + 契约合规），组 0–2 是其前置。
 
-**当前进度**：组 0–2、3.2–3.4 代码与 pytest 已绿；组 3.1 代码默认 localhost + `deploy/nginx-hutuji.conf` 已备，**须京东云实机验收**；组 4 未部署。
+**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，preflight 8/8，公网 `/mcp` 404、8300 不可达，官方云路径已触发 `draw/status/abort`。
 
-历史实施顺序（已完成项勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → **组 4（下一步）**。
+历史实施顺序（均已完成，勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → 组 4。
 
 ## 仍未闭合（🔬 待实测，非设计缺口）
 
 - 抬笔次数硬阈值（组 1.3）—— 待 ② 实测机头 Z 抬落速度。
-- CRC32 两侧变体一致性（组 0.2）—— ② 联调首包核对（Python 侧已钉死 zlib/IEEE）。
+- ~~CRC32 两侧变体一致性（组 0.2）~~ —— 2026-07-28 已由 S3 生产下载链路实测通过。
 - ~~京东上行带宽~~ — 2026-07-26 已测（~3.72 Mbps / 512KiB≈1.13s）；阶段 6/8 可用 S3 复验。
-- 小智云实际 `tools/call` 与京东云常驻重连（组 4.2）—— 阶段 6 联调。
-- 公网 `/mcp` 不可达、`/files`+TLS（组 3.1）—— 京东云验收。
+- ~~小智云实际调用与京东云常驻（组 4.2）~~ —— 2026-07-28 已通过官方云路径触发 `draw/status/abort`；仍缺 App 真实语音和七工具逐项回归。
+- ~~公网 `/mcp` 不可达、`/files`+TLS（组 3.1）~~ —— 京东云 preflight 与公网复验已通过。

@@ -58,15 +58,15 @@
 - `docs/bringup-sop.md` — 阶段 0–9 联调与小批量出货门禁
 - `docs/deployment.md` / `docs/operations.md` — 京东云部署与值守
 - `docs/templates/` — 逐台测试记录、批次发布清单模板
-- `mcp-server/` — MCP 生成服务（③，**本地基础加固已完成**：契约/安全回归 + 小智云 `initialize/tools/list` 冒烟；京东云与实际工具调用待联调，见 `mcp-server/README.md`）
+- `mcp-server/` — MCP 生成服务（③，契约/安全回归、京东云 HTTPS 常驻与官方云实际调用均已有证据；App 真实语音仍待验，见 `mcp-server/README.md`）
 - `firmware/` — S3 板固件补丁说明（②，补丁本体在 xiaozhi-esp32 fork）
 - `deploy/` — 京东云 systemd/nginx/环境变量模板（真实凭据不入库）
 
 ## 路线图
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、**本仓门禁/硬轨** — ✅ 见 `docs/foundation-checklist.md`
-2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 S3↔Grbl WiFi Telnet 联调通过；连接优化已烧录；缺逐行流控+端到端语音
-3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — ✅ HTTPS 已通（Cloudflare Tunnel）；MCP+桥接已常驻；缺端到端语音
+2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 `05f4563` 已提交并通过 IDF 6.0.1 构建；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；绘图后显式 `M30` 与完整断连安全重画已编码，缺该 commit 烧录、换纸/断连实测、P2 S3/S4
+3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云 `draw/status/abort` 调用已通；缺 App 真实语音验收
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
 实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。

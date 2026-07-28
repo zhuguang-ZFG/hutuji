@@ -6,14 +6,14 @@
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
-## 0. 一句话现状（2026-07-26 晚）
+## 0. 一句话现状（2026-07-28）
 
-枢纽仓：协议 v0.5、门禁、③ **京东云已上**（`hutuji-mcp`+bridge+nginx；llm7；本机 `tools/call` 出图 OK；知识库文稿已上传）。  
-Grbl：§9 已提交+fz 绿，**未烧录**（阶段 2 未做）。  
-S3：`feat/hutuji-usb-pipe` 上 M2 **已提交**（`hutuji_job`），**未 IDF 构建 / 未烧录**；断连复位重发仍缺。  
-**没有**：设备联调证据、App 端到端（无板说不了）、出货签核。  
+枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8；官方云路径已实际触发 `draw/status/abort`。
+Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证，仍缺有纸 `Changing=On` 与自动换纸实测。
+S3：`feat/hutuji-usb-pipe` `05f4563` 已提交；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定及 abort 恢复已实机回归。当前 commit 含“绘图 fresh `Idle` → 显式 `M30` → 最终 fresh `Idle`”和完整断连安全重画代码，已用 IDF 6.0.1 构建（`xiaozhi.bin=0x2ccde0`，app 余 29%，SHA256 `5C79178B...92ABD`）；**尚未烧录该 commit，也未做有纸自动换纸/断连重画实测**。此前 COM6 候选镜像与 COM9 `Idle` 探活证据仍有效，但不覆盖新增断连保护。
+**没有**：App 真实语音、有纸 `Changing=On`/自动换纸验收、完整断连复位/废纸换纸/缓存重发实测、P2 S3/S4、生产签核。
 → **不可商业出货**。  
-→ 有设备：烧录 §9 → bringup 2 → S3 构建烧录 M2。无设备：IDF 构建 M2 / 补断连重发。  
+→ 下一刀：烧录/启动核验 `05f4563` → bringup 8.3 完整断连重画 → 有纸 `Changing=On`/显式 `M30` → App 真实语音。
 → **禁止**再写一版文档地图当进度；真值页 `release-readiness.md`。
 
 ## 1. 三仓与代码在哪
@@ -44,8 +44,8 @@ S3：`feat/hutuji-usb-pipe` 上 M2 **已提交**（`hutuji_job`），**未 IDF �
 |------|------|
 | 「仓库只有文档」 | `mcp-server/` 已可跑；先跑 `scripts/agent_gate.py` |
 | 「CRC 还没做 / 还在用 StaticFiles」 | 已自定义 `/files` + `X-Hutuji-CRC32`；见 `mcp-server/README` 组 0 ✅ |
-| 「验收清单还要按组 0 重做一遍」 | 组 0–2、3.2–3.4 **代码已落地**；下一步是**组 4 京东云** |
-| 「Telnet 能收到 `[PaperStatus]`」 | **不能**，除非 §9-B1′ 落地且实机验证；源码标记齐 ≠ 已完成 |
+| 「验收清单还要按组 0 重做一遍」 | 组 0–4 已落地并上云；当前缺口是 App 语音与设备端剩余实测 |
+| 「所有换纸进度都能从 Telnet 收到」 | **不能**；§9 只定点放开四处 `[PaperStatus]`，且真实结果码到达仍待换纸验证；其余进度看 CH340 |
 | 「出图中 status 发 `[ESP901]`/`M704`」 | **禁止**；只发 `?`（单写者） |
 | 「abort = 急停」 | 换纸中打不断；见 protocol §4.1 |
 | 「PC telnet 旁观 + S3 同时连」 | `MAX_TLNT_CLIENTS=1`，互斥；PC 看 CH340 |
@@ -82,10 +82,10 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. **有设备**：Grbl 烧录 §9 → bringup 阶段 2；S3 改 `HUTUJI_PIPE_HOST` → IDF 构建烧录 M2 → bringup 3+  
-2. **无设备**：IDF 构建验证 M2；补断连复位重发（M2 #5）；本仓门禁绿  
-3. 京东云已常驻——勿再「从零部署」；余正式 TLS、设备端到端  
-4. `bringup-sop.md` 自阶段 0 留真实证据；出货签核另线  
+1. **先上板当前基线**：烧录并启动核验 S3 `05f4563`；记录 IDF 6.0.1 镜像哈希与串口证据。
+2. **有设备**：按 bringup 阶段 8.3 验证完整断连复位/废纸换纸/PSRAM 从头重发；再做有纸 `Changing=On` 与自动换纸。
+3. **云端/App**：完成 App 真实语音 → 小智云 → MCP → S3 → Grbl 的端到端验收，并补七工具逐项云端行为回归。
+4. **P2/生产**：完成 P2 S3/S4；`bringup-sop.md` 与生产签核按证据补齐。京东云已常驻，勿再「从零部署」。
 
 > fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
@@ -122,7 +122,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
 | 批次模板 | `docs/templates/` |
-| 京东云模板 | `deploy/`（`prepare-host.sh` 可先做阶段 0；实机未上线） |
+| 京东云模板 | `deploy/`（生产已常驻；更新用 scp，重启后跑 preflight 8/8） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |

@@ -54,10 +54,10 @@ python scripts\agent_gate.py --profile hub
 
 ## 默认下一刀（用户未指定时）
 
-1. 提交并烧录 Grbl §9（工作树已有，见 worktree-inventory）→ bringup 阶段 2  
-2. S3 M2  
-3. bringup 阶段 0 起留证据  
-4. 京东云上线  
+1. 烧录并启动核验 S3 `05f4563`（IDF 6.0.1 构建已过）
+2. 验证普通画线断连后的受限 reset 恢复、废纸换纸和 PSRAM 从头重发
+3. 有纸验证 `Changing=On` 与自动换纸
+4. 完成 App 真实语音端到端和 P2 S3/S4
 
 禁止：重写文档地图当进度、跳阶段、把 MCP 组 0–3 当待办重做、凭据入库、为门禁绿改产品行为。
 

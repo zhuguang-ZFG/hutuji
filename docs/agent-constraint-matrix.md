@@ -4,7 +4,7 @@
 > **完成定义**：本页勾选全部完成 **且** 枢纽 `python scripts/agent_gate.py --profile docs` pass。  
 > 契约真值仍是 `protocol.md`；本页只钉「谁读什么、谁跑什么门禁、谁不能改什么」。
 
-状态日期：2026-07-26。
+状态日期：2026-07-28。
 
 ## 1. 约束入口必须存在
 
@@ -39,7 +39,7 @@
 |----|------|
 | 全仓 | 重开 USB Host / CH9350 / 阿里云；合并双芯片固件；凭据入库；覆盖他人脏树；编造证据 |
 | Grbl | 换纸机械/时序/运动/授权/U1；`report_realtime_status` / `report_state_text`；全量换纸消息 `CLIENT_ALL` |
-| xiaozhi | 把 hutuji 板级行为塞进核心模块；出货携带占位 `HUTUJI_PIPE_HOST`；出图中用 `[ESP901]`/`M704` 做 status |
+| xiaozhi | 把 hutuji 板级行为塞进核心模块；接受未通过 Grbl banner 验证的 :23 候选或污染 NVS 缓存；出图中用 `[ESP901]`/`M704` 做 status |
 | fz | 用改商业固件常量代替更新 `paper_firmware_contract.json`；host SIL 绿宣称 HIL/出货 |
 | hutuji | 把固件源码合并进本仓；把 MCP 组 0–3 验收当待办重做 |
 

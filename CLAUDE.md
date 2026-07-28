@@ -41,9 +41,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **哑管道原则**：G-code 全部在云端（京东云 VPS 的 MCP 服务）生成+转换完毕。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。
 
-**Telnet 收不到换纸消息（v0.5 勘察纠错，别再照旧假设）**：`PaperSystem.cpp` 63 处 `grbl_msg_sendf` 路由**全为 `CLIENT_SERIAL`，`CLIENT_ALL` 出现 0 次**——`[PaperAuto-N]` 进度、`[PaperStatus] N` 结果码**S3 一个字节也收不到**。Telnet 只收 `ok`/`error:NN`、`?` 的 `<...>` 状态行、banner。故 S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing`（需 §9 小改）+ `?` 探活（已验证换纸期可响应）。CH340 串口仍是最全诊断口。
+**换纸消息只做定点路由（别扩大修改面）**：原固件的换纸消息均走 `CLIENT_SERIAL`；§9 `e7f373f` 只把四处 `[PaperStatus] N` 结果码改为 `CLIENT_ALL`，其余 `[PaperAuto-N]` 进度仍只走 CH340。`[ESP901]` 的 `Changing=Off` 已经 Telnet 实测，`Changing=On` 与真实 `[PaperStatus]` 到达仍待有纸换纸验证。S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing` + `?` 探活。CH340 串口仍是最全诊断口。
 
-**Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**——当前待实施清单见 `docs/protocol.md` §9（keepalive + `[PaperStatus]` 路由 + `Changing` 字段，约 12 行）。**改后必跑门禁**。
+**Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**。`docs/protocol.md` §9 清单已以 `e7f373f` 提交、fz `standard` pass 并烧录；keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证，`Changing=On`/自动换纸仍未验证。后续任何 Grbl 改动仍**必跑 fz 门禁**。
 
 **画布与行程安全**：A4 纸 210×297mm（X 短边 Y 长边）。MCP 生成端限幅 X≤190 Y≤277mm（四周 10mm 边距），Grbl 行程 `$130=210 $131=297`。**无限位开关**（引脚注释掉了），软限位/归零不可用，MCP 端校验是唯一安全防线。**坐标原点已验证**：左下角机械死点 = (0,0)，X+ 向右，Y+ 向前（远离操作者）。归零方式 = 手动推死点后上电。
 
@@ -128,11 +128,11 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 S3↔Grbl WiFi Telnet 首次联通（2026-07-27）；连接优化（NVS 缓存+去 mDNS+非阻塞 connect，冷启 ~10s）；双端 keepalive。断连复位重发仍缺。
-3. **③ 智能端** — ✅ HTTPS 已通（Cloudflare Tunnel + Let's Encrypt）；京东云 MCP+桥接已常驻；llm7。缺：端到端语音出图验证。
+2. **② 哑管道** — 🟡 `05f4563` 已提交并以 IDF 6.0.1 构建（尚未烧录该 commit）；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归，显式 `M30` 与完整断连安全重画已编码。缺断连复位/废纸换纸/缓存重发实测、`Changing=On`、P2 S3/S4。
+3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 
-> **不可出货**。无设备时默认下一刀见 `docs/agent-handoff.md` §6；有设备优先烧录 §9 + S3 M2 构建烧录。
+> **不可出货**。默认下一刀见 `docs/agent-handoff.md` §6：先烧录 `05f4563`，再验证完整断连重发、`Changing=On`/自动换纸与 App 真实语音。
 
 ## 约定
 

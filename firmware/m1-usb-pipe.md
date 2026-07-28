@@ -1,6 +1,8 @@
 # M1 最小管道固件补丁（feat/hutuji-usb-pipe，方案 E：WiFi Telnet）
 
-> 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`（基于 main `38bc4f4`，未 commit）。
+> 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 commit
+> `05f4563`（`hutuji_job.*`、`hutuji_pipe.*`、`mqtt_protocol.cc`）。该 commit 已构建但
+> **尚未烧录/实测，不得把构建通过表述为发布固件或硬件验收。**
 > 目标板型：`lichuang-dev`（立创实战派 ESP32-S3）。
 > **2026-07-24 传输层第三版**：USB Host（硬件被 CH334F 占用否决）→ UART/CH9350（否决）
 > → **方案 E：写字机 Grbl_Esp32 内置 WebUI 的 Telnet 服务（端口 23），S3 做 TCP 客户端直连**。
@@ -10,7 +12,8 @@
 
 写字机：Grbl_Esp32 开 Telnet（端口 23），STA 连家用路由器拿**固定 IP**。
 实战派 S3：WiFi 由 xiaozhi WifiBoard 正常管理（连同一路由器），Pipe 只做 TCP 客户端。
-目标地址编译期常量在 `hutuji_pipe.cc` 文件头：`HUTUJI_PIPE_HOST "192.168.1.50"` / `HUTUJI_PIPE_PORT 23`（占位，**联调时改**）。
+Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓存命中和扫描候选都必须
+先读到 Grbl banner 才接受并写缓存。当前实机写字机为 `192.168.1.13:23`。
 
 ## 改动清单
 
@@ -26,23 +29,28 @@
 ## hutuji::Pipe API（对外语义不变）
 
 - `Start()`：幂等。只创建 `hutuji_tcp` 连接管理任务；**不管 WiFi**（WifiBoard 负责），WiFi 未就绪时 connect 自然失败走退避。
-- 连接循环：`socket/connect`（同步）→ 成功后 `connected_=true` → **就绪探活：发 `$I\n`，等 `[VER:` 置 `ready_`** → `recv` 阻塞读 → 行聚合（512 上限）→ 应答解析。断线（recv 返回 0/<0）→ 清 `connected_/ready_` → 关 socket → **指数退避 1s/2s/4s…上限 30s** 重连。
+- 连接循环：`socket/connect` → banner 验明 Grbl peer → `connected_=true` → 发 `$I`，依次完成
+  版本、抬笔、fresh 位置与授权零位移探测后才置 `ready_` → `recv` 读/分行/解析。断线后清
+  connected/ready/authorized 与应答队列，关闭旧 socket，按 1s/2s/4s…上限 30s 重连。
 - **TCP keepalive（v0.5 修正的实际 bug）**：原代码只设 `SO_KEEPALIVE=1`，注释写「尽快发现对端断电」——**实际是假的**：lwip 默认 `TCP_KEEPIDLE=7200s`(2h)/`KEEPINTVL=75s`/`KEEPCNT=9`，合计 **≈2h11m** 才发现死链。已改为显式设 `KEEPIDLE=10`/`INTVL=3`/`CNT=3`（≈19s 发现）。写字机侧同一坑见 `docs/protocol.md` §9-A。
 - `SendLine(const std::string&)`：send（自动补 `\n`，部分写循环）；未连接返回 false。
-- `WaitOk(timeout_ms, response*)`：EventGroup 等 `ok` / `error:`（机制三版未变）。
-- `IsConnected()` = TCP 已连接；`IsReady()` = 探活成功；`GetLastLine()` 不变。
-- banner `Grbl ` 前缀检测保留，语义改为**对端复位**：清 `ready_` + 清应答位 + 重新发 `$I` 探活。
+- `TakeResponse()` / `WaitOk()`：32 深 FIFO 接收 `ok` / `error:`；当前仍以窗口=1 逐行发送，
+  队列为 P2 窗口化前置结构。
+- `IsConnected()` = TCP 已连接；`IsReady()` = 版本、抬笔、授权探测序列完成；
+  `IsAuthorized()` 由抬笔状态下的 `G53 G1` 零位移探测结果决定。
+- banner `Grbl ` 前缀检测表示**对端复位**：清 ready/授权/应答队列并重新探活。只有
+  `PrepareAbortReset()` 标记过的本机 abort 复位允许自动 `$X`；其他复位或 Alarm 不自动解锁。
 
 ## 设备侧 MCP 工具（2026-07-27）
 
 | 工具 | 用户意图 | 动作与边界 |
 |------|----------|------------|
 | `hutuji.status` |「连上了吗 / 画完了吗」| 返回链路、授权、任务、Grbl 状态与坐标。出图中只发实时 `?`。|
-| `hutuji.draw(url)` | 云端生成后执行 | 全量下载、CRC 校验、授权门、逐行 Telnet 转发。|
-| `hutuji.abort` |「停下 / 取消」| `!` 后等待 8 秒再 `Ctrl-X`；换纸期间延后中止。|
+| `hutuji.draw(url)` | 云端生成后执行 | 全量下载、CRC 校验、授权门、逐行 Telnet 转发；绘图 fresh `Idle` 后由 S3 单独发 `M30`，等最终应答和 fresh `Idle` 才完成。|
+| `hutuji.abort` |「停下 / 取消」| 非换纸态发 `!`，轮询到 `Hold/Idle` 后 `Ctrl-X` 清 planner；随后只对这次自发复位执行受限 `$X`、明确 Z=0 抬笔和重新探活。换纸期间延后中止。|
 | `hutuji.pause` |「暂停 / 等一下」| 发实时 `!`，Job 在行边界停止继续灌入；**不丢进度**，换纸中拒绝暂停。|
 | `hutuji.resume` |「继续 / 接着画」| 发实时 `~`，清除 Job 暂停门，原地续画。|
-| `hutuji.repeat` |「再画一张 / 一样的再画一次」| 成功出图后留存一份最多 512KiB 的 PSRAM G-code，优先跳过下载+CRC 重画；留存不存在则用上次 URL 重下。G-code 尾部 `M30` 会再次触发自动换纸，无需用户手动换纸。|
+| `hutuji.repeat` |「再画一张 / 一样的再画一次」| 成功出图后留存一份最多 512KiB 的 PSRAM G-code，优先跳过下载+CRC 重画；留存不存在则用上次 URL 重下。repeat 与 draw 共用“画完后 S3 显式 `M30`”路径；MCP 文件本身仍不含 M30。|
 | `hutuji.pen_test` |「试一下笔 / 笔能用吗」| 独占任务：`M5`→`M3 S1000`→停 1 秒→`M5`，每步等 `ok`；先抬笔建立确定起点，否则已落笔时 `M3` 是零位移、纸上不留点。结束以 MCP notification 提醒检查点迹。|
 
 并发与超时约束（code review 后加固）：
@@ -51,46 +59,70 @@
 - `RequestPause`/`RequestResume` 检查 `SendRealtime` 返回值，失败即回滚本地状态，不把断链说成已暂停/已继续。
 - `stream_mutex_` 让「检查 `paused_` + 写入该行」成为临界区，暂停命令发出后不会再多灌一行进 planner。
 - `pen_test` 通过 `busy_` 与出图互斥；`pen_test_active_` 让试笔期间的 pause/resume 返回「正在试笔，请稍候」。
+- 暂停仅用实时 `!`/`~`；Hold 中普通 Z 行只会排入 planner，并会破坏 `ok` 配对，因此不再在 pause/resume 中注入抬落笔。
 - 暂停超过 10 分钟自动取消并向云端通知，避免 `busy_` 无限占用使全部工具返回 `busy`。
 - 下载/校验或换纸结束时，任务状态按 `paused_` 写为 `paused` 或 `streaming`，不得谎报正在画。
+- 文件最后一行收到 `ok` 只表示进入 planner；任务还会发 `?` 并等待一份**新解析的**
+  `Idle` 状态报告；随后 S3 单独发 `M30`，等换纸最终 `ok/error:90`，并再次确认 fresh
+  `Idle` 后才置 `done`。`status_report_seq_` 防止复用旧 `Idle`。
+- abort 与 `M30` 提交点共用 `stream_mutex_`：abort 先到则不启动换纸；M30 先到则进入
+  `paper_change`，换纸完成后再落 `aborted`，不会竞态发送 `0x18`。
 - `hutuji.status` 新增 `repeat_available`，智能体据此判断「再画一张」是否可执行。
 
-## M2 进度（2026-07-27，新增体验控制工具）
+## M2 进度（2026-07-28，云端触发与实机任务回归）
 
 > 代码在 `feat/hutuji-usb-pipe`（含 `hutuji_job.*`，板级 `lichuang-dev`）。  
-> **新增的暂停/恢复/重画/试笔四个工具（2026-07-27）**：IDF v6.0.1 `release.py lichuang-dev` 构建通过；已烧录 **COM8**（S3 的 COM 口由 COM7 变为 COM8，每次须重查）；串口日志确认七个 `hutuji.*` 工具全部注册、Telnet 探活 `[VER:1.3a...]` 正常。
-> 底层动作已在 COM3 对 Grbl 实测：`pen_test` 序列 `M5`→`M3`→`M5` 三条均回 `ok` 且 Z=0→5→0；`!` 使状态进入 `Hold:0` 且坐标冻结，`~` 从冻结处续跑至终点（未丢行程）。
-> **仍未验证**：经小智云真实调用这四个工具（设备侧工具只能由云端 WS 触发，本机无直连脚本）、`repeat` 的 PSRAM 快路、暂停 10 分钟自动取消。不可宣称已联调完成。  
-> Grbl §9 仍建议烧录后再做换纸态精确分流；无 §9 时靠 `error:8` 重发 + 换纸行长超时。
+> 最新镜像以 IDF v6.0.1 构建并烧录 **COM6**。官方小智消息 API 已发现七个
+> `hutuji.*` 工具，并通过云端路径实际触发 `draw/status/abort`；这证明云端工具调用可达，
+> **不等于 App 真实语音对话已验收**。
+>
+> 非换纸 abort 回归：运动中 `Z=5` 调 abort 后，状态恢复为 `aborted/Idle`，
+> `ready=true`、`authorized=true`、`Z=0`；继续观察 8 秒 XY 无漂移、planner 未恢复。
+> 实测同时证明：soft reset 后单发 `M5` 可能因主轴模态已为 Off 而无动作，必须显式
+> `G1G90 Z0.0F10000`；Z 抬笔行的 `ok` 后仍要等新 `Idle`，否则紧接 `$I` 会回 `error:8`。
+>
+> 完整任务回归：先看到 `streaming/Run`，过程中未出现 `done/Run`；最终为 `done/Idle`，
+> `MPos=(100,100,0)`，`repeat_available=true`。这证明最后一行后的物理完成判定，不证明
+> 纸面笔迹、自动换纸或 App 语音出图。
+> Grbl §9 已烧录并验证 `Changing=Off`、`[ESP901]` 与 keepalive；有纸换纸时的
+> `Changing=On` 仍未验证，不能把 abort 回归替代为换纸态分流证据。
 
 | # | 项 | 状态 |
 |---|-----|------|
 | 1 | `hutuji.draw` 独立任务：下载→长度/CRC→授权门→逐行转发；busy 拒绝 | ✅ 代码 |
 | 2a | `WaitResponse`：`Ok/Deferred(8)/Failed/Timeout` + 解析 `error:NN` | ✅ 代码 |
 | 2b | `OnRxData` 先拆行再丢超长残段 | ✅ 代码 |
-| 3 | abort 分状态；MCP 回调不 sleep；`!`→8s→`0x18` 独立任务；换纸中不发 `0x18` | ✅ 代码 |
+| 3 | abort 分状态；`!` 后轮询 `Hold/Idle` 再 `0x18`；仅自发复位受限 `$X`，显式 Z=0 后重探活；换纸中不发 `0x18` | ✅ 实机回归 |
 | 4 | 单写者 `write_mutex_`；出图中 status 只 `?` | ✅ 代码 |
-| 5 | 断连物理复位（`0x18`→`M30`→缓存重发） | 🔴 未做（无设备；重连后当前任务 error） |
+| 5 | 断连物理复位、废纸换纸与缓存重发 | 🔴 未做；当前 abort 自恢复不等于断连重放 |
 | 6 | status 含 `authorized` + MCP notify | ✅ 代码 |
 | 7 | 写字机固定 IP / Telnet | 🔬 实机 |
-| 8 | `pause`/`resume`：`!`/`~` + 行边界暂停门 + 冻结 ok 超时；发送失败回滚状态 | 🟡 代码（未构建/未实机） |
-| 9 | `repeat`：成功后留存 PSRAM buffer 跳下载+CRC，回落重下；`status` 报 `repeat_available` | 🟡 代码（未构建/未实机） |
-| 10 | `pen_test`：`M5`→`M3`→1s→`M5` 建立确定起点；`pen_test_active_` 挡 pause | 🟡 代码（未构建/未实机） |
+| 8 | `pause`/`resume`：`!`/`~` + 行边界暂停门 + 冻结 ok 超时；发送失败回滚状态 | 🟡 底层实机；最新云端路径未单独回归 |
+| 9 | `repeat`：成功后留存 PSRAM buffer 跳下载+CRC，回落重下；`status` 报 `repeat_available` | 🟡 `repeat_available=true` 已实测；快路重画未验 |
+| 10 | `pen_test`：`M5`→`M3`→1s→`M5` 建立确定起点；`pen_test_active_` 挡 pause | 🟡 底层动作已实测；最新云端路径未单独回归 |
+| 11 | 最后一行后等待 fresh `Idle`，禁止 `done/Run` | ✅ 实机回归 |
+| 12 | 绘图 fresh `Idle` 后显式 `M30`，等最终应答和第二次 fresh `Idle`；与 abort 提交点互斥 | 🟡 IDF 6.0.1 构建/COM6 烧录通过；待有纸实测 |
 
 ### 联调注意
 
-- `HUTUJI_PIPE_HOST` 仍为占位 `192.168.1.50`，上板前改。  
-- 京东云自签阶段：`HUTUJI_PUBLIC_BASE_URL=http://117.72.118.95`（nginx 80 已提供 `/files`）；正式证后再改 https。  
-- 授权依赖应答行含 `[License] Authorized`；未看到则授权门挡下发。
+- 自动发现当前只扫描 `/24`；缓存与候选均先校验 Grbl banner。错误但可连的 :23 主机自愈路径
+  已写入固件，恶意/错误候选场景尚未做专门 HIL。
+- 公网文件入口使用 `https://hutuji.donglicao.com`；真实 MCP 接入点和 token 不入库。
+- `[License] Authorized` 只发串口、Telnet 不可见；Pipe 以抬笔后的 `G53 G1` 零位移探测
+  `ok/error:110`。探测完成前 `ready=false`，禁止 draw 抢跑。
 
 ## 验证状态
 
-- 本机无 ESP-IDF 环境，**未编译**，仅代码评审级自查。
-- lwip API 按 IDF 5.5/6.0 现行写法：`lwip/sockets.h` + `lwip/netdb.h`（socket/connect/recv/send/close/setsockopt/inet_addr/htons）；ESP-IDF lwip 不产生 SIGPIPE，send 用 flags=0 + 返回值判断断连。
-- 依赖可达性：`main` 的 `PRIV_REQUIRES` 未显式列 `lwip`，但常备编译的 `ml307_board.cc` 依赖的 `78/esp-ml307`（AT/socket）公开传递 lwip，`esp-hi` 等板文件直接 include `esp_wifi.h` 亦可编译，判定可过；若构建报 lwip 头文件找不到，一行修复：`main/CMakeLists.txt` 的 `PRIV_REQUIRES` 加 `lwip`。
-- 首次构建：`python3 scripts/release.py lichuang-dev`（仓库要求 IDF v6.0.2）。
-- 硬件冒烟：写字机起 Telnet 后看日志 `已连接写字机 Telnet` 与 `Grbl 探活成功（[VER:...]`，再调 `hutuji.status` 确认 `connected/ready`。
-- 本机无 clang-format，未跑格式检查。
+- 提交前候选镜像已用 IDF v6.0.1 构建并烧录 COM6；COM9 日志持续收到 Grbl
+  `<Idle|MPos:100.000,100.000,0.000|...>`，未见 panic/assert/error。这只证明当时候选的
+  基础启动与 Telnet 探活，不证明自动换纸。
+- `05f4563` 已重新以 IDF v6.0.1 构建：`xiaozhi.bin=0x2ccde0`，最小 app 分区剩余
+  `0x123220`（29%），SHA256 `5C79178B65A095CBFEFDE8108FE13291914C14253DD2D6B9688CC4F695392ABD`；
+  两个 hutuji 对象文件时间戳均晚于源码变更。该 commit 尚未烧录。
+- 已证：七工具云端发现、`draw/status/abort` 云端路径、abort 后受限恢复、Z=0、
+  fresh-`Idle` 完成判定、`done/Idle`。
+- 未证：App 语音对话、纸面笔迹、`Changing=On`、自动换纸、完整断连复位/重发实测、P2 S3/S4、
+  小批量出货。
 
 ## 历史留档
 

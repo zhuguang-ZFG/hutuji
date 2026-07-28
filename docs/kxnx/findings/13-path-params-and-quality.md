@@ -30,7 +30,7 @@ public class PathParameters {
 
 | 奎享字段 | 默认值 | hutuji 对应 | 我们的值 |
 |---|---|---|---|
-| `simplePaths` | **0.02mm** | vpype `linesimplify --tolerance` | **0.2mm** |
+| `simplePaths` | **0.02mm** | vpype `linesimplify --tolerance` | **0.1mm** |
 | `nearDst` | **0.3mm** | vpype `linemerge --tolerance` | **0.05mm** |
 | `optimizePaths` | bool | vpype `linesort` | 固定启用 |
 | `startGcode` / `endGcode` | 空 | `document_start` / `document_end` | 已用 |
@@ -57,7 +57,7 @@ public class PathParameters {
 
 ## 2. 最重要的一条：奎享几乎不做线简化
 
-**`simplePaths = 0.02mm`，比我们的 `0.2mm` 小一个数量级。**
+**`simplePaths = 0.02mm`，是我们当前 `0.1mm` 的五分之一。**
 
 0.02mm 的容差在实际几何上近乎「不简化」——远小于笔触精度（0.1mm），也远小于步进分辨率（Z 轴 50 steps/mm = 0.02mm/step，XY 同量级）。
 
@@ -65,9 +65,9 @@ public class PathParameters {
 
 对我们的含义：
 
-- 我们当前的 `linesimplify 0.2mm` 是在**逐行等 ok** 这个约束下的正确权衡——用降低点密度换流畅度，已实测消除卡顿（9266 行 → 172 行）。
+- 我们当前的 `linesimplify 0.1mm` 是在**逐行等 ok** 这个约束下的实测权衡——用降低点密度换流畅度；0.05mm 以下开始卡顿。
 - 如果将来实施窗口化流控（P2），就**可以把容差调回接近奎享的水平**（0.02–0.05mm），既流畅又保留细节。届时小字/密集细节的棱角问题（见 review 记录）也一并解决。
-- 换句话说：`linesimplify 0.2mm` 是「用画质换流畅」的临时手段；窗口化流控才是「两者都要」的正解。
+- 换句话说：`linesimplify 0.1mm` 是「用画质换流畅」的当前折中；窗口化流控才是「两者都要」的正解。
 
 ## 3. nearDst = 0.3mm，比我们的 linemerge 激进 6 倍
 

@@ -106,10 +106,10 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
-1. Grbl §9 → fz pass → 烧录 → bringup 阶段 2  
-2. S3 M2 → IDF 构建  
-3. bringup 阶段 0 起留证据  
-4. 京东云按 `deployment.md` 上线  
+1. 烧录并启动核验 S3 `05f4563`（IDF 6.0.1 可追溯构建已过）
+2. bringup 8.3 完整断连复位/废纸换纸/PSRAM 重发实测
+3. 有纸 `Changing=On` + 自动换纸
+4. App 真实语音端到端 + P2 S3/S4 + 生产签核
 
 用户明确指定任务时可偏离；**不得**在未指定时重写文档地图或重开否决项。
 

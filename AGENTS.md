@@ -23,7 +23,7 @@
 |------|----------|------|----------|
 | hutuji（本仓库） | `D:/Users/hutuji` | 枢纽：MCP + 协议 + 文档 + 京东云 deploy + 本仓门禁 | ① 闭环；③ **京东云 HTTPS 已通**（mcp+bridge+nginx+Cloudflare Tunnel，llm7，preflight 8/8） |
 | Grbl_Esp32（fork） | `D:/Users/Grbl_Esp32` | 运动控制+换纸（**成熟商业现役固件**） | 分支 `fix/panel-hold-after-align-116687e`；§9 `e7f373f` 已提交 + fz `standard` pass + **已烧录实机验证**（2026-07-27：Telnet:23、`[ESP901]` `Paper/Changing` 字段、keepalive 均过）；缺 bringup 阶段 2（有纸 `Changing=On`） |
-| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe` `414bb04`（IDF 6.0.1）；M2 **Telnet 联调通过 + 连接优化**（去 mDNS + NVS IP 缓存，冷启 ~10s；双端 keepalive）；已烧录 COM8，七个 `hutuji.*` 工具（status/draw/abort/pause/resume/repeat/pen_test）串口自证注册；缺：云端语音链路调用、S3 Pipe 端到端、断连复位重发 |
+| xiaozhi-esp32（fork） | `D:/Users/xiaozhi-esp32` | AI 交互（板型 `lichuang-dev`，立创实战派 ESP32-S3） | `feat/hutuji-usb-pipe` `05f4563`（IDF 6.0.1 构建通过，**尚未烧录该 commit**）；七个 `hutuji.*` 工具已注册，官方云路径已触发 `draw/status/abort`；Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；显式 `M30` 与完整断连安全重画已编码，仍缺有纸换纸/断连实测、App 真实语音、P2 S3/S4 |
 
 写字机实机侧：MK38 板，WiFi STA 固定 IP `192.168.1.13`，Telnet:23 连通；A4 行程已设（`$130=210 $131=297`）；坐标原点已验证（左下角死点=(0,0)，X+右 Y+前）；M3/M5 笔控 Z 轴已修复验证；PC 直连 Telnet 逐行流控 8/8 ok。**无限位开关，MCP 端限幅是唯一安全防线。**
 
@@ -52,7 +52,7 @@
 
 - **推荐入口**：仓库根 `python scripts/agent_gate.py`（含文档锚点 + pytest + e2e）。
 - 安装开发依赖：在 `mcp-server/` 执行 `.venv/Scripts/pip install -r requirements-dev.txt`（`.venv` 未建则门禁 pytest/e2e 层直接 fail）。
-- 契约/安全回归：`.venv/Scripts/python -m pytest -q`（85 条：契约/注入/脱敏/限流/TTL）。
+- 契约/安全回归：`.venv/Scripts/python -m pytest -q`（86 条：契约/注入/脱敏/限流/TTL）。
 - MCP → G-code → 假 Grbl 闭环：`.venv/Scripts/python scripts/e2e_local.py`，必须输出 `PASS`。
 - 起开发服务：`.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300`（**`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`**；`-m uvicorn` 不读 `HUTUJI_HOST`）。
 - 小智云工具发现冒烟：仅在当前终端设置 `MCP_ENDPOINT` 后运行 `.venv/Scripts/python scripts/cloud_bridge_smoke.py`。
@@ -71,7 +71,7 @@
 - 配置全走环境变量，**无 `.env` 文件**；`output/` 产物名含随机 token、默认 TTL 600s。
 - G-code 契约（`docs/protocol.md` §5，`validate_gcode` 强制）：头 `G21/G90/F1500`；落笔 `M3`、抬笔 `M5`；512KiB 上限；坐标限幅 X≤190 Y≤277mm（A4 四周 10mm 边距）；禁 `G28/G30`、禁 `G0` 落点 X0Y0（触发自动换纸）。
 - SVG 注入防御：元素白名单 `{svg,g,path,line,polyline}` + 属性白名单 + 拒 DTD/实体（`tests/test_injection.py` 是活闸门，改校验必过它）。
-- 路线图：① 仓库奠基 ✅ → ② S3 哑管道 🟡（Telnet 联调通过、已烧录；缺 Pipe 端到端/断连重发/语音链路）→ ③ MCP+云端 🟡（HTTPS 已通、已常驻；缺 App 端到端语音验收）→ ④ 小批量出货 🔴。真值页：`docs/release-readiness.md`。**当前不可商业出货。**
+- 路线图：① 仓库奠基 ✅ → ② S3 哑管道 🟡（`05f4563` 已形成，Pipe/abort/fresh-`Idle` 关键闭环已实测；显式 `M30` 与完整断连安全重画已编码/构建，缺该 commit 烧录、断连/换纸实测、P2 S3/S4）→ ③ MCP+云端 🟡（HTTPS 已通、已常驻，官方云已触发 `draw/status/abort`；缺 App 真实语音验收）→ ④ 小批量出货 🔴。真值页：`docs/release-readiness.md`。**当前不可商业出货。**
 - 修改项目结构、约定或工作流后，同步更新本文件与 `README.md`、`CLAUDE.md`、`docs/agent-gate.md`（口径变更还要同步 `.cursor/rules/hutuji-agent-rails.mdc`）。
 - 批次模板路径：`docs/templates/`（勿写成仓库根下的 `templates/`）。
 
@@ -90,5 +90,5 @@
 - 不要按过时记忆重开 USB Host / CH9350 / 阿里云 /「仓库无代码」；现行口径见 `docs/agent-handoff.md` 与 `docs/release-readiness.md`。
 - 不要把 MCP 验收清单组 0–3 当待办重做（已落地，见 `mcp-server/README.md`）；京东云**已常驻**，勿再"从零部署"。
 - 不要自由发挥跳阶段或重写文档地图；默认下一刀见 handoff §6 与 readiness「当前最近一步」。
-- 串口识别坑：S3 板载 CH340K 也枚举为 CH340——判定看串口日志自证，别用 `esptool chip_id` 打断运行中固件；S3 的 COM 口会变（COM7→COM8），每次重查。
+- 串口识别坑：S3 板载 CH340K 也枚举为 CH340——判定看串口日志自证，别用 `esptool chip_id` 打断运行中固件；S3 的 COM 口会变化，2026-07-28 最新烧录为 COM6，每次仍须重查。
 - 项目记忆文件：`C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md`（须与本仓一致；冲突以本仓为准）。

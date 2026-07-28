@@ -46,8 +46,8 @@
 | **LLM API（FreeModel）** | `https://api.freemodel.dev/v1`（OpenAI 兼容）；控制台 `https://freemodel.dev/dashboard/keys` | **硬限流：每分钟 40 次 / 每秒 2 次 / 每天 100 万 token；单次请求上限 128k 字符。** ③ 全局限流必须设更低余量（见 `mcp-server/README.md` 组 3.4）。凭据在 `D:/Downloads/VPS.txt`（**禁入库**），env 变量 `HUTUJI_LLM_API_KEY` 注入 | 🔬 |
 | **LLM 模型选择** | FreeModel 共 15 个免费模型，默认 `default`/`auto` | 官方建议**不要写死模型 ID**（避免官方调整策略时失效）。`HUTUJI_LLM_MODEL=auto` 让其自动路由 | ✅ 文档载明 |
 | **备用 LLM provider** | `https://dash.llm7.io/#/api-keys`、魔搭社区（含 MCP 服务） | 负载均衡/故障切换的候选源（凭据在 `VPS.txt`）。多 provider 轮换是应对 FreeModel 限流的手段之一 | ❓ 未接入 |
-| **小智官方云 MCP 接入点** | `wss://api.xiaozhi.me/mcp/?token=xxx`（控制台→智能体→MCP 接入点） | WebSocket 接入；本仓 `hutuji_mcp.cloud_bridge` + `mcp-proxy` 转本机 streamable HTTP。2026-07-25 本机实测 WSS 鉴权、`initialize`、`tools/list` 均通过；真实 `tools/call` 待阶段 6 | ✅ 工具发现实测 |
-| **小智知识库 / 角色** | 控制台「我的知识库」+ 智能体关联；文稿见本仓 `docs/xiaozhi-agent/` | 提升「何时调工具 / 能画什么」；不替代 MCP 绘图模型。UI 以控制台为准 | 🟡 文稿已齐，待人工上传关联 |
+| **小智官方云 MCP 接入点** | `wss://api.xiaozhi.me/mcp/?token=xxx`（控制台→智能体→MCP 接入点） | WebSocket 接入；本仓 `hutuji_mcp.cloud_bridge` + `mcp-proxy` 转本机 streamable HTTP。京东云已常驻；2026-07-28 官方消息 API 已发现七个设备侧工具并实际触发 `draw/status/abort`；App 真实语音仍待验 | 🟡 云端调用已过，App 语音未验 |
+| **小智知识库 / 角色** | 控制台「我的知识库」+ 智能体关联；文稿见本仓 `docs/xiaozhi-agent/` | 提升「何时调工具 / 能画什么」；不替代 MCP 绘图模型。UI 以控制台为准 | ✅ 文稿已上传并关联 |
 | **小智官方接法** | [飞书 MCP 接入点文档](https://my.feishu.cn/wiki/HiPEwZ37XiitnwktX13cEM5KnSb)、[关联示例 78/mcp-calculator](https://github.com/78/mcp-calculator) | 官方示例以 `MCP_ENDPOINT` 环境变量注入 WSS 接入点，`mcp_pipe.py` 做 ws↔stdio；本仓按相同协议自研项目专用桥接 | ✅ 已核对并实测 |
 | **小智社区教程** | [CSDN 接入教程](https://blog.csdn.net/Extreme_wei/article/details/161058979)、[腾讯云 4步教程](https://cloud.tencent.com/developer/article/2645010) | 仅作辅助拓扑参考，非权威 | ❓ 教程质量未核 |
 
@@ -72,6 +72,6 @@
 ## 待补（联网环境或实机可用时）
 
 1. FreeModel 限流/模型清单以**实际控制台**为准复核（🔬）。
-2. 小智云部署后的**真实 `tools/call` 与常驻重连稳定性**（🔬，阶段 6 联调）。
+2. ~~小智云真实调用与京东云常驻~~已通过；仍待 **App 真实语音**、七工具逐项行为与长期断线重连稳定性。
 3. ~~京东云 VPS 上行带宽~~ — **2026-07-26 已测**：512KiB 公网下载中位 ~1.13s / ~3.72 Mbps（见 `deployment.md`）。
-4. CRC32 变体两侧一致性首包核对（zlib/IEEE，见 `mcp-server/README.md` 组 0.2）。
+4. ~~CRC32 变体两侧一致性首包核对~~ — 2026-07-28 已由 S3 生产下载链路实测通过。
