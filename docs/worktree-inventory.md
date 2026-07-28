@@ -1,6 +1,6 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **状态日期：2026-07-28（Grbl `8d13b5c` 已提交/推送后，三仓 `git status` 已复核）。**
+> **状态日期：2026-07-28（Grbl `8d13b5c` 已提交/推送/烧录后，三仓 `git status` 已复核）。**
 > 用途：告诉下一任代理「哪些改动已经在磁盘上、不要当不存在、不要 checkout 清掉」。  
 > 每次相关提交或丢弃后**必须更新**本页；与 `git status` 冲突时以 `git status` 为准并回写本页。
 
@@ -15,7 +15,7 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已推** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
-| **已推** | `AGENTS.md`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 Grbl `8d13b5c` 已提交/推送、fz `standard` pass、PlatformIO `release` pass，并登记 `.claude/`/`firmware_out/` 本地忽略；保留未新增烧录/换纸验收边界 | 不替代烧录/换纸验收 |
+| **本轮待提交** | `AGENTS.md`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/bringup-sop.md`、`docs/worktree-inventory.md` | 同步 Grbl `8d13b5c` 已 COM3 烧录并完成空闲最小核验；保留有纸换纸/断连重画未验边界 | 跑本仓门禁后提交 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
 | **提交后工作树** | tracked clean | 本批次提交后 `git status --short` 应无输出 | 若不符，以 Git 为准回写本页 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
@@ -26,7 +26,7 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已提交** `e7f373f` | §9 keepalive 编译修复及既有 §9 改动 | fz `standard` 曾 pass；已烧录并通过 keepalive、`[ESP901]`/`Changing=Off` 实机项 | 仍缺有纸 `Changing=On`；不要把已过子项扩大成完整换纸验收 |
-| **已提交/已推** `8d13b5c` | `Grbl_Esp32/src/GCode.cpp`、`Protocol.cpp`、`Machines/custom_3axis_hr4988.h` | 固化此前未提交的笔控/运动相关改动：M3/M5 `protocol_buffer_synchronize()`、A4 默认行程 210×297、segment underflow 收敛；fz `standard` pass（208.91s）+ PlatformIO `release` pass | 尚未新增烧录/实机回归证据；不要把源码提交扩大成 `Changing=On` 或自动换纸验收 |
+| **已提交/已推/已烧录** `8d13b5c` | `Grbl_Esp32/src/GCode.cpp`、`Protocol.cpp`、`Machines/custom_3axis_hr4988.h` | 固化此前未提交的笔控/运动相关改动：M3/M5 `protocol_buffer_synchronize()`、A4 默认行程 210×297、segment underflow 收敛；fz `standard` pass（208.91s）+ PlatformIO `release` pass；COM3 烧录成功并完成授权/Telnet/`Changing=Off`/A4 行程最小核验 | 不要把源码/空闲核验扩大成有纸 `Changing=On`、自动换纸或断连重画验收 |
 | **外仓提交** | 根 `AGENTS.md` 硬件链（MK38 指针 + 禁改脚） | 仅文档 | 随 Grbl 仓推送 |
 | 本地忽略 | `.claude/`、`firmware_out/` | 本地 Claude 配置与构建输出；已通过 Grbl `.git/info/exclude` 忽略 | 勿提交；无需为工作树干净删除 |
 

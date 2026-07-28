@@ -80,6 +80,12 @@
 
 **通过判据**：`[ESP901]` 含 `Changing=`；换纸后 Telnet 能收 `[PaperStatus]`；门禁 pass。
 
+**当前记录（2026-07-28）**：Grbl `8d13b5c` 已提交/推送并烧录 COM3；烧录时 bootloader、
+partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小核验：WiFi 回到
+`192.168.1.13`、`TELNET Started 23`、`?` 回 `Idle`、`[ESP901]` 回
+`Paper=No MotorEn=On PanelHold=Off Changing=Off`、`$130=210 $131=297`。该记录仍不等于
+有纸 `Changing=On` 或自动换纸验收。
+
 ---
 
 ## 阶段 3：③ MCP 服务本地跑通（不接硬件、不需 LLM key）
