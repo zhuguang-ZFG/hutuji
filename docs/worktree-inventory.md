@@ -28,7 +28,7 @@
 | **已提交** `e7f373f` | §9 keepalive 编译修复及既有 §9 改动 | fz `standard` 曾 pass；已烧录并通过 keepalive、`[ESP901]`/`Changing=Off` 实机项 | 仍缺有纸 `Changing=On`；不要把已过子项扩大成完整换纸验收 |
 | **已提交/已推** `8d13b5c` | `Grbl_Esp32/src/GCode.cpp`、`Protocol.cpp`、`Machines/custom_3axis_hr4988.h` | 固化此前未提交的笔控/运动相关改动：M3/M5 `protocol_buffer_synchronize()`、A4 默认行程 210×297、segment underflow 收敛；fz `standard` pass（208.91s）+ PlatformIO `release` pass | 尚未新增烧录/实机回归证据；不要把源码提交扩大成 `Changing=On` 或自动换纸验收 |
 | **外仓提交** | 根 `AGENTS.md` 硬件链（MK38 指针 + 禁改脚） | 仅文档 | 随 Grbl 仓推送 |
-| 未跟踪 | `firmware_out/` | 本地构建输出 | 勿提交 |
+| 本地忽略 | `.claude/`、`firmware_out/` | 本地 Claude 配置与构建输出；已通过 Grbl `.git/info/exclude` 忽略 | 勿提交；无需为工作树干净删除 |
 
 ## fz `D:/Users/zhugu/fz`
 
