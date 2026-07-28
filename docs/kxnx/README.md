@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（12 份，深度递进）
+├── findings/                      ← 逆向发现（16 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -34,8 +34,11 @@ docs/kxnx/
 ## 三句话结论
 
 1. **Stepper 笔控 = `G1 Z` 运动指令**（`zOn` 落笔 / `zOff` 抬笔，带 `F<zSpeed>`），**不用 M3/M5**。Servo/Laser 才用 M3/M5。
-2. **连接后首次笔控前发 `G92 Z0`**，把"当前物理位置"声明为 Z 基准。对带弹簧的 Z 轴是关键。
-3. **落笔/抬笔带 F3000 限速，无 G4 停顿**；线段 `G1 X.. Y..` 继承首个 F1500。
+2. **出图文件开头不发 `G92 Z0`**，而是连发**两次真实 `G1G90 Z0`** 做机械自校准。
+   （反编译里确实有 `G92 Z0`，但那在**点动/连接握手**路径 `grbl/a.java:250-260`，不在出图文件里——
+   依据是 kdraw 缓存的 9 份真实产物，**无一含 G92**。别再照抄旧结论。）
+3. **进给 F8000（画线与空走）、Z 轴 F10000**，无 G4 停顿；**每行都带 F**。
+   （早期文档写的 F1500/F3000 来自代码默认值误读，已被真实产物推翻。）
 
 详见各 `findings/*.md`，对齐步骤见 `alignment/plan.md`。
 
@@ -52,7 +55,7 @@ docs/kxnx/
 
 | 文件 | 看什么 |
 |------|--------|
-| `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）、`a(boolean)` 首次 G92 Z0（行 250-260）|
+| `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）；`a(boolean)` 的 `G92 Z0`（行 250-260）**只在点动/连接路径**，出图产物无 G92（见 findings/02、12）|
 | `com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java` | `zOn/zOff/zSpeed/type` 字段定义 |
 | `com/kenjoy/kenjoycnc/machine/marlin/a.java` | Stepper 笔控跨固件一致性（行 196-200）|
 | `com/kenjoy/kenjoycnc/h/d.java` | 完整 G-code 拼接器模板（行 22-60）|
