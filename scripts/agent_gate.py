@@ -11,8 +11,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -273,25 +275,19 @@ def _mcp_python() -> Path | None:
 
 
 def _pytest_tmp() -> Path:
-    """挑一个当前用户真正可读写的 pytest basetemp。
+    """为本次 pytest 新建一个独占的 basetemp 目录。
 
-    固定用 results/.tmp/pytest；若该目录被其它账号（如沙箱进程）占用导致
-    无法列目录或写入，则退到带后缀的兄弟目录，避免 pytest 清空 basetemp 时
-    因 PermissionError 让所有 tmp fixture 用例在 setup 阶段假失败。
+    放在仓库内 results/.tmp/ 下，避开系统 %TEMP% 的权限问题。每次调用都用
+    mkdtemp 拿一个全新目录：pytest 启动时会 rmtree 掉 basetemp，若沿用固定
+    名字而该目录被其它账号（如沙箱进程）持有，删除会 PermissionError，导致
+    所有用 tmp fixture 的用例在 setup 阶段假失败。目录由 run_pytest 收尾删除。
     """
     base = RESULTS / ".tmp"
-    for name in ("pytest", f"pytest-{os.getpid()}"):
-        candidate = base / name
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            probe = candidate / ".probe"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink()
-            os.listdir(candidate)
-        except OSError:
-            continue
-        return candidate
-    raise RuntimeError(f"无可写的 pytest basetemp（检查 {base} 权限）")
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix="pytest-", dir=base))
+    except OSError as exc:
+        raise RuntimeError(f"无法在 {base} 创建 pytest basetemp: {exc}") from exc
 
 
 def run_pytest() -> dict[str, Any]:
@@ -310,15 +306,18 @@ def run_pytest() -> dict[str, Any]:
             "TMPDIR": str(pytest_tmp),
         }
     )
-    proc = subprocess.run(
-        [str(py), "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", str(pytest_tmp)],
-        cwd=ROOT / "mcp-server",
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        proc = subprocess.run(
+            [str(py), "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", str(pytest_tmp)],
+            cwd=ROOT / "mcp-server",
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    finally:
+        shutil.rmtree(pytest_tmp, ignore_errors=True)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     detail = tail[-1] if tail else f"exit={proc.returncode}"
     status = "pass" if proc.returncode == 0 else "fail"

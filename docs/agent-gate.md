@@ -122,10 +122,11 @@ python scripts\agent_gate.py --profile docs
 python scripts\agent_gate.py --profile full   # 需 GRBL_ROOT；仍要另跑 fz
 ```
 
-`hub`/`full` 跑 pytest 时，脚本会把临时目录放到仓库内 `results/.tmp/pytest`
-并禁用 pytest cache 写入，避免 Windows 系统 `%TEMP%` 权限导致假失败。若该目录
-被其它账号（如沙箱进程）占用而当前用户不可读写，脚本自动退到
-`results/.tmp/pytest-<pid>`；两者都不可用才判 fail。
+`hub`/`full` 跑 pytest 时，脚本用 `mkdtemp` 在仓库内 `results/.tmp/` 下新建独占
+临时目录（`pytest-*`）并禁用 pytest cache 写入，避免 Windows 系统 `%TEMP%` 权限
+导致假失败；跑完即删。每次新建是必要的：pytest 启动时会清空 basetemp，固定名字
+一旦被其它账号（如沙箱进程）持有就会 PermissionError，让所有用 tmp fixture 的
+用例在 setup 阶段假失败。`results/.tmp/` 整个不可用才判 fail。
 
 报告固定写到：
 
