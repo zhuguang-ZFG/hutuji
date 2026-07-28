@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import xml.etree.ElementTree as ET
 
@@ -189,9 +190,11 @@ async def generate_svg(description: str) -> str:
     if resp.status_code != 200:
         raise LlmError(f"LLM API 返回 {resp.status_code}：{resp.text[:300]}")
 
-    data = resp.json()
     try:
+        data = resp.json()
         content = data["choices"][0]["message"]["content"]
+    except json.JSONDecodeError as e:
+        raise LlmError("LLM 响应不是合法 JSON") from e
     except (KeyError, IndexError, TypeError) as e:
         raise LlmError(f"LLM 响应格式异常：{e}") from e
     return _extract_svg(content)

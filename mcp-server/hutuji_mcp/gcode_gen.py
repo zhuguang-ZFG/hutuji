@@ -198,6 +198,10 @@ def validate_gcode(text: str) -> GcodeStats:
         raise GcodeError("文件头缺少 G21/G90（§5 自包含要求）")
 
     pen_lifts = 0
+    # Grbl 复位/程序结束后的默认运动模式是 G1；只有本行显式给 G0~G3 才切换。
+    # 裸轴字行（如 `X10 Y20`）会继承该模式，校验器必须与固件保持一致，否则
+    # 可绕过坐标限幅、回原点禁令和圆弧位置跟踪。
+    active_motion = "G1"
     # 圆弧包围盒需要起点，故逐行跟踪当前 XY。None = 尚无已知位置（首个定位前）。
     cur_x: float | None = None
     cur_y: float | None = None
@@ -244,10 +248,22 @@ def validate_gcode(text: str) -> GcodeStats:
             codes.add(f"{letter}{int(value)}")
 
         coords = [(a, float(v)) for a, v in words if a in ("X", "Y")]
+        xy = dict(coords)
 
-        # 抬笔 = Z 回 0 的运动（本 profile 不产 M3/M5，笔控纯 Z 运动）。
-        # 统计用于发现过度碎线，不在 v0 硬拒。
-        if codes & {"G0", "G1"}:
+        # Grbl 运动模式是模态的：本行显式 G0~G3 时切换；只有轴字时沿用上次模式。
+        # 同一 modal group 出现多个运动码时 Grbl 会报错，云端也直接拒，不能从 set
+        # 中任取一个导致校验结果不确定。
+        motion_codes = codes & {"G0", "G1", "G2", "G3"}
+        if len(motion_codes) > 1:
+            raise GcodeError(f"第 {idx} 行含多个运动模式 {sorted(motion_codes)}：{line}")
+        if motion_codes:
+            active_motion = next(iter(motion_codes))
+        has_axis_words = any(a in ("X", "Y", "Z") for a, _ in words)
+        has_motion = bool(motion_codes or has_axis_words)
+
+        # 抬笔 = Z 回 0 的 G0/G1 运动（本 profile 不产 M3/M5，笔控纯 Z 运动）。
+        # 裸 Z 字也继承当前运动模式；统计用于发现过度碎线，不在 v0 硬拒。
+        if has_motion and active_motion in {"G0", "G1"}:
             _z = next((float(v) for a, v in words if a == "Z"), None)
             if _z is not None and abs(_z) < _EPS:
                 pen_lifts += 1
@@ -269,33 +285,40 @@ def validate_gcode(text: str) -> GcodeStats:
         if "G91" in codes:
             raise GcodeError(f"第 {idx} 行含 G91 相对坐标（§5 要求全程 G90）：{line}")
 
-        # G0 落点 XY≈0 = 回原点触发（含 G0 X0 Y0 收尾），一律禁止
-        if "G0" in codes:
-            xy = dict(coords)
-            if abs(xy.get("X", 1.0)) < _EPS and abs(xy.get("Y", 1.0)) < _EPS:
-                raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
-
-        # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。
-        # G2/G3 圆弧同样产生实际位移，必须一起限幅。
-        if codes & {"G0", "G1", "G2", "G3"}:
+        # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。裸轴字同样是模态运动，
+        # 不能因本行没有显式 G 字而跳过。
+        if has_motion:
             for axis, val in coords:
                 limit = MAX_X_MM if axis == "X" else MAX_Y_MM
                 if val < -_EPS or val > limit + _EPS:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{limit}mm）：{line}")
 
+        target_x = xy.get("X", cur_x)
+        target_y = xy.get("Y", cur_y)
+
+        # G0 实际落点 XY≈0 = 回原点触发（含分轴/省略模态坐标写法），一律禁止。
+        if (
+            has_motion
+            and active_motion == "G0"
+            and target_x is not None
+            and target_y is not None
+            and abs(target_x) < _EPS
+            and abs(target_y) < _EPS
+        ):
+            raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
+
         # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
         # 需要起点，故逐行跟踪当前位置；G90 绝对坐标下省略的轴沿用上一个值。
-        xy = dict(coords)
-        if codes & {"G2", "G3"}:
+        if has_motion and active_motion in {"G2", "G3"}:
             if cur_x is None or cur_y is None:
                 raise GcodeError(f"第 {idx} 行 G2/G3 缺少已知起点（前面没有定位指令）：{line}")
             others = {a: float(v) for a, v in words if a in ("I", "J", "R")}
-            x1 = xy.get("X", cur_x)
-            y1 = xy.get("Y", cur_y)
+            x1 = target_x if target_x is not None else cur_x
+            y1 = target_y if target_y is not None else cur_y
             min_x, min_y, max_x, max_y = _arc_bbox(
                 cur_x, cur_y, x1, y1,
                 others.get("I"), others.get("J"), others.get("R"),
-                clockwise="G2" in codes,
+                clockwise=active_motion == "G2",
             )
             for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
                 limit = MAX_X_MM if label == "X" else MAX_Y_MM
@@ -305,10 +328,10 @@ def validate_gcode(text: str) -> GcodeStats:
                         f"越界（限幅 0~{limit}mm）：{line}"
                     )
 
-        # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）
-        if codes & {"G0", "G1", "G2", "G3"}:
-            cur_x = xy.get("X", cur_x)
-            cur_y = xy.get("Y", cur_y)
+        # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）。
+        if has_motion:
+            cur_x = target_x
+            cur_y = target_y
 
     if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
         logger.warning(

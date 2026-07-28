@@ -52,7 +52,7 @@ class DrawLimitError(RuntimeError):
 
 
 class DrawLimiter:
-    """单实例全局限流：1 次/秒、30 次/分钟、最多 2 个并发。"""
+    """单进程全局限流：1 次/秒、30 次/分钟、最多 2 个并发。"""
 
     def __init__(
         self,

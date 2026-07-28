@@ -414,6 +414,31 @@ def test_mid_file_g91_is_rejected() -> None:
         validate_gcode(_minimal_gcode("G0 X10 Y10\nG91\nG1 X5 Y5\n"))
 
 
+def test_default_modal_g1_axis_only_line_is_limited() -> None:
+    """Grbl 复位后默认 G1；即使文件尚无显式运动码，裸轴字也必须限幅。"""
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(_minimal_gcode("X500 Y5\n"))
+
+
+def test_inherited_modal_g1_axis_only_line_is_limited() -> None:
+    """显式 G1 后的裸轴字仍是 G1，不能因本行没有 G 字而绕过限幅。"""
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(_minimal_gcode("G1 X100 Y100\nX500 Y500\n"))
+
+
+def test_inherited_modal_g0_origin_is_rejected() -> None:
+    """G0 X0 继承上一行 Y=0，实际落点是 (0,0)，会触发固件自动换纸。"""
+    with pytest.raises(GcodeError, match="自动换纸"):
+        validate_gcode(_minimal_gcode("G1 X50 Y0\nG0 X0\n"))
+
+
+def test_inherited_modal_arc_checks_bounding_box() -> None:
+    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 20mm 凸到 Y=280，必须拒。"""
+    text = _minimal_gcode("G0 X100 Y260\nG2 X120 Y260 I10 J0\nX160 Y260 I20 J0\n")
+    with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
+        validate_gcode(text)
+
+
 def test_pen_lift_counts_glued_and_padded_forms() -> None:
     # 抬笔 = Z 回 0：紧凑写法 G1G90 Z0.0、带空格、G0 Z0 都要计数；
     # 落笔 Z5 与不含 Z 的画线行不算。
