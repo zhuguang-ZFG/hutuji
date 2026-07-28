@@ -58,6 +58,36 @@ def test_description_is_bounded_and_control_chars_are_removed() -> None:
     assert len(cleaned) == 200
 
 
+def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: ANN001
+    """合法 JSON 里的 content 也必须是字符串，不能让 TypeError 穿透成 500。"""
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
+
+        def json(self):
+            return {"choices": [{"message": {"content": None}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+            return False
+
+        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
+        llm_api_key="test-key",
+        llm_base_url="https://example.invalid/v1",
+        llm_model="test-model",
+    ))
+    monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+
+    with pytest.raises(LlmError, match="content 不是字符串"):
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+
 def test_generate_svg_rejects_http_200_non_json(monkeypatch) -> None:  # noqa: ANN001
     """上游偶尔返回 200 HTML/纯文本时，应转成 LlmError，不得漏出 JSONDecodeError 500。"""
     class FakeResponse:

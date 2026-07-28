@@ -197,4 +197,6 @@ async def generate_svg(description: str) -> str:
         raise LlmError("LLM 响应不是合法 JSON") from e
     except (KeyError, IndexError, TypeError) as e:
         raise LlmError(f"LLM 响应格式异常：{e}") from e
+    if not isinstance(content, str):
+        raise LlmError(f"LLM 响应 content 不是字符串：{type(content).__name__}")
     return _extract_svg(content)

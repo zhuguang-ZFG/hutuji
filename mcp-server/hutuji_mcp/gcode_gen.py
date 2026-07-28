@@ -53,6 +53,11 @@ _WORD_RE = re.compile(r"([A-Z])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[Ee][+-]?\d+)?)")
 _AXIS_CAND_RE = re.compile(r"([XY])\s*([0-9+\-.Ee]*)")
 _FINITE_NUM_RE = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[Ee][+-]?\d+)?$")
 
+# 生产文件允许的 G-code 指令。任务级 M30 由 S3 在 fresh Idle 后单独发送，
+# 文件内不允许任何 M 码；G2/G3 仅为外部 G-code / 圆弧限幅兼容保留。
+_ALLOWED_G_CODES = frozenset({"G0", "G1", "G2", "G3", "G21", "G90"})
+_ALLOWED_WORD_LETTERS = frozenset({"G", "M", "F", "X", "Y", "Z", "I", "J", "R"})
+
 logger = logging.getLogger(__name__)
 
 
@@ -193,10 +198,8 @@ def validate_gcode(text: str) -> GcodeStats:
             f"G-code 总大小 {total_bytes} 字节超上限 {MAX_BYTES}（512KB，protocol §5）"
         )
 
-    head = "\n".join(lines[:10])
-    if "G21" not in head or "G90" not in head:
-        raise GcodeError("文件头缺少 G21/G90（§5 自包含要求）")
-
+    seen_g21 = False
+    seen_g90 = False
     pen_lifts = 0
     # Grbl 复位/程序结束后的默认运动模式是 G1；只有本行显式给 G0~G3 才切换。
     # 裸轴字行（如 `X10 Y20`）会继承该模式，校验器必须与固件保持一致，否则
@@ -226,6 +229,11 @@ def validate_gcode(text: str) -> GcodeStats:
         # 指令与坐标共用这一份结果，避免两套正则口径不一致（早先 motion_re 的
         # `\b` 在 `G0X0Y0` 里不成立，导致坐标一个都没匹配到）。
         words = _WORD_RE.findall(upper)
+        # 允许列表必须覆盖整条有效代码；任何未被「字母+数值」解析器消费的内容
+        # （如 !/~/?/%、ZNAN、孤立字母、括号注释）都从严拒绝，不能静默忽略。
+        remainder = _WORD_RE.sub("", upper)
+        if remainder.strip():
+            raise GcodeError(f"第 {idx} 行含无法解析或不允许的内容：{line}")
 
         # 轴字后连续的「数值样」字符整体必须是合法有限数。`XNAN`/`X `（缺值）、
         # `X1.5.5`（残片）都会让 _WORD_RE 静默丢掉该轴坐标——等于把未知坐标当
@@ -238,13 +246,19 @@ def validate_gcode(text: str) -> GcodeStats:
 
         codes = set()
         for letter, number in words:
+            if letter not in _ALLOWED_WORD_LETTERS:
+                raise GcodeError(f"第 {idx} 行含不允许的 {letter} 字：{line}")
+            value = float(number)
+            if not math.isfinite(value):
+                raise GcodeError(f"第 {idx} 行 {letter} 数值非有限：{line}")
+            if letter == "Z" and not (abs(value) < _EPS or abs(value - 5.0) < _EPS):
+                raise GcodeError(f"第 {idx} 行 Z{value} 非生产笔位（只允许 Z0/Z5）：{line}")
+            if letter == "F" and (value <= 0 or value > 10000):
+                raise GcodeError(f"第 {idx} 行 F{value} 超出生产进给范围 0<F≤10000：{line}")
             if letter not in ("G", "M"):
                 continue
-            value = float(number)
-            # `G1E400` 之类会 float() 成 inf，int(inf) 抛 OverflowError——那是
-            # 非 GcodeError 异常，会穿透闸门变成 500 而不是「拒绝并说明原因」。
-            if not math.isfinite(value):
-                raise GcodeError(f"第 {idx} 行 {letter} 字号数值非有限：{line}")
+            if not value.is_integer():
+                raise GcodeError(f"第 {idx} 行 {letter} 字号必须是整数：{line}")
             codes.add(f"{letter}{int(value)}")
 
         coords = [(a, float(v)) for a, v in words if a in ("X", "Y")]
@@ -268,22 +282,26 @@ def validate_gcode(text: str) -> GcodeStats:
             if _z is not None and abs(_z) < _EPS:
                 pen_lifts += 1
 
-        # 禁 G28 / G30（回原点触发自动换纸）
-        if "G28" in codes or "G30" in codes:
+        # 保留最危险禁令的专用提示；其余超出生产允许列表的 G/M 指令统一拒绝。
+        if codes & {"G28", "G30"}:
             raise GcodeError(f"第 {idx} 行含 G28/G30（§5 禁止）：{line}")
-
-        # 禁 M30/M2（程序结束触发自动换纸）及换纸系统指令
-        _forbidden_m = codes & {"M2", "M30", "M701", "M704", "M711", "M712", "M713", "M721"}
-        if _forbidden_m:
+        forbidden_m = {code for code in codes if code.startswith("M")}
+        if forbidden_m:
+            if forbidden_m & {"M2", "M30", "M701", "M704", "M711", "M712", "M713", "M721"}:
+                reason = "换纸/结束指令"
+            else:
+                reason = "生产文件不允许 M 码"
+            raise GcodeError(f"第 {idx} 行含 {'/'.join(sorted(forbidden_m))}（{reason}，§5 禁止）：{line}")
+        forbidden_g = {code for code in codes if code.startswith("G") and code not in _ALLOWED_G_CODES}
+        if forbidden_g:
             raise GcodeError(
-                f"第 {idx} 行含 {'/'.join(sorted(_forbidden_m))}（换纸/结束指令，§5 禁止）：{line}"
+                f"第 {idx} 行含 {'/'.join(sorted(forbidden_g))}（生产文件允许 G0/G1/G2/G3/G21/G90）：{line}"
             )
 
-        # 禁 G91 相对坐标。§5 要求文件头 G90（上面已强制），但中途切到 G91 会让
-        # 下面的位置跟踪全部失效——之后每个圆弧起点都是错的，包围盒随之失真而
-        # 静默漏放越界。本 profile 只产 G90，故直接拒绝而非去实现相对模式。
-        if "G91" in codes:
-            raise GcodeError(f"第 {idx} 行含 G91 相对坐标（§5 要求全程 G90）：{line}")
+        seen_g21 = seen_g21 or "G21" in codes
+        seen_g90 = seen_g90 or "G90" in codes
+        if has_motion and not (seen_g21 and seen_g90):
+            raise GcodeError(f"第 {idx} 行运动前缺少精确 G21/G90（§5 自包含要求）：{line}")
 
         # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。裸轴字同样是模态运动，
         # 不能因本行没有显式 G 字而跳过。
@@ -296,16 +314,13 @@ def validate_gcode(text: str) -> GcodeStats:
         target_x = xy.get("X", cur_x)
         target_y = xy.get("Y", cur_y)
 
-        # G0 实际落点 XY≈0 = 回原点触发（含分轴/省略模态坐标写法），一律禁止。
-        if (
-            has_motion
-            and active_motion == "G0"
-            and target_x is not None
-            and target_y is not None
-            and abs(target_x) < _EPS
-            and abs(target_y) < _EPS
-        ):
-            raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
+        # G0 必须能解析出完整 XY 实际终点；任一轴未知时无法证明不会落到 (0,0)，
+        # 而本机该落点会触发自动换纸，故 fail closed。完整终点为原点同样拒绝。
+        if has_motion and active_motion == "G0":
+            if target_x is None or target_y is None:
+                raise GcodeError(f"第 {idx} 行 G0 缺少已知完整 XY 起点/目标（无法排除自动换纸）：{line}")
+            if abs(target_x) < _EPS and abs(target_y) < _EPS:
+                raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
 
         # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
         # 需要起点，故逐行跟踪当前位置；G90 绝对坐标下省略的轴沿用上一个值。
@@ -332,6 +347,9 @@ def validate_gcode(text: str) -> GcodeStats:
         if has_motion:
             cur_x = target_x
             cur_y = target_y
+
+    if not (seen_g21 and seen_g90):
+        raise GcodeError("文件头缺少精确 G21/G90（§5 自包含要求）")
 
     if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
         logger.warning(
