@@ -14,7 +14,8 @@
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
-| **已推** `e64b484` | 规则/状态/SOP/逆向/固件说明 | `05f4563` 已烧录 COM6、COM9 启动核验、最终构建哈希与剩余缺口同步 | 不包含业务代码；提交后 tracked clean |
+| **已推** `8f9b0db` | 规则/状态/SOP/逆向/固件说明 | `05f4563` 已烧录 COM6、COM9 启动核验、最终构建哈希与剩余缺口同步 | 不包含业务代码；提交后 tracked clean |
+| **本轮新增** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 通过本仓门禁后提交；不替代硬件验收 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |
 | **提交后工作树** | tracked clean | 本批次提交后 `git status --short` 应无输出 | 若不符，以 Git 为准回写本页 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |

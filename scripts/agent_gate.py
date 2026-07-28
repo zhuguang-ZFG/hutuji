@@ -276,9 +276,20 @@ def run_pytest() -> dict[str, Any]:
     py = _mcp_python()
     if py is None:
         return _layer("pytest", "mcp-server pytest", "fail", "缺少 mcp-server/.venv，请先建 venv")
+    pytest_tmp = RESULTS / ".tmp" / "pytest"
+    pytest_tmp.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update(
+        {
+            "TMP": str(pytest_tmp),
+            "TEMP": str(pytest_tmp),
+            "TMPDIR": str(pytest_tmp),
+        }
+    )
     proc = subprocess.run(
-        [str(py), "-m", "pytest", "-q"],
+        [str(py), "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", str(pytest_tmp)],
         cwd=ROOT / "mcp-server",
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",

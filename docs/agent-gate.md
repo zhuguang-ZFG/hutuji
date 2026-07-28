@@ -121,6 +121,9 @@ python scripts\agent_gate.py --profile docs
 python scripts\agent_gate.py --profile full   # 需 GRBL_ROOT；仍要另跑 fz
 ```
 
+`hub`/`full` 跑 pytest 时，脚本会把临时目录固定到仓库内 `results/.tmp/pytest`
+并禁用 pytest cache 写入，避免 Windows 系统 `%TEMP%` 权限导致假失败。
+
 报告固定写到：
 
 - `results/hutuji_gate_last.json`（机读）

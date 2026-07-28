@@ -191,6 +191,22 @@
 | 8.7 | **超 190mm 越界样本** | ③ 侧**拒绝生成**（不裁剪、不缩放） | 拒绝提示是否说清超界轴与值 |
 | 8.8 | **缺纸/卡纸** | `error:90` + `[PaperStatus] N`（N=2/3/4/5）→ 暂停 + 提示，不自动重试 | 各故障码是否都经 Telnet 到达（依赖 §9-B1′） |
 
+**8.3 实验台注入建议**：若不方便物理断开路由器，可在普通画线已经进入 `streaming/Run`
+后，通过写字机 CH340 串口发送 `[ESP115]OFF`，等待数秒后发送 `[ESP115]ON`。该方式关闭/恢复
+Grbl WiFi 服务，S3 不重启，PSRAM 缓存应保留；比拔 S3 电更适合验证“重连后从缓存第 1 行重画”。
+本仓提供采集脚本：
+
+```powershell
+python scripts\bringup_fault_capture.py --s3-port COM9 --grbl-port COM3 --duration 240 `
+  --inject-grbl-wifi-cycle-at 20 --wifi-off-seconds 8 `
+  --note "先通过云端/设备工具启动一幅普通画线，确认进入 streaming/Run 后注入"
+```
+
+脚本默认只采集日志；只有显式传 `--inject-grbl-wifi-cycle-at` 才会向 Grbl 串口发
+`[ESP115]OFF/ON`。打开 S3 串口可能导致部分开发板复位，若需要无干扰采集，应先用短采集确认
+当前 COM 口行为。采集结果位于 `results/`，仍需人工核对纸面、废纸是否走掉和最终重画是否成功；
+脚本标记扫描不能替代硬件判定。
+
 **另需实测标定**：
 - **抬笔次数**（③ 组 1.3 软阈值 50）：实际画一幅简笔画抬笔多少次？机头抖不抖？→ 决定硬阈值。
 - **抬/落笔 Z 值**（§5 待锁）：先查 `$102`（Z steps/mm），实测锁定 `PEN_UP/DOWN_Z_MM`。
