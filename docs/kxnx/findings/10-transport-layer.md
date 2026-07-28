@@ -104,6 +104,12 @@ public final void run() {
 
 单线程消费行队列，`take()` 阻塞。和我们的 `PipeTask` recv 循环等价。
 
+> **勘误（2026-07-28，findings/15 §四）**：上文表头说 WiFi「读线程阻塞在 `InputStream.read`」
+> **不成立**。WiFi 读线程 `machine/b/e.java:20-24` 是**忙轮询**：
+> `if (available() <= 0) continue;` 再 `read`——无 sleep、无阻塞，是纯 spin。
+> 阻塞 `take()` 的是**行分发线程** `b/c.java`（另一根），不是读线程。
+> hutuji **不要学这个 spin**：我们的 `recv` + `SO_RCVTIMEO=3s` 阻塞是对的。
+
 ## 二、看门狗 Timer（`machine/b/b.java` + `a.java:a(boolean)`）
 
 ```java
@@ -252,10 +258,14 @@ public final class f extends a implements SerialPortEventListener {
 
 | | 第一级（探活） | 第二级（判死） |
 |---|---|---|
-| 奎享串口 | 静默 `connectTimeout`(默认 5s) → 发 `?` | 再静默 5s → `b(false)` 断链（`machine/b/b.java:20-28`） |
-| 奎享 Grbl WiFi | 1s 周期发 `?`（`grbl/a.java:382-404`） | 计数器 `r` 累计 **20 拍**没收到 `<...>` → `g.b(false)` 断链 |
+| 奎享串口 | 静默 `connectTimeout`(默认 5s) → **RTS/DTR 硬件复位**（`b/f.java:99-107`；基类看门狗 `b/a.java:50-60` 仅串口子类启用，见 `grbl/a.java:243-245`） | 再静默 5s → `b(false)` 断链（`machine/b/b.java:20-28`） |
+| 奎享 Grbl WiFi | 1s 周期发 `?`（`grbl/a.java:382-404`，连接后 2s 一次性 Timer 启动 `:230-237`） | 计数器 `r` 累计 **20 拍**没收到 `<...>` → `g.b(false)` 断链（收到 `<...>` 于 `:79` 清零 `r`） |
 | 奎享 KAT WiFi | 5s 周期检查 | **20s** 无 `[ESP]` 消息 → 断链（`kat/c.java:19`） |
-| **hutuji 现状** | `SO_RCVTIMEO=3s` 超时 → 发 `?`（`hutuji_pipe.cc:118-122`） | **没有**——`continue` 无条件回到 `recv` |
+| **hutuji 现状** | `SO_RCVTIMEO=3s` 超时 → 发 `?`（`hutuji_pipe.cc:118-122`） | **EAGAIN 7 连 ≈21s 无数据判死重连**（P1 已实现，对齐 Grbl WiFi 的 20 拍） |
+
+> 三套看门狗是**独立**的，别混：串口走基类 `b/a+b/b`（探活=RTS/DTR 复位）；
+> WiFi 走控制器 `grbl/a.java` 的 `?` 循环（基类看门狗**不覆盖** WiFi）；KAT 走 `kat/c.java`。
+> 详见 findings/15 §五。
 
 **已实机抽验确认的固件缺陷**（`hutuji_pipe.cc:118-123`）：
 
@@ -277,6 +287,11 @@ S3 会每 3s 发一个 `?`、永远收不到 `<...>`、**永不 break、永不�
 行 → 主动 `break` 走重连；收到任何数据即清零。N 取 7（≈21s，与奎享
 20s 判死同量级，也与我们 keepalive 的 ~19s 相当）。这条**独立于 P2**，
 优先级高于开窗口——死链不复位是稳定性问题，不是性能问题。
+
+> **已落地（2026-07-28，P1）**：上面的「建议改法」已实现——`hutuji_pipe.cc`
+> 加 `kSilentPollLimit=7` + `silent_polls` 计数器，连续 7 次 EAGAIN（≈21s）
+> 无数据即 `break` 走重连，收到任何字节清零。已编译烧录 COM9 启动通过。
+> 详见记忆 `pipe-watchdog-and-pen-injection` 与 findings/15 §五。
 
 ### C. 连接健康双标志 `l` / `m`（参考）
 

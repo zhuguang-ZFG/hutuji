@@ -12,7 +12,7 @@
 |---|---|---|
 | **Grbl 官方参考实现** | `D:/GitHub/inkscape_px/Grbl_Esp32/doc/script/stream.py`（MIT，Sungeun K. Jeon 2012-2017） | 算法权威原型 |
 | **本机固件源码** | `D:/Users/Grbl_Esp32/Grbl_Esp32/src/`（`Serial.cpp` / `WebUI/TelnetServer.*` / `WebUI/InputBuffer.*` / `Report.cpp`） | 缓冲容量与反压行为 |
-| **奎享逆向** | `D:/Temp/User/kxnx/.../machine/f/b.java`、`machine/grbl/a.java` | 商业现役实现的取值与取舍 |
+| **奎享逆向** | `D:/GitHub/kxnx/kx/tools/dump_agent/decompiled_full/.../machine/f/b.java`、`machine/f/f.java`、`machine/grbl/a.java` | 商业现役实现的取值与取舍 |
 | **我方现状代码** | `xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc` / `hutuji_job.cc` | 改造切口 |
 
 > 说明：GitHub / 官方文档站在本机被网络策略拦截（WebFetch 失败），
@@ -331,6 +331,7 @@ while (lines_sent_ < lines_.size() && !c_line.empty()) {
 | **`error:8` 重发本行** | `WaitResult::Deferred` | 窗口化下**无法定位被拒行**（应答不带行号）。靠上一条保证：`error:8` 只可能出现在逐行（换纸）模式 |
 | **暂停停在行边界** | `stream_mutex_`+`paused_` | 暂停=**停止灌新行**，但**必须继续收在途 ok**（否则 `c_line` 永不释放，恢复后计数错乱）。奎享的机制**不同**，见 §8.3 |
 | **暂停冻结超时** | `WaitWhilePaused()` | 同现状，在 `TakeResponse` 分段等待里保留 |
+| **抬笔注入（P2 新增）** | `RequestPause/Resume/Abort` | **S3 必须定契约**：当前直发（不进窗口计数）在逐行模式下安全（暂停点已排空）；开窗后直发抬笔会插到窗口字节计数之外，破坏不变量。要么计入窗口字节，要么排空后再发。**奎享是计入窗口的**（笔控经 `c.a(...)` 走同一窗口，findings/15 §六B），对齐做法是**排空后再发**，与换纸行同一原则 |
 | **abort** | `abort_requested_` | 检查点从「每行」变成「每次灌/收循环」；**abort 后也要排空或显式清零 `c_line`**，否则在途计数残留 |
 | **ALARM 立即中止** | `GetGrblState()` | 同现状，循环内检查 |
 | **单写者纪律** | §3 契约 | **不变**：`status` 仍只发 `?`（实时旁路，不吃 ok） |
@@ -597,6 +598,15 @@ if (this.e && bl) {                                    // :73 运行中且要求
 **部分可借鉴**：abort 时在发 `0x18` 之前补一条抬笔（`G1G90 Z0.0F10000`）。
 **但绝不能照抄回零**——`G90G0 X0Y0` 在我方固件会被判为换纸触发（§5 明文禁止）。
 这条与 8.3 的"暂停抬笔"是同一个改动方向，可一并考虑。
+
+> **已落地（2026-07-28，P2）**：`hutuji_job.cc` 的 `RequestPause`（`:200`）、
+> `RequestResume`（`:223`）、`RequestAbort`（`:164`）三处已注入抬笔/落笔
+> （`G1G90 Z0.0F10000` / `G1G90 Z5.0F10000`）。abort 是先 `!`→抬笔→`0x18`
+> （0x18 丢坐标系，故抬笔必须先发）。已编译烧录 COM9 启动通过。
+> **S3 注意**：当前注入直发不进窗口计数（逐行模式下暂停点已排空所以安全）；
+> 开窗后必须改为「排空后再发」，见 §4.3 抬笔注入行。
+> **未验证边界**：抬笔物理动作、P1 的 21s 探活在真实换纸长阻塞下是否误杀，均未端到端实测。
+> 只有启动 + Telnet 连通验证，不冒充物理验收。
 
 ### 8.6 勘误：「奎享 error 只记录不中断」是编造的（2026-07-28 直读核实）
 
