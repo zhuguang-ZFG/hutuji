@@ -16,8 +16,8 @@ PC 观测一律走 CH340；Telnet 槽位 `MAX_TLNT_CLIENTS=1` 留给 S3。
 | connected 但 ready=false | 候选未通过 Grbl banner 或 fresh-`Idle` 探活 | 查写字机是否复位/忙；确认 `$I`/banner 与 `?` 状态，不要把仅端口连通当 ready |
 | G0–G3 全 `error:110` | 未授权 | 人工 `M800`；S3 **永不**自动授权 |
 | 运动行 `error:8` | 换纸期发了 G0–G3 | 等换纸行 ok（≥60s）后**重发该行** |
-| 换纸后无 `[PaperStatus]` | 未触发真实结果码；或 §9 定点路由回归 | 同时看 CH340 与 Telnet；核对 Grbl `e7f373f`，不要把其他 `[PaperAuto-N]` 进度也期待为 Telnet 广播 |
-| `[ESP901]` 无 `Changing=` | 烧录的不是含 §9 的 Grbl 镜像 | 核对 Grbl `e7f373f` 和串口 banner；重新按 bringup 阶段 2 验证 |
+| 换纸后无 `[PaperStatus]` | 未触发真实结果码；或 §9 定点路由回归 | 同时看 CH340 与 Telnet；核对 Grbl 源码 HEAD `8d13b5c`（含 §9 `e7f373f`），不要把其他 `[PaperAuto-N]` 进度也期待为 Telnet 广播 |
+| `[ESP901]` 无 `Changing=` | 烧录的不是含 §9 的 Grbl 镜像 | 核对 Grbl 源码 HEAD `8d13b5c`（含 §9 `e7f373f`）和串口 banner；重新按 bringup 阶段 2 验证 |
 | 出图中 `ok` 配对错乱 | 违反单写者：status 发了 `M704`/`[ESP901]` | 出图中 status **只发 `?`** |
 | 画到一半停住 | TCP 断连；或换纸行正常阻塞 | 看 S3 日志；换纸可阻塞 ≥60s |
 | 撞机 / 越界 | 无限位开关，Grbl 侧无保护 | 查 ③ 侧 `X≤190`、`Y≤277` 限幅是否生效 |

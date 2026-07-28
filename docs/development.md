@@ -7,7 +7,7 @@
 | 层 | 要求 |
 |----|------|
 | 本仓 MCP（③） | Python ≥3.10；在 `mcp-server/` 建 venv，装 `requirements-dev.txt` |
-| S3 固件（②） | `D:/Users/xiaozhi-esp32`；ESP-IDF ≥5.5.2（仓要求 v6.0.2）；板型 `lichuang-dev` |
+| S3 固件（②） | `D:/Users/xiaozhi-esp32`；ESP-IDF **v6.0.1**（本项目实测基线，勿按上游主线换 v6.0.2）；板型 `lichuang-dev` |
 | Grbl（运动） | `D:/Users/Grbl_Esp32`；分支 `fix/panel-hold-after-align-116687e`；改 §9 后必跑 **fz** 门禁 |
 | 部署目标 | **仅京东云** VPS：`117.72.118.95`（2核4G / 5Mbps，专机只跑 ③） |
 
