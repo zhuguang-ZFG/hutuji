@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（17 份，深度递进）
+├── findings/                      ← 逆向发现（18 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -26,6 +26,7 @@ docs/kxnx/
 │   ├── 15-task-scheduling-and-progress.md ← 任务调度/进度反馈 + 线程模型/看门狗勘误
 │   ├── 16-wifi-discovery-and-connect.md ← WiFi 发现与连接全链路（含一处我方真实缺陷）
 │   ├── 17-reconnect-resend-hazard.md ← 奎享重连重发缺陷与我方「不对齐」决定
+│   ├── 18-paixi-inkscape-px-comparison.md ← 派曦绘图（inkscape_px）对照：z_stepper 笔控序列、两 fork 宏方向差异（非奎享，因 findings/17 §6 引用而归入本目录）
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
