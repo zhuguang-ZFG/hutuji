@@ -69,7 +69,7 @@
 
 - 文档与注释用**中文**。
 - 配置全走环境变量，**无 `.env` 文件**；`output/` 产物名含随机 token、默认 TTL 600s。
-- G-code 契约（`docs/protocol.md` §5）：生产 profile 头为 `G21/G90/F8000`，随后两次 `G1G90 Z0.0F10000`；`G0 ... F8000` 空走，`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔，文件内无 `G92`、`M3/M5`、`G4`。`validate_gcode` 强制 512KiB 上限、X≤190/Y≤277mm（A4 四周 10mm 边距），并禁 `G28/G30`、禁 `G0` 落点 X0Y0（触发自动换纸）。文件只抬笔收尾，S3 在 fresh `Idle` 后单独发送 `M30`。
+- G-code 契约（`docs/protocol.md` §5）：生产 profile 头为 `G21/G90/F8000`，随后两次 `G1G90 Z0.0F10000`（缓存兼容的幂等抬笔运动，**不建立 Z 基准**）；`G0 ... F8000` 空走，`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件无 `G92`、`M3/M5`、`G4`，且 `validate_gcode` 必须继续拒绝 `G92`。完整会话由 S3 在每次首画/重画前等 fresh `Idle` + 100ms 后旁路固定 `G92 Z0`，再发送下载文件；不改 Grbl `$1=25/$3=7`。校验器另强制 512KiB 上限、X≤190/Y≤277mm，并禁 `G28/G30`、禁 `G0` 落点 X0Y0。文件只抬笔收尾，S3 在文件 fresh `Idle` 后单独发送 `M30`。
 - SVG 注入防御：元素白名单 `{svg,g,path,line,polyline}` + 属性白名单 + 拒 DTD/实体（`tests/test_injection.py` 是活闸门，改校验必过它）。
 - 路线图：① 仓库奠基 ✅ → ② S3 哑管道 🟡（`3ca9d31` 已构建并烧录 8.3 自动测试镜像；Pipe/abort/fresh-`Idle` 关键闭环已实测；普通画线断连主路径已到 PSRAM 重画完成，但最终无纸自动换纸 `error:90`，仍缺有纸自动换纸/`Changing=On`、P2 S3/S4）→ ③ MCP+云端 🟡（HTTPS 已通、已常驻，官方云已触发 `draw/status/abort`；缺 App 真实语音验收）→ ④ 小批量出货 🔴。真值页：`docs/release-readiness.md`。**当前不可商业出货。**
 - 修改项目结构、约定或工作流后，同步更新本文件与 `README.md`、`CLAUDE.md`、`docs/agent-gate.md`（口径变更还要同步 `.cursor/rules/hutuji-agent-rails.mdc`）。

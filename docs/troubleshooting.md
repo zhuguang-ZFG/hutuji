@@ -23,6 +23,84 @@ PC 观测一律走 CH340；Telnet 槽位 `MAX_TLNT_CLIENTS=1` 留给 S3。
 | 撞机 / 越界 | 无限位开关，Grbl 侧无保护 | 查 ③ 侧 `X≤190`、`Y≤277` 限幅是否生效 |
 | banner `Grbl 1.3a…` 中途出现 | 写字机复位 | 复位状态机、任务 error、重新探活 |
 
+## 笔控 / 落笔出墨（2026-07-29 实测）
+
+> **纸面是唯一判据。** `ok` 只表示该行已进 planner（`Protocol.cpp:147-158`），MPos 是开环步计数、无任何位置反馈（`Stepper.cpp:313-324`、`System.cpp:220-234`）——失步或笔尖未触纸时，日志照样报 `Z=5.000` 全程保持。**禁止用日志宣称“已落笔”。**
+
+| 现象 | 可能原因 | 处置 |
+|------|----------|------|
+| 日志 Z=5.000 全程保持但纸上无墨 | 落笔进给被改慢；画线进给过快；笔压/机构 | 落笔恢复奎享原值 `F10000`；画线先降到 `F1500` 复测；纸面确认后再逐步回抬 |
+| 落笔行发了但 Z 不动 | 逻辑 Z 已在目标值，零长度 block 被静默丢弃（`Planner.cpp:315-337`） | 落笔前确保 Z 基准为 0（会话旁路 `G92 Z0`），不要重复发同值 |
+| 画一半墨断 / 笔被抬起 | 供料断粮 → segment buffer 空 → `st_go_idle()`；`$1=25` 后共享 EN 失能，弹簧抬笔 | 整笔期间保持窗口化连续供料（S3 `kWindow=512`）；不要逐行等 `ok` 慢灌 |
+| 手动单发 `G1 Z5` 能触纸，整文件却不出墨 | 手动只看到瞬时触纸（停止 25ms 后即失能回弹），不代表画线期间保持下压 | 用完整文件在纸上验，别把单条指令的“触纸”当结论 |
+
+实测记录（S3 `3ca9d31` autodraw 镜像 + Grbl `8d13b5c`，同一文件内两条 50mm 直线）：
+
+| 线 | 落笔 | 画线 | 纸面 |
+|----|------|------|------|
+| Y=177（先画） | `Z5.0F300` | `F1500` | **无墨** |
+| Y=170（后画） | `Z5.0F10000` | `F1500` | **有墨，整条均匀** |
+
+处置结论：当前 profile **保持奎享原值 `F10000`，不采用未经证明的 F1000/F300 降速方案**。
+
+因果仍未区分，勿写成“F10000 必然解决落笔”：两条线同时混了落笔参数与先后顺序，不能排除“第一条在通墨”的顺序效应；纯奎享参数（落笔 `F10000` + 画线 **`F8000`**）在干净下载条件下从未测过；实机 `$112/$122` 未读到，若 `$112 < 10000` 则 `F10000` 会被钳到 `$112`。
+
+## 偶发行序错乱：同一文件两次不同轨迹（2026-07-29 未结案）
+
+**现象**：同一份 258 字节矩形文件连跑两次，run2 轨迹正确，run1 把前两条画线行的目标对调，走成蝴蝶结。
+
+**前提已坐实，不是送进去的文件不同**：两次 `下载完成 258 字节 crc_hdr=33058057` 完全一致（`crc_hdr` 是收到字节的 CRC，见上一节反例），S3 的 `->` 发送序列逐字相同：
+
+```
+G21 / G90 / G92 Z0 / G0 X30 Y60 F8000 / G1 Z5.0 F10000
+A: G1 X180.000 Y60.000 F1500     B: G1 X180.000 Y200.000 F1500
+C: G1 X30.000 Y200.000 F1500     D: G1 X30.000 Y60.000 F1500
+G1 Z0.0 F10000 / ...
+```
+
+run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调，C/D 正常。第一段 10 个 MPos 采样精确落在 (30,60)→(180,200) 对角线上（ΔY/ΔX 恒为 0.933=140/150，如 (38.670,68.090)），不是圆角混合也不是采样错觉。**输入相同、输出不同**。
+
+`->` 日志可信：`xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:850-872` 的 `SendLine` 持 `write_mutex_`，socket 写成功后**仍在锁内**打印 `-> %s`，所以日志顺序 == 上线字节顺序。
+
+**已逐条读码证伪，勿重开**：
+
+| 假设 | 证伪依据 |
+|------|----------|
+| Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:138-252` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
+| 跨连接残留 1073 字节污染 run1 | run1 全程 `Bf:24x,1200`，Telnet RX 全空（`Bf:249,127` 是 S4 断连那次的另一会话，别往 run1 身上套） |
+| `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-111`）环绕算术正确；`Serial.cpp:185-187` 写与 `:231-235` 读同用 `myMutex` |
+| 重入 `protocol_poll_client` 导致行乱序 | 全项目 6 个调用点都在 `Protocol.cpp`；`protocol_service_during_blocking` 只被 `PaperSystem.cpp:147`（换纸）调用，画线期不进 |
+| 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
+| `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
+| 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
+| 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
+
+**`Bf:` 两个数别读错**（我踩过）：第一个是 planner **可用块数**，`BLOCK_BUFFER_SIZE 250`（`Config.h:469`），所以 idle=249、画线 240 表示排了 9 块——**不能拿它数“一共几块”**；第二个是 Telnet RX 可用字节（`TELNETRXBUFFERSIZE=1200`）。
+
+**下一刀＝改用可观测手段，停止纯推理**。Grbl 有两个上游 echo 开关，同时打开即可二分：
+
+- `Config.h:410` `REPORT_ECHO_LINE_RECEIVED` → 挂在 `GCode.cpp:141`，`collapseGCode` 之后、解析之前，是**解析器即将执行的行**。
+- `Config.h:415` `REPORT_ECHO_RAW_LINE_RECEIVED` → 挂在 `Protocol.cpp:180`，是**从缓冲拼出的原始行**。
+
+判据：两处都 A,B 而机器仍先走 B → 故障在解析器下游（目标值被改，查 `gc_block.values.xyz` 与本 fork Stepper/segment 改动）；raw 是 A,B 而 GCode 是 B,A → 在拼行与解析之间；两处都 B,A → 在字节通路，与上表冲突，回头查 TCP/socket 层。
+
+注意：echo 走同一 client，会显著加大 Telnet 上行流量并改变时序，本缺陷偶发，可能因此不复现——这是诊断态、不入生产；且**改 `D:/Users/Grbl_Esp32` 任何代码后必须自己跑** `python D:/Users/zhugu/fz/scripts/agent_gate.py`。复现统计优先跑“同一矩形文件连跑 3–5 次”，不要先跑进给矩阵。
+
+**日志工具坑**：`mirror.log` 是 30 字节分片格式，直接 grep 会漏行，必须走 `results/.tmp/rebuild_window.py`（`python results/.tmp/rebuild_window.py "23:29:00" "23:32:00" '(-> |MPos:|crc_hdr|error:)'`，cwd 为仓库根，时间窗按 `HH:MM:SS` 字符串比较）；旧 `rebuild_log.py` 只截最后一次启动，看历史 run 不可用；`mcp__serial-log__serial_log_grep` 搜 `crc_hdr` 无匹配。
+
+## 本地临时测试服务（8300）
+
+Windows 当前 Python 标准库中，`HTTPServer` / `ThreadingHTTPServer` 的 `allow_reuse_address=1`。2026-07-29 实测曾有两个 Python 进程与 `:8300` 关联，连接实际收到旧进程内存中的旧内容；多监听者下的具体连接归属不应假定。
+
+该次实例：磁盘 148 字节 / CRC `10273f35`，HTTP 实际返回 147 字节 / CRC `47542442`，串口 `下载完成 147 字节 crc_hdr=47542442`，连续两轮复测因此全部无效。
+
+规避：
+
+- 起服务前枚举并清掉**本轮临时测试服务**的残留监听者，确认 8300 无监听；不要误杀非本轮进程。
+- 测试服务显式 `allow_reuse_address = False`，并确认启动后 8300 只有一个预期 PID；若 bind 失败立即停止，不继续测试。
+- 每轮起服务后**必须**核对 HTTP 返回的字节数 / CRC32 / 关键行与磁盘一致，再触发实机。
+- 换测试内容时**改文件内容、不改文件名**：S3 autodraw 镜像里的下载 URL 是编译期硬编码的。
+
 ## MCP / 京东云
 
 | 现象 | 可能原因 | 处置 |

@@ -55,24 +55,23 @@ public final String b(boolean bl) {   // bl = true 抬笔, false 落笔
 
 ## Stepper 模式的精确输出（我们的情况）
 
-奎享 `default.properties` 默认值：
-```properties
-grbl_type=Servo          # 默认舵机；步进电机要改成 Stepper
-zOn=2                    # 落笔 Z 位置（mm）
-zOff=0                   # 抬笔 Z 位置（mm）
-zSpeed=3000              # Z 轴速度（mm/min，= 50mm/s）
+奎享本机 `C:/Program Files (x86)/kdraw(x64)/settings/默认Grbl机器/Grbl.json` 的实际配置为：
+
+```text
+type=Stepper, zOn=5, zOff=0, zSpeed=10000, $1=25, $3=7
 ```
 
-我们实测 **Z=5 触纸、Z=0 抬起**，所以对应配置应为 `zOn=5, zOff=0`。
-
-实际产生的 G-code（bl=false=落笔）：
+因此实际笔控字面量（bl=false=落笔）为：
 ```
-G1G90 Z5.0F3000
+G1G90 Z5.0F10000
 ```
 bl=true=抬笔：
 ```
-G1G90 Z0.0F3000
+G1G90 Z0.0F10000
 ```
+
+`$1=25` 后电机失能，弹簧回到自然抬笔位，但 Grbl 计数不会跟随机械回弹；两次普通 `G1 Z0`
+不能校准坐标。完整会话须在 fresh `Idle` 后等待超过 25ms，再旁路 `G92 Z0`。
 
 ## 长距离抬笔（enableLongPenUp）
 
@@ -101,12 +100,11 @@ case Stepper: {
 
 ## 对 hutuji 的含义
 
-| 维度 | 奎享 Stepper（验证可行） | hutuji 现状 | 差异 |
-|------|--------------------------|-------------|------|
-| 落笔 | `G1 G90 Z5 F3000` | `M3` + `G4 P0.2` | M3 走固件宏，且 G4 增延迟 |
-| 抬笔 | `G1 G90 Z0 F3000` | `M5` + `G4 P0.2` | 同上 |
-| 速度 | F3000（50mm/s）| 无（走宏内默认）| — |
+| 维度 | 奎享本机 Stepper | hutuji 生产 profile | 结论 |
+|------|------------------|----------------------|------|
+| 落笔 | `G1G90 Z5.0F10000` | `G1G90 Z5.0F10000` | 直接 G1 Z |
+| 抬笔 | `G1G90 Z0.0F10000` | `G1G90 Z0.0F10000` | 直接 G1 Z |
+| 方向 | `$3=7` 下 zOn=5 / zOff=0 | 保留当前 `$3=7` | 不用历史固件方向背书 |
 
-**根因**：hutuji 现在走 `M3`/`M5` → Grbl 的 `USE_M3_M5_AS_PEN_UP_DOWN` 宏 → 宏内部做 Z 运动。但实测 `G0 Z5`（直接 Z 指令）能落笔，`M3`（宏路径）不能——宏路径在这套硬件上失效了（原因待查，但既然直接 Z 指令可用，绕开宏最稳）。
-
-**对齐方向**：放弃 M3/M5，直接发 `G1 G90 Z<5|0> F3000`，和奎享 Stepper 模式完全一致。
+生产 profile 继续使用直接 `G1 Z`，不用 `M3/M5`。`inkscape_px` 历史固件的 M3/M5 方向与当前
+固件不同，不能据其判断当前 Z 方向；当前短线真实出墨仍待 S3 新会话编排烧录后验证。

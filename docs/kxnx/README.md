@@ -34,10 +34,10 @@ docs/kxnx/
 ## 三句话结论
 
 1. **Stepper 笔控 = `G1 Z` 运动指令**（`zOn` 落笔 / `zOff` 抬笔，带 `F<zSpeed>`），**不用 M3/M5**。Servo/Laser 才用 M3/M5。
-2. **出图文件开头不发 `G92 Z0`**，而是连发**两次真实 `G1G90 Z0`** 做机械自校准。
-   （反编译里确实有 `G92 Z0`，但那在**点动/连接握手**路径 `grbl/a.java:250-260`，不在出图文件里——
-   依据是 kdraw 缓存中 9 个字节完全相同的文件，即 **1 个唯一产物的 9 个副本**；
-   该唯一内容不含 G92。别再照抄旧结论。）
+2. **下载文件不含 `G92 Z0`**，开头两次 `G1G90 Z0` 只是缓存兼容的幂等抬笔运动，不能建立基准。
+   完整会话里，反编译 `grbl/a.java:253-263` 会在连接/首次笔控前旁路发送 `G92 Z0`；hutuji
+   对齐为每次首画/重画前 fresh `Idle` + 100ms 后旁路固定 `G92 Z0`，随后才发送下载文件。
+   kdraw 缓存的 9 个文件是 **1 个唯一产物的 9 个副本**，其内容无 G92；这与会话旁路有 G92 不矛盾。
 3. **进给 F8000（画线与空走）、Z 轴 F10000**，无 G4 停顿；**每行都带 F**。
    （早期文档写的 F1500/F3000 来自代码默认值误读，已被真实产物推翻。）
 
@@ -57,7 +57,7 @@ docs/kxnx/
 
 | 文件 | 看什么 |
 |------|--------|
-| `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）；`a(boolean)` 的 `G92 Z0`（行 250-260）**只在点动/连接路径**，出图产物无 G92（见 findings/02、12）|
+| `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）；`a(boolean)` 在连接/首次笔控前旁路 `G92 Z0`（行 253-263）；下载产物无 G92（见 findings/02、12）|
 | `com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java` | `zOn/zOff/zSpeed/type` 字段定义 |
 | `com/kenjoy/kenjoycnc/machine/marlin/a.java` | Stepper 笔控跨固件一致性（行 196-200）|
 | `com/kenjoy/kenjoycnc/h/d.java` | **校准测试图案**生成器（固定箭头+10×10方框+追加 test.gcode），**不是**出图拼接模板；勿据此推出图序列 |
