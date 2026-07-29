@@ -2,6 +2,13 @@
 
 > 源文件：`machine/grbl/a.java`、`machine/marlin/a.java`、`machine/ebb/a.java`、`machine/kat/a.java`、各 `Type.java`
 >
+> **行号与树基准（2026-07-29 补注）**：本文正文的 `a.java:NNN` 除已就地标注者外都是
+> **`decompiled_full/` 树**基准；换算到主树 `decompiled_java/` 时 `grbl/a.java` 与 `marlin/a.java` **+3**、
+> `ebb/a.java` 两树同号、`kat` 下 **+5**（偏移逐文件不同，别套统一值）。
+> 另注：`machine/kat/a.java` **只存在于 `decompiled_full/`**，主树 `machine/kat/` 只有
+> `b c d f g h KATSettings`，其中控制器是 `kat/b.java`（`:42-43` `class b extends marlin.a`）。
+> 见 `docs/kxnx/README.md` §「反编译源码树」。
+>
 > 目的：通过对比不同固件/笔控类型的实现，确认 **"步进电机笔控走 Z/E 轴运动指令"是通用模式**，不是 Grbl 特例。这强化了 hutuji 对齐这个方案的信心。
 
 > **hutuji 状态勘误（2026-07-29）**：本文对各固件分支的静态分析仍有效。下载文件无 `G92`，
@@ -29,7 +36,7 @@ Marlin 多两个：
 
 ## Grbl vs Marlin Stepper 笔控对比
 
-### Grbl（`machine/grbl/a.java:270-275`）
+### Grbl（主树 `machine/grbl/a.java:273-278`；`decompiled_full/` 树为 `:270-275`）
 
 ```java
 case Stepper:
@@ -40,7 +47,7 @@ case Stepper:
 // 输出：G1G90 Z5.0F3000
 ```
 
-### Marlin（`machine/marlin/a.java:196-201`）
+### Marlin（主树 `machine/marlin/a.java:199-203`）
 
 ```java
 case Stepper:

@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（20 份，深度递进）
+├── findings/                      ← 逆向发现（21 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -29,6 +29,7 @@ docs/kxnx/
 │   ├── 18-paixi-inkscape-px-comparison.md ← 派曦绘图（inkscape_px）对照：z_stepper 笔控序列、两 fork 宏方向差异（非奎享，因 findings/17 §6 引用而归入本目录）
 │   ├── 19-pause-abort-error-and-dual-executor.md ← 暂停/stop/reset2/error 白名单 + f/g 双执行器；勘误 findings/09 不存在的 f/c、f/i
 │   ├── 20-ui-job-lifecycle-and-reconnect.md ← UI→JobManager→Executor 生命周期、FileStatus、串口重连弱判据与 pollLast 缺陷闭环
+│   ├── 21-transport-watchdog-and-sd-executor.md ← 传输基类 `l`/`o` 发送侧语义勘误、三套探活互斥、缓冲 autoExpand 结案、ESP32-Grbl SD 执行器全链路
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
@@ -82,6 +83,9 @@ kxnx 仓 `kx/tools/dump_agent/` 下并存三棵反编译树，**引用前必须�
 | `com/kenjoy/kenjoycnc/machine/grbl/a.java` `b()` :300 | 出图收尾回原点 = `G90G0 X0Y0`（我方 toml 有意省略：本机固件判为换纸触发）。注：在 `decompiled_full/` 树里同一句是 `:297` |
 | `com/kenjoy/kenjoycnc/machine/f/b.java` | CommandSender：窗口 100 字节 character-counting（`:70`），重连只把最后一条在途行挪到队尾（`:83-88`，缺陷，见 findings/17）|
 | `com/kvenjoy/drawsoft/lib/grbl/Type.java` | 笔控类型枚举 |
+| `com/kenjoy/kenjoycnc/machine/c/a.java` | ESP32-Grbl 专用控制器：`[ESP220]` 上传（`:148-151`）、SD 进度（`:54-85`）、**收到首个状态行才算已连上**（`:76-84`）|
+| `com/kenjoy/kenjoycnc/machine/b/a.java` + `machine/b/b.java` | 传输基类与看门狗：`l`/`o` 是**发送侧**语义（`:143-144`），两级 5s + **约** 1s（见 findings/21 §1-2）|
+| `com/kenjoy/kenjoycnc/machine/f/g.java` | SD/ESP 执行器：模态上传 UI（`:39`）、状态行 SD 字段消失判完成、stop = 抬笔 + `G90G0 X0Y0`（`:91-95`）|
 
 ## 合规说明
 

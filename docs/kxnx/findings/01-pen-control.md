@@ -1,7 +1,13 @@
 # 发现 01：笔控方式（Stepper / Servo / Laser）
 
-> 源文件：`decompiled/com/kenjoy/kenjoycnc/machine/grbl/a.java:262-284`
-> 关联：`decompiled/com/kvenjoy/drawsoft/lib/grbl/Type.java`
+> 源文件：`decompiled_java/com/kenjoy/kenjoycnc/machine/grbl/a.java:265-287`
+> 关联：`decompiled_java/com/kvenjoy/drawsoft/lib/grbl/Type.java`
+>
+> **行号基准（2026-07-29 补注）**：本文行号已换算到主树 `decompiled_java/`
+> （`D:/GitHub/kxnx/kx/tools/dump_agent/` 下）。旧版写的 `decompiled/...` 路径不存在，
+> 那批行号是 `decompiled_full/` 基准；`grbl/a.java` 与 `marlin/a.java` 主树 = full **+3**，
+> 但偏移逐文件不同（`kat/b.java` 是 +5、`ebb/a.java` 两树同号），**不要跨文件套用统一偏移**。
+> 见 `docs/kxnx/README.md` §「反编译源码树」。
 
 ## Type 枚举（笔控类型）
 
@@ -20,7 +26,7 @@ public enum Type { Servo, Laser, Stepper, Servo_bachin, Custom }
 | `Servo_bachin` | `M3 S<penDownPos>` | `M3 S<penUpPos>` | Bachin 舵机 |
 | `Custom` | `customOnCode` | `customOffCode` | 用户自定义 |
 
-## 关键代码（grbl/a.java:262-284）
+## 关键代码（主树 `grbl/a.java:265-287`；`decompiled_full/` 树为 `:262-284`）
 
 ```java
 @Override
@@ -51,7 +57,7 @@ public final String b(boolean bl) {   // bl = true 抬笔, false 落笔
 }
 ```
 
-`a(Object...)` 是字符串拼接器（`grbl/a.java:351-361`），把入参原样拼接。所以 `a("G1G90 Z", 5.0, "F", 3000)` 产出 `G1G90 Z5.0F3000`。
+`a(Object...)` 是字符串拼接器（主树 `grbl/a.java:354-362`；`decompiled_full/` 树为 `:351-361`），把入参原样拼接。所以 `a("G1G90 Z", 5.0, "F", 3000)` 产出 `G1G90 Z5.0F3000`。
 
 ## Stepper 模式的精确输出（我们的情况）
 

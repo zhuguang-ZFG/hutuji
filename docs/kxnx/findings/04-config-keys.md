@@ -1,7 +1,8 @@
 # 发现 04：配置键（default.properties）
 
 > 源：本机 `C:\Program Files (x86)\kdraw(x64)\default.properties`（奎享安装目录自带，明文）
-> 关联 POJO：`decompiled/com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java`
+> 关联 POJO：`decompiled_java/com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java`
+> （旧版写的 `decompiled/...` 路径不存在，见 `docs/kxnx/README.md` §「反编译源码树」）
 
 ## 全文（与笔控相关部分）
 

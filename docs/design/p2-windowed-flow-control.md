@@ -119,8 +119,8 @@ this.e += (long)(((a)object).b() + 1);        // :59   在途 += 行长 + 1     
 三处算术与官方 `stream.py` 完全同构（2026-07-28 二次深挖复核）。
 
 **窗口值 `g()`**（反编译全树仅 4 个 override + 继承链逐一核）：
-Grbl / ESP32Grbl = **100**（`grbl/a.java:312`）；Marlin / KAT / K_MT = **96**
-（`marlin/a.java:230`，KAT 无 override 直接继承）；EBB = **-1**（无限，`ebb/a.java:93`）。
+Grbl / ESP32Grbl = **100**（主树 `grbl/a.java:315-317`）；Marlin / KAT / K_MT = **96**
+（主树 `marlin/a.java:233-235`，KAT 无 override 直接继承）；EBB = **-1**（无限，`ebb/a.java:93-95`，两树同号）。
 
 > **勘误**：本文与 findings/09 早先写「KAT 窗口 = 1」是**错的**。反编译里 KAT 没有
 > 自己的 `g()`，从 Marlin 继承 = 96。「逐行单步」的真实来源是 `f.java:26` 把

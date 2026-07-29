@@ -12,6 +12,11 @@
 > 再标记并发送受限 `0x18`；reset 后显式执行 Z=0、等待 fresh `Idle` 再探授权。
 > 固定 `! → 8s → 0x18`、reset 前排队/直发 Z 的描述均已被实机回归否决。
 
+> **行号基准（2026-07-29 补注）**：本文的反编译行号已核到**主树**
+> `kx/tools/dump_agent/decompiled_java/`。CFR 头部注释让偏移**逐文件不同**：
+> `grbl/a.java`、`marlin/a.java` 比 `decompiled_full/` 大 3，`kat/b.java` 大 5，
+> `ebb/a.java` 两树同号——跨文件不要套用统一偏移。
+
 ## 相关源文件
 
 | 文件 | 角色 |
@@ -182,9 +187,9 @@ if (((String)object).startsWith("error") && this.t()) {
 
 | 固件 | 窗口 | 说明 |
 |------|------|------|
-| Grbl | **100** 字节 | `grbl/a.java:312`。Grbl 官方 RX 缓冲是 128 字节，留 28 字节余量 |
-| Marlin | **96** 字节 | `marlin/a.java:230`。Marlin RX 缓冲典型 96–128，取下界 |
-| KAT / K_MT | **96** | 无 override，直接继承 `marlin/a.g()`（`kat/b.java:37` extends marlin.a） |
+| Grbl | **100** 字节 | `grbl/a.java:315-317`（主树；`decompiled_full/` 为 `:312-314`）。Grbl 官方 RX 缓冲是 128 字节，留 28 字节余量 |
+| Marlin | **96** 字节 | `marlin/a.java:233-235`（主树；`decompiled_full/` 为 `:230-232`）。Marlin RX 缓冲典型 96–128，取下界 |
+| KAT / K_MT | **96** | 无 override，直接继承 `marlin/a.g()`（`kat/b.java:42-43` extends `marlin.a`，主树）|
 | ESP32Grbl | **100** | 无 override，继承 `grbl/a.g()` |
 | EBB | **-1**（无限） | `ebb/a.java:93` |
 
@@ -310,7 +315,13 @@ if (object.b().equals("FirmwareEventStatus")) {
 ```
 
 进度不是靠计数推的，而是**由 `?` 状态报告事件驱动**——收到状态就发 Progress 事件。
-`?` 的发送周期在 `machine/c` 基类的定时器里（`grbl/a.java:236` 有个 2000ms Timer）。
+
+> **勘误（2026-07-29，findings/21 §2.3-2.4）**：原写"`?` 的发送周期在 `machine/c` 基类的定时器里
+> （`grbl/a.java:236` 有个 2000ms Timer）"，三处都不准。① 那个 Timer 在主树
+> `machine/grbl/a.java:239-240` 的 `a(String,int)` 里，不在 `machine/c` 基类（`:236` 主树是
+> `c(false)` 软复位）；② 它是 `schedule(task, 2000L)` **一次性**延时任务，不是 2000ms 周期；
+> ③ WiFi 分支 `machine/c/a.java:43-45` 跳过 `super.a()`，该 Timer 在 ESP32-Grbl WiFi 下**根本不创建**。
+> WiFi 的 `?` 由控制器自己的 `m()`（`grbl/a.java:379-408`）发，且**收到 `<...>` 才发下一个**。
 
 ## 五、出图总调度勘误：主树无 `machine/f/i.java`
 

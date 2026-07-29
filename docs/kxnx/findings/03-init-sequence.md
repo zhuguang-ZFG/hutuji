@@ -1,6 +1,13 @@
 # 发现 03：连接/校准/原点序列
 
-> 源文件：`decompiled/com/kenjoy/kenjoycnc/machine/grbl/a.java`
+> 源文件：`decompiled_full/com/kenjoy/kenjoycnc/machine/grbl/a.java`
+>
+> **行号基准（2026-07-29 补注）**：本文正文所有 `a.java:NNN` 都是 **`decompiled_full/` 树**的行号
+> （旧版头部写的 `decompiled/...` 路径不存在）。换算到主树
+> `D:/GitHub/kxnx/kx/tools/dump_agent/decompiled_java/` 时，`machine/grbl/a.java` 一律 **+3**
+> （例：本文 `:250-260` 的笔控入口 `a(boolean)` 在主树是 `:253-263`，`:295-298` 的 `b()` 是 `:298-301`）。
+> 偏移逐文件不同，别跨文件套用；见 `docs/kxnx/README.md` §「反编译源码树」。
+> 本轮只校正基准与路径，**未逐句复核握手内容**。
 
 ## 奎享连接 Grbl 后的初始化序列
 

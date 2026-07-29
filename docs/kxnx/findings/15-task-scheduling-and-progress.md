@@ -179,13 +179,18 @@ Grbl 控制器 `grbl/a.java` 不生成。`machine/c.java:27-35` 也没把 resend
 
 ## 四、线程模型勘误（findings/10 §一）
 
-findings/10 说「读线程阻塞在 `InputStream.read`」，**对 WiFi 不成立**。
+findings/10 **早期版本**说「读线程阻塞在 `InputStream.read`」，**对 WiFi 不成立**
+（该文件 2026-07-28 已按本节结论就地勘误，结论先行与 §五 B 对照表现已写成「忙轮询」）。
 
 | 传输 | 读线程 | 实际行为 |
 |------|--------|----------|
-| WiFi `b/d.java` + `b/e.java` | `net read` 线程 | **忙轮询**：`if (available() <= 0) continue;`（`e.java:22`）再 `read`。**无 sleep、无阻塞，是 CPU 烧的 spin** |
+| WiFi `b/d.java` + `b/e.java` | `net read` 线程 | **忙轮询**：`if (available() <= 0) continue;`（`e.java:22`）再 `read`。**无 sleep、无阻塞，是 CPU 烧的 spin**；读缓冲 `e.java:11` 是 `new byte[128]` |
 | 串口 `b/f.java` | jssc 回调线程 | 事件驱动 `serialEvent` → `readBytes`，不烧 CPU |
 | 行分发 | `b/c.java`（`read thread:`） | `f.take()` 阻塞取行 → `controller.c(string)` |
+
+> **行号基准补注（2026-07-29）**：本节 `machine/b/e.java` 的行号基准是 `decompiled_full/`——
+> 主树 `decompiled_java/.../machine/b/` 下只有 `a b c d f`，**没有 `e.java`**（本文头部「源文件」
+> 一行同此）。full 树该文件共 42 行。其余 `machine/b/*` 文件两树行号相同。
 
 - WiFi 读线程是**唯一**的（每连接一个 `net read`），`while(a)` 自旋。
 - 对 hutuji 的启示：奎享 WiFi 这套 spin-read 在桌面 JVM 无所谓，但**思路不可搬到 ESP32**。
@@ -195,6 +200,14 @@ findings/10 说「读线程阻塞在 `InputStream.read`」，**对 WiFi 不成�
 
 ## 五、看门狗两级架构勘误与钉死（findings/10 §五）
 
+> **二次勘误（2026-07-29，findings/21 §2）**：本节 5.1 原写「串口第一级探活 = 串口子类
+> `f()` 的 RTS/DTR 硬件复位」，**错**。看门狗调的是 `machine/b/a.java:21` 持有的
+> **controller 引用**的 `f()`（基类 `machine/c.java:41-42` 是空实现，Grbl 在
+> `grbl/a.java:428-431` 覆写为 `H()` → 发 `?`）；RTS/DTR 那个同名 `f()` 属 transport 子类
+> （`b/f.java:99-107`），全树只有连接时 `if (e.reset)`（`b/f.java:42-44`）和 reset2
+> （`grbl/a.java:374-376`）两个调用点，**看门狗从不碰它**。第二级宽限也不是 5s，而是
+> **约 1s**。5.4 表格与 §七 评级表已同步改正。
+
 findings/10 把两级看门狗讲得不够干净。钉死如下，奎享实际有**三套**独立机制：
 
 ### 5.1 串口路径：基类应用层看门狗（`b/a.java:50-60` + `b/b.java:20-28`）
@@ -202,36 +215,41 @@ findings/10 把两级看门狗讲得不够干净。钉死如下，奎享实际�
 ```java
 // a.java: 只在串口子类上启用
 public final void a(boolean bl) {
-    if (this.n) { this.k = new Timer(true); this.k.schedule(new b(this), 1000L, 1000L); }  // 1s 周期
+    if (this.n) { this.k = new Timer(true); this.k.schedule(new b(this, 0), 1000L, 1000L); }  // :57-58 1s 首延+1s 周期
 }
 // b.java run():
-if (l /*发过数据*/ && now - o /*最后活动*/ >= connectTimeout*1000) {
-    if (m /*健康*/) { this.a.b.f();  /* 串口子类 f()=RTS/DTR 复位 */  m=false; }
-    else            { this.a.b(false); /* 断链 */ }
+if (l /*已 flush 但还没收到任何字节*/ && now - o /*最后一次 flush 的时刻*/ >= connectTimeout*1000) {
+    if (m /*上一轮探活后收到过字节*/) { this.a.b.f();  /* controller.f()；Grbl 覆写 = 发 '?' */  m=false; }
+    else                              { this.a.b(false); /* 断链 */ }
 }
 ```
 
 - `connectTimeout = a.a().a("connect_timeout", 5)`（`Settings.java:62`，**5 秒**）。
-- 串口子类 `b/f.java` 的探活 `f()` 是 **RTS/DTR 硬件复位**（`b/f.java:99-107`），不是发 `?`。
-- **启用点**：`grbl/a.java:243-245` —— 仅当传输是串口子类 `b/f` 的实例才 `a(true)` 启动。
-  **WiFi（`b/d`）不启动这个基类看门狗**。
+- 第一级探活 = **controller `f()`**（Grbl = 发一个 `?`）。发探活字节走 `a(byte)`
+  （`b/a.java:161-179`），它**不刷新 `o`**，所以判据在**下一个 1s tick** 又成立 →
+  两级时长是 **5s + 约 1s**，探活只有一个 tick 的宽限；宽限内收到任何字节会在
+  `b/a.java:191` 把 `l` 清成 false 从而取消断连。
+- **启用点**：`grbl/a.java:246-248`（主树；`decompiled_full/` 为 `:243-245`）—— 仅当传输是
+  串口子类 `b/f` 的实例才 `a(true)` 启动。**WiFi（`b/d`）不启动这个基类看门狗。**
 
-### 5.2 Grbl WiFi 路径：控制器级 `?` 看门狗（`grbl/a.java:230-237, 371-410`）
+### 5.2 Grbl WiFi 路径：控制器级 `?` 看门狗（主树 `grbl/a.java:232-241`、`:379-426`）
 
 ```java
-// a(String,int) 连接后（k=true）2s 一次性 Timer 启动：
+// a(String,int) 连接后（k=true）2s 一次性 Timer 启动（schedule 在 :240）：
 ((Timer)object).schedule(new b(this), 2000L);   // b.run(): 串口则 a(true)，再调 H()
-// m()（:371-）后台线程：
+// m()（主树 :380-）后台线程：
 while (p && t()) {
-    if (r == 0)      { ++r; H(); }              // H() 发 '?'(0x3F)
-    else { ++r; if (r >= 20) { r = 0; g.b(false); } }  // 20 拍无 <...> → 断链
-    Thread.sleep(1000L);
+    if (r == 0)      { ++r; H(); }              // H() 发 '?'(0x3F)，仅 r==0 时
+    else { ++r; if (r >= 20) { r = 0; g.b(false); } }  // 20 拍无 <...> → 断链，期间不重发 ?
+    Thread.sleep(1000L);                        // :398
 }
 ```
 
-- 1s 一拍，第一拍发 `?`，之后每拍 `r++`；收到 `<...>`（`grbl/a.java:79`）把 `r` 清零。
+- 1s 一拍。**只有 `r==0` 才发 `?`**——这是请求-响应节奏：收到 `<...>`（`grbl/a.java:73` 判前缀、
+  `:82` 清零 `r`）才允许下一次探活，失联期间 `r` 只累加、**不重发** `?`。
 - **20 拍（≈20s）无 `<...>` → `g.b(false)` 判死断链**。
-- 这套是 **WiFi 唯一**的判死机制（基类看门狗不覆盖 WiFi）。
+- 这套是 **WiFi 唯一**的判死机制（基类看门狗不覆盖 WiFi；串口/WiFi 由 `machine/c/a.java:30-46` 分流）。
+- 行号基准：本节 `grbl/a.java` 行号已统一到主树 `decompiled_java/`（`decompiled_full/` 少 3）。
 
 ### 5.3 KAT WiFi 路径：`kat/c.java:19`，5s 检查、20s 无 `[ESP]` 消息判死。
 
@@ -239,10 +257,10 @@ while (p && t()) {
 
 | 机制 | 奎享 | hutuji |
 |------|------|--------|
-| WiFi 探活 | 1s 发 `?` | `SO_RCVTIMEO=3s` 超时发 `?` |
+| WiFi 探活 | 首拍发 `?`，**等到 `<...>` 才发下一个**；失联期间不重发 | `SO_RCVTIMEO=3s` 超时**无条件重发** `?`（有意不对齐，见 findings/21 §6）|
 | WiFi 判死 | 20 拍 ≈20s 无 `<...>` | **EAGAIN 7 连 ≈21s 无数据**（P1 已实现，对齐此） |
 | TCP 层兜底 | 无（应用层自理） | `SO_KEEPALIVE` KEEPIDLE/INTVL/CNT ≈19s |
-| 串口探活 | RTS/DTR 复位 | 不涉及（走 WiFi） |
+| 串口探活 | **controller `f()` 发 `?`**（5s 静默触发，宽限约 1s）| 不涉及（走 WiFi） |
 
 hutuji P1 的 `kSilentPollLimit=7`（≈21s）就是照 5.2 的 20 拍量级定的。**已对齐，无需再改。**
 
@@ -280,10 +298,11 @@ hutuji S2 的 `ParseLines()` 索引已具备 peek 能力（拿行长度不出队
 | 单步=窗口退化 1，默认关 | 强 | `f/b.java:23-26`、`f/f.java:26`、`Settings.java:41` |
 | 窗口计数用剥注释后长度 | 强 | `i/a.java:25-54`（`b()` 返回剥注释 `a.length()`） |
 | resend 是 Marlin 专属 | 强 | 全树唯一生成者 `marlin/a.java:62-64`；`c.java:27-35` 无此契约 |
-| WiFi 读是忙轮询 spin | 强 | `b/e.java:20-24`（`available()<=0 continue`） |
-| 串口看门狗 5s + RTS/DTR 复位 | 强 | `b/a.java:50-60`、`b/b.java:20-28`、`b/f.java:99-107`、`Settings.java:62` |
-| Grbl WiFi 看门狗 1s/20 拍 | 强 | `grbl/a.java:230-237,371-410,79` |
-| 串口看门狗仅串口子类启用 | 强 | `grbl/a.java:243-245`（`instanceof b/f` 才 `a(true)`） |
+| WiFi 读是忙轮询 spin | 强 | `b/e.java:20-24`（`available()<=0 continue`）；**该文件只在 `decompiled_full/` 树存在** |
+| 串口看门狗 5s 静默 → controller `f()` 发 `?`，再约 1s 无回音断链 | 强 | `b/a.java:50-60,57-58,143-144,161-179,191`、`b/b.java:20-28`、`grbl/a.java:428-431`、`Settings.java:62`（**旧版本此行写"RTS/DTR 复位"，2026-07-29 已推翻，见 5.1 勘误**）|
+| RTS/DTR 硬复位与看门狗无关 | 强 | `b/f.java:99-107` 仅两个调用点：`b/f.java:42-44`、`grbl/a.java:374-376` |
+| Grbl WiFi 看门狗 1s 一拍 / 20 拍判死 / 失联不重发 `?` | 强 | `grbl/a.java:232-241,379-426,73,82,398`（主树行号）|
+| 串口看门狗仅串口子类启用 | 强 | `grbl/a.java:246-248`（主树；full 树 `:243-245`）（`instanceof b/f` 才 `a(true)`）|
 | 20 拍≈20s 未实机计时 | 推断 | 1s/拍 × 20 推算，未抓包 |
 
 ## 八、合规边界

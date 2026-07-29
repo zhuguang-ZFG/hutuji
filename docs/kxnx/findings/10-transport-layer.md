@@ -4,9 +4,9 @@
 > `machine/b/f.java`（串口 jssc）、`machine/b/b.java`（看门狗 Timer）、
 > `machine/b/c.java` + `machine/b/e.java`（读线程）
 >
-> 结论先行：**奎享的 WiFi 传输（`machine/b/d.java`）用阻塞 `InputStream.read` + 单独读线程，
-> 发送侧 `OutputStream.write` + 显式 `flush()`，和我们 `hutuji_pipe.cc` 的 lwip socket 几乎同构**。
-> 但有两处差异值得对齐：**批量 flush** 和 **看门狗超时重连**。
+> 结论先行：**奎享 WiFi 传输（`machine/b/d.java`）发送侧是 `OutputStream.write` + 显式 `flush()`，与我们
+> `hutuji_pipe.cc` 的 lwip socket 几乎同构**；但接收侧是独立读线程**忙轮询**（`available() > 0` 才 `read`，
+> 见 §一末勘误），**不是**阻塞 `InputStream.read`，这点不学。另两处差异值得对齐：**批量 flush** 与 **看门狗重连**。
 
 ## 一、传输抽象基类 `machine/b/a.java`
 
@@ -22,11 +22,18 @@ public abstract class a {
     private Thread h;                      // 行分发线程
     private int i;                        // XOR 混淆 key（串口通常 0）
     private Timer k;                       // 看门狗 Timer
-    private boolean l;                    // 最近是否收到过数据
-    private boolean m = true;             // 连接是否健康
-    private long o;                       // 最后收到数据的时间戳
+    private boolean l;                    // 已 flush 但尚未收到任何字节（勘误见下）
+    private boolean m = true;             // 上一轮探活后收到过字节（勘误见下）
+    private long o;                       // 最后一次 flush 的时刻（勘误见下）
 }
 ```
+
+> **勘误（2026-07-29，findings/21 §1）**：上面三个字段的注释原写成收侧语义（"最近是否收到过
+> 数据" / "最后收到数据的时间戳"），**写反了**。赋值点定死它们是**发送侧**语义：`l`/`o` 只在
+> flush 里被写（`machine/b/a.java:143-144`），接收入口 `:187-192` 只把 `l` 清成 false、`m`
+> 置 true；单字节发送口 `a(byte)`（`:161-179`）**不碰** `l`/`o`。看门狗读的是合成访问器
+> `:228-246`。由此推翻的下游结论见本文 §二与 §五 B 的勘误。
+> 同批结案：`a.b.b` 的 2048 是**初始容量**、autoExpand 已开（见 §六勘误与 findings/21 §4）。
 
 ### 发送路径（攒批 + XOR + flush）
 
@@ -109,28 +116,33 @@ public final void run() {
 > `if (available() <= 0) continue;` 再 `read`——无 sleep、无阻塞，是纯 spin。
 > 阻塞 `take()` 的是**行分发线程** `b/c.java`（另一根），不是读线程。
 > hutuji **不要学这个 spin**：我们的 `recv` + `SO_RCVTIMEO=3s` 阻塞是对的。
+>
+> **基准树补注（2026-07-29）**：本条行号基准是 `decompiled_full/`——主树
+> `decompiled_java/.../machine/b/` 下只有 `a b c d f`，**没有 `e.java`**（本文头部
+> 「源文件」一行提到的 `machine/b/e.java` 同此）。`decompiled_full/.../machine/b/e.java`
+> 共 42 行，`:20-24` 即上述 spin 循环，读缓冲 `:11` 是 `new byte[128]`。
 
 ## 二、看门狗 Timer（`machine/b/b.java` + `a.java:a(boolean)`）
 
 ```java
-// a.java
+// a.java:50（主树 decompiled_java/.../machine/b/a.java）
 public final void a(boolean bl) {
     if (this.k != null) { this.k.cancel(); this.k = null; }
     this.n = bl;
     if (this.n) {
-        this.k = new Timer(true);
-        this.k.schedule(new b(this), 1000L, 1000L);   // 每 1s 跑一次
+        this.k = new Timer(true);                                    // :57
+        this.k.schedule((TimerTask)new b(this, 0), 1000L, 1000L);    // :58，每 1s 跑一次
     }
 }
 
 // b.java（TimerTask）
 public final void run() {
-    if (a.b(this.a)                                  // l = 最近发过数据
-        && System.currentTimeMillis() - a.c(this.a)  // o = 最后活动时间
+    if (a.b(this.a)                                  // l = 已 flush 但未收到回音
+        && System.currentTimeMillis() - a.c(this.a)  // o = 最后一次 flush 的时刻
            >= Settings.getInst().connectTimeout * 1000) {
         try {
-            if (a.d(this.a)) {                       // m = 连接健康
-                this.a.b.f();                         // ← 主动发探活
+            if (a.d(this.a)) {                       // m = 上一轮探活后收到过字节
+                this.a.b.f();                         // ← controller.f()；Grbl 覆写 = 发一个 ?
                 a.a(this.a, false);                   // m = false（等下次 recv 置 true）
             } else {
                 this.a.b(false);                      // ← 超时无响应，断连
@@ -143,10 +155,17 @@ public final void run() {
 
 **看门狗逻辑**：
 
-1. 每 1s 检查：距离上次收发数据是否超过 `connectTimeout` 秒
-2. 若超过，且连接还健康（`m=true`）：主动发探活（`f()`，子类实现），
-   置 `m=false`
-3. 若超过且已发过探活仍无响应（`m=false`）：判定断连，`b(false)`
+1. 每 1s 检查：距离**最后一次 flush** 是否已静默满 `connectTimeout` 秒（默认 5s）
+2. 若超过，且上一轮探活后收到过字节（`m=true`）：调 **controller** 的 `f()` 发探活
+   （Grbl 覆写 = 发一个 `?`），置 `m=false`
+3. 若超过且探活仍无回音（`m=false`）：判定断连，`b(false)`
+
+> **勘误（2026-07-29，findings/21 §2.1）**：上面三点原写"距离上次收发数据"，**不准**——`o` 只在
+> flush 时刷新，一条命令都没发过时 `l` 恒为 false，看门狗根本不动，空闲链路不会被判死。
+> 第 2 步调的是 `machine/b/a.java:21` 那个 **controller 引用**的 `f()`（基类 `machine/c.java:41-42`
+> 是空实现，Grbl 在 `machine/grbl/a.java:428-431` 覆写为 `H()` → 发 `?`），**不是** transport 自己
+> 的同名 `f()`（那个才是 RTS/DTR，见 §四 末尾）。两级时间常数是 **5s + 约 1s**：发探活字节走
+> `a(byte)`（`machine/b/a.java:161-179`）不刷新 `o`，所以紧接的下一个 1s tick 就落进第 3 步。
 
 这是**应用层 keepalive + 探活**，独立于 TCP keepalive。对照 hutuji：
 我们靠 `SO_KEEPALIVE` + `KEEPIDLE/INTVL/CNT`（见记忆 `lwip-keepalive-...`）。
@@ -188,12 +207,12 @@ public final class d extends a {
 | 维度 | 奎享 WiFi（`d.java`）| hutuji Telnet（`hutuji_pipe.cc`）|
 |------|----------------------|----------------------------------|
 | 连接 | `Socket.connect(InetSocketAddress, 10000)` | `connect(sock, ..., timeout)` |
-| 读 | 独立线程 `InputStream.read` 阻塞 | `recv` 阻塞在 PipeTask |
+| 读 | 独立线程忙轮询：`available() > 0` 才 `read`（`decompiled_full/ b/e.java:20-24`）| `recv` 阻塞在 PipeTask（`SO_RCVTIMEO=3s`）|
 | 写 | `OutputStream.write` + `flush` | `send` 循环到全部发出 |
 | 行聚合 | 基类 `a.java` 正则拆 + BlockingDeque | `OnRxData` + `rx_buffer_` + 事件位 |
 | 连接超时 | 10s | 我们 NVS 缓存命中 2s，非阻塞 connect |
 | 单写者锁 | 无（单线程发）| `write_mutex_` |
-| 探活 | 应用层看门狗 Timer | `SO_KEEPALIVE` 三参数 |
+| 探活 | 应用层看门狗 Timer：静默 5s 发 `?`，再约 1s 无回音判死 | `SO_KEEPALIVE` 三参数 + 连续 7 拍静默计数 |
 
 ### 一个 hutuji 可以借鉴的细节
 
@@ -230,16 +249,18 @@ public final class f extends a implements SerialPortEventListener {
     }
 
     @Override
-    public final void f() {                          // 硬件复位
-        this.d.setDTR(false); this.d.setRTS(false);
+    public final void f() {                          // :99，RTS/DTR 硬件复位（看门狗不调它）
+        this.d.setDTR(false); this.d.setRTS(false);  // :101-102
         Thread.sleep(100L);
-        this.d.setDTR(true);  this.d.setRTS(true);
+        this.d.setDTR(true);  this.d.setRTS(true);   // :104-105
     }
 }
 ```
 
-串口用 jssc 库，事件驱动接收（vs WiFi 的轮询线程）。`f()` 是 RTS/DTR
-硬件复位——Arduino 类设备上电复位用的。hutuji 走 WiFi Telnet，不涉及。
+串口用 jssc 库，事件驱动接收（vs WiFi 的轮询线程）。transport 自己的 `f()`（主树
+`machine/b/f.java:99-105`）是 RTS/DTR 硬件复位——Arduino 类设备上电复位用的，
+**看门狗从不调它**；看门狗调的是 controller 的同名 `f()`（Grbl 覆写成发一个 `?`，
+见 §二勘误）。hutuji 走 WiFi Telnet，两个 `f()` 都不涉及。
 
 ## 五、传输层对 hutuji 的可借鉴点（按性价比）
 
@@ -258,14 +279,20 @@ public final class f extends a implements SerialPortEventListener {
 
 | | 第一级（探活） | 第二级（判死） |
 |---|---|---|
-| 奎享串口 | 静默 `connectTimeout`(默认 5s) → **RTS/DTR 硬件复位**（`b/f.java:99-107`；基类看门狗 `b/a.java:50-60` 仅串口子类启用，见 `grbl/a.java:243-245`） | 再静默 5s → `b(false)` 断链（`machine/b/b.java:20-28`） |
-| 奎享 Grbl WiFi | 1s 周期发 `?`（`grbl/a.java:382-404`，连接后 2s 一次性 Timer 启动 `:230-237`） | 计数器 `r` 累计 **20 拍**没收到 `<...>` → `g.b(false)` 断链（收到 `<...>` 于 `:79` 清零 `r`） |
+| 奎享串口 | 静默 `connectTimeout`(默认 5s) → **controller `f()` 发一个 `?`**（`grbl/a.java:428-431` → `:410-426`；基类看门狗 `b/a.java:50-60` 仅串口子类启用，见 `grbl/a.java:246-248`） | 再过**一个 1s tick** 仍无回音 → `b(false)` 断链（`machine/b/b.java:20-28`） |
+| 奎享 Grbl WiFi | 发一个 `?` 后**等状态行**才发下一个（`grbl/a.java:379-408`，仅 `r==0` 时发；连接后 2s 一次性 Timer `:239-240`，WiFi 走 `machine/c/a.java:43-45` 时该 Timer 不创建） | 计数器 `r` 累计 **20 拍**没收到 `<...>` → `g.b(false)` 断链（收到 `<...>` 于 `:82` 清零 `r`；失联期间**不重发** `?`）|
 | 奎享 KAT WiFi | 5s 周期检查 | **20s** 无 `[ESP]` 消息 → 断链（`kat/c.java:19`） |
 | **hutuji 现状** | `SO_RCVTIMEO=3s` 超时 → 发 `?`（`hutuji_pipe.cc:118-122`） | **EAGAIN 7 连 ≈21s 无数据判死重连**（P1 已实现，对齐 Grbl WiFi 的 20 拍） |
 
-> 三套看门狗是**独立**的，别混：串口走基类 `b/a+b/b`（探活=RTS/DTR 复位）；
+> 三套看门狗是**独立**的，别混：串口走基类 `b/a+b/b`（探活 = **controller 发 `?`**）；
 > WiFi 走控制器 `grbl/a.java` 的 `?` 循环（基类看门狗**不覆盖** WiFi）；KAT 走 `kat/c.java`。
 > 详见 findings/15 §五。
+>
+> **勘误（2026-07-29，findings/21 §2.1-2.4）**：本表上两行原写"串口第一级 = RTS/DTR 硬件复位"
+> 与"WiFi 1s 周期发 `?`"，两处都错。RTS/DTR（`b/f.java:99-113`）全树只有两个调用点——连接时
+> `if (e.reset)`（`b/f.java:42-44`）与 reset2 路径（`grbl/a.java:374-376`），**看门狗从不调它**；
+> WiFi 那圈循环是请求-响应节奏，失联后只空转计数、**不再重发** `?`。行号也已按主树校正。
+> 我方每 3s 重发 `?` 与之策略相反，属**有意不对齐**（findings/21 §6）。
 
 **已实机抽验确认的固件缺陷**（`hutuji_pipe.cc:118-123`）：
 
@@ -295,8 +322,10 @@ S3 会每 3s 发一个 `?`、永远收不到 `<...>`、**永不 break、永不�
 
 ### C. 连接健康双标志 `l` / `m`（参考）
 
-奎享用 `l`（最近收发过）+ `m`（探活后有无响应）两个标志区分
-"正常" / "等探活" / "已断" 三态。我们的 `connected_` + `ready_` 二元
+奎享用 `l`（**已 flush 但还没收到任何字节**）+ `m`（**上一轮探活后收到过字节**）两个
+标志区分"正常" / "等探活" / "已断" 三态：`l` 只在 flush 时置位、收到任何字节即清零，
+所以从没发过命令的空闲链路根本不进判定；`m` 决定下一拍是"再宽限一次探活"还是"直接
+判死断连"（完整判定链见 findings/21 §2.1）。我们的 `connected_` + `ready_` 二元
 状态粒度更粗。若以后断连检测不够灵敏可参考，**当前不改**。
 
 ## 六、证据边界
@@ -306,8 +335,10 @@ S3 会每 3s 发一个 `?`、永远收不到 `<...>`、**永不 break、永不�
   找到，已被清理」是**错的**。`model/Settings.java` 完整存在，且已读到两个关键默认值：
   `connectTimeout = a.a().a("connect_timeout", 5)`（:62，**5 秒**）、
   `autoReconnect = a.a().a("auto_reconnect", false)`（:49，**默认关闭**）。
-- `a.b.b` 的底层实现（`a(boolean)` 是 autoExpand 还是 autoShrink）**仍未查证**，
-  故「2048 是初始容量还是硬上限」未定，组帧层的溢出行为随之未定。
-  影响有限：我们不照抄这一层（有 `kRxLineMax=512` 显式防护）。
-- 奎享 WiFi 判死时长 **20s** 来自 `grbl/a.java:382-404` 的计数器逻辑推算
-  （1s/拍 × 20 拍），**未实机计时验证**。
+- **已结案（2026-07-29，findings/21 §4）**：`a.b.b` 包装的是 MINA `IoBuffer`
+  （`org/apache/a/a/a/a.java:54-60` 的 `a(boolean)` = `setAutoExpand`，忽略入参硬置 true），
+  构造时 `a/b/b.java:18-21` 就调了它 → **2048 是初始容量，无硬上限**，写满自动扩容。
+  当年查不清是因为包装类自己也有个 `a(boolean)`（`a/b/b.java:56-58`，写一个 0/1 字节）撞名。
+  我方 `kRxLineMax=512` 属**有意加固**，不是补齐缺失。
+- 奎享 WiFi 判死时长 **20s** 来自 `grbl/a.java:379-408` 的计数器逻辑推算
+  （`:398` `sleep(1000)` × 20 拍），**未实机计时验证**。
