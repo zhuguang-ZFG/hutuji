@@ -20,11 +20,12 @@
 | `machine/f/f.java` | 任务级喂料/编排器（**ok 事件驱动，非定时轮询**；暂停/恢复/中止/计时） |
 | `machine/f/k.java` | 命令队列源（LinkedList，`e()`=peek / `c()`=pop） |
 | `machine/f/e.java` | 队列源抽象（进度 = a/b） |
-| `machine/f/c.java` | **KAT/WiFi 文件级调度器**（发 `[ESP913]` 上传 SD；**与 error 处理无关**） |
+| `machine/f/g.java` | **SD/ESP 文件级执行器**（上传对话框 + 固件端打印；暂停走实时 `!`/`~`，旁路窗口引擎） |
 | `machine/f/l.java` | 多文件/重复出图调度器（文件队列 + 重复次数 + 换纸对话框） |
-| `machine/f/i.java` | 出图总调度（多文件队列 + 续打 + 进度事件） |
 | `machine/c.java` | 控制器基类，`a(String, boolean)` 是单行发送出口 |
 | `machine/grbl/a.java` | `g()` 返回窗口大小 100 |
+
+> **勘误（2026-07-29）**：旧表曾写 `f/c.java`、`f/i.java`——主树 `machine/f/` **无此二文件**（实有 `a b e f g h k l m`）。SD 路径是 `f/g.java`，多文件总调度是 `f/l.java`。详见 findings/19 §1、§7。
 
 ## 一、流控的两层结构（不是两套并存实现）
 
@@ -135,11 +136,7 @@ private void n() {
 
 ### 勘误：「奎享 error 只记录不中断」是错的（2026-07-28 直读源码推翻）
 
-本文早前此处引用过一段署名 `machine/f/c.java` 的 `a(l l2, String string)` 代码，
-声称「记录错误但不中断」。**该代码在反编译树里不存在**：
-`machine/f/c.java` 全文（127 行）是 KAT/WiFi 的文件级调度器（发 `[ESP913]` 上传 SD），
-没有任何 error 处理；全树搜 `n().remove(0)` 零匹配，`f/l.java` 也没有 `n()`/`m()` 方法。
-那段代码是早前会话的臆造，由它推出的「error 容忍」结论随之作废。
+本文早前此处引用过一段署名 `machine/f/c.java` 的 `a(l l2, String string)` 代码，声称「记录错误但不中断」。**该代码和该文件都不存在**：主树 `machine/f/` 只有 `a b e f g h k l m`。历史上又把 SD 执行器 `f/g.java` 误记成 `f/c.java`；实际 `g` 也没有该 error 处理。全树搜 `n().remove(0)` 零匹配，`f/l.java` 也没有 `n()`/`m()` 方法。那段代码是早前会话的臆造，由它推出的「error 容忍」结论随之作废。
 
 **实际实现：奎享对 `error` 同样中止。** 全树仅一处 `startsWith("error")`，
 在 `machine/grbl/a.java:82-101`：
@@ -315,53 +312,15 @@ if (object.b().equals("FirmwareEventStatus")) {
 进度不是靠计数推的，而是**由 `?` 状态报告事件驱动**——收到状态就发 Progress 事件。
 `?` 的发送周期在 `machine/c` 基类的定时器里（`grbl/a.java:236` 有个 2000ms Timer）。
 
-## 五、出图总调度（`machine/f/i.java`）
+## 五、出图总调度勘误：主树无 `machine/f/i.java`
 
-`i.java` 是多文件出图的编排层，有几个值得注意的设计：
+早期本节引用的“`f/i.java` 文件级续打 + 每份文件前插 `G92`”代码在主树**不存在**，因此以下旧结论全部撤销：
 
-### 1. 续打（断点续画）
+- 不再声称奎享有“从第 N 个文件继续”的 `continue_wirte` 实现；
+- 不再声称每份文件开头由 `f/i.java` 自动插 `G92 ... Z0`；
+- 不再把不存在的 `i.java` 视为出图总调度。
 
-```java
-int n3 = v2.e();                    // 上次画到第几个文件
-if (n2 == 0 && n3 > 0) {
-    int n4 = JOptionPane.showConfirmDialog(..., "continue_wirte", ..., 1, 3);
-    if (n4 == 0)      this.d = n3;              // 是 → 从断点继续
-    else if (n4 == 1) v2.a(FileStatus.wait);    // 否 → 全部重画
-    else return;                                 // 取消
-}
-```
-
-**文件级**续打（不是行级）。我们的 `hutuji.repeat` 是整幅重画，
-奎享这个是「多文件队列里从第 N 个文件继续」。
-
-### 2. 每份文件开头重发坐标系
-
-```java
-if (super.k()) {
-    arrayList.add("G92Y" + f2 + "Z0");     // KAT 机器：带 Y 偏移
-} else {
-    arrayList.add(((i)object).e.d());       // Grbl：G92 X<offsetX> Y<offsetY> Z0
-}
-// 然后逐行读文件内容追加
-while ((string = reader.readLine()) != null) {
-    if (av.g(string = string.trim())) continue;   // 跳空行
-    arrayList.add(string);
-}
-g.a(new k(arrayList));                      // 整份变成命令队列
-g.a();                                       // 启动
-```
-
-**每份文件出图前都先发 `G92 ... Z0`**，不依赖上一份的坐标系状态。
-这是幂等设计——即使中间发生过软复位，每份文件也能自己建立基准。
-
-### 3. 文件读取时预处理
-
-- `trim()` 每行
-- 跳过空行（`av.g()` 是 isEmpty 判断）
-- **不做注释剥离**（说明奎享自己生成的 G-code 里没有注释）
-
-我们 `StreamToGrbl` 会剥 `;` 注释 —— 这是必要的，因为
-vpype-gcode 可能产出注释行。
+可复核的实际编排层是 `machine/f/l.java`：它维护 `FileStatus`、多文件与重复轮次；读文件时仅 `trim()`、跳空行，并在 **K_MT** 路径前置 `controller.d()`，普通 Grbl 文件不在这里统一插入 G92（`f/l.java:161-180`）。普通会话的 Z 基准来自 `grbl/a.java` 首次 Stepper 笔控旁路 `G92 Z0`，见 findings/03；完整 UI/JobManager 生命周期见 findings/20。
 
 ## 六、与 hutuji 现状的差异对照
 
@@ -372,10 +331,11 @@ vpype-gcode 可能产出注释行。
 | ok 处理 | 出队 + 释放窗口 + 立刻补发 | 解除阻塞，继续下一行 | — |
 | `error:NN` | **也中止**（清空双队列），但有 2 个白名单码 | 直接放弃整幅 | 双方同向；差别在白名单与交互解锁 |
 | 暂停 | 软暂停（停灌新行） | `!` 进给保持 + 停灌 | 我们更硬（能立即停） |
-| 中止 | `0x18` 软复位 + 清 Z 基准标志 | `!` → 轮询 `Hold/Idle` → 受限 `0x18` → reset 后 Z=0/fresh-`Idle` | 我们先确认运动已保持，并限制自动解锁范围 |
+| 普通 stop | 队尾追加抬笔+回原点，非实时；`drawing→wait` | `!` → 状态轮询后按任务语义处理 | 我方停得更快；不照搬队尾收尾 |
+| reset2 | 直接 `0x18` + 清 Z 基准标志 + transport reset hook | Hold/Idle 后受限 `0x18` → reset 后 Z=0/fresh-`Idle` | 我方先确认运动已保持 |
 | 进度 | `?` 状态事件驱动 | 行计数 + 5s 定时推送 | — |
-| 坐标系 | 每份文件前旁路 `G92 ... Z0` | 首画/重画前 fresh `Idle` + 100ms 后旁路固定 `G92 Z0` | 同为会话编排；下载文件均无 G92 |
-| 续打 | 文件级断点续画 | 整幅 repeat | — |
+| 坐标系 | 连接/首次 Stepper 笔控前旁路 `G92 Z0` | 首画/重画前 fresh `Idle` + 100ms 后旁路固定 `G92 Z0` | 同为会话编排；下载文件均无 G92 |
+| 断线续打 | 串口重连框以 XY 非零判可恢复，再 `pollLast()` | 断连后从 checkpoint/首行受控重画 | 奎享判据与重发均有缺陷（findings/20） |
 | 注释 | 不处理（自产无注释） | 剥 `;` | 我们必须保留 |
 
 ## 七、对 hutuji 的可行改进（按性价比排序）

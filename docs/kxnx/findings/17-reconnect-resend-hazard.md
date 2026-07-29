@@ -58,7 +58,7 @@
 | 断线恢复 | `pollLast()` 挪到队尾（缺陷） | 断连后从第 1 行整体重画 | 正确性优先；重画代价是废一张纸，错序代价是废一张纸**且不自知** |
 | 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:1473-1474`） |
 | 出图收尾 | `machine/grbl/a.java:298-301` `b()` = `G90G0 X0Y0` 回原点（字面量在 `:300`） | 文件只抬笔，S3 在 fresh `Idle` 后单发 `M30` | 本机固件把 `G0 X0Y0` 判为换纸触发，见 `docs/protocol.md` §5 |
-| 中止 | `machine/grbl/a.java:365-373` `c(boolean)` 发单字节 `0x18` 软复位 | 发 `!`（feed hold）后按状态处理 | 待评估：`0x18` 会清 planner 与坐标系，我方 abort 语义要求可恢复 |
+| stop/reset | 普通 stop 队尾追加抬笔+回原点；独立 reset2 才由 `machine/grbl/a.java:365-373` 发 `0x18` | 发 `!` 后按 Hold/Idle/任务状态处理 | 奎享 stop 非实时，reset2 又无安全 Hold；均不对齐（findings/20） |
 | 笔控落点 | `GrblSettings.java` 默认 `zOn=2.0 / zOff=0.0 / zSpeed=3000` | 实测 `zOn=5.0 / zOff=0.0 / F10000` | **结构对齐、数值按本机实测**；奎享默认值是出厂缺省，不是本机可用值 |
 
 ## 6 参考仓价值判定（省下下一次挖掘）
