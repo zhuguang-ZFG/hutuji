@@ -1,6 +1,6 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **状态日期：2026-07-29（Grbl `8d13b5c` 已提交/推送/烧录；xiaozhi `3ca9d31` 已提交/推送，8.3 自动触发镜像已烧录 COM6；三仓 `git status` 已复核）。**
+> **状态日期：2026-07-29（Grbl `8d13b5c` 已提交/推送/烧录；xiaozhi `c1267ec` 已提交/推送/构建/烧录 COM6，有纸完整画线+自动换纸 `done` 已实测；三仓 `git status` 已复核）。**
 > 用途：告诉下一任代理「哪些改动已经在磁盘上、不要当不存在、不要 checkout 清掉」。  
 > 每次相关提交或丢弃后**必须更新**本页；与 `git status` 冲突时以 `git status` 为准并回写本页。
 
@@ -42,10 +42,9 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已提交** `305b016` | 根 `AGENTS.md` hutuji 专节 | 约束入口 | 已推远程 |
-| **当前源码 HEAD** `3ca9d31` | `feat/hutuji-usb-pipe` | `05f4563` 行为基线 + `27eff73` 默认关闭的 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 注入 + `M3/M5` planner-sync `ok` 长等待修复 | 已提交/推送；默认 IDF 6.0.1 构建通过（`xiaozhi.bin=0x2cce30`，余 `0x1231d0`/29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，余 `0x122f90`/29%，SHA256 `98C3B6AF...C122C`） |
-| **当前实机烧录基线** `3ca9d31` 自动测试镜像 | `feat/hutuji-usb-pipe` | 含显式 `M30`、重连先判 `Changing`、受限 reset、废纸换纸与 PSRAM 从头重发；修复页尾 `M5` 长等待 | S3-LC-01/MK38 8.3 复测：`results/bringup-8.3-fault-capture-20260729-010436.md`。普通画线断连后已出现重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 重画、55/55 行完成与 fresh `Idle`；最终页尾自动换纸因无纸 `[PaperStatus] 2` + `error:90`，任务 `state=error`，不等于有纸自动换纸或完整 `done/Idle` |
+| **当前源码 HEAD** `c1267ec` | `feat/hutuji-usb-pipe` | `3ca9d31` 笔控基线 + WiFi review 三处修复：换纸期 `expect_blocking_peer_`、`StartDraw` URL 白名单、`StatusJson` 去 sleep | 已提交/推送/构建/烧录 COM6；默认构建 `xiaozhi.bin=0x2cd1a0`（SHA256 `9B0ACF80...09FF50`）、自动测试镜像 `0x2cd3e0`（SHA256 `F3CA4393...C188`）；**有纸完整画线 + `M30` `[PaperStatus] 0` + fresh `Idle` + `state=done` 已实测**（`results/s3-c1267ec-paper-draw-done-evidence-20260729.md`） |
+| **当前实机烧录基线** `c1267ec` 自动测试镜像 | `feat/hutuji-usb-pipe` | 含显式 `M30`、重连先判 `Changing`、受限 reset、废纸换纸与 PSRAM 从头重发；换纸期防 silent-poll 误杀 TCP | S3-LC-01/MK38 有纸复测：14 行画完 → `M30` → `[PaperStatus] 0` → fresh `Idle` → `state=done`，无 `error:90`；本次换纸约 9s，未压到 silent-poll 21s 阈值；`3ca9d31` 的 8.3 断连重画证据仍有效但未在本固件回归 |
 | **工作树** | untracked build dir only | `git status --short` 显示 `?? build-hutuji-8_3-autodraw/` | 构建产物，不提交；不要为工作树干净删除。下一步做有纸自动换纸/`Changing=On` |
-| **已提交/已推/已构建** `c1267ec` | `main/boards/lichuang-dev/hutuji_pipe.{cc,h}`、`hutuji_job.cc` | WiFi review 三处修复：换纸期 `expect_blocking_peer_` 防 silent-poll 误杀 TCP、`StartDraw` URL 白名单（私有 IP / hutuji.donglicao.com）、`StatusJson` 去回调 sleep | 已提交/推送；IDF 6.0.1 构建通过（`xiaozhi.bin=0x2cd1a0`，app 余 `0x122e60`/29%，SHA256 `9B0ACF80...09FF50`，无 hutuji 相关 warning，日志 `results/.tmp/xiaozhi-build-c1267ec.log`）；**未烧录实机**，bringup 8.3 证据仍基于 `3ca9d31`；有纸换纸仍待验收 |
 
 ## 明确不要做的事
 

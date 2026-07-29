@@ -1,16 +1,19 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-29（S3 源码 `3ca9d31` 已提交/推送；8.3 自动触发镜像已构建并烧录 COM6；Grbl `8d13b5c` 已提交、推送、COM3 烧录并完成空闲最小核验。本轮实测证明普通画线断连后可废纸 `M30`、PSRAM 从第 1 行重画并完成 55/55 行；最终页尾自动换纸因无纸返回 `error:90`，完整任务仍非 `done`。有纸 `Changing=On`/自动换纸/App 语音仍待实测）。本文是“现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-29（S3 源码 HEAD `c1267ec` 已提交/推送/构建/烧录：WiFi review 三处修复——换纸期 `expect_blocking_peer_` 防 silent-poll 误杀 TCP、`StartDraw` URL 白名单、`StatusJson` 去 sleep；Grbl `8d13b5c` 已提交、推送、COM3 烧录并完成空闲最小核验。**有纸完整画线 + 页尾 `M30` 自动换纸 `[PaperStatus] 0` + fresh `Idle` + `state=done` 已实测**（`results/s3-c1267ec-paper-draw-done-evidence-20260729.md`）；此前 `3ca9d31` 普通画线断连已实测到废纸 `M30`、PSRAM 从第 1 行重画并完成 55/55 行。有纸 `Changing=On` 分流/App 语音仍待实测）。本文是“现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 
 **当前不可商业出货。**  
 ① 基础文档与本仓门禁已落地；京东云 HTTPS 常驻，Grbl §9 已烧录并通过已列实机项。
-S3 已打通官方云工具调用、直连逐行任务与安全 abort 回归；源码 HEAD `3ca9d31` 修复
-`M3/M5` 笔控行等待 `ok` 的 60s 误超时，默认构建与 8.3 自动触发镜像构建均通过，自动触发镜像已烧录 COM6。
-8.3 普通画线断连主路径已实测到：重连后 `Changing=Off` → 受限 reset/恢复 → 废纸 `M30`
-`[PaperStatus] 0` → PSRAM 从第 1 行重画 → 55/55 行完成并 fresh `Idle`；但最终页尾自动换纸在无纸状态下
-返回 `[PaperStatus] 2` + `error:90`，任务最终仍为 `error`。App 语音、有纸 `Changing=On`/自动换纸与生产签核未闭合。
+S3 已打通官方云工具调用、直连逐行任务与安全 abort 回归；源码 HEAD `c1267ec` 在 `3ca9d31`
+笔控修复基础上加 WiFi review 三处修复（换纸期 `expect_blocking_peer_`、URL 白名单、`StatusJson` 去 sleep），
+默认构建与 8.3 自动触发镜像均构建通过并烧录 COM6。**2026-07-29 有纸实测首次达成完整任务**：
+画线 → 页尾 `M30` 自动换纸 `[PaperStatus] 0` → fresh `Idle` → `state=done`，全程无 `error:90`
+（证据 `results/s3-c1267ec-paper-draw-done-evidence-20260729.md`）。8.3 普通画线断连（`3ca9d31`）
+已实测到：重连后 `Changing=Off` → 受限 reset/恢复 → 废纸 `M30` `[PaperStatus] 0` → PSRAM 从第 1 行重画
+→ 55/55 行完成并 fresh `Idle`。App 语音、有纸 `Changing=On` 分流、断连路径在 `c1267ec` 上的回归与
+生产签核未闭合。
 
 ## 证据矩阵
 
@@ -42,8 +45,8 @@ S3 已打通官方云工具调用、直连逐行任务与安全 abort 回归；�
 6. ~~**烧录当前 S3 基线**~~：✅ S3-LC-01 已烧录 `05f4563`（COM6）；esptool 对 bootloader/partition/OTA/assets/app 均报告 `Hash of data verified`；两轮 COM9 启动日志确认七工具注册、Telnet ready/authorized、持续 fresh `Idle`，无 panic/assert/backtrace。
 6a. ~~**烧录当前 Grbl 基线**~~：✅ MK38 已烧录 `8d13b5c`（COM3）；esptool 对 bootloader/partition/app 均报告 `Hash of data verified`；串口核验授权保留、Telnet:23 启动、`[ESP901] Changing=Off`、`$130=210 $131=297`。
 6b. ~~**补齐 S3 8.3 自动测试调试入口**~~：✅ xiaozhi `27eff73` 已提交/推送；过期硬编码 G-code URL 已移除，改为 `HUTUJI_AUTO_TEST_DRAW` + `HUTUJI_AUTO_TEST_DRAW_URL` CMake 选项注入。`3ca9d31` 已在该入口基础上修复 `M3/M5` 长等待，默认构建与 8.3 自动测试构建均通过，8.3 自动测试镜像已烧录 COM6。
-7. **断连复位重发实测**：🟡 2026-07-29 普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成与 fresh `Idle`；但最终页尾自动换纸因无纸 `error:90`，任务未到 `done/Idle`，所以不能判完整通过。证据：`results/bringup-8.3-fault-capture-20260729-010436.md`、`results/s3-3ca9d31-8.3-pen-timeout-evidence-20260729.md`。
-8. **实测自动换纸**：有纸验证页尾显式 `M30` 成功、`Changing=On`、`error:90` 和换纸中 abort 三支。
+7. **断连复位重发实测**：🟡 `3ca9d31` 普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成与 fresh `Idle`；最终页尾自动换纸因无纸 `error:90`（当时无纸）。证据：`results/bringup-8.3-fault-capture-20260729-010436.md`、`results/s3-3ca9d31-8.3-pen-timeout-evidence-20260729.md`。**仍缺**该路径在 `c1267ec` 上的回归。
+8. **实测自动换纸**：✅ 2026-07-29 有纸实测页尾显式 `M30` 成功——`[PaperStatus] 0`、fresh `Idle`、`state=done`，全程无 `error:90`（`results/s3-c1267ec-paper-draw-done-evidence-20260729.md`）。本次换纸约 9s，未压到 silent-poll 21s 阈值。**仍缺** `Changing=On` 分流、换纸中 abort 两支。
 9. **换纸 `Changing=On` 验证**：有纸时触发换纸，`[ESP901]` 返回 `Changing=On`。
 10. **端到端语音出图**：App 语音 → 小智云 → MCP 生成 → S3 下载 → Pipe 转发 → Grbl 画。
 11. 本仓交接：`python scripts/agent_gate.py --profile hub`。
