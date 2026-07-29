@@ -68,12 +68,15 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 |------|----------|
 | Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:138-252` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
 | 跨连接残留 1073 字节污染 run1 | run1 全程 `Bf:24x,1200`，Telnet RX 全空（`Bf:249,127` 是 S4 断连那次的另一会话，别往 run1 身上套） |
-| `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-111`）环绕算术正确；`Serial.cpp:185-187` 写与 `:231-235` 读同用 `myMutex` |
+| `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-63`/`:99-111`）自身无锁但受外层保护：实测 `Serial.cpp:185-187`（write）与 `:232-234`（read）**都在** `vTaskEnterCritical(&myMutex)` 临界区内 |
 | 重入 `protocol_poll_client` 导致行乱序 | 全项目 6 个调用点都在 `Protocol.cpp`；`protocol_service_during_blocking` 只被 `PaperSystem.cpp:147`（换纸）调用，画线期不进 |
 | 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
 | 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
+| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:1574-1579` 窗口化分支收 `error:8` 直接 fail closed（重发只在 `hutuji_job.cc:1434-1445` 换纸逐行分支，上限 8 次），run1 完整走完且日志无 error——该错序机制不成立 |
 | 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
+
+另：**字节级「丢字节/缓冲读错位」类假设整体站不住**——丢字节只能产生原序列的子序列，解释不了 run1 的「B 完整出现在 A 之前」；A、B 相邻两行只差 `Y60.000`↔`Y200.000`，这种跨行字段互换也无法由读错位生成。
 
 **`Bf:` 两个数别读错**（我踩过）：第一个是 planner **可用块数**，`BLOCK_BUFFER_SIZE 250`（`Config.h:469`），所以 idle=249、画线 240 表示排了 9 块——**不能拿它数“一共几块”**；第二个是 Telnet RX 可用字节（`TELNETRXBUFFERSIZE=1200`）。
 

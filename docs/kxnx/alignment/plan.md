@@ -27,6 +27,9 @@ document_end = "G1G90 Z0.0F10000\n"
 与奎享缓存内容的有意差异只有收尾：奎享普通 Grbl 输出会追加 `G90G0 X0Y0`，
 hutuji 必须省略，因为当前 Grbl fork 会把执行到工件 XY≈0 的 `G0` 映射为换纸触发。
 
+更完整的**有意不对齐清单**（断线恢复、合批写、收尾、中止、笔控数值五项）见
+`docs/kxnx/findings/17-reconnect-resend-hazard.md` §5。
+
 ## 证据边界
 
 - `C:\Program Files (x86)\kdraw(x64)\cache\2..10.gcode` 是 9 个缓存文件，但 SHA256

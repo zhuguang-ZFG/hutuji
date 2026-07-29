@@ -1,6 +1,6 @@
 # 深度逆向：Grbl 控制器 `machine/grbl/a.java`
 
-> 源文件：`kxnx 仓 kx/windows_hutuji/decompiled/com/kenjoy/kenjoycnc/machine/grbl/a.java`（376 行，CFR 反编译，混淆名）
+> 源文件：kxnx 仓 `kx/tools/dump_agent/decompiled_java/com/kenjoy/kenjoycnc/machine/grbl/a.java`（CFR 反编译，混淆名；**行号基准=主树 `decompiled_java/`**，在 `decompiled_full/` 树里同文件行号小 3，见 `docs/kxnx/README.md`「反编译源码树」）
 >
 > 这是奎享与 Grbl 写字机交互的**完整控制器**。本文逐方法剖析，覆盖：连接握手、状态解析、笔控、校准、归零、点动、休眠、解锁、ESP 命令路由。是 hutuji 对齐奎享的**权威依据**。
 

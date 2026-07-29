@@ -2,14 +2,14 @@
 
 > 用途：为 hutuji 写字机**笔控方式对齐奎享**提供依据。奎享是这套 Grbl 写字机硬件的**原配上位机**，它的 G-code 序列在现役机器上验证过能正常出图——以它为参照比从零推导可靠得多。
 >
-> **反编译源码与完整素材已迁至独立仓库**：[github.com/zhuguang-ZFG/kxnx](https://github.com/zhuguang-ZFG/kxnx) → `kx/windows_hutuji/`。本目录只保留**逆向发现与对齐计划文档**，避免主仓膨胀（反编译 291 个混淆名 .java 集中在 kxnx 仓）。
+> **反编译源码与完整素材已迁至独立仓库**：[github.com/zhuguang-ZFG/kxnx](https://github.com/zhuguang-ZFG/kxnx)。本目录只保留**逆向发现与对齐计划文档**，避免主仓膨胀（混淆名 .java 集中在 kxnx 仓，确切路径见下方「反编译源码树」——两棵树混淆名不同，引用前必须确认用的是哪棵）。
 
 ## 目录结构
 
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（16 份，深度递进）
+├── findings/                      ← 逆向发现（17 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -24,12 +24,27 @@ docs/kxnx/
 │   ├── 13-path-params-and-quality.md ← 路径参数与画质档位（simplePaths / nearDst / DrawQuality）
 │   ├── 14-engineering-details.md ← 工程细节补遗
 │   ├── 15-task-scheduling-and-progress.md ← 任务调度/进度反馈 + 线程模型/看门狗勘误
+│   ├── 16-wifi-discovery-and-connect.md ← WiFi 发现与连接全链路（含一处我方真实缺陷）
+│   ├── 17-reconnect-resend-hazard.md ← 奎享重连重发缺陷与我方「不对齐」决定
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
 ```
 
-**反编译源码**（笔控/出图/配置相关 291 个 .java）在 kxnx 仓：`kx/windows_hutuji/decompiled/`。
+## 反编译源码树（三棵，混淆名与行号互不通用）
+
+kxnx 仓 `kx/tools/dump_agent/` 下并存三棵反编译树，**引用前必须确认用的是哪棵**：
+
+| 树 | .java 数 | 混淆命名体系 | 判据：CommandSender 所在 |
+|----|---------|------------|------------------------|
+| `decompiled_java/` ← 本目录 findings 05 / 17 的基准 | 446 | A | `machine/f/b.java` |
+| `decompiled_full/` ← findings 16 的基准；A 体系超集，多含 `com/kvenjoy/drawsoft/lib/remote/` | 920 | A | `machine/f/b.java` |
+| `windows_reverse/decompiled_java/` | 958 | B（字母整体位移）| `machine/g/b.java` |
+
+- 判定方法：`grep -rl BlockingDeque <树>`，命中 `machine/f/b.java` 是 A 体系，命中 `machine/g/b.java` 是 B 体系。
+- A 体系两棵树的同名文件内容基本相同，但 `decompiled_java/` 少数文件头多 3 行 CFR `Could not load the following classes` 注释，**行号比 `decompiled_full/` 大 3**。实测：`machine/grbl/a.java` 的 `G90G0 X0Y0` 在 `decompiled_java/` 是 `:300`、在 `decompiled_full/` 是 `:297`；而 `machine/f/b.java` 两树均 159 行、逐字节相同。
+- 因此**行号只在声明了基准树时才有意义**，各 findings 头部均已注明。
+- 旧路径 `kx/windows_hutuji/decompiled/` **不存在**（历史文档遗留写法，见到即为过时）。
 
 ## 三句话结论
 
@@ -53,15 +68,16 @@ docs/kxnx/
 | `Servo_bachin` | `M3 S<penDownPos>` | `M3 S<penUpPos>` |
 | `Custom` | `customOnCode` | `customOffCode` |
 
-## 关键源文件索引（在 kxnx 仓 `kx/windows_hutuji/decompiled/`）
+## 关键源文件索引（行号基准 = 主树 `kx/tools/dump_agent/decompiled_java/`）
 
 | 文件 | 看什么 |
 |------|--------|
 | `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）；`a(boolean)` 在连接/首次笔控前旁路 `G92 Z0`（行 253-263）；下载产物无 G92（见 findings/02、12）|
-| `com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java` | `zOn/zOff/zSpeed/type` 字段定义 |
+| `com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java` | `zOn/zOff/zSpeed/type` 字段定义（`2.0/0.0/3000` 是**出厂缺省**，不是我方取值；我方实测 `5.0/0.0/F10000`）|
 | `com/kenjoy/kenjoycnc/machine/marlin/a.java` | Stepper 笔控跨固件一致性（行 196-200）|
 | `com/kenjoy/kenjoycnc/h/d.java` | **校准测试图案**生成器（固定箭头+10×10方框+追加 test.gcode），**不是**出图拼接模板；勿据此推出图序列 |
-| `com/kenjoy/kenjoycnc/machine/grbl/a.java` `b()` :297 | 出图收尾回原点 = `G90G0 X0Y0`（我方 toml 有意省略：本机固件判为换纸触发）|
+| `com/kenjoy/kenjoycnc/machine/grbl/a.java` `b()` :300 | 出图收尾回原点 = `G90G0 X0Y0`（我方 toml 有意省略：本机固件判为换纸触发）。注：在 `decompiled_full/` 树里同一句是 `:297` |
+| `com/kenjoy/kenjoycnc/machine/f/b.java` | CommandSender：窗口 100 字节 character-counting（`:70`），重连只把最后一条在途行挪到队尾（`:83-88`，缺陷，见 findings/17）|
 | `com/kvenjoy/drawsoft/lib/grbl/Type.java` | 笔控类型枚举 |
 
 ## 合规说明
