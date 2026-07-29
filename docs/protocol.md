@@ -141,7 +141,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 - **逐行发送，收到 `ok\r\n` 才发下一行**；`error:NN\r\n`（数字格式）按 §7 处理。**无 character-counting**，禁止预发抢跑（client_buffer 溢出会丢字节）。
 - **单行 ≤ 255 字符**（`LINE_BUFFER_SIZE 256`），超长回 `error:11`。MCP 生成端折行负责。
-- **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s（换纸行放宽到 90s）。此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。
+- **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s（换纸行放宽到 90s）。此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。换纸期间 Grbl 主循环不转，S3 周期性 `?` 不会收到状态行；Pipe 用 `expect_blocking_peer_` 标记换纸期，silent-poll 超时不掐链（TCP keepalive 兜底），换纸结束/任务收尾清回。
   - ⚠️ **进度反馈不能靠 `[PaperAuto-N]`**（§2：那些走 CLIENT_SERIAL，Telnet 收不到）。S3 判「仍在换纸」的手段只有：**自己发的是 M30/M721**（自知，正常出图期够用），或换纸期周期性 `?` 探活（走实时旁路、换纸期可响应，见 §2）。结果码 `[PaperStatus] N` 须靠 §9 的路由改动才能到达。
 - 实时命令（`!` 暂停、`~` 恢复、`?` 状态、`0x18` 软复位）单字节立即生效，走实时旁路**不进 client_buffer、不吃 `ok`**（`is_realtime_command` 仅认这四个 + `≥0x80`）；`?` 的应答只回给发送 client。
 - **`0x18` 特例**：换纸开始后 8s 窗口内被 `paper_should_ignore_host_reset()` 忽略（且「已忽略」提示只发 CLIENT_SERIAL，Telnet 收不到）；窗口后才中止换纸。`abort` 实现须注意（§4）。

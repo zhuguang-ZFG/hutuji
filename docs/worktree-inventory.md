@@ -45,6 +45,7 @@
 | **当前源码 HEAD** `3ca9d31` | `feat/hutuji-usb-pipe` | `05f4563` 行为基线 + `27eff73` 默认关闭的 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 注入 + `M3/M5` planner-sync `ok` 长等待修复 | 已提交/推送；默认 IDF 6.0.1 构建通过（`xiaozhi.bin=0x2cce30`，余 `0x1231d0`/29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，余 `0x122f90`/29%，SHA256 `98C3B6AF...C122C`） |
 | **当前实机烧录基线** `3ca9d31` 自动测试镜像 | `feat/hutuji-usb-pipe` | 含显式 `M30`、重连先判 `Changing`、受限 reset、废纸换纸与 PSRAM 从头重发；修复页尾 `M5` 长等待 | S3-LC-01/MK38 8.3 复测：`results/bringup-8.3-fault-capture-20260729-010436.md`。普通画线断连后已出现重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 重画、55/55 行完成与 fresh `Idle`；最终页尾自动换纸因无纸 `[PaperStatus] 2` + `error:90`，任务 `state=error`，不等于有纸自动换纸或完整 `done/Idle` |
 | **工作树** | untracked build dir only | `git status --short` 显示 `?? build-hutuji-8_3-autodraw/` | 构建产物，不提交；不要为工作树干净删除。下一步做有纸自动换纸/`Changing=On` |
+| **已提交/已推** `c1267ec` | `main/boards/lichuang-dev/hutuji_pipe.{cc,h}`、`hutuji_job.cc` | WiFi review 三处修复：换纸期 `expect_blocking_peer_` 防 silent-poll 误杀 TCP、`StartDraw` URL 白名单（私有 IP / hutuji.donglicao.com）、`StatusJson` 去回调 sleep | 已提交/推送；IDF 6.0.1 构建验证进行中（见 `results/.tmp/xiaozhi-build-c1267ec.log`）；**未烧录实机**，bringup 8.3 证据仍基于 `3ca9d31`；有纸换纸仍待验收 |
 
 ## 明确不要做的事
 
