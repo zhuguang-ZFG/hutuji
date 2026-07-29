@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> 状态日期：2026-07-29（S3 源码 HEAD `c1267ec` 已提交/推送/构建/烧录：WiFi review 三处修复——换纸期 `expect_blocking_peer_` 防 silent-poll 误杀 TCP、`StartDraw` URL 白名单、`StatusJson` 去 sleep；Grbl `8d13b5c` 已提交、推送、COM3 烧录并完成空闲最小核验。**有纸完整画线 + 页尾 `M30` 自动换纸 `[PaperStatus] 0` + fresh `Idle` + `state=done` 已实测**（`results/s3-c1267ec-paper-draw-done-evidence-20260729.md`）；此前 `3ca9d31` 普通画线断连已实测到废纸 `M30`、PSRAM 从第 1 行重画并完成 55/55 行。有纸 `Changing=On` 分流/App 语音仍待实测）。本文是“现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
+> 状态日期：2026-07-29（S3 源码 HEAD `c1267ec` 已提交/推送/构建/烧录：WiFi review 三处修复——换纸期 `expect_blocking_peer_` 防 silent-poll 误杀 TCP、`StartDraw` URL 白名单、`StatusJson` 去 sleep；Grbl `8d13b5c` 已提交、推送、COM3 烧录并完成空闲最小核验。**有纸完整画线 + 页尾 `M30` 自动换纸 `[PaperStatus] 0` + fresh `Idle` + `state=done` 已实测**（`c1267ec`：`results/s3-c1267ec-paper-draw-done-evidence-20260729.md`；`15f73c9` 窗口化 S3 复测 `state=done` 无回归：`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）。有纸 `Changing=On` 分流/App 语音仍待实测）。本文是“现在到底做到哪”的唯一状态页；每次通过新门禁后同步更新。
 
 ## 结论
 

@@ -42,8 +42,8 @@
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
 | **已提交** `305b016` | 根 `AGENTS.md` hutuji 专节 | 约束入口 | 已推远程 |
-| **当前源码 HEAD** `c1267ec` | `feat/hutuji-usb-pipe` | `3ca9d31` 笔控基线 + WiFi review 三处修复：换纸期 `expect_blocking_peer_`、`StartDraw` URL 白名单、`StatusJson` 去 sleep | 已提交/推送/构建/烧录 COM6；默认构建 `xiaozhi.bin=0x2cd1a0`（SHA256 `9B0ACF80...09FF50`）、自动测试镜像 `0x2cd3e0`（SHA256 `F3CA4393...C188`）；**有纸完整画线 + `M30` `[PaperStatus] 0` + fresh `Idle` + `state=done` 已实测**（`results/s3-c1267ec-paper-draw-done-evidence-20260729.md`） |
-| **当前实机烧录基线** `c1267ec` 自动测试镜像 | `feat/hutuji-usb-pipe` | 含显式 `M30`、重连先判 `Changing`、受限 reset、废纸换纸与 PSRAM 从头重发；换纸期防 silent-poll 误杀 TCP | S3-LC-01/MK38 有纸复测：14 行画完 → `M30` → `[PaperStatus] 0` → fresh `Idle` → `state=done`，无 `error:90`；本次换纸约 9s，未压到 silent-poll 21s 阈值；`3ca9d31` 的 8.3 断连重画证据仍有效但未在本固件回归 |
+| **当前源码 HEAD** `15f73c9` | `feat/hutuji-usb-pipe` | `c1267ec` WiFi 修复 + C: ETA（对齐奎享 f.java j()/h()）+ A: 窗口化流控 S3（window=512、换纸行排空、c_line FIFO） | 已提交/推送/构建/烧录 COM6；自动测试镜像 `xiaozhi.bin=0x2cdcb0`（SHA256 `090D65AB...8D0E`）；有纸窗口化 draw `state=done` 无回归（`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）；窗口满路径未压到（图<512B） |
+| **当前实机烧录基线** `15f73c9` 自动测试镜像 | `feat/hutuji-usb-pipe` | `c1267ec` 基线 + 窗口化流控 S3 + ETA；换纸期防 silent-poll 误杀 TCP | S3-LC-01/MK38 有纸复测：窗口化 draw 14 行 → `M30` → `state=done`，无 `error:8`/窗口死锁；窗口满路径未压到（图<512B）；8.3 断连重画未在本固件回归 |
 | **工作树** | untracked build dir only | `git status --short` 显示 `?? build-hutuji-8_3-autodraw/` | 构建产物，不提交；不要为工作树干净删除。下一步做有纸自动换纸/`Changing=On` |
 
 ## 明确不要做的事
