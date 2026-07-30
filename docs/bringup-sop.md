@@ -134,11 +134,10 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 **通过判据**：`hutuji.status` 显示 connected + ready + authorized。
 
-**当前记录（2026-07-29）**：S3-LC-01 已烧录 `3ca9d31` 的 8.3 自动触发镜像。COM9/COM3 采集
+**当前记录（2026-07-30）**：历史 2026-07-29 记录中，S3-LC-01 已烧录 `3ca9d31` 的 8.3 自动触发镜像，COM9/COM3 采集
 `results/bringup-8.3-fault-capture-20260729-010436.md` 确认普通画线断连后完成重连、`Changing=Off`、
 废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成与 fresh `Idle`；最终页尾自动换纸
-因无纸返回 `[PaperStatus] 2` + `error:90`，任务最终 `state=error`。因此阶段 5 的构建/烧录与
-断连重发主路径有证据，但仍缺有纸 `Changing=On`、有纸自动换纸成功、App 真实语音。
+因无纸返回 `[PaperStatus] 2` + `error:90`，任务最终 `state=error`。2026-07-30 B-12/B-13 在 `13057e8`/`0x2ce890` 上补齐：S3 自动路径出墨、页尾 `[PaperStatus] 0` + `state=done`，并通过 HTTP `[ESP901]` 高频轮询在 `M30` 后 0.14s–10.11s 捕获 `Changing=On`。因此阶段 5 的构建/烧录、出墨、换纸成功和 `Changing=On` 均有证据；仍缺换纸中 abort、App 真实语音。
 
 **排障**：
 - 连不上 → 查 S3 与写字机是否同一路由器、IP 是否写对、写字机 Telnet 是否开。

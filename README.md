@@ -65,7 +65,7 @@
 ## 路线图
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、**本仓门禁/硬轨** — ✅ 见 `docs/foundation-checklist.md`
-2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 源码 HEAD `13057e8` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底）；当前 COM6 板上镜像 `0x2ce890` 内容对应 `13057e8`，2026-07-29 20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；2026-07-30 B-12 已归档 S3 自动路径出墨：`G92 Z0` + `Z5.0F10000` 自动落笔，409 行测试件全线连续，页尾 `M30` 后 `state=done`。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过；Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；缺有纸 `Changing=On` 分流、P2 S3/S4
+2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 源码 HEAD `13057e8` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底）；当前 COM6 板上镜像 `0x2ce890` 内容对应 `13057e8`，2026-07-29 20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；2026-07-30 B-12 已归档 S3 自动路径出墨：`G92 Z0` + `Z5.0F10000` 自动落笔，409 行测试件全线连续，页尾 `M30` 后 `state=done`。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过；Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；缺换纸中 abort、P2 S3/S4
 3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云 `draw/status/abort` 调用已通；缺 App 真实语音验收
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 

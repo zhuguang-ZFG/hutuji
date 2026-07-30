@@ -29,7 +29,7 @@
 | M1 Telnet 连接、发现、探活 | ✅ 已烧录实测 | NVS IP 缓存 + `/24` 扫描，候选须通过 Grbl banner 校验；`05f4563` 启动后 Telnet/授权/fresh-`Idle` 核验通过，双端 keepalive 已验证 |
 | M2 下载/CRC/授权/逐行流控 | 🟡 关键闭环已实测 | 全量下载、长度/CRC、授权门、逐行 `ok` 配对和 fresh-`Idle` 完成判定已回归 |
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；普通画线断连后的废纸处理与 PSRAM 从头重发主路径已实测，最终页尾无纸 `error:90`，8.3 尚未完整通过 |
-| 硬件冒烟与多页换纸 | 🔴 未闭合 | 8.3 自动触发镜像已多轮烧录 COM6（最新一轮见下）；仍缺有纸 `Changing=On`、自动换纸成功、最终 `done/Idle` 与 App 真实语音 |
+| 硬件冒烟与多页换纸 | 🟡 关键有纸路径已实测 | `13057e8`/`0x2ce890` 已有 S3 自动路径出墨、页尾 `[PaperStatus] 0` + `state=done`；2026-07-30 B-13 已捕获有纸 `Changing=On`。仍缺换纸中 abort、App 真实语音、P2 S3/S4 |
 
 当前源码 HEAD 是 `13057e8`（`feat/hutuji-usb-pipe`，已提交并推送）：`c1267ec` WiFi 三修 →
 `ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）→
