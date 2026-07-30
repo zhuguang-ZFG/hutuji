@@ -67,6 +67,7 @@
 | **当前源码 HEAD（B-15）** `f1cf066` | `main/CMakeLists.txt`、`main/boards/lichuang-dev/lichuang_dev_board.cc`（`+44/−0`，纯新增） | 默认关闭的 bringup §8.5 取证脚手架 `HUTUJI_AUTO_TEST_ABORT_ON_PAPER`：CMake option + 板型校验；板级 `auto_test_abort` 任务 50ms 轮询 `IsPaperActive()`，换纸窗一开即本地调 `RequestAbort()` 并打印前后 `status`。默认构建已实证不含该代码（`0x2ce680` 字符串搜证 MISS） | **已提交/推送**（2026-07-30 `git push origin feat/hutuji-usb-pipe` → `13057e8..f1cf066`）、**未烧录**——板上仍是 `0x2ce890`（内容 = `13057e8`）。取证镜像 `build-hutuji-8_5-abort/xiaozhi.bin=0x2ceb10`（SHA256 `F7FF3525…4BF2`）；实测完成后按 §8.5 回刷不带宏镜像 |
 | **工作树（用户资产，勿动）** | 未跟踪 `build-hutuji-8_3-autodraw/`、`build-hutuji-f1000-autodraw/`、`build-hutuji-8_5-abort/`、`build-hutuji-8_5-defaultcheck/` | 均为构建产物（后两个是 B-15 取证镜像与默认对照） | **不提交、不删**。下一步做换纸中 abort 有纸实测 |
 | 已推 `255f133`（审查修复 2026-07-31） | `main/boards/lichuang-dev/hutuji_job.cc` | P1-2：`WaitWhilePaused` 超时路径补 `!` → 等 Hold → `PrepareAbortReset()` → `0x18` 冲 planner，避免 Grbl 锁 Hold 后后续任务永远等不到 Idle | 源码级修复；**未构建/未烧录**（需 IDF 构建 + COM6 烧录 + 刻意暂停超时验证） |
+| 已推 `06b962c`（逆向行号漂移修正 2026-07-31） | `main/boards/lichuang-dev/hutuji_pipe.cc` | 注释 `5s+5s`→`5s+约1s`、`grbl/a.java:382-404`→`:379-408`，与 `docs/kxnx/findings/21` §2.1/§2.4 对齐（findings/21 §7 自标的活债） | 纯注释不改行为；未构建/未烧录 |
 
 ## 明确不要做的事
 
