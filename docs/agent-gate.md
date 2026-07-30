@@ -26,7 +26,7 @@
 |---------|--------|--------|
 | `docs` | 只改文档/模板/规则 | 必备文件存在；决策锚点在位；禁止重开措辞未复活；文档 `path:line` 引用未越界 |
 | `hub`（**默认**） | 改本仓 MCP / 脚本 / 协议说明 | `docs` + pytest 全绿 + `e2e_local.py` 输出 `PASS` |
-| `full` | 改了 Grbl 或声称 §9/联调推进 | `hub` + Grbl §9 **源码标记**检查（未设 `GRBL_ROOT` 直接 **fail**，不再 skip）+ **提示**必须再跑 fz `agent_gate.py` |
+| `full` | 改了 Grbl 或声称 §9/联调推进 | `hub` + 文档**外仓** `path:line` 引用未越界 + Grbl §9 **源码标记**检查（未设 `GRBL_ROOT` 直接 **fail**，不再 skip）+ **提示**必须再跑 fz `agent_gate.py` |
 
 > `full` **不会**自动替你跑 fz 门禁（耗时长、依赖本机 fz）。  
 > 改了 `D:/Users/Grbl_Esp32` 后，你必须**自己**跑 fz，且 `overall_status=pass` 才能声称修好。
@@ -35,8 +35,17 @@
 `file.ext:12` 与 `file.ext:12-34` 引用，校验目标文件行数覆盖该行号（区间取较大端）：
 
 - 只认能**唯一**落到本仓的引用：相对路径直接命中，或裸文件名在本仓内恰好 1 个同名文件命中；`.venv`/`.claude`/`results`/`output` 等副本目录不参与解析（`.claude/worktrees/*` 是整仓副本，会把唯一性打破）。
-- fork 侧与逆向产物路径（`hutuji_pipe.cc:850`、`Report.cpp:605`、`grbl/a.java:262-284`）本仓无对应文件，一律跳过——本层管「行号过期」，不管「路径拼错」，也不跨仓读文件。
+- 落不到本仓的引用（fork 侧、逆向产物）本层一律跳过；`full` profile 由下面的 `external_doc_line_refs` 接管。本层不管「路径拼错」。
 - detail 同时报 `校验 N 处` 与 `跳过 M 处`；`N=0` 判 **fail**（解析规则失效的空转门禁比红更危险）。行号在范围内 ≠ 指向对的代码，语义仍须人工核对。
+
+`external_doc_line_refs` 层（**仅 `full`**）把同一套校验延伸到三个只读参考仓——本仓文档里的
+`path:line` 引用九成指向那边（`hutuji_pipe.cc`、`Serial.cpp`、`grbl_plotter.py`…），只在本仓解析
+等于放着最大的漂移面不管：
+
+- 仓库路径取环境变量 `GRBL_ROOT` / `XIAOZHI_ROOT` / `INKSCAPE_PX_ROOT`，缺省用 `AGENTS.md` 记载的本机布局；目录不存在整仓跳过（换机器不该因为没有这些 fork 而变红）。
+- 每仓只索引白名单子目录（`Grbl_Esp32/` + `doc/`、`main/`、`inkscape-clean/`），并排掉 `.pio`/`build`/`managed_components`/`release*` 等副本。**inkscape_px 里那份旧 `Grbl_Esp32/` 副本被有意排除**——纳进来会让几乎所有 Grbl 源码引用退化成同名两份而跳过，整层假绿。
+- 同名多份（如 `paixi_runtime/` 在 `tools/` 与 `share/extensions/` 各存一份）一律跳过：宁可漏判，不可误判。`校验 N=0` 或三仓全缺 → **fail**。
+- 只跨仓**读**行数，绝不改外仓文件。fail 时先分清是文档行号过期还是源码已变；fork 工作树有未提交改动时行号本就会漂。
 
 ## 3. 必备文件（`docs` 层）
 
@@ -114,7 +123,7 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
-1. 有纸验证页尾显式 `M30` 自动换纸成功，并确认任务最终 `done/Idle`（`3ca9d31` 的 8.3 自动触发镜像已烧录；无纸复测止于 `error:90`）
+1. 有纸验证页尾显式 `M30` 自动换纸成功，并确认任务最终 `done/Idle`（无纸复测止于 `error:90`；当前烧录基线见 `docs/release-readiness.md`）
 2. 有纸验证 `Changing=On` 与换纸态断连分流：不得发 reset/M30，并覆盖 `error:90` 与换纸中 abort
 3. 完成 App 真实语音端到端及七工具逐项云端行为回归
 4. 完成 P2 S3/S4 与生产签核
@@ -129,6 +138,10 @@ python scripts\agent_gate.py              # 默认 hub
 python scripts\agent_gate.py --profile docs
 python scripts\agent_gate.py --profile full   # 需 GRBL_ROOT；仍要另跑 fz
 ```
+
+`full` 的 `external_doc_line_refs` 层还会读 `XIAOZHI_ROOT`（缺省 `D:\Users\xiaozhi-esp32`）
+与 `INKSCAPE_PX_ROOT`（缺省 `D:\GitHub\inkscape_px`）；三仓路径与本机不同就显式设，
+全都不在本机时该层判 **fail**（不是 skip）。
 
 `hub`/`full` 跑 pytest 时，脚本用 `mkdtemp` 在仓库内 `results/.tmp/` 下新建独占
 临时目录（`pytest-*`）并禁用 pytest cache 写入，避免 Windows 系统 `%TEMP%` 权限

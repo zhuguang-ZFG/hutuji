@@ -474,7 +474,7 @@ S3 窗口化需要在发送前知道「下一行长度」（peek）；本设计�
 | 窗口化能消除 WiFi 卡顿 | **推断** | 原理 + 奎享现役产品间接证据 | **S3 必须走 Telnet 实测**；串口实测已证明不能外推 |
 | 奎享窗口值 Grbl=100/Marlin=96/KAT 继承 96/EBB=-1 | **强** | 反编译全树 4 个 `g()` override + 继承链（§2 二次深挖） | CFR 泵循环控制流重构不可考（算术可靠） |
 | 奎享 error/resend=整批作废，非逐条释放 | **中** | `b.java:144/149-155`（与官方 R2 取舍不同，见 §2） | — |
-| inkscape_px 控制台窗口化实现存在但 error 抛异常 | **中** | `serial_runtime.py:147-215`，窗口默认 120B，无测试覆盖 | 不能当测试完备参考 |
+| inkscape_px 控制台窗口化实现存在但 error 抛异常 | **中** | `serial_runtime.py:130-203`，窗口默认 120B，无测试覆盖 | 不能当测试完备参考 |
 
 ### 8.0 本地参考仓 inkscape_px 的两套发送器（2026-07-28 二次深挖新增）
 
@@ -483,7 +483,7 @@ S3 窗口化需要在发送前知道「下一行长度」（peek）；本设计�
 | 实现 | 位置 | 流控 | 窗口值 |
 |---|---|---|---|
 | Inkscape 插件 | `inkscape-clean/share/extensions/paixi_runtime/grbl_serial_ops.py:128-157` | 逐行 `write_and_wait` | 1（逐行） |
-| 后台控制台 | `inkscape-clean/tools/paixi_runtime/serial_runtime.py:147-215` | **字节窗口化** | **默认 120 字节** |
+| 后台控制台 | `inkscape-clean/tools/paixi_runtime/serial_runtime.py:130-203` | **字节窗口化** | **默认 120 字节** |
 
 `serial_runtime.send_program` 与官方 `stream.py` 同构：`line_bytes = len(text)+1`（R1），
 `inflight_bytes + size <= buffer_bytes` 才发（窗口判定），收到 `ok` 才 `inflight.pop(0)` 释放。

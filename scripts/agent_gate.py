@@ -289,6 +289,36 @@ _REF_SKIP_DIRS = {
     "results",
 }
 
+# full profile 额外解析的外仓/参考仓。本仓文档里 114 处 `path:line` 引用有 103 处是
+# 裸文件名且指向这三处（`hutuji_pipe.cc` 11 次、`Serial.cpp`/`Protocol.cpp` 各 9 次…），
+# 只在本仓解析等于放着最大的漂移面不管。路径优先取环境变量，缺省用 AGENTS.md 记载的
+# 本机布局；目录不存在就整仓跳过——换机器不该因为别人没有这些 fork 而变红。
+# 每项为 (环境变量, 默认路径, 只扫这些子目录)。
+# inkscape_px 里另有一份旧 `Grbl_Esp32/` 源码副本，纳进索引会让本仓文档里几乎所有
+# Grbl 源码引用（`Serial.cpp`/`Protocol.cpp`/`Report.cpp`…）都变成同名两份而被跳过，
+# 整层退化成假绿，所以只索引 `inkscape-clean/`；Grbl 侧补 `doc/`（`stream.py`
+# 与 `simple_stream.py` 在 `doc/script/` 下，不在 `Grbl_Esp32/` 子树里）。
+_EXTERNAL_REPOS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("GRBL_ROOT", "D:/Users/Grbl_Esp32", ("Grbl_Esp32", "doc")),
+    ("XIAOZHI_ROOT", "D:/Users/xiaozhi-esp32", ("main",)),
+    ("INKSCAPE_PX_ROOT", "D:/GitHub/inkscape_px", ("inkscape-clean",)),
+)
+
+# 外仓里必须跳过的目录：构建产物与依赖副本，以及 inkscape_px 的 release*/ 打包副本
+# （同一份 grbl_plotter.py 在 release 下有 8 份，不排掉 basename 永远不唯一，
+# 整层就会退化成全跳过的假绿）。
+_EXT_SKIP_DIRS = {
+    ".git",
+    ".pio",
+    ".venv",
+    "build",
+    "dist",
+    "managed_components",
+    "node_modules",
+    "__pycache__",
+}
+_EXT_SKIP_PREFIXES = ("release",)
+
 
 def _repo_file_index() -> dict[str, list[Path]]:
     """本仓文件名 → 路径列表，供文档引用的 basename 兜底解析。"""
@@ -363,6 +393,83 @@ def check_doc_line_refs() -> dict[str, Any]:
         "pass",
         f"校验 {checked} 处行号均在范围内；跳过 {skipped} 处（外仓/无法唯一定位）",
     )
+
+
+def _external_index() -> tuple[dict[str, list[Path]], list[str], list[str]]:
+    """外仓文件名 → 路径列表，附带已纳入 / 未找到的仓标签。
+
+    索引三个仓合并成一张表：跨仓同名（如 inkscape_px 里也有一份 `Grbl_Esp32/`）时
+    命中不唯一，自动落到「跳过」——无法判断文档指哪一份时宁可漏判，不可误判。
+    """
+    index: dict[str, list[Path]] = {}
+    present: list[str] = []
+    absent: list[str] = []
+    for env, default, subdirs in _EXTERNAL_REPOS:
+        root = Path(os.environ.get(env) or default)
+        if not root.is_dir():
+            absent.append(f"{env}={root}")
+            continue
+        present.append(f"{env}={root}")
+        for sub in subdirs:
+            base = root / sub
+            if not base.is_dir():
+                continue
+            for dirpath, dirnames, filenames in os.walk(base):
+                dirnames[:] = [
+                    d
+                    for d in dirnames
+                    if d not in _EXT_SKIP_DIRS and not d.startswith(_EXT_SKIP_PREFIXES)
+                ]
+                for name in filenames:
+                    index.setdefault(name, []).append(Path(dirpath) / name)
+    return index, present, absent
+
+
+def check_external_doc_line_refs() -> dict[str, Any]:
+    """full profile：把文档引用的 fork / 参考仓行号也校验一遍。
+
+    hub 层只认本仓文件，外仓引用一律跳过（114 处里有 103 处）。行号漂掉的证据引用
+    等于没有证据，full 下必须把这批也校验掉；命中不唯一仍跳过，见 _external_index。
+    """
+    label = "文档 path:line 外仓引用"
+    index, present, absent = _external_index()
+    if not present:
+        detail = "三个外仓路径都不存在（" + "; ".join(absent) + "）；设 GRBL_ROOT/XIAOZHI_ROOT/INKSCAPE_PX_ROOT"
+        return _layer("external_doc_line_refs", label, "fail", detail)
+    md_files = sorted({*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")})
+    bad: list[str] = []
+    checked = 0
+    skipped = 0
+    for md in md_files:
+        text = md.read_text(encoding="utf-8", errors="replace")
+        rel_md = md.relative_to(ROOT).as_posix()
+        for m in _DOC_REF_RE.finditer(text):
+            ref = m.group(1).replace("\\", "/").lstrip("./")
+            if (ROOT / ref).is_file():
+                continue  # 本仓的归 doc_line_refs 层管
+            cands = index.get(ref.rsplit("/", 1)[-1], [])
+            if "/" in ref:
+                suffix = "/" + ref
+                cands = [p for p in cands if p.as_posix().endswith(suffix)]
+            if len(cands) != 1:
+                skipped += 1
+                continue
+            target = cands[0]
+            lineno = max(int(m.group(2)), int(m.group(3) or 0))
+            checked += 1
+            total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            if lineno < 1 or lineno > total:
+                bad.append(f"{rel_md} → {ref}:{lineno}（实际 {total} 行）")
+    if bad:
+        tail = "；fork 工作树有未提交改动时行号会漂，先分清是文档过期还是源码已变"
+        detail = f"{len(bad)}/{checked} 处行号越界：" + "; ".join(bad[:8]) + tail
+        return _layer("external_doc_line_refs", label, "fail", detail)
+    if checked == 0:
+        detail = f"一条外仓引用都没解析到（跳过 {skipped} 处）——子目录白名单或文档约定已变，先修门禁"
+        return _layer("external_doc_line_refs", label, "fail", detail)
+    note = f"；未找到 {', '.join(absent)}" if absent else ""
+    detail = f"校验 {checked} 处行号均在范围内；跳过 {skipped} 处（同名多份/无法定位）{note}"
+    return _layer("external_doc_line_refs", label, "pass", detail)
 
 
 def _mcp_python() -> Path | None:
@@ -547,6 +654,7 @@ def main(argv: list[str] | None = None) -> int:
         layers.append(run_e2e())
 
     if args.profile == "full":
+        layers.append(check_external_doc_line_refs())
         grbl = os.environ.get("GRBL_ROOT")
         layers.append(check_section9(Path(grbl) if grbl else None))
 
