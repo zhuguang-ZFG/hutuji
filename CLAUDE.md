@@ -128,7 +128,7 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 源码 HEAD `13057e8` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底，固化此前 3 个未提交文件）；当前 COM6 板上镜像 `0x2ce890`（20:39 构建）内容对应 `13057e8`，20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；autodraw URL 硬编码 `http://192.168.1.3:8300/files/f1000-line.gcode`，上电即自动画。S3 自动路径出墨仍无归档证据。历史 `3ca9d31` 默认构建、8.3 自动触发镜像与 `15f73c9` 的 `0x2cdcb0` 均已烧录 COM6。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/逐行流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；最终页尾自动换纸因无纸 `error:90`，完整任务仍非 `done`。缺有纸自动换纸/`Changing=On`、P2 S3/S4。
+2. **② 哑管道** — 🟡 源码 HEAD `13057e8` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底，固化此前 3 个未提交文件）；当前 COM6 板上镜像 `0x2ce890`（20:39 构建）内容对应 `13057e8`，20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行测试件全线连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史 `3ca9d31` 默认构建、8.3 自动触发镜像与 `15f73c9` 的 `0x2cdcb0` 均已烧录 COM6。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`。缺有纸 `Changing=On` 分流、P2 S3/S4。
 3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 

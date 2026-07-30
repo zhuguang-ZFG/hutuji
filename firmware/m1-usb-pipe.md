@@ -4,7 +4,7 @@
 > `3ca9d31`（`05f4563` 行为基线 + `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入
 > + `M3/M5` planner-sync `ok` 长等待修复）。
 > 8.3 自动触发镜像已构建并烧录 COM6；普通画线断连后已实测到废纸 `M30`、PSRAM 从第 1 行重画、
-> 55/55 行完成与 fresh `Idle`。最终页尾自动换纸因无纸返回 `error:90`，**仍不得表述为有纸换纸、
+> 55/55 行完成与 fresh `Idle`。历史 8.3 最终页尾自动换纸曾因无纸返回 `error:90`，**仍不得表述为有纸换纸、
 > App 语音或发布验收通过。**
 > 目标板型：`lichuang-dev`（立创实战派 ESP32-S3）。
 > **2026-07-24 传输层第三版**：USB Host（硬件被 CH334F 占用否决）→ UART/CH9350（否决）
@@ -76,8 +76,8 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   该实现由 fork `13057e8` 提交/推送（`main/boards/lichuang-dev/hutuji_job.{h,cc}`、`hutuji_pipe.cc`
   的 `PreparePenOrigin`）；上一版 `15f73c9` 的 `hutuji_job.cc` 内不含任何 `G92`。含该编排的镜像
   `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已于 2026-07-29 20:41 app-flash 到 COM6 并通过 esptool
-  `Hash of data verified`（证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；S3 自动路径的真实出墨
-  **仍无归档证据**，纸面落笔迄今只由手动 Telnet 序列证实（`docs/troubleshooting.md:26`）。
+  `Hash of data verified`（证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；S3 自动路径真实出墨
+  已于 2026-07-30 B-12 归档：同一 `0x2ce890` 镜像下载 409 行/9782 字节/CRC32 `733095ec` 测试件，自动旁路 `G92 Z0` + `Z5.0F10000` 落笔，8 条线全部完整连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`。
 - 文件最后一行收到 `ok` 只表示进入 planner；任务还会发 `?` 并等待一份**新解析的**
   `Idle` 状态报告；随后 S3 单独发 `M30`，等换纸最终 `ok/error:90`，并再次确认 fresh
   `Idle` 后才置 `done`。`status_report_seq_` 防止复用旧 `Idle`。

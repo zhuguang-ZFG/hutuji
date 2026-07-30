@@ -49,9 +49,8 @@
 `results/s3-13057e8-com6-flash-evidence-20260729.md`（原始日志由 IDF 自留于
 `build-hutuji-f1000-autodraw/log/idf_py_stdout_output_36852`）。该镜像 autodraw URL 硬编码为
 `http://192.168.1.3:8300/files/f1000-line.gcode`，上电即自动下载并画。
-**烧录本身已可宣称**；落笔只在手动 Telnet 序列（`G92 Z0` →
-`G1 Z5.0 F10000`）下纸面证实，S3 自动路径出墨无归档证据（`results/` 最新证据止于
-`15f73c9` 窗口化复测）。
+**烧录本身已可宣称**；此前落笔只在手动 Telnet 序列（`G92 Z0` →
+`G1 Z5.0 F10000`）下纸面证实，S3 自动路径出墨已于 2026-07-30 B-12 归档：同一 `0x2ce890` 镜像下载 409 行/9782 字节/CRC32 `733095ec` 测试件，8 条线全部完整连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`。
 
 历史基线（勿当现状）：`3ca9d31` 在 `27eff73` 的受控自动测试入口上修复 `M3/M5` planner-sync `ok`
 的 60s 误超时，IDF 6.0.1 默认构建 `xiaozhi.bin=0x2cce30`、app 分区剩余 `0x1231d0`/29%、SHA256

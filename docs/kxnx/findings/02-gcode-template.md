@@ -88,7 +88,7 @@ document_end   = "G1G90 Z0.0F10000\n"
 `G92 Z0` 的新编排已由 fork `13057e8` 提交/推送（`PreparePenOrigin`，上一版 `15f73c9` 不含 `G92`），
 对应镜像 `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已构建并于 2026-07-29 20:41 app-flash 到 COM6
 并通过 esptool 自校验（证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；
-**S3 自动路径的真实出墨仍无归档证据**，纸面落笔目前只由手动 Telnet 序列证实（`docs/troubleshooting.md:26`）。
+**S3 自动路径真实出墨已于 2026-07-30 B-12 归档**：同一 `0x2ce890` 镜像下载 409 行/9782 字节/CRC32 `733095ec` 测试件，自动旁路 `G92 Z0` + `Z5.0F10000` 落笔，8 条线全部完整连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`。
 
 ## 已纠正（原基于源码推导的错误结论）
 
