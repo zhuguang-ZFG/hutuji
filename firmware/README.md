@@ -29,17 +29,29 @@
 | M1 Telnet 连接、发现、探活 | ✅ 已烧录实测 | NVS IP 缓存 + `/24` 扫描，候选须通过 Grbl banner 校验；`05f4563` 启动后 Telnet/授权/fresh-`Idle` 核验通过，双端 keepalive 已验证 |
 | M2 下载/CRC/授权/逐行流控 | 🟡 关键闭环已实测 | 全量下载、长度/CRC、授权门、逐行 `ok` 配对和 fresh-`Idle` 完成判定已回归 |
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；普通画线断连后的废纸处理与 PSRAM 从头重发主路径已实测，最终页尾无纸 `error:90`，8.3 尚未完整通过 |
-| 硬件冒烟与多页换纸 | 🔴 未闭合 | `3ca9d31` 的 8.3 自动触发镜像已烧录；仍缺有纸 `Changing=On`、自动换纸成功、最终 `done/Idle` 与 App 真实语音 |
+| 硬件冒烟与多页换纸 | 🔴 未闭合 | 8.3 自动触发镜像已多轮烧录 COM6（最新一轮见下）；仍缺有纸 `Changing=On`、自动换纸成功、最终 `done/Idle` 与 App 真实语音 |
 
-当前源码 HEAD 是 `3ca9d31`，已提交并推送；该提交在 `27eff73` 的受控自动测试入口上修复
-`M3/M5` planner-sync `ok` 的 60s 误超时。IDF 6.0.1 默认构建通过：
-`xiaozhi.bin=0x2cce30`，app 分区剩余 `0x1231d0`/29%，SHA256
-`5D5FE23CE0DF6EE364EBACC2503E8374174781AEAE5E9BFC9BACDF227987BBA6`。
+当前源码 HEAD 是 `15f73c9`（`feat/hutuji-usb-pipe`，已提交并推送）：`c1267ec` WiFi 三修 →
+`ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）。
+该 HEAD 的 8.3 自动触发镜像 `xiaozhi.bin=0x2cdcb0`、SHA256 `090D65AB...8D0E` 已烧录 COM6，
+并完成有纸 `state=done` 复测（`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）。
 
-S3-LC-01 当前烧录的是同一 commit 的 **8.3 自动触发测试镜像**，不是默认/生产镜像；COM6 烧录产物
-`xiaozhi.bin=0x2cd070`，app 分区剩余 `0x122f90`/29%，SHA256
-`98C3B6AF0CB136AF79A0256B5FB8A5279FE0715FE087322419A791D3BD3C122C`。
-复测已看到断连、重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、
+**S3 工作树另有 3 个文件未提交**（`main/boards/lichuang-dev/hutuji_job.cc`、`hutuji_job.h`、
+`hutuji_pipe.cc`，+407/−83）：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms
+（`kPenSpringReturnMs`）后旁路 `G92 Z0`，以及 `ok` 超时按 MPos 状态兜底（`kMaxOkFallback=3`、
+`kOkFallbackPosTolMm=0.05`）。**S3-LC-01 最后一次烧录的镜像取自这批未提交改动**——2026-07-29
+20:39 构建 `xiaozhi.bin=0x2ce890`（2943120 字节），SHA256
+`853179049C21028E62DB6784E20040756DB2866A73ED93F20842EFD7A0A24C3E`，app-flash 脚本
+`results/.tmp/flash_autodraw_com6.ps1`，**烧录日志未归档**。因此当前板上行为**任何 commit 都
+复现不出**；落笔只在手动 Telnet 序列（`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实，S3 自动路径
+出墨无归档证据（`results/` 最新证据止于 `15f73c9` 窗口化复测）。
+
+历史基线（勿当现状）：`3ca9d31` 在 `27eff73` 的受控自动测试入口上修复 `M3/M5` planner-sync `ok`
+的 60s 误超时，IDF 6.0.1 默认构建 `xiaozhi.bin=0x2cce30`、app 分区剩余 `0x1231d0`/29%、SHA256
+`5D5FE23CE0DF6EE364EBACC2503E8374174781AEAE5E9BFC9BACDF227987BBA6`；其 8.3 自动触发镜像
+`xiaozhi.bin=0x2cd070`、剩余 `0x122f90`/29%、SHA256
+`98C3B6AF0CB136AF79A0256B5FB8A5279FE0715FE087322419A791D3BD3C122C` 曾烧录 COM6。
+该轮复测已看到断连、重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、
 55/55 行完成与 fresh `Idle`；最终页尾自动换纸因无纸返回 `[PaperStatus] 2` + `error:90`，
 任务 `state=error`。证据见 `results/bringup-8.3-fault-capture-20260729-010436.md` 与
 `results/s3-3ca9d31-8.3-pen-timeout-evidence-20260729.md`；不得扩大为 8.3 完整通过或有纸换纸验收。

@@ -8,7 +8,11 @@
 
 - [x] 生产 G-code 改为 Stepper 纯 Z 笔控，不再使用 `M3/M5`。
 - [x] 文件开头保留两次 `G1G90 Z0.0F10000`，作为缓存兼容的幂等抬笔运动；不把它们当作坐标校准。
-- [ ] S3 代码对齐中：完整会话每次首画/重画前等 fresh `Idle` + 100ms，再旁路固定 `G92 Z0`；下载文件仍禁 `G92`，待烧录与短线真实出墨验证。
+- [ ] S3 代码对齐中：完整会话每次首画/重画前等 fresh `Idle` + 100ms，再旁路固定 `G92 Z0`；下载文件仍禁 `G92`。
+      该编排目前**只存在于 fork 未提交工作树**（`main/boards/lichuang-dev/hutuji_job.{h,cc}`、`hutuji_pipe.cc` 的
+      `PreparePenOrigin`）；fork HEAD `15f73c9` 的 `hutuji_job.cc` 内不含任何 `G92`。含该编排的镜像
+      （`xiaozhi.bin=0x2ce890`）已构建并 app-flash 到 COM6，但烧录日志未归档；落笔迄今只在**手动 Telnet 序列**
+      （`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实（见 `docs/troubleshooting.md:26`），S3 自动路径出墨仍无归档证据。
 - [x] 画线与空走使用 `F8000`，Z 抬落笔使用 `F10000`，每个运动行显式带 F。
 - [x] 文件内无 `G4`、`M2/M30`、`M7xx`，且不以 `G0 X0Y0` 回原点。
 - [x] 文件结束只抬笔；S3 在绘图 fresh `Idle` 后将 `M30` 作为任务编排命令单独发送。
