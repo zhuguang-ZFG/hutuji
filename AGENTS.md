@@ -113,6 +113,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - `scripts/agent_gate.py` — 本仓门禁；报告固定写 `results/hutuji_gate_last.{json,md}`。
 - `docs/protocol.md` — v0.5 契约（§5 G-code、§9 Grbl 小改清单）。
 - `docs/release-readiness.md`（状态真值）、`docs/agent-handoff.md`（接手防呆）、`docs/agent-anti-drift.md`（防漂移）、`docs/agent-edit-allowlist.json`（机读白名单）、`docs/agent-constraint-matrix.md`（三仓矩阵）、`docs/worktree-inventory.md`（脏树登记）、`docs/agent-gate.md`（门禁定义）、`docs/bringup-sop.md`（阶段 0–9 判据）。
+- `docs/daytime-tuning-runbook.md` — 白天联调单日取证编排（11 步，每步 命令/期望/失败回退/取证落点；判据引用 `bringup-sop.md` 不复制，取证填 `templates/`，结论勾回 `release-readiness.md`）。
 - `.cursor/rules/hutuji-agent-rails.mdc` — Cursor 侧同口径硬轨，口径变更要同步。
 
 ## Runtime/Tooling Preferences｜运行时与工具链

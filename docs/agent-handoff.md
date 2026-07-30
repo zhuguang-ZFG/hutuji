@@ -125,6 +125,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | MK38 写字机板 | `docs/hardware/mk38-board.md` + `docs/hardware/MK38-总图.pdf` |
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
+| 白天联调 runbook | `docs/daytime-tuning-runbook.md`（单日取证编排：重取 token→sync→nginx 取证→烧录→装纸→语音/暂停/换纸abort/S4，每步带判据/回退/取证落点；判据引用 bringup-sop 不复制） |
 | 批次模板 | `docs/templates/` |
 | 京东云模板 | `deploy/`（生产已常驻；更新用 scp，重启后跑 preflight 全 9 项绿） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
