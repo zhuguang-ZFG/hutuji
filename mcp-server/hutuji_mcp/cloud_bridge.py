@@ -109,16 +109,39 @@ class _RedactSecretsFilter(logging.Filter):
 
     websockets 在握手/连接失败时会经 root logger 打出含 ``?token=…`` 的完整 URI；
     本模块自身的 ``_safe_stderr_line`` / ``_message_label`` 只覆盖自家调用，管不到
-    第三方 logger，故在此对记录文本统一脱敏。"""
+    第三方 logger，故在此对记录文本统一脱敏。
+
+    注意：本 filter 必须挂在 **handler** 上（见 ``_install_secret_redaction``），不能挂在
+    logger 上——logger 级 filter 只对该 logger 自己 emit 的记录生效，子 logger
+    （如 ``websockets.client``）经 propagate 上抛时父 logger 只贡献 handler、不跑父
+    logger 的 filter，挂 logger 上等于死代码。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
             record.msg = _safe_stderr_line(record.msg)
-        if record.args:
+        # logging 的 record.args 可能是 tuple/list（% 序列）或 dict（% mapping）；
+        # 两种都要脱敏且保持原容器类型，否则破坏 % 格式化。
+        if isinstance(record.args, dict):
+            record.args = {
+                k: (_safe_stderr_line(v) if isinstance(v, str) else v)
+                for k, v in record.args.items()
+            }
+        elif record.args:
             record.args = tuple(
                 _safe_stderr_line(a) if isinstance(a, str) else a for a in record.args
             )
         return True
+
+
+def _install_secret_redaction() -> None:
+    """把脱敏 filter 挂到 root 的每个 handler（handler 级）。
+
+    handler 级 filter 对一切经该 handler 的记录生效——含 ``websockets.client`` 等子
+    logger 经 propagate 上来的记录。必须在 ``logging.basicConfig`` 之后调用（root 才有
+    handler）。对已自行脱敏的本模块日志是幂等 no-op。"""
+    redact = _RedactSecretsFilter()
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(redact)
 
 
 async def _cloud_to_proxy(websocket, process: asyncio.subprocess.Process) -> None:
@@ -214,9 +237,9 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
-    # websockets 默认 propagate 到 root（INFO），握手失败会泄露带 token 的 URI；
-    # 挂脱敏 filter 而非单纯调高其级别，保留诊断信息但抹掉凭据。
-    logging.getLogger("websockets").addFilter(_RedactSecretsFilter())
+    # 脱敏第三方库（websockets 等）经 root handler 打出的带 token URI。必须挂 handler
+    # 级（见 _install_secret_redaction 注释），且须在 basicConfig 之后（root 才有 handler）。
+    _install_secret_redaction()
     try:
         config = load_config()
         asyncio.run(run_forever(config))
