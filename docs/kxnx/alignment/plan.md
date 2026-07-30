@@ -12,7 +12,8 @@
       该编排已由 fork `13057e8` 提交/推送（`main/boards/lichuang-dev/hutuji_job.{h,cc}`、`hutuji_pipe.cc` 的
       `PreparePenOrigin`）；上一版 `15f73c9` 的 `hutuji_job.cc` 内不含任何 `G92`。含该编排的镜像
       （`xiaozhi.bin=0x2ce890`，内容对应 `13057e8`）已构建并 app-flash 到 COM6，但烧录日志未归档；落笔迄今只在**手动 Telnet 序列**
-      （`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实（见 `docs/troubleshooting.md:26`），S3 自动路径出墨仍无归档证据。
+      （`G92 Z0` → `G1 Z5.0 F10000`；2026-07-30 追加：同序列接 `G91` + `G1 X10.0 F800` 也在纸面出墨）下纸面证实
+      （见 `docs/troubleshooting.md:26`）；画线 `F8000` 与 S3 自动路径出墨仍无归档证据。
 - [x] 画线与空走使用 `F8000`，Z 抬落笔使用 `F10000`，每个运动行显式带 F。
 - [x] 文件内无 `G4`、`M2/M30`、`M7xx`，且不以 `G0 X0Y0` 回原点。
 - [x] 文件结束只抬笔；S3 在绘图 fresh `Idle` 后将 `M30` 作为任务编排命令单独发送。
