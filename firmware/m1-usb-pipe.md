@@ -69,13 +69,13 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   `ok` 等待窗口放宽到任务级 idle 超时。纸张指令仍优先使用 90s 换纸等待，普通 G0–G3 与普通
   M-code timeout 不变。
 - 下载/校验或换纸结束时，任务状态按 `paused_` 写为 `paused` 或 `streaming`，不得谎报正在画。
-- **落笔旁路（实施状态：仅在 fork 未提交工作树）**：每次首画/重画发送下载文件前，S3 先等待一份
+- **落笔旁路（实施状态：fork `13057e8` 已提交/推送）**：每次首画/重画发送下载文件前，S3 先等待一份
   **fresh `Idle`**，再等待 100ms（奎享本机 `$1=25`，须让电机失能并由弹簧回到自然抬笔位），
   随后以不计入下载文件窗口的受控旁路发送固定 `G92 Z0`。下载文件仍禁止 `G92`，并原样连续
   发送其中的 `Z5 + XY + Z0`；不改 `$1/$3`。
-  该实现目前**只存在于 fork 未提交工作树**（`main/boards/lichuang-dev/hutuji_job.{h,cc}`、`hutuji_pipe.cc`
-  的 `PreparePenOrigin`）；fork HEAD `15f73c9` 的 `hutuji_job.cc` 内不含任何 `G92`。含该编排的镜像
-  `xiaozhi.bin=0x2ce890` 已构建并 app-flash 到 COM6，但**烧录日志未归档**；S3 自动路径的真实出墨
+  该实现由 fork `13057e8` 提交/推送（`main/boards/lichuang-dev/hutuji_job.{h,cc}`、`hutuji_pipe.cc`
+  的 `PreparePenOrigin`）；上一版 `15f73c9` 的 `hutuji_job.cc` 内不含任何 `G92`。含该编排的镜像
+  `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已构建并 app-flash 到 COM6，但**烧录日志未归档**；S3 自动路径的真实出墨
   **仍无归档证据**，纸面落笔迄今只由手动 Telnet 序列证实（`docs/troubleshooting.md:26`）。
 - 文件最后一行收到 `ok` 只表示进入 planner；任务还会发 `?` 并等待一份**新解析的**
   `Idle` 状态报告；随后 S3 单独发 `M30`，等换纸最终 `ok/error:90`，并再次确认 fresh

@@ -31,20 +31,22 @@
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；普通画线断连后的废纸处理与 PSRAM 从头重发主路径已实测，最终页尾无纸 `error:90`，8.3 尚未完整通过 |
 | 硬件冒烟与多页换纸 | 🔴 未闭合 | 8.3 自动触发镜像已多轮烧录 COM6（最新一轮见下）；仍缺有纸 `Changing=On`、自动换纸成功、最终 `done/Idle` 与 App 真实语音 |
 
-当前源码 HEAD 是 `15f73c9`（`feat/hutuji-usb-pipe`，已提交并推送）：`c1267ec` WiFi 三修 →
-`ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）。
-该 HEAD 的 8.3 自动触发镜像 `xiaozhi.bin=0x2cdcb0`、SHA256 `090D65AB...8D0E` 已烧录 COM6，
+当前源码 HEAD 是 `13057e8`（`feat/hutuji-usb-pipe`，已提交并推送）：`c1267ec` WiFi 三修 →
+`ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）→
+`13057e8` 落笔前旁路 `G92 Z0` 校准 + `ok` 静默丢失兜底。
+`15f73c9` 的 8.3 自动触发镜像 `xiaozhi.bin=0x2cdcb0`、SHA256 `090D65AB...8D0E` 已烧录 COM6，
 并完成有纸 `state=done` 复测（`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）。
 
-**S3 工作树另有 3 个文件未提交**（`main/boards/lichuang-dev/hutuji_job.cc`、`hutuji_job.h`、
+**`13057e8` 固化了此前未提交的 3 个文件**（`main/boards/lichuang-dev/hutuji_job.cc`、`hutuji_job.h`、
 `hutuji_pipe.cc`，+407/−83）：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms
 （`kPenSpringReturnMs`）后旁路 `G92 Z0`，以及 `ok` 超时按 MPos 状态兜底（`kMaxOkFallback=3`、
-`kOkFallbackPosTolMm=0.05`）。**S3-LC-01 最后一次烧录的镜像取自这批未提交改动**——2026-07-29
+`kOkFallbackPosTolMm=0.05`）。**S3-LC-01 最后一次烧录的镜像内容即这批改动**——2026-07-29
 20:39 构建 `xiaozhi.bin=0x2ce890`（2943120 字节），SHA256
 `853179049C21028E62DB6784E20040756DB2866A73ED93F20842EFD7A0A24C3E`，app-flash 脚本
-`results/.tmp/flash_autodraw_com6.ps1`，**烧录日志未归档**。因此当前板上行为**任何 commit 都
-复现不出**；落笔只在手动 Telnet 序列（`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实，S3 自动路径
-出墨无归档证据（`results/` 最新证据止于 `15f73c9` 窗口化复测）。
+`results/.tmp/flash_autodraw_com6.ps1`，**烧录日志未归档**。因此该镜像现可由 `13057e8`
+复现，但**不得据此宣称烧录成功或实测通过**；落笔只在手动 Telnet 序列（`G92 Z0` →
+`G1 Z5.0 F10000`）下纸面证实，S3 自动路径出墨无归档证据（`results/` 最新证据止于
+`15f73c9` 窗口化复测）。
 
 历史基线（勿当现状）：`3ca9d31` 在 `27eff73` 的受控自动测试入口上修复 `M3/M5` planner-sync `ok`
 的 60s 误超时，IDF 6.0.1 默认构建 `xiaozhi.bin=0x2cce30`、app 分区剩余 `0x1231d0`/29%、SHA256
