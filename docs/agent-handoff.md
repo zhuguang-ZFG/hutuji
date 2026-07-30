@@ -6,14 +6,14 @@
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
-## 0. 一句话现状（2026-07-30）
+## 0. 一句话现状（2026-07-31）
 
-枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（旧记录写 8 项、脚本实为 9 项，**计数未复验**）；官方云路径已实际触发 `draw/status/abort`。
-Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；有纸 `Changing=On` 已于 2026-07-30 B-13 验证。
-S3：`feat/hutuji-usb-pipe` 源码 HEAD `f1cf066` 已提交/推送（`c1267ec` WiFi 三修 → `ed5b132` ETA → `15f73c9` 窗口化流控 S3 → `13057e8` 落笔旁路 + `ok` 兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架，产品行为不变、未烧录）。**实机烧录基线仍是 `13057e8`**。`13057e8` 固化了此前未提交的 3 个文件（`hutuji_job.{cc,h}`、`hutuji_pipe.cc`，+407/−83：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms 后旁路 `G92 Z0`、`ok` 超时按 MPos 状态兜底 `kMaxOkFallback=3`）；**当前 COM6 板上镜像 `xiaozhi.bin=0x2ce890`**（2026-07-29 20:39 构建，SHA256 `85317904...4C3E`）内容对应 `13057e8`，并已于 20:41 app-flash 成功（esptool `Hash of data verified`，COM6 / ESP32-S3 MAC `9c:13:9e:8b:ae:f0`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；该镜像 autodraw URL 硬编码为 `http://192.168.1.3:8300/files/f1000-line.gcode`，**上电即自动下载并画该文件**。此前落笔只在手动 Telnet 序列（`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行/9782 字节/CRC32 `733095ec` 测试件 8 条线全部完整连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史：`3ca9d31` 在 `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入基础上，修复 Grbl 笔控 `M3/M5` 会等 planner 同步后才回 `ok` 导致的 60s 误超时。IDF 6.0.1 默认构建通过（`xiaozhi.bin=0x2cce30`，app 余 29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，SHA256 `98C3B6AF...C122C`）。S3-LC-01/MK38 复测 `results/bringup-8.3-fault-capture-20260729-010436.md`：普通画线断连后已看到重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；历史 8.3 最终页尾自动换纸曾因无纸返回 `[PaperStatus] 2` + `error:90`，任务 `state=error`；2026-07-30 B-12 在 `13057e8`/`0x2ce890` 自动路径下已取得 `[PaperStatus] 0` + `state=done`，但B-13 已看到 `Changing=On`。**断连重发主路径已推进，但 8.3 不能判完整通过。**
+枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（9 项）；官方云路径已实际触发 `draw/status/abort`。**2026-07-31 审查修复批次**（8 文件未提交）：P1-3 httpx→LlmError、P1-4 websockets 脱敏 filter + backoff 复位、P1-5 nginx :80 /files 反代、§9-C′ 治理（allowlist + protocol 行）、release-readiness 同步、3 条回归测试（pytest 118 passed）；**nginx 未部署到 VPS**。
+Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；有纸 `Changing=On` 已于 2026-07-30 B-13 验证。**2026-07-31 审查修复**：§9-C′ `Protocol.cpp:753` underflow 恢复置 `State::Cycle`（fz `standard` pass）；**未烧录**。
+S3：`feat/hutuji-usb-pipe` 源码 HEAD `f1cf066` 已提交/推送（`c1267ec` WiFi 三修 → `ed5b132` ETA → `15f73c9` 窗口化流控 S3 → `13057e8` 落笔旁路 + `ok` 兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架，产品行为不变、未烧录）。**实机烧录基线仍是 `13057e8`**。**2026-07-31 审查修复**：`hutuji_job.cc` 暂停超时补 soft reset 冲 planner；**未构建/未烧录**。
 **没有**：App 真实语音、换纸中 abort、P2 S3/S4、生产签核。
 → **不可商业出货**。  
-→ 下一刀：换纸中 abort → App 真实语音。
+→ 下一刀：部署 nginx + 烧录 Grbl/S3 审查修复 → 换纸中 abort → App 真实语音。
 → **禁止**再写一版文档地图当进度；真值页 `release-readiness.md`。
 
 ## 1. 三仓与代码在哪

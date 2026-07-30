@@ -159,7 +159,7 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 **通过判据**：小智云侧能看到并成功调用 `hutuji_status`。
 
-**当前记录（2026-07-28）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（旧记录写 8 项、脚本实为 9 项，**计数未复验**）；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**。
+**当前记录（2026-07-31）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（**9 项已确认**）；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**。
 
 ---
 

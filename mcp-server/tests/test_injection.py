@@ -88,6 +88,29 @@ def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: 
         asyncio.run(llm_svg.generate_svg("测试"))
 
 
+def test_generate_svg_wraps_httpx_network_error_as_llm_error(monkeypatch) -> None:  # noqa: ANN001
+    """LLM 不可达/超时必须转成 LlmError，不得让裸 httpx 异常穿透成不透明 500。"""
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+            return False
+
+        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            raise llm_svg.httpx.ConnectError("boom")
+
+    monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
+        llm_api_key="test-key",
+        llm_base_url="https://example.invalid/v1",
+        llm_model="test-model",
+    ))
+    monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+
+    with pytest.raises(LlmError, match="网络/连接错误"):
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+
 def test_generate_svg_rejects_http_200_non_json(monkeypatch) -> None:  # noqa: ANN001
     """上游偶尔返回 200 HTML/纯文本时，应转成 LlmError，不得漏出 JSONDecodeError 500。"""
     class FakeResponse:

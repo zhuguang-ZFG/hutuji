@@ -185,8 +185,13 @@ async def generate_svg(description: str) -> str:
     }
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(url, json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+    except httpx.HTTPError as e:
+        # 连接/超时/协议等网络异常统一成 LlmError，避免裸 httpx 异常穿透成
+        # 不透明 500，并让「LLM 不可用」与「SVG 非法」可区分。
+        raise LlmError(f"调用 LLM 失败（网络/连接错误）：{type(e).__name__}") from e
     if resp.status_code != 200:
         raise LlmError(f"LLM API 返回 {resp.status_code}：{resp.text[:300]}")
 

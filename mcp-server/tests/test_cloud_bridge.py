@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from hutuji_mcp.cloud_bridge import (
+    _RedactSecretsFilter,
     _message_label,
     _safe_stderr_line,
     load_config,
@@ -55,4 +56,39 @@ def test_proxy_stderr_redacts_token_and_wss_urls() -> None:
 
 def test_proxy_stderr_keeps_benign_short_lines() -> None:
     assert _safe_stderr_line("listening on stdio") == "listening on stdio"
+
+
+def test_redact_secrets_filter_scrubs_third_party_log_records() -> None:
+    """websockets 等第三方库的 LogRecord 经 filter 后，token / URL 必须被脱敏。"""
+    import logging
+
+    record = logging.LogRecord(
+        name="websockets",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="connection failed: wss://api.xiaozhi.me/mcp/?token=top-secret",
+        args=None,
+        exc_info=None,
+    )
+    assert _RedactSecretsFilter().filter(record) is True
+    assert "top-secret" not in record.msg
+    assert "wss://api.xiaozhi.me" not in record.msg
+
+
+def test_redact_secrets_filter_scrubs_positional_args() -> None:
+    """filter 也要脱敏 args 里的字符串（websockets 常以 %s 传 URI）。"""
+    import logging
+
+    record = logging.LogRecord(
+        name="websockets",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="opening %s",
+        args=("wss://h/mcp/?token=abc123",),
+        exc_info=None,
+    )
+    assert _RedactSecretsFilter().filter(record) is True
+    assert "abc123" not in record.args[0]
 

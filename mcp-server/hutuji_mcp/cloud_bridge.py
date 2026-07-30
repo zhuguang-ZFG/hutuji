@@ -104,6 +104,23 @@ def _safe_stderr_line(line: str | bytes) -> str:
     return redacted
 
 
+class _RedactSecretsFilter(logging.Filter):
+    """脱敏第三方库（如 websockets）日志记录里的 token / URL。
+
+    websockets 在握手/连接失败时会经 root logger 打出含 ``?token=…`` 的完整 URI；
+    本模块自身的 ``_safe_stderr_line`` / ``_message_label`` 只覆盖自家调用，管不到
+    第三方 logger，故在此对记录文本统一脱敏。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = _safe_stderr_line(record.msg)
+        if record.args:
+            record.args = tuple(
+                _safe_stderr_line(a) if isinstance(a, str) else a for a in record.args
+            )
+        return True
+
+
 async def _cloud_to_proxy(websocket, process: asyncio.subprocess.Process) -> None:
     assert process.stdin is not None
     async for message in websocket:
@@ -179,7 +196,10 @@ async def run_forever(config: BridgeConfig) -> None:
     while True:
         try:
             await bridge_once(config)
-            logger.warning("WSS 会话已结束，%d 秒后重连", backoff)
+            # 连接曾建立并正常结束：复位 backoff，避免长连接断开后重连延迟
+            # 从上次失败累积的高值起步（ponytail: 无 jitter，单实例无惊群风险）。
+            logger.warning("WSS 会话已结束，%d 秒后重连", INITIAL_BACKOFF_SECONDS)
+            backoff = INITIAL_BACKOFF_SECONDS
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -194,6 +214,9 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    # websockets 默认 propagate 到 root（INFO），握手失败会泄露带 token 的 URI；
+    # 挂脱敏 filter 而非单纯调高其级别，保留诊断信息但抹掉凭据。
+    logging.getLogger("websockets").addFilter(_RedactSecretsFilter())
     try:
         config = load_config()
         asyncio.run(run_forever(config))

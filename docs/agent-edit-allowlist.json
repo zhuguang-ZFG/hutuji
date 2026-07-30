@@ -4,7 +4,8 @@
   "decision_count": 7,
   "grbl_section9_only": [
     "Grbl_Esp32/src/WebUI/TelnetServer.cpp",
-    "Grbl_Esp32/src/PaperSystem.cpp"
+    "Grbl_Esp32/src/PaperSystem.cpp",
+    "Grbl_Esp32/src/Protocol.cpp"
   ],
   "grbl_core_headers_restore_only": [
     "Grbl_Esp32/src/LicenseCore.h",
