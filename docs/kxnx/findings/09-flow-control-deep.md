@@ -11,8 +11,15 @@
 > `15f73c9` 起就是 character-counting 窗口化，窗口 `kWindow = 512` 字节
 > ≈ 21 行在飞（`hutuji_job.cc:57-58`），奎享这套机制已落地。剩下的差异只是介质：
 > 奎享走 USB 串口（往返实测 ~6ms，`docs/design/p2-windowed-flow-control.md:246`），
-> hutuji 走 WiFi Telnet（20–40ms 是估计值，**至今未实测**）。段长与失能门槛的
-> 定量关系见 `docs/troubleshooting.md` 笔控一节。
+> hutuji 走 WiFi Telnet。
+>
+> **「20–40ms」这个估计值已被实测证否（2026-07-30 当日晚，同一台 MK38）**：
+> 应用层往返下界 **77ms**、p50 **117–134ms**、p90 可到 **246ms**，比原估计高
+> 3–6 倍（脚本 `results/.tmp/probe_rtt.py` / `probe_ws.py`，`results/` 不入库）。
+> 主因是 Grbl 侧 WiFi 省电常开：`[ESP420]` 回报 `Sleep mode: Modem`
+> （`Grbl_Esp32/src/WebUI/WebSettings.cpp:433`），而 `Signal: 98%`——不是链路弱。
+> 因此本文下面凡以 20–40ms 为前提的收益/门槛推演都要按 77ms 下界重算，
+> 重算结果与被推翻的结论见 `docs/troubleshooting.md` 笔控一节。
 
 > **hutuji 状态勘误（2026-07-28）**：本文对奎享的逆向结论保留，但早期用来对照的
 > hutuji abort 已变化。当前非换纸 abort 是 `!` 后用 `?` 轮询到 `Hold/Idle`（最长约 8s），
@@ -371,7 +378,8 @@ fresh `Idle` + 100ms，再由 S3 旁路固定 `G92 Z0`，随后窗口化连续�
 
 ### B. 窗口化流控（收益最大，但需重构）
 
-现状每行 ~20–40ms 往返，`linesimplify` 已把行数从 9266 降到 172，
+现状每行往返**实测 p50 117–134ms、下界 77ms**（2026-07-30 实测，非早前写的 20–40ms
+估计值，见 `docs/troubleshooting.md` 笔控一节），`linesimplify` 已把行数从 9266 降到 172，
 所以**当前卡顿已缓解**。但窗口化能让往返完全隐藏，是更彻底的解法。
 
 改动量：
@@ -389,7 +397,9 @@ fresh `Idle` + 100ms，再由 S3 旁路固定 `G92 Z0`，随后窗口化连续�
 > **2026-07-28 实测修正**：窗口化的收益**只存在于高往返链路**。
 > COM3 串口直连做过 A/B（183 行，窗口 1 vs 512）：40.38s vs 40.42s，**无差异**——
 > 串口往返 6ms，瓶颈 100% 是电机运动时间，无可隐藏的延迟。
-> 所以这条改进的**唯一适用场景是 S3 的 WiFi Telnet 链路**（往返 20–40ms），
+> 所以这条改进的**唯一适用场景是 S3 的 WiFi Telnet 链路**（往返实测下界 77ms、
+> p50 117–134ms，见 `docs/troubleshooting.md` 笔控一节；比本文早前估的 20–40ms 高一个量级，
+> 窗口化的收益因此比原估更大），
 > 且必须在 Telnet 链路上验收，串口实测不能作为收益证据。
 
 ### C. `error:NN` 处理（双方都中止，理由不同，不改）
