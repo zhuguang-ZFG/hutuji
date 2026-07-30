@@ -31,9 +31,11 @@
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；普通画线断连后的废纸处理与 PSRAM 从头重发主路径已实测，最终页尾无纸 `error:90`，8.3 尚未完整通过 |
 | 硬件冒烟与多页换纸 | 🟡 关键有纸路径已实测 | `13057e8`/`0x2ce890` 已有 S3 自动路径出墨、页尾 `[PaperStatus] 0` + `state=done`；2026-07-30 B-13 已捕获有纸 `Changing=On`。仍缺换纸中 abort、App 真实语音、P2 S3/S4 |
 
-当前源码 HEAD 是 `13057e8`（`feat/hutuji-usb-pipe`，已提交并推送）：`c1267ec` WiFi 三修 →
+当前源码 HEAD 是 `f1cf066`（`feat/hutuji-usb-pipe`，已提交并推送；= `13057e8` + 默认关闭的
+§8.5 abort 取证脚手架，**实机烧录基线仍是 `13057e8`**）：`c1267ec` WiFi 三修 →
 `ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）→
-`13057e8` 落笔前旁路 `G92 Z0` 校准 + `ok` 静默丢失兜底。
+`13057e8` 落笔前旁路 `G92 Z0` 校准 + `ok` 静默丢失兜底 → `f1cf066` 默认关闭的 §8.5 abort
+取证脚手架（`HUTUJI_AUTO_TEST_ABORT_ON_PAPER`，产品行为不变）。
 `15f73c9` 的 8.3 自动触发镜像 `xiaozhi.bin=0x2cdcb0`、SHA256 `090D65AB...8D0E` 已烧录 COM6，
 并完成有纸 `state=done` 复测（`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）。
 **该镜像属历史**——已被 2026-07-29 20:41 写入的 `0x2ce890`（`13057e8`）覆盖，勿当现状。
@@ -68,6 +70,7 @@
 2. 开工前读该仓自身 `AGENTS.md`，使用已验证的 ESP-IDF **v6.0.1**。
 3. 构建入口：`python3 scripts/release.py lichuang-dev`；若上游脚本要求名称参数，以该仓 `--help` 为准。
    8.3 自动触发绘图调试镜像使用：`idf.py -DBOARD_NAME=lichuang-dev -DBOARD_TYPE=lichuang-dev -DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='<短时效 G-code URL>' build`；真实 URL/token 不入库。
+   bringup §8.5（换纸中调 abort）取证镜像再加 `-DHUTUJI_AUTO_TEST_ABORT_ON_PAPER=ON`；**PowerShell 下 URL 必须整体加单引号**，否则 `http://…` 会被切成新参数（`idf.py` 报 `No such option: -D`）。取证后回刷不带宏的镜像。
 4. 产物必须记录：fork commit、是否 dirty、IDF 版本、板型、sdkconfig、构建命令、二进制 SHA256。
 5. 烧录前确认 S3 与写字机在同一网络；连接器会先试 NVS 缓存，再扫描本机 `/24`，候选只有通过 Grbl banner 校验后才写回缓存。不得绕过 banner 校验固定错误主机。
 

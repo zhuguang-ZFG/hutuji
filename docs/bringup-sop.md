@@ -159,7 +159,7 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 **通过判据**：小智云侧能看到并成功调用 `hutuji_status`。
 
-**当前记录（2026-07-28）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**。
+**当前记录（2026-07-28）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（旧记录写 8 项、脚本实为 9 项，**计数未复验**）；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**。
 
 ---
 
@@ -183,6 +183,28 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 - 全程用 **CH340 串口**看最全日志（Telnet 只有 `ok`/`error`/`?` 状态/banner）。
 - 换纸期间 S3 应仍能 `?` 探活（实时旁路，不吃 `ok`）。
 - ⛔ 出图中调 `hutuji.status` **只应发 `?`**，不得发 `[ESP901]`/`M704`（会吃 `ok` 打乱流控，§3 单写者）。
+
+### 7.0 有纸前的 LAN 排练（S4 打样，B-15 待跑）
+
+云端链路被控制台 token 卡住时（`/api/agents` 返回 401，见 `release-readiness.md`「当前最近一步」第 10 条），
+可先用 **LAN stub + autodraw 镜像**排练同一条 S3→Grbl 路径，只把「云端下发 URL」换成本机静态服务；
+其余（PSRAM 全量下载、`Content-Length`、CRC32、窗口化流控、页尾 `M30`）与阶段 7 完全一致。
+
+⛔ 铁律：**装纸之后才允许起 8300**。autodraw 镜像在每次复位时自动下载并出图，
+空载出图会让笔尖压在压板上（见 `troubleshooting.md`「本地临时测试服务(8300)」）。
+
+1. 装纸，`[ESP901]` 预检应见 `Paper=OK ... Changing=Off`。
+2. 从串口日志读出镜像里**硬编码的下载 URL**（编译期常量，历次批次不同：B-11/B-12 记录过 `192.168.1.12`，
+   `firmware/README.md` 记录 `13057e8` 为 `192.168.1.3`）——**以本次日志自证为准**，不要按记忆填 IP。
+3. 用真管线产物覆盖被服务的文件内容、**不改文件名**（URL 是常量）。
+   B-14 已备好打样件：`test_rose_s4.svg` → `linesimplify 0.05mm` → **551 行 / 13,804 字节 / CRC32 `ae1b25b2`**，
+   已过真 `validate_gcode`；>512 字节，可压满 S3 `kWindow=512`。
+   重新生成：`mcp-server/.venv/Scripts/python` 调 `hutuji_mcp.gcode_gen.svg_to_gcode`。
+4. 起静态服务（只暴露该一个文件，`/mcp` 返回 404），复位 S3 触发 autodraw。
+5. 出图结束后**立刻停掉 8300**，避免下次意外复位空载出图。
+
+**通过判据**：551 行全部出墨且曲线连续（S4 的「细节改善且无停顿」）、页尾 `M30` 后
+`[PaperStatus] 0` + `state=done`，全程无 `error:90`。过则 P2 S4 证据缺口关闭。
 
 ---
 
@@ -223,6 +245,50 @@ python scripts\bringup_fault_capture.py --s3-port COM9 --grbl-port COM3 --durati
 `[ESP115]OFF/ON`。打开 S3 串口可能导致部分开发板复位，若需要无干扰采集，应先用短采集确认
 当前 COM 口行为。采集结果位于 `results/`，仍需人工核对纸面、废纸是否走掉和最终重画是否成功；
 脚本标记扫描不能替代硬件判定。
+
+### 8.5 换纸中调 abort 的取证剧本（B-15 提供脚手架，待跑）
+
+**为什么需要脚手架**：设备侧 abort 的唯一入口是云端 MCP 工具 `hutuji.abort`
+（`xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc` 的 `hutuji.abort` 注册处；
+板上无按键/串口/HTTP 触发路径），而换纸保护窗实测只有约 10s（B-13：`M30` 后 0.14s 起
+`Changing=On`，10.11s 已回 `Changing=Off`）。控制台 JWT 当前 401，云端下发不可用；即便可用，
+语音链路也难稳定命中这 10s。故 B-15 在 xiaozhi fork 加了**默认关闭**的编译期脚手架
+`HUTUJI_AUTO_TEST_ABORT_ON_PAPER`（`main/CMakeLists.txt` option + 板型校验、
+`lichuang_dev_board.cc` 监视任务）：50ms 轮询 `Job::IsPaperActive()`，窗口一开即本地调
+`RequestAbort()`，并打印 abort 前后的 `status`。默认镜像行为不变。
+脚手架已提交为 xiaozhi `f1cf066`（`feat/hutuji-usb-pipe`，`13057e8..f1cf066` 已推送，`+44/−0` 纯新增），
+可直接 `git -C D:/Users/xiaozhi-esp32 show f1cf066` 复核；**板上镜像仍是 `13057e8`/`0x2ce890`，脚手架未烧录**。
+
+**前置**：装纸（`[ESP901]` 预检应见 `Paper=OK ... Changing=Off`）；PC 起本机静态服务托**小**测试件
+（8.3 用过 658B / CRC32 `2290095f`；件越小越快到页尾换纸窗口）；**先备份当前板上镜像对应的
+`xiaozhi.bin`**，取证后要回刷。
+
+**构建取证镜像**（PowerShell。URL 必须加引号，否则 PowerShell 会把 `http://…` 切成新参数——
+历史上已踩过一次，见 `build-hutuji-f1000-autodraw/log/` 里 `-DHUTUJI_AUTO_TEST_DRAW_URL=http:` 的记录）：
+
+```powershell
+. D:/zhugu-home/.espressif/v6.0.1/v6.0.1/esp-idf/export.ps1
+cd D:/Users/xiaozhi-esp32
+idf.py -B build-hutuji-8_5-abort -DHUTUJI_AUTO_TEST_DRAW=ON `
+  '-DHUTUJI_AUTO_TEST_DRAW_URL=http://<PC_IP>:8300/files/<小测试件>.gcode' `
+  -DHUTUJI_AUTO_TEST_ABORT_ON_PAPER=ON build
+```
+
+烧录只刷 app：`idf.py -B build-hutuji-8_5-abort -p COM<n> app-flash monitor`（S3 的 COM 口每次重查）。
+
+**观察点**：S3 串口 `AutoTest` 三行（窗口命中前 status / abort 返回值 / abort 后 status）+
+Grbl 串口 `[MSG:[PaperStatus] N]`。
+
+**通过判据**（锚点均在 `xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc`）：
+
+1. abort 返回 `换纸中无法即停，完成后即停`，且有 Notify「写字机正在换纸，无法即停；换纸完成后任务将停止」（`RequestAbort` 的 `paper_active` 分支）。
+2. **全程**（含换纸结束后）**无** `0x18`、**无** reset banner、**无**第二条 `M30`。源码保证：`paper_active` 分支**直接 return**，根本不创建 `hutuji_abort` 子任务，所以这条路径下永远不会发实时复位；子任务里那两处 `IsPaperActive()` 复核是**非换纸态** abort 的竞态兜底，不是本项判据。
+3. 换纸自身正常走完：`[PaperStatus] 0`，写字机回 `Idle`。
+4. 换纸结束后任务以 `aborted` 收尾且**不续跑**：`hutuji.status` 的 `state=aborted`，此后无新行下发（`ChangePaperAfterDraw` 末尾的 abort 检查）。
+
+**判错**：`paper_active` 也覆盖**断连恢复**保护窗（`WaitForReconnect` 里的 `paper_active_.store(true)`，那条路径不设 `paper_change`），故必须看 abort 前 status 的 `state`：`paper_change` 才算 8.5；若是断连恢复窗口，记为 8.4 附证并重跑 8.5。另一条会置 `paper_change` 的路径是「文件内含换纸行」的 deferred 分支，但 §5 契约禁 `M`、下载文件不含换纸行，故本项目里 `paper_change` 只可能来自页尾 `ChangePaperAfterDraw()`。
+
+**收尾**：取证后**回刷不带宏的镜像**，并在本节与 `docs/release-readiness.md` 记录 commit + 镜像 SHA256。
 
 **另需实测标定**：
 - **抬笔次数**（③ 组 1.3 软阈值 50）：实际画一幅简笔画抬笔多少次？机头抖不抖？→ 决定硬阈值。

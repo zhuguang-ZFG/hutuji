@@ -1,8 +1,9 @@
 # M1 最小管道固件补丁（feat/hutuji-usb-pipe，方案 E：WiFi Telnet）
 
 > 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 HEAD
-> `3ca9d31`（`05f4563` 行为基线 + `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入
-> + `M3/M5` planner-sync `ok` 长等待修复）。
+> `f1cf066`（链 `3ca9d31` → `c1267ec` → `ed5b132` → `15f73c9` → `13057e8` → `f1cf066`；末位是
+> 默认关闭的 §8.5 abort 取证脚手架）。**实机烧录基线仍是 `13057e8`**（COM6 镜像 `0x2ce890`）。
+> 下文历史段落里的「当前」按各自 commit 读，勿当现状。
 > 8.3 自动触发镜像已构建并烧录 COM6；普通画线断连后已实测到废纸 `M30`、PSRAM 从第 1 行重画、
 > 55/55 行完成与 fresh `Idle`。历史 8.3 最终页尾自动换纸曾因无纸返回 `error:90`，**仍不得表述为有纸换纸、
 > App 语音或发布验收通过。**
@@ -23,12 +24,12 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 | 文件 | 说明 |
 |------|------|
 | `main/idf_component.yml` | 无 hutuji 相关依赖（lwip socket 走 IDF 内置） |
-| `main/CMakeLists.txt` | `27eff73` 新增 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 调试构建选项；默认 OFF，且仅允许 `lichuang-dev` |
+| `main/CMakeLists.txt` | `27eff73` 新增 `HUTUJI_AUTO_TEST_DRAW` / `HUTUJI_AUTO_TEST_DRAW_URL` CMake 调试构建选项；B-15 再加 `HUTUJI_AUTO_TEST_ABORT_ON_PAPER`（bringup §8.5 取证脚手架）。三者默认 OFF，且仅允许 `lichuang-dev` |
 | `main/boards/lichuang-dev/hutuji_pipe.h/.cc` | `hutuji::Pipe` 单例：lwip socket 轻量同步 TCP 客户端 |
-| `main/boards/lichuang-dev/lichuang_dev_board.cc` | `InitializeTools()` 注册 Pipe 与设备侧 MCP 控制工具 |
+| `main/boards/lichuang-dev/lichuang_dev_board.cc` | `InitializeTools()` 注册 Pipe 与设备侧 MCP 控制工具；末尾两段默认关闭的取证任务：`HUTUJI_AUTO_TEST_DRAW`（自动起画）与 `HUTUJI_AUTO_TEST_ABORT_ON_PAPER`（50ms 轮询 `Job::IsPaperActive()`，换纸保护窗一开即本地调 `RequestAbort()` 并打印前后 `status`） |
 | `main/boards/lichuang-dev/hutuji_job.h/.cc` | M2 Job：下载/CRC/逐行转发，以及暂停、恢复、重画、试笔控制；`3ca9d31` 将 `M3/M5` 笔控行按 planner-sync 行等待，避免页尾 `M5` 在剩余绘图时间较长时被普通 60s `ok` 超时误杀 |
 
-未改运行期核心模块（`mcp_server.cc`、协议层、音频链路等未动）。`main/CMakeLists.txt` 仅承载默认关闭的调试编译定义，常规构建不启用自动测试。
+未改运行期核心模块（`mcp_server.cc`、协议层、音频链路等未动）。`main/CMakeLists.txt` 仅承载默认关闭的调试编译定义，常规构建不启用自动测试。取证镜像用完**必须回刷不带宏的镜像**。
 
 ## hutuji::Pipe API（对外语义不变）
 

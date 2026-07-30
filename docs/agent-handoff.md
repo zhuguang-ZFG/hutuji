@@ -8,9 +8,9 @@
 
 ## 0. 一句话现状（2026-07-30）
 
-枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 8/8；官方云路径已实际触发 `draw/status/abort`。
+枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（旧记录写 8 项、脚本实为 9 项，**计数未复验**）；官方云路径已实际触发 `draw/status/abort`。
 Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；有纸 `Changing=On` 已于 2026-07-30 B-13 验证。
-S3：`feat/hutuji-usb-pipe` 源码 HEAD `13057e8` 已提交/推送（`c1267ec` WiFi 三修 → `ed5b132` ETA → `15f73c9` 窗口化流控 S3 → `13057e8` 落笔旁路 + `ok` 兜底）。`13057e8` 固化了此前未提交的 3 个文件（`hutuji_job.{cc,h}`、`hutuji_pipe.cc`，+407/−83：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms 后旁路 `G92 Z0`、`ok` 超时按 MPos 状态兜底 `kMaxOkFallback=3`）；**当前 COM6 板上镜像 `xiaozhi.bin=0x2ce890`**（2026-07-29 20:39 构建，SHA256 `85317904...4C3E`）内容对应 `13057e8`，并已于 20:41 app-flash 成功（esptool `Hash of data verified`，COM6 / ESP32-S3 MAC `9c:13:9e:8b:ae:f0`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；该镜像 autodraw URL 硬编码为 `http://192.168.1.3:8300/files/f1000-line.gcode`，**上电即自动下载并画该文件**。此前落笔只在手动 Telnet 序列（`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行/9782 字节/CRC32 `733095ec` 测试件 8 条线全部完整连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史：`3ca9d31` 在 `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入基础上，修复 Grbl 笔控 `M3/M5` 会等 planner 同步后才回 `ok` 导致的 60s 误超时。IDF 6.0.1 默认构建通过（`xiaozhi.bin=0x2cce30`，app 余 29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，SHA256 `98C3B6AF...C122C`）。S3-LC-01/MK38 复测 `results/bringup-8.3-fault-capture-20260729-010436.md`：普通画线断连后已看到重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；历史 8.3 最终页尾自动换纸曾因无纸返回 `[PaperStatus] 2` + `error:90`，任务 `state=error`；2026-07-30 B-12 在 `13057e8`/`0x2ce890` 自动路径下已取得 `[PaperStatus] 0` + `state=done`，但B-13 已看到 `Changing=On`。**断连重发主路径已推进，但 8.3 不能判完整通过。**
+S3：`feat/hutuji-usb-pipe` 源码 HEAD `f1cf066` 已提交/推送（`c1267ec` WiFi 三修 → `ed5b132` ETA → `15f73c9` 窗口化流控 S3 → `13057e8` 落笔旁路 + `ok` 兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架，产品行为不变、未烧录）。**实机烧录基线仍是 `13057e8`**。`13057e8` 固化了此前未提交的 3 个文件（`hutuji_job.{cc,h}`、`hutuji_pipe.cc`，+407/−83：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms 后旁路 `G92 Z0`、`ok` 超时按 MPos 状态兜底 `kMaxOkFallback=3`）；**当前 COM6 板上镜像 `xiaozhi.bin=0x2ce890`**（2026-07-29 20:39 构建，SHA256 `85317904...4C3E`）内容对应 `13057e8`，并已于 20:41 app-flash 成功（esptool `Hash of data verified`，COM6 / ESP32-S3 MAC `9c:13:9e:8b:ae:f0`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；该镜像 autodraw URL 硬编码为 `http://192.168.1.3:8300/files/f1000-line.gcode`，**上电即自动下载并画该文件**。此前落笔只在手动 Telnet 序列（`G92 Z0` → `G1 Z5.0 F10000`）下纸面证实；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行/9782 字节/CRC32 `733095ec` 测试件 8 条线全部完整连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史：`3ca9d31` 在 `27eff73` 默认关闭的 8.3 自动测试 URL 参数化/CMake 注入基础上，修复 Grbl 笔控 `M3/M5` 会等 planner 同步后才回 `ok` 导致的 60s 误超时。IDF 6.0.1 默认构建通过（`xiaozhi.bin=0x2cce30`，app 余 29%，SHA256 `5D5FE23C...BBA6`）；8.3 自动触发镜像构建并烧录 COM6（`xiaozhi.bin=0x2cd070`，SHA256 `98C3B6AF...C122C`）。S3-LC-01/MK38 复测 `results/bringup-8.3-fault-capture-20260729-010436.md`：普通画线断连后已看到重连、`Changing=Off`、废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；历史 8.3 最终页尾自动换纸曾因无纸返回 `[PaperStatus] 2` + `error:90`，任务 `state=error`；2026-07-30 B-12 在 `13057e8`/`0x2ce890` 自动路径下已取得 `[PaperStatus] 0` + `state=done`，但B-13 已看到 `Changing=On`。**断连重发主路径已推进，但 8.3 不能判完整通过。**
 **没有**：App 真实语音、换纸中 abort、P2 S3/S4、生产签核。
 → **不可商业出货**。  
 → 下一刀：换纸中 abort → App 真实语音。
@@ -82,10 +82,10 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. **先做有纸页尾换纸**：`3ca9d31` 已证明普通画线断连可走到 PSRAM 重画完成，但最终 `M30` 无纸 `error:90`；下一步必须有纸验证页尾显式 `M30` 成功并最终 `done/Idle`。
-2. **再做换纸态分流**：验证 `Changing=On`、换纸态断连不发 reset/M30、`error:90` 与换纸中 abort。
-3. **云端/App**：完成 App 真实语音 → 小智云 → MCP → S3 → Grbl 的端到端验收，并补七工具逐项云端行为回归。
-4. **P2/生产**：完成 P2 S3/S4；`bringup-sop.md` 与生产签核按证据补齐。京东云已常驻，勿再「从零部署」。
+1. **换纸中 `abort` 分流（需装纸 + 先烧 8.5 脚手架镜像）**：页尾换纸与 `Changing=On` 已有证据（B-12 自动路径出墨、页尾 `M30` → `[PaperStatus] 0` / `state=done`；B-13 `Changing=On` 专测）。**剩下的空白**是换纸态里的 abort：换纸中不得发 reset / `M30`，`error:90` 只当换纸态记录。⚠️ 设备侧 abort 的唯一入口是云端 MCP 工具 `hutuji.abort`（板上无按键/串口/HTTP 触发），而保护窗只有约 10s（B-13 实测 0.14s→10.11s），所以这项在拿到 token 前**只能**靠 B-15 加的默认关闭编译宏 `HUTUJI_AUTO_TEST_ABORT_ON_PAPER` 本地命中窗口；剧本、判据与回刷要求见 `bringup-sop.md` §8.5。
+2. **App 真实语音端到端（需用户重取 token）**：App 语音 → 小智云 → MCP → S3 → Grbl 全链验收，并补七工具逐项云端行为回归。**当前阻塞**：控制台 JWT 被服务端作废（`/api/agents` 返回 401 `Invalid token`，JWT 自带 `exp` 仍在），需用户在控制台重取 `localStorage.getItem('token')`；同一 token 也是拿 `/files/` 200 正例的前提。
+3. **P2 S4 有纸出图（与第 1 项同一次装纸一起做完）**：0.05mm 真实图样的待打样件已过 `validate_gcode`（551 行 / 13,804 B / CRC32 `ae1b25b2`，见 `results/b14-edge-and-pipeline-probe-evidence-20260730.md`），落纸即可取证；自适应 `Bf` 反压仍未做。
+4. **生产签核**：`bringup-sop.md` 与生产/合规签核按证据补齐。京东云已常驻，勿再「从零部署」。
 
 > fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
@@ -122,7 +122,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
 | 批次模板 | `docs/templates/` |
-| 京东云模板 | `deploy/`（生产已常驻；更新用 scp，重启后跑 preflight 8/8） |
+| 京东云模板 | `deploy/`（生产已常驻；更新用 scp，重启后跑 preflight 全 9 项绿） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |

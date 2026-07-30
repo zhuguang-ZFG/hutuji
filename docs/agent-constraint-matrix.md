@@ -41,7 +41,7 @@
 | Grbl | 换纸机械/时序/运动/授权/U1；`report_realtime_status` / `report_state_text`；全量换纸消息 `CLIENT_ALL` |
 | xiaozhi | 把 hutuji 板级行为塞进核心模块；接受未通过 Grbl banner 验证的 :23 候选或污染 NVS 缓存；出图中用 `[ESP901]`/`M704` 做 status |
 | fz | 用改商业固件常量代替更新 `paper_firmware_contract.json`；host SIL 绿宣称 HIL/出货 |
-| hutuji | 把固件源码合并进本仓；把 MCP 组 0–3 验收当待办重做 |
+| hutuji | 把固件源码合并进本仓；把 MCP 组 0–4 验收当待办重做 |
 
 ## 5. 闭环勾选
 

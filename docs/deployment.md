@@ -97,7 +97,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ | `pass=8 fail=0`（2026-07-26） |
+| `preflight.sh` 全 PASS | 🟡 计数未复验 | 旧记录 `pass=8 fail=0`（2026-07-26）；但脚本自 `99fcafa` 建档起就是 **9 项**且此后未改过，任何提交过的版本都不可能输出 `pass=8`——须重跑按实际输出（应为 `pass=9 fail=0`）回填 |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 

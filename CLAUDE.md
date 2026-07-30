@@ -58,7 +58,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `python D:/Users/zhugu/fz/scripts/agent_gate.py`（先设好 `FZ_ROOT`/`GRBL_ROOT`）。overall 非 pass **不得声称修好**。细则见 `D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。本仓 `--profile full` 的源码标记检查**不替代** fz。
 - **改 Grbl 的边界**：换纸机械/时序、运动、授权、U1-Grbl 协议不改；**禁止**碰 `report_realtime_status()`（固定 `char[200]` + 无边界 `strcat`，有栈溢出风险）与 `report_state_text()`（状态字被现役商业上位机依赖）。
 - **凭据禁入库**：`D:/Downloads/VPS.txt` 含 VPS 明文密码与 API key，绝不复制、引用、提交到任何仓库。
-- **禁止自由发挥 / 幻觉 / 乱改**：见 `docs/agent-anti-drift.md`。不重开 USB Host/CH9350/阿里云；不跳 `bringup-sop`；不把 MCP 组 0–3 当待办重做；不覆盖 `worktree-inventory.md` 记载的脏树；不为门禁绿改换纸常量；用户未指定时按 handoff §6。
+- **禁止自由发挥 / 幻觉 / 乱改**：见 `docs/agent-anti-drift.md`。不重开 USB Host/CH9350/阿里云；不跳 `bringup-sop`；不把 MCP 组 0–4 当待办重做；不覆盖 `worktree-inventory.md` 记载的脏树；不为门禁绿改换纸常量；用户未指定时按 handoff §6。
 
 ## 构建与测试
 
@@ -95,7 +95,7 @@ python -m venv .venv
 |---------|------|
 | `docs` | 仅文档锚点/一致性检查 |
 | `hub`（默认） | `docs` + pytest + e2e |
-| `full` | `hub` + Grbl §9 源码标记（需 `GRBL_ROOT`；**未设时 §9 层 skip 而非 fail**，overall 假绿） |
+| `full` | `hub` + 外仓文档 `path:line` 校验 + Grbl §9 源码标记（**必须设 `GRBL_ROOT`，未设时该层直接 fail、不再 skip**）；且仍须自己另跑 fz |
 
 ### 环境变量
 
@@ -123,12 +123,12 @@ python -m venv .venv
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份，重启后跑 `deploy/preflight.sh`（应 8/8）+ 公网复验 `/mcp` 须 404、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
+- 改动前先备份，重启后跑 `deploy/preflight.sh`（共 **9** 项，输出 `preflight pass=9 fail=0`）+ 公网复验 `/mcp` 须 404、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
 
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 源码 HEAD `13057e8` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底，固化此前 3 个未提交文件）；当前 COM6 板上镜像 `0x2ce890`（20:39 构建）内容对应 `13057e8`，20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行测试件全线连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史 `3ca9d31` 默认构建、8.3 自动触发镜像与 `15f73c9` 的 `0x2cdcb0` 均已烧录 COM6。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`。缺换纸中 abort、P2 S3/S4。
+2. **② 哑管道** — 🟡 源码 HEAD `f1cf066` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架）；实机烧录基线 `13057e8`；当前 COM6 板上镜像 `0x2ce890`（20:39 构建）内容对应 `13057e8`，20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行测试件全线连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史 `3ca9d31` 默认构建、8.3 自动触发镜像与 `15f73c9` 的 `0x2cdcb0` 均已烧录 COM6。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`。缺换纸中 abort、P2 S3/S4。
 3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 

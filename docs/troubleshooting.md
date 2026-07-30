@@ -218,6 +218,30 @@ Windows 当前 Python 标准库中，`HTTPServer` / `ThreadingHTTPServer` 的 `a
 - 每轮起服务后**必须**核对 HTTP 返回的字节数 / CRC32 / 关键行与磁盘一致，再触发实机。
 - 换测试内容时**改文件内容、不改文件名**：S3 autodraw 镜像里的下载 URL 是编译期硬编码的。
 
+## 公网探测的两个假阳性（2026-07-30 实测）
+
+**一、`socket.connect` 说 8300 OPEN ≠ 8300 暴露。** 对 `117.72.118.95:8300`：TCP 三次握手
+每次都成功，但发真实 HTTP 请求后拿不到任何响应——`http.client` 约 5s 后报
+`RemoteDisconnected`，裸 socket 发完 `GET` 再 `recv` 直接超时；`/files/…`、`/mcp`、
+`/healthz`、`/docs` 四条路径、连续 3 轮，行为一致。同一轮对照 `:443 /files/<不存在文件>`
+正常返回 `nginx/1.24.0 (Ubuntu)` + 应用 JSON `{"detail":"not found"}`（0.2s）。
+
+判据：**只有 HTTP 层有应答才算暴露**。握手成功是京东云边缘的假阳性，不要据此宣称
+「安全组漏放 8300」或改动生产网络配置；权威判据仍是机上 `deploy/preflight.sh`
+的「8300 仅本机监听 / 公网未监听 8300」两项（`ss -lnt`）。
+
+**二、Cloudflare WAF 按 UA 拦截，会被误读成服务故障。** 对
+`https://hutuji.donglicao.com/files/<不存在文件>`：
+
+| User-Agent | 结果 |
+|---|---|
+| `ESP32 HTTP Client/1.0` / `esp-idf/1.0 esp32` | 404 + 应用 JSON `{"detail":"not found"}`（穿到 nginx→uvicorn） |
+| `Mozilla/5.0` / `curl/8.5.0` / `xiaozhi/2.4.0` | 同上 404 |
+| Python `urllib` 默认 `Python-urllib/3.13` | **403 `error code: 1010`**（边缘拦，未到源站） |
+
+→ 探测脚本必须显式设 UA；否则「边缘拦 UA」会被当成「隧道/服务挂了」。设备侧 UA 不被拦，
+S3 下载路径没有这个坑。另：`/` 与 `/healthz` 经隧道返回 301（跳 HTTPS / 无该路由），也不是故障。
+
 ## MCP / 京东云
 
 | 现象 | 可能原因 | 处置 |

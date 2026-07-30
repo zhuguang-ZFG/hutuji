@@ -23,7 +23,7 @@
 4. 读 `protocol.md`，重点看 §1.1、§1.2、§2.1、§4.1、§5.1、§9。
 5. 读 `release-readiness.md`，不要把“代码存在”误报成“硬件已验证”。
 6. 按任务选择：
-   - MCP/云端：`development.md` → `../mcp-server/README.md`（组 0–3 **多已落地**，勿当待办重做）。
+   - MCP/云端：`development.md` → `../mcp-server/README.md`（组 0–4 **多已落地**，勿当待办重做）。
    - Grbl/S3/硬件联调：`bringup-sop.md` → `../firmware/README.md`；改 Grbl 另跑 fz 门禁。
    - 京东云：`deployment.md` → `operations.md` → `../deploy/README.md`。
    - 小批量出货：`production-sop.md` → `release-checklist.md` → `compliance.md`。
