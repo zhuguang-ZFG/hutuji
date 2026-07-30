@@ -13,6 +13,7 @@
 5. **不为门禁绿去改产品行为**：禁止改换纸机械/时序/运动/授权/U1；禁止碰 `report_realtime_status()` / `report_state_text()`。  
 6. **不把文档当实现**：写了说明 ≠ 代码已改 ≠ 硬件已验 ≠ 可出货。
 7. **不准简化设计**：禁止以「可选 / 可去掉 / 可省略 / 看起来没必要 / 标了 optional」为由删除或弱化任何负载设计（管线步骤、校验、安全边界、画质参数、流控、状态机分支、每行带 F 等）。文档里凡是把**现行负载项**写成「可选 / 待做 / 可放宽」的许可，**默认视为假的**——先与 `protocol.md` §5、`mcp-server/hutuji_mcp/hutuji_gwrite.toml`、`gcode_gen.py` 常量、`test_contract.py` 钉死值核对；若文档与现行定案冲突，**以定案为准**并把文档标「已否决 / supersede」，绝不照文档去删。注意：`linesimplify` / `linemerge` 是 vpype 管线的**负载步骤**（不是「简化设计」），其容差由测试钉死，不得顺手调参或移除。
+8. **先读后动，全称必证**：(a) 接手强制顺序不可跳——`agent-handoff.md` → 本页 → `agent-constraint-matrix.md` → `worktree-inventory.md` + 三仓 `git status --short` → `release-readiness.md` → `agent-gate.md` + 任务契约；改外仓**先读该仓根 `AGENTS.md`**，不凭记忆动手。(b) 任何全称/排他判断（「唯一」「全部」「已清」「干净」「没有第二处」「只剩这一处」）出口或落提交前，**必须**先有一次覆盖性检索取证（全仓 `grep` / 三仓 `git status`）；没检索就说全称 = 违反铁律1。(c) 文档某处把现行负载写成「可选 / 待做 / 可简化 / 可放宽」是**假许可**，不得据此删除或弱化（见铁律7）；过时陈述只盖章 `supersede`，不删负载、不重写文档地图当进度。
 
 ## 1. 真值表（幻觉高发区）
 
@@ -25,6 +26,7 @@
 | Grbl 是否通过 | fz `results/agent_gate_last.json` 的 `overall_status` | 本仓 `full` 源码标记 |
 | 联调是否过 | `bringup-sop.md` 阶段判据 + 记录模板 | 仿真绿 |
 | 工作树有什么 | 三仓 `git status` + `worktree-inventory.md` | 假设「干净」或「没改过」 |
+| 文档某处写「可选 / 可去掉 / 可简化 / 待做」 | `protocol.md` §5 + `hutuji_gwrite.toml` + `gcode_gen.py` 常量 + `test_contract.py` 钉死值 | 照文档删/弱化负载（铁律7）；冲突以现行定案为准并盖章 `supersede` |
 
 外部记忆 `C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md` **可能过时**；冲突一律以本仓文档为准。
 
@@ -73,6 +75,10 @@
 [ ] 改动文件列表 ⊆ 上表白名单
 [ ] 改完知道要跑哪扇门禁（本仓 hub / full / fz standard）
 [ ] 我不准备用「应该」「大概」「记得」代替证据
+[ ] 我若要说「唯一/全部/已清/干净/没有第二处」，已先跑过覆盖性 grep / 三仓 git status 取证（铁律8b）
+[ ] 我没把文档里任何「可选/可去掉/可简化/待做」当成删除或弱化负载的许可（铁律7/8c）
+[ ] 改外仓前我读过该仓根 AGENTS.md，且改动 ⊆ 该仓白名单/契约（铁律8a）
+[ ] 我接手的强制阅读顺序没跳：handoff→本页→matrix→inventory+status→readiness→gate（铁律8a）
 ```
 
 任一未勾 → **只读**或先问用户。

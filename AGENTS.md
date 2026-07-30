@@ -140,6 +140,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 动手前按序读：`docs/agent-handoff.md` → `docs/agent-anti-drift.md` → `docs/agent-constraint-matrix.md` → `docs/worktree-inventory.md` + 三仓 `git status --short` → `docs/release-readiness.md` → `docs/agent-gate.md` + 任务相关契约段落。改外仓还要读该仓根 `AGENTS.md`。
 
 - **无证据不宣称 / 无清单不改代码 / 不覆盖用户工作树 / 不为门禁绿去改产品行为。** 未跑的测试、未见的 commit、未实测的硬件现象一律写「未验证」。
+- **不准简化设计 / 全称必证**：禁止照文档「可选 / 可去掉 / 可简化 / 待做」措辞删除或弱化任何负载（vpype 管线步骤、校验、安全边界、画质容差 `linesimplify`/`linemerge`、流控、每行带 F 等）——这类许可默认是**假的**，先与 `protocol.md` §5 / `hutuji_gwrite.toml` / `gcode_gen.py` 常量 / `test_contract.py` 钉死值对账，冲突以定案为准并盖章 `supersede`。说「唯一 / 全部 / 已清 / 干净 / 没有第二处」前必须先全仓检索取证。详见 `docs/agent-anti-drift.md` §0 铁律 7–8（已被门禁 `anti_drift` 层机器钉死，删铁律即红）。
 - 改代码前必须能指出「白名单路径 + 契约段落或用户原话」；指不出就只读或问用户。机读白名单：`docs/agent-edit-allowlist.json`。
 - Grbl 侧只可碰 §9 清单内文件意图（`src/WebUI/TelnetServer.cpp`、`src/PaperSystem.cpp`）与 `*Core.h` 的 header-only 恢复；**禁止**碰 `report_realtime_status` / `report_state_text`、禁止全量 `CLIENT_ALL` 广播、禁止为仿真绿改换纸机械常量、禁止顺手重构。
 - **禁止重开**：合并固件 / USB Host / CH9350 / 阿里云部署 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。

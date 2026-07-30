@@ -74,6 +74,9 @@ ANTI_DRIFT_MARKERS = [
     "无清单不改代码",
     "不覆盖用户工作树",
     "不为门禁绿去改产品行为",
+    "不准简化设计",
+    "先读后动",
+    "全称必证",
 ]
 
 CONSTRAINT_MATRIX_MARKERS = [

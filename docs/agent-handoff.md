@@ -52,6 +52,10 @@ S3：`feat/hutuji-usb-pipe` 源码 HEAD `f1cf066` 已提交/推送（`c1267ec` W
 | 「可出货了，文档都齐了」 | 文档 ≠ 证据；见 `release-readiness.md` + `claims_forbidden` |
 | 「本仓门禁绿 = Grbl 也绿」 | **否**；Grbl 必须另跑 fz `agent_gate.py` |
 | 「记忆文件里写 USB Host / 阿里云」 | **过时**；以本仓为准 |
+| 「文档某处写可选/可去掉/可简化，那就删」 | **假许可**；先对账 `protocol.md` §5 / toml / `gcode_gen.py` / `test_contract.py`，冲突以现行定案为准并盖章，禁止照删（anti-drift 铁律7） |
+| 「我记得/应该只有一处，改完就行」 | 全称判断必须先全仓 `grep` / 三仓 `git status` 取证，没检索不说「唯一/已清/干净」（anti-drift 铁律8） |
+| 「这文档过时了，顺手精简/重写一下」 | 过时只盖章 `supersede`；禁止精简负载、禁止重写文档地图当进度（铁律7 + anti-drift §2.1） |
+| 「外仓我熟，直接改」 | 改外仓先读该仓根 `AGENTS.md` + 白名单，不凭记忆；Grbl 改完必跑 fz（anti-drift 铁律8） |
 
 ## 4. 动手前强制顺序
 
