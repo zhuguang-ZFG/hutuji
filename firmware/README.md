@@ -36,15 +36,20 @@
 `13057e8` 落笔前旁路 `G92 Z0` 校准 + `ok` 静默丢失兜底。
 `15f73c9` 的 8.3 自动触发镜像 `xiaozhi.bin=0x2cdcb0`、SHA256 `090D65AB...8D0E` 已烧录 COM6，
 并完成有纸 `state=done` 复测（`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）。
+**该镜像属历史**——已被 2026-07-29 20:41 写入的 `0x2ce890`（`13057e8`）覆盖，勿当现状。
 
 **`13057e8` 固化了此前未提交的 3 个文件**（`main/boards/lichuang-dev/hutuji_job.cc`、`hutuji_job.h`、
 `hutuji_pipe.cc`，+407/−83）：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms
 （`kPenSpringReturnMs`）后旁路 `G92 Z0`，以及 `ok` 超时按 MPos 状态兜底（`kMaxOkFallback=3`、
 `kOkFallbackPosTolMm=0.05`）。**S3-LC-01 最后一次烧录的镜像内容即这批改动**——2026-07-29
 20:39 构建 `xiaozhi.bin=0x2ce890`（2943120 字节），SHA256
-`853179049C21028E62DB6784E20040756DB2866A73ED93F20842EFD7A0A24C3E`，app-flash 脚本
-`results/.tmp/flash_autodraw_com6.ps1`，**烧录日志未归档**。因此该镜像现可由 `13057e8`
-复现，但**不得据此宣称烧录成功或实测通过**；落笔只在手动 Telnet 序列（`G92 Z0` →
+`853179049C21028E62DB6784E20040756DB2866A73ED93F20842EFD7A0A24C3E`，20:41 由 app-flash 脚本
+`results/.tmp/flash_autodraw_com6.ps1` 写入 COM6 并通过 esptool 自校验（`Wrote 2943120 bytes`、
+`Hash of data verified`，ESP32-S3 MAC `9c:13:9e:8b:ae:f0`）。证据
+`results/s3-13057e8-com6-flash-evidence-20260729.md`（原始日志由 IDF 自留于
+`build-hutuji-f1000-autodraw/log/idf_py_stdout_output_36852`）。该镜像 autodraw URL 硬编码为
+`http://192.168.1.3:8300/files/f1000-line.gcode`，上电即自动下载并画。
+**烧录本身已可宣称**；落笔只在手动 Telnet 序列（`G92 Z0` →
 `G1 Z5.0 F10000`）下纸面证实，S3 自动路径出墨无归档证据（`results/` 最新证据止于
 `15f73c9` 窗口化复测）。
 

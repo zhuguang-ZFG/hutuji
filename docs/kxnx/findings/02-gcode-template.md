@@ -86,7 +86,8 @@ document_end   = "G1G90 Z0.0F10000\n"
 2026-07-27 COM3 直连只证明命令执行到 Grbl 计数 `Z=5.000/Z=0.000` 与逐行应答；它没有证明
 `$1=25` 回弹后的会话基准正确，也没有完成短线真实出墨验证。fresh `Idle` + 100ms + 旁路
 `G92 Z0` 的新编排已由 fork `13057e8` 提交/推送（`PreparePenOrigin`，上一版 `15f73c9` 不含 `G92`），
-对应镜像 `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已构建并 app-flash 到 COM6（烧录日志未归档）；
+对应镜像 `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已构建并于 2026-07-29 20:41 app-flash 到 COM6
+并通过 esptool 自校验（证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；
 **S3 自动路径的真实出墨仍无归档证据**，纸面落笔目前只由手动 Telnet 序列证实（`docs/troubleshooting.md:26`）。
 
 ## 已纠正（原基于源码推导的错误结论）

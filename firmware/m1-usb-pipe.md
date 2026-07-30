@@ -75,7 +75,8 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   发送其中的 `Z5 + XY + Z0`；不改 `$1/$3`。
   该实现由 fork `13057e8` 提交/推送（`main/boards/lichuang-dev/hutuji_job.{h,cc}`、`hutuji_pipe.cc`
   的 `PreparePenOrigin`）；上一版 `15f73c9` 的 `hutuji_job.cc` 内不含任何 `G92`。含该编排的镜像
-  `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已构建并 app-flash 到 COM6，但**烧录日志未归档**；S3 自动路径的真实出墨
+  `xiaozhi.bin=0x2ce890`（内容对应 `13057e8`）已于 2026-07-29 20:41 app-flash 到 COM6 并通过 esptool
+  `Hash of data verified`（证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；S3 自动路径的真实出墨
   **仍无归档证据**，纸面落笔迄今只由手动 Telnet 序列证实（`docs/troubleshooting.md:26`）。
 - 文件最后一行收到 `ok` 只表示进入 planner；任务还会发 `?` 并等待一份**新解析的**
   `Idle` 状态报告；随后 S3 单独发 `M30`，等换纸最终 `ok/error:90`，并再次确认 fresh
