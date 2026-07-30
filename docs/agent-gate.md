@@ -24,12 +24,19 @@
 
 | Profile | 何时用 | 必须绿 |
 |---------|--------|--------|
-| `docs` | 只改文档/模板/规则 | 必备文件存在；决策锚点在位；禁止重开措辞未复活 |
+| `docs` | 只改文档/模板/规则 | 必备文件存在；决策锚点在位；禁止重开措辞未复活；文档 `path:line` 引用未越界 |
 | `hub`（**默认**） | 改本仓 MCP / 脚本 / 协议说明 | `docs` + pytest 全绿 + `e2e_local.py` 输出 `PASS` |
-| `full` | 改了 Grbl 或声称 §9/联调推进 | `hub` + Grbl §9 **源码标记**检查 + **提示**必须再跑 fz `agent_gate.py` |
+| `full` | 改了 Grbl 或声称 §9/联调推进 | `hub` + Grbl §9 **源码标记**检查（未设 `GRBL_ROOT` 直接 **fail**，不再 skip）+ **提示**必须再跑 fz `agent_gate.py` |
 
 > `full` **不会**自动替你跑 fz 门禁（耗时长、依赖本机 fz）。  
 > 改了 `D:/Users/Grbl_Esp32` 后，你必须**自己**跑 fz，且 `overall_status=pass` 才能声称修好。
+
+`doc_line_refs` 层（三个 profile 都跑）扫 `*.md` / `docs/**/*.md` / `*/README.md` 里的
+`file.ext:12` 与 `file.ext:12-34` 引用，校验目标文件行数覆盖该行号（区间取较大端）：
+
+- 只认能**唯一**落到本仓的引用：相对路径直接命中，或裸文件名在本仓内恰好 1 个同名文件命中；`.venv`/`.claude`/`results`/`output` 等副本目录不参与解析（`.claude/worktrees/*` 是整仓副本，会把唯一性打破）。
+- fork 侧与逆向产物路径（`hutuji_pipe.cc:850`、`Report.cpp:605`、`grbl/a.java:262-284`）本仓无对应文件，一律跳过——本层管「行号过期」，不管「路径拼错」，也不跨仓读文件。
+- detail 同时报 `校验 N 处` 与 `跳过 M 处`；`N=0` 判 **fail**（解析规则失效的空转门禁比红更危险）。行号在范围内 ≠ 指向对的代码，语义仍须人工核对。
 
 ## 3. 必备文件（`docs` 层）
 
@@ -102,7 +109,8 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 - 细则：`D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`
 - **禁止**为了让 fz 绿去改换纸机械/时序/运动/授权/U1 协议，或碰 `report_realtime_status()` / `report_state_text()`
 
-`full` profile 仅做 §9 **源码标记**抽检（见 `scripts/agent_gate.py`），不替代上面这条。
+`full` profile 仅做 §9 **源码标记**抽检（见 `scripts/agent_gate.py`），不替代上面这条；
+未设 `GRBL_ROOT` 时该层判 **fail**（此前是 skip——无证据的 skip 会让 `full` 假绿）。
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
@@ -127,6 +135,9 @@ python scripts\agent_gate.py --profile full   # 需 GRBL_ROOT；仍要另跑 fz
 导致假失败；跑完即删。每次新建是必要的：pytest 启动时会清空 basetemp，固定名字
 一旦被其它账号（如沙箱进程）持有就会 PermissionError，让所有用 tmp fixture 的
 用例在 setup 阶段假失败。`results/.tmp/` 整个不可用才判 fail。
+
+pytest 与 `e2e_local.py` 各带超时（600s / 300s）：卡死（如 e2e 的假 Grbl socket 不返回）
+判 **fail** 并写明超时，不会让门禁无限期挂住。
 
 报告固定写到：
 

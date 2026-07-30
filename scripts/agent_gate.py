@@ -84,10 +84,12 @@ CONSTRAINT_MATRIX_MARKERS = [
     "xiaozhi-esp32",
 ]
 
-# 根 README 决策锚点（缺失 = 文档层红）
+# 根 README 决策锚点（缺失 = 文档层红）。与 docs/agent-gate.md §4 逐条对应。
+# 第 3 项「哑管道 / 云端生成」是「或」关系，其硬检查见 check_decision_anchors()。
 DECISION_ANCHORS = [
     "双芯片",
     "WiFi Telnet",
+    "哑管道",
     "117.72.118.95",
     "protocol.md",
     "§9",
@@ -176,6 +178,9 @@ def check_decision_anchors() -> dict[str, Any]:
         hard_missing.append("WiFi Telnet@README")
     if "117.72.118.95" not in text:
         hard_missing.append("117.72.118.95@README")
+    # 决策 ③ 哑管道原则（docs/agent-gate.md §4 第 3 项，「哑管道」或「云端生成」二者之一）
+    if "哑管道" not in text and "云端生成" not in text:
+        hard_missing.append("哑管道|云端生成@README")
     if "## 9." not in protocol and "§9" not in protocol:
         hard_missing.append("§9@protocol")
     if hard_missing:
@@ -264,6 +269,102 @@ def check_constraint_matrix() -> dict[str, Any]:
     return _layer("constraint_matrix", "三仓约束矩阵", "pass", detail)
 
 
+# 文档里的 `path:line` / `path:line-line` 引用。只认带扩展名的相对路径，避免把
+# `127.0.0.1:8300` 这类端口写法当成行号引用。
+_DOC_REF_RE = re.compile(
+    r"([A-Za-z0-9_./\\-]+\.(?:py|toml|c|cc|cpp|h|hpp|sh|json|mdc|md)):(\d+)(?:-(\d+))?"
+)
+
+# basename 兜底解析时跳过的目录：虚拟环境 / 缓存 / 产物 / 代理临时 worktree
+# （`.claude/worktrees/*` 是整仓副本，会让每个 basename 都有多个命中）。既避免误判
+# 到第三方同名文件，也避免同名把「唯一命中」打破、导致本该校验的引用被白白跳过。
+_REF_SKIP_DIRS = {
+    ".venv",
+    ".git",
+    ".claude",
+    ".pytest_cache",
+    "__pycache__",
+    "node_modules",
+    "output",
+    "results",
+}
+
+
+def _repo_file_index() -> dict[str, list[Path]]:
+    """本仓文件名 → 路径列表，供文档引用的 basename 兜底解析。"""
+    index: dict[str, list[Path]] = {}
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in _REF_SKIP_DIRS]
+        for name in filenames:
+            index.setdefault(name, []).append(Path(dirpath) / name)
+    return index
+
+
+def _resolve_doc_ref(ref: str, index: dict[str, list[Path]]) -> Path | None:
+    """把文档里的引用落到本仓文件；无法唯一确定就返回 None（该条跳过）。
+
+    文档习惯只写文件名（`gcode_gen.py:235`）或外仓相对路径
+    （`Grbl/src/Report.cpp:605`）。前者要求在本仓内唯一命中才校验；后者本仓没有
+    对应文件，自然跳过——本层管「引用行号过期」，不管「路径拼错」。
+    """
+    direct = ROOT / ref
+    if direct.is_file():
+        return direct
+    cands = index.get(ref.rsplit("/", 1)[-1], [])
+    if "/" in ref:
+        suffix = "/" + ref
+        cands = [p for p in cands if p.as_posix().endswith(suffix)]
+    return cands[0] if len(cands) == 1 else None
+
+
+def check_doc_line_refs() -> dict[str, Any]:
+    """校验文档里的 `path:line` 引用没有漂移（文件存在且行号在范围内）。
+
+    代码搬家后行号是最容易悄悄失效的东西，而失效的证据引用等于没有证据。只校验
+    能唯一落到本仓内的引用；fork 侧路径（`Grbl_Esp32/`、`xiaozhi-esp32/`）和逆向
+    产物（`machine/grbl/*.java`）本仓无对应文件，一律跳过——本层管的是「引用行号
+    过期」，不是「路径拼错」。
+    """
+    md_files = sorted({*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")})
+    index = _repo_file_index()
+    bad: list[str] = []
+    checked = 0
+    skipped = 0
+    for md in md_files:
+        text = md.read_text(encoding="utf-8", errors="replace")
+        rel_md = md.relative_to(ROOT).as_posix()
+        for m in _DOC_REF_RE.finditer(text):
+            ref = m.group(1).replace("\\", "/").lstrip("./")
+            target = _resolve_doc_ref(ref, index)
+            if target is None:
+                skipped += 1
+                continue
+            # 区间引用（`:205-207`）只校验较大的端点：末行在范围内则整段在范围内
+            lineno = max(int(m.group(2)), int(m.group(3) or 0))
+            checked += 1
+            total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            if lineno < 1 or lineno > total:
+                rel_target = target.relative_to(ROOT).as_posix()
+                bad.append(f"{rel_md} → {ref}:{lineno}（{rel_target} 共 {total} 行）")
+    if bad:
+        detail = f"{len(bad)}/{checked} 处行号越界：" + "; ".join(bad[:10])
+        return _layer("doc_line_refs", "文档 path:line 引用", "fail", detail)
+    if checked == 0:
+        # 一条都解析不到就是空转门禁；宁可红也不要假绿
+        return _layer(
+            "doc_line_refs",
+            "文档 path:line 引用",
+            "fail",
+            f"本仓内一条引用都没解析到（跳过 {skipped} 处）——解析规则或文档约定已变，先修门禁",
+        )
+    return _layer(
+        "doc_line_refs",
+        "文档 path:line 引用",
+        "pass",
+        f"校验 {checked} 处行号均在范围内；跳过 {skipped} 处（外仓/无法唯一定位）",
+    )
+
+
 def _mcp_python() -> Path | None:
     win = ROOT / "mcp-server" / ".venv" / "Scripts" / "python.exe"
     unix = ROOT / "mcp-server" / ".venv" / "bin" / "python"
@@ -315,7 +416,12 @@ def run_pytest() -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
+            # 门禁必须有界：无 timeout 时一条挂死的用例会让整个门禁永久卡住，
+            # 结果是「没有结论」而不是 fail——无人值守下最糟的一种失败。
+            timeout=600,
         )
+    except subprocess.TimeoutExpired:
+        return _layer("pytest", "mcp-server pytest", "fail", "pytest 超过 600s 未返回（疑似挂死）")
     finally:
         shutil.rmtree(pytest_tmp, ignore_errors=True)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
@@ -328,14 +434,18 @@ def run_e2e() -> dict[str, Any]:
     py = _mcp_python()
     if py is None:
         return _layer("e2e_local", "e2e_local.py", "fail", "缺少 mcp-server/.venv")
-    proc = subprocess.run(
-        [str(py), "scripts/e2e_local.py"],
-        cwd=ROOT / "mcp-server",
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        proc = subprocess.run(
+            [str(py), "scripts/e2e_local.py"],
+            cwd=ROOT / "mcp-server",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,  # 同上：e2e 会起假 Grbl socket，卡住时必须判 fail 而不是干等
+        )
+    except subprocess.TimeoutExpired:
+        return _layer("e2e_local", "e2e_local.py", "fail", "e2e_local 超过 300s 未返回（疑似挂死）")
     out = (proc.stdout + proc.stderr).strip()
     ok = proc.returncode == 0 and re.search(r"\bPASS\b", out) is not None
     detail = out.splitlines()[-1] if out else f"exit={proc.returncode}"
@@ -344,11 +454,14 @@ def run_e2e() -> dict[str, Any]:
 
 def check_section9(grbl_root: Path | None) -> dict[str, Any]:
     if grbl_root is None:
+        # full profile 的定义就是 hub + §9 源码标记；GRBL_ROOT 未设时这一层
+        # 一条证据也没有，只能判未通过。早先记 skip，而 skip 不计入 failed，
+        # 等于 `--profile full` 在不设环境变量时永远绿——正是「无证据即通过」。
         return _layer(
             "section9_markers",
             "Grbl §9 源码标记",
-            "skip",
-            "未设置 GRBL_ROOT；改 Grbl 后必须设置并重跑 full，且另跑 fz 门禁",
+            "fail",
+            "未设置 GRBL_ROOT（full 必须给出 §9 证据）；改 Grbl 后设置并重跑 full，且另跑 fz 门禁",
         )
     if not grbl_root.is_dir():
         return _layer("section9_markers", "Grbl §9 源码标记", "fail", f"GRBL_ROOT 不存在: {grbl_root}")
@@ -427,6 +540,7 @@ def main(argv: list[str] | None = None) -> int:
     layers.append(check_edit_allowlist())
     layers.append(check_anti_drift_doc())
     layers.append(check_constraint_matrix())
+    layers.append(check_doc_line_refs())
 
     if args.profile in ("hub", "full"):
         layers.append(run_pytest())

@@ -171,9 +171,11 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
         "linemerge", "--tolerance", f"{LINEMERGE_TOLERANCE_MM}mm",
         "linesort",
         # linesimplify：SVG 曲线默认离散得极密（实测一张图 9266 行 G1，步长
-        # 0.12mm）。逐行流控下每行都要一次 Telnet 往返（~20ms），而 0.12mm @
-        # F1500 只需 4.9ms 执行——电机走完就干等，表现为「笔走停停」。
+        # 0.12mm）。逐行流控下每行都要一次 Telnet 往返（~25ms），而 0.12mm @
+        # F8000（133mm/s）只需 0.9ms 执行——电机走完就干等，表现为「笔走停停」。
         # 简化到笔宽量级内可把行数降一个数量级，肉眼无差别。
+        # 进给以生产 profile 为准（hutuji_gwrite.toml:33-35 全是 F8000）；早先
+        # 这里写的 F1500/~20ms 是 profile 定稿前的旧口径，与上方 25ms 自相矛盾。
         "linesimplify", "--tolerance", f"{LINESIMPLIFY_TOLERANCE_MM}mm",
         "gwrite", "--profile", "hutuji", str(gcode_path),
     ]
@@ -202,10 +204,14 @@ def validate_gcode(text: str) -> GcodeStats:
     seen_g21 = False
     seen_g90 = False
     pen_lifts = 0
-    # Grbl 复位/程序结束后的默认运动模式是 G1；只有本行显式给 G0~G3 才切换。
+    # Grbl 复位/上电后的默认运动模式是 **G0**：`Grbl_Esp32/src/GCode.h:78`
+    # `Seek = 0, // G0 (Default: Must be zero)`，modal 结构体归零即 Seek；
+    # 只有 M2/M30 之后才切到 G1（`GCode.cpp:1736`）。只有本行显式给 G0~G3 才切换。
     # 裸轴字行（如 `X10 Y20`）会继承该模式，校验器必须与固件保持一致，否则
-    # 可绕过坐标限幅、回原点禁令和圆弧位置跟踪。
-    active_motion = "G1"
+    # 可绕过坐标限幅、回原点禁令和圆弧位置跟踪——尤其裸 `X0 Y0` 会被固件按 G0
+    # 执行并触发自动换纸 + 失能电机（`GCode.cpp:1773-1786`，该路径只查 XY、
+    # 无一次性门）。初值取 G0 是 fail-safe 方向：宁可对生产头之前的裸轴字从严误拒。
+    active_motion = "G0"
     # 圆弧包围盒需要起点，故逐行跟踪当前 XY。None = 尚无已知位置（首个定位前）。
     cur_x: float | None = None
     cur_y: float | None = None

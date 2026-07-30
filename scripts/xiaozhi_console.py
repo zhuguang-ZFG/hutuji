@@ -156,10 +156,10 @@ def cmd_update_role(agent_id):
     print(f"读取 {ROLE_PROMPT_PATH.name}: {len(role_text)} 字符")
 
     result = api("POST", f"/agents/{agent_id}/config", {"character": role_text})
-    if result.get("success"):
-        print("✓ 角色提示更新成功")
-    else:
+    if not result.get("success"):
         print(f"✗ 更新失败: {result.get('message', '?')}", file=sys.stderr)
+        sys.exit(1)
+    print("✓ 角色提示更新成功")
 
 
 def cmd_update_kb(kb_id):
@@ -167,22 +167,17 @@ def cmd_update_kb(kb_id):
         print(f"文件不存在: {KNOWLEDGE_BASE_PATH}", file=sys.stderr)
         sys.exit(1)
 
-    # 查现有文档
+    # 先记下现有文档，**上传 + 建档成功后才删旧**：任一步失败时远端仍保留旧知识库。
+    # 旧实现是「先删全部再上传」，上传失败即把远端知识库清空，且不可逆。
     docs_result = api("GET", f"/knowledge-bases/document?knowledgeBaseId={kb_id}&page=1&pageSize=50")
-    docs = docs_result.get("data", {}).get("list", [])
-
-    # 删除旧文档
-    for doc in docs:
-        doc_id = doc["id"]
-        title = doc.get("title", "?")
-        print(f"删除旧文档: {title} (id={doc_id})")
-        api("DELETE", f"/knowledge-bases/document?knowledgeBaseId={kb_id}&documentId={doc_id}")
+    old_docs = docs_result.get("data", {}).get("list", [])
+    print(f"现有文档 {len(old_docs)} 篇；先上传新文件，成功后再删旧")
 
     # 上传新文件
     print(f"上传 {KNOWLEDGE_BASE_PATH.name}...")
     upload_result = api_upload("/knowledge-bases/upload-file", str(KNOWLEDGE_BASE_PATH))
     if not upload_result.get("success"):
-        print(f"✗ 上传失败: {upload_result.get('message', '?')}", file=sys.stderr)
+        print(f"✗ 上传失败: {upload_result.get('message', '?')}（旧文档保留）", file=sys.stderr)
         sys.exit(1)
 
     file_name = upload_result["data"]["file_name"]
@@ -195,10 +190,25 @@ def cmd_update_kb(kb_id):
         "fileMd5": file_md5,
         "optimizeParse": False,
     })
-    if create_result.get("success"):
-        print(f"✓ 知识库文档替换成功 (md5={file_md5[:12]}...)")
-    else:
-        print(f"✗ 创建文档失败: {create_result.get('message', '?')}", file=sys.stderr)
+    if not create_result.get("success"):
+        print(f"✗ 创建文档失败: {create_result.get('message', '?')}（旧文档保留）", file=sys.stderr)
+        sys.exit(1)
+    print(f"✓ 新文档已建立 (md5={file_md5[:12]}...)")
+
+    # 新文档就位后才清理旧文档；删除失败不丢数据（新旧并存），但要非零退出提示人工清理
+    delete_failed = []
+    for doc in old_docs:
+        doc_id = doc["id"]
+        title = doc.get("title", "?")
+        print(f"删除旧文档: {title} (id={doc_id})")
+        del_result = api("DELETE", f"/knowledge-bases/document?knowledgeBaseId={kb_id}&documentId={doc_id}")
+        # api() 对 HTTP 错误已 sys.exit；这里只拦「HTTP 200 但 success=false」
+        if isinstance(del_result, dict) and del_result.get("success") is False:
+            delete_failed.append(f"{title}(id={doc_id})")
+    if delete_failed:
+        print(f"✗ 旧文档删除失败，需人工清理: {delete_failed}", file=sys.stderr)
+        sys.exit(1)
+    print("✓ 知识库文档替换成功")
 
 
 def cmd_kb_list():

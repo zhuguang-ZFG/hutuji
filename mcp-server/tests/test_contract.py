@@ -36,7 +36,7 @@ def _settings(output_dir: Path, *, ttl: int = 600) -> Settings:
 
 
 def _minimal_gcode(extra: str = "") -> str:
-    return f"G21\nG90\nF1500\n{extra}"
+    return f"G21\nG90\nF8000\n{extra}"
 
 
 def test_gcode_rejects_more_than_512_kib() -> None:
@@ -239,7 +239,8 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
     """回归：管线必须含 linemerge + linesimplify，且顺序在 gwrite 之前。
 
     这两步是「笔走停停」修复的实体（commit 2aead01）：SVG 曲线离散成 0.12mm
-    步长的密点，逐行流控下每行执行 4.9ms < Telnet 往返 ~20ms，电机干等。
+    步长的密点，逐行流控下每行执行 0.9ms（0.12mm @ 生产 F8000=133mm/s）
+    < Telnet 往返 ~25ms，电机干等。
     若有人清理管线时删掉这两行，其余测试照样全绿，卡顿静默回归。
     """
     import subprocess as _sp
@@ -251,7 +252,7 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         captured["cmd"] = cmd
         # 伪造 vpype 成功：往输出路径写一份最小合法 G-code
-        Path(cmd[-1]).write_text("G21\nG90\nF1500\n", encoding="utf-8")
+        Path(cmd[-1]).write_text("G21\nG90\nF8000\n", encoding="utf-8")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
@@ -264,9 +265,56 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
         assert step in cmd, f"vpype 管线缺少 {step}"
     order = [cmd.index(s) for s in ("linemerge", "linesort", "linesimplify", "gwrite")]
     assert order == sorted(order), f"管线顺序被破坏：{cmd}"
-    # 容差必须显式给出（默认容差未必等于已验证的 0.2/0.05mm）
+    # 容差必须显式给出（默认容差未必等于已验证的 0.05/0.3mm）
     assert cmd[cmd.index("linesimplify") + 1] == "--tolerance"
     assert cmd[cmd.index("linemerge") + 1] == "--tolerance"
+    # 数值也要锁：只断言「有 --tolerance」的话，把容差改成 5mm 照样全绿
+    assert cmd[cmd.index("linesimplify") + 2] == f"{gcode_gen.LINESIMPLIFY_TOLERANCE_MM}mm"
+    assert cmd[cmd.index("linemerge") + 2] == f"{gcode_gen.LINEMERGE_TOLERANCE_MM}mm"
+
+
+def test_tolerances_are_pinned_to_verified_values() -> None:
+    """容差直接决定行数与画质，改动必须是显式决策而非顺手调参。
+
+    0.05mm：S3 已落地 512 字节窗口化流控（`15f73c9`），往返不再逐行串行，
+    故从 0.1mm 回降，向奎享 0.02mm 画质靠拢。0.3mm：对齐奎享 nearDst。
+    """
+    from hutuji_mcp import gcode_gen
+
+    assert gcode_gen.LINESIMPLIFY_TOLERANCE_MM == 0.05
+    assert gcode_gen.LINEMERGE_TOLERANCE_MM == 0.3
+
+
+def test_gwrite_profile_matches_production_shape() -> None:
+    """生产 profile 形状锁定（docs/protocol.md §5，逐字对齐奎享唯一产物）。
+
+    上一条管线回归把 subprocess.run 整个 mock 掉，假产物的头是随手写的最小
+    合法 G-code，锁不住真实 profile；真 vpype 只在 scripts/e2e_local.py 跑，
+    且只断言「有行数」。故这里直接对 hutuji_gwrite.toml 做字面量断言。
+    """
+    import tomllib
+
+    from hutuji_mcp import gcode_gen
+
+    toml_path = Path(gcode_gen.__file__).parent / "hutuji_gwrite.toml"
+    profile = tomllib.loads(toml_path.read_text(encoding="utf-8"))["gwrite"]["hutuji"]
+
+    assert profile["unit"] == "mm"
+    assert profile["vertical_flip"] is True
+    # 头：G21/G90/F8000 + 两次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路发送）
+    assert profile["document_start"] == "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+    assert profile["document_start"].count("G1G90 Z0.0F10000") == 2
+    # 空走 G0 F8000 → 落笔 Z5；画线 G1 F8000；抬笔 Z0
+    assert profile["segment_first"] == "G0 X{x:.3f}Y{y:.3f}F8000\nG1G90 Z5.0F10000\n"
+    assert profile["segment"] == "G1 X{x:.3f}Y{y:.3f}F8000\n"
+    assert profile["line_end"] == "G1G90 Z0.0F10000\n"
+    # 收尾只抬笔：奎享的 G90G0 X0Y0 在本机会被判为换纸触发，禁止照抄
+    assert profile["document_end"] == "G1G90 Z0.0F10000\n"
+    assert "G0" not in profile["document_end"], "收尾不得有 G0 空走"
+    for key in ("document_start", "segment_first", "segment", "line_end", "document_end"):
+        assert "G92" not in profile[key], f"{key} 不得含 G92（校验器会拒）"
+        assert "M" not in profile[key], f"{key} 不得含 M 码（笔控纯 Z 运动）"
+        assert "X0Y0" not in profile[key].replace(" ", ""), f"{key} 不得回原点"
 
 
 # ---- §5 校验器绕过回归（2026-07-26 深度评审）----
@@ -344,8 +392,12 @@ def test_malformed_gcode_never_raises_non_gcode_error() -> None:
 @pytest.mark.parametrize(
     "line",
     [
-        "G0 X95.000 Y175.000 F2500",  # vpype segment_first 实际形状
-        "G1 X100.000 Y100.000 F1500",
+        # 生产 profile 的真实形状：X 与 Y 之间无空格、每行都带 F8000
+        # （hutuji_gwrite.toml segment_first/segment；早先这两行写的
+        #  F2500/F1500 是 profile 定稿前的旧口径，锁不住真实产物）
+        "G0 X95.000Y175.000F8000",
+        "G1 X100.000Y100.000F8000",
+        "G0 X95.000 Y175.000 F8000",  # 带空格的等价写法同样必须放行
         "G1 X.5 Y.5",                 # 前导小数点但在范围内
         "G1 X1e-3 Y5",                # 负指数 = 0.001mm
         "; comment",
@@ -448,10 +500,28 @@ def test_g0_with_unknown_modal_axis_is_rejected() -> None:
         validate_gcode(_minimal_gcode("G0 X0\n"))
 
 
-def test_default_modal_g1_axis_only_line_is_limited() -> None:
-    """Grbl 复位后默认 G1；即使文件尚无显式运动码，裸轴字也必须限幅。"""
+def test_default_modal_axis_only_line_is_limited() -> None:
+    """复位后默认模态是 G0；即使文件尚无显式运动码，裸轴字也必须限幅。"""
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(_minimal_gcode("X500 Y5\n"))
+
+
+def test_default_modal_bare_origin_is_rejected() -> None:
+    """裸 `X0 Y0`（不带 G 字）必须按 G0 判定并拒绝。
+
+    Grbl 复位/上电后的默认运动模式是 G0 而不是 G1：`Grbl_Esp32/src/GCode.h`
+    里 `Seek = 0, // G0 (Default: Must be zero)`，modal 结构体归零即 Seek，
+    只有 M2/M30 之后才切 G1。所以这一行会被固件按 G0 执行、落到 (0,0)，触发
+    自动换纸 + 失能电机（该路径只查 XY，没有一次性门）。校验器初值曾写成 G1，
+    这类行会被当成普通画线放行——是能把机器搞坏的静默漏放。
+    """
+    with pytest.raises(GcodeError, match="自动换纸"):
+        validate_gcode(_minimal_gcode("X0 Y0\n"))
+
+
+def test_explicit_g1_to_origin_is_still_allowed() -> None:
+    """只拦 G0 语义的 (0,0)：显式 G1 走到 (0,0) 是普通画线，不走换纸路径。"""
+    validate_gcode(_minimal_gcode("G1 X0 Y0\n"))
 
 
 def test_inherited_modal_g1_axis_only_line_is_limited() -> None:

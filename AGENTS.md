@@ -52,7 +52,7 @@
 
 - **推荐入口**：仓库根 `python scripts/agent_gate.py`（含文档锚点 + pytest + e2e）。
 - 安装开发依赖：在 `mcp-server/` 执行 `.venv/Scripts/pip install -r requirements-dev.txt`（`.venv` 未建则门禁 pytest/e2e 层直接 fail）。
-- 契约/安全回归：`.venv/Scripts/python -m pytest -q`（86 条：契约/注入/脱敏/限流/TTL）。
+- 契约/安全回归：`.venv/Scripts/python -m pytest -q`（115 条：契约/注入/脱敏/限流/TTL）。
 - MCP → G-code → 假 Grbl 闭环：`.venv/Scripts/python scripts/e2e_local.py`，必须输出 `PASS`。
 - 起开发服务：`.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300`（**`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`**；`-m uvicorn` 不读 `HUTUJI_HOST`）。
 - 小智云工具发现冒烟：仅在当前终端设置 `MCP_ENDPOINT` 后运行 `.venv/Scripts/python scripts/cloud_bridge_smoke.py`。
