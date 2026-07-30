@@ -10,7 +10,11 @@
 > **hutuji 状态勘误（2026-07-30）**：上面这段「逐行等 ok」已过时。S3 自
 > `15f73c9` 起就是 character-counting 窗口化，窗口 `kWindow = 512` 字节
 > ≈ 21 行在飞（`hutuji_job.cc:57-58`），奎享这套机制已落地。剩下的差异只是介质：
-> 奎享走 USB 串口（往返实测 ~6ms，`docs/design/p2-windowed-flow-control.md:246`），
+> 奎享支持三条传输通道：USB 串口（`machine/b/f.java`，jssc 事件驱动，我们 COM3 实测往返 ~6ms）、
+> WiFi TCP（`machine/b/d.java`，Socket → port 23，与 hutuji Telnet 同构）、
+> **蓝牙 SPP**（固件侧 `CLIENT_BT` + `BluetoothSerial`，商业上位机无线流式出图的主路径，
+> `PAPER_AUTO_CHANGE_ON_BT_CONNECT` 量产验证；逆向 Java 侧未覆盖该 transport 子类）。
+> 下方 6ms 是**串口实测基线**，不是奎享商业无线路径的 RTT（BT SPP RTT 未知）。
 > hutuji 走 WiFi Telnet。
 >
 > **「20–40ms」这个估计值已被实测证否（2026-07-30 当日晚，同一台 MK38）**：

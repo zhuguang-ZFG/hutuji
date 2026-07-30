@@ -76,7 +76,7 @@ G1 Z0.0 F10000     ← 抬笔
 - planner 块深 `BLOCK_BUFFER_SIZE 250`（`Config.h:469`）够深，不是瓶颈。
 - 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:57-58`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:1473`，商业固件会少应答、窗口计数永久漂移）。
 - 失能门槛可解析求出：planner 空窗 = `RTT − 21 × 段长 ÷ 133.33mm/s`，空窗 > `$1`=25ms 才失能 → **只有段长 < (RTT−25) × 6.349 µm/ms 时才可能断粮**。RTT=40ms → 0.095mm；RTT=30ms → 0.032mm；RTT ≤ 25ms → 恒不失能。**注意这里代入的 20–40ms 已被实测证否**，实测值与重算后的门槛见下面「实测 `$110/$111/$112` 与链路 RTT」一节。
-- 奎享为什么不受这条约束：它 0.044mm 段长下 21 段仅 6.93ms 在途，但走 USB 串口、往返实测 ~6ms（`docs/design/p2-windowed-flow-control.md:246`）→ 空窗 −0.9ms，从不见底。同一份文件搬到 WiFi 40ms 往返就必失能——**奎享 `simplePaths=0.02mm` 不可照搬到 Telnet 路径**，hutuji 的 `linesimplify 0.05mm` 反倒是 WiFi 路径的必要保护。
+- 奎享为什么不受这条约束：它 0.044mm 段长下 21 段仅 6.93ms 在途。奎享支持三条通道——USB 串口（我们 COM3 实测往返 ~6ms）、WiFi TCP（port 23，与 hutuji 同构）、**蓝牙 SPP**（商业上位机无线主路径，`PAPER_AUTO_CHANGE_ON_BT_CONNECT` 量产验证，RTT 未知）。下方 6ms 是串口实测基线；同一份文件搬到 WiFi 40ms+ 往返就必失能——**奎享 `simplePaths=0.02mm` 不可照搬到 Telnet 路径**，hutuji 的 `linesimplify 0.05mm` 反倒是 WiFi 路径的必要保护。
 - 交叉印证：`hutuji_pipe.cc:399-400` 关 Nagle 的注释已独立记过同一物理机制（Z5 执行后 `$1` 到点失能、下一条 XY 因等 ACK 滞留 → 轨迹在走但笔已回弹）。
 
 ### 本地实测：当前生产管线产不出会断粮的段长（2026-07-30）
