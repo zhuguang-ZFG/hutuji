@@ -6,6 +6,13 @@
 >
 > 与 hutuji 的关系：我们 `hutuji_job.cc::StreamToGrbl()` 用的是逐行等 ok，
 > 每行都要付一次 WiFi 往返（~20–40ms）。奎享的做法可以让往返与运动**重叠**。
+>
+> **hutuji 状态勘误（2026-07-30）**：上面这段「逐行等 ok」已过时。S3 自
+> `15f73c9` 起就是 character-counting 窗口化，窗口 `kWindow = 512` 字节
+> ≈ 21 行在飞（`hutuji_job.cc:57-58`），奎享这套机制已落地。剩下的差异只是介质：
+> 奎享走 USB 串口（往返实测 ~6ms，`docs/design/p2-windowed-flow-control.md:246`），
+> hutuji 走 WiFi Telnet（20–40ms 是估计值，**至今未实测**）。段长与失能门槛的
+> 定量关系见 `docs/troubleshooting.md` 笔控一节。
 
 > **hutuji 状态勘误（2026-07-28）**：本文对奎享的逆向结论保留，但早期用来对照的
 > hutuji abort 已变化。当前非换纸 abort 是 `!` 后用 `?` 轮询到 `Hold/Idle`（最长约 8s），
