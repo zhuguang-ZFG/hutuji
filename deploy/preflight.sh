@@ -63,6 +63,49 @@ check_active_nginx_acl() {
     grep -Fq 'allow ::1;' <<<"$files" && grep -Fq 'deny all;' <<<"$files"
 }
 
+# 取本机非 loopback IPv4：依次 hostname -I / 默认路由接口。无公网 IPv4 时返回空，
+# 调用方应跳过"非 loopback 拒绝"子判据（loopback 正例已覆盖 ACL 本身），
+# 而不是把整项检查判失败。
+probe_non_loopback_ip() {
+  local ip
+  ip="$(hostname -I 2>/dev/null | tr " " "\n" |
+    awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $0 !~ /^127\./ {print; exit}')"
+  if [[ -n "$ip" ]]; then
+    printf '%s' "$ip"
+    return 0
+  fi
+  ip="$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')"
+  if [[ -n "$ip" ]]; then
+    ip="$(ip -4 -o addr show dev "$ip" 2>/dev/null |
+      awk '{split($4,a,"/"); if (a[1] !~ /^127\./) {print a[1]; exit}}')"
+    if [[ -n "$ip" ]]; then
+      printf '%s' "$ip"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# 用隧道 Host 头探 :80 /files 的 ACL：loopback 放行（GET 404 / POST 403 / /mcp 404），
+# 非 loopback 拒绝。无公网 IPv4 时跳过 denied 子判据——loopback 正例已覆盖 ACL 本身，
+# 不该把环境缺 IPv4 误报成配置缺失。
+check_acl_response() {
+  local h="$1" get post mcp base ip denied
+  [[ -n "$h" ]] || return 1
+  get=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
+  post=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
+  mcp=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/mcp)
+  base=ok
+  ip="$(probe_non_loopback_ip)"
+  if [[ -n "$ip" ]]; then
+    denied=$(curl --noproxy "*" -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
+    [[ "$denied" == "403" ]] || base=fail
+  fi
+  [[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" && "$base" == "ok" ]]
+}
+
+check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_response "$TUNNEL_HOST"
+
 check_download() (
   local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f headers body code expected_len actual_len expected_crc actual_crc
   [[ -n "$h" && -d "$d" ]] && safe_output_dir "$d" || exit 1
@@ -113,7 +156,6 @@ check "线上 nginx conf 与本仓模板一致（LF 归一化）" bash -c '
   a=$(tr -d "\r" < /opt/hutuji/deploy/nginx-hutuji.conf | md5sum | cut -d" " -f1)
   b=$(tr -d "\r" < /etc/nginx/sites-enabled/hutuji | md5sum | cut -d" " -f1)
   [[ -n "$a" && "$a" == "$b" ]]'
-check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" bash -c 'h="$1"; [[ -n "$h" ]] || exit 1; get=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/files/__nonexistent__); post=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Host: $h" http://127.0.0.1/files/__nonexistent__); mcp=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/mcp); ip=$(hostname -I | tr " " "\n" | awk "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/ && \$0 !~ /^127\\./ {print; exit}"); [[ -n "$ip" ]] || exit 1; denied=$(curl --noproxy "*" -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__"); [[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" && "$denied" == "403" ]]' _ "$TUNNEL_HOST"
 # 真 200 正例：造一份合法命名产物（TTL 内自清），验完整下载契约。
 check "localhost :80 /files 真下 G-code 200" check_download
 
