@@ -97,7 +97,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | 🟡 历史旧版 14 项曾确认；当前 14 项加固待生产复验 | 旧 `pass=14 fail=0` 不证明新脚本/配置；当前版新增有效末次 env、HTTPS:443、enabled ACL 与活动 localhost `:80` 契约，尚未部署 VPS |
+| `preflight.sh` 全 PASS | ✅ **新版 14 项已生产复验**(2026-07-31 21:22) | `pass=14 fail=0`;见下「第三轮传输安全加固」已部署记录 |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
@@ -140,21 +140,46 @@ ssh … 'sed -i "s/\r$//" /tmp/hutuji-candidate.conf
 （`draw_20260731_145211_<22 位 token>.gcode`，31B），公网隧道与 `:80` 回源路径均 `HTTP=200 bytes=31`
 且正文逐字回读，测完立即 `rm`。
 
-### 第三轮传输安全加固（本仓工作树，未部署）
+### 第三轮传输安全加固(2026-07-31 21:20-21:22,**已部署并复验**)
 
-2026-07-31 code review 发现旧 `:80` server 的 `/files/` 对任意公网来源开放，且 preflight 可能校验
-与 systemd 实际生效值不同的首个重复赋值。本仓现已：
+2026-07-31 code review 发现旧 `:80` server 的 `/files/` 对任意公网来源开放,且 preflight 可能校验
+与 systemd 实际生效值不同的首个重复赋值。本仓已修,**并已上线**:
 
-1. `:80 /files/` 加 `allow 127.0.0.1`、`allow ::1`、`deny all`，只给本机 cloudflared 回源；
-2. EnvironmentFile 不 `source`/`eval`，支持注释、空行、可选成对引号；重复键与 systemd 一致取最后赋值；
-3. `HUTUJI_PUBLIC_BASE_URL` 只允许 HTTPS 默认 443 或显式 `:443`；`OUTPUT_DIR` 先经 `realpath -m` 归一化，并要求字面路径与解析后的真实路径都位于 `/opt/` 下；
-4. enabled 精确链接与 LF 哈希之外，`nginx -T` 还须证明活动配置含 loopback-only `:80 /files` ACL；
-5. reload 后 localhost `:80` 活动探针核 GET=404、POST=403、`/mcp`=404；真下载同时核
-   HTTP 200、`Content-Length`、IEEE CRC32 头和逐字节正文；解析值只经位置参数传入子 shell。
+1. `:80 /files/` 加 `allow 127.0.0.1`、`allow ::1`、`deny all`,只给本机 cloudflared 回源;
+2. EnvironmentFile 不 `source`/`eval`,支持注释、空行、可选成对引号;重复键与 systemd 一致取最后赋值;
+3. `HUTUJI_PUBLIC_BASE_URL` 只允许 HTTPS 默认 443 或显式 `:443`,且拒绝裸 `?`/`#` 与 loopback 主机;`OUTPUT_DIR` 先经 `realpath -m` 归一化,并要求字面路径与解析后的真实路径都位于 `/opt/` 下;
+4. enabled 精确链接与 LF 哈希之外,`nginx -T` 还须证明活动配置含 loopback-only `:80 /files` ACL;
+5. reload 后 localhost `:80` 活动探针核 GET=404、POST=403、`/mcp`=404;真下载同时核
+   HTTP 200、`Content-Length`、IEEE CRC32 头和逐字节正文;解析值只经位置参数传入子 shell。
 
-生产尚未更新，故不得把本节写成线上已修复。部署时先备份和同步，再重建 enabled 精确链接，
-执行 `nginx -t` **然后 reload**；只有 reload 成功后才能跑 14 项 preflight 活动探针。最后从公网直连
-`:80 /files/*` 验 403、经 Cloudflare HTTPS 的合法产物验 200 与两项完整性头。
+**部署前置核实**(必须先做,否则 ACL 会切断隧道):`/etc/cloudflared/config.yml` 的
+`service: http://localhost:80`,而本机 `getent hosts localhost` **只返回 `::1`**,nginx 又只
+`listen 80`(IPv4)。实测公网隧道请求在 access.log 里 `remote_addr=127.0.0.1`——cloudflared 的
+Go dialer 在 `::1` 被拒后回落 IPv4,故 loopback ACL 安全;`allow ::1` 仅为冗余保险。
+
+```bash
+# 已执行(回滚副本:/root/hutuji-bak-20260731-212012/,含 nginx 两份 + preflight.sh + 三个 .py)
+scp deploy/{nginx-hutuji.conf,preflight.sh,env.mcp.example} \
+    mcp-server/hutuji_mcp/{cloud_bridge.py,config.py,server.py} root@…:/tmp/hutuji-deploy/
+ssh … 'cd /tmp/hutuji-deploy && for f in *; do sed -i "s/\r$//" "$f"; done
+        install -m 644 nginx-hutuji.conf /etc/nginx/sites-available/hutuji
+        install -m 644 nginx-hutuji.conf /opt/hutuji/deploy/        # 漂移判据的比较基准,别漏
+        install -m 755 preflight.sh /opt/hutuji/deploy/
+        install -m 644 cloud_bridge.py config.py server.py /opt/hutuji/mcp-server/hutuji_mcp/
+        ln -sfn /etc/nginx/sites-available/hutuji /etc/nginx/sites-enabled/hutuji
+        nginx -t && systemctl reload nginx
+        systemctl restart hutuji-mcp hutuji-cloud-bridge'
+```
+
+**复验证据**(2026-07-31 21:22):`preflight.sh` **`pass=14 fail=0`**;LF 归一化 md5 本仓 == 线上
+`db3d5daed73c63e7684063efb65d09f2`;`readlink -f sites-enabled/hutuji` == `sites-available/hutuji`;
+三服务 `active`。公网面:HTTPS `/mcp` GET/POST **均 404**、直连 `:80 /files/*` **403**、直连 `:80 /mcp` 404、
+HTTPS `/files/__nonexistent__` 404。桥接重连后云端真实 `initialize`+`tools/list`+`ping` 已进日志,
+且新脱敏 filter 生效(URL 记为 `<redacted-url>`、`mcp-session-id` 截断)。
+
+> 首次部署踩坑:只 `install` 到 `/etc/nginx/sites-available/` 会让第 12 项
+> 「线上 nginx conf 与本仓模板一致」**fail**——该项比较基准是 `/opt/hutuji/deploy/nginx-hutuji.conf`,
+> 两处都要同步。
 
 #### 漂移判据（必须 LF 归一化）
 
