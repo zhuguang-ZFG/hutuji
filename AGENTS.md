@@ -93,7 +93,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - **状态与注入**：模块级单例代替 DI 容器——`config.settings` 在 import 时构造，`server._draw_limiter` 是模块全局；测试用 `monkeypatch.setattr(module, "settings", ...)` 或改环境变量覆盖，没有 FastAPI 依赖注入。
 - **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。
 - **async/sync 分工**：MCP 工具是 `async`；阻塞活（vpype 子进程、TTL 清理）走 `asyncio.to_thread`；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
-- **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。
+- **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。第三方 logging 必须在 handler filter 中先 `record.getMessage()` 再脱敏最终文本，并单独脱敏 `exc_info`/`exc_text`/`stack_info`；只扫字符串 `msg/args` 会漏异常对象和 traceback。
 - **产物与 TTL**：只有匹配 `draw_YYYYMMDD_HHMMSS_<22 位 urlsafe token>.{gcode,svg}` 的名字可下载；TTL 600s，过期即删并返 404；清理是访问时顺带做的，**没有后台扫描线程**。
 - **G-code 契约**（`docs/protocol.md` §5，`validate_gcode()` 是活闸门）：头 `G21/G90/F8000` + 两次幂等 `G1G90 Z0.0F10000`（**不建立 Z 基准**）；`G0 ... F8000` 空走、`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件里禁 `G92`/`M3`/`M5`/`M30`/`G4`/`G28`/`G30`，禁 `G0` 落点 X0Y0，Z 只能 0 或 5，`0<F≤10000`，X≤190mm、Y≤277mm、单文件 ≤512KiB。落笔前的 `G92 Z0` 与页尾 `M30` 由 S3 旁路单发，不进文件。
 - **profile 陷阱**：`hutuji_gwrite.toml` **故意不以 `G90G0 X0Y0` 收尾**——回原点会触发本机换纸行为。
@@ -122,7 +122,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - 依赖是范围下界而非精确 pin：`fastapi>=0.115`、`uvicorn[standard]>=0.30`、`httpx>=0.27`、`vpype>=1.14`、`vpype-gcode>=0.13`、`mcp>=1.27,<2`、`mcp-proxy>=0.8.2,<1`、`websockets>=13,<17`；dev 只多 `pytest>=8.3,<9`。
 - 开发机 Windows（PowerShell，venv 在 `.venv\Scripts\`）；生产 Ubuntu + systemd + nginx（venv 在 `/opt/hutuji/mcp-server/.venv/bin/`）。
 - 生产拓扑：uvicorn 只监听 `127.0.0.1:8300`；nginx 只公开反代 `GET/HEAD /files/`（限速 10r/s），`/mcp` 显式 404；安全组只开 22/80/443，**不放行 8300**。
-- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 并跑 `bash deploy/preflight.sh`（**当前 14 项**：9 项应用/权限 + 2026-07-31 新增 5 项 nginx 层——`nginx -t`、`sites-enabled/hutuji` 是符号链接、线上 conf 与本仓模板 LF 归一化 md5 一致、隧道 Host 经 `:80` 命中 `/files` 反代且 `POST` 403、隧道 Host 经 `:80` 真下 G-code 200；须全 pass），再复验公网 `/mcp` 404、8300 不可达。
+- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 并跑 `bash deploy/preflight.sh`（**当前 14 项**：含 HTTPS 公网前缀、enabled 链接精确目标、活动配置 LF md5、隧道 Host 路由，以及真下载的 200/长度/CRC32/正文；须全 pass），再复验公网 `/mcp` 404、直连明文 `:80 /files` 403、8300 不可达。
 - 生产 venv 精简装**没有 pytest**：那边只能跑 `scripts/e2e_local.py` 或直接 import 校验。
 - 固件不在本仓构建：S3 用 ESP-IDF **v6.0.1**（`python3 scripts/release.py lichuang-dev`），Grbl 用 PlatformIO。串口坑：S3 板载 CH340K 也枚举为 CH340，COM 号每次会变，判定看串口日志自证，别用 `esptool chip_id` 打断运行中的固件。
 

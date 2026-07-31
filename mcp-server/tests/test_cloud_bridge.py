@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from hutuji_mcp.cloud_bridge import (
+    _MAX_LOG_LINE,
     _RedactSecretsFilter,
     _install_secret_redaction,
     _message_label,
@@ -47,6 +48,16 @@ def test_message_log_never_contains_params() -> None:
     assert _message_label(message) == "tools/call"
 
 
+def test_message_label_caps_length_and_control_chars() -> None:
+    long_method = "tools/" + "x" * 500
+    assert len(_message_label(f'{{"method":"{long_method}"}}')) <= 200
+    assert "x" * 200 not in _message_label(f'{{"method":"{long_method}"}}')
+    # 云端可控标签里的换行不得注入日志行（内容本身保留，仅控制字符替换）。
+    assert "\n" not in _message_label('{"method":"evil\\nINJECTED"}')
+    assert _message_label('{"method":"evil\\nINJECTED"}') == "evil INJECTED"
+    assert _message_label('{"id":123}').startswith("response:")
+
+
 def test_proxy_stderr_redacts_token_and_wss_urls() -> None:
     raw = "connecting wss://api.xiaozhi.me/mcp/?token=super-secret-value ok"
     safe = _safe_stderr_line(raw)
@@ -59,8 +70,8 @@ def test_proxy_stderr_keeps_benign_short_lines() -> None:
     assert _safe_stderr_line("listening on stdio") == "listening on stdio"
 
 
-def test_redact_filter_unit_scrubs_msg_tuple_and_mapping_args() -> None:
-    """单元测：filter 对 msg / tuple args / Mapping args 都脱敏且保持容器契约。
+def test_redact_filter_unit_scrubs_final_message_and_exception_paths() -> None:
+    """单元测：先保持 logging 插值语义，再覆盖异常参数与 traceback 独立通道。
 
     注意这只验函数逻辑；真正「挂对位置」由下面的集成测钉死。"""
     import logging
@@ -68,34 +79,56 @@ def test_redact_filter_unit_scrubs_msg_tuple_and_mapping_args() -> None:
     f = _RedactSecretsFilter()
     rec = logging.LogRecord(
         "websockets.client", logging.INFO, __file__, 1,
-        "open %s", ("wss://h/mcp/?token=tuple-leak",), None,
+        "open %s attempt=%03d", ("wss://h/mcp/?token=tuple-leak", 7), None,
     )
     assert f.filter(rec) is True
-    assert "tuple-leak" not in rec.msg and "tuple-leak" not in rec.args[0]
-    assert isinstance(rec.args, tuple)
+    assert rec.getMessage() == "open <redacted-url> attempt=007"
+    assert rec.args == ()
 
     rec2 = logging.LogRecord(
-        "websockets.client", logging.INFO, __file__, 1, "uri=%(u)s", None, None,
+        "websockets.client", logging.INFO, __file__, 1,
+        "uri=%(u)s retry=%(n)02d", None, None,
     )
     # 直接赋 dict：LogRecord.__init__ 对「单元素 tuple 包 dict」才会解包成 dict-args，
     # 直接传 dict 会在 __init__ 里 args[0] 取键 0 抛 KeyError，故构造后赋值。
-    rec2.args = {"u": "wss://h/mcp/?token=dict-leak"}
+    rec2.args = {"u": "wss://h/mcp/?token=dict-leak", "n": 5}
     assert f.filter(rec2) is True
-    assert isinstance(rec2.args, dict), "dict args 必须保持 dict，否则破坏 % 格式化"
-    assert "dict-leak" not in rec2.args["u"]
+    assert rec2.getMessage() == "uri=<redacted-url> retry=05"
 
     from collections import UserDict
-    from collections.abc import Mapping
 
     rec3 = logging.LogRecord(
-        "websockets.client", logging.INFO, __file__, 1, "uri=%(u)s", None, None,
+        "websockets.client", logging.INFO, __file__, 1,
+        "uri=%(u)s retry=%(n)02d", None, None,
     )
-    rec3.args = UserDict({"u": "wss://h/mcp/?token=userdict-leak"})
+    rec3.args = UserDict({"u": "wss://h/mcp/?token=userdict-leak", "n": 5})
     assert f.filter(rec3) is True
-    assert isinstance(rec3.args, Mapping), "mapping args 必须保持 Mapping 兼容"
-    formatted = rec3.getMessage()
-    assert "userdict-leak" not in formatted
+    assert rec3.getMessage() == "uri=<redacted-url> retry=05"
+
+    rec4 = logging.LogRecord(
+        "websockets.client", logging.ERROR, __file__, 1, "connect failed: %s",
+        (RuntimeError("dial wss://h/mcp/?token=object-leak"),), None,
+    )
+    assert f.filter(rec4) is True
+    assert rec4.getMessage() == "connect failed: dial <redacted-url>"
+
+    try:
+        raise RuntimeError("handshake wss://h/mcp/?token=traceback-leak")
+    except RuntimeError:
+        rec5 = logging.LogRecord(
+            "websockets.client", logging.ERROR, __file__, 1,
+            "websocket failure", (), sys.exc_info(),
+        )
+    assert f.filter(rec5) is True
+    assert rec5.exc_info is None
+    formatted = logging.Formatter("%(levelname)s %(message)s").format(rec5)
+    assert "traceback-leak" not in formatted
     assert "wss://h" not in formatted
+    assert "Traceback (most recent call last):" in formatted
+    assert "RuntimeError: handshake <redacted-url>" in formatted
+    assert __file__ not in formatted
+    assert "raise RuntimeError" not in formatted
+
 
 def test_redact_filter_on_root_handler_scrubs_child_logger_emit() -> None:
     """集成测：真实安装器能脱敏子 logger 经 root handler 格式化的输出。"""
@@ -121,11 +154,26 @@ def test_redact_filter_on_root_handler_scrubs_child_logger_emit() -> None:
         child.disabled = False
         _install_secret_redaction()
         child.info("connect failed: wss://api.xiaozhi.me/mcp/?token=real-path-leak")
+        child.error(
+            "exception arg: %s",
+            RuntimeError("dial wss://api.xiaozhi.me/mcp/?token=object-path-leak"),
+        )
+        try:
+            raise RuntimeError(
+                "handshake wss://api.xiaozhi.me/mcp/?token=traceback-path-leak"
+            )
+        except RuntimeError:
+            child.exception("websocket crashed")
 
         out = stream.getvalue()
         assert out, "子 logger 记录必须 propagate 到受控 root handler"
         assert "real-path-leak" not in out
+        assert "object-path-leak" not in out
+        assert "traceback-path-leak" not in out
         assert "wss://api.xiaozhi.me" not in out
+        assert "exception arg: dial <redacted-url>" in out
+        assert "Traceback (most recent call last):" in out
+        assert "RuntimeError: handshake <redacted-url>" in out
     finally:
         for item, filters in handler_filters:
             item.filters[:] = filters
@@ -163,4 +211,46 @@ def test_child_logger_token_leaks_without_redaction_install() -> None:
         child.disabled = child_disabled
 
 
+def test_redact_filter_caps_oversized_formatted_and_exception_records() -> None:
+    import logging
 
+    filt = _RedactSecretsFilter()
+    rec = logging.LogRecord(
+        "websockets.client", logging.ERROR, __file__, 1,
+        "payload=%s", ("wss://h/mcp/?token=" + "secret" * 100,), None,
+    )
+    assert filt.filter(rec) is True
+    assert len(rec.getMessage()) <= _MAX_LOG_LINE
+    assert "secret" not in rec.getMessage()
+    try:
+        raise RuntimeError("traceback wss://h/mcp/?token=" + "exception-secret" * 100)
+    except RuntimeError:
+        exc_rec = logging.LogRecord(
+            "websockets.client", logging.ERROR, __file__, 1, "failed", (), sys.exc_info()
+        )
+    assert filt.filter(exc_rec) is True
+    assert len(exc_rec.getMessage()) <= _MAX_LOG_LINE
+    assert exc_rec.exc_info is None
+    assert "exception-secret" not in exc_rec.getMessage()
+    formatted_exc = "Traceback (most recent call last):\n  File \"adjacent.py\", line 9, in boom\n    raise RuntimeError(\"source-adjacent-secret\")\nRuntimeError: exception-only"
+    exc_text_rec = logging.LogRecord(
+        "websockets.client", logging.ERROR, __file__, 1, "failed", (), None
+    )
+    exc_text_rec.exc_text = formatted_exc
+    assert filt.filter(exc_text_rec) is True
+    assert "Traceback (most recent call last):" in exc_text_rec.getMessage()
+    assert "adjacent.py" not in exc_text_rec.getMessage()
+    assert "source-adjacent-secret" not in exc_text_rec.getMessage()
+    assert "RuntimeError: exception-only" in exc_text_rec.getMessage()
+
+    stack_rec = logging.LogRecord(
+        "websockets.client", logging.ERROR, __file__, 1, "stack", (), None
+    )
+    stack_rec.stack_info = (
+        "Stack (most recent call last):\n"
+        "  File \"stack.py\", line 4, in run\n"
+        "    marker = \"stack-adjacent-secret\"\n"
+    )
+    assert filt.filter(stack_rec) is True
+    assert "stack.py" not in stack_rec.getMessage()
+    assert "stack-adjacent-secret" not in stack_rec.getMessage()

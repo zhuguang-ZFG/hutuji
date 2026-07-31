@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Mapping
 import json
 import logging
 import os
@@ -29,6 +28,34 @@ MAX_BACKOFF_SECONDS = 60
 _SECRETISH_RE = re.compile(
     r"(?i)(token=)([^&\s]+)|(wss://\S+)|(https?://\S+)"
 )
+_MAX_LOG_LINE = 200
+
+
+def _cap_log_line(text: str) -> str:
+    if len(text) <= _MAX_LOG_LINE:
+        return text
+    # 保留首部和异常末行，既有定位上下文又不让尾部异常信息丢失。
+    tail = min(80, _MAX_LOG_LINE - 2)
+    return text[: _MAX_LOG_LINE - tail - 1] + "…" + text[-tail:]
+
+def _safe_stack_text(text: str, *, exception: bool = False) -> str:
+    """只保留 traceback/stack 标题；异常另保留末行，路径与源码行全部省略。"""
+    lines = text.splitlines()
+    if not lines:
+        return ""
+    safe = [lines[0]]
+    if exception and len(lines) > 1:
+        safe.append(lines[-1])
+    return "\n".join(safe)
+
+
+def _safe_exception_text(exc_info: tuple[object, object, object]) -> str:
+    """格式化异常后按与预格式化 ``exc_text`` 相同的无路径规则收窄。"""
+    try:
+        formatted = logging.Formatter().formatException(exc_info)
+    except Exception:
+        return "<exception formatting failed>"
+    return _safe_stack_text(formatted, exception=True)
 
 
 @dataclass(frozen=True)
@@ -74,16 +101,32 @@ def proxy_command(local_mcp_url: str) -> list[str]:
 
 
 def _message_label(message: str | bytes) -> str:
-    """只提取 JSON-RPC 方法名用于安全日志，不记录参数或响应正文。"""
+    """只提取 JSON-RPC 方法名用于安全日志，不记录参数或响应正文。
+
+    method/id 由云端可控：截断到 _MAX_LOG_LINE 并把控制字符替换为空格，
+    防止超长标签绕过日志限长或注入换行伪造日志行。"""
+    label = "unknown"
     try:
         if isinstance(message, bytes):
             message = message.decode("utf-8")
         payload = json.loads(message)
         if isinstance(payload, dict):
-            return str(payload.get("method") or f"response:{payload.get('id', '?')}")
+            label = str(payload.get("method") or f"response:{payload.get('id', '?')}")
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
-    return "unknown"
+    label = "".join(ch if ch.isprintable() else " " for ch in label)
+    return _cap_log_line(label)
+
+
+def _redact_secret_text(text: str) -> str:
+    """去掉文本中的 token 与 URL，同时保留其余诊断上下文。"""
+
+    def _sub(match: re.Match[str]) -> str:
+        if match.group(1):
+            return f"{match.group(1)}<redacted>"
+        return "<redacted-url>"
+
+    return _SECRETISH_RE.sub(_sub, text)
 
 
 def _safe_stderr_line(line: str | bytes) -> str:
@@ -92,17 +135,7 @@ def _safe_stderr_line(line: str | bytes) -> str:
         text = line.decode("utf-8", errors="replace")
     else:
         text = line
-    text = text.rstrip("\r\n")
-
-    def _sub(match: re.Match[str]) -> str:
-        if match.group(1):
-            return f"{match.group(1)}<redacted>"
-        return "<redacted-url>"
-
-    redacted = _SECRETISH_RE.sub(_sub, text)
-    if len(redacted) > 200:
-        return redacted[:200] + "…"
-    return redacted
+    return _cap_log_line(_redact_secret_text(text.rstrip("\r\n")))
 
 
 class _RedactSecretsFilter(logging.Filter):
@@ -118,19 +151,28 @@ class _RedactSecretsFilter(logging.Filter):
     logger 的 filter，挂 logger 上等于死代码。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = _safe_stderr_line(record.msg)
-        # logging 的 record.args 可能是 tuple/list（% 序列）或 Mapping（% mapping）；
-        # 两种都要脱敏；Mapping 必须保持键值语义，否则破坏 % 格式化。
-        if isinstance(record.args, Mapping):
-            record.args = {
-                k: (_safe_stderr_line(v) if isinstance(v, str) else v)
-                for k, v in record.args.items()
-            }
-        elif record.args:
-            record.args = tuple(
-                _safe_stderr_line(a) if isinstance(a, str) else a for a in record.args
-            )
+        # 先完成 %-format，再统一脱敏和限长；清空 args/exc_info 防 Formatter 二次泄漏。
+        try:
+            message = record.getMessage()
+        except Exception:
+            message = "<log formatting failed>"
+        message = _redact_secret_text(message)
+
+        exception = ""
+        if record.exc_info is not None:
+            exception = _safe_exception_text(record.exc_info)
+        elif record.exc_text:
+            exception = _safe_stack_text(record.exc_text, exception=True)
+        stack = _safe_stack_text(record.stack_info or "")
+        suffix = "\n".join(part for part in (exception, stack) if part)
+        rendered = _redact_secret_text(message + ("\n" + suffix if suffix else ""))
+        rendered = _cap_log_line(rendered)
+        record.msg = rendered
+        record.args = ()
+        record.message = rendered
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
         return True
 
 

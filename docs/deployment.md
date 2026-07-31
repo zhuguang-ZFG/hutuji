@@ -97,7 +97,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ **14 项**已确认 | `pass=9 fail=0`（2026-07-31 确认：脚本自 `99fcafa` 建档起即 9 项，此前旧记录写 8 项系笔误——旧记录少一项是 `check … | grep` 把整个 check 塞进管道左侧、`[pass]` 行被吞所致，已在工作副本改成自包含 `bash -c` POST；该版 md5 `c88796df…` 已在 VPS，本仓**未提交**，HEAD 版为 `634b3809…`） |
+| `preflight.sh` 全 PASS | 🟡 历史旧版 14 项曾确认；当前 14 项加固待生产复验 | 旧 `pass=14 fail=0` 不证明新脚本/配置；当前版新增有效末次 env、HTTPS:443、enabled ACL 与活动 localhost `:80` 契约，尚未部署 VPS |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
@@ -130,23 +130,40 @@ ssh … 'sed -i "s/\r$//" /tmp/hutuji-candidate.conf
         nginx -t && systemctl reload nginx'
 ```
 
-复验（reload 前后逐项一致，无回归）：`:80` 两种 Host（裸 IP / `hutuji.donglicao.com`）下
+历史复验（reload 前后逐项一致，无回归）：`:80` 两种 Host（裸 IP / `hutuji.donglicao.com`）下
 `/files/nope`→404、`POST /files/nope`→403（`limit_except` 生效）、`/mcp`→404、`/`→301；
 公网隧道 `/files/nope`→404、`/mcp`→404；`preflight.sh` 先 `pass=9 fail=0`。
 
-**preflight 由 9 项扩到 14 项（同日收尾）**：原 9 项只打 `127.0.0.1:8300`，于是本轮三个真实故障全在盲区（`sites-enabled` 是普通文件、`:80` `server_name` 不含隧道域名、经 nginx 正文未验）。新增 5 项：`nginx -t`；`sites-enabled/hutuji` 必须是符号链接；线上 conf 与本仓模板 **LF 归一化 md5** 一致（首跑即以 `fail` 抓到本仓工作副本未上线，scp 后转 pass——负向自证）；`Host=隧道域名` 经 `:80` 命中 `/files` 反代（非 301 自指）且 `POST` 403；`Host=隧道域名` 经 `:80` 真下 G-code `HTTP=200` 且正文逐字回读（自造 31B 临时件，`trap` 删除）。最终 `pass=14 fail=0`；`/opt/hutuji/deploy/{nginx-hutuji.conf,preflight.sh}` 与本仓工作副本 LF md5 一致（`5a424341…` / `554e473f…`）。
+**历史 9→14 项记录（已被下方第三轮安全契约 supersede）**：当时新增 nginx 层五项并得到 `pass=14 fail=0`，但“真下载”实际只比较了命令替换后的正文，没有检查 HTTP 状态、`Content-Length` 或 `X-Hutuji-CRC32`；符号链接项也只检查 `-L`，没有确认目标。旧 PASS 只能证明当时的旧判据，不证明当前安全契约。
 
 **首次真 200 端到端**：在 `HUTUJI_OUTPUT_DIR=/opt/hutuji/mcp-server/output` 放一份合法命名产物
 （`draw_20260731_145211_<22 位 token>.gcode`，31B），公网隧道与 `:80` 回源路径均 `HTTP=200 bytes=31`
 且正文逐字回读，测完立即 `rm`。
+
+### 第三轮传输安全加固（本仓工作树，未部署）
+
+2026-07-31 code review 发现旧 `:80` server 的 `/files/` 对任意公网来源开放，且 preflight 可能校验
+与 systemd 实际生效值不同的首个重复赋值。本仓现已：
+
+1. `:80 /files/` 加 `allow 127.0.0.1`、`allow ::1`、`deny all`，只给本机 cloudflared 回源；
+2. EnvironmentFile 不 `source`/`eval`，支持注释、空行、可选成对引号；重复键与 systemd 一致取最后赋值；
+3. `HUTUJI_PUBLIC_BASE_URL` 只允许 HTTPS 默认 443 或显式 `:443`；`OUTPUT_DIR` 先经 `realpath -m` 归一化，并要求字面路径与解析后的真实路径都位于 `/opt/` 下；
+4. enabled 精确链接与 LF 哈希之外，`nginx -T` 还须证明活动配置含 loopback-only `:80 /files` ACL；
+5. reload 后 localhost `:80` 活动探针核 GET=404、POST=403、`/mcp`=404；真下载同时核
+   HTTP 200、`Content-Length`、IEEE CRC32 头和逐字节正文；解析值只经位置参数传入子 shell。
+
+生产尚未更新，故不得把本节写成线上已修复。部署时先备份和同步，再重建 enabled 精确链接，
+执行 `nginx -t` **然后 reload**；只有 reload 成功后才能跑 14 项 preflight 活动探针。最后从公网直连
+`:80 /files/*` 验 403、经 Cloudflare HTTPS 的合法产物验 200 与两项完整性头。
 
 #### 漂移判据（必须 LF 归一化）
 
 本仓 `core.autocrlf` 让工作副本是 CRLF，裸 `md5sum` 永远对不上线上：
 
 ```bash
-tr -d '\r' < deploy/nginx-hutuji.conf | md5sum          # 期望 5a424341a6a7cb6d0b97e269a47c1bee
-ssh … md5sum /etc/nginx/sites-available/hutuji          # 期望同上（sites-enabled 是符号链接）
+tr -d '\r' < deploy/nginx-hutuji.conf | md5sum
+ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/sites-enabled/hutuji | md5sum'
+# 目标必须是 /etc/nginx/sites-available/hutuji，两个动态计算的 md5 必须相同。
 ```
 
 #### SSH 私钥名有坑

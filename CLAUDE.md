@@ -123,7 +123,7 @@ python -m venv .venv
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份，重启后跑 `deploy/preflight.sh`（共 **14** 项，输出 `preflight pass=14 fail=0`；2026-07-31 加 5 项 nginx 层检查，因原 9 项只打 `127.0.0.1:8300`、完全不经 nginx）+ 公网复验 `/mcp` 须 404、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
+- 改动前先备份，重启后跑 `deploy/preflight.sh`（共 **14** 项，须覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
 
 ## 路线图（当前进度）
 

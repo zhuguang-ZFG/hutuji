@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from hutuji_mcp.config import Settings
+from hutuji_mcp.config import Settings, load_settings, validate_public_base_url
 from hutuji_mcp.gcode_gen import (
     MAX_BYTES,
     PEN_LIFT_WARN_THRESHOLD,
@@ -32,6 +32,117 @@ def _settings(output_dir: Path, *, ttl: int = 600) -> Settings:
         host="127.0.0.1",
         port=8300,
         output_ttl_seconds=ttl,
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://public.example/files",
+        "https://public.example:8300",
+        "https://public.example:8443",
+    ],
+)
+def test_public_capability_url_rejects_path_or_non_https_port(value: str) -> None:
+    with pytest.raises(ValueError):
+        validate_public_base_url(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://public.example?",
+        "https://public.example#",
+        "https://public.example?x=1",
+        "https://public.example#frag",
+    ],
+)
+def test_public_capability_url_rejects_raw_delimiter(value: str) -> None:
+    with pytest.raises(ValueError):
+        validate_public_base_url(value)
+
+
+def test_loopback_http_public_url_remains_valid() -> None:
+    assert validate_public_base_url("http://127.0.0.1:8300") == "http://127.0.0.1:8300"
+    assert validate_public_base_url("https://hutuji.donglicao.com") == "https://hutuji.donglicao.com"
+
+
+def test_settings_normalizes_public_origin(tmp_path: Path) -> None:
+    configured = Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="  https://draw.example:443/  ",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+    )
+
+    assert configured.public_base_url == "https://draw.example:443"
+
+
+def test_settings_rejects_insecure_public_origin(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        Settings(
+            llm_base_url="https://example.invalid/v1", llm_api_key="", llm_model="test",
+            output_dir=tmp_path, public_base_url="http://public.example", host="127.0.0.1",
+            port=8300, output_ttl_seconds=600,
+        )
+
+def test_load_settings_rejects_insecure_public_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HUTUJI_PUBLIC_BASE_URL", "http://public.example")
+    with pytest.raises(ValueError):
+        load_settings()
+
+
+def test_draw_rejects_injected_insecure_settings_before_capability_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        server,
+        "settings",
+        SimpleNamespace(
+            llm_base_url="https://example.invalid/v1", llm_api_key="", llm_model="test",
+            output_dir=tmp_path, public_base_url="http://public.example", host="127.0.0.1",
+            port=8300, output_ttl_seconds=600,
+        ),
+    )
+    with pytest.raises(ValueError):
+        asyncio.run(server.hutuji_draw("test"))
+
+
+def test_draw_uses_normalized_injected_public_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        server,
+        "settings",
+        SimpleNamespace(
+            output_dir=tmp_path,
+            public_base_url="  https://draw.example:443/  ",
+            output_ttl_seconds=600,
+        ),
+    )
+
+    async def fake_generate_svg(_description: str) -> str:
+        return "<svg/>"
+
+    def fake_svg_to_gcode(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
+
+    monkeypatch.setattr(server, "_generate_svg_limited", fake_generate_svg)
+    monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260731_120000_abcdefghijklmnopqrstuv")
+    monkeypatch.setattr(server, "svg_to_gcode", fake_svg_to_gcode)
+
+    result = json.loads(asyncio.run(server.hutuji_draw("test")))
+    assert result["url"] == (
+        "https://draw.example:443/files/draw_20260731_120000_abcdefghijklmnopqrstuv.gcode"
     )
 
 
@@ -584,3 +695,51 @@ def test_redaction_preserves_extension_and_rejects_unknown_names() -> None:
     # 不符合 capability 命名的一律退化为通配，不回显原名
     for bad in ("../../etc/passwd", "draw_1_2_short.gcode", "random.gcode"):
         assert server._redact_capability_name(bad) == "*.gcode"
+
+
+def test_public_download_template_requires_https_and_loopback_http_origin() -> None:
+    root = Path(__file__).resolve().parents[2]
+    env_template = (root / "deploy" / "env.mcp.example").read_text(encoding="utf-8")
+    nginx = (root / "deploy" / "nginx-hutuji.conf").read_text(encoding="utf-8")
+
+    assert "HUTUJI_PUBLIC_BASE_URL=https://" in env_template
+    assert "HUTUJI_PUBLIC_BASE_URL=http://" not in env_template
+
+    port_80 = nginx[nginx.index("    listen 80;") :]
+    files_location = port_80[
+        port_80.index("    location /files/ {") : port_80.index("    location / {")
+    ]
+    assert "allow 127.0.0.1;" in files_location
+    assert "allow ::1;" in files_location
+    assert "deny all;" in files_location
+
+
+def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+
+    assert "env_value()" in preflight
+    assert "while IFS= read -r line" in preflight
+    assert "source /etc/hutuji/mcp.env" not in preflight
+    assert "eval " not in preflight
+    assert "^https://([A-Za-z0-9-]+\\.)*[A-Za-z0-9-]+(:443)?/?$" in preflight
+    assert "[[ -f /etc/hutuji/mcp.env ]]" in preflight
+    assert "[[ -f /etc/hutuji/bridge.env ]]" in preflight
+    assert '! [[ "$PUBLIC_BASE_URL" =~ ^https://(127\\.0\\.0\\.1|localhost|::1)(:443)?/?$ ]]' in preflight
+    assert "safe_output_dir()" in preflight
+    assert 'realpath -m -- "$value"' in preflight
+    assert preflight.count('safe_output_dir "$OUTPUT_DIR"') == 1
+    assert preflight.count('safe_output_dir "$d"') == 1
+    assert "nginx -T" in preflight
+    assert '"$(readlink -f /etc/nginx/sites-enabled/hutuji)" == "/etc/nginx/sites-available/hutuji"' in preflight
+    assert '"%08x" % (zlib.crc32' in preflight
+    assert "print(f" not in preflight
+    assert '"$get" == "404" && "$post" == "403" && "$mcp" == "404" && "$denied" == "403"' in preflight
+    assert "' _ \"$TUNNEL_HOST\"" in preflight
+    assert '"$code" == "200"' in preflight
+    assert 'awk "/^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$/' in preflight
+    assert '!~ /^127\\\\./' in preflight
+    assert 'tolower($1) == "content-length:"' in preflight
+    assert 'tolower($1) == "x-hutuji-crc32:"' in preflight
+    assert 'cmp -s "$d/$f" "$body"' in preflight
+    assert preflight.count('\ncheck "') == 14

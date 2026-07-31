@@ -4,7 +4,41 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def validate_public_base_url(value: str) -> str:
+    """校验能力 URL 公网边界；本机开发仍允许 loopback HTTP。"""
+    value = value.strip()
+    if "?" in value or "#" in value:
+        # urlsplit 对裸 `?`/`#` 给出空 query/fragment，但分隔符本身会让拼接出的
+        # 能力 URL 路径变成查询/片段。显式拒绝，避免产出 `https://host?/files/x`。
+        raise ValueError("HUTUJI_PUBLIC_BASE_URL 不允许裸 ? 或 #")
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("HUTUJI_PUBLIC_BASE_URL 端口无效") from exc
+    if (
+        not host
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("HUTUJI_PUBLIC_BASE_URL 必须是无凭据、无路径、无查询的绝对 URL")
+    if host in _LOOPBACK_HOSTS:
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("HUTUJI_PUBLIC_BASE_URL scheme 不受支持")
+        return value.rstrip("/")
+    if parsed.scheme != "https" or (port is not None and port != 443):
+        raise ValueError("公网 HUTUJI_PUBLIC_BASE_URL 必须使用 HTTPS 默认端口")
+    return value.rstrip("/")
 
 @dataclass(frozen=True)
 class Settings:
@@ -19,6 +53,9 @@ class Settings:
     host: str
     port: int
     output_ttl_seconds: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
 
     @property
     def llm_configured(self) -> bool:

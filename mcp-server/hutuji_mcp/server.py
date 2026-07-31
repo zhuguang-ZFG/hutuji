@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, Response
 from mcp.server.fastmcp import FastMCP
 
 from .config import settings
+from .config import validate_public_base_url
 from .gcode_gen import svg_to_gcode
 from .llm_svg import generate_svg
 
@@ -185,6 +186,8 @@ async def hutuji_draw(description: str) -> str:
 
     返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址）、lines/bytes/pen_lifts。
     不要编造 url；失败时根据错误白话说明。"""
+    # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
+    public_base_url = validate_public_base_url(settings.public_base_url)
     settings.output_dir.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(_cleanup_expired_outputs)
     svg = await _generate_svg_limited(description)
@@ -202,7 +205,7 @@ async def hutuji_draw(description: str) -> str:
         gcode_path.unlink(missing_ok=True)
         raise
 
-    url = f"{settings.public_base_url.rstrip('/')}/files/{gcode_path.name}"
+    url = f"{public_base_url}/files/{gcode_path.name}"
     return json.dumps({
         "url": url,
         "lines": stats.lines,

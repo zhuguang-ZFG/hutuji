@@ -1,9 +1,13 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **状态日期：2026-07-31（第三轮：四仓工作树全部落地）**：hutuji **工作树干净**——本轮 21 文件已提交 `ec49082`、清单回填 `d2fb1ea`（`0d09cf9..d2fb1ea` 已推）、三仓落地文档同步 `4688985`；Grbl §9-C′ 收窄已提交 `4ddc945`（在 `12f26ac` 之上，**未烧录**）；fz 7 组 `should_resume_segment_underflow()` 判定用例已提交 `784fccf`（`standard` overall=pass）；xiaozhi 第二轮审查修复 6 文件 + `.gitignore` 已提交 `6545ec9`（在 `06b962c` 之上；`build-*/` 已纳入忽略，四个 build-hutuji-* 目录不再污染 `git status`）。**四仓 `git status --short` 均为空**；上一轮 8 文件为 `d599b3b`。三个 sibling 仓**均未 push**，推送待用户指令。
-> 用途：告诉下一任代理「哪些改动已经在磁盘上、不要当不存在、不要 checkout 清掉」。  
-> 每次相关提交或丢弃后**必须更新**本页；与 `git status` 冲突时以 `git status` 为准并回写本页。
-> **2026-07-31 烧录面**：S3 第二轮镜像（HEAD `06b962c` + 当时未提交的 6 个文件（现已提交为 `6545ec9`））**已 app-flash COM6 并运行自证**——回读 `ota_0` app_desc + 启动横幅 ELF SHA `d01c895d5…`、7 个 `hutuji.*` MCP 工具、Telnet:23 持续 `<Idle|…Bf:249,1200…>` 约 8.5 分钟（证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`，不入库）。**Grbl 仍未烧录**：COM3（`VID_1A86&PID_7523`）PnP 报 `CM_PROB_NONE`，但 pyserial / .NET `SerialPort` / `mode.com` 三种栈打开一律 Windows error 31。**07-31 收工前已用 ctypes 分层定位**：`CreateFileW` 拿到句柄、`GetCommState`/`GetCommTimeouts`/`ClearCommError` 均成功，**只有 `SetCommState` err=31**（连原封不动回写 `GetCommState` 的 DCB 也失败）→ 打开串口必经此步，换库/换波特率/换脚本一律无用，需**物理重插 MK38 USB**（或提权重启该 PnP 实例，本机 `elevated=False`）；详见 `troubleshooting.md`。**nginx 已收敛上线**（07-31 14:51–14:53：`install` 到 `sites-available` + 重建 `sites-enabled` 符号链接 + `nginx -t` + `reload`，行为无回归，公网隧道 `/files/<真产物>` 首次 `HTTP=200 bytes=31`；备份 `/root/nginx-hutuji-{enabled,available}.bak.20260731-145120`；证据 `results/nginx-80-files-deploy-evidence-20260731.md`，不入库）。此前写「未部署」是**误判**：该反代自 07-27 03:06 即在线，真问题是三份配置分叉 + `sites-enabled/hutuji` 是普通文件而非符号链接。
+> **当前状态快照（2026-07-31，本轮代码审查与修复中）**：以下四仓 `git status --short` 已现场读取，均为现有未提交资产，禁止覆盖或回滚。
+>
+> - hutuji：`M AGENTS.md`、`M CLAUDE.md`、`M README.md`、`M deploy/README.md`、`M deploy/env.mcp.example`、`M deploy/nginx-hutuji.conf`、`M deploy/preflight.sh`、`M docs/deployment.md`、`M docs/operations.md`、`M docs/protocol.md`、`M docs/release-readiness.md`、`M docs/worktree-inventory.md`、`M mcp-server/hutuji_mcp/cloud_bridge.py`、`M mcp-server/hutuji_mcp/config.py`、`M mcp-server/hutuji_mcp/server.py`、`M mcp-server/tests/test_cloud_bridge.py`、`M mcp-server/tests/test_contract.py`、`M scripts/agent_gate.py`。
+> - Grbl_Esp32：`M Grbl_Esp32/src/Protocol.cpp`、`M Grbl_Esp32/src/ProtocolDecisionCore.h`。
+> - xiaozhi-esp32：`M main/boards/lichuang-dev/hutuji_job.cc`、`M main/boards/lichuang-dev/hutuji_job.h`、`M main/boards/lichuang-dev/hutuji_pipe.cc`、`M main/boards/lichuang-dev/hutuji_pipe.h`、`M main/boards/lichuang-dev/hutuji_recovery_core.h`、`M scripts/tests/test_hutuji_recovery_core.py`。
+> - fz：`M native_sim/product_model_check.cpp`。
+>
+> 上述只登记工作树事实；本轮验证结果须以实际命令输出和 `results/` 报告为准，下方提交记录均为历史参考，不能覆盖本快照。
 
 ## 怎么用
 

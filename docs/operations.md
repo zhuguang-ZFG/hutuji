@@ -33,7 +33,9 @@ journalctl -u hutuji-mcp -u hutuji-cloud-bridge -n 200 --no-pager
 |------|------|------|
 | 本仓发布 commit / 构建产物哈希 | 每发布 | 见 release-manifest |
 | EnvironmentFile 密文侧 | 变更时 | 只存密钥保险柜，不进 git |
-| nginx/systemd 已安装副本 | 变更时 | 与 `deploy/` 模板 diff。**必须 LF 归一化再比**（本仓工作副本是 CRLF）：`tr -d '\r' < deploy/nginx-hutuji.conf \| md5sum` 对 `md5sum /etc/nginx/sites-available/hutuji`，当前双方 `5a424341…`。另核 `ls -l /etc/nginx/sites-enabled/hutuji` 必须是**指向 sites-available 的符号链接**——曾出现它是普通文件、导致改 `sites-available` 静默无效（详见 `deployment.md`「nginx 站点收敛」） |
+| nginx/systemd 已安装副本 | 变更时 | 与 `deploy/` 模板 diff。**必须 LF 归一化再比**（本仓工作副本是 CRLF）：`tr -d '\r' < deploy/nginx-hutuji.conf \| md5sum` 对解引用后的 `/etc/nginx/sites-enabled/hutuji`；`readlink -f` 必须精确得到 `/etc/nginx/sites-available/hutuji`。只检查“是符号链接”会漏掉指向旧配置（详见 `deployment.md`） |
+
+EnvironmentFile 核对不得 `source`/`eval`：只解析 `KEY=VALUE`、注释/空行和可选成对引号；重复键按 systemd 的**最后一次赋值**取有效值。`HUTUJI_PUBLIC_BASE_URL` 只允许 HTTPS 默认 443 或显式 `:443`。
 
 `output/` G-code **不备份**（短 TTL、可再生成）。
 
@@ -51,3 +53,4 @@ journalctl -u hutuji-mcp -u hutuji-cloud-bridge -n 200 --no-pager
 
 - 生产变更绑定 `release-checklist.md`；禁止无清单热改协议相关行为。
 - 改完跑：本机契约回归（若改代码）+ 一次真实 `hutuji_status`（若改部署）。
+- nginx 变更顺序固定：同步 `sites-available` → 精确重建 `sites-enabled/hutuji` 链接 → `nginx -t` → reload → 14 项 preflight。活动 localhost `:80` 探针必须在 reload 后运行，旧 PASS 不证明新配置。

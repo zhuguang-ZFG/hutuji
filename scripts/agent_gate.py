@@ -358,7 +358,12 @@ def check_doc_line_refs() -> dict[str, Any]:
     产物（`machine/grbl/*.java`）本仓无对应文件，一律跳过——本层管的是「引用行号
     过期」，不是「路径拼错」。
     """
-    md_files = sorted({*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")})
+    candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
+    md_files = sorted(
+        path
+        for path in candidates
+        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
+    )
     index = _repo_file_index()
     bad: list[str] = []
     checked = 0
