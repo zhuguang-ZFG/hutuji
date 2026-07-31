@@ -1,9 +1,9 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **当前状态快照（2026-08-01，第三轮审查修复已提交）**：xiaozhi 已提交并推送 `90e6f2c`（`71acfc9..90e6f2c`，3 文件 +50/−27）；hutuji 本轮 3 个文档随本次提交入库；Grbl 与 fz 工作树干净。xiaozhi 仍留未跟踪旧版备份 `%TEMP%hutuji_pipe_old.cc`（本轮开始后才在 status 出现，来源未确认，按用户资产保留不删、不入库）。当前基线：hutuji 见下方本次 commit、xiaozhi `90e6f2c`、Grbl `1a4fea1`、fz `c2bf1a3`。上一轮推送记录：
+> **当前状态快照（2026-08-01，§9-A2 Grbl 已推、枢纽待提交）**：hutuji 工作树为 `docs/protocol.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md`；Grbl 工作树干净，§9-A2 已提交并推送 `fdf2ad8`；fz 工作树干净；xiaozhi 仍仅有未跟踪旧版备份 `%TEMP%hutuji_pipe_old.cc`（来源未确认，按用户资产保留不删、不入库）。当前提交基线：hutuji `e5d2aa9`、xiaozhi `90e6f2c`、Grbl `fdf2ad8`、fz `c2bf1a3`。
 >
 > - hutuji：`f964aa2`（19 文件 +540/-115），已推 `origin/main`（`41c4593..f964aa2`）。
-> - Grbl_Esp32：`1a4fea1`（2 文件 +151/-52），已推 `origin/fix/panel-hold-after-align-116687e`（`4ddc945..1a4fea1`）。
+> - Grbl_Esp32：`fdf2ad8`（§9-A2，2 文件 +41/−0），已推 `origin/fix/panel-hold-after-align-116687e`（`1a4fea1..fdf2ad8`）。
 > - xiaozhi-esp32：`6b39e66`（6 文件 +612/-184），已推 `origin/feat/hutuji-usb-pipe`（`6545ec9..6b39e66`）。
 > - fz：`c2bf1a3`（1 文件 +149/-0），已推 `origin/main`（`784fccf..c2bf1a3`）。
 >
@@ -56,6 +56,7 @@
 | **已推** `4688985`+`e86ea1a`（第三轮：三仓落地 + 部署漂移复核 2026-07-31） | `docs/worktree-inventory.md`、`docs/agent-handoff.md`、`docs/release-readiness.md` | ①把 Grbl / fz / xiaozhi 三仓「未提交」全部改成实际 commit（`4ddc945` / `784fccf` / `6545ec9`；三仓已于本轮推送）；②`ec49082` 的「未推」改为已随 `d2fb1ea` 上推；③**部署漂移复核落账**：`deploy/preflight.sh` 本仓 == VPS `/opt/hutuji/deploy/preflight.sh`（md5 `554e473f…`）、`deploy/nginx-hutuji.conf` LF 归一化 == VPS 副本 == `/etc/nginx/sites-available/hutuji`（md5 `5a424341…`）、`sites-enabled/hutuji` 为符号链接、三服务 active，故删掉「nginx 未部署 / preflight 未提交」两处过期陈述；④release-readiness 里「实机烧录基线仍是 `13057e8` / 板上 `0x2ce890`」两处已被 07-31 覆盖的陈述标 supersede；⑤板上镜像与 `6545ec9` 的关系如实写「未重新构建回读比对，不得声称相等」 | 纯文档；hub overall=pass |
 | 已推 `f3ef14b`+`8e4b9b4`（preflight IPv4 探针 2026-08-01） | `deploy/preflight.sh` | ①非 loopback IPv4 探针加 `ip route`/`ip addr` fallback，无公网 IPv4 时跳过「非 loopback 拒绝」子判据而不是误报 ACL 失败；②按 `dev` 关键字定位接口名（无网关的 `default dev ppp0 scope link` 用 `$5` 会取到 `link`），`probe` 失败加 `|| true` 不腰斩脚本 | **提交时只跑了 `bash -n` + `docs` 门禁，漏跑 `hub`**——抽函数时把调用点也搬到了变量初始化之前，见下一行 |
 | 已推 `2afb020`（preflight 回归修复 2026-08-01） | `deploy/preflight.sh`、`mcp-server/tests/test_contract.py`、`docs/deployment.md`、`docs/release-readiness.md`、`docs/agent-handoff.md` | ①**Blocker**：`check_acl_response` 的调用点在 `TUNNEL_HOST`/`OUTPUT_DIR` 初始化之前，`set -euo pipefail` 下第一条顶层语句即 `unbound variable` 退出、14 项全不跑——调用移回 nginx 层末尾（`check_download` 之前）；②**Blocker**：`test_contract` 4 处断言钉的是被删掉的内联写法，重钉为行为不变量（具名函数 + 探针 + `"$base" == "ok"` 汇总 + 两条探针都滤 `^127.`），新增 `test_preflight_invokes_every_check_after_env_init` 用行序钉死启动顺序；③无非 loopback IPv4 时打印 `[skip]`，不再拿 loopback 半边冒充整项 `[pass]`；④第 6 项加 `command -v ss` 前置（`ss` 缺失时 `! ss \| grep` 假绿，本机实测已复现→现为 fail）；⑤全部 curl 统一 `--noproxy "*" --max-time 5` | hub overall=pass（pytest **137 passed**、e2e PASS）；Git Bash 实测 14 项全部执行到 `pass=0 fail=14`（本机缺 `ss`/`systemctl`/`nginx`，fail 属预期）；`[skip]`/403/非 403 三分支用临时桩脚本各验一次（跑完已删）；**未部署** |
+| **本次提交** | `docs/protocol.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 §9-A2 递归锁契约、Grbl `fdf2ad8` 与构建/门禁证据；本仓 `full` overall=pass（pytest 137 passed、e2e PASS、§9 标记通过） | 不代表烧录或实机 S4 修复 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
 
 ## Grbl_Esp32 `D:/Users/Grbl_Esp32`  
@@ -68,6 +69,7 @@
 | **外仓提交** | 根 `AGENTS.md` 硬件链（MK38 指针 + 禁改脚） | 仅文档 | 随 Grbl 仓推送 |
 | 已推 `12f26ac`（审查修复 2026-07-31，**已被下一行收窄，勿当现状**） | `Grbl_Esp32/src/Protocol.cpp` | §9-C′ 第一版：underflow 恢复块无条件置 `sys.state = State::Cycle`，与 cycle-start 路径对齐，避免恢复期误报 Idle 导致 S3 提前 M30 | fz `standard` overall=pass；**未烧录**；缺陷：会连 jog/探针取消（`motionCancel`）与 soft limit 一起吞掉 |
 | **已推** `4ddc945`（第二轮，在 `12f26ac` 之上；`12f26ac..4ddc945`；**未烧录**） | `Grbl_Esp32/src/Protocol.cpp`、`Grbl_Esp32/src/ProtocolDecisionCore.h`（+33/−8） | §9-C′ 收窄：`cycle_stop` 分支先快照本次停止的状态与意图，再由 `ProtocolDecisionCore::should_resume_segment_underflow()` 判定——**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑；jog/探针取消与 soft limit 照原路进 `Idle`/`Alarm`，abort 与限位保护不被吃掉 | fz `standard` overall=pass（`native_sim/product_model_check.cpp` 新增 7 组判定用例）；PlatformIO `release` **SUCCESS**（`Protocol.cpp.o` 05:23:54 晚于源码 05:19:53，`firmware.bin` 1857024B，Flash 94.4%）；**未烧录**（需 COM3 烧录 + 有纸复测） |
+| **已提交/已推，未烧录** `fdf2ad8`（2026-08-01；`1a4fea1..fdf2ad8`，2 文件 +41/−0） | `Grbl_Esp32/src/WebUI/TelnetServer.cpp`、`Grbl_Esp32/src/Protocol.cpp` | §9-A2：在 `begin()`/`end()`/`write()`/`handle()` 四入口用递归锁串行化唯一 Telnet client/slot；`Protocol.cpp` 仅补 `was_cycle` 同轮顺序注释。PlatformIO `release` SUCCESS；fz `standard` overall=pass | 尚未烧录、未重跑 551 行 S4；不得宣称实机崩溃已修复 |
 | 本地忽略 | `.claude/`、`firmware_out/` | 本地 Claude 配置与构建输出；已通过 Grbl `.git/info/exclude` 忽略 | 勿提交；无需为工作树干净删除 |
 
 ## fz `D:/Users/zhugu/fz`

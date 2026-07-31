@@ -293,7 +293,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - S3 不自动授权；除自身刚发出的 abort reset 外不自动 `$X`；不在已知换纸活动态发 `0x18`；不做行级断点续传。
 - S3 不重新下载做重发（用 PSRAM 缓存，§4）、不排队并发任务、不把 abort 当急停。
 
-## 9. Grbl 侧改动清单（待评审实施，约 13 行）
+## 9. Grbl 侧改动清单
 
 > 口径：**换纸机械/时序、运动、授权、U1-Grbl 协议一律不改**；消息路由、状态字段、WebUI 网络层等**不影响商业出图行为**的小加固可接受。**改后必跑 `python D:/Users/zhugu/fz/scripts/agent_gate.py`，overall 非 pass 不得声称完成。**
 
@@ -302,6 +302,10 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | A | `WebUI/TelnetServer.cpp:92` | 新客户端 `available()` 后设 **4 个** socket 选项：`SO_KEEPALIVE=1` + `TCP_KEEPIDLE=10` + `TCP_KEEPINTVL=3` + `TCP_KEEPCNT=3`（~19s 回收） | `MAX_TLNT_CLIENTS=1` + 无 keepalive → 半开死连接独占唯一槽位，S3 重连被 `:98` 拒死（§1.2）。`WiFiClient::setSocketOption(level, option, value, len)` 已暴露（`WiFiClient.h:90`，已核验） |
 
 > ⚠️ **A 条必须设全 4 个参数，只开 `SO_KEEPALIVE` 是无效的**——lwip 默认 `KEEPIDLE=7200s`(2h)/`INTVL=75s`/`CNT=9`，等于 2h11m 后才回收，形同没有保活。同一坑在 S3 侧 M1 代码中已实际发生并修复（`hutuji_pipe.cc` 原仅设 `SO_KEEPALIVE`，注释却写「尽快发现对端断电」）。
+| A2 | `WebUI/TelnetServer.cpp:43-74,82,105,153,175` | 文件作用域 `static SemaphoreHandle_t telnetClientMutex = xSemaphoreCreateRecursiveMutex()` + RAII `TelnetClientLock`，在 `begin()`/`end()`/`write()`/`handle()` 四个公开入口顶部各取一次（**只加锁，不改任何路由/状态字/换纸/运动**） | `Telnet_Server::write()` 跑在 loopTask（`Grbl_Esp32.ino:28 run_once` → `grbl_sendf`/`report_*` → `Serial.cpp:380 client_write`），`Telnet_Server::handle()` 跑在 clientCheckTask（`Serial.cpp:120` → `wifi_config.handle()` → `WifiServices::handle()`），两者同优先级同核（`SUPPORT_TASK_CORE`）并发操作**同一个 `WiFiClient` 与同一个 slot**：① `write()` 里 `WiFiClient::write()` 遇非 `EAGAIN` 错误会调 `stop()`（`WiFiClient.cpp:389-443`），`stop()` 把 `_rxBuffer` 置空并释放（`:209-214`），而读侧正在 `available()`/`read()` 的 `WiFiClientRxBuffer::fillBuffer` → `lwip_recv` → `pbuf_free` 中，命中 assert `pbuf_free: p->ref > 0`（上游 bdring/Grbl_Esp32#1364，reporter fork 的修复同样是加 semaphore）；② `clearClients()` 被两个任务并发调用，先 `available()` 再对同一 slot `stop()` + 拷贝赋值，等于在读侧脚下换掉 `_rxBuffer` 智能指针。`MAX_TLNT_CLIENTS=1` 不能规避——两个任务抢的就是同一个槽位 |
+
+> ⚠️ **A2 必须用递归锁**：`handle()` 内 `report_init_message(CLIENT_TELNET)` 会经 `grbl_send` 回到 `write()`，同一任务需重入；普通 mutex 直接自锁死。
+> **A2 的 abort 时延口径（不是新增风险）**：持锁期间 `write()` 最坏阻塞约 10s（`WIFI_CLIENT_SELECT_TIMEOUT_US=1s` × `WIFI_CLIENT_MAX_WRITE_RETRY=10`，`WiFiClient.cpp:26-28`），此窗口内 clientCheckTask 取不到字节，`!`/`0x18` 的**提取**被推迟。但 `!`/`0x18` 的**执行**本就在 loopTask 的 `protocol_execute_realtime()` 里，而 loopTask 正是被 `write()` 阻塞的那一个——即无锁时同样停摆。故 A2 不恶化 §4.1 abort 时延上界，仅把「崩溃」换成「已存在的阻塞」。
 | B1′ | `PaperSystem.cpp:802,807,929,1006` | `[PaperStatus] %d` 的 `CLIENT_SERIAL` → `CLIENT_ALL` | §7 换纸失败码（0/2/3/4/5）的唯一来源；不改则 S3 永远收不到，§7 表空转 |
 | B2′ | `PaperSystem.cpp:351` | `paper_get_status_str()` 的 `snprintf` 增 `Changing=%s` 字段，取现成 `paper_auto_change_is_running()`（`PaperSystem.cpp:50`，现成 `volatile bool`） | §2.1/§4.1 abort 分流的**唯一跨 session 地基** |
 | C′ | `Protocol.cpp:639-672`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
