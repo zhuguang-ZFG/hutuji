@@ -8,8 +8,9 @@
 > 铁律（与 `agent-anti-drift.md` 同）：每步不过就停，**不得假装过**；证据缺一项就写「未验证」；
 > 取证镜像用完**必须回刷**默认镜像；凭据（token / MCP_ENDPOINT）只进当前终端环境变量，不入库。
 >
-> 适用基线（2026-07-31）：本仓 HEAD 含审查修复批（nginx :80 /files 反代、§9-C′ 治理、暂停 soft reset
-> 治理、语音容错文稿、review P1 脱敏修复）；Grbl 待烧 `12f26ac`；S3 待烧 `255f133`（默认镜像）+
+> 适用基线（2026-07-31）：本仓 HEAD 含审查修复批（§9-C′ 治理、暂停 soft reset 治理、语音容错文稿、
+> review P1 脱敏修复）；**nginx `:80 /files` 反代早于本批次即在线，站点收敛已于 07-31 14:51 执行完（第 3 步已完成，可跳）**；
+> Grbl 待烧 `12f26ac`；S3 待烧 `255f133`（默认镜像）+
 > `f1cf066`（仅 8.5 取证用，用完回刷）。**烧录前板上基线见 `release-readiness.md`，以当时自证为准。**
 
 ---
@@ -72,37 +73,54 @@ python scripts\xiaozhi_console.py recall 71153 "纸卡住了"
 
 ---
 
-## 3. SSH 京东云：修 nginx 隧道坏环（10 分钟，含取证）
+## 3. SSH 京东云：nginx 站点收敛 ✅ 已于 2026-07-31 14:51–14:53 执行
 
-目的：部署本轮 `deploy/nginx-hutuji.conf` 的 :80 `/files/` 反代，修 Cloudflare Tunnel 回源 301 自指坏环。
+> **本步已完成，正常联调日跳过**（只在换机/重建 nginx 时回来照做）。
+> 证据：`results/nginx-80-files-deploy-evidence-20260731.md`；固化记录见 `deployment.md`「nginx 站点收敛」。
+> **两处原文写错，已纠正**：
+> ① 「部署 :80 `/files/` 反代」——该反代**自 07-27 03:06 起就已在线**，不是本轮才部署；
+> ② 「symlink 已建，不重建；只覆盖 sites-available 那份」——`sites-enabled/hutuji` 当时是**普通文件**，
+>    照此只改 `sites-available` 是**静默空操作**（`nginx.conf:65` 只 include `sites-enabled/*`）。
 
-⚠️ **reload 前必须先取证 :80 拓扑**（上一轮 code review 发现的点）：本 conf 的 :80 `server_name` 是裸 IP
-`117.72.118.95`，而隧道回源透传的 Host 是域名 `hutuji.donglicao.com`。若 VPS 上 :80 还有别的 server 块，
-Host=域名 可能落不到我们的块 → /files 反代不生效。
+实际执行与结论（细节见 `deployment.md`）：三份配置曾互不相同 → 已 `install` 本仓候选到 `sites-available`
++ `ln -sfn` 重建 `sites-enabled` 符号链接 + `nginx -t` + `reload`；reload 前后行为逐项一致（两种 Host 下
+`/files/nope`→404、`POST`→403、`/mcp`→404、`/`→301），并首次取到真 200（公网隧道与 `:80` 回源均
+`HTTP=200 bytes=31`，正文逐字回读）；`preflight.sh` 先 `pass=9 fail=0`，扩到 14 项后 `pass=14 fail=0`。备份
+`/root/nginx-hutuji-{enabled,available}.bak.20260731-145120`。
+
+**换机/重建时照此做**（`-i` 私钥名少一个 `5`，见 `deployment.md`「SSH 私钥名有坑」）：
 
 ```bash
-ssh <user>@117.72.118.95
-# 3a 取证 :80 现有 server 块（看 server_name 都有谁）
+ssh -i ~/.ssh/jdcloud_ed2519 -o IdentitiesOnly=yes root@117.72.118.95
+# 3a 取证 :80 现有 server 块 + 当前生效副本到底是文件还是链接
 nginx -T 2>/dev/null | grep -B1 -A3 'listen 80'
-# 3b 同步 conf（symlink 已建，不重建；只覆盖 sites-available 那份）
-cp /opt/hutuji/deploy/nginx-hutuji.conf /etc/nginx/sites-available/hutuji
+ls -l /etc/nginx/sites-enabled/hutuji
+# 3b 同步 conf 并让 sites-enabled 一定是指向 sites-available 的链接（CRLF 必须先剥掉）
+sed -i 's/\r$//' /opt/hutuji/deploy/nginx-hutuji.conf
+install -m 644 /opt/hutuji/deploy/nginx-hutuji.conf /etc/nginx/sites-available/hutuji
+ln -sfn /etc/nginx/sites-available/hutuji /etc/nginx/sites-enabled/hutuji
 # 3c 语法检查（不过绝不 reload）
 nginx -t
 # 3d reload
 systemctl reload nginx
-# 3e 公网复验（在本机或 VPS 皆可）
-curl -sI https://hutuji.donglicao.com/files/__nonexistent__   # 期望：nginx 404 或应用 JSON 404，不是 301 自指
-curl -sI https://hutuji.donglicao.com/mcp                      # 期望：404
-# 3f 真 200 正例（需先有一张云端产物；若暂无，留到第 7 步语音出图后回来补这一条）
-curl -sI https://hutuji.donglicao.com/files/<真实token>.gcode  # 期望：200 + X-Hutuji-CRC32
+# 3e 复验：两种 Host 都要试，裸 IP 过了不代表隧道 Host 过
+for h in 117.72.118.95 hutuji.donglicao.com; do
+  curl -s -o /dev/null -w "$h /files/nope=%{http_code} " -H "Host: $h" http://127.0.0.1/files/nope
+  curl -s -o /dev/null -w "POST=%{http_code}\n" -X POST -H "Host: $h" http://127.0.0.1/files/nope
+done                                                            # 期望 404 / 403
+curl -sI https://hutuji.donglicao.com/files/__nonexistent__      # 期望 404，不是 301 自指
+curl -sI https://hutuji.donglicao.com/mcp                        # 期望 404
+# 3f 真 200 正例（可自造：合法命名 + TTL 600s，测完删）
+curl -s -o /dev/null -w "%{http_code} %{size_download}\n" https://hutuji.donglicao.com/files/<真实token>.gcode
 ```
 
-**判据**：`nginx -t` 成功；`/files/<不存在>` 不再 301 自指；`/mcp` 404；有产物时 `/files/<token>` 200。
+**判据**：`sites-enabled/hutuji` 是符号链接；`nginx -t` 成功；两种 Host 下 `/files/<不存在>` 都 404（不是 301）、
+`POST` 403；`/mcp` 404；有产物时 `/files/<token>` 200 且字节数对得上。
 **失败回退**：
-- 3a 发现 :80 另有 server 块且其 `server_name` 含域名/`_`（默认）→ 我们的块抢不到域名 Host。
-  修法：把本 conf :80 的 `server_name` 加成 `117.72.118.95 hutuji.donglicao.com;`（安全：`/` 仍 301、
-  `/files/` 走 loopback 反代），改完重跑 3c/3d。**这是唯一允许现场改 conf 的情形，且改完要 commit 回本仓。**
+- 复验发现 Host=域名 落不到我们的块 → conf 两个 server 块的 `server_name` 必须同时含
+  `117.72.118.95 hutuji.donglicao.com`（现行 conf 已含；安全：`/` 仍 301、`/files/` 走 loopback 反代）。
 - `nginx -t` 失败 → **不 reload**，看报错（多半是 `limit_req_zone` 上下文或证书路径），修本仓 conf 重传。
+- reload 后行为回归 → `cp -a /root/nginx-hutuji-enabled.bak.<ts> /etc/nginx/sites-enabled/hutuji`（先删链接）后 `nginx -t && reload`。
 - 公网 `:8300` 应不可达（安全组未放行）：`curl -v http://117.72.118.95:8300` 期望连接被拒/超时。
 
 ---
@@ -125,6 +143,8 @@ cd D:\Users\Grbl_Esp32
 ---
 
 ## 5. 烧录 S3 默认镜像 `255f133`（COM6，15 分钟）
+
+> **2026-07-31 执行结果**：已完成，但烧的是 **HEAD `06b962c` + 第二轮审查修复未提交文件**（含 `255f133`）的默认构建，镜像 `0x2cec90`；判据里 `Hash of data verified`、七工具注册、持续 fresh `Idle`（8.5 分钟）已取，**ready/authorized 字段未查**。证据 `results/device-test-record-s3-lc-01-20260731.md`。第 4 步（烧 Grbl）因 COM3 error 31 未完成，故本步先于第 4 步落地。
 
 目的：落地暂停超时 soft reset 冲 planner（避免 Grbl 锁 Hold）。**这一步烧的是默认镜像，不含 8.5 脚手架。**
 

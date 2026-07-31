@@ -122,13 +122,13 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - 依赖是范围下界而非精确 pin：`fastapi>=0.115`、`uvicorn[standard]>=0.30`、`httpx>=0.27`、`vpype>=1.14`、`vpype-gcode>=0.13`、`mcp>=1.27,<2`、`mcp-proxy>=0.8.2,<1`、`websockets>=13,<17`；dev 只多 `pytest>=8.3,<9`。
 - 开发机 Windows（PowerShell，venv 在 `.venv\Scripts\`）；生产 Ubuntu + systemd + nginx（venv 在 `/opt/hutuji/mcp-server/.venv/bin/`）。
 - 生产拓扑：uvicorn 只监听 `127.0.0.1:8300`；nginx 只公开反代 `GET/HEAD /files/`（限速 10r/s），`/mcp` 显式 404；安全组只开 22/80/443，**不放行 8300**。
-- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 并跑 `bash deploy/preflight.sh`（当前 9 项，须全 pass），再复验公网 `/mcp` 404、8300 不可达。
+- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 并跑 `bash deploy/preflight.sh`（**当前 14 项**：9 项应用/权限 + 2026-07-31 新增 5 项 nginx 层——`nginx -t`、`sites-enabled/hutuji` 是符号链接、线上 conf 与本仓模板 LF 归一化 md5 一致、隧道 Host 经 `:80` 命中 `/files` 反代且 `POST` 403、隧道 Host 经 `:80` 真下 G-code 200；须全 pass），再复验公网 `/mcp` 404、8300 不可达。
 - 生产 venv 精简装**没有 pytest**：那边只能跑 `scripts/e2e_local.py` 或直接 import 校验。
 - 固件不在本仓构建：S3 用 ESP-IDF **v6.0.1**（`python3 scripts/release.py lichuang-dev`），Grbl 用 PlatformIO。串口坑：S3 板载 CH340K 也枚举为 CH340，COM 号每次会变，判定看串口日志自证，别用 `esptool chip_id` 打断运行中的固件。
 
 ## Testing & QA｜测试与门禁
 
-- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **118 项**（58 个 `def test_` 经 `parametrize` 展开）。
+- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **119 项**（59 个 `def test_` 经 `parametrize` 展开）。
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
 - 三个测试文件职责：`test_contract.py`（§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死）、`test_injection.py`（SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（桥接配置与不泄密日志）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。
@@ -143,7 +143,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - **无证据不宣称 / 无清单不改代码 / 不覆盖用户工作树 / 不为门禁绿去改产品行为。** 未跑的测试、未见的 commit、未实测的硬件现象一律写「未验证」。
 - **不准简化设计 / 全称必证**：禁止照文档「可选 / 可去掉 / 可简化 / 待做」措辞删除或弱化任何负载（vpype 管线步骤、校验、安全边界、画质容差 `linesimplify`/`linemerge`、流控、每行带 F 等）——这类许可默认是**假的**，先与 `protocol.md` §5 / `hutuji_gwrite.toml` / `gcode_gen.py` 常量 / `test_contract.py` 钉死值对账，冲突以定案为准并盖章 `supersede`。说「唯一 / 全部 / 已清 / 干净 / 没有第二处」前必须先全仓检索取证。详见 `docs/agent-anti-drift.md` §0 铁律 7–8（已被门禁 `anti_drift` 层机器钉死，删铁律即红）。
 - 改代码前必须能指出「白名单路径 + 契约段落或用户原话」；指不出就只读或问用户。机读白名单：`docs/agent-edit-allowlist.json`。
-- Grbl 侧只可碰 §9 清单内文件意图（`src/WebUI/TelnetServer.cpp`、`src/PaperSystem.cpp`）与 `*Core.h` 的 header-only 恢复；**禁止**碰 `report_realtime_status` / `report_state_text`、禁止全量 `CLIENT_ALL` 广播、禁止为仿真绿改换纸机械常量、禁止顺手重构。
+- Grbl 侧只可碰 §9 清单内文件意图（`src/WebUI/TelnetServer.cpp`、`src/PaperSystem.cpp`、`src/Protocol.cpp`、§9-C′ 判定谓词所在的 `src/ProtocolDecisionCore.h`）与其余 `*Core.h` 的 header-only 恢复；**禁止**碰 `report_realtime_status` / `report_state_text`、禁止全量 `CLIENT_ALL` 广播、禁止为仿真绿改换纸机械常量、禁止顺手重构。
 - **禁止重开**：合并固件 / USB Host / CH9350 / 阿里云部署 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。
 - **禁止宣称**（除非 `docs/release-readiness.md` 对应行已 ✅）：可出货、商业放行、§9 已完成、§9 已修好、硬件已验证、联调完成、京东云已上线、M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
 - **凭据禁入库**：`D:/Downloads/VPS.txt`（VPS 明文密码 + API key）、真实小智 MCP 接入点、`小智控制台token.txt`，一律不复制、不引用、不提交。

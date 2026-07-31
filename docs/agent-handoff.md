@@ -8,12 +8,13 @@
 
 ## 0. 一句话现状（2026-07-31）
 
-枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（9 项）；官方云路径已实际触发 `draw/status/abort`。**2026-07-31 审查修复批次**（8 文件未提交）：P1-3 httpx→LlmError、P1-4 websockets 脱敏 filter + backoff 复位、P1-5 nginx :80 /files 反代、§9-C′ 治理（allowlist + protocol 行）、release-readiness 同步、3 条回归测试（pytest 118 passed）；**nginx 未部署到 VPS**。
-Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；有纸 `Changing=On` 已于 2026-07-30 B-13 验证。**2026-07-31 审查修复**：§9-C′ `Protocol.cpp:753` underflow 恢复置 `State::Cycle`（fz `standard` pass）；**未烧录**。
-S3：`feat/hutuji-usb-pipe` 源码 HEAD `f1cf066` 已提交/推送（`c1267ec` WiFi 三修 → `ed5b132` ETA → `15f73c9` 窗口化流控 S3 → `13057e8` 落笔旁路 + `ok` 兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架，产品行为不变、未烧录）。**实机烧录基线仍是 `13057e8`**。**2026-07-31 审查修复**：`hutuji_job.cc` 暂停超时补 soft reset 冲 planner；**未构建/未烧录**。
+枢纽仓：协议 v0.5、门禁、京东云 `hutuji-mcp`+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（**14 项**，07-31 由 9 扩到 14：补 nginx 层）；官方云路径已实际触发 `draw/status/abort`。**2026-07-31 审查修复批次**（已提交 `d599b3b`）：P1-3 httpx→LlmError、P1-4 websockets 脱敏 filter + backoff 复位、P1-5 nginx :80 /files 反代、§9-C′ 治理（allowlist + protocol 行）、release-readiness 同步、3 条回归测试（pytest 118 passed；**第二轮审查修复**（三仓工作树未提交）：§9-C′ 收窄为 `should_resume_segment_underflow()`、S3 reset 单 owner 事务 + `AbortResetToken`、`cloud_bridge` 补 `record.args` Mapping 脱敏、protocol §2.1.1/§9-C′ 同步；pytest 119 passed、S3 host unittest 9 passed、fz `standard` pass）；Grbl PlatformIO `release` **SUCCESS**（`Protocol.cpp.o` 05:23:54 晚于源码 05:19:53，`firmware.bin` 1857024B，Flash 94.4%）；S3 **IDF v6.0.1 构建 pass**（`idf.py build` exit=0；`hutuji_pipe.cc.obj`/`hutuji_job.cc.obj` 均重编，即证新增 `hutuji_recovery_core.h` 参与编译；`xiaozhi.bin=0x2cec90`，app 分区剩 29%；与上次烧录基线镜像 `0x2ce890` 不同）；**S3 已于 07-31 烧录 COM6 并运行自证；Grbl 未烧录（COM3 error 31）、nginx 未部署到 VPS**。
+枢纽工作树（2026-07-31 收工真值）：**本轮 21 文件已提交**（在 `0d09cf9` 之上；提交号由下一批回填）= 第二轮代码/契约 3 + deploy/治理 4 + 07-31 烧录面与门禁口径文档同步 14；**hutuji 工作树已干净**，Grbl / fz / xiaozhi 三仓仍各有未提交项（见下表）。逐条清单见 `worktree-inventory.md` hutuji 表。部署漂移**已收敛一处**：`deploy/nginx-hutuji.conf` 本轮已上线（LF 归一化 md5 `5a424341…` = 线上 `sites-available/hutuji`；`sites-enabled` 符号链接已重建；`nginx -t`+`reload` 通过，行为无回归，公网隧道真 200 已取证 `results/nginx-80-files-deploy-evidence-20260731.md`）。**注意此前「nginx :80 /files 未部署」的判断是错的**——该反代自 07-27 03:06 即在线，真问题是三份配置分叉 + `sites-enabled` 是普通文件。仍剩一处反向漂移：`deploy/preflight.sh` 工作副本 `c88796df…` 已在 VPS、本仓**未提交**（HEAD `634b3809…`）。
+Grbl：§9 `e7f373f` 已提交、fz `standard` pass、已烧录；Telnet、keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证。当前源码 `8d13b5c` 已提交/推送，固化 A4 默认行程、M3/M5 笔控同步与 segment underflow 收敛，并通过 fz `standard`、PlatformIO `release`、COM3 烧录与空闲最小核验（授权、Telnet:23、`[ESP901] Changing=Off`、`$130=210 $131=297`）；有纸 `Changing=On` 已于 2026-07-30 B-13 验证。**2026-07-31 审查修复**：§9-C′ underflow 恢复已提交 `12f26ac`，工作树再收窄为 `should_resume_segment_underflow()`——只救真实 Cycle 断粮，jog/探针取消与 soft limit 照原路 `Idle`/`Alarm`（fz `standard` pass + 7 组判定用例）；PlatformIO `release` **SUCCESS**（`firmware.bin` 1857024B / Flash 94.4%）；**未烧录**。
+S3：`feat/hutuji-usb-pipe` 源码 HEAD `f1cf066` 已提交/推送（`c1267ec` WiFi 三修 → `ed5b132` ETA → `15f73c9` 窗口化流控 S3 → `13057e8` 落笔旁路 + `ok` 兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架，产品行为不变、未烧录）。**实机烧录基线（07-31 更新）= HEAD `06b962c` + 未提交第二轮审查修复**：已 app-flash COM6 并运行自证（回读 `ota_0` app_desc + 启动横幅 ELF SHA `d01c895d5…`、7 个 `hutuji.*` MCP 工具、Telnet:23 持续 `<Idle|…Bf:249,1200…>` 约 8.5 分钟；证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`）。**2026-07-31 审查修复**：`hutuji_job.cc` 暂停超时补 soft reset 冲 planner（已推 `255f133`）；**第二轮（工作树未提交）**：reset 单 owner 事务（`abort_reset_started_` CAS + `WaitForAbortReset()` + `AbortResetToken` 会话代号一次性令牌 + 窗口在途静默 + `SetTaskSessionActive(false)` 清 `ready_`），新增 `hutuji_recovery_core.h` 与 host 用例（`python -m unittest discover -s scripts/tests` 9 passed）；IDF v6.0.1 `idf.py build` **exit=0**（`xiaozhi.bin=0x2cec90`）；**已于 07-31 烧录 COM6**（逐台记录 `results/device-test-record-s3-lc-01-20260731.md`），但暂停超时/换纸中 abort 行为仍未实测。
 **没有**：App 真实语音、换纸中 abort、P2 S3/S4、生产签核。
 → **不可商业出货**。  
-→ 下一刀：部署 nginx + 烧录 Grbl/S3 审查修复 → 换纸中 abort → App 真实语音。
+→ 下一刀：烧录 Grbl 审查修复（**COM3 打开报 Windows error 31，已定位到 `SetCommState` 失败（`CreateFileW`/`GetCommState` 均成功，原样回写 DCB 也 err=31）→ 换库/换波特率无用，需物理重插 MK38 USB**，见 `troubleshooting.md`）+ 部署 nginx → 换纸中 abort → App 真实语音。S3 第二轮修复已于 07-31 烧录并运行自证。
 → **禁止**再写一版文档地图当进度；真值页 `release-readiness.md`。
 
 ## 1. 三仓与代码在哪
@@ -127,7 +128,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 联调 SOP | `docs/bringup-sop.md` |
 | 白天联调 runbook | `docs/daytime-tuning-runbook.md`（单日取证编排：重取 token→sync→nginx 取证→烧录→装纸→语音/暂停/换纸abort/S4，每步带判据/回退/取证落点；判据引用 bringup-sop 不复制） |
 | 批次模板 | `docs/templates/` |
-| 京东云模板 | `deploy/`（生产已常驻；更新用 scp，重启后跑 preflight 全 9 项绿） |
+| 京东云模板 | `deploy/`（生产已常驻；更新用 scp，重启后跑 preflight 全 **14** 项绿） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |

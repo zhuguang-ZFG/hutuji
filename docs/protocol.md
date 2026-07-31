@@ -123,11 +123,17 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 #### 2.1.1 活跃任务重连恢复实现契约（S3 `05f4563` 起，`3ca9d31` 复测）
 
 1. **范围/触发**：仅绘图会话内 TCP session 变化触发；初次建链仍走常规授权探测。
-2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话；`PrepareAbortReset()` 只授权下一次
-   本机 reset banner 自动 `$X`，发送失败必须 `CancelAbortReset()`。
-3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；任务先发
-   `[ESP901]` 并取得 fresh `Changing`，只有 `Off` 才能发 `0x18`。reset 恢复、废纸 `M30`
-   与 fresh `Idle` 全过后，才从仍存活的 PSRAM 第 1 行重发，不重新下载。
+2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
+   禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
+   paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:14-45`）判定，Arm 成功即先清
+   `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
+   `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
+3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
+   取到**本次连接内新鲜**的停机状态行——`Idle` 或 `Hold:0`（判据 `IsStoppedForReset()`，`Hold`
+   必须带子码 0 = holdComplete；`Run`/无子码 `Hold` 不算停稳），再发 `[ESP901]` 取本次新鲜
+   `Changing`，只有 `Off` 才能发 `0x18`。reset 恢复、废纸 `M30` 与 fresh `Idle` 全过后，才从仍存活
+   的 PSRAM 第 1 行重发，不重新下载。
 4. **校验/错误矩阵**：`Changing=On/Unknown` → 禁止 reset/M30、停止自动续画；查询超时、
    reset banner 超时、未授权、废纸换纸失败 → 任务 error；任一步 abort → 不再续发。
 5. **用例**：基准=无断连正常完成；好例=画线断连且 `Off` 后废纸并从头重画；坏例=
@@ -136,6 +142,11 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    断言 `On` 时没有 `0x18/M30/G1`；8.5 断言未知/换纸保护窗内 abort 只挂起。
 7. **错/对**：错=`重连 → $I/M5/G1 探活 → ready → 查 Changing`；对=
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
+8. **单 owner 事务**（实现状态:工作树未提交、未构建、未烧录）：每个任务最多一个 reset owner
+   ——`abort_reset_started_` CAS 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
+   在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:346-464`）；窗口模式的在途应答由
+   `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
+   否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
 ## 3. 流控（Grbl 行协议）
 
@@ -290,7 +301,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 > ⚠️ **A 条必须设全 4 个参数，只开 `SO_KEEPALIVE` 是无效的**——lwip 默认 `KEEPIDLE=7200s`(2h)/`INTVL=75s`/`CNT=9`，等于 2h11m 后才回收，形同没有保活。同一坑在 S3 侧 M1 代码中已实际发生并修复（`hutuji_pipe.cc` 原仅设 `SO_KEEPALIVE`，注释却写「尽快发现对端断电」）。
 | B1′ | `PaperSystem.cpp:802,807,929,1006` | `[PaperStatus] %d` 的 `CLIENT_SERIAL` → `CLIENT_ALL` | §7 换纸失败码（0/2/3/4/5）的唯一来源；不改则 S3 永远收不到，§7 表空转 |
 | B2′ | `PaperSystem.cpp:351` | `paper_get_status_str()` 的 `snprintf` 增 `Changing=%s` 字段，取现成 `paper_auto_change_is_running()`（`PaperSystem.cpp:50`，现成 `volatile bool`） | §2.1/§4.1 abort 分流的**唯一跨 session 地基** |
-| C′ | `Protocol.cpp:752-755` | underflow 恢复块在 `st_prep_buffer()` 前置 `sys.state = State::Cycle;` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:625-627`）对齐：先置 Cycle 再 prep+wake |
+| C′ | `Protocol.cpp:639-672`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
 
 **B2′ 的可行性已逐环核验（不再是推断）**：
 1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1008`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。

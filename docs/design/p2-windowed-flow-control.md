@@ -357,7 +357,7 @@ while (lines_sent_ < lines_.size() && !c_line.empty()) {
 |---|---|---|
 | **S1** | ✅ Pipe 侧应答队列 + 兼容包装 | 已编译、烧录 COM9、Telnet 连通（§5.1） |
 | **S2** | ✅ Job 侧预解析成零拷贝行索引，窗口=1 | 旧/新解析对真实产物与边界集逐字一致；IDF 构建、烧录、45s 启动观察通过（§5.2） |
-| **S3** | ✅ 窗口=512（`hutuji_job.cc:58` `kWindow`），换纸行前排空 `c_line`（`paper_pending`） | 已烧录（`13057e8`，COM6 镜像 `0x2ce890`）；Telnet 实测：B-12 409 行测试件全线连续、页尾 `M30` 后 `state=done` |
+| **S3** | ✅ 窗口=512（`hutuji_job.cc:58` `kWindow`），换纸行前排空 `c_line`（`paper_pending`） | 已烧录（07-31 起 COM6 镜像 `0x2cec90` = HEAD `06b962c` + 未提交第二轮审查修复；首次落地于 `13057e8`/`0x2ce890`）；Telnet 实测：B-12 409 行测试件全线连续、页尾 `M30` 后 `state=done` |
 | **S4** | 🟡 容差已回调 0.05mm（`gcode_gen.py:38`）；自适应 `Bf` 反压**未做**（`hutuji_job.cc:1319-1320` TODO） | 缺 0.05mm 真实图样的**有纸**出图证据：曲线细节改善且无停顿 |
 
 S2 是**关键安全阀**：窗口=1 时行为必须与现状完全一致，S3 出问题一个常量回退。

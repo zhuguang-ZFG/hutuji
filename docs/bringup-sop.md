@@ -159,7 +159,7 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 **通过判据**：小智云侧能看到并成功调用 `hutuji_status`。
 
-**当前记录（2026-07-31）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（**9 项已确认**）；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**。
+**当前记录（2026-07-31）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（**14 项**，14:53 先以旧 9 项 `pass=9 fail=0` 复跑，随后扩到 14 项并 `pass=14 fail=0`）；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。**下载面（14:52 新增取证）**：合法命名产物经**公网 Cloudflare Tunnel** 与 `:80` 回源路径均 `HTTP=200`、字节数一致、正文逐字回读，`/mcp` 两路均 404，`POST /files/` 403（`limit_except` 生效）——即 S3 的下载链路本身已可用（证据 `results/nginx-80-files-deploy-evidence-20260731.md`）。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**；此处 200 是人工造件取证，**不等于**语音出图闭环。
 
 ---
 
@@ -257,7 +257,7 @@ python scripts\bringup_fault_capture.py --s3-port COM9 --grbl-port COM3 --durati
 `lichuang_dev_board.cc` 监视任务）：50ms 轮询 `Job::IsPaperActive()`，窗口一开即本地调
 `RequestAbort()`，并打印 abort 前后的 `status`。默认镜像行为不变。
 脚手架已提交为 xiaozhi `f1cf066`（`feat/hutuji-usb-pipe`，`13057e8..f1cf066` 已推送，`+44/−0` 纯新增），
-可直接 `git -C D:/Users/xiaozhi-esp32 show f1cf066` 复核；**板上镜像仍是 `13057e8`/`0x2ce890`，脚手架未烧录**。
+可直接 `git -C D:/Users/xiaozhi-esp32 show f1cf066` 复核；**板上镜像已于 07-31 换成 HEAD `06b962c` + 未提交第二轮审查修复的默认构建（`0x2cec90`）；该默认构建仍不含 8.5 脚手架（宏默认关闭）**。
 
 **前置**：装纸（`[ESP901]` 预检应见 `Paper=OK ... Changing=Off`）；PC 起本机静态服务托**小**测试件
 （8.3 用过 658B / CRC32 `2290095f`；件越小越快到页尾换纸窗口）；**先备份当前板上镜像对应的

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
 import json
 import logging
 import os
@@ -119,9 +120,9 @@ class _RedactSecretsFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.msg, str):
             record.msg = _safe_stderr_line(record.msg)
-        # logging 的 record.args 可能是 tuple/list（% 序列）或 dict（% mapping）；
-        # 两种都要脱敏且保持原容器类型，否则破坏 % 格式化。
-        if isinstance(record.args, dict):
+        # logging 的 record.args 可能是 tuple/list（% 序列）或 Mapping（% mapping）；
+        # 两种都要脱敏；Mapping 必须保持键值语义，否则破坏 % 格式化。
+        if isinstance(record.args, Mapping):
             record.args = {
                 k: (_safe_stderr_line(v) if isinstance(v, str) else v)
                 for k, v in record.args.items()

@@ -23,6 +23,43 @@ PC 观测一律走 CH340；Telnet 槽位 `MAX_TLNT_CLIENTS=1` 留给 S3。
 | 撞机 / 越界 | 无限位开关，Grbl 侧无保护 | 查 ③ 侧 `X≤190`、`Y≤277` 限幅是否生效 |
 | banner `Grbl 1.3a…` 中途出现 | 写字机复位 | 复位状态机、任务 error、重新探活 |
 
+## CH340 `COM3` 打开即 Windows error 31：已定位到 `SetCommState`（2026-07-31 实测）
+
+**现象**：MK38 写字机板的 CH340（`VID_1A86&PID_7523`，`LOCATION=1-2`）在设备管理器里
+`Status=OK / Problem=CM_PROB_NONE`（「设备运行正常」），`serial.tools.list_ports` 也照常枚举出 `COM3`，
+但任何打开尝试都失败：
+
+```
+SerialException: Cannot configure port, something went wrong.
+  Original message: PermissionError(13, '连到系统上的设备没有发挥作用。', None, 31)
+```
+
+**分层定位（决定性，别再重试三种库）**：用 ctypes 直打 Win32，逐个 IOCTL 分开看——
+
+| 调用 | 结果 |
+|------|------|
+| `CreateFileW(\\.\COM3, RW, share=0)` | **成功**（拿到句柄）→ 不是被占用（占用会是 error 5） |
+| `GetCommState` | 成功（能读回 DCB） |
+| `GetCommTimeouts` / `ClearCommError` | 成功 |
+| `SetCommState`（**原封不动回写 `GetCommState` 拿到的 DCB**） | **失败 err=31** |
+| `SetCommState`（9600 8N1 / 115200 8N1） | 失败 err=31 |
+
+即：驱动对象活着、能应答查询类 IOCTL，**只有把线路参数下发到芯片的那一步失败**。
+
+**为什么这不是软件问题**：`SetCommState` 是打开串口的必经步骤——pyserial、esptool、PlatformIO、
+`mode`、PuTTY 全都要调它，没有任何参数组合能绕过（连「不改参数、原样回写」都失败）。
+所以**换库、换波特率、换脚本都是白费**；必须物理侧处理：重插 MK38 USB（优先）、换线/换口（供电或线序），
+或**提权**后 `Disable-PnpDevice` + `Enable-PnpDevice` 重启该实例（本机 `elevated=False`，agent 侧做不到）。
+
+**两个附带坑**：
+
+1. `Get-PnpDevice` 报 `CM_PROB_NONE` **不能**当「串口可用」的判据——上面就是反例。
+2. `SetCommState` 报失败后，下一次 `GetCommState` 会回读到**刚才那次失败尝试写入的波特率**
+   （先读到 9600、试写 115200 失败、再读变成 115200）。别把这个当「配置已生效」。
+
+另：`VID_1A86&PID_7522`（CH340K）另有两个 `CM_PROB_PHANTOM`（Code 45）的历史实例 `COM7`/`COM8`，
+是拔掉后的残留登记项，与本故障无关；当前在线的 CH340K 是 `COM9`。
+
 ## 笔控 / 落笔出墨（2026-07-29 实测）
 
 > **纸面是唯一判据。** `ok` 只表示该行已进 planner（`Protocol.cpp:147-158`），MPos 是开环步计数、无任何位置反馈（`Stepper.cpp:313-324`、`System.cpp:220-234`）——失步或笔尖未触纸时，日志照样报 `Z=5.000` 全程保持。**禁止用日志宣称“已落笔”。**

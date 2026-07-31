@@ -32,18 +32,18 @@
 | 硬件冒烟与多页换纸 | 🟡 关键有纸路径已实测 | `13057e8`/`0x2ce890` 已有 S3 自动路径出墨、页尾 `[PaperStatus] 0` + `state=done`；2026-07-30 B-13 已捕获有纸 `Changing=On`。仍缺换纸中 abort、App 真实语音、P2 S3/S4 |
 
 当前源码 HEAD 是 `f1cf066`（`feat/hutuji-usb-pipe`，已提交并推送；= `13057e8` + 默认关闭的
-§8.5 abort 取证脚手架，**实机烧录基线仍是 `13057e8`**）：`c1267ec` WiFi 三修 →
+§8.5 abort 取证脚手架，**实机烧录基线（07-31 更新）= HEAD `06b962c` + 未提交第二轮审查修复**（COM6 镜像 `0x2cec90`，证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`））：`c1267ec` WiFi 三修 →
 `ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）→
 `13057e8` 落笔前旁路 `G92 Z0` 校准 + `ok` 静默丢失兜底 → `f1cf066` 默认关闭的 §8.5 abort
 取证脚手架（`HUTUJI_AUTO_TEST_ABORT_ON_PAPER`，产品行为不变）。
 `15f73c9` 的 8.3 自动触发镜像 `xiaozhi.bin=0x2cdcb0`、SHA256 `090D65AB...8D0E` 已烧录 COM6，
 并完成有纸 `state=done` 复测（`results/s3-ed5b132-windowed-flow-eta-paper-draw-evidence-20260729.md`）。
-**该镜像属历史**——已被 2026-07-29 20:41 写入的 `0x2ce890`（`13057e8`）覆盖，勿当现状。
+**该镜像属历史**——已被 2026-07-29 20:41 写入的 `0x2ce890`（`13057e8`）覆盖；`0x2ce890` 本身又已被 07-31 的 `0x2cec90` 覆盖，勿当现状。
 
 **`13057e8` 固化了此前未提交的 3 个文件**（`main/boards/lichuang-dev/hutuji_job.cc`、`hutuji_job.h`、
 `hutuji_pipe.cc`，+407/−83）：`PreparePenOrigin` 在 fresh `Idle` + 弹簧回位 100ms
 （`kPenSpringReturnMs`）后旁路 `G92 Z0`，以及 `ok` 超时按 MPos 状态兜底（`kMaxOkFallback=3`、
-`kOkFallbackPosTolMm=0.05`）。**S3-LC-01 最后一次烧录的镜像内容即这批改动**——2026-07-29
+`kOkFallbackPosTolMm=0.05`）。**S3-LC-01 在 2026-07-29 烧录的镜像内容即这批改动**（已被 07-31 的 `0x2cec90` 覆盖）——2026-07-29
 20:39 构建 `xiaozhi.bin=0x2ce890`（2943120 字节），SHA256
 `853179049C21028E62DB6784E20040756DB2866A73ED93F20842EFD7A0A24C3E`，20:41 由 app-flash 脚本
 `results/.tmp/flash_autodraw_com6.ps1` 写入 COM6 并通过 esptool 自校验（`Wrote 2943120 bytes`、

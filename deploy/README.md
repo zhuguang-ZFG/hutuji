@@ -12,8 +12,15 @@
 | VPS 实机部署与验收 | ✅ 已部署并常驻（`117.72.118.95`，HTTPS 经 Cloudflare Tunnel）——真值以 `../docs/release-readiness.md` 为准；本节不重复记状态 |
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 重启后跑 `preflight.sh` 并按实际输出回填计数（脚本是 9 项检查）。
+> 重启后跑 `preflight.sh` 并按实际输出回填计数（脚本**当前 14 项**：9 项应用/权限 + 5 项 nginx 层）。
 > 下面的「首次上线」流程保留给**重建/换机**，不是待办。
+>
+> **scp `nginx-hutuji.conf` 有两个坑**（2026-07-31 实测，详见 `../docs/deployment.md`「nginx 站点收敛」）：
+> ① 本仓工作副本是 **CRLF**，上机后先 `sed -i 's/\r$//'`，否则与线上 md5 永远对不上（漂移判据用
+> `tr -d '\r' … | md5sum`，当前双方 `5a424341…`）；
+> ② 只 `cp` 到 `sites-available` **可能什么都没生效**——`nginx.conf` 只 include `sites-enabled/*`，
+> 而 `sites-enabled/hutuji` 曾是**普通文件**而非符号链接。改完务必
+> `ls -l /etc/nginx/sites-enabled/hutuji` 确认是链接，再 `nginx -t && systemctl reload nginx`。
 
 ## 文件
 

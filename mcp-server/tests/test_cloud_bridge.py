@@ -59,8 +59,8 @@ def test_proxy_stderr_keeps_benign_short_lines() -> None:
     assert _safe_stderr_line("listening on stdio") == "listening on stdio"
 
 
-def test_redact_filter_unit_scrubs_msg_tuple_and_dict_args() -> None:
-    """单元测：filter 函数本身对 msg / tuple args / dict args 都脱敏且保容器类型。
+def test_redact_filter_unit_scrubs_msg_tuple_and_mapping_args() -> None:
+    """单元测：filter 对 msg / tuple args / Mapping args 都脱敏且保持容器契约。
 
     注意这只验函数逻辑；真正「挂对位置」由下面的集成测钉死。"""
     import logging
@@ -84,42 +84,83 @@ def test_redact_filter_unit_scrubs_msg_tuple_and_dict_args() -> None:
     assert isinstance(rec2.args, dict), "dict args 必须保持 dict，否则破坏 % 格式化"
     assert "dict-leak" not in rec2.args["u"]
 
+    from collections import UserDict
+    from collections.abc import Mapping
 
-def test_redact_filter_on_root_handler_scrubs_child_logger_emit(caplog) -> None:  # noqa: ANN001
-    """集成测：filter 挂 root handler 后，子 logger ``websockets.client`` 经 propagate
-    上来的记录也被脱敏——这才是 websockets 16 的真实 emit 路径。
+    rec3 = logging.LogRecord(
+        "websockets.client", logging.INFO, __file__, 1, "uri=%(u)s", None, None,
+    )
+    rec3.args = UserDict({"u": "wss://h/mcp/?token=userdict-leak"})
+    assert f.filter(rec3) is True
+    assert isinstance(rec3.args, Mapping), "mapping args 必须保持 Mapping 兼容"
+    formatted = rec3.getMessage()
+    assert "userdict-leak" not in formatted
+    assert "wss://h" not in formatted
 
-    旧实现把 filter 挂在 logger ``websockets`` 上，对子 logger 的 propagate 记录无效
-    （logger 级 filter 不跑父 logger 的 filter），是死代码；本测走真实链路，能抓住它。"""
+def test_redact_filter_on_root_handler_scrubs_child_logger_emit() -> None:
+    """集成测：真实安装器能脱敏子 logger 经 root handler 格式化的输出。"""
     import logging
+    from io import StringIO
 
-    caplog.set_level(logging.INFO)
-    redact = _RedactSecretsFilter()
-    handlers = logging.getLogger().handlers
-    for h in handlers:  # 模拟 _install_secret_redaction，但测试结束必须撤，免污染对照组
-        h.addFilter(redact)
+    root = logging.getLogger()
+    child = logging.getLogger("websockets.client")
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(name)s %(message)s"))
+    handler.setLevel(logging.INFO)
+    root_level = root.level
+    child_level = child.level
+    child_propagate = child.propagate
+    child_disabled = child.disabled
+    root.addHandler(handler)
+    handler_filters = [(item, tuple(item.filters)) for item in root.handlers]
     try:
-        logging.getLogger("websockets.client").info(
-            "connect failed: wss://api.xiaozhi.me/mcp/?token=real-path-leak"
-        )
-        assert caplog.records, "子 logger 记录必须 propagate 到 root handler"
-        out = caplog.records[-1].getMessage()
+        root.setLevel(logging.INFO)
+        child.setLevel(logging.NOTSET)
+        child.propagate = True
+        child.disabled = False
+        _install_secret_redaction()
+        child.info("connect failed: wss://api.xiaozhi.me/mcp/?token=real-path-leak")
+
+        out = stream.getvalue()
+        assert out, "子 logger 记录必须 propagate 到受控 root handler"
         assert "real-path-leak" not in out
         assert "wss://api.xiaozhi.me" not in out
     finally:
-        for h in handlers:
-            h.removeFilter(redact)
+        for item, filters in handler_filters:
+            item.filters[:] = filters
+        root.removeHandler(handler)
+        root.setLevel(root_level)
+        child.setLevel(child_level)
+        child.propagate = child_propagate
+        child.disabled = child_disabled
 
 
-def test_child_logger_token_leaks_without_redaction_install(caplog) -> None:  # noqa: ANN001
-    """对照组：不调 _install_secret_redaction 时，同一条子 logger 记录的 token 原样
-    保留——证明上一条测的脱敏确由 filter 产生，而非 caplog 链路本身会抹字。"""
+def test_child_logger_token_leaks_without_redaction_install() -> None:
+    """对照组：隔离 handler 未安装 filter 时仍会原样格式化 token。"""
     import logging
+    from io import StringIO
 
-    caplog.set_level(logging.INFO)
-    logging.getLogger("websockets.client").info(
-        "baseline wss://x/?token=baseline-leak"
-    )
-    assert caplog.records
-    assert "baseline-leak" in caplog.records[-1].getMessage()
+    child = logging.getLogger("websockets.client.no_install_control")
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.setLevel(logging.INFO)
+    child_level = child.level
+    child_propagate = child.propagate
+    child_disabled = child.disabled
+    child.addHandler(handler)
+    try:
+        child.setLevel(logging.INFO)
+        child.propagate = False
+        child.disabled = False
+        child.info("baseline wss://x/?token=baseline-leak")
+        assert "baseline-leak" in stream.getvalue()
+    finally:
+        child.removeHandler(handler)
+        child.setLevel(child_level)
+        child.propagate = child_propagate
+        child.disabled = child_disabled
+
+
 

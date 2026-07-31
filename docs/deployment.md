@@ -97,12 +97,63 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ 9 项已确认 | `pass=9 fail=0`（2026-07-31 确认：脚本自 `99fcafa` 建档起即 9 项，此前旧记录写 8 项系笔误） |
+| `preflight.sh` 全 PASS | ✅ **14 项**已确认 | `pass=9 fail=0`（2026-07-31 确认：脚本自 `99fcafa` 建档起即 9 项，此前旧记录写 8 项系笔误——旧记录少一项是 `check … | grep` 把整个 check 塞进管道左侧、`[pass]` 行被吞所致，已在工作副本改成自包含 `bash -c` POST；该版 md5 `c88796df…` 已在 VPS，本仓**未提交**，HEAD 版为 `634b3809…`） |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
 > TLS 已切 Cloudflare Tunnel + Let’s Encrypt（2026-07-27），ESP-IDF cert bundle 信任，S3 无需 `-k`。  
 > `install-from-repo.sh` 默认清华 PyPI 源（京东云直连 PyPI 易卡住）。
+
+### nginx 站点收敛（2026-07-31 14:51–14:53，已执行）
+
+> 证据：`results/nginx-80-files-deploy-evidence-20260731.md`（`results/` 不入库）。
+> **纠错**：此前 `release-readiness.md` / `worktree-inventory.md` 写「nginx :80 /files 反代未部署」是**误判**——
+> 该反代自 **07-27 03:06** 起就在 `/etc/nginx/sites-enabled/hutuji` 里生效。
+
+上线前实测三份配置**互不相同**，且 `sites-enabled/hutuji` 是**普通文件而非符号链接**：
+
+| 副本 | 大小 / md5 | 内容 |
+|------|-----------|------|
+| 线上 `sites-enabled/hutuji`（生效） | 1804B `9f800105…` | 已含 `:80 location /files/`；`server_name` 含隧道域名 |
+| 线上 `sites-available/hutuji`（不生效） | 1771B `e9f21b4c…` | 07-27 02:07 旧版，两个 server 块 `server_name` **只有裸 IP** |
+| 本仓 `deploy/nginx-hutuji.conf` | LF 归一化 `5a424341…` | 与生效版仅差**两处注释** |
+
+两个方向都是坑：`nginx.conf:65` 只 `include sites-enabled/*`，所以**改 `sites-available` 是静默空操作**；
+反之谁 `ln -sf` 建链接，就会把生效版**回退**成缺隧道域名的旧版（`/files` 反代对隧道 Host 失效）。
+
+```bash
+# 已执行（可回滚：/root/nginx-hutuji-{enabled,available}.bak.20260731-145120）
+scp deploy/nginx-hutuji.conf root@117.72.118.95:/tmp/hutuji-candidate.conf
+ssh … 'sed -i "s/\r$//" /tmp/hutuji-candidate.conf
+        install -m 644 /tmp/hutuji-candidate.conf /etc/nginx/sites-available/hutuji
+        ln -sfn /etc/nginx/sites-available/hutuji /etc/nginx/sites-enabled/hutuji
+        nginx -t && systemctl reload nginx'
+```
+
+复验（reload 前后逐项一致，无回归）：`:80` 两种 Host（裸 IP / `hutuji.donglicao.com`）下
+`/files/nope`→404、`POST /files/nope`→403（`limit_except` 生效）、`/mcp`→404、`/`→301；
+公网隧道 `/files/nope`→404、`/mcp`→404；`preflight.sh` 先 `pass=9 fail=0`。
+
+**preflight 由 9 项扩到 14 项（同日收尾）**：原 9 项只打 `127.0.0.1:8300`，于是本轮三个真实故障全在盲区（`sites-enabled` 是普通文件、`:80` `server_name` 不含隧道域名、经 nginx 正文未验）。新增 5 项：`nginx -t`；`sites-enabled/hutuji` 必须是符号链接；线上 conf 与本仓模板 **LF 归一化 md5** 一致（首跑即以 `fail` 抓到本仓工作副本未上线，scp 后转 pass——负向自证）；`Host=隧道域名` 经 `:80` 命中 `/files` 反代（非 301 自指）且 `POST` 403；`Host=隧道域名` 经 `:80` 真下 G-code `HTTP=200` 且正文逐字回读（自造 31B 临时件，`trap` 删除）。最终 `pass=14 fail=0`；`/opt/hutuji/deploy/{nginx-hutuji.conf,preflight.sh}` 与本仓工作副本 LF md5 一致（`5a424341…` / `554e473f…`）。
+
+**首次真 200 端到端**：在 `HUTUJI_OUTPUT_DIR=/opt/hutuji/mcp-server/output` 放一份合法命名产物
+（`draw_20260731_145211_<22 位 token>.gcode`，31B），公网隧道与 `:80` 回源路径均 `HTTP=200 bytes=31`
+且正文逐字回读，测完立即 `rm`。
+
+#### 漂移判据（必须 LF 归一化）
+
+本仓 `core.autocrlf` 让工作副本是 CRLF，裸 `md5sum` 永远对不上线上：
+
+```bash
+tr -d '\r' < deploy/nginx-hutuji.conf | md5sum          # 期望 5a424341a6a7cb6d0b97e269a47c1bee
+ssh … md5sum /etc/nginx/sites-available/hutuji          # 期望同上（sites-enabled 是符号链接）
+```
+
+#### SSH 私钥名有坑
+
+可用私钥是 `C:/Users/zhugu/.ssh/jdcloud_ed2519`（**少一个 `5`**）；同目录 `jdcloud_ed25519`
+会被服务端拒 `Permission denied (publickey,password)`。`~/.ssh/config` 的 `Host jdcloud` 走密码认证，
+非交互脚本请显式 `-i .../jdcloud_ed2519 -o IdentitiesOnly=yes`。
 
 ## 首次上线（阶段 1）剩余
 

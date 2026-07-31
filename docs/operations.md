@@ -33,7 +33,7 @@ journalctl -u hutuji-mcp -u hutuji-cloud-bridge -n 200 --no-pager
 |------|------|------|
 | 本仓发布 commit / 构建产物哈希 | 每发布 | 见 release-manifest |
 | EnvironmentFile 密文侧 | 变更时 | 只存密钥保险柜，不进 git |
-| nginx/systemd 已安装副本 | 变更时 | 与 `deploy/` 模板 diff |
+| nginx/systemd 已安装副本 | 变更时 | 与 `deploy/` 模板 diff。**必须 LF 归一化再比**（本仓工作副本是 CRLF）：`tr -d '\r' < deploy/nginx-hutuji.conf \| md5sum` 对 `md5sum /etc/nginx/sites-available/hutuji`，当前双方 `5a424341…`。另核 `ls -l /etc/nginx/sites-enabled/hutuji` 必须是**指向 sites-available 的符号链接**——曾出现它是普通文件、导致改 `sites-available` 静默无效（详见 `deployment.md`「nginx 站点收敛」） |
 
 `output/` G-code **不备份**（短 TTL、可再生成）。
 
