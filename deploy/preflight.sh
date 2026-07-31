@@ -74,7 +74,10 @@ probe_non_loopback_ip() {
     printf '%s' "$ip"
     return 0
   fi
-  ip="$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')"
+  # 按 dev 关键字定位接口名，不依赖字段序号：无网关的 `default dev ppp0 scope link`
+  # 用 $5 会取到 "link"。
+  ip="$(ip -4 route show default 2>/dev/null |
+    awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
   if [[ -n "$ip" ]]; then
     ip="$(ip -4 -o addr show dev "$ip" 2>/dev/null |
       awk '{split($4,a,"/"); if (a[1] !~ /^127\./) {print a[1]; exit}}')"
@@ -96,7 +99,8 @@ check_acl_response() {
   post=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
   mcp=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/mcp)
   base=ok
-  ip="$(probe_non_loopback_ip)"
+  # `|| true`：probe 无 IPv4 时 return 1，不让 set -e 在非 if 上下文里腰斩脚本。
+  ip="$(probe_non_loopback_ip || true)"
   if [[ -n "$ip" ]]; then
     denied=$(curl --noproxy "*" -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
     [[ "$denied" == "403" ]] || base=fail
