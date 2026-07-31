@@ -95,20 +95,21 @@ probe_non_loopback_ip() {
 check_acl_response() {
   local h="$1" get post mcp base ip denied
   [[ -n "$h" ]] || return 1
-  get=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
-  post=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
-  mcp=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/mcp)
+  get=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
+  post=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
+  mcp=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/mcp)
   base=ok
   # `|| true`：probe 无 IPv4 时 return 1，不让 set -e 在非 if 上下文里腰斩脚本。
   ip="$(probe_non_loopback_ip || true)"
   if [[ -n "$ip" ]]; then
-    denied=$(curl --noproxy "*" -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
+    denied=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
     [[ "$denied" == "403" ]] || base=fail
+  else
+    # 无证据不宣称：跳过的半边判据必须自己出声，不能让 [pass] 替没验过的部分背书。
+    echo "[skip] 非 loopback 拒绝子判据：本机无非 loopback IPv4，本项只验了 loopback 放行"
   fi
   [[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" && "$base" == "ok" ]]
 }
-
-check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_response "$TUNNEL_HOST"
 
 check_download() (
   local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f headers body code expected_len actual_len expected_crc actual_crc
@@ -117,7 +118,7 @@ check_download() (
   f="draw_$(date +%Y%m%d_%H%M%S)_${tok}.gcode"; headers="$(mktemp)"; body="$(mktemp)"
   trap 'rm -f -- "$d/$f" "$headers" "$body"' EXIT
   printf "G21\nG90\nF8000\n" > "$d/$f"
-  code="$(curl -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Host: $h" "http://127.0.0.1/files/$f")" || exit 1
+  code="$(curl --noproxy "*" --max-time 5 -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Host: $h" "http://127.0.0.1/files/$f")" || exit 1
   expected_len="$(wc -c < "$d/$f" | tr -d " ")"
   actual_len="$(awk 'tolower($1) == "content-length:" {gsub("\r", "", $2); print $2}' "$headers" | tail -1)"
   expected_crc="$(python3 -c 'import sys, zlib; print("%08x" % (zlib.crc32(open(sys.argv[1], "rb").read()) & 0xffffffff))' "$d/$f")"
@@ -143,12 +144,13 @@ check "bridge.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/bridge.env 2
 check "mcp.env 无占位且公网前缀为 HTTPS:443" check_mcp_env
 check "bridge.env 无 REPLACE_ME" bash -c '[[ -f /etc/hutuji/bridge.env ]] && ! grep -q REPLACE_ME /etc/hutuji/bridge.env'
 check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'
-check "公网未监听 8300" bash -c '! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
+# `ss` 不在时 `! ss | grep` 会因无输出而假绿（第 5 项那条 fail-closed，这条不是），先探二进制。
+check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
-check "本机 /mcp 可达" bash -c 'code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[2345] ]]'
+check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[2345] ]]'
 # /files 无具体 token 时允许 404；只要不是连接失败。
-check "本机 /files 路径有响应" bash -c 'code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[2345] ]]'
+check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[2345] ]]'
 
 # ---- nginx 层（应用直连绿≠经 nginx 绿）----
 check "nginx -t 通过且 enabled 配置含 loopback-only :80 /files ACL" check_active_nginx_acl
@@ -160,6 +162,8 @@ check "线上 nginx conf 与本仓模板一致（LF 归一化）" bash -c '
   a=$(tr -d "\r" < /opt/hutuji/deploy/nginx-hutuji.conf | md5sum | cut -d" " -f1)
   b=$(tr -d "\r" < /etc/nginx/sites-enabled/hutuji | md5sum | cut -d" " -f1)
   [[ -n "$a" && "$a" == "$b" ]]'
+check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_response "$TUNNEL_HOST"
+
 # 真 200 正例：造一份合法命名产物（TTL 内自清），验完整下载契约。
 check "localhost :80 /files 真下 G-code 200" check_download
 

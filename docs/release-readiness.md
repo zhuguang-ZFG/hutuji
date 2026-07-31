@@ -4,6 +4,7 @@
 >
 > **构建面（2026-07-31 补取）**：Grbl PlatformIO `release` **SUCCESS**（`Protocol.cpp.o` 05:23:54 晚于源码 05:19:53，`firmware.bin` 1857024B，Flash 94.4%）；S3 **IDF v6.0.1 构建 pass**（`idf.py build` exit=0；`hutuji_pipe.cc.obj`/`hutuji_job.cc.obj` 均重编，即证新增 `hutuji_recovery_core.h` 参与编译；`xiaozhi.bin=0x2cec90`，app 分区剩 29%；与上次烧录基线镜像 `0x2ce890` 不同）。**S3 已于 07-31 烧录 COM6 并运行自证（回读 `ota_0` + 启动横幅 ELF SHA `d01c895d5…`，证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`、逐台记录 `results/device-test-record-s3-lc-01-20260731.md`）；Grbl 仍未烧录（COM3 打开报 Windows error 31）** —— 构建通过不等于实机验证。本轮 nginx/preflight 加固**已于 21:20–21:22 部署生产并复验**（见下行）。
 > **第三轮传输安全加固（当前真值）**：本仓 `deploy/preflight.sh`、nginx 模板与 EnvironmentFile 规则已于 **2026-07-31 21:20–21:22 部署生产并复验**；nginx 站点链接精确收敛、`:80 /files/` loopback-only ACL、14 项 preflight **全 PASS**、公网面全绿（HTTPS `/mcp` 404、直连 `:80 /files` 403、HTTPS `/files` 合法产物 200）。证据见 `docs/deployment.md` §第三轮传输安全加固。
+> **2026-08-01 preflight 回归修复（仓内，未部署）**：`f3ef14b`/`8e4b9b4` 的重构把活动 ACL 检查的调用点搬到变量初始化之前，`set -u` 下脚本第一条顶层语句即 `TUNNEL_HOST: unbound variable` 退出、14 项全不执行（本机 Git Bash 实测）。已修回并补 `[skip]` 显式跳过、`command -v ss` 前置、全部 curl `--noproxy "*" --max-time 5`；`hub` 门禁 overall=pass（pytest **137 passed**、e2e PASS）。**生产仍跑 2026-07-31 21:22 的 `ec49082` 版脚本，本轮修复未部署**——上面那行 14/14 PASS 是那一版的证据，不是仓内当前版本的证据。
 
 ## 结论
 

@@ -97,7 +97,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ **新版 14 项已生产复验**(2026-07-31 21:22) | `pass=14 fail=0`;见下「第三轮传输安全加固」已部署记录 |
+| `preflight.sh` 全 PASS | ✅ 生产 14 项已复验（2026-07-31 21:22，跑的是 `ec49082` 版脚本） / 🟡 仓内脚本已修更硬，**未部署** | `pass=14 fail=0`；见下「第三轮传输安全加固」与「仓内 preflight 已修未部署」 |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
@@ -180,6 +180,16 @@ HTTPS `/files/__nonexistent__` 404。桥接重连后云端真实 `initialize`+`t
 > 首次部署踩坑:只 `install` 到 `/etc/nginx/sites-available/` 会让第 12 项
 > 「线上 nginx conf 与本仓模板一致」**fail**——该项比较基准是 `/opt/hutuji/deploy/nginx-hutuji.conf`,
 > 两处都要同步。
+
+> **仓内 preflight 已修未部署（2026-08-01）**：`f3ef14b`/`8e4b9b4` 把活动 ACL 检查抽成
+> `check_acl_response()` 时把**调用点也搬到了变量初始化之前**，`set -euo pipefail` 下脚本第一条
+> 顶层语句就 `TUNNEL_HOST: unbound variable` 退出——14 项一个都不会跑。本轮已修回（调用移到
+> nginx 层末尾、`check_download` 之前），并补三处硬化：无非 loopback IPv4 时打印 `[skip]` 而不是
+> 拿 loopback 半边冒充整项 `[pass]`；第 6 项加 `command -v ss` 前置（`ss` 缺失时 `! ss | grep`
+> 会假绿）；全部 curl 统一 `--noproxy "*" --max-time 5`。生产此刻仍跑 21:22 那版（`ec49082`，功能正确
+> 但缺这三处硬化），**尚未 scp**。
+> 注意第 12 项漂移判据只比 `nginx-hutuji.conf`，**`preflight.sh` 自身没有漂移检查**——下次按上面
+> scp 流程更新时必须带上 `preflight.sh` 并当场重跑，否则线上体检与仓内脚本会长期分叉。
 
 #### 漂移判据（必须 LF 归一化）
 

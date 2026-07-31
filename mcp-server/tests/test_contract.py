@@ -734,12 +734,46 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert '"$(readlink -f /etc/nginx/sites-enabled/hutuji)" == "/etc/nginx/sites-available/hutuji"' in preflight
     assert '"%08x" % (zlib.crc32' in preflight
     assert "print(f" not in preflight
-    assert '"$get" == "404" && "$post" == "403" && "$mcp" == "404" && "$denied" == "403"' in preflight
-    assert "' _ \"$TUNNEL_HOST\"" in preflight
+    # 行为不变量，不钉转义风格：ACL 判据必须是具名函数 + 探针，且 denied 子判据必须汇入总判据。
+    assert "check_acl_response()" in preflight
+    assert "probe_non_loopback_ip()" in preflight
+    assert 'check_acl_response "$TUNNEL_HOST"' in preflight
+    assert '"$get" == "404" && "$post" == "403" && "$mcp" == "404"' in preflight
+    assert '"$denied" == "403"' in preflight
+    assert '"$base" == "ok"' in preflight
     assert '"$code" == "200"' in preflight
-    assert 'awk "/^[0-9]+\\\\.[0-9]+\\\\.[0-9]+\\\\.[0-9]+$/' in preflight
-    assert '!~ /^127\\\\./' in preflight
+    # 两条探针路径（hostname -I / 默认路由接口地址）都必须滤掉 loopback，否则 denied
+    # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
+    assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
+    assert preflight.count("!~ /^127\\./") == 2
+    # 无非 loopback IPv4 时跳过子判据必须显式可见，不得只凭 loopback 半边打 [pass]。
+    assert "[skip]" in preflight
+    # `ss` 缺失时 `! ss | grep` 会因无输出而假绿，必须先探二进制在不在。
+    assert "command -v ss" in preflight
     assert 'tolower($1) == "content-length:"' in preflight
     assert 'tolower($1) == "x-hutuji-crc32:"' in preflight
     assert 'cmp -s "$d/$f" "$body"' in preflight
     assert preflight.count('\ncheck "') == 14
+
+    # 每条 curl 都必须绕代理 + 带超时：环境里有 http_proxy 会让 loopback 探针走代理假红，
+    # 而 fallback 选中的接口地址若被 DROP 式防火墙吃掉，默认超时约 300s 会把冒烟挂死。
+    # 只认命令替换里的真调用，末尾提示行里的「公网 curl /mcp 须失败」不是调用。
+    curls = [line for line in preflight.splitlines() if "$(curl " in line]
+    assert len(curls) >= 6
+    for line in curls:
+        assert '--noproxy "*"' in line, line
+        assert "--max-time" in line, line
+
+
+def test_preflight_invokes_every_check_after_env_init() -> None:
+    """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
+    `unbound variable` 退出，14 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    root = Path(__file__).resolve().parents[2]
+    lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
+
+    init_last = max(
+        i for i, line in enumerate(lines) if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR="))
+    )
+    checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
+    assert len(checks) == 14
+    assert min(checks) > init_last
