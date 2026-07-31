@@ -246,7 +246,7 @@ python scripts\bringup_fault_capture.py --s3-port COM9 --grbl-port COM3 --durati
 当前 COM 口行为。采集结果位于 `results/`，仍需人工核对纸面、废纸是否走掉和最终重画是否成功；
 脚本标记扫描不能替代硬件判定。
 
-### 8.5 换纸中调 abort 的取证剧本（B-15 提供脚手架，待跑）
+### 8.5 换纸中调 abort 的取证剧本（B-15 提供脚手架，✅ 2026-07-31 已取证）
 
 **为什么需要脚手架**：设备侧 abort 的唯一入口是云端 MCP 工具 `hutuji.abort`
 （`xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc` 的 `hutuji.abort` 注册处；
@@ -257,7 +257,7 @@ python scripts\bringup_fault_capture.py --s3-port COM9 --grbl-port COM3 --durati
 `lichuang_dev_board.cc` 监视任务）：50ms 轮询 `Job::IsPaperActive()`，窗口一开即本地调
 `RequestAbort()`，并打印 abort 前后的 `status`。默认镜像行为不变。
 脚手架已提交为 xiaozhi `f1cf066`（`feat/hutuji-usb-pipe`，`13057e8..f1cf066` 已推送，`+44/−0` 纯新增），
-可直接 `git -C D:/Users/xiaozhi-esp32 show f1cf066` 复核；**板上镜像已于 07-31 换成 HEAD `06b962c` + 未提交第二轮审查修复的默认构建（`0x2cec90`）；该默认构建仍不含 8.5 脚手架（宏默认关闭）**。
+可直接 `git -C D:/Users/xiaozhi-esp32 show f1cf066` 复核。**✅ 2026-07-31 21:49–21:50 实测取证**：基于 HEAD `6b39e66` 构建带宏镜像 `build-hutuji-8_5-abort/xiaozhi.bin`（`0x2cfc40`，SHA256 `e2ae19e0…1dad`），app-flash COM6；AutoTest 触发五角星（257B/CRC32 `87475d77`）→ 画完 `Run->Idle`、`state=paper_change` → 脚手架命中窗口调 `RequestAbort()` → 返回「换纸中无法即停，完成后即停」→ 页尾 `M30` → `[PaperStatus] 0` → `state=aborted` 不续跑。四判据全过；abort 前 status `state=paper_change` 证明命中 8.5 非 8.4。取证后已回刷不带宏默认镜像（`build/xiaozhi.bin`，Hash verified）。证据 `results/s3-8_5-abort-on-paper-evidence-20260731.md`。**仍缺**断连恢复 `paper_active` 窗口 abort 单独复测。
 
 **前置**：装纸（`[ESP901]` 预检应见 `Paper=OK ... Changing=Off`）；PC 起本机静态服务托**小**测试件
 （8.3 用过 658B / CRC32 `2290095f`；件越小越快到页尾换纸窗口）；**先备份当前板上镜像对应的

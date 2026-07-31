@@ -1,13 +1,13 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **当前状态快照（2026-07-31 21:35，Grbl 审查修复已烧录+空闲核验）**：hutuji **工作树有 4 个未提交文档修改**（`agent-handoff.md`、`deployment.md`、`release-readiness.md`、`worktree-inventory.md`，记录第三轮加固部署完成 + Grbl 烧录核验），待提交；三 sibling 仓工作树干净。上一轮 28 文件已分别提交推送：
+> **当前状态快照（2026-07-31 21:50，§8.5 换纸中 abort 已取证 + Grbl 审查修复已烧录）**：hutuji **工作树有 4 个未提交文档修改**（`agent-handoff.md`、`bringup-sop.md`、`release-readiness.md`、`worktree-inventory.md`，记录 Grbl 烧录核验 + §8.5 取证），待提交；三 sibling 仓工作树干净。上一轮 28 文件已分别提交推送：
 >
 > - hutuji：`f964aa2`（19 文件 +540/-115），已推 `origin/main`（`41c4593..f964aa2`）。
 > - Grbl_Esp32：`1a4fea1`（2 文件 +151/-52），已推 `origin/fix/panel-hold-after-align-116687e`（`4ddc945..1a4fea1`）。
 > - xiaozhi-esp32：`6b39e66`（6 文件 +612/-184），已推 `origin/feat/hutuji-usb-pipe`（`6545ec9..6b39e66`）。
 > - fz：`c2bf1a3`（1 文件 +149/-0），已推 `origin/main`（`784fccf..c2bf1a3`）。
 >
-> **烧录/部署状态（如实）**：新版 preflight/nginx/env 加固**已于 2026-07-31 21:20–21:22 部署生产并复验 14/14 PASS**，公网面全绿，回滚副本 `/root/hutuji-bak-20260731-212012/`，证据 `docs/deployment.md` §第三轮传输安全加固。**Grbl 审查修复 `1a4fea1` 已于 21:30 烧录 COM10**（USB 重插后 COM3→COM10）并完成串口空闲核验（`Idle` / `Changing=Off` / `$130=210 $131=297` / WiFi `192.168.1.13`），证据 `results/grbl-1a4fea1-com10-flash-evidence-20260731.md`；C′ underflow 恢复路径与 Telnet 持续稳定性仍待有纸复测。S3 本轮镜像 `6545ec9`/`0x2cec90` 已烧录运行自证；暂停超时/换纸中 abort/App 语音端到端**未实机验证**。三条终审（Hub/S3/Grbl+fz）均零 finding。下方提交记录为历史参考。
+> **烧录/部署状态（如实）**：新版 preflight/nginx/env 加固**已于 2026-07-31 21:20–21:22 部署生产并复验 14/14 PASS**，公网面全绿，回滚副本 `/root/hutuji-bak-20260731-212012/`，证据 `docs/deployment.md` §第三轮传输安全加固。**Grbl 审查修复 `1a4fea1` 已于 21:30 烧录 COM10**（USB 重插后 COM3→COM10）并完成串口空闲核验（`Idle` / `Changing=Off` / `$130=210 $131=297` / WiFi `192.168.1.13`），证据 `results/grbl-1a4fea1-com10-flash-evidence-20260731.md`；C′ underflow 恢复路径与 Telnet 持续稳定性仍待有纸复测。**§8.5 换纸中 abort 已于 21:49 取证**：带宏镜像 `build-hutuji-8_5-abort/xiaozhi.bin`（`0x2cfc40`）app-flash COM6，AutoTest 命中 `paper_change` 窗口调 `RequestAbort()`，四判据全过（abort 分流语、无 `0x18`/无 reset/无第二条 `M30`、`[PaperStatus] 0` 换纸成功、`state=aborted` 不续跑），取证后已回刷不带宏默认镜像；证据 `results/s3-8_5-abort-on-paper-evidence-20260731.md`。S3 默认镜像 `0x2cec90` 已烧录运行自证。**仍未验证**：App 真实语音端到端、P2 S4 有纸出图、断连恢复 `paper_active` 窗口 abort 复测。三条终审（Hub/S3/Grbl+fz）均零 finding。下方提交记录为历史参考。
 
 ## 怎么用
 
