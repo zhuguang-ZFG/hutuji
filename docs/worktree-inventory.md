@@ -1,13 +1,13 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **当前状态快照（2026-07-31，本轮代码审查与修复中）**：以下四仓 `git status --short` 已现场读取，均为现有未提交资产，禁止覆盖或回滚。
+> **当前状态快照(2026-07-31,本轮代码审查修复已提交并推送)**:四仓 `git status --short` 均为空(现场读取),本轮 28 文件已分别提交推送:
 >
-> - hutuji：`M AGENTS.md`、`M CLAUDE.md`、`M README.md`、`M deploy/README.md`、`M deploy/env.mcp.example`、`M deploy/nginx-hutuji.conf`、`M deploy/preflight.sh`、`M docs/deployment.md`、`M docs/operations.md`、`M docs/protocol.md`、`M docs/release-readiness.md`、`M docs/worktree-inventory.md`、`M mcp-server/hutuji_mcp/cloud_bridge.py`、`M mcp-server/hutuji_mcp/config.py`、`M mcp-server/hutuji_mcp/server.py`、`M mcp-server/tests/test_cloud_bridge.py`、`M mcp-server/tests/test_contract.py`、`M scripts/agent_gate.py`。
-> - Grbl_Esp32：`M Grbl_Esp32/src/Protocol.cpp`、`M Grbl_Esp32/src/ProtocolDecisionCore.h`。
-> - xiaozhi-esp32：`M main/boards/lichuang-dev/hutuji_job.cc`、`M main/boards/lichuang-dev/hutuji_job.h`、`M main/boards/lichuang-dev/hutuji_pipe.cc`、`M main/boards/lichuang-dev/hutuji_pipe.h`、`M main/boards/lichuang-dev/hutuji_recovery_core.h`、`M scripts/tests/test_hutuji_recovery_core.py`。
-> - fz：`M native_sim/product_model_check.cpp`。
+> - hutuji:`f964aa2`(19 文件 +540/-115),已推 `origin/main`(`41c4593..f964aa2`)。
+> - Grbl_Esp32:`1a4fea1`(2 文件 +151/-52),已推 `origin/fix/panel-hold-after-align-116687e`(`4ddc945..1a4fea1`)。
+> - xiaozhi-esp32:`6b39e66`(6 文件 +612/-184),已推 `origin/feat/hutuji-usb-pipe`(`6545ec9..6b39e66`)。
+> - fz:`c2bf1a3`(1 文件 +149/-0),已推 `origin/main`(`784fccf..c2bf1a3`)。
 >
-> 上述只登记工作树事实；本轮验证结果须以实际命令输出和 `results/` 报告为准，下方提交记录均为历史参考，不能覆盖本快照。
+> **未验证(如实声明)**:新版 preflight/nginx/env 加固**未部署**京东云;S3 本轮**未烧录**;暂停超时/换纸中 abort/App 语音端到端**未实机验证**。三条终审(Hub/S3/Grbl+fz)均零 finding。下方提交记录为历史参考。
 
 ## 怎么用
 
