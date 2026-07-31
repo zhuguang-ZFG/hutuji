@@ -1,6 +1,6 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **当前状态快照（2026-08-01，§9-A2 Grbl 已推、枢纽待提交）**：hutuji 工作树为 `docs/protocol.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md`；Grbl 工作树干净，§9-A2 已提交并推送 `fdf2ad8`；fz 工作树干净；xiaozhi 仍仅有未跟踪旧版备份 `%TEMP%hutuji_pipe_old.cc`（来源未确认，按用户资产保留不删、不入库）。当前提交基线：hutuji `e5d2aa9`、xiaozhi `90e6f2c`、Grbl `fdf2ad8`、fz `c2bf1a3`。
+> **当前状态快照（2026-08-01，§9-A2 两仓已提交）**：hutuji 功能/契约提交为 `4e5d39f`，本清单回填随下一提交入库；Grbl §9-A2 已提交并推送 `fdf2ad8`；两仓除本清单回填外均无未提交改动，fz 工作树干净；xiaozhi 仍仅有未跟踪旧版备份 `%TEMP%hutuji_pipe_old.cc`（来源未确认，按用户资产保留不删、不入库）。当前提交基线：hutuji `4e5d39f`、xiaozhi `90e6f2c`、Grbl `fdf2ad8`、fz `c2bf1a3`。
 >
 > - hutuji：`f964aa2`（19 文件 +540/-115），已推 `origin/main`（`41c4593..f964aa2`）。
 > - Grbl_Esp32：`fdf2ad8`（§9-A2，2 文件 +41/−0），已推 `origin/fix/panel-hold-after-align-116687e`（`1a4fea1..fdf2ad8`）。
@@ -56,7 +56,7 @@
 | **已推** `4688985`+`e86ea1a`（第三轮：三仓落地 + 部署漂移复核 2026-07-31） | `docs/worktree-inventory.md`、`docs/agent-handoff.md`、`docs/release-readiness.md` | ①把 Grbl / fz / xiaozhi 三仓「未提交」全部改成实际 commit（`4ddc945` / `784fccf` / `6545ec9`；三仓已于本轮推送）；②`ec49082` 的「未推」改为已随 `d2fb1ea` 上推；③**部署漂移复核落账**：`deploy/preflight.sh` 本仓 == VPS `/opt/hutuji/deploy/preflight.sh`（md5 `554e473f…`）、`deploy/nginx-hutuji.conf` LF 归一化 == VPS 副本 == `/etc/nginx/sites-available/hutuji`（md5 `5a424341…`）、`sites-enabled/hutuji` 为符号链接、三服务 active，故删掉「nginx 未部署 / preflight 未提交」两处过期陈述；④release-readiness 里「实机烧录基线仍是 `13057e8` / 板上 `0x2ce890`」两处已被 07-31 覆盖的陈述标 supersede；⑤板上镜像与 `6545ec9` 的关系如实写「未重新构建回读比对，不得声称相等」 | 纯文档；hub overall=pass |
 | 已推 `f3ef14b`+`8e4b9b4`（preflight IPv4 探针 2026-08-01） | `deploy/preflight.sh` | ①非 loopback IPv4 探针加 `ip route`/`ip addr` fallback，无公网 IPv4 时跳过「非 loopback 拒绝」子判据而不是误报 ACL 失败；②按 `dev` 关键字定位接口名（无网关的 `default dev ppp0 scope link` 用 `$5` 会取到 `link`），`probe` 失败加 `|| true` 不腰斩脚本 | **提交时只跑了 `bash -n` + `docs` 门禁，漏跑 `hub`**——抽函数时把调用点也搬到了变量初始化之前，见下一行 |
 | 已推 `2afb020`（preflight 回归修复 2026-08-01） | `deploy/preflight.sh`、`mcp-server/tests/test_contract.py`、`docs/deployment.md`、`docs/release-readiness.md`、`docs/agent-handoff.md` | ①**Blocker**：`check_acl_response` 的调用点在 `TUNNEL_HOST`/`OUTPUT_DIR` 初始化之前，`set -euo pipefail` 下第一条顶层语句即 `unbound variable` 退出、14 项全不跑——调用移回 nginx 层末尾（`check_download` 之前）；②**Blocker**：`test_contract` 4 处断言钉的是被删掉的内联写法，重钉为行为不变量（具名函数 + 探针 + `"$base" == "ok"` 汇总 + 两条探针都滤 `^127.`），新增 `test_preflight_invokes_every_check_after_env_init` 用行序钉死启动顺序；③无非 loopback IPv4 时打印 `[skip]`，不再拿 loopback 半边冒充整项 `[pass]`；④第 6 项加 `command -v ss` 前置（`ss` 缺失时 `! ss \| grep` 假绿，本机实测已复现→现为 fail）；⑤全部 curl 统一 `--noproxy "*" --max-time 5` | hub overall=pass（pytest **137 passed**、e2e PASS）；Git Bash 实测 14 项全部执行到 `pass=0 fail=14`（本机缺 `ss`/`systemctl`/`nginx`，fail 属预期）；`[skip]`/403/非 403 三分支用临时桩脚本各验一次（跑完已删）；**未部署** |
-| **本次提交** | `docs/protocol.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 §9-A2 递归锁契约、Grbl `fdf2ad8` 与构建/门禁证据；本仓 `full` overall=pass（pytest 137 passed、e2e PASS、§9 标记通过） | 不代表烧录或实机 S4 修复 |
+| **已提交** `4e5d39f`（§9-A2 契约/状态；清单回填随下一提交） | `docs/protocol.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md` | 同步 §9-A2 递归锁契约、Grbl `fdf2ad8` 与构建/门禁证据；本仓 `full` overall=pass（pytest 137 passed、e2e PASS、§9 标记通过） | 不代表烧录或实机 S4 修复 |
 | 本地忽略 | `results/` | 门禁报告 | 不入库 |
 
 ## Grbl_Esp32 `D:/Users/Grbl_Esp32`  
