@@ -159,6 +159,10 @@ pytest 与 `e2e_local.py` 各带超时（600s / 300s）：卡死（如 e2e 的�
 - `results/hutuji_gate_last.json`（机读）
 - `results/hutuji_gate_last.md`（人读）
 
+两份报告均经 `_atomic_write`（同目录临时文件 + `os.replace`）原子落盘，进程中断不会留下
+半截/错配报告；子进程输出强制 `PYTHONIOENCODING=utf-8` 且门禁自身 stdout 重配 UTF-8，
+避免 Windows GBK 终端打印 `\ufffd` 崩溃。
+
 退出码：`0` = overall pass；非 0 = fail（不得宣称本 profile 通过）。
 
 ## 9. 与其它文档的关系
