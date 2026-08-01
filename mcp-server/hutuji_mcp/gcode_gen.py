@@ -179,12 +179,32 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
         "linesimplify", "--tolerance", f"{LINESIMPLIFY_TOLERANCE_MM}mm",
         "gwrite", "--profile", "hutuji", str(gcode_path),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=300)
+    proc = None
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=300)
+    except subprocess.TimeoutExpired:
+        # 超时是进程级异常（非 GcodeError），会穿透 svg_to_gcode 变成 500；
+        # §5「越界即整单拒绝 + 明确告知」要求统一塌成窄类型。exc_info 保留
+        # 现场（命令/超时值），便于运维定位；对外消息仍不含 stderr。
+        logger.error("vpype 转换超时（300s 上限）", exc_info=True)
+        raise GcodeError("vpype 转换超时（300s 上限）") from None
+    except OSError as exc:
+        # vpype 二进制缺失/权限拒绝等启动失败同样不是 GcodeError，一并塌窄。
+        logger.error("vpype 子进程启动失败：%s", exc, exc_info=True)
+        raise GcodeError("vpype 子进程启动失败") from None
     if proc.returncode != 0:
         logger.error("vpype 转换失败（exit %d）：%s", proc.returncode, proc.stderr[-500:])
         raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）")
-    text = gcode_path.read_text(encoding="utf-8")
+    try:
+        text = gcode_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        # exit 0 却无产物（或读取竞态）同样是失败，且 FileNotFoundError 不是
+        # GcodeError，会穿透成 500——须与超时一样塌成窄类型。UnicodeDecodeError
+        # 是 UnicodeError→ValueError，不在 OSError 内，须一并收窄（vpype 在
+        # Windows locale 下可能写出非 UTF-8 字节）。
+        logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
+        raise GcodeError("vpype 转换未产出 G-code 文件") from None
     return validate_gcode(text)
 
 

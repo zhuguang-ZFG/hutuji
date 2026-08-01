@@ -10,6 +10,35 @@ from urllib.parse import urlsplit
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
+def validate_llm_base_url(value: str) -> str:
+    """校验 LLM API 基址；本机开发允许 loopback HTTP，公网强制 HTTPS。
+
+    API key 会经该基址以明文 header 传输，配成 http:// 的公网地址等于裸奔；
+    开发用本地推理服务（如 http://127.0.0.1:11434）仍放行。"""
+    value = value.strip()
+    if "?" in value or "#" in value:
+        raise ValueError("HUTUJI_LLM_BASE_URL 不允许裸 ? 或 #")
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("HUTUJI_LLM_BASE_URL 端口无效") from exc
+    if (
+        not host
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("HUTUJI_LLM_BASE_URL 必须是无凭据、无查询的绝对 URL")
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("HUTUJI_LLM_BASE_URL scheme 不受支持")
+    if host not in _LOOPBACK_HOSTS and parsed.scheme != "https":
+        raise ValueError("公网 HUTUJI_LLM_BASE_URL 必须使用 HTTPS")
+    return value.rstrip("/")
+
+
 def validate_public_base_url(value: str) -> str:
     """校验能力 URL 公网边界；本机开发仍允许 loopback HTTP。"""
     value = value.strip()
@@ -56,6 +85,7 @@ class Settings:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
+        object.__setattr__(self, "llm_base_url", validate_llm_base_url(self.llm_base_url))
 
     @property
     def llm_configured(self) -> bool:

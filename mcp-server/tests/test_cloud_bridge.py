@@ -32,6 +32,20 @@ def test_bridge_only_accepts_loopback_mcp_url(monkeypatch: pytest.MonkeyPatch) -
         load_config()
 
 
+def test_bridge_rejects_query_and_fragment_in_local_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """query/fragment 会被原样传给 mcp-proxy，行为不可预期，必须拒。"""
+    monkeypatch.setenv("MCP_ENDPOINT", "wss://api.example.invalid/mcp/?token=secret")
+    for bad in (
+        "http://127.0.0.1:8300/mcp?x=1",
+        "http://127.0.0.1:8300/mcp#frag",
+    ):
+        monkeypatch.setenv("HUTUJI_LOCAL_MCP_URL", bad)
+        with pytest.raises(RuntimeError, match="query/fragment"):
+            load_config()
+
+
 def test_proxy_command_uses_current_interpreter() -> None:
     assert proxy_command("http://127.0.0.1:8300/mcp") == [
         sys.executable,

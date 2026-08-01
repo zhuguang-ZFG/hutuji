@@ -278,7 +278,10 @@ async def _serve_file(name: str):
     try:
         if _is_expired(path):
             _delete_output_pair(path.stem)
-            raise HTTPException(status_code=404, detail="expired")
+            # detail 与「不存在」不可区分：过期与否是时序信息，回显会泄漏
+            # 「该 token 曾有效」的可探测面（128-bit token 下价值为零，但
+            # 统一口径成本更低，也避免攻击者拿响应差异做枚举侧信道）。
+            raise HTTPException(status_code=404, detail="not found")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="not found") from None
     try:

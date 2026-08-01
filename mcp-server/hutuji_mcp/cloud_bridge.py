@@ -83,6 +83,11 @@ def load_config() -> BridgeConfig:
         "::1",
     }:
         raise RuntimeError("HUTUJI_LOCAL_MCP_URL 必须是本机 http:// loopback 地址")
+    if "?" in local_url or "#" in local_url:
+        # 与 config.validate_public_base_url 对裸 ?/# 的显式拒绝同口径：query/
+        # fragment（含空 query 的裸 `?`，urlparse 会解析出空字符串而漏过）会
+        # 被原样传给 mcp-proxy，行为不可预期，直接拒。
+        raise RuntimeError("HUTUJI_LOCAL_MCP_URL 不允许 query/fragment")
     if parsed_local.path.rstrip("/") != "/mcp":
         raise RuntimeError("HUTUJI_LOCAL_MCP_URL 路径必须是 /mcp")
     return BridgeConfig(endpoint=endpoint, local_mcp_url=local_url)

@@ -60,7 +60,16 @@ def stream_gcode(gcode_path: Path, host: str, port: int,
 
         # 读 banner（"Grbl ... ['$' for help]" 行）
         while True:
-            line = f.readline().decode(errors="replace").strip()
+            raw = f.readline()
+            # EOF 判定只能看 readline 原始返回值：b"" 才是对端关闭；banner
+            # 以 \r\n 开头，首行 strip 后是空串但 raw 非空，不得误判为 EOF
+            # （否则对正常 banner 抛 ConnectionError）。
+            if not raw:
+                # socket 超时会抛 socket.timeout 而不是返回 b""，故走到这里
+                # 必是对端关闭（EOF）。旧代码 continue 会以 100% CPU 忙等，
+                # 须与主循环一样抛 ConnectionError 终止。
+                raise ConnectionError("对端在 banner 阶段关闭连接")
+            line = raw.decode(errors="replace").strip()
             if not line:
                 continue
             result.info_lines.append(line)

@@ -12,7 +12,12 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from hutuji_mcp.config import Settings, load_settings, validate_public_base_url
+from hutuji_mcp.config import (
+    Settings,
+    load_settings,
+    validate_llm_base_url,
+    validate_public_base_url,
+)
 from hutuji_mcp.gcode_gen import (
     MAX_BYTES,
     PEN_LIFT_WARN_THRESHOLD,
@@ -65,6 +70,29 @@ def test_public_capability_url_rejects_raw_delimiter(value: str) -> None:
 def test_loopback_http_public_url_remains_valid() -> None:
     assert validate_public_base_url("http://127.0.0.1:8300") == "http://127.0.0.1:8300"
     assert validate_public_base_url("https://hutuji.donglicao.com") == "https://hutuji.donglicao.com"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://api.example.com/v1",      # 公网明文 http：API key 裸奔
+        "ftp://127.0.0.1:11434/v1",       # loopback 也限 http/https
+        "https://api.example.com:99999/v1",  # 坏端口
+        "https://api.example.com/v1?x=1", # query
+        "https://api.example.com/v1#f",   # fragment
+        "https://user:pass@api.example.com/v1",  # 凭据
+        "",                               # 空
+    ],
+)
+def test_llm_base_url_rejects_bad_values(value: str) -> None:
+    with pytest.raises(ValueError):
+        validate_llm_base_url(value)
+
+
+def test_llm_base_url_accepts_https_and_loopback_http() -> None:
+    assert validate_llm_base_url("https://api.freemodel.dev/v1") == "https://api.freemodel.dev/v1"
+    assert validate_llm_base_url("https://api.example.com/v1/") == "https://api.example.com/v1"
+    assert validate_llm_base_url("http://127.0.0.1:11434/v1") == "http://127.0.0.1:11434/v1"
 
 
 def test_settings_normalizes_public_origin(tmp_path: Path) -> None:
@@ -154,6 +182,36 @@ def test_gcode_rejects_more_than_512_kib() -> None:
     text = _minimal_gcode(";" + "x" * MAX_BYTES)
     with pytest.raises(GcodeError, match=r"总大小 .*实际|总大小 .*字节"):
         validate_gcode(text)
+
+
+def test_gcode_accepts_exactly_512_kib() -> None:
+    """§5「≤ 512KB 含」：恰好 MAX_BYTES 放行，多一字节才拒。
+
+    内容必须拆成 ≤255 字符的多行注释（行长约束 + 注释被剥除），
+    不能一条长行填满——单行 256 字符会先撞上行长检查。
+    """
+    # 2047 行 × 255 字节 + 行间 2047 个 \n + 末行 242 字节 = 524274，
+    # 加上头 14 字节（G21\nG90\nF8000\n）恰为 512×1024。
+    body = "\n".join([";" + "x" * 254] * 2047 + [";" + "x" * 241])
+    text = _minimal_gcode(body)
+    assert len(text.encode("utf-8")) == MAX_BYTES
+    stats = validate_gcode(text)
+    assert stats.bytes == MAX_BYTES
+
+
+def test_gcode_rejects_line_over_255_chars() -> None:
+    """Grbl LINE_BUFFER_SIZE=256：单行（含注释）超 255 字符整行拒。"""
+    with pytest.raises(GcodeError, match="255"):
+        validate_gcode(_minimal_gcode(";" + "x" * 255 + "\n"))
+
+
+def test_gcode_rejects_paren_comment_line() -> None:
+    """§5 注释口径：`(...)` 括号注释暂不解析，含 `(` 的行一律整行拒。
+
+    括号里藏 G28/G0 X0Y0 与纯合法注释都被拒（gcode_gen.py:239-243）。"""
+    for line in ("(G28 X0)", "; ok\n(G90)"):
+        with pytest.raises(GcodeError, match="无法解析或不允许"):
+            validate_gcode(_minimal_gcode(line + "\n"))
 
 
 def test_pen_lifts_are_reported_but_not_rejected(caplog: pytest.LogCaptureFixture) -> None:
@@ -344,6 +402,45 @@ def test_vpype_stderr_not_in_error_message(tmp_path: Path) -> None:
         svg_to_gcode(bad_svg, out_gcode)
     msg = str(caught.value)
     assert "/" not in msg and "\\" not in msg, f"stderr 泄露了路径信息：{msg}"
+
+
+def test_svg_to_gcode_wraps_timeout_as_gcode_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """vpype 超时（subprocess.TimeoutExpired）必须塌成 GcodeError。
+
+    TimeoutExpired 不是 GcodeError，不包会穿透 svg_to_gcode 变成 500，
+    违背 §5「越界即整单拒绝 + 明确告知」的窄异常契约。"""
+    import subprocess as _sp
+
+    from hutuji_mcp import gcode_gen
+
+    def fake_timeout(cmd, **kwargs):
+        raise _sp.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(gcode_gen.subprocess, "run", fake_timeout)
+    svg = tmp_path / "in.svg"
+    svg.write_text("<svg/>", encoding="utf-8")
+    with pytest.raises(GcodeError, match="超时"):
+        gcode_gen.svg_to_gcode(svg, tmp_path / "out.gcode")
+
+
+def test_svg_to_gcode_wraps_missing_output_as_gcode_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """vpype exit 0 却不写产物（FileNotFoundError）必须塌成 GcodeError。"""
+    import subprocess as _sp
+
+    from hutuji_mcp import gcode_gen
+
+    def fake_run_no_output(cmd, **kwargs):
+        return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run_no_output)
+    svg = tmp_path / "in.svg"
+    svg.write_text("<svg/>", encoding="utf-8")
+    with pytest.raises(GcodeError, match="未产出"):
+        gcode_gen.svg_to_gcode(svg, tmp_path / "out.gcode")
 
 
 def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) -> None:
@@ -777,3 +874,36 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
     assert len(checks) == 14
     assert min(checks) > init_last
+
+
+def test_pipe_sim_banner_eof_raises_connection_error(tmp_path: Path) -> None:
+    """回归：banner 阶段对端连上即断（EOF）必须抛 ConnectionError。
+
+    旧代码 `if not line: continue` 会以 100% CPU 忙等（readline 返回 b""
+    只发生在 EOF，socket 超时走 socket.timeout 不会到这里）；修复后抛
+    ConnectionError。EOF 判定须用 readline 原始返回值：banner 以 \r\n
+    开头时首行 strip 后是空串但 raw 非空，不得误判。"""
+    import socket
+    import threading
+
+    from hutuji_mcp.pipe_sim import stream_gcode
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def _accept_and_close() -> None:
+        conn, _ = srv.accept()
+        conn.close()
+
+    t = threading.Thread(target=_accept_and_close, daemon=True)
+    t.start()
+    gcode = tmp_path / "in.gcode"
+    gcode.write_text("G21\nG90\nF8000\n", encoding="utf-8")
+    try:
+        with pytest.raises(ConnectionError, match="banner"):
+            stream_gcode(gcode, "127.0.0.1", port)
+    finally:
+        srv.close()
+        t.join(timeout=2)

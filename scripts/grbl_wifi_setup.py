@@ -37,6 +37,11 @@ def _resolve_password(args: argparse.Namespace) -> str:
     return getpass.getpass("WiFi 密码（不回显）：")
 
 
+def _mask_secret(text: str, secret: str) -> str:
+    """把应答回显的密码替换成 ***（固件可能把写入的命令原样回显到串口）。"""
+    return text.replace(secret, "***") if secret else text
+
+
 def main() -> int:
     """配置写字机 WiFi；全部命令应答 ok 且确认联网才返回 0。"""
     parser = argparse.ArgumentParser(description="配置 Grbl 写字机 WiFi")
@@ -82,25 +87,32 @@ def main() -> int:
     time.sleep(0.5)
     failures: list[str] = []
 
-    def send_cmd(cmd: str, desc: str) -> str:
-        """发一条 ESP 命令并判定应答；未见 ok 记入 failures（决定退出码）。"""
+    def send_cmd(cmd: str, desc: str) -> bool:
+        """发一条 ESP 命令并判定应答；返回是否 ok。失败由调用方决定是否中止。"""
         s.write(f"{cmd}\r\n".encode())
         time.sleep(1)
         resp = s.read(s.in_waiting or 512).decode("ascii", errors="replace").strip()
         ok = "ok" in resp.lower()
-        if not ok:
-            failures.append(desc)
         head = resp.splitlines()[0] if resp else "(无应答)"
-        print(f"  [{'OK' if ok else 'WARN'}] {desc}: {head}")
-        return resp
+        # 设置密码的命令应答可能回显完整命令（含密码），stdout/终端录制会泄密。
+        print(f"  [{'OK' if ok else 'WARN'}] {desc}: {_mask_secret(head, password)}")
+        return ok
 
     print(f"配置 Grbl WiFi（{args.port}）...")
     print(f"  SSID: {args.ssid}")
     print()
 
-    send_cmd(f"[ESP100]{args.ssid}", "设置 SSID")
-    send_cmd(f"[ESP101]{password}", "设置密码")
-    send_cmd("[ESP110]STA", "切换 STA 模式")
+    # 任一配置命令失败即中止，不再发后续命令、不 RESTART：设备停在原配置，
+    # 避免「SSID 已改密码没改」之类的半配置状态还被重启。
+    for cmd, desc in (
+        (f"[ESP100]{args.ssid}", "设置 SSID"),
+        (f"[ESP101]{password}", "设置密码"),
+        ("[ESP110]STA", "切换 STA 模式"),
+    ):
+        if not send_cmd(cmd, desc):
+            print(f"  {desc} 失败，中止（未重启写字机，设备保持原配置）", file=sys.stderr)
+            s.close()
+            return 1
     print()
     print("重启写字机...")
     s.write(b"[ESP444]RESTART\r\n")

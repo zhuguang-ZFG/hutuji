@@ -104,9 +104,14 @@ def api_upload(path, file_path):
 
 def cmd_list():
     result = api("GET", "/agents")
-    agents = result.get("data", result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("list", result.get("data", []))
-    if isinstance(result.get("data"), list):
-        agents = result["data"]
+    # API 返回形状两种：data 直接是数组，或包在 data.list 里。
+    # 旧写法在 list 上 .get() 必崩、dict 无 list 键时返回整个 dict 再遍历键，
+    # 两路都是 AttributeError——先归一成列表再处理。
+    data = result.get("data", [])
+    if isinstance(data, dict):
+        agents = data.get("list", [])
+    else:
+        agents = data
     if not agents:
         print("未找到智能体")
         return

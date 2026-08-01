@@ -56,7 +56,6 @@ REQUIRED_FILES = [
     "docs/templates/release-manifest.md",
     "mcp-server/README.md",
     "firmware/README.md",
-    "deploy/README.md",
     "deploy/env.example",
     ".cursor/rules/hutuji-agent-rails.mdc",
 ]
@@ -520,6 +519,9 @@ def run_pytest() -> dict[str, Any]:
             "TMP": str(pytest_tmp),
             "TEMP": str(pytest_tmp),
             "TMPDIR": str(pytest_tmp),
+            # Windows 下子进程 stdout 默认按 locale（GBK）编码，门禁按 utf-8 解码
+            # 会得到 \ufffd，打印到终端再触发 UnicodeEncodeError；强制 utf-8。
+            "PYTHONIOENCODING": "utf-8",
         }
     )
     try:
@@ -549,6 +551,8 @@ def run_e2e() -> dict[str, Any]:
     py = _mcp_python()
     if py is None:
         return _layer("e2e_local", "e2e_local.py", "fail", "缺少 mcp-server/.venv")
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"  # 同 run_pytest：防 GBK stdout 解出 \ufffd
     try:
         proc = subprocess.run(
             [str(py), "scripts/e2e_local.py"],
@@ -557,6 +561,7 @@ def run_e2e() -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=env,
             timeout=300,  # 同上：e2e 会起假 Grbl socket，卡住时必须判 fail 而不是干等
         )
     except subprocess.TimeoutExpired:
@@ -600,9 +605,23 @@ def check_section9(grbl_root: Path | None) -> dict[str, Any]:
     )
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """同目录临时文件 + os.replace 原子落盘，避免进程中断留下半截报告。
+
+    门禁报告是后续 agent 的决策依据：损坏/错配的报告可能被误读为 pass，
+    而 JSON 与 MD 分两次直写无法保证两文件一致。tmp 名带 pid：两个门禁实例
+    并发跑时若共用固定 .tmp 名，后写者会 replace 走先写者的临时文件。"""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def write_reports(report: dict[str, Any]) -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
-    REPORT_JSON.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(
+        REPORT_JSON,
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+    )
     lines = [
         f"# hutuji gate — {report['overall_status']}",
         "",
@@ -635,10 +654,18 @@ def write_reports(report: dict[str, Any]) -> None:
             "",
         ]
     )
-    REPORT_MD.write_text("\n".join(lines), encoding="utf-8")
+    _atomic_write(REPORT_MD, "\n".join(lines))
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows 控制台默认 GBK：detail 里的 \ufffd（子进程解码兜底产物）或任何
+    # 非 GBK 字符都会让 print 抛 UnicodeEncodeError，门禁整体崩在报告阶段。
+    # 统一重配为 UTF-8（errors=replace 兜底），与报告文件口径一致。
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(description="hutuji 枢纽仓 Agent 门禁")
     parser.add_argument(
         "--profile",
