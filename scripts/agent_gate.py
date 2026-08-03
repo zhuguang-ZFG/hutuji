@@ -197,6 +197,26 @@ def check_decision_anchors() -> dict[str, Any]:
     return _layer("decision_anchors", "决策锚点", "pass", "all present")
 
 
+def _rejection_clause(text: str, match: re.Match[str]) -> str:
+    """只在命中所在短语内认可「已否决」语境，不能借用相邻选项的结论。"""
+    boundaries = "\n：:，,。！？!?；;（）()、"
+    separators = ("——",)
+    starts = [text.rfind(char, 0, match.start()) for char in boundaries]
+    starts.extend(text.rfind(separator, 0, match.start()) for separator in separators)
+    start = max(starts, default=-1) + 1
+    ends = [text.find(char, match.end()) for char in boundaries]
+    ends.extend(text.find(separator, match.end()) for separator in separators)
+    end = min((value for value in ends if value >= 0), default=len(text))
+    return text[start:end]
+
+def _has_rejection_heading(text: str, match: re.Match[str]) -> bool:
+    """整行的「禁止重开」清单适用于其后的各个并列项。"""
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    prefix = text[line_start : match.start()]
+    return bool(re.search(r"(?:禁止重开|明确不要做的事)(?:\*\*)?\s*[：:]", prefix))
+
+
+
 def check_revived_decisions() -> dict[str, Any]:
     hits: list[str] = []
     for kid, pattern, files in REVIVED_PATTERNS:
@@ -206,11 +226,12 @@ def check_revived_decisions() -> dict[str, Any]:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             for m in pattern.finditer(text):
-                snippet = text[max(0, m.start() - 40) : m.end() + 40].replace("\n", " ")
-                # 允许「已否决 / 不要 / 禁止 / 三次推翻」语境
-                window = text[max(0, m.start() - 80) : m.end() + 80]
-                if re.search(r"已否决|否决|不要|禁止|别再|推翻|过时|不可行", window):
+                clause = _rejection_clause(text, m)
+                if _has_rejection_heading(text, m) or re.search(
+                    r"已否决|否决|不要|禁止|别再|推翻|过时|不可行", clause
+                ):
                     continue
+                snippet = text[max(0, m.start() - 40) : m.end() + 40].replace("\n", " ")
                 hits.append(f"{kid}:{rel}:{snippet.strip()[:120]}")
     if hits:
         return _layer("revived_decisions", "否决项复活扫描", "fail", "; ".join(hits[:5]))
@@ -223,13 +244,18 @@ def check_edit_allowlist() -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return _layer("edit_allowlist", "改码白名单 JSON", "fail", str(exc))
-    missing = [k for k in ALLOWLIST_REQUIRED_KEYS if k not in data]
+    missing = [key for key in ALLOWLIST_REQUIRED_KEYS if key not in data]
     if missing:
         return _layer("edit_allowlist", "改码白名单 JSON", "fail", f"missing_keys={missing}")
     if not isinstance(data.get("grbl_section9_only"), list) or not data["grbl_section9_only"]:
         return _layer("edit_allowlist", "改码白名单 JSON", "fail", "grbl_section9_only empty")
     if "report_realtime_status" not in data.get("grbl_forbidden_symbols", []):
         return _layer("edit_allowlist", "改码白名单 JSON", "fail", "forbidden symbols incomplete")
+    if data.get("claims_forbidden") != CLAIMS_FORBIDDEN:
+        return _layer(
+            "edit_allowlist", "改码白名单 JSON", "fail",
+            "claims_forbidden 与 agent_gate.py 不一致",
+        )
     return _layer("edit_allowlist", "改码白名单 JSON", "pass", f"keys={len(data)}")
 
 
@@ -575,8 +601,7 @@ def run_e2e() -> dict[str, Any]:
 def check_section9(grbl_root: Path | None) -> dict[str, Any]:
     if grbl_root is None:
         # full profile 的定义就是 hub + §9 源码标记；GRBL_ROOT 未设时这一层
-        # 一条证据也没有，只能判未通过。早先记 skip，而 skip 不计入 failed，
-        # 等于 `--profile full` 在不设环境变量时永远绿——正是「无证据即通过」。
+        # 一条证据也没有，只能判未通过，不能用 skip 让 full 假绿。
         return _layer(
             "section9_markers",
             "Grbl §9 源码标记",
@@ -585,6 +610,18 @@ def check_section9(grbl_root: Path | None) -> dict[str, Any]:
         )
     if not grbl_root.is_dir():
         return _layer("section9_markers", "Grbl §9 源码标记", "fail", f"GRBL_ROOT 不存在: {grbl_root}")
+    agents = grbl_root / "AGENTS.md"
+    if not agents.is_file():
+        return _layer(
+            "section9_markers", "Grbl §9 源码标记", "fail",
+            f"GRBL_ROOT 缺少 AGENTS.md，无法确认仓身份: {grbl_root}",
+        )
+    agents_text = agents.read_text(encoding="utf-8", errors="replace")
+    if "Grbl_Esp32" not in agents_text or "protocol.md" not in agents_text or "§9" not in agents_text:
+        return _layer(
+            "section9_markers", "Grbl §9 源码标记", "fail",
+            f"GRBL_ROOT/AGENTS.md 缺仓身份或 §9 契约锚点: {grbl_root}",
+        )
     missing: list[str] = []
     for rel, needles, label in SECTION9_MARKERS:
         path = grbl_root / rel
@@ -592,9 +629,9 @@ def check_section9(grbl_root: Path | None) -> dict[str, Any]:
             missing.append(f"{label}: missing file {rel}")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        for n in needles:
-            if n not in text:
-                missing.append(f"{label}: missing `{n}` in {rel}")
+        for needle in needles:
+            if needle not in text:
+                missing.append(f"{label}: missing `{needle}` in {rel}")
     if missing:
         return _layer("section9_markers", "Grbl §9 源码标记", "fail", "; ".join(missing))
     return _layer(

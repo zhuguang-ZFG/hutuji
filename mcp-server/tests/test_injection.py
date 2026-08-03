@@ -141,6 +141,57 @@ def test_generate_svg_rejects_http_200_non_json(monkeypatch) -> None:  # noqa: A
         asyncio.run(llm_svg.generate_svg("测试"))
 
 
+def _install_fake_llm_response(monkeypatch, response) -> None:  # noqa: ANN001
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+            return False
+
+        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return response
+
+    monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
+        llm_api_key="test-key",
+        llm_base_url="https://example.invalid/v1",
+        llm_model="test-model",
+    ))
+    monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+
+
+def test_generate_svg_never_echoes_upstream_error_body(monkeypatch) -> None:  # noqa: ANN001
+    secret = "sk-provider-echo-must-not-leak"
+    response = SimpleNamespace(status_code=401, text=f"Incorrect API key: {secret}")
+    _install_fake_llm_response(monkeypatch, response)
+
+    with pytest.raises(LlmError, match="401") as caught:
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+    assert secret not in str(caught.value)
+    assert "Incorrect API key" not in str(caught.value)
+
+
+def test_generate_svg_wraps_invalid_utf8_json_as_llm_error(monkeypatch) -> None:  # noqa: ANN001
+    class InvalidUtf8Response:
+        status_code = 200
+
+        def json(self):
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    _install_fake_llm_response(monkeypatch, InvalidUtf8Response())
+
+    with pytest.raises(LlmError, match="不是合法 JSON"):
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+
+def test_extract_svg_never_echoes_model_reply() -> None:
+    secret = "model-reply-secret-must-not-leak"
+    with pytest.raises(LlmError, match="未找到 <svg>") as caught:
+        _extract_svg(secret)
+    assert secret not in str(caught.value)
+
+
 # ---- DTD / 实体声明（2026-07-26 深度评审）----
 # xml.etree 默认拒外部实体（file:// / http:// 都抛 ParseError），内部实体则会
 # 递归展开。真实路径 _extract_svg 的正则从 <svg 起切片，DOCTYPE 落在根元素之前

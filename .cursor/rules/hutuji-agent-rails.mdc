@@ -47,6 +47,7 @@ python scripts\agent_gate.py --profile hub
 - 文档：`--profile docs`
 - 改 Grbl：`--profile full`（`GRBL_ROOT`）**且** fz `agent_gate.py --profile standard`
 - 报告：`results/hutuji_gate_last.md`
+- `revived_decisions` 允许同一行 `禁止重开：A / B / C`（含粗体标题）的显式否决清单；另起短语重新主张现行方案仍判红，不能借相邻项的“已否决”逃逸。
 
 ## 禁止宣称（除非 release-readiness 对应行已 ✅）
 

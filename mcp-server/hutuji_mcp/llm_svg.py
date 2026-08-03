@@ -5,6 +5,7 @@
 在标签+属性两层做确定性白名单，是本模块的主防线（见 mcp-server README 组 1/2）。
 """
 from __future__ import annotations
+import logging
 
 import json
 import re
@@ -13,6 +14,8 @@ import xml.etree.ElementTree as ET
 import httpx
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 # 画布与 system prompt（单线笔画约束是本模块的核心）
 # A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
@@ -83,7 +86,10 @@ def _extract_svg(text: str) -> str:
     """从模型回复中提取 <svg…</svg>，容忍代码块包裹与前后废话。"""
     match = _SVG_RE.search(text)
     if not match:
-        raise LlmError(f"LLM 回复中未找到 <svg> 内容：{text[:200]}...")
+        # 只记录长度用于诊断（空回复 vs 有内容但无 <svg>）；正文可能含注入/敏感串，
+        # 既不进日志也不回传 MCP。
+        logger.warning("LLM 回复中未找到 <svg>（回复长度 %d 字节）", len(text))
+        raise LlmError("LLM 回复中未找到 <svg> 内容")
     svg = match.group(0)
     if len(svg.encode("utf-8")) > MAX_SVG_BYTES:
         raise LlmError(f"SVG 大小 {len(svg.encode('utf-8'))} 字节超上限 {MAX_SVG_BYTES}（256KB）")
@@ -193,12 +199,15 @@ async def generate_svg(description: str) -> str:
         # 不透明 500，并让「LLM 不可用」与「SVG 非法」可区分。
         raise LlmError(f"调用 LLM 失败（网络/连接错误）：{type(e).__name__}") from e
     if resp.status_code != 200:
-        raise LlmError(f"LLM API 返回 {resp.status_code}：{resp.text[:300]}")
+        # 上游错误正文可能回显 Authorization key；LlmError 会经 MCP 原样传到云端，
+        # 因此只保留可诊断的状态码，不记录或回传正文。
+        logger.warning("LLM API 返回 HTTP %d", resp.status_code)
+        raise LlmError(f"LLM API 返回 {resp.status_code}")
 
     try:
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise LlmError("LLM 响应不是合法 JSON") from e
     except (KeyError, IndexError, TypeError) as e:
         raise LlmError(f"LLM 响应格式异常：{e}") from e

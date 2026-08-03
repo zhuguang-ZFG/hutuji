@@ -268,3 +268,87 @@ def test_redact_filter_caps_oversized_formatted_and_exception_records() -> None:
     assert filt.filter(stack_rec) is True
     assert "stack.py" not in stack_rec.getMessage()
     assert "stack-adjacent-secret" not in stack_rec.getMessage()
+
+
+class _BlockingWebSocket:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await __import__("asyncio").Event().wait()
+
+    async def send(self, message: str) -> None:
+        del message
+
+
+class _WebSocketContext:
+    async def __aenter__(self):
+        return _BlockingWebSocket()
+
+    async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+        return False
+
+
+def _capture_proxy_process(monkeypatch: pytest.MonkeyPatch, code: str):
+    import asyncio
+    from hutuji_mcp import cloud_bridge
+
+    processes = []
+    create = asyncio.create_subprocess_exec
+
+    async def capture(*args, **kwargs):  # noqa: ANN002, ANN003
+        process = await create(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(cloud_bridge.websockets, "connect", lambda *args, **kwargs: _WebSocketContext())
+    monkeypatch.setattr(cloud_bridge, "proxy_command", lambda url: [sys.executable, "-c", code])
+    monkeypatch.setattr(cloud_bridge.asyncio, "create_subprocess_exec", capture)
+    return cloud_bridge, processes
+
+
+def test_bridge_reaps_proxy_when_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    cloud_bridge, processes = _capture_proxy_process(
+        monkeypatch, "import time; time.sleep(60)"
+    )
+
+    async def exercise() -> None:
+        task = asyncio.create_task(cloud_bridge.bridge_once(cloud_bridge.BridgeConfig(
+            endpoint="wss://example.invalid/mcp?token=secret",
+            local_mcp_url="http://127.0.0.1:8300/mcp",
+        )))
+        while not processes:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    assert processes[0].returncode is not None
+
+
+def test_bridge_reaps_proxy_when_stderr_line_exceeds_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    cloud_bridge, processes = _capture_proxy_process(
+        monkeypatch,
+        "import sys,time; sys.stderr.write('x'*512); sys.stderr.flush(); time.sleep(60)",
+    )
+    monkeypatch.setattr(cloud_bridge, "MCP_PROXY_STREAM_LIMIT", 128)
+
+    async def exercise() -> None:
+        with pytest.raises(ValueError):
+            await asyncio.wait_for(
+                cloud_bridge.bridge_once(cloud_bridge.BridgeConfig(
+                    endpoint="wss://example.invalid/mcp?token=secret",
+                    local_mcp_url="http://127.0.0.1:8300/mcp",
+                )),
+                timeout=1,
+            )
+
+    asyncio.run(exercise())
+    assert processes[0].returncode is not None

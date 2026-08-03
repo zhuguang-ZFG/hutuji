@@ -40,19 +40,19 @@ LINESIMPLIFY_TOLERANCE_MM = 0.05
 # 合并端点几乎相接的线；0.3mm 内并笔不改变构图（奎享现役值，实测安全）。
 LINEMERGE_TOLERANCE_MM = 0.3
 
-# G-code 字（字母 + 数值）。整行唯一的解析入口：G/M 字号与 X/Y 坐标都从这里取，
+# G-code 字（字母 + 十进制数值）。整行唯一的解析入口：G/M 字号与 X/Y 坐标都从这里取，
 # 避免两套正则口径不一致（旧代码 `\b([XY])` 在 `G0X0Y0` 里因 X 紧跟数字而无词边界，
-# 匹配不到坐标，导致 X0Y0 禁令被绕过）。
-# 数值容忍 `01`、`1.0`、`.5`、`1e3`——`1e3` 必须认，否则会被截成 `1` 而漏放 1000mm。
-_WORD_RE = re.compile(r"([A-Z])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[Ee][+-]?\d+)?)")
+# 匹配不到坐标，导致 X0Y0 禁令被绕过）。Grbl 解析器不支持科学计数法，故不能接受
+# `1e3` 后把与写字机不同的数值下发；剩余内容检查会从严拒绝这类写法。
+_WORD_RE = re.compile(r"([A-Z])\s*([+-]?(?:\d+\.?\d*|\.\d+))")
 
-# X/Y 后面**必须**紧跟一个合法有限数值。`_WORD_RE` 只挑合法数值，`XNAN`、`X `、
-# `X1.5.5` 这类畸形写法会让坐标被静默跳过，越界值就此从限幅里消失（静默漏放比
-# 误拒危险）。`_AXIS_CAND_RE` 抓住轴字及其后连续的「数值样」字符整体，再用
-# `_FINITE_NUM_RE` 判其是否为合法有限数——`X1.5.5` 会被 `_WORD_RE` 截成 `1.5`
-# 留下残片，这里能整体识别为非法。
-_AXIS_CAND_RE = re.compile(r"([XY])\s*([0-9+\-.Ee]*)")
-_FINITE_NUM_RE = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[Ee][+-]?\d+)?$")
+# X/Y 后面必须紧跟一个 Grbl 可解析的有限十进制数。`_WORD_RE` 只挑合法数值，
+# `XNAN`、`X `、`X1.5.5` 这类畸形写法会让坐标被静默跳过，越界值就此从限幅里消失
+# （静默漏放比误拒危险）。`_AXIS_CAND_RE` 抓住轴字及其后连续的「数值样」字符整体，
+# 再用 `_FINITE_NUM_RE` 判其是否为合法有限数；`X1.5.5` 与 Grbl 不支持的 `X1e3`
+# 都会被整体识别为非法。
+_AXIS_CAND_RE = re.compile(r"([XY])\s*([0-9+\-.]*)")
+_FINITE_NUM_RE = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)$")
 
 # 生产文件允许的 G-code 指令。任务级 M30 由 S3 在 fresh Idle 后单独发送，
 # 文件内不允许任何 M 码；G2/G3 仅为外部 G-code / 圆弧限幅兼容保留。
@@ -223,6 +223,7 @@ def validate_gcode(text: str) -> GcodeStats:
 
     seen_g21 = False
     seen_g90 = False
+    seen_f = False
     pen_lifts = 0
     # Grbl 复位/上电后的默认运动模式是 **G0**：`Grbl_Esp32/src/GCode.h:78`
     # `Seek = 0, // G0 (Default: Must be zero)`，modal 结构体归零即 Seek；
@@ -272,21 +273,31 @@ def validate_gcode(text: str) -> GcodeStats:
                 )
 
         codes = set()
+        value_letters: set[str] = set()
         for letter, number in words:
             if letter not in _ALLOWED_WORD_LETTERS:
-                raise GcodeError(f"第 {idx} 行含不允许的 {letter} 字：{line}")
+                raise GcodeError(f"第 {idx} 行含无法解析或不允许的 {letter} 字：{line}")
             value = float(number)
             if not math.isfinite(value):
                 raise GcodeError(f"第 {idx} 行 {letter} 数值非有限：{line}")
+            if letter not in ("G", "M"):
+                if letter in value_letters:
+                    raise GcodeError(f"第 {idx} 行重复 {letter} 字（Grbl 不接受同块重复字）：{line}")
+                value_letters.add(letter)
             if letter == "Z" and not (abs(value) < _EPS or abs(value - 5.0) < _EPS):
                 raise GcodeError(f"第 {idx} 行 Z{value} 非生产笔位（只允许 Z0/Z5）：{line}")
-            if letter == "F" and (value <= 0 or value > 10000):
-                raise GcodeError(f"第 {idx} 行 F{value} 超出生产进给范围 0<F≤10000：{line}")
+            if letter == "F":
+                if value <= 0 or value > 10000:
+                    raise GcodeError(f"第 {idx} 行 F{value} 超出生产进给范围 0<F≤10000：{line}")
+                seen_f = True
             if letter not in ("G", "M"):
                 continue
             if not value.is_integer():
                 raise GcodeError(f"第 {idx} 行 {letter} 字号必须是整数：{line}")
-            codes.add(f"{letter}{int(value)}")
+            code = f"{letter}{int(value)}"
+            if code in codes:
+                raise GcodeError(f"第 {idx} 行重复 {code} 指令（Grbl modal group 冲突）：{line}")
+            codes.add(code)
 
         coords = [(a, float(v)) for a, v in words if a in ("X", "Y")]
         xy = dict(coords)
@@ -301,6 +312,20 @@ def validate_gcode(text: str) -> GcodeStats:
             active_motion = next(iter(motion_codes))
         has_axis_words = any(a in ("X", "Y", "Z") for a, _ in words)
         has_motion = bool(motion_codes or has_axis_words)
+
+        arc_words = {a for a, _ in words if a in ("I", "J", "R")}
+        if arc_words and active_motion not in {"G2", "G3"}:
+            raise GcodeError(f"第 {idx} 行圆弧参数 I/J/R 只能用于 G2/G3：{line}")
+        if active_motion in {"G2", "G3"} and (has_motion or arc_words):
+            if not coords:
+                raise GcodeError(f"第 {idx} 行 G2/G3 缺少 X/Y 轴目标：{line}")
+            if not arc_words:
+                raise GcodeError(f"第 {idx} 行 G2/G3 缺少圆弧参数 I/J 或 R：{line}")
+            if "R" in arc_words and arc_words & {"I", "J"}:
+                raise GcodeError(f"第 {idx} 行 G2/G3 不得同时使用 R 与 I/J：{line}")
+
+        if has_motion and active_motion in {"G1", "G2", "G3"} and not seen_f:
+            raise GcodeError(f"第 {idx} 行切削运动前未建立有效 F 进给（§5 自包含要求）：{line}")
 
         # 抬笔 = Z 回 0 的 G0/G1 运动（本 profile 不产 M3/M5，笔控纯 Z 运动）。
         # 裸 Z 字也继承当前运动模式；统计用于发现过度碎线，不在 v0 硬拒。

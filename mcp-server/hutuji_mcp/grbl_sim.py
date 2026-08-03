@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
+import os
 logger = logging.getLogger("grbl_sim")
 
 DEFAULT_PORT = 2323
@@ -60,14 +60,22 @@ async def serve(port: int = DEFAULT_PORT) -> asyncio.AbstractServer:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[grbl_sim] %(message)s")
+    raw_port = os.environ.get("GRBL_SIM_PORT", str(DEFAULT_PORT))
+    try:
+        port = int(raw_port)
+    except ValueError:
+        raise SystemExit(f"GRBL_SIM_PORT 非整数: {raw_port!r}") from None
+    if not 1 <= port <= 65535:
+        raise SystemExit(f"GRBL_SIM_PORT 越界: {port}")
     loop = asyncio.new_event_loop()
-    server = loop.run_until_complete(serve())
+    server = loop.run_until_complete(serve(port))
     try:
         loop.run_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.close()
+        loop.run_until_complete(server.wait_closed())
         loop.close()
 
 

@@ -28,6 +28,7 @@ MAX_BACKOFF_SECONDS = 60
 _SECRETISH_RE = re.compile(
     r"(?i)(token=)([^&\s]+)|(wss://\S+)|(https?://\S+)"
 )
+MCP_PROXY_STREAM_LIMIT = 2 * 1024 * 1024
 _MAX_LOG_LINE = 200
 
 
@@ -233,33 +234,51 @@ async def bridge_once(config: BridgeConfig) -> None:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=MCP_PROXY_STREAM_LIMIT,
         )
-        stderr_task = asyncio.create_task(_proxy_stderr(process))
         tasks = {
             asyncio.create_task(_cloud_to_proxy(websocket, process)),
             asyncio.create_task(_proxy_to_cloud(process, websocket)),
+            asyncio.create_task(_proxy_stderr(process)),
         }
         try:
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            first_error: BaseException | None = None
             for task in done:
-                task.result()
+                try:
+                    task.result()
+                except BaseException as exc:  # noqa: BLE001 -- preserve session cancellation/error
+                    if first_error is None:
+                        first_error = exc
             for task in pending:
                 task.cancel()
+            if first_error is not None:
+                raise first_error
         finally:
-            for task in tasks:
-                task.cancel()
-            stderr_task.cancel()
-            if process.stdin and not process.stdin.is_closing():
-                process.stdin.close()
-            if process.returncode is None:
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
-            with contextlib.suppress(asyncio.CancelledError):
-                await stderr_task
+            async def cleanup() -> None:
+                for task in tasks:
+                    task.cancel()
+                if process.stdin and not process.stdin.is_closing():
+                    process.stdin.close()
+                if process.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        if process.returncode is None:
+                            with contextlib.suppress(ProcessLookupError):
+                                process.kill()
+                        await process.wait()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+            cleanup_task = asyncio.create_task(cleanup())
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                # 外层取消也必须等子进程回收完成，再把取消继续向上传递。
+                await cleanup_task
+                raise
 
 
 async def run_forever(config: BridgeConfig) -> None:

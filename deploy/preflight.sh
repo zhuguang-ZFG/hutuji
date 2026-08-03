@@ -2,16 +2,27 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
+EXPECTED_CHECKS=14
+OPTIONAL_SKIP=125
 PASS=0
 FAIL=0
+SKIP=0
+
 check() {
   local name="$1"; shift
+  local rc
   if "$@"; then
     echo "[pass] ${name}"
     PASS=$((PASS + 1))
   else
-    echo "[fail] ${name}"
-    FAIL=$((FAIL + 1))
+    rc=$?
+    if [[ "$rc" -eq "$OPTIONAL_SKIP" ]]; then
+      echo "[skip] ${name}"
+      SKIP=$((SKIP + 1))
+    else
+      echo "[fail] ${name}"
+      FAIL=$((FAIL + 1))
+    fi
   fi
 }
 
@@ -37,6 +48,23 @@ env_value() {
   done < "$file"
 }
 
+check_no_placeholder() {
+  local file="$1" rc
+  [[ -r "$file" ]] || return 1
+  if grep -q REPLACE_ME "$file"; then
+    return 1
+  else
+    rc=$?
+    [[ "$rc" -eq 1 ]]
+  fi
+}
+
+check_public_base_url() {
+  local value="${1,,}"
+  [[ "$value" =~ ^https://([a-z0-9-]+\.)*[a-z0-9-]+(:443)?/?$ ]] &&
+    ! [[ "$value" =~ ^https://(localhost|127\.[0-9.]+)(:443)?/?$ ]]
+}
+
 safe_output_dir() {
   local value="$1" resolved
   [[ "$value" == /opt/* ]] || return 1
@@ -45,9 +73,8 @@ safe_output_dir() {
 }
 
 check_mcp_env() {
-  [[ -f /etc/hutuji/mcp.env ]] && ! grep -q REPLACE_ME /etc/hutuji/mcp.env &&
-    [[ "$PUBLIC_BASE_URL" =~ ^https://([A-Za-z0-9-]+\.)*[A-Za-z0-9-]+(:443)?/?$ ]] &&
-    ! [[ "$PUBLIC_BASE_URL" =~ ^https://(127\.0\.0\.1|localhost|::1)(:443)?/?$ ]] &&
+  [[ -f /etc/hutuji/mcp.env ]] && check_no_placeholder /etc/hutuji/mcp.env &&
+    check_public_base_url "$PUBLIC_BASE_URL" &&
     safe_output_dir "$OUTPUT_DIR"
 }
 
@@ -64,8 +91,7 @@ check_active_nginx_acl() {
 }
 
 # 取本机非 loopback IPv4：依次 hostname -I / 默认路由接口。无公网 IPv4 时返回空，
-# 调用方应跳过"非 loopback 拒绝"子判据（loopback 正例已覆盖 ACL 本身），
-# 而不是把整项检查判失败。
+# 调用方可跳过「非 loopback 拒绝」子判据，但只有 loopback 正例已经全部通过时才可跳过。
 probe_non_loopback_ip() {
   local ip
   ip="$(hostname -I 2>/dev/null | tr " " "\n" |
@@ -90,25 +116,21 @@ probe_non_loopback_ip() {
 }
 
 # 用隧道 Host 头探 :80 /files 的 ACL：loopback 放行（GET 404 / POST 403 / /mcp 404），
-# 非 loopback 拒绝。无公网 IPv4 时跳过 denied 子判据——loopback 正例已覆盖 ACL 本身，
-# 不该把环境缺 IPv4 误报成配置缺失。
+# 非 loopback 拒绝。无非 loopback IPv4 时只跳过 denied 子判据；loopback 正例仍 fail-closed。
 check_acl_response() {
-  local h="$1" get post mcp base ip denied
+  local h="$1" get post mcp ip denied
   [[ -n "$h" ]] || return 1
   get=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
   post=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "Host: $h" http://127.0.0.1/files/__nonexistent__)
   mcp=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" http://127.0.0.1/mcp)
-  base=ok
-  # `|| true`：probe 无 IPv4 时 return 1，不让 set -e 在非 if 上下文里腰斩脚本。
+  [[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" ]] || return 1
   ip="$(probe_non_loopback_ip || true)"
-  if [[ -n "$ip" ]]; then
-    denied=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
-    [[ "$denied" == "403" ]] || base=fail
-  else
-    # 无证据不宣称：跳过的半边判据必须自己出声，不能让 [pass] 替没验过的部分背书。
-    echo "[skip] 非 loopback 拒绝子判据：本机无非 loopback IPv4，本项只验了 loopback 放行"
+  if [[ -z "$ip" ]]; then
+    echo "非 loopback 拒绝子判据未执行：本机无非 loopback IPv4" >&2
+    return "$OPTIONAL_SKIP"
   fi
-  [[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" && "$base" == "ok" ]]
+  denied=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
+  [[ "$denied" == "403" ]]
 }
 
 check_download() (
@@ -142,7 +164,7 @@ fi
 check "mcp.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/mcp.env 2>/dev/null || echo x)" == "600" ]]'
 check "bridge.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
 check "mcp.env 无占位且公网前缀为 HTTPS:443" check_mcp_env
-check "bridge.env 无 REPLACE_ME" bash -c '[[ -f /etc/hutuji/bridge.env ]] && ! grep -q REPLACE_ME /etc/hutuji/bridge.env'
+check "bridge.env 无 REPLACE_ME" check_no_placeholder /etc/hutuji/bridge.env
 check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'
 # `ss` 不在时 `! ss | grep` 会因无输出而假绿（第 5 项那条 fail-closed，这条不是），先探二进制。
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
@@ -157,7 +179,7 @@ check "nginx -t 通过且 enabled 配置含 loopback-only :80 /files ACL" check_
 check "sites-enabled/hutuji 指向 sites-available/hutuji" bash -c '
   [[ -L /etc/nginx/sites-enabled/hutuji ]] &&
   [[ "$(readlink -f /etc/nginx/sites-enabled/hutuji)" == "/etc/nginx/sites-available/hutuji" ]]'
-check "线上 nginx conf 与本仓模板一致（LF 归一化）" bash -c '
+check "运行中 nginx conf 与固定部署模板一致（LF 归一化）" bash -c '
   [[ -f /opt/hutuji/deploy/nginx-hutuji.conf && -f /etc/nginx/sites-enabled/hutuji ]] || exit 1
   a=$(tr -d "\r" < /opt/hutuji/deploy/nginx-hutuji.conf | md5sum | cut -d" " -f1)
   b=$(tr -d "\r" < /etc/nginx/sites-enabled/hutuji | md5sum | cut -d" " -f1)
@@ -167,8 +189,8 @@ check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_
 # 真 200 正例：造一份合法命名产物（TTL 内自清），验完整下载契约。
 check "localhost :80 /files 真下 G-code 200" check_download
 
-echo "---- preflight pass=${PASS} fail=${FAIL} ----"
-if [[ "${FAIL}" -gt 0 ]]; then
+echo "---- preflight pass=${PASS} fail=${FAIL} skip=${SKIP} expected=${EXPECTED_CHECKS} ----"
+if ! [[ "$((PASS + SKIP))" -eq "${EXPECTED_CHECKS}" && "${FAIL}" -eq 0 ]]; then
   exit 1
 fi
 echo "PASS — 再验：公网 curl /mcp 须失败；HTTPS /files 经 nginx；小智控制台 tools/list"
