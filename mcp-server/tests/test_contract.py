@@ -360,6 +360,25 @@ def test_serve_file_concurrent_delete_returns_404(
     assert caught.value.status_code == 404
 
 
+def test_serve_file_rejects_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F1：output_dir 内命名合法的 symlink 不得被跟随读取（防借链接外泄任意文件）。"""
+    name = f"{server._new_basename()}.gcode"
+    target = tmp_path / "secret.bin"
+    target.write_bytes(b"must-not-leak")
+    try:
+        os.symlink(target, tmp_path / name)
+    except (OSError, NotImplementedError) as exc:
+        # Windows 上建 symlink 需管理员/开发者模式，无权限时跳过并说明原因。
+        pytest.skip(f"当前平台无权限创建 symlink：{exc}")
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+    assert caught.value.status_code == 404
+
+
 def test_status_does_not_leak_absolute_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

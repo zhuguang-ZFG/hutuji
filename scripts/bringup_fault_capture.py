@@ -140,6 +140,19 @@ def main() -> int:
     if args.inject_grbl_wifi_cycle_at is not None and not args.grbl_port:
         print("--inject-grbl-wifi-cycle-at 需要同时指定 --grbl-port", file=sys.stderr)
         return 2
+    if (
+        args.inject_grbl_wifi_cycle_at is not None
+        and args.duration <= args.inject_grbl_wifi_cycle_at + args.wifi_off_seconds
+    ):
+        # 循环守卫是 elapsed < duration（整数 elapsed 最大 duration-1），而
+        # [ESP115]ON 要求 elapsed >= inject_at + wifi_off：等于时 ON 同样永不发送，
+        # 设备会被留在 WiFi 关态且无任何报错。启动即拒，退出码 2 同缺端口/缺 pyserial 档。
+        print(
+            "--duration 必须大于 --inject-grbl-wifi-cycle-at + --wifi-off-seconds，"
+            "否则 [ESP115]ON 永不发送、设备会被留在 WiFi 关态",
+            file=sys.stderr,
+        )
+        return 2
     try:
         _load_serial_module()
     except RuntimeError as exc:

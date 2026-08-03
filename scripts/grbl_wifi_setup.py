@@ -83,61 +83,72 @@ def main() -> int:
         print("需要 pyserial：pip install pyserial", file=sys.stderr)
         return 1
 
-    s = serial.Serial(args.port, args.baud, timeout=3)
-    time.sleep(0.5)
-    failures: list[str] = []
-
-    def send_cmd(cmd: str, desc: str) -> bool:
-        """发一条 ESP 命令并判定应答；返回是否 ok。失败由调用方决定是否中止。"""
-        s.write(f"{cmd}\r\n".encode())
-        time.sleep(1)
-        resp = s.read(s.in_waiting or 512).decode("ascii", errors="replace").strip()
-        ok = "ok" in resp.lower()
-        head = resp.splitlines()[0] if resp else "(无应答)"
-        # 设置密码的命令应答可能回显完整命令（含密码），stdout/终端录制会泄密。
-        print(f"  [{'OK' if ok else 'WARN'}] {desc}: {_mask_secret(head, password)}")
-        return ok
-
-    print(f"配置 Grbl WiFi（{args.port}）...")
-    print(f"  SSID: {args.ssid}")
-    print()
-
-    # 任一配置命令失败即中止，不再发后续命令、不 RESTART：设备停在原配置，
-    # 避免「SSID 已改密码没改」之类的半配置状态还被重启。
-    for cmd, desc in (
-        (f"[ESP100]{args.ssid}", "设置 SSID"),
-        (f"[ESP101]{password}", "设置密码"),
-        ("[ESP110]STA", "切换 STA 模式"),
-    ):
-        if not send_cmd(cmd, desc):
-            print(f"  {desc} 失败，中止（未重启写字机，设备保持原配置）", file=sys.stderr)
-            s.close()
-            return 1
-    print()
-    print("重启写字机...")
-    s.write(b"[ESP444]RESTART\r\n")
-    time.sleep(5)
-
-    data = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
-    if not ("Connected" in data or "IP:" in data):
-        print("等待 WiFi 连接...")
-        time.sleep(5)
-        data = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
-    connected = "Connected" in data or "IP:" in data
-
-    s.write(b"[ESP420]\r\n")
-    time.sleep(2)
-    status = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
-    for line in status.splitlines():
-        if any(k in line for k in ["WiFi Mode", "Connected", "IP:", "Signal"]):
-            print(f"  {line.strip()}")
-    s.close()
-
-    if not connected:
-        failures.append("WiFi 未确认连上（未见 Connected/IP:）")
-    if failures:
-        print(f"\n失败：{failures}", file=sys.stderr)
+    try:
+        s = serial.Serial(args.port, args.baud, timeout=3)
+    except (serial.SerialException, OSError) as exc:
+        # 坏端口/被占用/无权限：白话报错，退出码 1（与既有串口错误口径一致）。
+        print(f"无法打开串口 {args.port}：{exc}", file=sys.stderr)
         return 1
+
+    try:
+        time.sleep(0.5)
+        failures: list[str] = []
+
+        def send_cmd(cmd: str, desc: str) -> bool:
+            """发一条 ESP 命令并判定应答；返回是否 ok。失败由调用方决定是否中止。"""
+            s.write(f"{cmd}\r\n".encode())
+            time.sleep(1)
+            resp = s.read(s.in_waiting or 512).decode("ascii", errors="replace").strip()
+            ok = "ok" in resp.lower()
+            head = resp.splitlines()[0] if resp else "(无应答)"
+            # 设置密码的命令应答可能回显完整命令（含密码），stdout/终端录制会泄密。
+            print(f"  [{'OK' if ok else 'WARN'}] {desc}: {_mask_secret(head, password)}")
+            return ok
+
+        print(f"配置 Grbl WiFi（{args.port}）...")
+        print(f"  SSID: {args.ssid}")
+        print()
+
+        # 任一配置命令失败即中止，不再发后续命令、不 RESTART：设备停在原配置，
+        # 避免「SSID 已改密码没改」之类的半配置状态还被重启。
+        for cmd, desc in (
+            (f"[ESP100]{args.ssid}", "设置 SSID"),
+            (f"[ESP101]{password}", "设置密码"),
+            ("[ESP110]STA", "切换 STA 模式"),
+        ):
+            if not send_cmd(cmd, desc):
+                print(f"  {desc} 失败，中止（未重启写字机，设备保持原配置）", file=sys.stderr)
+                return 1
+        print()
+        print("重启写字机...")
+        s.write(b"[ESP444]RESTART\r\n")
+        time.sleep(5)
+
+        data = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
+        if not ("Connected" in data or "IP:" in data):
+            print("等待 WiFi 连接...")
+            time.sleep(5)
+            data = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
+        connected = "Connected" in data or "IP:" in data
+
+        s.write(b"[ESP420]\r\n")
+        time.sleep(2)
+        status = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
+        for line in status.splitlines():
+            if any(k in line for k in ["WiFi Mode", "Connected", "IP:", "Signal"]):
+                print(f"  {line.strip()}")
+
+        if not connected:
+            failures.append("WiFi 未确认连上（未见 Connected/IP:）")
+        if failures:
+            print(f"\n失败：{failures}", file=sys.stderr)
+            return 1
+    except (serial.SerialException, OSError) as exc:
+        # 运行中拔线/串口复位：白话报错，finally 关端口，退出码保持 1。
+        print(f"串口通信失败（设备可能已断开）：{exc}", file=sys.stderr)
+        return 1
+    finally:
+        s.close()
 
     print("\n完成。S3 按决策 ② 连固定 IP 192.168.1.13:23，")
     print("需在路由器上为本机 MAC 绑定该地址（不依赖 mDNS）。")

@@ -110,7 +110,8 @@ def _message_label(message: str | bytes) -> str:
     """只提取 JSON-RPC 方法名用于安全日志，不记录参数或响应正文。
 
     method/id 由云端可控：截断到 _MAX_LOG_LINE 并把控制字符替换为空格，
-    防止超长标签绕过日志限长或注入换行伪造日志行。"""
+    防止超长标签绕过日志限长或注入换行伪造日志行。返回值再经
+    _redact_secret_text 去 token/URL，防 method/id 内嵌敏感串原样入日志。"""
     label = "unknown"
     try:
         if isinstance(message, bytes):
@@ -121,7 +122,7 @@ def _message_label(message: str | bytes) -> str:
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
     label = "".join(ch if ch.isprintable() else " " for ch in label)
-    return _cap_log_line(label)
+    return _cap_log_line(_redact_secret_text(label))
 
 
 def _redact_secret_text(text: str) -> str:

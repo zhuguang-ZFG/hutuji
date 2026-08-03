@@ -273,7 +273,9 @@ async def _serve_file(name: str):
     if not _DRAW_FILE_RE.fullmatch(name):
         raise HTTPException(status_code=404, detail="not found")
     path = settings.output_dir / name
-    if not path.is_file():
+    if not path.is_file() or path.is_symlink():
+        # is_symlink：output_dir 若可写，攻击者可借命名合法的 symlink 让
+        # read_bytes 跟随链接外泄任意文件（如 /etc/hutuji/mcp.env），一律 404。
         raise HTTPException(status_code=404, detail="not found")
     try:
         if _is_expired(path):

@@ -22,6 +22,14 @@ def _creation_flags() -> int:
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
 def _wait_port(timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -48,6 +56,11 @@ def main() -> int:
     if not os.environ.get("MCP_ENDPOINT"):
         print("FAIL: 请先在当前终端设置 MCP_ENDPOINT", file=sys.stderr)
         return 2
+    if _port_in_use(HOST, PORT):
+        # 8300 是固定生产口：被别的进程占着时 uvicorn 绑定失败但端口探测成功，
+        # 冒烟会拿别人的服务当真 PASS。绑定前先拒未知监听者，与 e2e_local 同口径。
+        print(f"FAIL: 端口 {PORT} 已被占用；拒绝借用未知或残留的监听者", file=sys.stderr)
+        return 1
 
     flags = _creation_flags()
     child_env = os.environ.copy()

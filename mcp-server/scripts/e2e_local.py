@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from hutuji_mcp import grbl_sim  # noqa: E402
-from hutuji_mcp.gcode_gen import svg_to_gcode  # noqa: E402
+from hutuji_mcp.gcode_gen import GcodeError, svg_to_gcode  # noqa: E402
 from hutuji_mcp.pipe_sim import stream_gcode  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -135,7 +135,9 @@ def main() -> int:
         print(f"[4/4] 断言：{'全部 ok' if ok else '存在失败行'}")
         print("PASS" if ok else "FAIL")
         return 0 if ok else 1
-    except (RuntimeError, TimeoutError) as exc:
+    except (RuntimeError, TimeoutError, ConnectionError, socket.timeout, GcodeError) as exc:
+        # GcodeError<:RuntimeError、socket.timeout≡TimeoutError(3.10+)，显式列出防层级
+        # 漂移；ConnectionError 是真实缺口（pipe_sim 在对端关闭/EOF 时抛，见 pipe_sim.py）。
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
