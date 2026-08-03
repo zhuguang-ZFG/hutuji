@@ -1,9 +1,9 @@
 # 跨仓工作树清单（防误删 / 防重复劳动）
 
-> **当前状态快照（2026-08-02，评审结论落地后）**：hutuji 功能/契约提交为 `4e5d39f`，本清单回填随下一提交入库；**Grbl 工作树已回退 P2 诊断改动，`git status --short` 为空、HEAD `fdf2ad8`，与 COM10 上已烧录固件重新合流（无分叉、无需重烧）**；fz 工作树干净；xiaozhi 本轮 SendFeedHold 契约修复已提交为 `ae4b524` 并推送（`feat/hutuji-usb-pipe`，range `2ea10b2..ae4b524`，3 文件 +26/−6：`SendRawLocked` 在 `feed_hold_priority` 失败分支不再裸改共享状态，teardown 改由 `SendFeedHold` 经既有加锁入口 `ShutdownSocket(session)` 在 `write_mutex_` 下串行化，恢复 `AbortResetToken` 单写者锁契约；**未编译、未烧录、未实机**，仅逻辑镜像单测 `test_hutuji_recovery_core.py` 1 passed），并保留未跟踪旧版备份 `%TEMP%hutuji_pipe_old.cc`（来源未确认，按用户资产保留不删、不入库）。当前提交基线：hutuji HEAD `8cb02f8`（功能/契约提交 `4e5d39f`）、xiaozhi `ae4b524`、Grbl `fdf2ad8`、fz `c2bf1a3`；**COM10 实跑 = Grbl HEAD `fdf2ad8` = 当前工作树；S3 正确 `lichuang-dev` 镜像已于 08-01 一次有效 app-flash 并在新鲜 COM9 日志启动；当前 `ae4b524` 未编译未烧录，板上仍是该 08-01 镜像**。
+> **当前状态快照（2026-08-03 校准）**：hutuji origin/main HEAD `29686eb`；**Grbl HEAD 已推进到 `1b56393`（`Telnet_Server::write()` 非阻塞化，已提交并推送 `origin/fix/panel-hold-after-align-116687e`），`git status --short` 为空；但 `1b56393` 未烧录，COM10 上仍是此前 `fdf2ad8` 镜像，HEAD 与板上已分叉**；fz 工作树干净（`c2bf1a3`）；xiaozhi 本轮 SendFeedHold 契约修复已提交为 `ae4b524` 并推送（`feat/hutuji-usb-pipe`，range `2ea10b2..ae4b524`，3 文件 +26/−6：`SendRawLocked` 在 `feed_hold_priority` 失败分支不再裸改共享状态，teardown 改由 `SendFeedHold` 经既有加锁入口 `ShutdownSocket(session)` 在 `write_mutex_` 下串行化，恢复 `AbortResetToken` 单写者锁契约；**未编译、未烧录、未实机**，仅逻辑镜像单测 `test_hutuji_recovery_core.py` 1 passed），并保留未跟踪旧版备份 `%TEMP%hutuji_pipe_old.cc`（来源未确认，按用户资产保留不删、不入库）。当前提交基线：hutuji `29686eb`、xiaozhi `ae4b524`、Grbl `1b56393`、fz `c2bf1a3`；**COM10 实跑 = Grbl `fdf2ad8`（08-01 烧录），当前 HEAD `1b56393` 未烧录、与板上分叉；S3 正确 `lichuang-dev` 镜像已于 08-01 一次有效 app-flash 并在新鲜 COM9 日志启动；当前 `ae4b524` 未编译未烧录，板上仍是该 08-01 镜像**。
 >
-> - hutuji：`f964aa2`（19 文件 +540/-115），已推 `origin/main`（`41c4593..f964aa2`）。
-> - Grbl_Esp32：`fdf2ad8`（§9-A2，2 文件 +41/−0），已推 `origin/fix/panel-hold-after-align-116687e`（`1a4fea1..fdf2ad8`）。
+> - hutuji：`29686eb`（本轮 review 收口 + 文档回填，26 文件 +1123/-157），已推 `origin/main`（`f964aa2..29686eb`）。
+> - Grbl_Esp32：`1b56393`（Telnet write 改非阻塞 send + 1s deadline，背压下不静默截断 ok，1 文件 +37/−10），已推 `origin/fix/panel-hold-after-align-116687e`（`fdf2ad8..1b56393`）。
 > - xiaozhi-esp32：`ae4b524`（3 文件 +26/−6，SendFeedHold 无锁 teardown 契约修复），已推 `origin/feat/hutuji-usb-pipe`（`2ea10b2..ae4b524`）。
 > - fz：`c2bf1a3`（1 文件 +149/-0），已推 `origin/main`（`784fccf..c2bf1a3`）。
 >
