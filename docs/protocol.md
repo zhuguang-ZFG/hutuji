@@ -142,7 +142,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    断言 `On` 时没有 `0x18/M30/G1`；8.5 断言未知/换纸保护窗内 abort 只挂起。
 7. **错/对**：错=`重连 → $I/M5/G1 探活 → ready → 查 Changing`；对=
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
-8. **单 owner 事务**（实现状态:工作树未提交、未构建、未烧录）：每个任务最多一个 reset owner
+8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_started_` CAS 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
    在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:346-464`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
@@ -307,7 +307,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 > ⚠️ **A2 必须用递归锁**：`handle()` 内 `report_init_message(CLIENT_TELNET)` 会经 `grbl_send` 回到 `write()`，同一任务需重入；普通 mutex 直接自锁死。
 > **A2 的 abort 时延口径（不是新增风险）**：持锁期间 `write()` 最坏阻塞约 10s（`WIFI_CLIENT_SELECT_TIMEOUT_US=1s` × `WIFI_CLIENT_MAX_WRITE_RETRY=10`，`WiFiClient.cpp:26-28`），此窗口内 clientCheckTask 取不到字节，`!`/`0x18` 的**提取**被推迟。但 `!`/`0x18` 的**执行**本就在 loopTask 的 `protocol_execute_realtime()` 里，而 loopTask 正是被 `write()` 阻塞的那一个——即无锁时同样停摆。故 A2 不恶化 §4.1 abort 时延上界，仅把「崩溃」换成「已存在的阻塞」。
-> **2026-08-02 A2 写路径收口（取代上段 10s 口径，源码未提交/未烧录）**：`write()` 不再调用可能阻塞约 10s 的 `WiFiClient::write()`，改为 `send(..., MSG_DONTWAIT)` + **1s 绝对 deadline**；deadline 覆盖 EAGAIN 与每次正 partial write，EAGAIN 重试同时 `COMMANDS::wait(0)` + `vTaskDelay(1)`，完整写出才返回长度，超时/零进展/真实错误则关闭该 Telnet session 并返回 0。这样仍保持 A2 递归锁的跨任务串行化，同时把 loopTask/clientCheckTask 的单次写占用收窄到有界 1s；host 行为回归覆盖正 partial deadline、无效 fd、EAGAIN 让步/看门狗。
+> **2026-08-02 A2 写路径收口（取代上段 10s 口径，源码未提交/未烧录 → **2026-08-03 supersede：已提交 Grbl `1b56393` 并烧录 COM11，551 行 S4 有纸实测通过，`pbuf_free: p->ref > 0` 本轮未复现**）**：`write()` 不再调用可能阻塞约 10s 的 `WiFiClient::write()`，改为 `send(..., MSG_DONTWAIT)` + **1s 绝对 deadline**；deadline 覆盖 EAGAIN 与每次正 partial write，EAGAIN 重试同时 `COMMANDS::wait(0)` + `vTaskDelay(1)`，完整写出才返回长度，超时/零进展/真实错误则关闭该 Telnet session 并返回 0。这样仍保持 A2 递归锁的跨任务串行化，同时把 loopTask/clientCheckTask 的单次写占用收窄到有界 1s；host 行为回归覆盖正 partial deadline、无效 fd、EAGAIN 让步/看门狗。
 | B1′ | `PaperSystem.cpp:802,807,929,1006` | `[PaperStatus] %d` 的 `CLIENT_SERIAL` → `CLIENT_ALL` | §7 换纸失败码（0/2/3/4/5）的唯一来源；不改则 S3 永远收不到，§7 表空转 |
 | B2′ | `PaperSystem.cpp:351` | `paper_get_status_str()` 的 `snprintf` 增 `Changing=%s` 字段，取现成 `paper_auto_change_is_running()`（`PaperSystem.cpp:50`，现成 `volatile bool`） | §2.1/§4.1 abort 分流的**唯一跨 session 地基** |
 | C′ | `Protocol.cpp:639-672`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
