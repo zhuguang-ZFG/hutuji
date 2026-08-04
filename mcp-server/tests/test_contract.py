@@ -379,6 +379,130 @@ def test_serve_file_rejects_symlink(
     assert caught.value.status_code == 404
 
 
+def test_serve_file_rejects_hardlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """命名合法的硬链接（st_nlink != 1）不得被服务：capability URL 只能指向
+    本服务生成的单链接普通文件，别名入口会让配对删除留下可访问副本。"""
+    name = f"{server._new_basename()}.gcode"
+    target = tmp_path / "secret.bin"
+    target.write_bytes(b"must-not-leak")
+    os.link(target, tmp_path / name)
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+    assert caught.value.status_code == 404
+
+
+def test_serve_file_does_not_follow_swapped_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """路径在打开前被换成 symlink 也不得跟随：TOCTOU 竞态只能拿到 404。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    real = tmp_path / name
+    real.write_bytes(b"G21\nG90\n")
+    secret = tmp_path / "secret.bin"
+    secret.write_bytes(b"must-not-leak")
+
+    real_open = server.os.open
+
+    def _swap_then_open(path, flags, *args, **kwargs):
+        # 模拟「检查通过后、打开前」路径被替换为指向敏感文件的 symlink。
+        if Path(path) == real and real.exists():
+            real.unlink()
+            try:
+                os.symlink(secret, real)
+            except (OSError, NotImplementedError) as exc:
+                # Windows 上建 symlink 需管理员/开发者模式，无权限时跳过。
+                pytest.skip(f"当前平台无权限创建 symlink：{exc}")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(server.os, "open", _swap_then_open)
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+    assert caught.value.status_code == 404
+
+
+def test_serve_file_never_reads_path_swapped_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """打开前路径被换成同名新文件（Windows 下打开新对象 / Linux 下身份校验
+    失败）：响应要么 404，要么内容仍是打开时锁定的原对象，绝不返回替换内容。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    real = tmp_path / name
+    original = b"G21\nG90\n"
+    real.write_bytes(original)
+
+    real_open = server.os.open
+
+    def _swap_then_open(path, flags, *args, **kwargs):
+        if Path(path) == real and real.exists():
+            replacement = tmp_path / "replacement.tmp"
+            replacement.write_bytes(b"must-not-leak")
+            os.replace(replacement, real)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(server.os, "open", _swap_then_open)
+    try:
+        resp = asyncio.run(server._serve_file(name))
+    except HTTPException as caught:
+        assert caught.status_code == 404
+    else:
+        assert resp.body == original
+        assert b"must-not-leak" not in resp.body
+
+
+def test_read_regular_file_rejects_rename_swap_with_nofollow_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """强制走带 ``O_NOFOLLOW`` 的分支语义，rename-swap 不得读到替换内容。
+
+    Windows 上 ``os.replace`` 后 ``os.open`` 可能仍拿到旧句柄，因此用 fake ``os``
+    固定控制流；该用例钉住的是「open 后必须复核路径身份」这一生产契约。"""
+    name = f"{server._new_basename()}.gcode"
+    real = tmp_path / name
+    real.write_bytes(b"old")
+
+    import os as real_os
+
+    class FakeOS:
+        O_RDONLY = real_os.O_RDONLY
+        O_BINARY = getattr(real_os, "O_BINARY", 0)
+        O_NOFOLLOW = 0x40000
+
+        @staticmethod
+        def stat(path, follow_symlinks=True):
+            return real_os.stat(path, follow_symlinks=follow_symlinks)
+
+        @staticmethod
+        def fstat(fd):
+            return real_os.fstat(fd)
+
+        @staticmethod
+        def fdopen(fd, mode):
+            return real_os.fdopen(fd, mode)
+
+        @staticmethod
+        def close(fd):
+            return real_os.close(fd)
+
+        @staticmethod
+        def open(path, flags, *args, **kwargs):
+            flags &= ~FakeOS.O_NOFOLLOW
+            target = Path(path)
+            if target == real and target.exists():
+                replacement = tmp_path / "replacement.tmp"
+                replacement.write_bytes(b"must-not-leak")
+                real_os.replace(replacement, target)
+            return real_os.open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(server, "os", FakeOS)
+    with pytest.raises(OSError, match="目标在读取期间被替换"):
+        server._read_regular_file(real)
+
 def test_status_does_not_leak_absolute_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

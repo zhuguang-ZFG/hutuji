@@ -84,6 +84,88 @@ def test_proxy_stderr_keeps_benign_short_lines() -> None:
     assert _safe_stderr_line("listening on stdio") == "listening on stdio"
 
 
+@pytest.mark.parametrize(
+    ("raw", "secret"),
+    [
+        ("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig", "eyJhbGciOiJIUzI1NiJ9.payload.sig"),
+        ("upstream replied Bearer abcdef123456", "abcdef123456"),
+        ("bearer = abc123", "abc123"),
+        ("bearer=abc123", "abc123"),
+        ("authorization: bearer=deadbeefcafe", "deadbeefcafe"),
+        ("x-api-key: zz9secret", "zz9secret"),
+        ("api_key=AKIA1234567890 rejected", "AKIA1234567890"),
+        ("apikey=zz9secret rejected", "zz9secret"),
+        ("access_token=tok_value_9 expired", "tok_value_9"),
+        ('{"api_key": "sk-abcdef1234567890"}', "sk-abcdef1234567890"),
+        ('{"access_token":"tok_value_9"}', "tok_value_9"),
+        ("token: abcdef123456 more", "abcdef123456"),
+        ('{"token": "xyz987654"}', "xyz987654"),
+        ("loaded key sk-proj-abcdef1234567890 ok", "sk-proj-abcdef1234567890"),
+    ],
+)
+def test_redact_scrubs_bearer_and_assignment_forms(raw: str, secret: str) -> None:
+    """Bearer / key=value / JSON \"key\": value / token: value / 裸 sk- 都不得入日志。"""
+    safe = _safe_stderr_line(raw)
+    assert secret not in safe
+    assert "<redacted>" in safe
+
+
+@pytest.mark.parametrize(
+    "benign",
+    [
+        "listening on stdio",
+        "status code 401, retry in 3s",
+        "tokenizer ready",
+        "monkey: banana",
+        "socket: closed",
+        "no bearer header found",
+        "no bearer token found",
+        "bearer authentication disabled",
+        "notbearer=value",
+        "Bearer\nsecret",
+    ],
+)
+def test_redact_keeps_benign_diagnostics(benign: str) -> None:
+    """普通诊断不得被误吞：含 token 子串的普通词、键值小段落原样保留。"""
+    assert _safe_stderr_line(benign) == benign
+
+
+def test_redact_bearer_assignment_does_not_leak_secret() -> None:
+    safe = _safe_stderr_line("bearer = abc123")
+    assert "abc123" not in safe
+    assert "<redacted>" in safe
+
+
+
+def test_redact_filter_scrubs_dict_and_list_args() -> None:
+    """dict/list args 经 getMessage 渲染后的最终文本过同一脱敏函数。"""
+    import logging
+
+    f = _RedactSecretsFilter()
+    rec = logging.LogRecord(
+        "websockets.client", logging.INFO, __file__, 1,
+        "reply=%s", ({"api_key": "sk-dictleak123456", "n": 1},), None,
+    )
+    assert f.filter(rec) is True
+    assert "sk-dictleak123456" not in rec.getMessage()
+    assert "<redacted>" in rec.getMessage()
+
+    rec2 = logging.LogRecord(
+        "websockets.client", logging.INFO, __file__, 1,
+        "replies=%s", ([{"access_token": "listleak99"}, 3],), None,
+    )
+    assert f.filter(rec2) is True
+    assert "listleak99" not in rec2.getMessage()
+
+    rec3 = logging.LogRecord(
+        "websockets.client", logging.INFO, __file__, 1,
+        "auth=%s", ("Bearer tuplebearer123",), None,
+    )
+    assert f.filter(rec3) is True
+    assert "tuplebearer123" not in rec3.getMessage()
+    assert "Bearer <redacted>" in rec3.getMessage()
+
+
 def test_redact_filter_unit_scrubs_final_message_and_exception_paths() -> None:
     """单元测：先保持 logging 插值语义，再覆盖异常参数与 traceback 独立通道。
 

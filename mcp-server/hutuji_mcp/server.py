@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 import secrets
+import stat
 import time
 import zlib
 from collections import deque
@@ -142,6 +144,41 @@ def _is_expired(path: Path, *, now: float | None = None) -> bool:
     """按 mtime 判断 capability URL 是否已超过公开窗口。"""
     now = time.time() if now is None else now
     return now - path.stat().st_mtime >= settings.output_ttl_seconds
+
+
+def _read_regular_file(path: Path) -> tuple[bytes, float]:
+    """一次打开并基于句柄校验后读取，返回 ``(内容, fstat 的 mtime)``。
+
+    只允许普通文件：拒绝 symlink 与 ``st_nlink != 1`` 的硬链接。打开前后都对
+    路径做 ``lstat`` 并与句柄 ``fstat`` 比对身份（dev/ino），路径在检查/打开间
+    被 ``rename``/``replace``/换 symlink 时不会读到新对象。任何竞态/拒绝/OSError
+    一律由调用方塌成 404。TTL 判断必须使用返回的 mtime（同一对象）。
+    """
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    before = os.stat(path, follow_symlinks=False)
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise OSError("目标不是单链接普通文件")
+    fd = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise OSError("目标不是单链接普通文件")
+        after = os.stat(path, follow_symlinks=False)
+        if not stat.S_ISREG(after.st_mode) or after.st_nlink != 1:
+            raise OSError("目标在读取期间被替换")
+        # dev/ino 在 Linux 与 Windows 均可用于确认打开对象仍是当前路径对象。
+        if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino):
+            raise OSError("目标在读取期间被替换")
+        if (after.st_dev, after.st_ino) != (st.st_dev, st.st_ino):
+            raise OSError("目标在读取期间被替换")
+        f = os.fdopen(fd, "rb")
+        fd = -1  # 所有权移交文件对象，异常路径不再手动 close
+        with f:
+            return f.read(), st.st_mtime
+    except BaseException:
+        if fd >= 0:
+            os.close(fd)
+        raise
 
 
 def _cleanup_expired_outputs(*, now: float | None = None) -> int:
@@ -273,23 +310,20 @@ async def _serve_file(name: str):
     if not _DRAW_FILE_RE.fullmatch(name):
         raise HTTPException(status_code=404, detail="not found")
     path = settings.output_dir / name
-    if not path.is_file() or path.is_symlink():
-        # is_symlink：output_dir 若可写，攻击者可借命名合法的 symlink 让
-        # read_bytes 跟随链接外泄任意文件（如 /etc/hutuji/mcp.env），一律 404。
+    try:
+        # 打开句柄后做 fstat 校验：拒 symlink / 硬链接 / 非普通文件，竞态替换
+        # 不会让请求读到新路径的目标；TTL 用已打开对象的 mtime 判断。
+        data, mtime = await asyncio.to_thread(_read_regular_file, path)
+    except OSError:
+        # detail 与「不存在」不可区分：拒绝原因（symlink/硬链接/竞态）回显会
+        # 泄漏目录内文件属性，统一 404。
+        raise HTTPException(status_code=404, detail="not found") from None
+    if time.time() - mtime >= settings.output_ttl_seconds:
+        _delete_output_pair(path.stem)
+        # detail 与「不存在」不可区分：过期与否是时序信息，回显会泄漏
+        # 「该 token 曾有效」的可探测面（128-bit token 下价值为零，但
+        # 统一口径成本更低，也避免攻击者拿响应差异做枚举侧信道）。
         raise HTTPException(status_code=404, detail="not found")
-    try:
-        if _is_expired(path):
-            _delete_output_pair(path.stem)
-            # detail 与「不存在」不可区分：过期与否是时序信息，回显会泄漏
-            # 「该 token 曾有效」的可探测面（128-bit token 下价值为零，但
-            # 统一口径成本更低，也避免攻击者拿响应差异做枚举侧信道）。
-            raise HTTPException(status_code=404, detail="not found")
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="not found") from None
-    try:
-        data = path.read_bytes()
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="not found") from None
     crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")  # zlib/IEEE 变体，须与 S3 侧一致
     media = "image/svg+xml" if name.endswith(".svg") else "application/octet-stream"
     return Response(

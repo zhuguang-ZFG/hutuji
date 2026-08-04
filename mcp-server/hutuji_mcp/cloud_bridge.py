@@ -24,9 +24,18 @@ logger = logging.getLogger("HUTUJI_MCP_BRIDGE")
 INITIAL_BACKOFF_SECONDS = 1
 MAX_BACKOFF_SECONDS = 60
 
-# mcp-proxy stderr 可能回显 URL；禁止把 token / wss 原文写入日志。
+# mcp-proxy stderr / 第三方库日志可能回显 URL 或凭据；禁止把 token / Bearer /
+# api_key / access_token / sk- 裸密钥 / wss 原文写入日志。各形态共用同一个
+# 捕获式：<key>=<value>、JSON 里的 "key": "value"、"key":value、token: value
+# 以及 Authorization: Bearer <value>，替换时保留 key 侧，方便诊断定位。
 _SECRETISH_RE = re.compile(
-    r"(?i)(token=)([^&\s]+)|(wss://\S+)|(https?://\S+)"
+    # key 形态需左边界，避免 `notbearer=value` 这类标识符后缀被误当凭据。
+    r"(?i)(?<![A-Za-z0-9])((?:api[-_]?key|access[-_]?token|token|bearer)[\"']?\s*[=:]\s*[\"']?)([^\"'\s,&}]+)"
+    # Authorization/Bearer header 只认横向空白且值必须像凭据（含数字或 -_./ 符号，
+    # 至少 6 位），避免把「bearer token/authentication」这类纯字母普通句子当密钥。
+    r"|(?<![A-Za-z0-9])(Bearer[ \t]+)(?![=:]|header\b)((?=[^\s\"',}]*(?:[0-9]|[-_./]))[^\s\"',}]{6,})"
+    r"|(?<![A-Za-z0-9])(sk-[A-Za-z0-9_-]{8,})"
+    r"|(wss://\S+)|(https?://\S+)"
 )
 MCP_PROXY_STREAM_LIMIT = 2 * 1024 * 1024
 _MAX_LOG_LINE = 200
@@ -126,12 +135,18 @@ def _message_label(message: str | bytes) -> str:
 
 
 def _redact_secret_text(text: str) -> str:
-    """去掉文本中的 token 与 URL，同时保留其余诊断上下文。"""
+    """去掉文本中的 token / Bearer / api_key / sk- 裸密钥与 URL，保留其余诊断上下文。"""
 
     def _sub(match: re.Match[str]) -> str:
-        if match.group(1):
-            return f"{match.group(1)}<redacted>"
-        return "<redacted-url>"
+        # 各 key 形态（token= / api_key= / "access_token": / Bearer 等）保留 key 侧。
+        for group in match.groups():
+            if group is not None:
+                if "://" in group:
+                    return "<redacted-url>"
+                if group.startswith(("sk-", "wss:")):
+                    return "<redacted>"
+                return f"{group}<redacted>"
+        return "<redacted>"
 
     return _SECRETISH_RE.sub(_sub, text)
 
