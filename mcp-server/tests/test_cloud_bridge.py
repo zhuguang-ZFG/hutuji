@@ -89,6 +89,8 @@ def test_proxy_stderr_keeps_benign_short_lines() -> None:
     [
         ("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig", "eyJhbGciOiJIUzI1NiJ9.payload.sig"),
         ("Authorization: Bearer abcdefghijklmnop", "abcdefghijklmnop"),
+        ('{"headers":{"Authorization":"Bearer abcdefghijklmnop"}}', "abcdefghijklmnop"),
+        ("'Authorization': 'Bearer abcdefghijklmnop'", "abcdefghijklmnop"),
         ("authorization: bearer=deadbeefcafe", "deadbeefcafe"),
         ("proxy-authorization: Bearer xyz", "xyz"),
         ("upstream replied Bearer abcdef123456", "abcdef123456"),
@@ -126,6 +128,7 @@ def test_redact_scrubs_bearer_and_assignment_forms(raw: str, secret: str) -> Non
         "no bearer token found",
         "bearer authentication disabled",
         "notbearer=value",
+        "x-authorization: Bearer abcdefghijklmnop",
         "Bearer\nsecret",
     ],
 )
