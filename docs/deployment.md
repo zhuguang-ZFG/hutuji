@@ -97,7 +97,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ 生产 14 项已复验（2026-07-31 21:22，跑的是 `ec49082` 版脚本） / 🟡 仓内脚本已修更硬，**未部署** | `pass=14 fail=0`；见下「第三轮传输安全加固」与「仓内 preflight 已修未部署」 |
+| `preflight.sh` 全 PASS | ✅ 当前仓内脚本已部署；2026-08-04 生产复验 14/14 | `pass=14 fail=0 skip=0`；四个发布文件与 `f59c0a0` 提交对象哈希一致 |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
@@ -181,15 +181,8 @@ HTTPS `/files/__nonexistent__` 404。桥接重连后云端真实 `initialize`+`t
 > 「线上 nginx conf 与本仓模板一致」**fail**——该项比较基准是 `/opt/hutuji/deploy/nginx-hutuji.conf`,
 > 两处都要同步。
 
-> **仓内 preflight 已修未部署（2026-08-01）**：`f3ef14b`/`8e4b9b4` 把活动 ACL 检查抽成
-> `check_acl_response()` 时把**调用点也搬到了变量初始化之前**，`set -euo pipefail` 下脚本第一条
-> 顶层语句就 `TUNNEL_HOST: unbound variable` 退出——14 项一个都不会跑。本轮已修回（调用移到
-> nginx 层末尾、`check_download` 之前），并补三处硬化：无非 loopback IPv4 时打印 `[skip]` 而不是
-> 拿 loopback 半边冒充整项 `[pass]`；第 6 项加 `command -v ss` 前置（`ss` 缺失时 `! ss | grep`
-> 会假绿）；全部 curl 统一 `--noproxy "*" --max-time 5`。生产此刻仍跑 21:22 那版（`ec49082`，功能正确
-> 但缺这三处硬化），**尚未 scp**。
-> 注意第 12 项漂移判据只比 `nginx-hutuji.conf`，**`preflight.sh` 自身没有漂移检查**——下次按上面
-> scp 流程更新时必须带上 `preflight.sh` 并当场重跑，否则线上体检与仓内脚本会长期分叉。
+> **仓内 preflight 修复已部署（2026-08-04，supersede 2026-08-01“未部署”状态）**：此前 `f3ef14b`/`8e4b9b4` 引入的变量初始化顺序回归，以及随后补齐的 `[skip]`、`ss` 前置、curl 超时/禁代理、本机 5xx 不算可达等硬化，已随 hutuji `f59c0a0` scp 到 `/opt/hutuji/deploy/preflight.sh`。生产当场复验 `pass=14 fail=0 skip=0`，生产脚本 SHA-256 `7196aa9efa13ccc839bf4b2e59294aee14142e062659efb44fab9a669ae8dc97` 与提交对象一致；回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`。第 12 项仍只核 nginx 模板，故每次更新 `preflight.sh` 仍必须显式上传并当场执行。
+
 
 #### 漂移判据（必须 LF 归一化）
 

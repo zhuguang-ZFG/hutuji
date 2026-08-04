@@ -9,7 +9,8 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | 🟡 服务常驻；线上 preflight 为 2026-07-31 21:22 的 `ec49082` 版（14/14 PASS 已复验），仓内 `2afb020` 的 `[skip]`/`ss` 前置修复**尚未 scp 上线**；`nginx-hutuji.conf` 新增的 443 双入口注释**亦未 scp**（行为等价，md5 基准 `5a424341` 已随注释新增失效，下次 scp 连同 preflight 一起带并重跑 14 项）——真值以 `../docs/release-readiness.md` 为准 |
+| VPS 实机部署与验收 | ✅ 2026-08-04 已同步当前 `preflight.sh` 与 MCP 服务修复，生产复验 `pass=14 fail=0 skip=0`；四个发布文件与 hutuji `f59c0a0` 提交对象哈希一致，回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`——真值以 `../docs/release-readiness.md` 为准 |
+
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
 > 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 14 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。
