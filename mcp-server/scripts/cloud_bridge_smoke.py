@@ -30,9 +30,11 @@ def _port_in_use(host: str, port: int) -> bool:
         return False
 
 
-def _wait_port(timeout: float = 10.0) -> None:
+def _wait_port(process: subprocess.Popen[str] | None = None, timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(f"本机 MCP 服务提前退出（exit={process.returncode}）")
         try:
             with socket.create_connection((HOST, PORT), timeout=0.5):
                 return
@@ -89,7 +91,11 @@ def main() -> int:
     )
     bridge: subprocess.Popen[str] | None = None
     try:
-        _wait_port()
+        try:
+            _wait_port(server)
+        except (TimeoutError, RuntimeError) as exc:
+            print(f"FAIL: {exc}", file=sys.stderr)
+            return 1
         bridge = subprocess.Popen(
             [sys.executable, "-m", "hutuji_mcp.cloud_bridge"],
             cwd=ROOT,

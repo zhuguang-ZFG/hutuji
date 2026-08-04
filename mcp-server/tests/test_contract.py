@@ -125,6 +125,36 @@ def test_load_settings_rejects_insecure_public_url(monkeypatch: pytest.MonkeyPat
         load_settings()
 
 
+@pytest.mark.parametrize("port", [0, 65536])
+def test_settings_rejects_invalid_port(tmp_path: Path, port: int) -> None:
+    with pytest.raises(ValueError, match="port.*1.*65535"):
+        Settings(
+            llm_base_url="https://example.invalid/v1", llm_api_key="", llm_model="test",
+            output_dir=tmp_path, public_base_url="https://draw.example", host="127.0.0.1",
+            port=port, output_ttl_seconds=600,
+        )
+
+
+@pytest.mark.parametrize("ttl", [0, -1])
+def test_settings_rejects_nonpositive_ttl(tmp_path: Path, ttl: int) -> None:
+    with pytest.raises(ValueError, match="output_ttl_seconds.*> 0"):
+        Settings(
+            llm_base_url="https://example.invalid/v1", llm_api_key="", llm_model="test",
+            output_dir=tmp_path, public_base_url="https://draw.example", host="127.0.0.1",
+            port=8300, output_ttl_seconds=ttl,
+        )
+
+
+@pytest.mark.parametrize("name", ["HUTUJI_PORT", "HUTUJI_OUTPUT_TTL_SECONDS"])
+def test_load_settings_rejects_noninteger_numbers(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    monkeypatch.setenv(name, "not-an-int")
+    with pytest.raises(ValueError, match=name):
+        load_settings()
+
+
+
 def test_draw_rejects_injected_insecure_settings_before_capability_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -176,7 +206,65 @@ def test_draw_uses_normalized_injected_public_origin(
 
 
 def _minimal_gcode(extra: str = "") -> str:
-    return f"G21\nG90\nF8000\n{extra}"
+    """构造符合 §5 固定头尾的最小生产文件，在中间插入待测代码。"""
+    if extra and not extra.endswith("\n"):
+        extra += "\n"
+    return (
+        "G21\nG90\nF8000\n"
+        "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+        f"{extra}"
+        "G1G90 Z0.0F10000\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "G90\nG21\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n",
+        "G21\nG90\nF1\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n",
+        "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1 X1Y1F8000\nG1G90 Z0.0F10000\n",
+        "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z5.0F10000\nG1G90 Z0.0F10000\n",
+    ],
+)
+def test_gcode_rejects_nonproduction_header(text: str) -> None:
+    with pytest.raises(GcodeError, match="§5 文件头|文件头不足"):
+        validate_gcode(text)
+
+
+def test_gcode_rejects_pen_down_ending() -> None:
+    with pytest.raises(GcodeError, match="文件末尾.*Z0"):
+        validate_gcode(
+            "G21\nG90\nF8000\n"
+            "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+            "G1G90 Z5.0F10000\n"
+        )
+
+
+def test_gcode_accepts_spaced_production_header() -> None:
+    validate_gcode(
+        "G21\nG90\nF8000\n"
+        "G1 G90 Z0.0 F10000\nG1 G90 Z0.0 F10000\n"
+        "G1 G90 Z0.0 F10000\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        "G1 X10Y10 Z0 F8000",
+        "G1G90 Z0.0F9999",
+        "G1G90 Z0F10000",
+        "G1G90 Z0.00F10000",
+    ],
+)
+def test_gcode_requires_exact_production_footer(ending: str) -> None:
+    text = (
+        "G21\nG90\nF8000\n"
+        "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+        f"{ending}\n"
+    )
+    with pytest.raises(GcodeError, match="文件末尾.*G1G90 Z0.0F10000"):
+        validate_gcode(text)
 
 
 def test_gcode_rejects_more_than_512_kib() -> None:
@@ -191,10 +279,14 @@ def test_gcode_accepts_exactly_512_kib() -> None:
     内容必须拆成 ≤255 字符的多行注释（行长约束 + 注释被剥除），
     不能一条长行填满——单行 256 字符会先撞上行长检查。
     """
-    # 2047 行 × 255 字节 + 行间 2047 个 \n + 末行 242 字节 = 524274，
-    # 加上头 14 字节（G21\nG90\nF8000\n）恰为 512×1024。
-    body = "\n".join([";" + "x" * 254] * 2047 + [";" + "x" * 241])
-    text = _minimal_gcode(body)
+    base = _minimal_gcode()
+    remaining = MAX_BYTES - len(base.encode("utf-8"))
+    full_lines, tail_bytes = divmod(remaining, 256)
+    filler = (";" + "x" * 254 + "\n") * full_lines
+    if tail_bytes:
+        assert tail_bytes >= 2
+        filler += ";" + "x" * (tail_bytes - 2) + "\n"
+    text = _minimal_gcode(filler)
     assert len(text.encode("utf-8")) == MAX_BYTES
     stats = validate_gcode(text)
     assert stats.bytes == MAX_BYTES
@@ -207,9 +299,7 @@ def test_gcode_rejects_line_over_255_chars() -> None:
 
 
 def test_gcode_rejects_paren_comment_line() -> None:
-    """§5 注释口径：`(...)` 括号注释暂不解析，含 `(` 的行一律整行拒。
-
-    括号里藏 G28/G0 X0Y0 与纯合法注释都被拒（gcode_gen.py:239-243）。"""
+    """§5 注释口径：`(...)` 括号注释暂不解析，含 `(` 的行一律整行拒。"""
     for line in ("(G28 X0)", "; ok\n(G90)"):
         with pytest.raises(GcodeError, match="无法解析或不允许"):
             validate_gcode(_minimal_gcode(line + "\n"))
@@ -220,7 +310,7 @@ def test_pen_lifts_are_reported_but_not_rejected(caplog: pytest.LogCaptureFixtur
     text = _minimal_gcode("G1G90 Z0.0F10000\n" * (PEN_LIFT_WARN_THRESHOLD + 1))
     with caplog.at_level(logging.WARNING):
         stats = validate_gcode(text)
-    assert stats.pen_lifts == PEN_LIFT_WARN_THRESHOLD + 1
+    assert stats.pen_lifts == PEN_LIFT_WARN_THRESHOLD + 4
     assert "仍放行" in caplog.text
 
 
@@ -604,7 +694,7 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         captured["cmd"] = cmd
         # 伪造 vpype 成功：往输出路径写一份最小合法 G-code
-        Path(cmd[-1]).write_text("G21\nG90\nF8000\n", encoding="utf-8")
+        Path(cmd[-1]).write_text(_minimal_gcode(), encoding="utf-8")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
@@ -774,9 +864,6 @@ def test_gcode_rejects_mixed_radius_and_offset_arc_words() -> None:
         validate_gcode(text)
 
 
-def test_gcode_requires_feed_before_first_cut_motion() -> None:
-    with pytest.raises(GcodeError, match="F|进给"):
-        validate_gcode("G21\nG90\nG1 X5 Y5\n")
 
 
 def test_malformed_gcode_never_raises_non_gcode_error() -> None:
@@ -825,14 +912,14 @@ def test_arc_fully_inside_limit_passes() -> None:
     # 同一条弧整体下移：凸点 Y=110，稳在界内
     text = _minimal_gcode("G0 X100 Y100\nG2 X120 Y100 I10 J0\n")
     stats = validate_gcode(text)
-    assert stats.lines == 5
+    assert stats.lines == 8
 
 
 def test_arc_opposite_direction_bulges_the_other_way() -> None:
     """同样的起终点与 I/J，G3 走下半圈——凸向 Y=175，仍在界内。
     方向决定凸向，故限幅必须按实际扫过的角度区间算，不能取外接正方形。"""
     stats = validate_gcode(_minimal_gcode("G0 X100 Y185\nG3 X120 Y185 I10 J0\n"))
-    assert stats.lines == 5
+    assert stats.lines == 8
 
 
 def test_arc_without_known_start_is_rejected() -> None:
@@ -892,7 +979,7 @@ def test_mid_file_g91_is_rejected() -> None:
     ],
 )
 def test_gcode_requires_exact_g21_g90_before_motion(text: str) -> None:
-    with pytest.raises(GcodeError, match="G21/G90|必须是整数|允许 G0"):
+    with pytest.raises(GcodeError, match="§5 文件头"):
         validate_gcode(text)
 
 
@@ -902,23 +989,15 @@ def test_g0_with_unknown_modal_axis_is_rejected() -> None:
         validate_gcode(_minimal_gcode("G0 X0\n"))
 
 
-def test_default_modal_axis_only_line_is_limited() -> None:
-    """复位后默认模态是 G0；即使文件尚无显式运动码，裸轴字也必须限幅。"""
+def test_production_modal_axis_only_line_is_limited() -> None:
+    """固定头已建立 G1；后续裸轴字仍必须执行画幅限幅。"""
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(_minimal_gcode("X500 Y5\n"))
 
 
-def test_default_modal_bare_origin_is_rejected() -> None:
-    """裸 `X0 Y0`（不带 G 字）必须按 G0 判定并拒绝。
-
-    Grbl 复位/上电后的默认运动模式是 G0 而不是 G1：`Grbl_Esp32/src/GCode.h`
-    里 `Seek = 0, // G0 (Default: Must be zero)`，modal 结构体归零即 Seek，
-    只有 M2/M30 之后才切 G1。所以这一行会被固件按 G0 执行、落到 (0,0)，触发
-    自动换纸 + 失能电机（该路径只查 XY，没有一次性门）。校验器初值曾写成 G1，
-    这类行会被当成普通画线放行——是能把机器搞坏的静默漏放。
-    """
-    with pytest.raises(GcodeError, match="自动换纸"):
-        validate_gcode(_minimal_gcode("X0 Y0\n"))
+def test_production_header_establishes_g1_before_axis_only_line() -> None:
+    """固定头的两次 G1 抬笔已把模态切到 G1；裸 X0Y0 不走 G0 换纸路径。"""
+    validate_gcode(_minimal_gcode("X0 Y0\n"))
 
 
 def test_explicit_g1_to_origin_is_still_allowed() -> None:
@@ -955,7 +1034,7 @@ def test_pen_lift_counts_glued_and_padded_forms() -> None:
             "G1G90 Z5.0F10000\nG1 X10.000Y10.000F8000\n"
         )
     )
-    assert stats.pen_lifts == 3
+    assert stats.pen_lifts == 6
 
 
 @pytest.mark.parametrize(
@@ -1200,6 +1279,98 @@ def test_gate_rejects_claims_list_drift(
 
     assert result["status"] == "fail"
     assert "claims_forbidden" in result["detail"]
+
+
+def test_gate_required_files_rejects_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = _load_agent_gate()
+    target = tmp_path / "target.md"
+    target.write_text("real", encoding="utf-8")
+    link = tmp_path / "required.md"
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"当前平台无权限创建 symlink：{exc}")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "REQUIRED_FILES", ["required.md"])
+
+    result = gate.check_required_files()
+
+    assert result["status"] == "fail"
+    assert "required.md" in result["detail"]
+
+
+def _load_cloud_bridge_smoke():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "cloud_bridge_smoke.py"
+    spec = importlib.util.spec_from_file_location("hutuji_cloud_bridge_smoke_test", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_cloud_bridge_smoke_reports_server_early_exit() -> None:
+    class ExitedProcess:
+        returncode = 7
+
+        @staticmethod
+        def poll():
+            return 7
+
+    with pytest.raises(RuntimeError, match="提前退出.*exit=7"):
+        _load_cloud_bridge_smoke()._wait_port(ExitedProcess(), timeout=0.01)
+
+
+def _load_root_script(module_name: str, name: str):
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / name
+    spec = importlib.util.spec_from_file_location(module_name, script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_fault_capture_rejects_nonpositive_and_negative_timings() -> None:
+    capture = _load_root_script("hutuji_fault_capture_test", "bringup_fault_capture.py")
+    with pytest.raises(Exception, match="duration.*> 0"):
+        capture._positive_duration("0")
+    with pytest.raises(Exception, match="秒数.*>= 0"):
+        capture._nonnegative_seconds("-1")
+
+def test_fault_capture_queues_wifi_restore_after_interruption() -> None:
+    import queue
+
+    capture = _load_root_script("hutuji_fault_capture_restore_test", "bringup_fault_capture.py")
+    commands: queue.Queue[str] = queue.Queue()
+
+    assert capture._queue_wifi_restore(True, False, commands) is True
+    assert commands.get_nowait() == "[ESP115]ON"
+    assert capture._queue_wifi_restore(False, False, commands) is False
+    assert capture._queue_wifi_restore(True, True, commands) is True
+    assert commands.empty()
+
+
+def test_console_endpoint_display_drops_credentials_path_and_token() -> None:
+    console = _load_root_script("hutuji_console_test", "xiaozhi_console.py")
+    url = "wss://user:password@mcp.example:443/private?token=must-not-leak#secret"
+
+    shown = console._endpoint_origin(url)
+
+    assert shown == "wss://mcp.example:443"
+    assert "password" not in shown
+    assert "must-not-leak" not in shown
+
+def test_console_endpoint_display_preserves_ipv6_origin_syntax() -> None:
+    console = _load_root_script("hutuji_console_ipv6_test", "xiaozhi_console.py")
+
+    assert console._endpoint_origin("wss://[2001:db8::1]:8443/private?token=secret") == (
+        "wss://[2001:db8::1]:8443"
+    )
 
 
 def _load_e2e_local():

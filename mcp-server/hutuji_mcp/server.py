@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from mcp.server.fastmcp import FastMCP
 
 from .config import settings
@@ -135,9 +135,16 @@ def _redact_capability_name(name: str) -> str:
 
 
 def _delete_output_pair(stem: str) -> None:
-    """删除同一产物的 SVG/G-code；文件本就可能只生成了一半。"""
+    """删除同一产物的 SVG/G-code；文件本就可能只生成了一半。
+
+    删除失败（权限/占用）只记录 warning：过期 URL 无论如何统一 404，
+    删除是尽力而为的清理，不能反过来把下载路径变成 500。
+    """
     for suffix in (".svg", ".gcode"):
-        (settings.output_dir / f"{stem}{suffix}").unlink(missing_ok=True)
+        try:
+            (settings.output_dir / f"{stem}{suffix}").unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("删除过期产物失败 %s：%s", f"{stem}{suffix}", exc)
 
 
 def _is_expired(path: Path, *, now: float | None = None) -> bool:
@@ -180,19 +187,30 @@ def _read_regular_file(path: Path) -> tuple[bytes, float]:
             os.close(fd)
         raise
 
-
 def _cleanup_expired_outputs(*, now: float | None = None) -> int:
-    """清除超过 TTL 的 draw_*.svg/gcode，返回删除的文件数。"""
+    """清除超过 TTL 的 draw_*.svg/gcode，返回删除的文件数。
+
+    清理是尽力而为的运维动作：目录不可读、mtime 拿不到、删除被拒
+    （权限/占用/竞态）都只记录 warning 并跳过该项，绝不让 status/draw
+    因清理失败变成 500。
+    """
     if not settings.output_dir.is_dir():
         return 0
     now = time.time() if now is None else now
     expired_stems: set[str] = set()
-    for path in settings.output_dir.iterdir():
+    try:
+        entries = list(settings.output_dir.iterdir())
+    except OSError as exc:
+        logger.warning("清理输出目录失败（iterdir）：%s", exc)
+        return 0
+    for path in entries:
         if path.is_file() and _DRAW_FILE_RE.fullmatch(path.name):
             try:
                 if _is_expired(path, now=now):
                     expired_stems.add(path.stem)
-            except FileNotFoundError:
+            except OSError as exc:
+                # mtime 拿不到（权限/竞态）→ 跳过该项，不穿透
+                logger.warning("跳过清理 %s：%s", path.name, exc)
                 continue
 
     deleted = 0
@@ -204,6 +222,8 @@ def _cleanup_expired_outputs(*, now: float | None = None) -> int:
                 deleted += 1
             except FileNotFoundError:
                 pass
+            except OSError as exc:
+                logger.warning("删除过期产物失败 %s：%s", path.name, exc)
     return deleted
 
 
@@ -319,10 +339,19 @@ async def _serve_file(name: str):
         # 泄漏目录内文件属性，统一 404。
         raise HTTPException(status_code=404, detail="not found") from None
     if time.time() - mtime >= settings.output_ttl_seconds:
-        _delete_output_pair(path.stem)
-        # detail 与「不存在」不可区分：过期与否是时序信息，回显会泄漏
+        # 删除前复核：_read_regular_file 锁定的是打开时的旧对象，期间同 stem
+        # 路径可能被换成新文件（mtime 变了）。路径已换则跳过删除（删了会误删
+        # 新对象）；mtime 拿不到（已被并发删除）也跳过。删除本身失败由
+        # _delete_output_pair 收窄为 warning。无论哪种情况，统一 404：
+        # detail 与「不存在」不可区分，过期与否是时序信息，回显会泄漏
         # 「该 token 曾有效」的可探测面（128-bit token 下价值为零，但
         # 统一口径成本更低，也避免攻击者拿响应差异做枚举侧信道）。
+        try:
+            still_expired = _is_expired(path)
+        except OSError:
+            still_expired = False
+        if still_expired:
+            _delete_output_pair(path.stem)
         raise HTTPException(status_code=404, detail="not found")
     crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")  # zlib/IEEE 变体，须与 S3 侧一致
     media = "image/svg+xml" if name.endswith(".svg") else "application/octet-stream"

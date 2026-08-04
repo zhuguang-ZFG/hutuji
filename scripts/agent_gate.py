@@ -13,8 +13,9 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
+import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -162,7 +163,13 @@ def _layer(lid: str, name: str, status: str, detail: str = "", **extra: Any) -> 
 
 
 def check_required_files() -> dict[str, Any]:
-    missing = [p for p in REQUIRED_FILES if not (ROOT / p).is_file()]
+    # lstat 语义：symlink 视为缺失。门禁校验的是真实落盘的必备文件，
+    # 链接到别处的文件可能在部署后被抽走/换指向而不被发现。
+    missing = [
+        p
+        for p in REQUIRED_FILES
+        if (ROOT / p).is_symlink() or not (ROOT / p).is_file()
+    ]
     if missing:
         return _layer("required_files", "必备文件", "fail", f"missing={missing}")
     return _layer("required_files", "必备文件", "pass", f"count={len(REQUIRED_FILES)}")
@@ -646,9 +653,10 @@ def _atomic_write(path: Path, text: str) -> None:
     """同目录临时文件 + os.replace 原子落盘，避免进程中断留下半截报告。
 
     门禁报告是后续 agent 的决策依据：损坏/错配的报告可能被误读为 pass，
-    而 JSON 与 MD 分两次直写无法保证两文件一致。tmp 名带 pid：两个门禁实例
-    并发跑时若共用固定 .tmp 名，后写者会 replace 走先写者的临时文件。"""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    而 JSON 与 MD 分两次直写无法保证两文件一致。tmp 名带 pid + uuid：
+    不同进程并发时 pid 已隔离；同进程内多线程/多任务并发时 pid 相同，
+    uuid 保证互不覆盖，避免后写者 replace 走先写者的临时文件。"""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 

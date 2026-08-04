@@ -11,6 +11,8 @@
 >
 > **仓内 vs 生产（2026-08-01）**：`deploy/preflight.sh` 已不再与生产同版——生产是 21:22 部署的 `ec49082` 版（功能正确、缺本轮三处硬化），仓内是 `2afb020` 版。第 12 项漂移判据只比 `nginx-hutuji.conf`，`preflight.sh` 自身无漂移检查，**下次 scp 必须带上它并当场重跑**，否则两边会长期分叉。
 
+> **2026-08-04 当前未提交复审工作树（覆盖本页顶部旧快照的“干净”陈述）**：hutuji HEAD `92a7769`，12 个已跟踪文件未提交（`deploy/preflight.sh`、`docs/{protocol,release-readiness,worktree-inventory}.md`、`mcp-server/hutuji_mcp/{config,gcode_gen,server}.py`、`mcp-server/scripts/cloud_bridge_smoke.py`、`mcp-server/tests/test_contract.py`、`scripts/{agent_gate,bringup_fault_capture,xiaozhi_console}.py`）+ 用户/工具资产 `.omk/` 未跟踪，勿删；xiaozhi HEAD `7b1309d`，`main/boards/lichuang-dev/hutuji_pipe.cc` 未提交（Timeout `error_code=-1` 契约修复，+7）；Grbl HEAD `966723b` 工作树干净；fz HEAD `c2bf1a3` 有两个未跟踪用户/工具资产 `native_sim/{telnet_server_behavior.cpp,test_telnet_server_behavior.py}`，本轮未改、勿删。当前增量未提交/未推/未部署/未烧录。验证边界见 `release-readiness.md` 顶部 2026-08-04 当前复审增量条。
+
 ## 怎么用
 
 1. 开干前：三仓各跑 `git status --short`，对照本页。  

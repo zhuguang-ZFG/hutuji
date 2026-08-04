@@ -86,10 +86,22 @@ class Settings:
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
         object.__setattr__(self, "llm_base_url", validate_llm_base_url(self.llm_base_url))
+        if not 1 <= self.port <= 65535:
+            raise ValueError(f"port 必须在 1..65535，当前 {self.port}")
+        if self.output_ttl_seconds <= 0:
+            raise ValueError(f"output_ttl_seconds 必须 > 0，当前 {self.output_ttl_seconds}")
 
     @property
     def llm_configured(self) -> bool:
         return bool(self.llm_api_key)
+
+
+def _env_int(name: str, default: str) -> int:
+    raw = os.environ.get(name, default)
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} 必须是整数，当前 {raw!r}") from exc
 
 
 def load_settings() -> Settings:
@@ -102,8 +114,8 @@ def load_settings() -> Settings:
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
         # 默认仅本机监听；公网只让 nginx 反代 /files，绝不直曝 /mcp。
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
-        port=int(os.environ.get("HUTUJI_PORT", "8300")),
-        output_ttl_seconds=int(os.environ.get("HUTUJI_OUTPUT_TTL_SECONDS", "600")),
+        port=_env_int("HUTUJI_PORT", "8300"),
+        output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
     )
 
 

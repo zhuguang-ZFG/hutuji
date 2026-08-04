@@ -170,9 +170,10 @@ check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
-check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[2345] ]]'
-# /files 无具体 token 时允许 404；只要不是连接失败。
-check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[2345] ]]'
+# 2xx/3xx/4xx 都算「服务有响应」，但 5xx 是服务错误，不得报 pass。
+check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[234] ]]'
+# /files 无具体 token 时允许 404（4xx 在列）；连接失败（000）与 5xx 都不得报 pass。
+check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[234] ]]'
 
 # ---- nginx 层（应用直连绿≠经 nginx 绿）----
 check "nginx -t 通过且 enabled 配置含 loopback-only :80 /files ACL" check_active_nginx_acl

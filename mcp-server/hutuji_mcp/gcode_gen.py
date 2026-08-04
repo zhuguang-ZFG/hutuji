@@ -221,6 +221,35 @@ def validate_gcode(text: str) -> GcodeStats:
             f"G-code 总大小 {total_bytes} 字节超上限 {MAX_BYTES}（512KB，protocol §5）"
         )
 
+    # §5 精确文件头/尾是产物形状契约，不是语法合法性：剥注释/空行后的前 5 个
+    # 代码块必须逐字对齐 hutuji_gwrite.toml 的 document_start（G21/G90/F8000 +
+    # 两次 G1G90 Z0.0F10000 幂等抬笔）。G210/G900 这类子串、F 值不为 8000、
+    # 抬笔数值不是 0.0/10000，都会在这里被拒，而不是等宽松的允许列表兜底。
+    # 抬笔行的「等价写法」只放宽空白（G1 G90 Z0.0 F10000），数值字面量不放松。
+    code_lines: list[tuple[int, str]] = []
+    for lineno, raw in enumerate(lines, start=1):
+        code = raw.split(";", 1)[0].strip()
+        if code:
+            code_lines.append((lineno, code))
+
+    expected_head = (
+        "G21",
+        "G90",
+        "F8000",
+        "G1G90 Z0.0F10000",  # 第 1 次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路）
+        "G1G90 Z0.0F10000",  # 第 2 次幂等抬笔
+    )
+    for i, expected in enumerate(expected_head, start=1):
+        if i > len(code_lines):
+            raise GcodeError(
+                f"第 {i} 行缺少 §5 文件头 {expected}（文件头不足 5 个代码块）"
+            )
+        lineno, code = code_lines[i - 1]
+        if code.replace(" ", "") != expected.replace(" ", ""):
+            raise GcodeError(
+                f"第 {lineno} 行不是精确的 §5 文件头 {expected}（实际：{code}）"
+            )
+
     seen_g21 = False
     seen_g90 = False
     seen_f = False
@@ -402,6 +431,15 @@ def validate_gcode(text: str) -> GcodeStats:
 
     if not (seen_g21 and seen_g90):
         raise GcodeError("文件头缺少精确 G21/G90（§5 自包含要求）")
+
+    # §5 收尾：最后一个有效代码块（剥注释/空行后）必须精确对齐生产
+    # document_end。只放宽空格，不能把任意含 Z0 的画线或错误进给当成收尾。
+    last_lineno, last_code = code_lines[-1]
+    expected_end = "G1G90 Z0.0F10000"
+    if last_code.replace(" ", "") != expected_end.replace(" ", ""):
+        raise GcodeError(
+            f"第 {last_lineno} 行（文件末尾）必须是 {expected_end}（§5 契约，实际：{last_code}）"
+        )
 
     if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
         logger.warning(

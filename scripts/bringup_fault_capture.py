@@ -71,7 +71,9 @@ def _serial_worker(
         with serial.Serial(port, baud, timeout=0.2) as ser:
             out.put(f"{_timestamp()} [{name}] opened {port} @ {baud}")
             pending = bytearray()
-            while not stop.is_set():
+            # stop 后仍排空命令队列：Ctrl-C 若发生在 [ESP115]OFF/ON 之间，
+            # 主线程会先补排 ON 再置 stop，不能因退出循环把设备留在 WiFi 关态。
+            while not stop.is_set() or (commands is not None and not commands.empty()):
                 if commands is not None:
                     while True:
                         try:
@@ -116,21 +118,47 @@ def _summarize(lines: list[str]) -> list[str]:
         summary.append(f"| Grbl | `{marker}` | {'是' if marker in joined else '否'} |")
     return summary
 
+def _positive_duration(value: str) -> int:
+    """argparse type：duration 必须 > 0，否则报参数错误（argparse 退出码 2）。"""
+    n = int(value)
+    if n <= 0:
+        raise argparse.ArgumentTypeError(f"--duration 必须 > 0，收到 {value}")
+    return n
+
+
+def _nonnegative_seconds(value: str) -> int:
+    """argparse type：故障注入时间必须 >= 0，避免负数绕过恢复窗口判据。"""
+    n = int(value)
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"秒数必须 >= 0，收到 {value}")
+    return n
+
+def _queue_wifi_restore(
+    injected_off: bool,
+    injected_on: bool,
+    commands: queue.Queue[str] | None,
+) -> bool:
+    """中断/异常退出时补排 WiFi ON；返回是否已安排恢复。"""
+    if injected_off and not injected_on and commands is not None:
+        commands.put("[ESP115]ON")
+        return True
+    return injected_on
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="采集 bringup 故障注入日志")
     parser.add_argument("--s3-port", help="S3 日志串口，如 COM9")
     parser.add_argument("--grbl-port", help="Grbl 串口，如 COM3")
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--duration", type=int, default=180, help="采集秒数")
+    parser.add_argument("--duration", type=_positive_duration, default=180, help="采集秒数（必须 > 0）")
     parser.add_argument("--device-id", default="S3-LC-01")
     parser.add_argument("--out", type=Path, help="输出 Markdown 路径")
     parser.add_argument(
         "--inject-grbl-wifi-cycle-at",
-        type=int,
+        type=_nonnegative_seconds,
         help="第 N 秒向 Grbl 串口发送 [ESP115]OFF，再按 --wifi-off-seconds 恢复 ON",
     )
-    parser.add_argument("--wifi-off-seconds", type=int, default=8)
+    parser.add_argument("--wifi-off-seconds", type=_nonnegative_seconds, default=8)
     parser.add_argument("--note", default="", help="写入记录的人工备注")
     args = parser.parse_args()
 
@@ -205,6 +233,7 @@ def main() -> int:
     except KeyboardInterrupt:
         events.put(f"{_timestamp()} [capture] interrupted by user")
     finally:
+        injected_on = _queue_wifi_restore(injected_off, injected_on, grbl_commands)
         stop.set()
         for thread in threads:
             thread.join(timeout=1.5)

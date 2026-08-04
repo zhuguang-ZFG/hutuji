@@ -33,8 +33,9 @@
 import json
 import os
 import sys
-from pathlib import Path
 from urllib.error import HTTPError
+from pathlib import Path
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 API_BASE = os.environ.get("XIAOZHI_API", "https://xiaozhi.me/api")
@@ -125,6 +126,23 @@ def cmd_list():
         print(f"  {aid}  {name}  设备={online}/{total}  模型={model}  知识库={kb}")
 
 
+def _endpoint_origin(url: str) -> str:
+    """端点只显示 scheme+host（origin），丢弃 query/fragment/userinfo——token 常在 query 里。"""
+    if not isinstance(url, str):
+        return "<redacted>"
+    try:
+        parsed = urlparse(url)
+        if not (parsed.scheme and parsed.hostname):
+            return "<redacted>"
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        origin = f"{parsed.scheme}://{host}"
+        if parsed.port is not None:
+            origin += f":{parsed.port}"
+        return origin
+    except ValueError:
+        return "<redacted>"
+
+
 def cmd_show(agent_id):
     result = api("GET", f"/agents/{agent_id}")
     agent = result.get("data", {}).get("agent", {})
@@ -144,7 +162,9 @@ def cmd_show(agent_id):
     else:
         print("角色提示: (空)")
     print(f"知识库:   {agent.get('knowledge_base_ids', [])}")
-    print(f"MCP 端点: {agent.get('mcp_endpoints', [])}")
+    endpoints = agent.get("mcp_endpoints") or []
+    shown = ", ".join(_endpoint_origin(e) for e in endpoints) if endpoints else "[]"
+    print(f"MCP 端点: {shown}")
     print(f"设备:     {agent.get('deviceCount', 0)} 台（在线 {agent.get('onlineDeviceCount', 0)}）")
 
 
