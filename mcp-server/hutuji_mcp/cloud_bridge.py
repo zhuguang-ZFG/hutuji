@@ -31,9 +31,10 @@ MAX_BACKOFF_SECONDS = 60
 _SECRETISH_RE = re.compile(
     # (?i) 全局生效于整个模式。
     r"(?i)(?<![A-Za-z0-9])((?:api[-_]?key|access[-_]?token|token|bearer)[\"']?\s*[=:]\s*[\"']?)([^\"'\s,&}]+)"
-    # Authorization 上下文：允许 key 名/冒号侧引号（覆盖 JSON/repr 包裹形态），
-    # 值不限形态（含纯字母 opaque token）无条件脱敏；左边界排除 x-authorization 等前缀。
-    r"|(?<![A-Za-z0-9-])((?:authorization|proxy-authorization)[\"']?\s*:\s*[\"']?bearer[ \t]+)([^\s\"',}]+)"
+    # Authorization 上下文：允许 key 名/分隔侧引号（覆盖 JSON/repr 包裹形态）与
+    # 冒号/等号分隔，值不限形态（含纯字母 opaque token）无条件脱敏；左边界排除
+    # x-authorization 等前缀。
+    r"|(?<![A-Za-z0-9-])((?:authorization|proxy-authorization)[\"']?\s*[=:]\s*[\"']?bearer[ \t]+)([^\s\"',}]+)"
     # 裸 Bearer header（非 Authorization 前缀）：值必须像凭据（含数字或 -_./ 符号、
     # 至少 6 位），避免把「bearer token/authentication」这类纯字母普通句子当密钥。
     r"|(?<![A-Za-z0-9])(Bearer[ \t]+)(?![=:]|header\b)((?=[^\s\"',}]*(?:[0-9]|[-_./]))[^\s\"',}]{6,})"

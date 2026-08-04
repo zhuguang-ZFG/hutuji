@@ -92,6 +92,7 @@ def test_proxy_stderr_keeps_benign_short_lines() -> None:
         ('{"headers":{"Authorization":"Bearer abcdefghijklmnop"}}', "abcdefghijklmnop"),
         ("'Authorization': 'Bearer abcdefghijklmnop'", "abcdefghijklmnop"),
         ("authorization: bearer=deadbeefcafe", "deadbeefcafe"),
+        ("Authorization=Bearer abcdefghijklmnop", "abcdefghijklmnop"),
         ("proxy-authorization: Bearer xyz", "xyz"),
         ("upstream replied Bearer abcdef123456", "abcdef123456"),
         ("loaded SK-PROJ-ABCDEF123456 ok", "SK-PROJ-ABCDEF123456"),
