@@ -74,8 +74,18 @@ safe_output_dir() {
 
 check_mcp_env() {
   [[ -f /etc/hutuji/mcp.env ]] && check_no_placeholder /etc/hutuji/mcp.env &&
+    [[ -n "$LLM_BASE_URL" && -n "$LLM_API_KEY" && -n "$LLM_MODEL" ]] &&
     check_public_base_url "$PUBLIC_BASE_URL" &&
     safe_output_dir "$OUTPUT_DIR"
+}
+
+check_bridge_ready() {
+  local pid ready_pid
+  systemctl is-active --quiet hutuji-cloud-bridge || return 1
+  pid="$(systemctl show --property=MainPID --value hutuji-cloud-bridge)"
+  [[ "$pid" =~ ^[1-9][0-9]*$ && -r /run/hutuji/cloud-bridge.ready ]] || return 1
+  ready_pid="$(tr -d '[:space:]' < /run/hutuji/cloud-bridge.ready)"
+  [[ "$ready_pid" == "$pid" ]]
 }
 
 check_bridge_env() {
@@ -176,9 +186,15 @@ check_download() (
 
 PUBLIC_BASE_URL=""
 OUTPUT_DIR=""
+LLM_BASE_URL=""
+LLM_API_KEY=""
+LLM_MODEL=""
 if [[ -f /etc/hutuji/mcp.env ]]; then
   env_value /etc/hutuji/mcp.env HUTUJI_PUBLIC_BASE_URL; PUBLIC_BASE_URL="$ENV_VALUE"
   env_value /etc/hutuji/mcp.env HUTUJI_OUTPUT_DIR; OUTPUT_DIR="$ENV_VALUE"
+  env_value /etc/hutuji/mcp.env HUTUJI_LLM_BASE_URL; LLM_BASE_URL="$ENV_VALUE"
+  env_value /etc/hutuji/mcp.env HUTUJI_LLM_API_KEY; LLM_API_KEY="$ENV_VALUE"
+  env_value /etc/hutuji/mcp.env HUTUJI_LLM_MODEL; LLM_MODEL="$ENV_VALUE"
 fi
 BRIDGE_ENDPOINT=""
 if [[ -f /etc/hutuji/bridge.env ]]; then
@@ -193,13 +209,13 @@ fi
 
 check "mcp.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/mcp.env 2>/dev/null || echo x)" == "600" ]]'
 check "bridge.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
-check "mcp.env 无占位且公网前缀为 HTTPS:443" check_mcp_env
+check "mcp.env 无占位、LLM 完整且公网前缀为 HTTPS:443" check_mcp_env
 check "bridge.env 无占位且 MCP_ENDPOINT 为 wss://" check_bridge_env
 check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'
 # `ss` 不在时 `! ss | grep` 会因无输出而假绿（第 5 项那条 fail-closed，这条不是），先探二进制。
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
-check "hutuji-cloud-bridge active" systemctl is-active --quiet hutuji-cloud-bridge
+check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
 # 2xx/3xx/4xx 都算「服务有响应」，但 5xx 是服务错误，不得报 pass。
 check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[234] ]]'

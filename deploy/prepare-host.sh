@@ -3,10 +3,11 @@
 # 用法（root）：bash deploy/prepare-host.sh
 set -euo pipefail
 
-APP_USER="${HUTUJI_APP_USER:-hutuji}"
-APP_ROOT="${HUTUJI_APP_ROOT:-/opt/hutuji}"
-ETC_DIR="${HUTUJI_ETC_DIR:-/etc/hutuji}"
-SSL_DIR="${HUTUJI_SSL_DIR:-/etc/nginx/ssl/hutuji}"
+# systemd/nginx/preflight 均以该生产拓扑为契约，不能假装支持局部覆盖。
+APP_USER="hutuji"
+APP_ROOT="/opt/hutuji"
+ETC_DIR="/etc/hutuji"
+SSL_DIR="/etc/nginx/ssl/hutuji"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "需要 root" >&2
@@ -20,7 +21,9 @@ fi
 
 echo "==> 目录 ${APP_ROOT} ${ETC_DIR} ${SSL_DIR} output"
 mkdir -p "${APP_ROOT}" "${ETC_DIR}" "${SSL_DIR}" "${APP_ROOT}/mcp-server/output"
-chown -R "${APP_USER}:${APP_USER}" "${APP_ROOT}"
+chown -R root:root "${APP_ROOT}"
+chown -R "${APP_USER}:${APP_USER}" "${APP_ROOT}/mcp-server/output"
+chmod 750 "${APP_ROOT}/mcp-server/output"
 chmod 750 "${ETC_DIR}"
 chmod 700 "${SSL_DIR}"
 

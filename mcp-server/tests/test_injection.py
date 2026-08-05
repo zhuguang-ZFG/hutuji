@@ -58,15 +58,34 @@ def test_description_is_bounded_and_control_chars_are_removed() -> None:
     assert len(cleaned) == 200
 
 
-def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: ANN001
-    """合法 JSON 里的 content 也必须是字符串，不能让 TypeError 穿透成 500。"""
-    class FakeResponse:
-        status_code = 200
-        text = "ok"
+class _FakeResponse:
+    def __init__(self, status_code: int, chunks: list[bytes]) -> None:
+        self.status_code = status_code
+        self._chunks = chunks
 
-        def json(self):
-            return {"choices": [{"message": {"content": None}}]}
+    async def aiter_bytes(self):
+        for chunk in self._chunks:
+            yield chunk
 
+
+class _FakeStream:
+    def __init__(self, response: _FakeResponse | None, error: Exception | None) -> None:
+        self._response = response
+        self._error = error
+
+    async def __aenter__(self) -> _FakeResponse:
+        if self._error is not None:
+            raise self._error
+        assert self._response is not None
+        return self._response
+
+    async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+        return False
+
+
+def _install_fake_llm_response(
+    monkeypatch, response: _FakeResponse | None = None, error: Exception | None = None
+) -> None:  # noqa: ANN001
     class FakeClient:
         async def __aenter__(self):
             return self
@@ -74,8 +93,8 @@ def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: 
         async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
             return False
 
-        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            return FakeResponse()
+        def stream(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return _FakeStream(response, error)
 
     monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
         llm_api_key="test-key",
@@ -83,6 +102,12 @@ def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: 
         llm_model="test-model",
     ))
     monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+
+
+def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: ANN001
+    """合法 JSON 里的 content 也必须是字符串，不能让 TypeError 穿透成 500。"""
+    body = json.dumps({"choices": [{"message": {"content": None}}]}).encode()
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [body]))
 
     with pytest.raises(LlmError, match="content 不是字符串"):
         asyncio.run(llm_svg.generate_svg("测试"))
@@ -90,22 +115,7 @@ def test_generate_svg_rejects_non_string_content(monkeypatch) -> None:  # noqa: 
 
 def test_generate_svg_wraps_httpx_network_error_as_llm_error(monkeypatch) -> None:  # noqa: ANN001
     """LLM 不可达/超时必须转成 LlmError，不得让裸 httpx 异常穿透成不透明 500。"""
-    class FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
-            return False
-
-        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            raise llm_svg.httpx.ConnectError("boom")
-
-    monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
-        llm_api_key="test-key",
-        llm_base_url="https://example.invalid/v1",
-        llm_model="test-model",
-    ))
-    monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    _install_fake_llm_response(monkeypatch, error=llm_svg.httpx.ConnectError("boom"))
 
     with pytest.raises(LlmError, match="网络/连接错误"):
         asyncio.run(llm_svg.generate_svg("测试"))
@@ -113,57 +123,17 @@ def test_generate_svg_wraps_httpx_network_error_as_llm_error(monkeypatch) -> Non
 
 def test_generate_svg_rejects_http_200_non_json(monkeypatch) -> None:  # noqa: ANN001
     """上游偶尔返回 200 HTML/纯文本时，应转成 LlmError，不得漏出 JSONDecodeError 500。"""
-    class FakeResponse:
-        status_code = 200
-        text = "not json"
-
-        def json(self):
-            raise json.JSONDecodeError("Expecting value", self.text, 0)
-
-    class FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
-            return False
-
-        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            return FakeResponse()
-
-    monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
-        llm_api_key="test-key",
-        llm_base_url="https://example.invalid/v1",
-        llm_model="test-model",
-    ))
-    monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [b"not json"]))
 
     with pytest.raises(LlmError, match="不是合法 JSON"):
         asyncio.run(llm_svg.generate_svg("测试"))
 
 
-def _install_fake_llm_response(monkeypatch, response) -> None:  # noqa: ANN001
-    class FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
-            return False
-
-        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            return response
-
-    monkeypatch.setattr(llm_svg, "settings", SimpleNamespace(
-        llm_api_key="test-key",
-        llm_base_url="https://example.invalid/v1",
-        llm_model="test-model",
-    ))
-    monkeypatch.setattr(llm_svg.httpx, "AsyncClient", lambda **kwargs: FakeClient())
-
-
 def test_generate_svg_never_echoes_upstream_error_body(monkeypatch) -> None:  # noqa: ANN001
     secret = "sk-provider-echo-must-not-leak"
-    response = SimpleNamespace(status_code=401, text=f"Incorrect API key: {secret}")
-    _install_fake_llm_response(monkeypatch, response)
+    _install_fake_llm_response(
+        monkeypatch, _FakeResponse(401, [f"Incorrect API key: {secret}".encode()])
+    )
 
     with pytest.raises(LlmError, match="401") as caught:
         asyncio.run(llm_svg.generate_svg("测试"))
@@ -173,15 +143,17 @@ def test_generate_svg_never_echoes_upstream_error_body(monkeypatch) -> None:  # 
 
 
 def test_generate_svg_wraps_invalid_utf8_json_as_llm_error(monkeypatch) -> None:  # noqa: ANN001
-    class InvalidUtf8Response:
-        status_code = 200
-
-        def json(self):
-            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
-
-    _install_fake_llm_response(monkeypatch, InvalidUtf8Response())
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [b"\xff"]))
 
     with pytest.raises(LlmError, match="不是合法 JSON"):
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+
+def test_generate_svg_rejects_response_exceeding_stream_limit(monkeypatch) -> None:  # noqa: ANN001
+    oversized = b"x" * (llm_svg.MAX_LLM_RESPONSE_BYTES + 1)
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [oversized]))
+
+    with pytest.raises(LlmError, match="响应超过"):
         asyncio.run(llm_svg.generate_svg("测试"))
 
 

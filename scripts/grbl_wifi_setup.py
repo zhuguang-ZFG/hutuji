@@ -24,6 +24,14 @@ import sys
 import time
 
 
+def _validate_serial_value(value: str, label: str, *, allow_empty: bool = False) -> None:
+    """拒绝会把单条 ESP 配置命令拆成多条的控制字符。"""
+    if not value and not allow_empty:
+        raise ValueError(f"{label} 不能为空")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError(f"{label} 不得包含控制字符（含换行）")
+
+
 def _resolve_password(args: argparse.Namespace) -> str:
     """按 --password → 环境变量 GRBL_WIFI_PASSWORD → 交互输入 的顺序取密码。"""
     if args.password:
@@ -54,6 +62,14 @@ def main() -> int:
     args = parser.parse_args()
 
     password = _resolve_password(args)
+
+    try:
+        _validate_serial_value(args.ssid, "SSID")
+        if password:
+            _validate_serial_value(password, "密码")
+    except ValueError as exc:
+        print(f"配置输入无效：{exc}", file=sys.stderr)
+        return 2
 
     if args.dry_run:
         print(f"[dry-run] 目标串口 {args.port} @ {args.baud}，将依次发送：")

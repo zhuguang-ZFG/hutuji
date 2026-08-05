@@ -15,6 +15,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 import websockets
@@ -43,6 +44,7 @@ _SECRETISH_RE = re.compile(
 )
 MCP_PROXY_STREAM_LIMIT = 2 * 1024 * 1024
 _MAX_LOG_LINE = 200
+_READY_FILE_ENV = "HUTUJI_BRIDGE_READY_FILE"
 
 
 def _cap_log_line(text: str) -> str:
@@ -214,6 +216,21 @@ def _install_secret_redaction() -> None:
         handler.addFilter(redact)
 
 
+def _set_bridge_ready(ready: bool) -> None:
+    """仅在 systemd 配置的运行时目录内暴露当前 WSS 会话是否已建立。"""
+    raw_path = os.environ.get(_READY_FILE_ENV, "").strip()
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    if ready:
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(f"{os.getpid()}\n", encoding="ascii")
+        os.replace(temporary, path)
+        return
+    with contextlib.suppress(FileNotFoundError):
+        path.unlink()
+
+
 async def _cloud_to_proxy(websocket, process: asyncio.subprocess.Process) -> None:
     assert process.stdin is not None
     async for message in websocket:
@@ -257,6 +274,7 @@ async def bridge_once(config: BridgeConfig) -> None:
             stderr=asyncio.subprocess.PIPE,
             limit=MCP_PROXY_STREAM_LIMIT,
         )
+        _set_bridge_ready(True)
         tasks = {
             asyncio.create_task(_cloud_to_proxy(websocket, process)),
             asyncio.create_task(_proxy_to_cloud(process, websocket)),
@@ -300,9 +318,13 @@ async def bridge_once(config: BridgeConfig) -> None:
                 # 外层取消也必须等子进程回收完成，再把取消继续向上传递。
                 await cleanup_task
                 raise
+            finally:
+                _set_bridge_ready(False)
 
 
 async def run_forever(config: BridgeConfig) -> None:
+    # 异常退出后由 systemd 重启时，旧实例留下的标记不得被新进程复用。
+    _set_bridge_ready(False)
     backoff = INITIAL_BACKOFF_SECONDS
     while True:
         try:

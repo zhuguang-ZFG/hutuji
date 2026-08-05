@@ -3,8 +3,8 @@
 # 用法（root）：cd /opt/hutuji && bash deploy/install-from-repo.sh
 set -euo pipefail
 
-APP_ROOT="${HUTUJI_APP_ROOT:-/opt/hutuji}"
-APP_USER="${HUTUJI_APP_USER:-hutuji}"
+APP_ROOT="/opt/hutuji"
+APP_USER="hutuji"
 MCP_DIR="${APP_ROOT}/mcp-server"
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -24,7 +24,7 @@ echo "==> Python venv + 生产依赖"
 # 代理使用私有 CA 时显式传 HUTUJI_PIP_CERT；禁止用 --trusted-host 绕过 TLS 校验。
 PIP_INDEX="${HUTUJI_PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 PIP_CERT="${HUTUJI_PIP_CERT:-}"
-sudo -u "${APP_USER}" env MCP_DIR="${MCP_DIR}" PIP_INDEX="${PIP_INDEX}" PIP_CERT="${PIP_CERT}" bash -lc '
+MCP_DIR="${MCP_DIR}" PIP_INDEX="${PIP_INDEX}" PIP_CERT="${PIP_CERT}" bash -lc '
   set -euo pipefail
   cd "$MCP_DIR"
   pip_args=(-i "$PIP_INDEX")
@@ -35,6 +35,10 @@ sudo -u "${APP_USER}" env MCP_DIR="${MCP_DIR}" PIP_INDEX="${PIP_INDEX}" PIP_CERT
   .venv/bin/pip install -U pip "${pip_args[@]}"
   .venv/bin/pip install -r requirements.txt "${pip_args[@]}"
 '
+# 运行时只允许服务用户写 output；代码、venv 和部署脚本均保持 root 所有。
+chown -R root:root "${APP_ROOT}"
+chown -R "${APP_USER}:${APP_USER}" "${MCP_DIR}/output"
+chmod 750 "${MCP_DIR}/output"
 
 echo "==> systemd units"
 cp "${APP_ROOT}/deploy/hutuji-mcp.service" /etc/systemd/system/

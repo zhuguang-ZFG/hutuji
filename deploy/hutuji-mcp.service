@@ -16,10 +16,10 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 
-# 基础加固（无密钥写进本 unit）
+# 应用树由 root 维护；服务仅需创建和清理生成产物。
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/hutuji/mcp-server/output
 

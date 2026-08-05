@@ -310,9 +310,17 @@ def validate_gcode(text: str) -> GcodeStats:
                 f"第 {lineno} 行不是精确的 §5 文件头 {expected}（实际：{code}）"
             )
 
+    # §5 收尾：最后一个有效代码块（剥注释/空行后）必须精确对齐生产
+    # document_end。只放宽空格，不能把任意含 Z0 的画线或错误进给当成收尾。
+    last_lineno, last_code = code_lines[-1]
+    expected_end = "G1G90 Z0.0F10000"
+    if last_code.replace(" ", "") != expected_end.replace(" ", ""):
+        raise GcodeError(
+            f"第 {last_lineno} 行（文件末尾）必须是 {expected_end}（§5 契约，实际：{last_code}）"
+        )
+
     seen_g21 = False
     seen_g90 = False
-    seen_f = False
     pen_lifts = 0
     # Grbl 复位/上电后的默认运动模式是 **G0**：`Grbl_Esp32/src/GCode.h:78`
     # `Seek = 0, // G0 (Default: Must be zero)`，modal 结构体归零即 Seek；
@@ -383,7 +391,6 @@ def validate_gcode(text: str) -> GcodeStats:
             if letter == "F":
                 if value <= 0 or value > 10000:
                     raise GcodeError(f"第 {idx} 行 F{value} 超出生产进给范围 0<F≤10000：{line}")
-                seen_f = True
             if letter not in ("G", "M"):
                 continue
             if not value.is_integer():
@@ -395,6 +402,9 @@ def validate_gcode(text: str) -> GcodeStats:
 
         coords = [(a, float(v)) for a, v in words if a in ("X", "Y")]
         xy = dict(coords)
+        z_values = [float(v) for a, v in words if a == "Z"]
+        feed_values = [float(v) for a, v in words if a == "F"]
+        feed = feed_values[0] if feed_values else None
 
         # Grbl 运动模式是模态的：本行显式 G0~G3 时切换；只有轴字时沿用上次模式。
         # 同一 modal group 出现多个运动码时 Grbl 会报错，云端也直接拒，不能从 set
@@ -418,16 +428,6 @@ def validate_gcode(text: str) -> GcodeStats:
             if "R" in arc_words and arc_words & {"I", "J"}:
                 raise GcodeError(f"第 {idx} 行 G2/G3 不得同时使用 R 与 I/J：{line}")
 
-        if has_motion and active_motion in {"G1", "G2", "G3"} and not seen_f:
-            raise GcodeError(f"第 {idx} 行切削运动前未建立有效 F 进给（§5 自包含要求）：{line}")
-
-        # 抬笔 = Z 回 0 的 G0/G1 运动（本 profile 不产 M3/M5，笔控纯 Z 运动）。
-        # 裸 Z 字也继承当前运动模式；统计用于发现过度碎线，不在 v0 硬拒。
-        if has_motion and active_motion in {"G0", "G1"}:
-            _z = next((float(v) for a, v in words if a == "Z"), None)
-            if _z is not None and abs(_z) < _EPS:
-                pen_lifts += 1
-
         # 保留最危险禁令的专用提示；其余超出生产允许列表的 G/M 指令统一拒绝。
         if codes & {"G28", "G30"}:
             raise GcodeError(f"第 {idx} 行含 G28/G30（§5 禁止）：{line}")
@@ -443,6 +443,31 @@ def validate_gcode(text: str) -> GcodeStats:
             raise GcodeError(
                 f"第 {idx} 行含 {'/'.join(sorted(forbidden_g))}（生产文件允许 G0/G1/G2/G3/G21/G90）：{line}"
             )
+
+        # 下载文件不是泛用 G-code：笔控和 XY 运动必须逐行对齐 production profile。
+        # F 是 Grbl modal 字，若允许继承，任何中间行都可悄悄沿用落笔 F10000 或
+        # 外部注入的低速值；XY 与 Z 同块则会在移动途中落/抬笔。两者均违背 §5。
+        if has_axis_words:
+            if z_values:
+                if coords or active_motion != "G1" or "G90" not in codes or feed != 10000:
+                    raise GcodeError(
+                        f"第 {idx} 行笔控必须是纯 G1G90 Z0/Z5 F10000：{line}"
+                    )
+            elif active_motion in {"G0", "G1"}:
+                if not coords or feed != 8000:
+                    raise GcodeError(
+                        f"第 {idx} 行 XY 运动必须本行带 F8000，且不得混入 Z：{line}"
+                    )
+            elif active_motion in {"G2", "G3"} and feed is None:
+                # G2/G3 仅保留给既有外部 G-code 限幅回归；即使不由 profile 产出，
+                # 也不能让它继承未知进给。
+                raise GcodeError(f"第 {idx} 行圆弧运动必须本行带 F 进给：{line}")
+
+        # 抬笔 = 纯 G1G90 Z0 F10000（本 profile 不产 M3/M5，笔控纯 Z 运动）。
+        if has_motion and active_motion in {"G0", "G1"}:
+            _z = z_values[0] if z_values else None
+            if _z is not None and abs(_z) < _EPS:
+                pen_lifts += 1
 
         seen_g21 = seen_g21 or "G21" in codes
         seen_g90 = seen_g90 or "G90" in codes
@@ -496,15 +521,6 @@ def validate_gcode(text: str) -> GcodeStats:
 
     if not (seen_g21 and seen_g90):
         raise GcodeError("文件头缺少精确 G21/G90（§5 自包含要求）")
-
-    # §5 收尾：最后一个有效代码块（剥注释/空行后）必须精确对齐生产
-    # document_end。只放宽空格，不能把任意含 Z0 的画线或错误进给当成收尾。
-    last_lineno, last_code = code_lines[-1]
-    expected_end = "G1G90 Z0.0F10000"
-    if last_code.replace(" ", "") != expected_end.replace(" ", ""):
-        raise GcodeError(
-            f"第 {last_lineno} 行（文件末尾）必须是 {expected_end}（§5 契约，实际：{last_code}）"
-        )
 
     if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
         logger.warning(

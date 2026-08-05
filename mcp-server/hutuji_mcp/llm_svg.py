@@ -81,6 +81,9 @@ def _local_name(tag: str) -> str:
 
 
 MAX_SVG_BYTES = 256 * 1024
+# chat-completions JSON 还包含 choices/usage 等包装，响应上限略高于 SVG 本体；
+# 必须在网络读取阶段生效，不能等 httpx 已把任意大正文缓冲完才检查 SVG。
+MAX_LLM_RESPONSE_BYTES = 512 * 1024
 
 def _extract_svg(text: str) -> str:
     """从模型回复中提取 <svg…</svg>，容忍代码块包裹与前后废话。"""
@@ -193,19 +196,25 @@ async def generate_svg(description: str) -> str:
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    # 上游错误正文可能回显 Authorization key；不读取也不记录。
+                    logger.warning("LLM API 返回 HTTP %d", resp.status_code)
+                    raise LlmError(f"LLM API 返回 {resp.status_code}")
+
+                body = bytearray()
+                async for chunk in resp.aiter_bytes():
+                    if len(body) + len(chunk) > MAX_LLM_RESPONSE_BYTES:
+                        raise LlmError(
+                            f"LLM 响应超过 {MAX_LLM_RESPONSE_BYTES} 字节上限"
+                        )
+                    body.extend(chunk)
     except httpx.HTTPError as e:
         # 连接/超时/协议等网络异常统一成 LlmError，避免裸 httpx 异常穿透成
         # 不透明 500，并让「LLM 不可用」与「SVG 非法」可区分。
         raise LlmError(f"调用 LLM 失败（网络/连接错误）：{type(e).__name__}") from e
-    if resp.status_code != 200:
-        # 上游错误正文可能回显 Authorization key；LlmError 会经 MCP 原样传到云端，
-        # 因此只保留可诊断的状态码，不记录或回传正文。
-        logger.warning("LLM API 返回 HTTP %d", resp.status_code)
-        raise LlmError(f"LLM API 返回 {resp.status_code}")
-
     try:
-        data = resp.json()
+        data = json.loads(bytes(body))
         content = data["choices"][0]["message"]["content"]
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise LlmError("LLM 响应不是合法 JSON") from e
