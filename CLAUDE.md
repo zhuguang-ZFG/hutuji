@@ -41,6 +41,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **哑管道原则**：G-code 全部在云端（京东云 VPS 的 MCP 服务）生成+转换完毕。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。
 
+**§5 大小/长度一律按「设备看到的字节」计，不按 Python 字符**：512KiB 上限是 S3 侧 PSRAM 缓冲的硬约束，S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**。故 `_read_generated_gcode` 必须 `read_bytes()` 并把 `len(raw)` 显式传给 `validate_gcode(text, total_bytes=…)`——**禁止改回 `read_text()`**：后者走 universal newlines 把 CRLF 塌成 LF，每行少算 1 字节。实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 少报 20846。单行 255 字节上限（Grbl `LINE_BUFFER_SIZE`）同理已按 `encode("ascii")` 计。
+
 **换纸消息只做定点路由（别扩大修改面）**：原固件的换纸消息均走 `CLIENT_SERIAL`；§9 `e7f373f` 只把四处 `[PaperStatus] N` 结果码改为 `CLIENT_ALL`，其余 `[PaperAuto-N]` 进度仍只走 CH340。`[ESP901]` 的 `Changing=Off` 已经 Telnet 实测，`Changing=On` 与真实 `[PaperStatus]` 到达仍待有纸换纸验证。S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing` + `?` 探活。CH340 串口仍是最全诊断口。
 
 **Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**。`docs/protocol.md` §9 清单已以 `e7f373f` 提交、fz `standard` pass 并烧录；keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证，`Changing=On`/自动换纸仍未验证。后续任何 Grbl 改动仍**必跑 fz 门禁**。
@@ -123,7 +125,10 @@ python -m venv .venv
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **15** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`bdbb107` 已于 2026-08-05 部署并取得 15/15；该结果不替代后续发布复验。
+- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **17** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`bdbb107` 已于 2026-08-05 部署并取得 15/15（**当时 15 项版本**，之后仓内加到 17 项，未部署）；该结果不替代后续发布复验。
+- **preflight 曾有两处「文件对了但跑的不对」的盲区，现已各补一项**：
+  - **生成链（`check_generate_chain`）**：旧版 15 项没有一条执行过部署的 `hutuji_mcp` 代码——下载探针用 `printf "G21\nG90\nF8000\n"` 人工拼产物，那份内容连 `validate_gcode` 自己都不接受，所以只证明了「nginx 能按字节发文件」。已实测复现：把 `hutuji_gwrite.toml` 移走后 `import hutuji_mcp.server` 仍成功、服务保持 active、`/mcp` 与 `/files` 照常响应，而真实 `svg_to_gcode()` 报 `vpype 转换失败（exit 2）`——即 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 `_PROFILE_PATH` 只在请求期被 `_vpype_command()` 用到，import 期不加载不校验，`systemctl active` 抓不到；`vpype` 更是 subprocess、从不 import，装坏同样只在请求期暴露。现在 `check_generate_chain` 用生产 venv 真跑 `svg_to_gcode()`，`check_download` 拿这份真产物验下载契约。**探针必须用 `/opt/hutuji/mcp-server/.venv/bin/python`，不能用系统 `python3`**：`_vpype_cmd()` 按 `sys.executable` 同目录找 vpype，换解释器即换掉被验对象。
+  - **unit 漂移（`check_units_match_templates`）**：`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit——`--host 127.0.0.1`、`ProtectSystem=strict`、`SystemCallFilter` 等加固项可全部缺失而照样 active（监听面另有第 5/6 项覆盖，加固项原本无人验）。两个 unit 与 nginx 的安装方式完全同构（都从 `/opt/hutuji/deploy/` 复制到系统目录），却只有 nginx 有一致性判据。现在 `check_units_match_templates` 对两个 unit 各查四条：LF 归一化 md5 与模板一致、`NeedDaemonReload=no`（systemd 用加载时快照，忘了 `daemon-reload` 时磁盘一致而在跑的仍是旧配置）、`FragmentPath` 指向 `/etc/systemd/system/`（排除 `/lib` 残留）、**无 drop-in**（drop-in 能静默覆盖 ExecStart 与全部加固项，存在时前三条什么都证明不了；用文件系统 glob 判定，不能只信 `DropInPaths`——老版 systemd 返回空串即 fail-open）。
 - **preflight 无 skip 状态**：输出 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`。历史 `OPTIONAL_SKIP` 与 pass 等价放行，使「明文 `:80 /files` 须 403」可从未被验证却报全绿，已删除；**禁止重新引入 skip**，取不到非 loopback IPv4 一律判 fail。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
 
 ## 路线图（当前进度）

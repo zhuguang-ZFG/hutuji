@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=15
+EXPECTED_CHECKS=17
 PASS=0
 FAIL=0
 
@@ -195,13 +195,107 @@ check_acl_response() {
   [[ "$denied" == "403" ]]
 }
 
+# 两个 unit 与固定模板一致，且 systemd 当前加载的就是它。
+#
+# 此前只有「运行中 nginx conf 与模板一致」这一项，两个 unit 却没有对应判据——而它们
+# 的安装方式完全同构（`install-from-repo.sh:58-59` 从 `/opt/hutuji/deploy/` 复制到
+# `/etc/systemd/system/`）。`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版：
+# unit 里的 `--host 127.0.0.1`、`ProtectSystem=strict`、`SystemCallFilter` 等加固项
+# 全部可以缺失而 active 照样绿（监听面另有第 5/6 项覆盖，加固项则无人验）。
+#
+# 四条判据缺一不可，每条堵一种「文件对了但跑的不对」：
+#   ①LF 归一化 md5 与模板一致——堵手改与漏同步；
+#   ②`NeedDaemonReload=no`——systemd 用的是**加载时快照**，scp 完忘了 daemon-reload
+#     时磁盘文件与模板一致（①绿）而在跑的进程仍是旧配置，正是 nginx 那项要求
+#     「reload 后再探」的同一类坑；
+#   ③`FragmentPath` 必须就是 `/etc/systemd/system/` 那份——排除加载到 `/lib` 残留；
+#   ④不得存在 drop-in。drop-in 能静默覆盖任何指令（含 ExecStart 与全部加固项），
+#     存在时「主文件与模板一致」什么都证明不了。用文件系统 glob 判定而非只信
+#     `DropInPaths`：老版 systemd 不认该属性会返回空串，那是 fail-open。
+check_unit_matches_template() {
+  local name="$1" tmpl inst a b need frag dir
+  tmpl="/opt/hutuji/deploy/${name}.service"
+  inst="/etc/systemd/system/${name}.service"
+  [[ -f "$tmpl" && -f "$inst" ]] || return 1
+  a=$(tr -d "\r" < "$tmpl" | md5sum | cut -d" " -f1)
+  b=$(tr -d "\r" < "$inst" | md5sum | cut -d" " -f1)
+  [[ -n "$a" && "$a" == "$b" ]] || return 1
+  need="$(systemctl show "$name" -p NeedDaemonReload 2>/dev/null | cut -d= -f2-)"
+  [[ "$need" == "no" ]] || return 1
+  frag="$(systemctl show "$name" -p FragmentPath 2>/dev/null | cut -d= -f2-)"
+  [[ "$frag" == "$inst" ]] || return 1
+  for dir in /etc/systemd/system /run/systemd/system /usr/lib/systemd/system /lib/systemd/system; do
+    if compgen -G "$dir/${name}.service.d/*.conf" >/dev/null 2>&1; then
+      echo "存在 drop-in $dir/${name}.service.d/：可静默覆盖 ExecStart 与加固项，判 fail" >&2
+      return 1
+    fi
+  done
+}
+
+check_units_match_templates() {
+  check_unit_matches_template hutuji-mcp &&
+    check_unit_matches_template hutuji-cloud-bridge
+}
+
+# 用**生产 venv 的真实转换链**造产物：vpype → gwrite --profile hutuji → §5 校验。
+#
+# 旧版这里是 `printf "G21\nG90\nF8000\n"`，即人工拼的三行文本。那份内容连
+# validate_gcode 自己都不接受（实测「第 4 行缺少 §5 文件头 G1G90 Z0.0F10000」），
+# 所以第 15 项只证明了「nginx 能把一个文件按字节发出去」，完全没碰生成链：
+# hutuji_gwrite.toml 漏传、vpype/vpype-gcode 装坏、profile 与 gcode_gen.py 的
+# expected_head 漂移，全都逃过 15 项。已实测复现——把 hutuji_gwrite.toml 移走后
+# `import hutuji_mcp.server` 依然成功、服务保持 active、/mcp 与 /files 照常响应，
+# 而真实 svg_to_gcode() 报「vpype 转换失败（exit 2）: --config … does not exist」。
+# 即 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 _PROFILE_PATH 只在
+# 请求期被 _vpype_command() 用到，import 期不加载、不校验，systemd active 抓不到。
+# 现在改为真的跑一遍生成链，同时覆盖 profile、vpype 依赖、生成器与 §5 校验器，
+# 再拿这份真产物验完整下载契约。
+PROBE_SVG='<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297"><polyline points="20,40 60,40 60,100 20,100 20,40" fill="none" stroke="black" stroke-width="0.5"/></svg>'
+
+# 必须用生产 venv 的解释器，不能用系统 python3：vpype/vpype-gcode 只装在 venv 里，
+# 且 _vpype_cmd() 按 sys.executable 同目录定位 vpype，换解释器即换掉被验对象。
+VENV_PY=/opt/hutuji/mcp-server/.venv/bin/python
+
+# 这一项刻意不依赖 OUTPUT_DIR：产物落 mktemp -u，不往 /files 留文件，
+# 于是「生成链坏了」与「产物目录坏了」不会互相染色——目录本身另有判据。
+check_generate_chain() (
+  local svg out
+  [[ -x "$VENV_PY" ]] || exit 1
+  svg="$(mktemp)"; out="$(mktemp -u)"
+  trap 'rm -f -- "$svg" "$out"' EXIT
+  printf '%s' "$PROBE_SVG" > "$svg"
+  "$VENV_PY" -c '
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/opt/hutuji/mcp-server")
+from hutuji_mcp.gcode_gen import svg_to_gcode
+
+stats = svg_to_gcode(Path(sys.argv[1]), Path(sys.argv[2]))
+# 空产物也是坏产物：行数/字节必须为正，否则「转换成功」毫无意义。
+raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
+' "$svg" "$out" >/dev/null 2>&1
+)
+
 check_download() (
-  local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f headers body code expected_len actual_len expected_crc actual_crc
+  local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f svg headers body code expected_len actual_len expected_crc actual_crc
   [[ -n "$h" && -d "$d" ]] && safe_output_dir "$d" || exit 1
+  [[ -x "$VENV_PY" ]] || exit 1
   tok="$(python3 -c 'import secrets; print(secrets.token_urlsafe(16))')"
-  f="draw_$(date +%Y%m%d_%H%M%S)_${tok}.gcode"; headers="$(mktemp)"; body="$(mktemp)"
-  trap 'rm -f -- "$d/$f" "$headers" "$body"' EXIT
-  printf "G21\nG90\nF8000\n" > "$d/$f"
+  f="draw_$(date +%Y%m%d_%H%M%S)_${tok}.gcode"; svg="$(mktemp)"; headers="$(mktemp)"; body="$(mktemp)"
+  trap 'rm -f -- "$d/$f" "$svg" "$headers" "$body"' EXIT
+  printf '%s' "$PROBE_SVG" > "$svg"
+  # 真产物：过 §5 校验才落到 OUTPUT_DIR，随后验 HTTP 字节/长度/CRC32 完整一致。
+  "$VENV_PY" -c '
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/opt/hutuji/mcp-server")
+from hutuji_mcp.gcode_gen import svg_to_gcode
+
+stats = svg_to_gcode(Path(sys.argv[1]), Path(sys.argv[2]))
+raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
+' "$svg" "$d/$f" >/dev/null 2>&1 || exit 1
   code="$(curl --noproxy "*" --max-time 5 -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Host: $h" "http://127.0.0.1/files/$f")" || exit 1
   expected_len="$(wc -c < "$d/$f" | tr -d " ")"
   actual_len="$(awk 'tolower($1) == "content-length:" {gsub("\r", "", $2); print $2}' "$headers" | tail -1)"
@@ -242,6 +336,8 @@ check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
+# active 不证明跑的是哪一版 unit：加固项可全部缺失而照样 active。
+check "两个 unit 与模板一致且已 daemon-reload、无 drop-in" check_units_match_templates
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
 # 404 必须排除：MCP 子应用挂载失败（server.py 的 app.mount("/", _mcp_app) 未生效）时
 # 裸 POST /mcp 由 FastAPI 返回 404，落在 ^[234] 内会把「端点已不存在」报成 pass。
@@ -262,7 +358,9 @@ check "运行中 nginx conf 与固定部署模板一致（LF 归一化）" bash 
   [[ -n "$a" && "$a" == "$b" ]]'
 check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_response "$TUNNEL_HOST"
 
-# 真 200 正例：造一份合法命名产物（TTL 内自清），验完整下载契约。
+# 生成链正例：生产 venv 真跑 vpype + §5 校验（覆盖 profile / 依赖 / 校验器漂移）。
+check "生产 venv 真实生成链可用（vpype + profile + §5 校验）" check_generate_chain
+# 真 200 正例：用真实生成链造一份合法命名产物（TTL 内自清），验完整下载契约。
 check "localhost :80 /files 真下 G-code 200" check_download
 
 echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"

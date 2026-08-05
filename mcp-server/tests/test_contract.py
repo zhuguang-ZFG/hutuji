@@ -23,8 +23,10 @@ from hutuji_mcp.gcode_gen import (
     MAX_BYTES,
     PEN_LIFT_WARN_THRESHOLD,
     GcodeError,
+    _read_generated_gcode,
     validate_gcode,
 )
+from hutuji_mcp import gcode_gen
 from hutuji_mcp import server
 
 
@@ -295,6 +297,82 @@ def test_gcode_accepts_exactly_512_kib() -> None:
     assert len(text.encode("utf-8")) == MAX_BYTES
     stats = validate_gcode(text)
     assert stats.bytes == MAX_BYTES
+
+
+def test_gcode_size_limit_counts_disk_bytes_not_collapsed_newlines(tmp_path) -> None:
+    """CRLF 产物必须按磁盘真实字节判上限，不能按 universal newlines 塌陷后的字符数。
+
+    `read_text()` 把 CRLF 读成单个 LF，于是每行少算 1 字节。而 S3 经 HTTP 下载到的
+    是磁盘原始字节，`Content-Length` 与 CRC32 也按原始字节算——两边量的不是同一个
+    东西。实测复现：某 20846 行 CRLF 产物磁盘 524369 字节（超 512KiB 上限 81 字节），
+    旧算法数出 503523、判为未超并放行，且回给 S3 的 `bytes` 少报 20846。512KiB 是
+    S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。
+    """
+    base = _minimal_gcode()
+    remaining = MAX_BYTES - len(base.encode("utf-8"))
+    full_lines, tail_bytes = divmod(remaining, 256)
+    filler = (";" + "x" * 254 + "\n") * full_lines
+    if tail_bytes:
+        assert tail_bytes >= 2
+        filler += ";" + "x" * (tail_bytes - 2) + "\n"
+    text = _minimal_gcode(filler)
+    # LF 形态恰好等于上限；换成 CRLF 后磁盘字节必然超限（每行 +1）。
+    assert len(text.encode("utf-8")) == MAX_BYTES
+
+    crlf = text.replace("\n", "\r\n").encode("ascii")
+    assert len(crlf) > MAX_BYTES
+    p = tmp_path / "crlf.gcode"
+    p.write_bytes(crlf)
+    # 塌陷后仍是 MAX_BYTES，即旧算法会判「未超」。
+    assert len(p.read_text(encoding="utf-8").encode("utf-8")) == MAX_BYTES
+
+    with pytest.raises(GcodeError, match=f"总大小 {len(crlf)} 字节超上限"):
+        _read_generated_gcode(p)
+
+
+def test_gcode_stats_bytes_equals_real_file_size_for_crlf(tmp_path) -> None:
+    """回给 S3 的 `bytes` 必须等于磁盘真实字节，否则与 Content-Length / CRC32 不同源。"""
+    raw = _minimal_gcode().replace("\n", "\r\n").encode("ascii")
+    p = tmp_path / "ok_crlf.gcode"
+    p.write_bytes(raw)
+    stats = _read_generated_gcode(p)
+    assert stats.bytes == len(raw) == p.stat().st_size
+    # 塌陷计数确实更小，证明这条断言不是恒真。
+    assert len(p.read_text(encoding="utf-8").encode("utf-8")) < len(raw)
+
+
+def test_validate_gcode_accepts_explicit_total_bytes_override() -> None:
+    """`total_bytes` 显式传入时优先于文本推算，且缺省行为不变（纯文本场景）。"""
+    text = _minimal_gcode()
+    assert validate_gcode(text).bytes == len(text.encode("utf-8"))
+    assert validate_gcode(text, total_bytes=12345).bytes == 12345
+    with pytest.raises(GcodeError, match="总大小"):
+        validate_gcode(text, total_bytes=MAX_BYTES + 1)
+
+
+def test_generated_gcode_is_read_as_bytes_not_text() -> None:
+    """钉住实现形态：产物必须按字节读并显式传 total_bytes。
+
+    只断言行为不够——`_read_generated_gcode` 一旦被改回 `read_text()`，上面两条
+    行为测试会红，但重构时容易被误当成「测试过时」而放宽。这里把根因钉在源码上。
+    """
+    import ast
+
+    src = Path(gcode_gen.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_read_generated_gcode"
+    )
+    # 用 AST 取语句、剔掉 docstring：函数注释与 docstring 里会正面写出被禁的写法
+    # （「必须按字节读，不能用 read_text()」），按文本 grep 会把说明当成实现。
+    stmts = [n for n in fn.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str))]
+    body_code = "\n".join(ast.unparse(n) for n in stmts)
+
+    assert "read_bytes()" in body_code
+    assert "read_text(" not in body_code
+    assert "total_bytes=len(raw)" in body_code
 
 
 def test_gcode_rejects_line_over_255_bytes() -> None:
@@ -878,10 +956,17 @@ def test_svg_to_gcode_async_runs_real_vpype_pipeline(tmp_path: Path) -> None:
 
     stats = asyncio.run(gcode_gen.svg_to_gcode_async(svg, gcode))
 
-    generated = gcode.read_text(encoding="utf-8")
-    assert stats == gcode_gen.validate_gcode(generated)
+    raw = gcode.read_bytes()
+    generated = raw.decode("ascii")
+    # `stats.bytes` 必须是磁盘真实字节，不是 universal newlines 塌陷后的字符数。
+    # 本断言原写作 `len(generated.encode("ascii"))`，而 `generated` 来自
+    # `read_text()`——在 Windows 上 vpype 产出 CRLF，塌陷后每行少 1 字节（实测
+    # 243 vs 真实 257），于是测试自己钉住了错的口径。S3 下载到的、
+    # `Content-Length` 与 CRC32 算的都是磁盘原始字节，必须同源。
+    assert stats.bytes == len(raw) == gcode.stat().st_size
     assert stats.lines > 5
-    assert stats.bytes == len(generated.encode("ascii"))
+    # 逐行契约与文本一致（校验器只按文本判形状），字节数另由上面钉死。
+    assert stats == gcode_gen.validate_gcode(generated, total_bytes=len(raw))
 
 
 def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) -> None:
@@ -1372,7 +1457,10 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert "check_public_base_url()" in preflight
     assert "safe_output_dir()" in preflight
     assert preflight.count('safe_output_dir "$OUTPUT_DIR"') == 1
-    assert preflight.count('safe_output_dir "$d"') == 1
+    # 不锚固定条数，锚不变量：每个把 OUTPUT_DIR 取进 $d 的子壳都必须先过 safe_output_dir，
+    # 否则该子壳会在未校验的路径上写文件/删文件。
+    assert preflight.count('d="$OUTPUT_DIR"') >= 1
+    assert preflight.count('safe_output_dir "$d"') == preflight.count('d="$OUTPUT_DIR"')
     assert "EXPECTED_CHECKS=" in preflight
 
     # 只有 pass / fail 两种状态。曾有 OPTIONAL_SKIP(125)：判据缺前提时返回它、计为
@@ -1413,7 +1501,12 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 15
+    assert preflight.count('\ncheck "') == 17
+    # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
+    # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
+    expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
+    assert expected is not None
+    assert int(expected.group(1)) == preflight.count('\ncheck "')
 
     # 每条 curl 都必须绕代理 + 带超时：环境里有 http_proxy 会让 loopback 探针走代理假红，
     # 而 fallback 选中的接口地址若被 DROP 式防火墙吃掉，默认超时约 300s 会把冒烟挂死。
@@ -1437,8 +1530,94 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 15
+    assert len(checks) == 17
     assert min(checks) > init_last
+
+
+def test_preflight_exercises_real_generation_chain() -> None:
+    """第 15/16 项必须真跑生成链，不能用人工拼的 G-code 文本冒充。
+
+    旧版 check_download 用 `printf "G21\\nG90\\nF8000\\n"` 造产物——那份内容连
+    validate_gcode 自己都不接受（实测「第 4 行缺少 §5 文件头」），所以只证明了
+    nginx 能按字节发文件，完全没碰生成链。已实测复现：把 hutuji_gwrite.toml 移走后
+    `import hutuji_mcp.server` 仍成功、服务保持 active、/mcp 与 /files 照常响应，
+    而真实 svg_to_gcode() 报「vpype 转换失败（exit 2）: --config … does not exist」，
+    即 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 _PROFILE_PATH 只在
+    请求期由 _vpype_command() 使用，import 期不加载不校验，systemd active 抓不到。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    # 生成链必须被真的调用，且经过 §5 校验器（svg_to_gcode 内部即 validate_gcode）。
+    assert "check_generate_chain()" in preflight
+    assert "check_generate_chain" in preflight_code
+    assert preflight_code.count("from hutuji_mcp.gcode_gen import svg_to_gcode") == 2
+    assert preflight_code.count("svg_to_gcode(Path(sys.argv[1]), Path(sys.argv[2]))") == 2
+    # 空产物不算通过：行数/字节必须为正。
+    assert preflight_code.count("stats.lines > 0 and stats.bytes > 0") == 2
+
+    # 必须用生产 venv 的解释器：vpype/vpype-gcode 只装在 venv，且 _vpype_cmd() 按
+    # sys.executable 同目录定位 vpype——换成系统 python3 就换掉了被验对象。
+    assert "VENV_PY=/opt/hutuji/mcp-server/.venv/bin/python" in preflight_code
+    assert preflight_code.count('[[ -x "$VENV_PY" ]] || exit 1') == 2
+
+    # 下载契约必须验的是真产物：printf 拼 G-code 的老写法不得复活。
+    assert 'printf "G21' not in preflight_code
+    assert "G1G90" not in preflight_code
+    for marker in ('"$code" == "200"', "cmp -s", "zlib.crc32"):
+        assert marker in preflight, marker
+
+
+def test_preflight_pins_running_systemd_units_to_templates() -> None:
+    """`is-active` 不证明跑的是哪一版 unit——加固项可全部缺失而照样 active。
+
+    此前只有「运行中 nginx conf 与模板一致」这一项，两个 unit 却没有对应判据，
+    而它们的安装方式完全同构（`install-from-repo.sh` 从 `/opt/hutuji/deploy/`
+    复制到 `/etc/systemd/system/`）。unit 里的 `--host 127.0.0.1`、
+    `ProtectSystem=strict`、`SystemCallFilter` 等指令一旦漂移，监听面还有第 5/6
+    项兜着，加固项则无人验证。
+
+    四条判据缺一不可：md5 一致（堵手改/漏同步）、`NeedDaemonReload=no`（systemd
+    用加载时快照，忘了 reload 时磁盘一致而在跑的是旧配置）、`FragmentPath` 指向
+    `/etc/systemd/system`（排除 `/lib` 残留）、无 drop-in（drop-in 能静默覆盖
+    ExecStart 与全部加固项，存在时前三条什么都证明不了）。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "check_unit_matches_template()" in preflight
+    assert "check_units_match_templates" in preflight_code
+    # 两个 unit 都必须被覆盖，漏一个等于半边无判据。
+    for name in ("hutuji-mcp", "hutuji-cloud-bridge"):
+        assert f"check_unit_matches_template {name}" in preflight_code, name
+
+    # 模板路径固定在安装目录，与 nginx 那项同源。
+    assert '/opt/hutuji/deploy/${name}.service' in preflight_code
+    assert '/etc/systemd/system/${name}.service' in preflight_code
+    # 行尾归一化后比 md5：scp 带进 CRLF 不该判红。
+    assert preflight_code.count('tr -d "\\r"') >= 3
+    # md5 一致这条判据本身必须在（只断言 `tr -d` 与路径不够：删掉比较行后
+    # 两者都还在，实测该变异未被捕获）。nginx 那项与 unit 这项各一条。
+    assert preflight_code.count('[[ -n "$a" && "$a" == "$b" ]]') == 2
+
+    # 四条判据逐条钉死，任何一条被删都必须让本测试红。
+    assert '[[ "$need" == "no" ]] || return 1' in preflight_code
+    assert "NeedDaemonReload" in preflight_code
+    assert '[[ "$frag" == "$inst" ]] || return 1' in preflight_code
+    assert "FragmentPath" in preflight_code
+    # drop-in 用文件系统 glob 判定：`DropInPaths` 在老版 systemd 上返回空串，
+    # 只信它就是 fail-open。
+    assert 'compgen -G "$dir/${name}.service.d/*.conf"' in preflight_code
+    assert "DropInPaths" not in preflight_code
+    # drop-in 搜索面必须覆盖 systemd 真实读取的四个层级。
+    for d in ("/etc/systemd/system", "/run/systemd/system", "/usr/lib/systemd/system"):
+        assert d in preflight_code, d
 
 
 def test_install_script_keeps_package_index_tls_verification() -> None:

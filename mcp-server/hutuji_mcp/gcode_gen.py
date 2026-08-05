@@ -184,13 +184,22 @@ def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
 
 
 def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
-    """读取 vpype 成功退出后的产物，并统一成合同错误。"""
+    """读取 vpype 成功退出后的产物，并统一成合同错误。
+
+    **必须按字节读**，不能用 `read_text()`：后者走 universal newlines，把 CRLF 塌成
+    单个 LF，于是 §5 的 512KiB 上限与回给 S3 的 `bytes` 都会按塌陷后的字符数计算，
+    每行少算 1 字节。而 S3 经 HTTP 下载到的是磁盘原始字节，`Content-Length` 与
+    CRC32 也都按原始字节算——两边量的不是同一个东西。实测：CRLF 产物磁盘 524369
+    字节（超上限 81 字节）被 `validate_gcode` 判为未超并放行，`bytes` 少报 20846。
+    512KiB 是 S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。
+    """
     try:
-        text = gcode_path.read_text(encoding="utf-8")
+        raw = gcode_path.read_bytes()
+        text = raw.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
         raise GcodeError("vpype 转换未产出 G-code 文件") from None
-    return validate_gcode(text)
+    return validate_gcode(text, total_bytes=len(raw))
 
 
 def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
@@ -268,14 +277,21 @@ async def svg_to_gcode_async(svg_path: Path, gcode_path: Path) -> GcodeStats:
     return _read_generated_gcode(gcode_path)
 
 
-def validate_gcode(text: str) -> GcodeStats:
-    """逐行断言 docs/protocol.md §5 契约，违规抛 GcodeError（带行号）。"""
+def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
+    """逐行断言 docs/protocol.md §5 契约，违规抛 GcodeError（带行号）。
+
+    `total_bytes` 是**落盘后的真实字节数**，由调用方按 `len(read_bytes())` 传入。
+    不传则退回 `len(text.encode())`，只在「文本即全部真相」的场景（测试直接构造
+    字符串）成立；凡是从文件来的产物都必须显式传，否则 CRLF 会被少算 1 字节/行，
+    详见 `_read_generated_gcode` 的说明。
+    """
     lines = text.splitlines()
     if not lines or not any(l.strip() for l in lines):
         raise GcodeError("G-code 为空")
 
     # 单文件 ≤ 512KB（protocol §5，S3 侧 PSRAM 缓冲硬约束；与 VPS 内存无关）
-    total_bytes = len(text.encode("utf-8"))
+    if total_bytes is None:
+        total_bytes = len(text.encode("utf-8"))
     if total_bytes > MAX_BYTES:
         raise GcodeError(
             f"G-code 总大小 {total_bytes} 字节超上限 {MAX_BYTES}（512KB，protocol §5）"
