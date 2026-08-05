@@ -9,11 +9,11 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ 历史证据：2026-08-04 生产复验 `pass=14 fail=0 skip=0`，四个发布文件与 hutuji `f59c0a0` 提交对象哈希一致，回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`。仓内当前 preflight 强化 bridge endpoint 校验并新增 bridge active 检查，合计 15 项，尚未部署和复验——真值以 `../docs/release-readiness.md` 为准 |
+| VPS 实机部署与验收 | ✅ `bdbb107` 已于 2026-08-05 部署：生产 `pass=15 fail=0 skip=0`，bridge 重连完成 `initialize`/`tools/list`/`ping`，四个发布文件哈希与本地一致，回滚副本 `/root/hutuji-bak-20260805-bdbb107/`——真值以 `../docs/release-readiness.md` 为准 |
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 当前 15 项 preflight 活动探针。历史 14 项 PASS 不能证明新脚本/配置。
+> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 当前 15 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。
 > 下面的「首次上线」流程保留给**重建/换机**，不是待办。
 >
 > **scp `nginx-hutuji.conf` 有两个坑**（2026-07-31 实测，详见 `../docs/deployment.md`「nginx 站点收敛」）：

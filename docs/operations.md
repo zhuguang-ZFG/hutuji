@@ -53,4 +53,4 @@ EnvironmentFile 核对不得 `source`/`eval`：只解析 `KEY=VALUE`、注释/�
 
 - 生产变更绑定 `release-checklist.md`；禁止无清单热改协议相关行为。
 - 改完跑：本机契约回归（若改代码）+ 一次真实 `hutuji_status`（若改部署）。
-- nginx 变更顺序固定：同步 `sites-available` → 精确重建 `sites-enabled/hutuji` 链接 → `nginx -t` → reload → 当前 15 项 preflight。活动 localhost `:80` 探针必须在 reload 后运行；历史 14 项 PASS 不证明新配置或新增的 bridge 健康检查。
+- nginx 变更顺序固定：同步 `sites-available` → 精确重建 `sites-enabled/hutuji` 链接 → `nginx -t` → reload → 当前 15 项 preflight。活动 localhost `:80` 探针必须在 reload 后运行；`bdbb107` 的 15/15 只证明 2026-08-05 当次部署，不证明后续配置。

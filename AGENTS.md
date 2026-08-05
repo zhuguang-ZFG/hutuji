@@ -122,7 +122,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - 依赖是范围下界而非精确 pin：`fastapi>=0.115`、`uvicorn[standard]>=0.30`、`httpx>=0.27`、`vpype>=1.14`、`vpype-gcode>=0.13`、`mcp>=1.27,<2`、`mcp-proxy>=0.8.2,<1`、`websockets>=13,<17`；dev 只多 `pytest>=8.3,<9`。
 - 开发机 Windows（PowerShell，venv 在 `.venv\Scripts\`）；生产 Ubuntu + systemd + nginx（venv 在 `/opt/hutuji/mcp-server/.venv/bin/`）。
 - 生产拓扑：uvicorn 只监听 `127.0.0.1:8300`；nginx 只公开反代 `GET/HEAD /files/`（限速 10r/s），`/mcp` 显式 404；安全组只开 22/80/443，**不放行 8300**。
-- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 并跑 `bash deploy/preflight.sh`（**仓内当前 15 项**：含有效 `wss://` bridge endpoint、两个服务 active、HTTPS 公网前缀、enabled 链接精确目标、活动配置 LF md5、隧道 Host 路由，以及真下载的 200/长度/CRC32/正文；须全 pass）。生产现有 `14/14` 是历史证据，新脚本未部署前不得混称为 15 项已通过；再复验公网 `/mcp` 404、直连明文 `:80 /files` 403、8300 不可达。
+- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 并跑 `bash deploy/preflight.sh`（**当前 15 项**：含有效 `wss://` bridge endpoint、两个服务 active、HTTPS 公网前缀、enabled 链接精确目标、活动配置 LF md5、隧道 Host 路由，以及真下载的 200/长度/CRC32/正文；须全 pass）。`bdbb107` 已于 2026-08-05 部署并取得 `pass=15 fail=0 skip=0`；下次发布不得复用本次结果，仍须复验公网 `/mcp` 404、直连明文 `:80 /files` 403、8300 不可达。
 - 生产 venv 精简装**没有 pytest**：那边只能跑 `scripts/e2e_local.py` 或直接 import 校验。
 - 固件不在本仓构建：S3 用 ESP-IDF **v6.0.1**（`python3 scripts/release.py lichuang-dev`），Grbl 用 PlatformIO。串口坑：S3 板载 CH340K 也枚举为 CH340，COM 号每次会变，判定看串口日志自证，别用 `esptool chip_id` 打断运行中的固件。
 
