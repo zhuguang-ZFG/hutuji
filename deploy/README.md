@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ `bdbb107` 已于 2026-08-05 部署：生产 `pass=15 fail=0 skip=0`，bridge 重连完成 `initialize`/`tools/list`/`ping`，四个发布文件哈希与本地一致，回滚副本 `/root/hutuji-bak-20260805-bdbb107/`——真值以 `../docs/release-readiness.md` 为准 |
+| VPS 实机部署与验收 | ✅ `69c2198` 已于 2026-08-06 全量对齐部署：生产 `pass=17 fail=0 expected=17`，回滚副本 `/root/hutuji-bak-20260806-69c2198/`；此前 `bdbb107` 的 `pass=15 fail=0 skip=0`，bridge 重连完成 `initialize`/`tools/list`/`ping`，四个发布文件哈希与本地一致，回滚副本 `/root/hutuji-bak-20260805-bdbb107/`——真值以 `../docs/release-readiness.md` 为准 |
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
