@@ -13,6 +13,8 @@
 
 > **2026-08-04 复审工作树已收口（supersede 本行此前“未提交”快照）**：hutuji `f59c0a0` 已推 `origin/main`，已跟踪工作树无改动，仅保留用户/工具资产 `.omk/` 未跟踪；xiaozhi `83eb376` 已推 `origin/feat/hutuji-usb-pipe`，已跟踪工作树无改动，该固件提交未烧录；Grbl HEAD `966723b` 工作树无改动；fz HEAD `c2bf1a3` 保留两个未跟踪用户/工具资产 `native_sim/{telnet_server_behavior.cpp,test_telnet_server_behavior.py}`，本轮未改、勿删。hutuji 生产发布与验证证据见 `release-readiness.md` 顶部 2026-08-04 复审增量部署条。
 
+> **2026-08-05 当前工作树（supersede 上一条“hutuji 已跟踪工作树无改动”）**：本仓有下表首行所列未提交审查修复；用户/工具资产 `.omk/` 仍未跟踪且未触碰。未编辑 Grbl、xiaozhi 或 fz 外仓；未做 VPS 部署或硬件操作。
+
 ## 怎么用
 
 1. 开干前：三仓各跑 `git status --short`，对照本页。  
@@ -23,6 +25,7 @@
 
 | 状态 | 路径 | 含义 | 处置建议 |
 |------|------|------|----------|
+| 未提交（2026-08-05 GitHub 社区方案对照审查修复） | `mcp-server/hutuji_mcp/{server,gcode_gen}.py`、`scripts/xiaozhi_console.py`、`deploy/{preflight,install-from-repo}.sh`、`mcp-server/tests/test_contract.py`、`docs/protocol.md`、`docs/{deployment,operations,agent-handoff,release-readiness,worktree-inventory}.md`、`AGENTS.md`、`CLAUDE.md`、`README.md`、`deploy/README.md`、`mcp-server/README.md` | 修复 cleanup logger、draw/vpype 取消与并发名额、ASCII/255 字节行缓冲、跨源 redirect 凭据泄漏、bridge preflight、pip TLS 绕过；仓内 preflight 14→15 | hub `overall=pass`（pytest **249 passed**、e2e `PASS`），两个部署脚本 Git Bash `bash -n` 通过；**未部署、未做硬件验证**，生产仍是历史 14/14 |
 | **已推** | `scripts/bringup_fault_capture.py`、`docs/bringup-sop.md`、`scripts/agent_gate.py`、`docs/agent-gate.md` | bringup 8.3 串口采集与 Grbl WiFi OFF/ON 断链注入辅助；门禁 pytest 临时目录固定到仓库内，避免系统 `%TEMP%` 权限假失败 | 不替代硬件验收 |
 | **本轮同步** | `AGENTS.md`、`README.md`、`CLAUDE.md`、`.cursor/rules/hutuji-agent-rails.mdc`、`docs/agent-handoff.md`、`docs/release-readiness.md`、`docs/bringup-sop.md`、`docs/protocol.md`、`docs/worktree-inventory.md`、`firmware/m1-usb-pipe.md` | 同步 S3 `3ca9d31` 构建/烧录与 8.3 复测结论：断连重发主路径到 55/55+fresh `Idle`，最终无纸自动换纸 `error:90`，仍不可商业出货 | 已跑本仓 docs/hub 门禁；不替代有纸 `Changing=On`/自动换纸验收 |
 | 已推 | `docs/hardware/*`（MK38 + S3 原理图/对照） | 双板级资料 | 保持；禁改固件脚位 |

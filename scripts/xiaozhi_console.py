@@ -36,12 +36,58 @@ import sys
 from urllib.error import HTTPError
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-API_BASE = os.environ.get("XIAOZHI_API", "https://xiaozhi.me/api")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ROLE_PROMPT_PATH = REPO_ROOT / "docs" / "xiaozhi-agent" / "role-prompt.md"
 KNOWLEDGE_BASE_PATH = REPO_ROOT / "docs" / "xiaozhi-agent" / "knowledge-base.md"
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _validate_api_base(value: str) -> str:
+    """控制台 token 只允许发往 HTTPS；本机测试允许 loopback HTTP。"""
+    value = value.strip()
+    if "?" in value or "#" in value:
+        raise ValueError("XIAOZHI_API 不允许 query/fragment")
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("XIAOZHI_API 端口无效") from exc
+    if not host or parsed.username or parsed.password:
+        raise ValueError("XIAOZHI_API 必须是无凭据的绝对 URL")
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("XIAOZHI_API scheme 不受支持")
+    if host not in _LOOPBACK_HOSTS and parsed.scheme != "https":
+        raise ValueError("公网 XIAOZHI_API 必须使用 HTTPS")
+    return value.rstrip("/")
+
+
+def _url_origin(url: str) -> tuple[str, str, int | None]:
+    parsed = urlparse(url)
+    port = parsed.port
+    if port is None:
+        if parsed.scheme.lower() == "https":
+            port = 443
+        elif parsed.scheme.lower() == "http":
+            port = 80
+    return parsed.scheme.lower(), (parsed.hostname or "").lower(), port
+
+
+class _SafeRedirectHandler(HTTPRedirectHandler):
+    """跨 origin 重定向必须剥掉凭据；同 origin 兼容 API 的路径规范化。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and _url_origin(req.full_url) != _url_origin(newurl):
+            for name in ("Authorization", "Proxy-Authorization", "Cookie"):
+                redirected.remove_header(name)
+        return redirected
+
+
+API_BASE = _validate_api_base(os.environ.get("XIAOZHI_API", "https://xiaozhi.me/api"))
+_URL_OPENER = build_opener(_SafeRedirectHandler())
 
 
 def get_token():
@@ -64,7 +110,7 @@ def api(method, path, body=None):
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     req = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(req, timeout=15) as resp:
+        with _URL_OPENER.open(req, timeout=15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         body_text = e.read().decode(errors="replace")
@@ -95,7 +141,7 @@ def api_upload(path, file_path):
         "Content-Type": f"multipart/form-data; boundary={boundary}",
     })
     try:
-        with urlopen(req, timeout=30) as resp:
+        with _URL_OPENER.open(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         body_text = e.read().decode(errors="replace")

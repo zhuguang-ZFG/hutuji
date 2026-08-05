@@ -20,16 +20,21 @@ if grep -q 'REPLACE_ME' /etc/hutuji/mcp.env /etc/hutuji/bridge.env 2>/dev/null; 
 fi
 
 echo "==> Python venv + 生产依赖"
-# 京东云直连 PyPI 常卡住；默认清华源（可用 HUTUJI_PIP_INDEX 覆盖）
+# 京东云直连 PyPI 常卡住；默认清华 HTTPS 源（可用 HUTUJI_PIP_INDEX 覆盖）。
+# 代理使用私有 CA 时显式传 HUTUJI_PIP_CERT；禁止用 --trusted-host 绕过 TLS 校验。
 PIP_INDEX="${HUTUJI_PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-PIP_TRUSTED="${HUTUJI_PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}"
-sudo -u "${APP_USER}" bash -lc "
+PIP_CERT="${HUTUJI_PIP_CERT:-}"
+sudo -u "${APP_USER}" env MCP_DIR="${MCP_DIR}" PIP_INDEX="${PIP_INDEX}" PIP_CERT="${PIP_CERT}" bash -lc '
   set -euo pipefail
-  cd '${MCP_DIR}'
+  cd "$MCP_DIR"
+  pip_args=(-i "$PIP_INDEX")
+  if [[ -n "$PIP_CERT" ]]; then
+    pip_args+=(--cert "$PIP_CERT")
+  fi
   python3 -m venv .venv
-  .venv/bin/pip install -U pip -i '${PIP_INDEX}' --trusted-host '${PIP_TRUSTED}'
-  .venv/bin/pip install -r requirements.txt -i '${PIP_INDEX}' --trusted-host '${PIP_TRUSTED}'
-"
+  .venv/bin/pip install -U pip "${pip_args[@]}"
+  .venv/bin/pip install -r requirements.txt "${pip_args[@]}"
+'
 
 echo "==> systemd units"
 cp "${APP_ROOT}/deploy/hutuji-mcp.service" /etc/systemd/system/

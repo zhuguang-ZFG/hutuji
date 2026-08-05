@@ -9,11 +9,11 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ 2026-08-04 已同步当前 `preflight.sh` 与 MCP 服务修复，生产复验 `pass=14 fail=0 skip=0`；四个发布文件与 hutuji `f59c0a0` 提交对象哈希一致，回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`——真值以 `../docs/release-readiness.md` 为准 |
+| VPS 实机部署与验收 | ✅ 历史证据：2026-08-04 生产复验 `pass=14 fail=0 skip=0`，四个发布文件与 hutuji `f59c0a0` 提交对象哈希一致，回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`。仓内当前 preflight 强化 bridge endpoint 校验并新增 bridge active 检查，合计 15 项，尚未部署和复验——真值以 `../docs/release-readiness.md` 为准 |
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 14 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。
+> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 当前 15 项 preflight 活动探针。历史 14 项 PASS 不能证明新脚本/配置。
 > 下面的「首次上线」流程保留给**重建/换机**，不是待办。
 >
 > **scp `nginx-hutuji.conf` 有两个坑**（2026-07-31 实测，详见 `../docs/deployment.md`「nginx 站点收敛」）：
@@ -56,7 +56,7 @@ bash /opt/hutuji/deploy/prepare-host.sh
 2. 放 TLS 到 `/etc/nginx/ssl/hutuji/{fullchain,privkey}.pem`（或改 nginx 路径）。  
 3. `bash /opt/hutuji/deploy/install-from-repo.sh`  
 4. `systemctl enable --now hutuji-mcp hutuji-cloud-bridge nginx`  
-5. `nginx -t && systemctl reload nginx`，成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（14 项）。  
+5. `nginx -t && systemctl reload nginx`，成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 15 项）。
 6. 公网：`/mcp` 须失败；直连 `http://117.72.118.95/files/*` 须 403；`/files/` 只经 HTTPS。
 7. 小智控制台 `tools/list`（阶段 6）；证据写入 `docs/templates/release-manifest.md`。
 

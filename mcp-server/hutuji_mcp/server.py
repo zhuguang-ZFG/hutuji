@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -31,7 +32,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import settings
 from .config import validate_public_base_url
-from .gcode_gen import svg_to_gcode
+from .gcode_gen import svg_to_gcode_async
 from .llm_svg import generate_svg
 
 # 保持默认 streamable_http_path="/mcp"，子应用挂到根（/files 先注册优先匹配），
@@ -48,6 +49,8 @@ _DRAW_FILE_RE = re.compile(
 _DRAW_FILE_PARTS_RE = re.compile(
     r"^(draw_\d{8}_\d{6})_(?P<token>[A-Za-z0-9_-]{22})\.(?P<ext>gcode|svg)$"
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DrawLimitError(RuntimeError):
@@ -245,23 +248,32 @@ async def hutuji_draw(description: str) -> str:
     不要编造 url；失败时根据错误白话说明。"""
     # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
     public_base_url = validate_public_base_url(settings.public_base_url)
-    settings.output_dir.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(_cleanup_expired_outputs)
-    svg = await _generate_svg_limited(description)
-
-    base = _new_basename()
-    svg_path = settings.output_dir / f"{base}.svg"
-    gcode_path = settings.output_dir / f"{base}.gcode"
-    svg_path.write_text(svg, encoding="utf-8")
-
-    # vpype 转换是阻塞子进程，扔到线程池避免卡住事件循环
+    svg_path: Path | None = None
+    gcode_path: Path | None = None
     try:
-        stats = await asyncio.to_thread(svg_to_gcode, svg_path, gcode_path)
-    except Exception:
-        svg_path.unlink(missing_ok=True)
-        gcode_path.unlink(missing_ok=True)
+        # 名额必须覆盖付费 LLM 与 CPU 密集的 vpype，不能在 SVG 返回后放任转换堆积。
+        async with _draw_limiter.slot():
+            settings.output_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(_cleanup_expired_outputs)
+            svg = await generate_svg(description)
+
+            base = _new_basename()
+            svg_path = settings.output_dir / f"{base}.svg"
+            gcode_path = settings.output_dir / f"{base}.gcode"
+            # SVG 已被限制到 256KiB；同步落盘很短，并避免取消 to_thread 后后台迟写残留文件。
+            svg_path.write_text(svg, encoding="utf-8")
+            stats = await svg_to_gcode_async(svg_path, gcode_path)
+    except BaseException:
+        # 取消也必须清理 capability 产物；清理失败只能记日志，不能覆盖原异常。
+        for path in (svg_path, gcode_path):
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.warning("清理失败产物失败 %s：%s", path.name, exc)
         raise
 
+    assert gcode_path is not None
     url = f"{public_base_url}/files/{gcode_path.name}"
     return json.dumps({
         "url": url,

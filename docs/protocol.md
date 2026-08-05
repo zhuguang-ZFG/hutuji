@@ -151,7 +151,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 ## 3. 流控（Grbl 行协议）
 
 - **逐行发送，收到 `ok\r\n` 才发下一行**；`error:NN\r\n`（数字格式）按 §7 处理。**无 character-counting**，禁止预发抢跑（client_buffer 溢出会丢字节）。
-- **单行 ≤ 255 字符**（`LINE_BUFFER_SIZE 256`），超长回 `error:11`。MCP 生成端折行负责。
+- **单行仅 ASCII 且 ≤ 255 字节**（`LINE_BUFFER_SIZE 256`），非 ASCII 或超长回 `error:11`。MCP 生成端折行负责。
 - **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s（换纸行放宽到 90s）。此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。换纸期间 Grbl 主循环不转，S3 周期性 `?` 不会收到状态行；Pipe 用 `expect_blocking_peer_` 标记换纸期，silent-poll 超时不掐链（TCP keepalive 兜底），换纸结束/任务收尾清回。
   - ⚠️ **进度反馈不能靠 `[PaperAuto-N]`**（§2：那些走 CLIENT_SERIAL，Telnet 收不到）。S3 判「仍在换纸」的手段只有：**自己发的是 M30/M721**（自知，正常出图期够用），或换纸期周期性 `?` 探活（走实时旁路、换纸期可响应，见 §2）。结果码 `[PaperStatus] N` 须靠 §9 的路由改动才能到达。
 - 实时命令（`!` 暂停、`~` 恢复、`?` 状态、`0x18` 软复位）单字节立即生效，走实时旁路**不进 client_buffer、不吃 `ok`**（`is_realtime_command` 仅认这四个 + `≥0x80`）；`?` 的应答只回给发送 client。
@@ -273,7 +273,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 情况 | 含义 | S3 行为 |
 |------|------|---------|
 | `error:8` | 换纸进行中，运动行被推迟（实为 `Error::IdleError`，`Protocol.cpp:186`） | **不算失败**，但 **⚠️ 该行已被 `empty_line()` 丢弃、不会排队**——S3 必须**自己重发这一行**，不可假设写字机记着。做法：暂停发送、等换纸行 ok 后**重发被拒的那一行**再继续（`[PaperStatus]` 须先做 §9 B1′ 才可达）。注：写字机侧的 `[MSG:]` 推迟提示有 3s 节流（`protocol_notify_paper_motion_deferred`）且只发 SERIAL，S3 只看得到 `error:8` 本身 |
-| `error:11` | 行超 255 字符 | 任务 error，上报（MCP 生成端 bug） |
+| `error:11` | 行含非 ASCII 或超 255 字节 | 任务 error，上报（MCP 生成端 bug） |
 | `error:90` | 换纸失败 | 任务 error，按 `[PaperStatus]` 码提示用户（**依赖 §9 B1′**；未改动前只能报「换纸失败，原因未知」） |
 | `error:110` | 未授权 | 停止全部发送，提示走授权 SOP。**正常不应出现**——§6 前置门已挡住。该行同样被 `empty_line()` 丢弃（`Protocol.cpp:195-204`） |
 | 其他 `error:NN` | 语法/参数错 | 停止，记录行号，任务 error 上报 |

@@ -6,6 +6,8 @@ vpype 管线：read → linemerge → linesort → linesimplify → gwrite --pro
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import math
 import re
@@ -162,9 +164,9 @@ def _vpype_cmd() -> list[str]:
     return [sys.executable, "-m", "vpype"]
 
 
-def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
-    """跑 vpype 管线生成 G-code，随后做 §5 合同校验。"""
-    cmd = _vpype_cmd() + [
+def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
+    """构造固定 vpype 管线，供同步和可取消异步入口共用。"""
+    return _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
@@ -179,6 +181,21 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
         "linesimplify", "--tolerance", f"{LINESIMPLIFY_TOLERANCE_MM}mm",
         "gwrite", "--profile", "hutuji", str(gcode_path),
     ]
+
+
+def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
+    """读取 vpype 成功退出后的产物，并统一成合同错误。"""
+    try:
+        text = gcode_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
+        raise GcodeError("vpype 转换未产出 G-code 文件") from None
+    return validate_gcode(text)
+
+
+def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
+    """跑 vpype 管线生成 G-code，随后做 §5 合同校验。"""
+    cmd = _vpype_command(svg_path, gcode_path)
     proc = None
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
@@ -196,16 +213,59 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
     if proc.returncode != 0:
         logger.error("vpype 转换失败（exit %d）：%s", proc.returncode, proc.stderr[-500:])
         raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）")
+    return _read_generated_gcode(gcode_path)
+
+
+async def svg_to_gcode_async(svg_path: Path, gcode_path: Path) -> GcodeStats:
+    """可取消地运行 vpype；请求取消或超时都必须回收子进程。"""
     try:
-        text = gcode_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        # exit 0 却无产物（或读取竞态）同样是失败，且 FileNotFoundError 不是
-        # GcodeError，会穿透成 500——须与超时一样塌成窄类型。UnicodeDecodeError
-        # 是 UnicodeError→ValueError，不在 OSError 内，须一并收窄（vpype 在
-        # Windows locale 下可能写出非 UTF-8 字节）。
-        logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
-        raise GcodeError("vpype 转换未产出 G-code 文件") from None
-    return validate_gcode(text)
+        process = await asyncio.create_subprocess_exec(
+            *_vpype_command(svg_path, gcode_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        logger.error("vpype 子进程启动失败：%s", exc, exc_info=True)
+        raise GcodeError("vpype 子进程启动失败") from None
+
+    async def _stop_process() -> None:
+        if process.returncode is not None:
+            return
+        with contextlib.suppress(ProcessLookupError):
+            process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            if process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+            await process.wait()
+
+    async def _stop_process_before_propagating_cancellation() -> None:
+        cleanup_task = asyncio.create_task(_stop_process())
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            # 重复取消也不能把子进程留在后台；回收完成后再继续传播取消。
+            await cleanup_task
+            raise
+
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+    except asyncio.TimeoutError:
+        await _stop_process_before_propagating_cancellation()
+        logger.error("vpype 转换超时（300s 上限）")
+        raise GcodeError("vpype 转换超时（300s 上限）") from None
+    except asyncio.CancelledError:
+        # 取消 asyncio 等待不会自动停止 subprocess；这里拥有子进程句柄，必须显式回收。
+        await _stop_process_before_propagating_cancellation()
+        raise
+
+    if process.returncode != 0:
+        tail = stderr.decode("utf-8", errors="replace")[-500:]
+        logger.error("vpype 转换失败（exit %d）：%s", process.returncode, tail)
+        raise GcodeError(f"vpype 转换失败（exit {process.returncode}）")
+    return _read_generated_gcode(gcode_path)
 
 
 def validate_gcode(text: str) -> GcodeStats:
@@ -272,9 +332,14 @@ def validate_gcode(text: str) -> GcodeStats:
         code_part = line.split(";", 1)[0].strip()
         upper = code_part.upper()
 
-        # 单行 ≤255 字符（Grbl LINE_BUFFER_SIZE 256）
-        if len(raw) > 255:
-            raise GcodeError(f"第 {idx} 行超过 255 字符")
+        # Grbl LINE_BUFFER_SIZE 是字节数；S3 会原样转发 UTF-8，故不能只量 Python
+        # 字符数。生产 G-code 只接受 ASCII，避免多字节注释撑爆设备行缓冲。
+        try:
+            line_bytes = raw.encode("ascii")
+        except UnicodeEncodeError:
+            raise GcodeError(f"第 {idx} 行含非 ASCII 字符（生产 G-code 只允许 ASCII）") from None
+        if len(line_bytes) > 255:
+            raise GcodeError(f"第 {idx} 行超过 255 字节")
 
         # 首行禁 G0 X0Y0Z0（软复位后首页触发点）
         if idx == 1 and re.fullmatch(r"G0?0\s*X0\s*Y0\s*Z0", upper.replace(" ", "")):

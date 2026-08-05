@@ -22,7 +22,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
      → WiFi Telnet :23 逐行发给 Grbl → 页尾 fresh `Idle` 后 S3 单独发 `M30` → 自动换纸
 ```
 
-服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_cleanup_expired_outputs()` → `llm_svg.generate_svg()`（`_sanitize_description` → LLM → `_extract_svg` → `_validate_svg`）→ `asyncio.to_thread(gcode_gen.svg_to_gcode)`（vpype `read → linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。
+服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_draw_limiter.slot()`（覆盖全程）→ `_cleanup_expired_outputs()` → `llm_svg.generate_svg()`（`_sanitize_description` → LLM → `_extract_svg` → `_validate_svg`）→ `gcode_gen.svg_to_gcode_async()`（可取消 vpype：`read → linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。
 
 **锁定决策（编号同根 `README.md`，禁止重开）**
 
@@ -92,7 +92,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（默认 `127.0.0.1`）、`HUTUJI_PORT`（`8300`）、`HUTUJI_OUTPUT_TTL_SECONDS`（`600`）；桥接侧 `MCP_ENDPOINT`（必须 `wss://`）、`HUTUJI_LOCAL_MCP_URL`（必须 loopback 且路径 `/mcp`）。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
 - **状态与注入**：模块级单例代替 DI 容器——`config.settings` 在 import 时构造，`server._draw_limiter` 是模块全局；测试用 `monkeypatch.setattr(module, "settings", ...)` 或改环境变量覆盖，没有 FastAPI 依赖注入。
 - **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。
-- **async/sync 分工**：MCP 工具是 `async`；阻塞活（vpype 子进程、TTL 清理）走 `asyncio.to_thread`；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
+- **async/sync 分工**：MCP 工具是 `async`；TTL 清理走 `asyncio.to_thread`，vpype 用 `asyncio.create_subprocess_exec` 并在取消时回收子进程；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
 - **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。第三方 logging 必须在 handler filter 中先 `record.getMessage()` 再脱敏最终文本，并单独脱敏 `exc_info`/`exc_text`/`stack_info`；只扫字符串 `msg/args` 会漏异常对象和 traceback。
 - **产物与 TTL**：只有匹配 `draw_YYYYMMDD_HHMMSS_<22 位 urlsafe token>.{gcode,svg}` 的名字可下载；TTL 600s，过期即删并返 404；清理是访问时顺带做的，**没有后台扫描线程**。
 - **G-code 契约**（`docs/protocol.md` §5，`validate_gcode()` 是活闸门）：头 `G21/G90/F8000` + 两次幂等 `G1G90 Z0.0F10000`（**不建立 Z 基准**）；`G0 ... F8000` 空走、`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件里禁 `G92`/`M3`/`M5`/`M30`/`G4`/`G28`/`G30`，禁 `G0` 落点 X0Y0，Z 只能 0 或 5，`0<F≤10000`，X≤190mm、Y≤277mm、单文件 ≤512KiB。落笔前的 `G92 Z0` 与页尾 `M30` 由 S3 旁路单发，不进文件。
@@ -122,13 +122,13 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - 依赖是范围下界而非精确 pin：`fastapi>=0.115`、`uvicorn[standard]>=0.30`、`httpx>=0.27`、`vpype>=1.14`、`vpype-gcode>=0.13`、`mcp>=1.27,<2`、`mcp-proxy>=0.8.2,<1`、`websockets>=13,<17`；dev 只多 `pytest>=8.3,<9`。
 - 开发机 Windows（PowerShell，venv 在 `.venv\Scripts\`）；生产 Ubuntu + systemd + nginx（venv 在 `/opt/hutuji/mcp-server/.venv/bin/`）。
 - 生产拓扑：uvicorn 只监听 `127.0.0.1:8300`；nginx 只公开反代 `GET/HEAD /files/`（限速 10r/s），`/mcp` 显式 404；安全组只开 22/80/443，**不放行 8300**。
-- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 并跑 `bash deploy/preflight.sh`（**当前 14 项**：含 HTTPS 公网前缀、enabled 链接精确目标、活动配置 LF md5、隧道 Host 路由，以及真下载的 200/长度/CRC32/正文；须全 pass），再复验公网 `/mcp` 404、直连明文 `:80 /files` 403、8300 不可达。
+- 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；改完重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 并跑 `bash deploy/preflight.sh`（**仓内当前 15 项**：含有效 `wss://` bridge endpoint、两个服务 active、HTTPS 公网前缀、enabled 链接精确目标、活动配置 LF md5、隧道 Host 路由，以及真下载的 200/长度/CRC32/正文；须全 pass）。生产现有 `14/14` 是历史证据，新脚本未部署前不得混称为 15 项已通过；再复验公网 `/mcp` 404、直连明文 `:80 /files` 403、8300 不可达。
 - 生产 venv 精简装**没有 pytest**：那边只能跑 `scripts/e2e_local.py` 或直接 import 校验。
 - 固件不在本仓构建：S3 用 ESP-IDF **v6.0.1**（`python3 scripts/release.py lichuang-dev`），Grbl 用 PlatformIO。串口坑：S3 板载 CH340K 也枚举为 CH340，COM 号每次会变，判定看串口日志自证，别用 `esptool chip_id` 打断运行中的固件。
 
 ## Testing & QA｜测试与门禁
 
-- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **180 项**（100 个 `def test_` 经 12 处 `parametrize` 展开）。
+- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **249 项**。
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
 - 三个测试文件职责：`test_contract.py`（§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死）、`test_injection.py`（SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（桥接配置与不泄密日志）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。

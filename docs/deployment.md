@@ -97,12 +97,12 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ 当前仓内脚本已部署；2026-08-04 生产复验 14/14 | `pass=14 fail=0 skip=0`；四个发布文件与 `f59c0a0` 提交对象哈希一致 |
+| `preflight.sh` 全 PASS | 🟡 生产仅有 2026-08-04 的历史 14/14；仓内当前 15 项尚未部署 | 历史结果 `pass=14 fail=0 skip=0`；当前脚本新增有效 `wss://` bridge endpoint 与 `hutuji-cloud-bridge active` 门禁，须部署后重新取证 |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
 > TLS 已切 Cloudflare Tunnel + Let’s Encrypt（2026-07-27），ESP-IDF cert bundle 信任，S3 无需 `-k`。  
-> `install-from-repo.sh` 默认清华 PyPI 源（京东云直连 PyPI 易卡住）。
+> `install-from-repo.sh` 默认清华 HTTPS PyPI 源（京东云直连 PyPI 易卡住），不再使用 `--trusted-host` 绕过 TLS；私有 CA 场景显式传 `HUTUJI_PIP_CERT`。
 
 ### nginx 站点收敛（2026-07-31 14:51–14:53，已执行）
 
@@ -181,7 +181,9 @@ HTTPS `/files/__nonexistent__` 404。桥接重连后云端真实 `initialize`+`t
 > 「线上 nginx conf 与本仓模板一致」**fail**——该项比较基准是 `/opt/hutuji/deploy/nginx-hutuji.conf`,
 > 两处都要同步。
 
-> **仓内 preflight 修复已部署（2026-08-04，supersede 2026-08-01“未部署”状态）**：此前 `f3ef14b`/`8e4b9b4` 引入的变量初始化顺序回归，以及随后补齐的 `[skip]`、`ss` 前置、curl 超时/禁代理、本机 5xx 不算可达等硬化，已随 hutuji `f59c0a0` scp 到 `/opt/hutuji/deploy/preflight.sh`。生产当场复验 `pass=14 fail=0 skip=0`，生产脚本 SHA-256 `7196aa9efa13ccc839bf4b2e59294aee14142e062659efb44fab9a669ae8dc97` 与提交对象一致；回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`。第 12 项仍只核 nginx 模板，故每次更新 `preflight.sh` 仍必须显式上传并当场执行。
+> **当时的仓内 preflight 修复已部署（2026-08-04，supersede 2026-08-01“未部署”状态）**：此前 `f3ef14b`/`8e4b9b4` 引入的变量初始化顺序回归，以及随后补齐的 `[skip]`、`ss` 前置、curl 超时/禁代理、本机 5xx 不算可达等硬化，已随 hutuji `f59c0a0` scp 到 `/opt/hutuji/deploy/preflight.sh`。生产当场复验 `pass=14 fail=0 skip=0`，生产脚本 SHA-256 `7196aa9efa13ccc839bf4b2e59294aee14142e062659efb44fab9a669ae8dc97` 与提交对象一致；回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`。该证据只覆盖当时 14 项版本。
+>
+> **2026-08-05 仓内新增检查，尚未部署**：当前 `preflight.sh` 为 15 项，要求 `bridge.env` 的 `MCP_ENDPOINT` 是非占位 `wss://` URL，并单独检查 `hutuji-cloud-bridge` active。生产必须显式上传脚本、重启两个服务并当场取得 15 项结果；不得用历史 14/14 替代。
 
 
 #### 漂移判据（必须 LF 归一化）

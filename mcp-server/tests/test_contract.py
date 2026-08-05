@@ -192,12 +192,17 @@ def test_draw_uses_normalized_injected_public_origin(
     async def fake_generate_svg(_description: str) -> str:
         return "<svg/>"
 
-    def fake_svg_to_gcode(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
+    async def fake_svg_to_gcode(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
         return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-    monkeypatch.setattr(server, "_generate_svg_limited", fake_generate_svg)
+    monkeypatch.setattr(server, "generate_svg", fake_generate_svg)
     monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260731_120000_abcdefghijklmnopqrstuv")
-    monkeypatch.setattr(server, "svg_to_gcode", fake_svg_to_gcode)
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_svg_to_gcode)
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
 
     result = json.loads(asyncio.run(server.hutuji_draw("test")))
     assert result["url"] == (
@@ -276,7 +281,7 @@ def test_gcode_rejects_more_than_512_kib() -> None:
 def test_gcode_accepts_exactly_512_kib() -> None:
     """§5「≤ 512KB 含」：恰好 MAX_BYTES 放行，多一字节才拒。
 
-    内容必须拆成 ≤255 字符的多行注释（行长约束 + 注释被剥除），
+    内容必须拆成 ≤255 ASCII 字节的多行注释（行长约束 + 注释被剥除），
     不能一条长行填满——单行 256 字符会先撞上行长检查。
     """
     base = _minimal_gcode()
@@ -292,10 +297,18 @@ def test_gcode_accepts_exactly_512_kib() -> None:
     assert stats.bytes == MAX_BYTES
 
 
-def test_gcode_rejects_line_over_255_chars() -> None:
-    """Grbl LINE_BUFFER_SIZE=256：单行（含注释）超 255 字符整行拒。"""
+def test_gcode_rejects_line_over_255_bytes() -> None:
+    """Grbl LINE_BUFFER_SIZE=256：单行（含注释）超 255 字节整行拒。"""
     with pytest.raises(GcodeError, match="255"):
         validate_gcode(_minimal_gcode(";" + "x" * 255 + "\n"))
+
+
+def test_gcode_rejects_non_ascii_even_when_character_count_fits() -> None:
+    line = "G1 X1 Y1;" + chr(0x6C49) * 100
+    assert len(line) <= 255
+    assert len(line.encode("utf-8")) > 255
+    with pytest.raises(GcodeError, match="非 ASCII"):
+        validate_gcode(_minimal_gcode(line))
 
 
 def test_gcode_rejects_paren_comment_line() -> None:
@@ -377,6 +390,100 @@ def test_draw_limiter_rejects_rate_and_concurrency() -> None:
 
     asyncio.run(limiter.leave())
     asyncio.run(limiter.leave())
+
+
+def test_draw_limit_covers_vpype_conversion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """两个转换占满名额后，第 3 个 draw 必须立即拒绝，不能继续堆 vpype。"""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
+
+    async def fake_generate_svg(_description: str) -> str:
+        return "<svg/>"
+
+    async def exercise() -> None:
+        started = 0
+        both_started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_convert(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
+            nonlocal started
+            started += 1
+            if started == 2:
+                both_started.set()
+            await release.wait()
+            return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
+
+        monkeypatch.setattr(server, "generate_svg", fake_generate_svg)
+        monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+        tasks = [
+            asyncio.create_task(server.hutuji_draw("first")),
+            asyncio.create_task(server.hutuji_draw("second")),
+        ]
+        await asyncio.wait_for(both_started.wait(), timeout=1)
+        try:
+            with pytest.raises(server.DrawLimitError, match="并发"):
+                await server.hutuji_draw("third")
+            assert started == 2
+        finally:
+            release.set()
+            await asyncio.gather(*tasks)
+
+    asyncio.run(exercise())
+
+
+def test_draw_cancellation_removes_partial_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
+
+    async def fake_generate_svg(_description: str) -> str:
+        return "<svg/>"
+
+    async def exercise() -> None:
+        started = asyncio.Event()
+
+        async def fake_convert(_svg_path: Path, gcode_path: Path) -> None:
+            gcode_path.write_text("partial", encoding="utf-8")
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(server, "generate_svg", fake_generate_svg)
+        monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+        task = asyncio.create_task(server.hutuji_draw("cancel"))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_delete_output_pair_logs_unlink_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+
+    def denied(*_args, **_kwargs) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "unlink", denied)
+    server._delete_output_pair("draw_20260805_120000_abcdefghijklmnopqrstuv")
+    assert "删除过期产物失败" in caplog.text
+    assert "denied" in caplog.text
 
 
 def test_status_latest_filename_is_redacted(
@@ -675,6 +782,106 @@ def test_svg_to_gcode_wraps_missing_output_as_gcode_error(
     svg.write_text("<svg/>", encoding="utf-8")
     with pytest.raises(GcodeError, match="未产出"):
         gcode_gen.svg_to_gcode(svg, tmp_path / "out.gcode")
+
+
+def test_svg_to_gcode_async_terminates_child_on_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hutuji_mcp import gcode_gen
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.returncode = None
+            self.started = asyncio.Event()
+            self.terminated = False
+
+        async def communicate(self):
+            self.started.set()
+            await asyncio.Event().wait()
+
+        def terminate(self) -> None:
+            self.terminated = True
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            return self.returncode or 0
+
+    process = FakeProcess()
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(gcode_gen.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    async def exercise() -> None:
+        task = asyncio.create_task(
+            gcode_gen.svg_to_gcode_async(tmp_path / "in.svg", tmp_path / "out.gcode")
+        )
+        await asyncio.wait_for(process.started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    assert process.terminated is True
+    assert process.returncode == -15
+
+
+def test_svg_to_gcode_async_terminates_child_on_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hutuji_mcp import gcode_gen
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.returncode = None
+            self.terminated = False
+
+        async def communicate(self):
+            raise asyncio.TimeoutError
+
+        def terminate(self) -> None:
+            self.terminated = True
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            return self.returncode or 0
+
+    process = FakeProcess()
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(gcode_gen.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    with pytest.raises(GcodeError, match="超时"):
+        asyncio.run(
+            gcode_gen.svg_to_gcode_async(tmp_path / "in.svg", tmp_path / "out.gcode")
+        )
+
+    assert process.terminated is True
+    assert process.returncode == -15
+
+
+def test_svg_to_gcode_async_runs_real_vpype_pipeline(tmp_path: Path) -> None:
+    """异步生产入口必须能启动真实 vpype，并产出通过 §5 校验的文件。"""
+    from hutuji_mcp import gcode_gen
+
+    svg = Path(__file__).with_name("test_star.svg")
+    gcode = tmp_path / "star.gcode"
+
+    stats = asyncio.run(gcode_gen.svg_to_gcode_async(svg, gcode))
+
+    generated = gcode.read_text(encoding="utf-8")
+    assert stats == gcode_gen.validate_gcode(generated)
+    assert stats.lines > 5
+    assert stats.bytes == len(generated.encode("ascii"))
 
 
 def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) -> None:
@@ -1094,7 +1301,13 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert "eval " not in preflight
     assert "^https://([A-Za-z0-9-]+\\.)*[A-Za-z0-9-]+(:443)?/?$" in preflight
     assert "[[ -f /etc/hutuji/mcp.env ]]" in preflight
-    assert "check_no_placeholder /etc/hutuji/bridge.env" in preflight
+    assert "check_bridge_env()" in preflight
+    assert "env_value /etc/hutuji/bridge.env MCP_ENDPOINT" in preflight
+    assert "MCP_ENDPOINT 为 wss://" in preflight
+    assert "from urllib.parse import urlsplit" in preflight
+    assert "parsed.username is None" in preflight
+    assert "parsed.password is None" in preflight
+    assert "systemctl is-active --quiet hutuji-cloud-bridge" in preflight
     # 部署模板必须来自固定安装目录；从任意位置调用 preflight 都应比较同一份模板。
     assert "SCRIPT_DIR" not in preflight
     assert "/opt/hutuji/deploy/nginx-hutuji.conf" in preflight
@@ -1122,7 +1335,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert re.search(rf'\[\[\s+"?\$rc"?\s+-eq\s+"?{status_ref}"?\s+\]\]', preflight)
     assert re.search(rf'return\s+"?{status_ref}"?', preflight)
 
-    # 14 项中允许可选项 SKIP，但任何 FAIL 都不能放行。
+    # 15 项中允许可选项 SKIP，但任何 FAIL 都不能放行。
     assert re.search(r'\$\(\(\s*PASS\s*\+\s*SKIP\s*\)\)', preflight)
     assert re.search(r'"?\$\{?FAIL\}?"?\s+-eq\s+0', preflight)
 
@@ -1147,7 +1360,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 14
+    assert preflight.count('\ncheck "') == 15
 
     # 每条 curl 都必须绕代理 + 带超时：环境里有 http_proxy 会让 loopback 探针走代理假红，
     # 而 fallback 选中的接口地址若被 DROP 式防火墙吃掉，默认超时约 300s 会把冒烟挂死。
@@ -1161,16 +1374,29 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
 
 def test_preflight_invokes_every_check_after_env_init() -> None:
     """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
-    `unbound variable` 退出，14 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    `unbound variable` 退出，15 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
     root = Path(__file__).resolve().parents[2]
     lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
 
     init_last = max(
-        i for i, line in enumerate(lines) if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR="))
+        i
+        for i, line in enumerate(lines)
+        if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 14
+    assert len(checks) == 15
     assert min(checks) > init_last
+
+
+def test_install_script_keeps_package_index_tls_verification() -> None:
+    root = Path(__file__).resolve().parents[2]
+    install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
+
+    assert "--trusted-host" not in "\n".join(
+        line for line in install.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "HUTUJI_PIP_CERT" in install
+    assert 'pip_args+=(--cert "$PIP_CERT")' in install
 
 def _load_agent_gate():
     import importlib.util
@@ -1371,6 +1597,59 @@ def test_console_endpoint_display_preserves_ipv6_origin_syntax() -> None:
     assert console._endpoint_origin("wss://[2001:db8::1]:8443/private?token=secret") == (
         "wss://[2001:db8::1]:8443"
     )
+
+
+def test_console_rejects_insecure_public_api_base() -> None:
+    console = _load_root_script("hutuji_console_api_base_test", "xiaozhi_console.py")
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        console._validate_api_base("http://api.example.com/api")
+    assert console._validate_api_base("http://127.0.0.1:8000/api/") == (
+        "http://127.0.0.1:8000/api"
+    )
+
+
+def test_console_redirect_strips_auth_only_when_origin_changes() -> None:
+    from email.message import Message
+    from urllib.request import Request
+
+    console = _load_root_script("hutuji_console_redirect_test", "xiaozhi_console.py")
+    handler = console._SafeRedirectHandler()
+    headers = Message()
+
+    cross_origin = handler.redirect_request(
+        Request(
+            "https://xiaozhi.me/api/agents",
+            headers={
+                "Authorization": "Bearer secret",
+                "Proxy-Authorization": "Basic secret",
+                "Cookie": "session=secret",
+            },
+        ),
+        None,
+        302,
+        "Found",
+        headers,
+        "https://attacker.example/collect",
+    )
+    assert cross_origin is not None
+    assert cross_origin.get_header("Authorization") is None
+    assert cross_origin.get_header("Proxy-Authorization") is None
+    assert cross_origin.get_header("Cookie") is None
+
+    same_origin = handler.redirect_request(
+        Request(
+            "https://xiaozhi.me/api/agents",
+            headers={"Authorization": "Bearer secret"},
+        ),
+        None,
+        302,
+        "Found",
+        headers,
+        "https://xiaozhi.me/api/agents/",
+    )
+    assert same_origin is not None
+    assert same_origin.get_header("Authorization") == "Bearer secret"
 
 
 def _load_e2e_local():

@@ -8,7 +8,7 @@ LLM 生成单线笔画 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验�
 
 契约见 `../docs/protocol.md` **v0.5** §3/§4/§5/§5.1。生产已部署到**京东云 VPS 单点**（2核4G / 5Mbps / 公网 `117.72.118.95`，专机只跑 ③），经 nginx + Cloudflare Tunnel 提供 HTTPS。
 
-> ✅ **服务基础与生产边界已验证**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流和 localhost 监听均已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（**9 项已确认**）。官方云路径已实际触发设备侧 `draw/status/abort`，但 **App 真实语音仍未验收**。
+> ✅ **服务基础与生产边界已有历史证据**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流和 localhost 监听均已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，生产末次 preflight 为 **14/14 PASS**。仓内当前脚本为 15 项，新增 bridge endpoint/active 检查尚未部署复验。官方云路径已实际触发设备侧 `draw/status/abort`，但 **App 真实语音仍未验收**。
 
 ## 架构
 
@@ -115,7 +115,7 @@ location / { return 404; }
 `G1 ... F8000` 画线，`G1G90 Z0.0F10000` 抬笔。下载文件无 `G92`、`M3/M5`、`G4`，校验器仍
 拒绝 `G92`；完整会话由 S3 在每次首画/重画前 fresh `Idle` + 100ms 后旁路固定 `G92 Z0`，
 随后发送下载文件，文件结束 fresh `Idle` 后再单独发送 `M30`。
-禁 `G28`/`G30`、禁任何 `G0` 落点 X0Y0（触发自动换纸）、首行禁 `G0 X0Y0Z0`、行 ≤255 字符、
+禁 `G28`/`G30`、禁任何 `G0` 落点 X0Y0（触发自动换纸）、首行禁 `G0 X0Y0Z0`、行仅 ASCII 且 ≤255 字节、
 坐标限幅 `0≤X≤190mm`、`0≤Y≤277mm`（A4 四周 10mm 边距；写字机无限位开关，MCP 校验是唯一安全防线）。profile 见 `hutuji_mcp/hutuji_gwrite.toml`。
 
 ## 目录
@@ -257,7 +257,7 @@ output/      生成产物（运行时创建）
 > **执行顺序与每阶段通过判据**，见 `../docs/bringup-sop.md`（9 阶段 SOP）。
 > 本清单的组 3/4 对应 SOP 的**阶段 3–4**（③ 本地跑通 + 契约合规），组 0–2 是其前置。
 
-**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，preflight 全 PASS（**9 项已确认**），公网 `/mcp` 404、8300 不可达，官方云路径已触发 `draw/status/abort`。
+**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，生产已有 preflight **14/14 PASS** 历史证据；仓内 15 项脚本尚待部署复验。公网 `/mcp` 404、8300 不可达，官方云路径已触发 `draw/status/abort`。
 
 历史实施顺序（均已完成，勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → 组 4。
 

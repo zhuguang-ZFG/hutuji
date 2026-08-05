@@ -66,7 +66,7 @@
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、**本仓门禁/硬轨** — ✅ 见 `docs/foundation-checklist.md`
 2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 源码 HEAD `ae4b524` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架 → `90e6f2c` 发送游标 → `2ea10b2` 非阻塞发送 → `ae4b524` SendFeedHold 锁契约）；**实机烧录基线（2026-08-03 更新）= `ae4b524`**（COM6 默认镜像 md5 `e8488814ab64660ffca19a595f0e7add`，与 HEAD 合流；旧基线 `06b962c`+未提交修复 / 镜像 `0x2cec90` 已 `supersede`）。2026-07-30 B-12 已归档 S3 自动路径出墨：`G92 Z0` + `Z5.0F10000` 自动落笔，409 行测试件全线连续，页尾 `M30` 后 `state=done`。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过；Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；**§8.5 换纸中 abort 已于 2026-07-31 取证**；**P2 S4 已于 2026-08-03 有纸实测通过**（551 行玫瑰图全量下发、自动换纸八步全绿、`state=done`，`pbuf_free` 未复现；证据 `results/s4-rose-20260803-evidence.md`）。**仍缺**：纸面实物画质人工目视、自适应 `Bf` 反压
-3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云 `draw/status/abort` 调用已通；明文 `:80 /files` loopback 限制与 14 项 preflight **已于 2026-07-31 21:20–21:22 部署生产并复验 14/14 PASS**（仓内 `preflight.sh` 后续修复版尚未 scp，见 `docs/worktree-inventory.md`）；缺 App 真实语音验收
+3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云 `draw/status/abort` 调用已通；明文 `:80 /files` loopback 限制与 14 项 preflight **已于 2026-07-31 21:20–21:22 部署生产并复验 14/14 PASS**。仓内新增 bridge endpoint/active 检查后为 15 项，当前未 scp 部署，不能把历史 14/14 称为 15 项通过；缺 App 真实语音验收
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
 实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。

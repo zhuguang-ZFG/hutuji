@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=14
+EXPECTED_CHECKS=15
 OPTIONAL_SKIP=125
 PASS=0
 FAIL=0
@@ -76,6 +76,32 @@ check_mcp_env() {
   [[ -f /etc/hutuji/mcp.env ]] && check_no_placeholder /etc/hutuji/mcp.env &&
     check_public_base_url "$PUBLIC_BASE_URL" &&
     safe_output_dir "$OUTPUT_DIR"
+}
+
+check_bridge_env() {
+  [[ -f /etc/hutuji/bridge.env ]] && check_no_placeholder /etc/hutuji/bridge.env || return 1
+  # endpoint 常带 token，走 stdin 避免完整 URL 出现在进程命令行。
+  python3 -c '
+import sys
+from urllib.parse import urlsplit
+
+raw = sys.stdin.read()
+value = raw[:-1] if raw.endswith("\n") else raw
+try:
+    parsed = urlsplit(value)
+    parsed.port
+except ValueError:
+    raise SystemExit(1)
+valid = (
+    parsed.scheme == "wss"
+    and bool(parsed.hostname)
+    and parsed.username is None
+    and parsed.password is None
+    and not parsed.fragment
+    and not any(ch.isspace() for ch in value)
+)
+raise SystemExit(0 if valid else 1)
+' <<<"$BRIDGE_ENDPOINT"
 }
 
 check_active_nginx_acl() {
@@ -154,6 +180,10 @@ if [[ -f /etc/hutuji/mcp.env ]]; then
   env_value /etc/hutuji/mcp.env HUTUJI_PUBLIC_BASE_URL; PUBLIC_BASE_URL="$ENV_VALUE"
   env_value /etc/hutuji/mcp.env HUTUJI_OUTPUT_DIR; OUTPUT_DIR="$ENV_VALUE"
 fi
+BRIDGE_ENDPOINT=""
+if [[ -f /etc/hutuji/bridge.env ]]; then
+  env_value /etc/hutuji/bridge.env MCP_ENDPOINT; BRIDGE_ENDPOINT="$ENV_VALUE"
+fi
 TUNNEL_HOST=""
 if [[ "$PUBLIC_BASE_URL" =~ ^https://([A-Za-z0-9-]+\.)*[A-Za-z0-9-]+(:443)?/?$ ]]; then
   TUNNEL_HOST="${PUBLIC_BASE_URL#https://}"
@@ -164,11 +194,12 @@ fi
 check "mcp.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/mcp.env 2>/dev/null || echo x)" == "600" ]]'
 check "bridge.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
 check "mcp.env 无占位且公网前缀为 HTTPS:443" check_mcp_env
-check "bridge.env 无 REPLACE_ME" check_no_placeholder /etc/hutuji/bridge.env
+check "bridge.env 无占位且 MCP_ENDPOINT 为 wss://" check_bridge_env
 check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'
 # `ss` 不在时 `! ss | grep` 会因无输出而假绿（第 5 项那条 fail-closed，这条不是），先探二进制。
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
+check "hutuji-cloud-bridge active" systemctl is-active --quiet hutuji-cloud-bridge
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
 # 2xx/3xx/4xx 都算「服务有响应」，但 5xx 是服务错误，不得报 pass。
 check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[234] ]]'
