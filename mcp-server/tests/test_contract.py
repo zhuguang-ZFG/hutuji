@@ -1304,9 +1304,44 @@ def test_public_download_template_requires_https_and_loopback_http_origin() -> N
     files_location = port_80[
         port_80.index("    location /files/ {") : port_80.index("    location / {")
     ]
-    assert "allow 127.0.0.1;" in files_location
-    assert "allow ::1;" in files_location
-    assert "deny all;" in files_location
+
+    # `deny all;` 在本块内出现两次：ACL 的兜底 deny，和 `limit_except GET HEAD { deny
+    # all; }` 行内那条。旧断言写成 `"deny all;" in files_location`，删掉兜底 deny 后
+    # limit_except 那行仍能满足它——此时 nginx 只剩两条 allow、默认放行，明文 :80
+    # /files 对全公网可读，而本测试照样绿（已实测：删该行后这两个测试 2 passed）。
+    # 故必须剔除 limit_except 行，只在纯 ACL 语句里找独立成行的兜底 deny。
+    acl_lines = [
+        line.strip()
+        for line in files_location.splitlines()
+        if "limit_except" not in line and line.strip()
+    ]
+    assert "deny all;" in acl_lines, acl_lines
+
+    # nginx allow/deny 按出现顺序匹配：兜底 deny 排到 allow 之前，cloudflared 的
+    # loopback 回源会被先拒，公网经隧道下载全挂。顺序也要钉。
+    deny_at = acl_lines.index("deny all;")
+    allow_v4_at = acl_lines.index("allow 127.0.0.1;")
+    allow_v6_at = acl_lines.index("allow ::1;")
+    assert allow_v4_at < deny_at, acl_lines
+    assert allow_v6_at < deny_at, acl_lines
+
+
+def test_nginx_http_redirect_target_is_not_attacker_controlled() -> None:
+    """:80 的兜底 301 若用 `$host`，而两个 listen 都没有 default_server，任意 Host 头都
+    落到本 server 块并被原样回显进 Location——变成开放重定向。目标必须是字面量。"""
+    root = Path(__file__).resolve().parents[2]
+    nginx = (root / "deploy" / "nginx-hutuji.conf").read_text(encoding="utf-8")
+
+    redirects = [
+        line.strip()
+        for line in nginx.splitlines()
+        if "return 301" in line and not line.lstrip().startswith("#")
+    ]
+    assert redirects
+    for line in redirects:
+        assert "$host" not in line, line
+        assert "$http_host" not in line, line
+        assert re.search(r"return 301 https://[A-Za-z0-9.-]+\$request_uri;", line), line
 
 
 def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
@@ -1317,7 +1352,9 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert "while IFS= read -r line" in preflight
     assert "source /etc/hutuji/mcp.env" not in preflight
     assert "eval " not in preflight
+    # TUNNEL_HOST 的取值仍用大小写混合类；check_public_base_url 先 ${1,,} 转小写再匹配。
     assert "^https://([A-Za-z0-9-]+\\.)*[A-Za-z0-9-]+(:443)?/?$" in preflight
+    assert "^https://([a-z0-9-]+\\.)*[a-z0-9-]+(:443)?/?$" in preflight
     assert "[[ -f /etc/hutuji/mcp.env ]]" in preflight
     assert "check_bridge_env()" in preflight
     assert "env_value /etc/hutuji/bridge.env MCP_ENDPOINT" in preflight
@@ -1337,24 +1374,20 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert preflight.count('safe_output_dir "$OUTPUT_DIR"') == 1
     assert preflight.count('safe_output_dir "$d"') == 1
     assert "EXPECTED_CHECKS=" in preflight
-    assert "SKIP=" in preflight
-    assert "SKIP=$((SKIP + 1))" in preflight
 
-    # 只有具名保留状态能表示可选跳过；普通命令的 rc=2 仍必须算 FAIL。
-    optional_statuses = [
-        (name, int(code))
-        for name, code in re.findall(r"^([A-Z][A-Z0-9_]*)=(\d+)$", preflight, re.MULTILINE)
-        if "OPTIONAL" in name and "SKIP" in name
-    ]
-    assert len(optional_statuses) == 1
-    status_name, status_code = optional_statuses[0]
-    assert status_code != 2
-    status_ref = rf"\$(?:\{{{re.escape(status_name)}\}}|{re.escape(status_name)})"
-    assert re.search(rf'\[\[\s+"?\$rc"?\s+-eq\s+"?{status_ref}"?\s+\]\]', preflight)
-    assert re.search(rf'return\s+"?{status_ref}"?', preflight)
-
-    # 15 项中允许可选项 SKIP，但任何 FAIL 都不能放行。
-    assert re.search(r'\$\(\(\s*PASS\s*\+\s*SKIP\s*\)\)', preflight)
+    # 只有 pass / fail 两种状态。曾有 OPTIONAL_SKIP(125)：判据缺前提时返回它、计为
+    # skip，而放行算术是 (PASS+SKIP)==EXPECTED_CHECKS——skip 与 pass 完全等价，于是
+    # 「公网访问 :80 /files 被拒」可以从未被验证过、脚本照样打印 15/15 全绿（实测
+    # pass=14 fail=0 skip=1 输出 PASS）。计数器与放行算术里都不得再出现 skip。
+    counters = re.findall(r"^([A-Z][A-Z0-9_]*)=\d+$", preflight, re.MULTILINE)
+    assert not [name for name in counters if "SKIP" in name], counters
+    # 只查代码行：脚本顶部保留了一段解释 OPTIONAL_SKIP 为何被删的注释，那是防复发的
+    # 说明，不是机制本身。
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "SKIP" not in preflight_code
+    assert re.search(r'"?\$\{?PASS\}?"?\s+-eq\s+"?\$\{?EXPECTED_CHECKS\}?"?', preflight)
     assert re.search(r'"?\$\{?FAIL\}?"?\s+-eq\s+0', preflight)
 
     assert "nginx -T" in preflight
@@ -1367,12 +1400,14 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert 'check_acl_response "$TUNNEL_HOST"' in preflight
     assert '"$get" == "404" && "$post" == "403" && "$mcp" == "404"' in preflight
     assert '"$denied" == "403"' in preflight
-    # loopback 三项必须先 fail-closed；无非 loopback IPv4 只能跳过后半个 denied 探针。
+    # loopback 三项必须先 fail-closed；取不到非 loopback IPv4 时整个判据 fail（不得跳过，
+    # 见上方 skip 注释），而不是只跳过后半个 denied 探针。
     loopback_result = preflight.index(
         '[[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" ]] || return 1'
     )
     optional_probe = preflight.index('ip="$(probe_non_loopback_ip || true)"')
-    assert loopback_result < optional_probe
+    fail_probe = preflight.index("判 fail（不得跳过）")
+    assert loopback_result < optional_probe < fail_probe
     assert '"$code" == "200"' in preflight
     # 两条探针路径（hostname -I / 默认路由接口地址）都必须滤掉 loopback，否则 denied
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
@@ -1410,11 +1445,31 @@ def test_install_script_keeps_package_index_tls_verification() -> None:
     root = Path(__file__).resolve().parents[2]
     install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
 
-    assert "--trusted-host" not in "\n".join(
+    # 注释里会正面写出被禁的写法（如「不用 `bash -lc`」），断言一律只看代码行。
+    install_code = "\n".join(
         line for line in install.splitlines() if not line.lstrip().startswith("#")
     )
+
+    assert "--trusted-host" not in install_code
     assert "HUTUJI_PIP_CERT" in install
-    assert 'pip_args+=(--cert "$PIP_CERT")' in install
+    assert re.search(r'pip_args\+=\(--cert "\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"\)', install_code)
+
+    # 不得用 `bash -lc`：`-l` 会 source root 的登录期配置，其中导出的 PIP_TRUSTED_HOST /
+    # PIP_EXTRA_INDEX_URL / PIP_INDEX_URL 静默生效，而脚本只传 -i 与可选 --cert，覆盖
+    # 不了它们——上面「禁止绕过 TLS 校验」的承诺被环境推翻，PIP_EXTRA_INDEX_URL 更直接
+    # 打开依赖投毒面。安装行为必须只由本脚本参数决定，故显式清掉 PIP_* 与代理变量。
+    assert not re.search(r"bash\s+-[a-z]*l[a-z]*c", install_code)
+    for cleared in (
+        "PIP_TRUSTED_HOST",
+        "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL",
+        "PIP_CONFIG_FILE",
+        "PIP_NO_INDEX",
+        "PIP_FIND_LINKS",
+        "https_proxy",
+        "HTTPS_PROXY",
+    ):
+        assert f"-u {cleared}" in install_code, cleared
 
 def _load_agent_gate():
     import importlib.util

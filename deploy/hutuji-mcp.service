@@ -23,5 +23,29 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/hutuji/mcp-server/output
 
+# 纵深防御：本进程会用 vpype/vpype-gcode 的 C 扩展路径解析 LLM 生成的 SVG，
+# 且经 nginx /files/ 间接面向公网请求。解析链一旦有内存安全问题，下面这些
+# 限制把「拿到 shell」与「任意出网 / 改内核可调项」隔开。
+# AF_UNIX 必须保留（loopback 之外还有 DNS resolver 的本地 socket）。
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+PrivateDevices=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
 [Install]
 WantedBy=multi-user.target

@@ -14,6 +14,7 @@
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
 > 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 当前 15 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。
+> preflight **无 skip 状态**（曾有的 `OPTIONAL_SKIP` 与 pass 等价放行，已删）：输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；取不到非 loopback IPv4 判 fail 而非跳过。
 > 下面的「首次上线」流程保留给**重建/换机**，不是待办。
 >
 > **scp `nginx-hutuji.conf` 有两个坑**（2026-07-31 实测，详见 `../docs/deployment.md`「nginx 站点收敛」）：

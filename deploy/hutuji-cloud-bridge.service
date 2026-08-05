@@ -4,6 +4,13 @@ Documentation=file:///opt/hutuji/docs/deployment.md
 After=network-online.target hutuji-mcp.service
 Wants=network-online.target
 Requires=hutuji-mcp.service
+# 配置错误（bridge.env 缺 MCP_ENDPOINT 或格式非法）时 main() 返回 1，配合
+# [Service] 的 RestartSec=5 会无限每 5 秒重启刷日志：systemd 默认限流是 10 秒内
+# 5 次，5 秒间隔永远触发不到。连接类故障不会退出进程（cloud_bridge.py 的
+# run_forever 用 1→60s 指数退避在进程内重试），故这里只兜配置错误的日志噪声。
+# 注意这两个键属 [Unit] 段，写在 [Service] 里会被静默忽略。
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -23,6 +30,26 @@ ProtectSystem=strict
 ProtectHome=true
 RuntimeDirectory=hutuji
 RuntimeDirectoryMode=0750
+
+# 与 hutuji-mcp.service 同口径的纵深防御。本进程持有小智云凭据并起 mcp-proxy
+# 子进程，被攻破后的出网能力必须收窄到必要协议族。
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+PrivateDevices=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
 
 [Install]
 WantedBy=multi-user.target

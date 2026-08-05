@@ -8,6 +8,7 @@
 
 ## 0. 一句话现状（2026-08-05）
 
+> **2026-08-05 部署面深度审查修复（仓内，未部署）**：`deploy/`（preflight 活动 ACL 判据消歧 + allow/deny 顺序、删 `OPTIONAL_SKIP`、公网前缀拒私网、`/mcp` 谓词收紧、nginx 301 去 `$host`、安装脚本去 `bash -lc` 并清 `PIP_*`、chown 顺序、两个 unit 加固与 `StartLimit*` 移入 `[Unit]`）+ `requirements.txt` 上界 + 契约测试同步。**核心发现**：「明文 `:80 /files` 须 403」这条铁律此前在 preflight 与 pytest 两层都因 `deny all;` 在 `limit_except` 行内重复出现而无法被执行，删掉 ACL 兜底 deny 后公网可读却两层全绿（已实测复现）；`OPTIONAL_SKIP` 又让唯一验证它的探针可以静默跳过并计入放行。本地 hub `overall=pass`（pytest **262 passed**、e2e `PASS`），ACL 与 301 均做过变异验证。**未部署、未改固件、未做硬件验证**；生产仍 `bdbb107`。
 > **2026-08-05 审查与部署基线（覆盖下方历史“当前 HEAD/已合流”措辞）**：hutuji 完整 `full` 门禁的最后已验证提交为 `c434831`（门禁文件读错收敛为结构化 fail，pytest `261 passed` + e2e `PASS`；前一已验证提交 `28a2074` 为 `258 passed`），**未推 `origin/main`、未部署生产**；实时本仓 HEAD 必须用 `git rev-parse --short HEAD` 查询，不能由本文静态快照代替。生产仍是已复验 15/15 的 `bdbb107`。Grbl 源码 HEAD `966723b`，当前板上行为基线 `f5c8985`（后续仅注释修正、未重烧）；S3 源码 HEAD `83eb376`，当前板上行为基线 `55574cb`，新增超时错误码回填未烧录。fz HEAD `c2bf1a3`，保留两个未跟踪用户/工具资产。不得把源码 HEAD、已烧录基线与生产部署版本互相替代。
 
 > **2026-08-03 S4 硬件证据（不是当前源码 HEAD）**：板上实跑 = Grbl `1b56393`（烧 COM11）+ S3 `ae4b524`（烧 COM6，默认镜像 md5 `e8488814ab64660ffca19a595f0e7add`）。**P2 S4 有纸实测已通过**：551 行玫瑰图 CRC32 `ae1b25b2` 匹配、全量下发无丢行、页尾 `M30` 触发自动换纸八步全绿、`state=done`；**`pbuf_free`/`Guru Meditation`/`assert failed` 两侧日志 0 命中，07-31 那次崩溃未复现**。**仍未验证**：纸面实物画质（需人工目视）、App 真实语音端到端、断连恢复 `paper_active` 窗口 abort 复测、`[ESP901] Paper=No` 现象根因。证据 `results/s4-rose-20260803-evidence.md`。本条**不支持**「联调完成」「可出货」「§9 已修好」「硬件已验证」任何一项宣称。

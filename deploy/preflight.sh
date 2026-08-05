@@ -3,26 +3,23 @@
 set -euo pipefail
 
 EXPECTED_CHECKS=15
-OPTIONAL_SKIP=125
 PASS=0
 FAIL=0
-SKIP=0
 
+# 只有 pass / fail 两种状态，没有 skip。
+# 历史上有过 OPTIONAL_SKIP(125) 机制：判据取不到前提条件时返回它，计为 skip。
+# 但门禁算术是 (PASS+SKIP)==EXPECTED_CHECKS，skip 与 pass 在放行上完全等价——
+# 于是「公网访问 :80 /files 被拒」这条铁律可以从未被验证过，脚本却打印 15/15 全绿
+# （已实测：pass=14 fail=0 skip=1 照样输出 PASS）。任何「这项没法验」都必须是红，
+# 由人确认，不得由脚本自行豁免。请勿重新引入 skip 状态。
 check() {
   local name="$1"; shift
-  local rc
   if "$@"; then
     echo "[pass] ${name}"
     PASS=$((PASS + 1))
   else
-    rc=$?
-    if [[ "$rc" -eq "$OPTIONAL_SKIP" ]]; then
-      echo "[skip] ${name}"
-      SKIP=$((SKIP + 1))
-    else
-      echo "[fail] ${name}"
-      FAIL=$((FAIL + 1))
-    fi
+    echo "[fail] ${name}"
+    FAIL=$((FAIL + 1))
   fi
 }
 
@@ -60,9 +57,19 @@ check_no_placeholder() {
 }
 
 check_public_base_url() {
-  local value="${1,,}"
-  [[ "$value" =~ ^https://([a-z0-9-]+\.)*[a-z0-9-]+(:443)?/?$ ]] &&
-    ! [[ "$value" =~ ^https://(localhost|127\.[0-9.]+)(:443)?/?$ ]]
+  local value="${1,,}" host
+  [[ "$value" =~ ^https://([a-z0-9-]+\.)*[a-z0-9-]+(:443)?/?$ ]] || return 1
+  host="${value#https://}"; host="${host%/}"; host="${host%:443}"
+  # loopback 与私网都不是公网可达前缀：S3 拿到它下载必失败。旧版只排除
+  # localhost / 127.*，于是 https://192.168.1.5、https://10.0.0.8、https://intranet
+  # 全部报 pass（已实测），属「门禁绿但功能坏」。
+  case "$host" in
+    localhost|127.*|0.0.0.0) return 1 ;;
+    10.*|192.168.*|169.254.*) return 1 ;;
+    172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 1 ;;
+  esac
+  # 单标签主机名（无点）不可能是公网 DNS 名，如 https://intranet。
+  [[ "$host" == *.* ]]
 }
 
 safe_output_dir() {
@@ -115,19 +122,32 @@ raise SystemExit(0 if valid else 1)
 }
 
 check_active_nginx_acl() {
-  local conf site port80 files
+  local conf site port80 files acl deny_line allow_v4_line allow_v6_line
   nginx -t >/dev/null 2>&1 || return 1
   conf="$(nginx -T 2>/dev/null)" || return 1
   site="$(awk '/^# configuration file \/etc\/nginx\/sites-enabled\/hutuji:/{inside=1; next} /^# configuration file /{if(inside) exit} inside{print}' <<<"$conf")"
   [[ -n "$site" ]] || return 1
   port80="$(sed -n '/^[[:space:]]*listen 80;[[:space:]]*$/,$p' <<<"$site")"
   files="$(sed -n '/^[[:space:]]*location \/files\/ {/,/^[[:space:]]*}/p' <<<"$port80")"
-  [[ -n "$files" ]] && grep -Fq 'allow 127.0.0.1;' <<<"$files" &&
-    grep -Fq 'allow ::1;' <<<"$files" && grep -Fq 'deny all;' <<<"$files"
+  [[ -n "$files" ]] || return 1
+  # `deny all;` 在本块内出现两次：ACL 的兜底 deny，与 `limit_except … { deny all; }`
+  # 行内那条。`grep -Fq 'deny all;'` 分不清二者——删掉兜底 deny 后 allow/deny 链
+  # 只剩两条 allow、默认放行，`:80 /files` 对全公网可读，而 grep 仍命中 limit_except
+  # 那行报 pass（已用本函数原样管道实测复现）。故先剔除 limit_except 行，只在纯
+  # ACL 语句里找独立成行的兜底 deny。
+  acl="$(grep -v 'limit_except' <<<"$files")"
+  deny_line="$(grep -n '^[[:space:]]*deny all;[[:space:]]*$' <<<"$acl" | head -1 | cut -d: -f1 || true)"
+  allow_v4_line="$(grep -n '^[[:space:]]*allow 127\.0\.0\.1;[[:space:]]*$' <<<"$acl" | head -1 | cut -d: -f1 || true)"
+  allow_v6_line="$(grep -n '^[[:space:]]*allow ::1;[[:space:]]*$' <<<"$acl" | head -1 | cut -d: -f1 || true)"
+  [[ -n "$deny_line" && -n "$allow_v4_line" && -n "$allow_v6_line" ]] || return 1
+  # nginx allow/deny 按出现顺序匹配：兜底 deny 必须排在两条 allow 之后，否则
+  # cloudflared 的 loopback 回源会被先拒，公网经隧道下载全挂。
+  [[ "$allow_v4_line" -lt "$deny_line" && "$allow_v6_line" -lt "$deny_line" ]]
 }
 
-# 取本机非 loopback IPv4：依次 hostname -I / 默认路由接口。无公网 IPv4 时返回空，
-# 调用方可跳过「非 loopback 拒绝」子判据，但只有 loopback 正例已经全部通过时才可跳过。
+# 取本机非 loopback IPv4：依次 hostname -I / 默认路由接口。取不到即 fail（见
+# check_acl_response 注释）：拿不到地址意味着「公网访问 :80 /files 被拒」这条铁律
+# 无法验证，不得当作已验证。
 probe_non_loopback_ip() {
   local ip
   ip="$(hostname -I 2>/dev/null | tr " " "\n" |
@@ -152,7 +172,13 @@ probe_non_loopback_ip() {
 }
 
 # 用隧道 Host 头探 :80 /files 的 ACL：loopback 放行（GET 404 / POST 403 / /mcp 404），
-# 非 loopback 拒绝。无非 loopback IPv4 时只跳过 denied 子判据；loopback 正例仍 fail-closed。
+# 非 loopback 拒绝。
+#
+# 非 loopback 探针是全脚本唯一真正验证「公网访问 :80 /files 被拒」的断言——
+# check_active_nginx_acl 只看配置文本，配置对了不代表运行时行为对。取不到非
+# loopback IPv4 时**必须 fail**，不能 skip：旧版返回 OPTIONAL_SKIP，而门禁算术
+# 是 (PASS+SKIP)==EXPECTED，skip 与 pass 等价，于是这条铁律可以从未被验证过却
+# 报 15/15 全绿。宁可在无公网 IPv4 的机器上显式红、由运维确认，也不要静默放过。
 check_acl_response() {
   local h="$1" get post mcp ip denied
   [[ -n "$h" ]] || return 1
@@ -162,8 +188,8 @@ check_acl_response() {
   [[ "$get" == "404" && "$post" == "403" && "$mcp" == "404" ]] || return 1
   ip="$(probe_non_loopback_ip || true)"
   if [[ -z "$ip" ]]; then
-    echo "非 loopback 拒绝子判据未执行：本机无非 loopback IPv4" >&2
-    return "$OPTIONAL_SKIP"
+    echo "取不到非 loopback IPv4：无法验证公网 :80 /files 被拒，判 fail（不得跳过）" >&2
+    return 1
   fi
   denied=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -H "Host: $h" "http://$ip/files/__nonexistent__")
   [[ "$denied" == "403" ]]
@@ -217,8 +243,10 @@ check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | gr
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
-# 2xx/3xx/4xx 都算「服务有响应」，但 5xx 是服务错误，不得报 pass。
-check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[234] ]]'
+# 404 必须排除：MCP 子应用挂载失败（server.py 的 app.mount("/", _mcp_app) 未生效）时
+# 裸 POST /mcp 由 FastAPI 返回 404，落在 ^[234] 内会把「端点已不存在」报成 pass。
+# 合法响应是 2xx/3xx，或 FastMCP 对不合规 body 的 400/406/415；5xx 与 404 都不算。
+check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[23] || "$code" == "400" || "$code" == "406" || "$code" == "415" ]]'
 # /files 无具体 token 时允许 404（4xx 在列）；连接失败（000）与 5xx 都不得报 pass。
 check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[234] ]]'
 
@@ -237,8 +265,9 @@ check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_
 # 真 200 正例：造一份合法命名产物（TTL 内自清），验完整下载契约。
 check "localhost :80 /files 真下 G-code 200" check_download
 
-echo "---- preflight pass=${PASS} fail=${FAIL} skip=${SKIP} expected=${EXPECTED_CHECKS} ----"
-if ! [[ "$((PASS + SKIP))" -eq "${EXPECTED_CHECKS}" && "${FAIL}" -eq 0 ]]; then
+echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"
+# 必须全 pass：无 skip 可抵扣，少一项都不放行（漏跑与失败同等对待）。
+if ! [[ "${PASS}" -eq "${EXPECTED_CHECKS}" && "${FAIL}" -eq 0 ]]; then
   exit 1
 fi
 echo "PASS — 再验：公网 curl /mcp 须失败；HTTPS /files 经 nginx；小智控制台 tools/list"

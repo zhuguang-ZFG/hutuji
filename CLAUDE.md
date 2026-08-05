@@ -123,7 +123,8 @@ python -m venv .venv
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **15** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`bdbb107` 已于 2026-08-05 部署并取得 15/15；该结果不替代后续发布复验。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
+- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **15** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`bdbb107` 已于 2026-08-05 部署并取得 15/15；该结果不替代后续发布复验。
+- **preflight 无 skip 状态**：输出 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`。历史 `OPTIONAL_SKIP` 与 pass 等价放行，使「明文 `:80 /files` 须 403」可从未被验证却报全绿，已删除；**禁止重新引入 skip**，取不到非 loopback IPv4 一律判 fail。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
 
 ## 路线图（当前进度）
 

@@ -24,19 +24,33 @@ echo "==> Python venv + 生产依赖"
 # 代理使用私有 CA 时显式传 HUTUJI_PIP_CERT；禁止用 --trusted-host 绕过 TLS 校验。
 PIP_INDEX="${HUTUJI_PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 PIP_CERT="${HUTUJI_PIP_CERT:-}"
-MCP_DIR="${MCP_DIR}" PIP_INDEX="${PIP_INDEX}" PIP_CERT="${PIP_CERT}" bash -lc '
+# 不用 `bash -lc`：`-l` 会 source root 的登录期配置（/etc/profile、/root/.bashrc），
+# 其中导出的 PIP_TRUSTED_HOST / PIP_EXTRA_INDEX_URL / PIP_INDEX_URL 会静默生效，
+# 而本脚本只传 -i 与可选 --cert，覆盖不了它们——上面「禁止绕过 TLS 校验」的承诺
+# 会被环境悄悄推翻，PIP_EXTRA_INDEX_URL 更直接打开依赖投毒面。这里既不取登录
+# 环境，也显式清掉所有 PIP_* 与代理变量，让安装行为只由本脚本的参数决定。
+env -u PIP_TRUSTED_HOST -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL -u PIP_CERT \
+    -u PIP_CONFIG_FILE -u PIP_NO_INDEX -u PIP_FIND_LINKS \
+    -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    MCP_DIR="${MCP_DIR}" HUTUJI_INDEX="${PIP_INDEX}" HUTUJI_CERT="${PIP_CERT}" bash -c '
   set -euo pipefail
   cd "$MCP_DIR"
-  pip_args=(-i "$PIP_INDEX")
-  if [[ -n "$PIP_CERT" ]]; then
-    pip_args+=(--cert "$PIP_CERT")
+  pip_args=(-i "$HUTUJI_INDEX")
+  if [[ -n "$HUTUJI_CERT" ]]; then
+    pip_args+=(--cert "$HUTUJI_CERT")
   fi
   python3 -m venv .venv
   .venv/bin/pip install -U pip "${pip_args[@]}"
   .venv/bin/pip install -r requirements.txt "${pip_args[@]}"
 '
 # 运行时只允许服务用户写 output；代码、venv 和部署脚本均保持 root 所有。
-chown -R root:root "${APP_ROOT}"
+# 顺序要紧：先把 APP_ROOT 整棵树收归 root 会连带把 output 也改成 root 所有，若在
+# 两条 chown 之间被打断（Ctrl-C / SSH 断线 / OOM），output 会停在 root:root，服务
+# 用户 hutuji 写不进产物，而 unit 的 ReadWritePaths 只授予挂载可写、不改 DAC 属主，
+# 重启也不自愈。故先 --exclude 式地只收代码树，output 的属主自始至终不被动过。
+find "${APP_ROOT}" -mindepth 1 -maxdepth 1 ! -name mcp-server -exec chown -R root:root {} +
+find "${MCP_DIR}" -mindepth 1 -maxdepth 1 ! -name output -exec chown -R root:root {} +
+chown root:root "${APP_ROOT}" "${MCP_DIR}"
 chown -R "${APP_USER}:${APP_USER}" "${MCP_DIR}/output"
 chmod 750 "${MCP_DIR}/output"
 

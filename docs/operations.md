@@ -54,3 +54,4 @@ EnvironmentFile 核对不得 `source`/`eval`：只解析 `KEY=VALUE`、注释/�
 - 生产变更绑定 `release-checklist.md`；禁止无清单热改协议相关行为。
 - 改完跑：本机契约回归（若改代码）+ 一次真实 `hutuji_status`（若改部署）。
 - nginx 变更顺序固定：同步 `sites-available` → 精确重建 `sites-enabled/hutuji` 链接 → `nginx -t` → reload → 当前 15 项 preflight。活动 localhost `:80` 探针必须在 reload 后运行；`bdbb107` 的 15/15 只证明 2026-08-05 当次部署，不证明后续配置。
+- preflight **只有 pass / fail 两种状态，没有 skip**：历史上的 `OPTIONAL_SKIP` 让「公网访问 `:80 /files` 被拒」这条铁律可以从未被验证过却报全绿（实测 `pass=14 fail=0 skip=1` 输出 PASS），已删除。放行判据是 `PASS==EXPECTED_CHECKS && FAIL==0`，输出为 `pass=N fail=N expected=N`。任何「这项没法验」都是红，须由人确认，不得由脚本自行豁免；请勿重新引入 skip。
