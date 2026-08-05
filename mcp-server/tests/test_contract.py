@@ -1543,6 +1543,158 @@ def test_gate_accepts_forbidden_list_heading(
     assert gate.check_revived_decisions()["status"] == "pass"
 
 
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "README.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "docs/agent-handoff.md",
+        "docs/release-readiness.md",
+        "docs/worktree-inventory.md",
+        ".cursor/rules/hutuji-agent-rails.mdc",
+    ],
+)
+def test_gate_forbidden_claims_scans_every_governance_doc(
+    rel: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLAIMS_FORBIDDEN 此前只用于「与白名单比对是否漂移」和打印报告末尾那句
+    「仍受 claims_forbidden 约束」，**没有任何一层扫过文档正文里是否使用了禁语**。
+    实测在 README.md 追加「硬件已验证，联调完成，现已可出货」，docs 层七项全绿并
+    照常打印那句约束提示——门禁列出禁语却不执行。逐份钉死每个治理文档都被扫。"""
+    gate = _load_agent_gate()
+    target = tmp_path / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("本机已完成全部验证，现已可出货。", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_forbidden_claims()
+
+    assert result["status"] == "fail", result
+    assert rel in result["detail"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # 免责句：否定词与禁语隔着书名号并列项
+        "本条**不支持**「联调完成」「可出货」「硬件已验证」任何一项宣称。",
+        # ≠ 链式：否定语义只由符号承载
+        "写了说明 ≠ 代码已改 ≠ 硬件已验 ≠ 可出货。",
+        "勾选 ≠ 可出货；出货仍看 release-readiness.md。",
+        # 「不证明：」+ 顿号并列
+        "不证明：§9 已烧录、M2 完成、硬件联调、京东云上线、可出货。",
+        # inline code 引述（规则条文自身）
+        "禁止宣称：`可出货` / `商业放行` / `硬件已验证`。",
+        # 表格定义列
+        "| 可出货 / 商业放行 | bringup 0–8 有设备证据 + 生产/合规签核 |",
+        # Markdown 标题 + 空行 + 并列清单（.cursor 硬轨的排版）
+        "## 禁止宣称（除非 release-readiness 对应行已 ✅）\n\n可出货 / §9 已完成 / 硬件已验证",
+    ],
+)
+def test_gate_forbidden_claims_allows_quoting_the_rule(
+    body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """禁语出现在「讲规则」「免责」「引述」语境里必须放行，否则门禁会把自己的
+    规则条文判红，逼人删掉免责句——那是比漏报更坏的结果。"""
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    assert gate.check_forbidden_claims()["status"] == "pass", body
+
+
+@pytest.mark.parametrize(
+    ("rel", "body"),
+    [
+        ("CLAUDE.md", "板间链路当前采用 USB Host 直连。"),
+        ("docs/protocol.md", "现行板间方案改用 CH9350 桥接。"),
+        ("docs/release-readiness.md", "生产部署落点为阿里云 ECS。"),
+        (".cursor/rules/hutuji-agent-rails.mdc", "板间通讯采用原生 USB Host。"),
+    ],
+)
+def test_gate_revived_scan_covers_all_governance_docs(
+    rel: str, body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """三条 REVIVED_PATTERNS 原各带一份手写文件清单，合计只覆盖 5 个文件，漏掉的
+    恰是优先级最高的几份：CLAUDE.md（对 agent 是 OVERRIDE 级指令）、.cursor 硬轨
+    （alwaysApply）、release-readiness.md（进度真值）；`ch9350` 规则连 protocol.md
+    都不扫。实测把「当前采用 USB Host，已改用 CH9350，生产落点阿里云」写进
+    CLAUDE.md，门禁全绿。现在三条规则共用 GOVERNANCE_DOCS。"""
+    gate = _load_agent_gate()
+    target = tmp_path / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    assert gate.check_revived_decisions()["status"] == "fail", (rel, body)
+
+
+@pytest.mark.parametrize(
+    ("layer", "body"),
+    [
+        # 同一行里前半句的禁令，管的是它自己的宾语，管不到冒号后另起的主张。
+        ("revived", "禁止在出图中发 M 命令：板间链路改用 USB Host 直连。"),
+        ("claims", "禁止跳过 bringup-sop：本机硬件已验证。"),
+        # 禁令清单只掩护「列举否决项」的并列项，掩护不了混进清单里的采纳句。
+        ("revived", "## 禁止重开\n\n- 阿里云\n- 蓝牙数据链路\n- 现已改用 USB Host 直连"),
+        # 标题名自带否决词，其下清单却在讲采纳。
+        ("revived", "## 已否决方案的替代实现\n\n- 采用 CH9350 桥接替代"),
+        # 引用块不是引述形态：`>` 里照样能做主张。
+        ("revived", "> 板间链路采用 USB Host。"),
+    ],
+)
+def test_gate_rejection_heading_does_not_shield_adoption_claims(
+    layer: str,
+    body: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """否决语境豁免不得沦为「附近有禁令词就全绿」。
+
+    `_has_rejection_heading` 为放行仓内真实的并列免责清单而放宽过两次：先允许任意
+    禁令词 + 冒号豁免整行余下内容，又让句窗跨过冒号去借否定词。这两处放宽实测各开出
+    假绿——本参数化的 5 例当时全部全绿。判据的正确形状是「命中短语自身是否在做主张」
+    （`_ADOPTION_RE`）加「否决词必须紧贴冒号、中间只容粗体与括号旁注」，而不是
+    「上下文出现过否决词」。任何再次放宽都必须先让这 5 例保持判红。
+    """
+    gate = _load_agent_gate()
+    target = tmp_path / "docs" / "agent-handoff.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body + "\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "GOVERNANCE_DOCS", ["docs/agent-handoff.md"])
+    checker = gate.check_forbidden_claims if layer == "claims" else gate.check_revived_decisions
+    assert checker()["status"] == "fail", body
+
+
+def test_gate_governance_docs_cover_repo_governance_surface() -> None:
+    """新增治理文档若忘了加进 GOVERNANCE_DOCS，禁语与复活扫描都会绕过它——
+    这正是本轮发现的原始缺陷形态。用必备文件清单交叉校验覆盖面。"""
+    gate = _load_agent_gate()
+    root = Path(__file__).resolve().parents[2]
+
+    # GOVERNANCE_DOCS 里的每一项都必须真实存在，否则是笔误导致的静默跳过
+    for rel in gate.GOVERNANCE_DOCS:
+        assert (root / rel).is_file(), rel
+
+    # 三条复活规则不再各带清单，一律走 GOVERNANCE_DOCS
+    for _kid, _pattern, files in gate.REVIVED_PATTERNS:
+        assert files is None, _kid
+
+    # 关键治理文档不得漏（这几份是 agent 行为的直接约束源）
+    for must in (
+        "CLAUDE.md",
+        "AGENTS.md",
+        "README.md",
+        ".cursor/rules/hutuji-agent-rails.mdc",
+        "docs/agent-handoff.md",
+        "docs/release-readiness.md",
+        "docs/protocol.md",
+    ):
+        assert must in gate.GOVERNANCE_DOCS, must
+
+
 def test_gate_section9_rejects_marker_files_outside_grbl_repo(tmp_path: Path) -> None:
     gate = _load_agent_gate()
     for rel, needles, _ in gate.SECTION9_MARKERS:

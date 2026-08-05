@@ -107,18 +107,45 @@ REVIVED_PATTERNS = [
             r"(现行|当前|改用|采用).{0,16}USB\s*Host",
             re.I,
         ),
-        ["docs/agent-handoff.md", "docs/protocol.md", "README.md", "AGENTS.md"],
+        None,
     ),
     (
         "ch9350_as_current",
         re.compile(r"(现行|当前|改用|采用).{0,16}CH9350|(板间|链路).{0,16}CH9350", re.I),
-        ["docs/agent-handoff.md", "README.md", "AGENTS.md"],
+        None,
     ),
     (
         "aliyun_as_prod",
         re.compile(r"(部署|生产|落点|VPS).{0,16}阿里云|阿里云.{0,16}(部署|生产|VPS)", re.I),
-        ["docs/deployment.md", "README.md", "AGENTS.md", "docs/agent-handoff.md"],
+        None,
     ),
+]
+
+# 复活扫描与禁语扫描共同的文件面。原先三条 REVIVED_PATTERNS 各带一份手写清单，
+# 合计只覆盖 5 个文件，漏掉的恰是优先级最高的几份：`CLAUDE.md`（对 agent 是
+# OVERRIDE 级指令）、`.cursor/rules/hutuji-agent-rails.mdc`（alwaysApply 硬轨）、
+# 以及 `release-readiness.md`/`worktree-inventory.md`（进度真值）。实测把
+# 「当前采用 USB Host，已改用 CH9350，生产落点阿里云」写进 CLAUDE.md、或把
+# 「当前采用 CH9350」写进 protocol.md（ch9350 规则不含该文件），门禁均全绿。
+# 治理面要么全扫，要么这层就是装饰。新增治理文档请加进本清单。
+GOVERNANCE_DOCS = [
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/agent-handoff.md",
+    "docs/agent-anti-drift.md",
+    "docs/agent-constraint-matrix.md",
+    "docs/agent-gate.md",
+    "docs/protocol.md",
+    "docs/deployment.md",
+    "docs/release-readiness.md",
+    "docs/worktree-inventory.md",
+    "docs/foundation-checklist.md",
+    "docs/bringup-sop.md",
+    "docs/operations.md",
+    "deploy/README.md",
+    "mcp-server/README.md",
+    ".cursor/rules/hutuji-agent-rails.mdc",
 ]
 
 CLAIMS_FORBIDDEN = [
@@ -216,18 +243,80 @@ def _rejection_clause(text: str, match: re.Match[str]) -> str:
     end = min((value for value in ends if value >= 0), default=len(text))
     return text[start:end]
 
+# 「现在改成这个了」的采纳断言词。命中短语里出现它们，说明该短语自身在做主张，
+# 上文的禁令清单掩护不了它。刻意只收动词性的采纳表述，不收 `落点`/`落地`/`当`——
+# 那些是 REVIVED_PATTERNS 自己的关键词或列举用语，收进来会把合法的否决清单项判红。
+# 判据取向是 fail-closed：真要在禁令清单里写「采用 X」，请改用反引号引述形态。
+_ADOPTION_RE = re.compile(r"现已|已改用|已采用|改用|采用|改为|换成|现行方案|当前方案")
+
+
 def _has_rejection_heading(text: str, match: re.Match[str]) -> bool:
-    """整行的「禁止重开」清单适用于其后的各个并列项。"""
+    """整行的否决/禁令清单适用于其后的各个并列项。
+
+    命中若落在「禁止重开：A / B / C」这类并列清单里，否定词只在标题上，
+    `_rejection_clause` 按标点切分后会把它切走，于是每个并列项单独看都像在做主张。
+    同一行内、命中之前出现否决类标题即视为整行受该标题约束。
+
+    `agent-gate.md` 自身的「若重新主张下列**已否决**方向 → 红：」+ 列表项，以及
+    `AGENTS.md` 的「**禁止宣称**（…）：可出货、商业放行、…」都属这种形态；只认
+    「禁止重开」两种字样时它们都会误报（实测 revived 与 claims 两层各误报一处）。
+    """
+    # 命中短语自身就在做「现在改成这个了」的断言时，任何上文禁令都不豁免它。禁令清单
+    # 只掩护**列举**否决项的并列项（`- USB Host`、`- 阿里云`），掩护不了混进清单里的
+    # 采纳句。实测 `## 禁止重开` + `- 现已改用 USB Host 直连`、以及标题名自带否决词的
+    # `## 已否决方案的替代实现` + `- 采用 CH9350 桥接替代`，在只看上文否决词时都全绿。
+    # 只看命中所在短语，不看整行——行尾常有「这些都已否决或已落地」之类的收尾语。
+    if _ADOPTION_RE.search(_rejection_clause(text, match)):
+        return False
     line_start = text.rfind("\n", 0, match.start()) + 1
     prefix = text[line_start : match.start()]
-    return bool(re.search(r"(?:禁止重开|明确不要做的事)(?:\*\*)?\s*[：:]", prefix))
+    if re.search(r"(?:禁止重开|明确不要做的事)(?:\*\*)?\s*[：:]", prefix):
+        return True
+    # 否决/禁令类标题 + 冒号，冒号后为并列项。粗体标记与括号补充说明都可穿过。
+    #
+    # 否决词与冒号之间**只允许**粗体标记与括号补充，不允许再有一段谓语。原先此处放宽
+    # 到 `[^：:\n]{0,40}`，等于「同一行里任何位置出现过禁令词 + 冒号」就豁免整行余下
+    # 内容，实测 `禁止在出图中发 M 命令：板间链路改用 USB Host 直连。` 与
+    # `禁止跳过 bringup-sop：本机硬件已验证。` 两句都能全绿——前半句的禁令管的是它自己
+    # 的宾语，管不到冒号后另起的主张。`不证明：`/`**禁止宣称**（除非…）：` 这类真引述
+    # 清单里，否决词本身就是整个导语，故收紧后仍豁免。
+    if re.search(
+        r"(?:禁止宣称|禁止|不得|不可|严禁|勿|别再|已否决|否决|"
+        r"claims_forbidden|不许|无权|不证明)"
+        r"(?:\*\*)?\s*(?:[（(][^）)\n]{0,80}[）)])?\s*[：:]",
+        prefix,
+    ):
+        return True
+    # 上方最近的非空行是引出否决清单的导语或 Markdown 标题。覆盖两种排版：
+    #   「不证明：」+ 换行 + `- 项`（导语以「：」收尾）
+    #   `## 禁止宣称（…）` + 空行 + 并列项（标题行，不以「：」收尾）
+    # `.cursor/rules/hutuji-agent-rails.mdc` 的禁语清单正是后者，只看同一行会误报。
+    # 向上找引出清单的导语/标题，跨过空行与**同级列表项**（清单有多项时，命中所在
+    # 项的上一行往往是另一个并列项，遇到就停会漏掉导语——`agent-gate.md` 的
+    # 「若重新主张下列**已否决**方向 → 红：」+ 三个列表项即此形态）。
+    # 只跨列表项与空行，遇到普通散文段落即停，避免把远处无关的否决语借过来。
+    in_list = bool(re.match(r"\s*[-*+]\s|\s*\d+[.)]\s", text[line_start : match.start()] or " "))
+    for prev in reversed(text[:line_start].splitlines()):
+        if not prev.strip():
+            continue
+        negated = re.search(
+            r"已否决|否决|禁止|禁语|不得|不可|勿|别再|推翻|过时|不可行|红|不证明|无权",
+            prev,
+        )
+        if negated and (prev.lstrip().startswith("#") or prev.rstrip().endswith(("：", ":"))):
+            return True
+        # 同级并列项：继续往上找导语
+        if in_list and re.match(r"\s*[-*+]\s|\s*\d+[.)]\s", prev):
+            continue
+        break
+    return False
 
 
 
 def check_revived_decisions() -> dict[str, Any]:
     hits: list[str] = []
     for kid, pattern, files in REVIVED_PATTERNS:
-        for rel in files:
+        for rel in files if files is not None else GOVERNANCE_DOCS:
             path = ROOT / rel
             if not path.is_file():
                 continue
@@ -243,6 +332,107 @@ def check_revived_decisions() -> dict[str, Any]:
     if hits:
         return _layer("revived_decisions", "否决项复活扫描", "fail", "; ".join(hits[:5]))
     return _layer("revived_decisions", "否决项复活扫描", "pass", "no revival")
+
+
+# 禁语的「引述」语境：这些词出现在同一短语里，说明是在讲「不得这样说」的规则，
+# 而不是在做出该宣称。`claims_forbidden` 列表本身、`agent-gate.md` §5 的表格、
+# 以及各文档里「本条不支持『可出货』」这类免责句都靠它放行。
+_CLAIM_QUOTE_RE = re.compile(
+    # 否定/情态词
+    r"不得|不可|禁止|禁语|禁用|勿|别|不支持|不替代|不等于|不能|未|尚未|非|"
+    r"claims_forbidden|前置条件|除非|一旦|若|如果|谁也|不许|无权|不算|不证明|"
+    r"不代表|不意味|不构成|不视为|不宣称|无证据|缺|待|仍看|仍须|仍需|"
+    # 符号形态：`A ≠ B ≠ 可出货`、`勾选 ≠ 可出货`、`... != 可出货`
+    r"≠|!=|<>"
+)
+
+
+def _claim_sentence(text: str, match: re.Match[str]) -> str:
+    """命中所在的整句，用于判断是否处于否定/引述语境。
+
+    比 `_rejection_clause` 的短语窗口宽：否决语境常隔着顿号、斜杠或 `≠` 才到否定词，
+    故不按顿号切——那正是并列免责句的分隔符。
+
+    但**起点**要在冒号处停：`禁止跳过 bringup-sop：本机硬件已验证。` 里冒号前的禁令
+    管的是它自己的宾语，跨过去就把无关否定词借来当豁免（实测该句原先全绿）。真正
+    需要跨冒号的引述形态（`不证明：…`、`**禁止宣称**（除非…）：…`）由
+    `_has_rejection_heading` 的导语规则处理，不依赖句窗。
+    """
+    bounds = "\n。！？!?"
+    starts = [text.rfind(ch, 0, match.start()) for ch in bounds]
+    starts.extend(text.rfind(ch, 0, match.start()) for ch in "：:")
+    start = max(starts, default=-1) + 1
+    ends = [text.find(ch, match.end()) for ch in bounds]
+    end = min((v for v in ends if v >= 0), default=len(text))
+    return text[start:end]
+
+
+def _is_quoted_claim(text: str, match: re.Match[str]) -> bool:
+    """禁语是被「引述」而非「使用」的两种排版形态。
+
+    做出宣称的人写的是散文（「本机已联调完成」），不会把词放进代码引号或
+    规则表格的定义列里。这两种形态一律放行，避免门禁把自己的规则条文判红：
+    - 反引号包裹：`agent-gate.md` §5 表格、白名单说明里的 `` `可出货` ``
+    - 表格行的定义列：`| 可出货 / 商业放行 | 前置条件 … |`（`|` 起头的行）
+    """
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    line_end = text.find("\n", match.end())
+    line = text[line_start : line_end if line_end >= 0 else len(text)]
+    col = match.start() - line_start
+    # 反引号包裹：命中左侧奇数个反引号即位于 inline code 内
+    if line[:col].count("`") % 2 == 1:
+        return True
+    # 「禁语 → 前置条件」定义表：行以 | 起头，且命中落在首个单元格
+    if line.lstrip().startswith("|"):
+        first_sep = line.find("|", line.index("|") + 1)
+        if first_sep < 0 or col < first_sep:
+            return True
+    return False
+
+
+def check_forbidden_claims() -> dict[str, Any]:
+    """扫描治理文档正文里是否**做出**了 claims_forbidden 里的宣称。
+
+    此前 CLAIMS_FORBIDDEN 只用于两件事：与白名单列表比对是否漂移，以及打印到报告
+    末尾那句「仍受 claims_forbidden 约束」。**没有任何一层真的检查过文档里有没有
+    使用这些禁语**——实测在 README.md 追加「硬件已验证，联调完成，现已可出货」，
+    docs 层七项全绿并照常打印那句约束提示。门禁列出禁语却不执行，等于把最后一道
+    「无证据不宣称」的闸门交给自觉。
+
+    判据按短语切分（复用 _rejection_clause 的边界），短语内出现否定/引述词即视为
+    在讲规则而非做宣称，予以放行；否则判红。这样 `agent-gate.md` §5 的表格、
+    白名单 JSON 的列表、以及「本条不支持『可出货』任何一项宣称」都能正常存在。
+    """
+    hits: list[str] = []
+    for rel in GOVERNANCE_DOCS:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for claim in CLAIMS_FORBIDDEN:
+            for m in re.finditer(re.escape(claim), text):
+                if _is_quoted_claim(text, m):
+                    continue
+                if _has_rejection_heading(text, m):
+                    continue
+                # 语境窗口取「整句」而非最小短语：否定词常与禁语隔着顿号/斜杠/≠
+                # （「写了说明 ≠ 代码已改 ≠ 硬件已验 ≠ 可出货」「不证明：…、可出货」
+                # 「本条**不支持**「联调完成」「可出货」…任何一项宣称」）。按短语切分
+                # 会把否定词切走，使这些免责句全部误报。句子边界只认换行与句号类。
+                if _CLAIM_QUOTE_RE.search(_claim_sentence(text, m)):
+                    continue
+                snippet = _claim_sentence(text, m).strip().replace("\n", " ")[:100]
+                hits.append(f"{rel}: 「{claim}」于「{snippet}」")
+    if hits:
+        detail = (
+            f"{len(hits)} 处使用了禁止宣称（须先满足 docs/agent-gate.md §5 前置条件）："
+            + "; ".join(hits[:5])
+        )
+        return _layer("forbidden_claims", "禁止宣称扫描", "fail", detail)
+    return _layer(
+        "forbidden_claims", "禁止宣称扫描", "pass",
+        f"治理文档 {len(GOVERNANCE_DOCS)} 份均未做出 {len(CLAIMS_FORBIDDEN)} 条禁止宣称",
+    )
 
 
 def check_edit_allowlist() -> dict[str, Any]:
@@ -762,6 +952,7 @@ def main(argv: list[str] | None = None) -> int:
     layers.append(check_required_files())
     layers.append(check_decision_anchors())
     layers.append(check_revived_decisions())
+    layers.append(check_forbidden_claims())
     layers.append(check_edit_allowlist())
     layers.append(check_anti_drift_doc())
     layers.append(check_constraint_matrix())
