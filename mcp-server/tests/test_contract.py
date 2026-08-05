@@ -1545,6 +1545,58 @@ def test_gate_required_files_rejects_symlink(
     assert "required.md" in result["detail"]
 
 
+def test_gate_external_refs_skip_unreadable_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """full 门禁不能把 pytest 缓存当治理文档读取并在权限错误时崩溃。"""
+    gate = _load_agent_gate()
+    cache = tmp_path / ".pytest_cache"
+    cache.mkdir()
+    cache_readme = cache / "README.md"
+    cache_readme.write_text("cache", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == cache_readme:
+            raise PermissionError("cache belongs to another account")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "_external_index", lambda: ({}, ["test-repo"], []))
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    result = gate.check_external_doc_line_refs()
+
+    assert result["status"] == "fail"
+    assert "一条外仓引用都没解析到" in result["detail"]
+
+
+def test_gate_external_refs_report_unreadable_governance_doc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """真正的治理文档不可读时应返回结构化 fail，而不是抛出 traceback。"""
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    unreadable = docs / "bad.md"
+    unreadable.write_text("Protocol.cpp:1", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == unreadable:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "_external_index", lambda: ({}, ["test-repo"], []))
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    result = gate.check_external_doc_line_refs()
+
+    assert result["status"] == "fail"
+    assert "无法读取治理文档 docs/bad.md（PermissionError）" in result["detail"]
+
+
 def _load_cloud_bridge_smoke():
     import importlib.util
 

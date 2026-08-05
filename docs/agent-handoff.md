@@ -8,7 +8,9 @@
 
 ## 0. 一句话现状（2026-08-05）
 
-> **2026-08-03 最新（覆盖下方历史段落中的"板上镜像"与"S4 未做"陈述）**：板上实跑 = Grbl `1b56393`（烧 COM11）+ S3 `ae4b524`（烧 COM6，默认镜像 md5 `e8488814ab64660ffca19a595f0e7add`），**两侧均与各自 HEAD 合流**。**P2 S4 有纸实测已通过**：551 行玫瑰图 CRC32 `ae1b25b2` 匹配、全量下发无丢行、页尾 `M30` 触发自动换纸八步全绿、`state=done`；**`pbuf_free`/`Guru Meditation`/`assert failed` 两侧日志 0 命中，07-31 那次崩溃未复现**。**仍未验证**：纸面实物画质（需人工目视）、App 真实语音端到端、断连恢复 `paper_active` 窗口 abort 复测、`[ESP901] Paper=No` 现象根因。证据 `results/s4-rose-20260803-evidence.md`。本条**不支持**「联调完成」「可出货」「§9 已修好」「硬件已验证」任何一项宣称。
+> **2026-08-05 当前源码与部署边界（覆盖下方历史“当前 HEAD/已合流”措辞）**：hutuji HEAD `b27a7fb` 已推 `origin/main`，本地 hub `258 passed` + e2e `PASS`，**未部署生产**；生产仍是已复验 15/15 的 `bdbb107`。Grbl 源码 HEAD `966723b`，当前板上行为基线 `f5c8985`（后续仅注释修正、未重烧）；S3 源码 HEAD `83eb376`，当前板上行为基线 `55574cb`，新增超时错误码回填未烧录。fz HEAD `c2bf1a3`，保留两个未跟踪用户/工具资产。不得把源码 HEAD、已烧录基线与生产部署版本互相替代。
+
+> **2026-08-03 S4 硬件证据（不是当前源码 HEAD）**：板上实跑 = Grbl `1b56393`（烧 COM11）+ S3 `ae4b524`（烧 COM6，默认镜像 md5 `e8488814ab64660ffca19a595f0e7add`）。**P2 S4 有纸实测已通过**：551 行玫瑰图 CRC32 `ae1b25b2` 匹配、全量下发无丢行、页尾 `M30` 触发自动换纸八步全绿、`state=done`；**`pbuf_free`/`Guru Meditation`/`assert failed` 两侧日志 0 命中，07-31 那次崩溃未复现**。**仍未验证**：纸面实物画质（需人工目视）、App 真实语音端到端、断连恢复 `paper_active` 窗口 abort 复测、`[ESP901] Paper=No` 现象根因。证据 `results/s4-rose-20260803-evidence.md`。本条**不支持**「联调完成」「可出货」「§9 已修好」「硬件已验证」任何一项宣称。
 
 > **2026-08-05 本仓审查修复已提交并部署**：代码提交 `bdbb107` 修复 vpype 取消后子进程继续运行与并发名额提前释放、清理异常引用未定义 logger、G-code 行长按字符而非设备字节、控制台跨源重定向携带认证头、preflight 漏 bridge 健康检查，以及 pip 默认绕过 TLS。本地 hub `overall=pass`（pytest `249 passed`、e2e `PASS`）；生产四文件哈希一致，preflight `pass=15 fail=0 skip=0`，生产 e2e `PASS`，bridge 重连完成 `initialize`/`tools/list`/`ping`，公网边界 404/404/403/8300 超时均符合契约。回滚副本 `/root/hutuji-bak-20260805-bdbb107/`。未碰外仓固件，未做硬件验证。
 

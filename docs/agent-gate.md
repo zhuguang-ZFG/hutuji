@@ -48,6 +48,7 @@
 - 每仓只索引白名单子目录（`Grbl_Esp32/` + `doc/`、`main/`、`inkscape-clean/`），并排掉 `.pio`/`build`/`managed_components`/`release*` 等副本。**inkscape_px 里那份旧 `Grbl_Esp32/` 副本被有意排除**——纳进来会让几乎所有 Grbl 源码引用退化成同名两份而跳过，整层假绿。
 - 同名多份（如 `paixi_runtime/` 在 `tools/` 与 `share/extensions/` 各存一份）一律跳过：宁可漏判，不可误判。`校验 N=0` 或三仓全缺 → **fail**。
 - 只跨仓**读**行数，绝不改外仓文件。fail 时先分清是文档行号过期还是源码已变；fork 工作树有未提交改动时行号本就会漂。
+- 文档候选复用 `doc_line_refs` 的缓存/产物排除集；其余治理文档读失败必须返回结构化 **fail**，不能因权限错误抛 traceback 中断整扇门禁。
 
 ## 3. 必备文件（`docs` 层）
 
@@ -127,10 +128,12 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
-1. 有纸验证页尾显式 `M30` 自动换纸成功，并确认任务最终 `done/Idle`（无纸复测止于 `error:90`；当前烧录基线见 `docs/release-readiness.md`）
-2. 有纸验证 `Changing=On` 与换纸态断连分流：不得发 reset/M30，并覆盖 `error:90` 与换纸中 abort
-3. 完成 App 真实语音端到端及七工具逐项云端行为回归
-4. 完成 P2 S3/S4 与生产签核
+1. 纸面实物画质人工目视（出墨连续性、曲线完整、断线）
+2. 完成 App 真实语音端到端及七工具逐项云端行为回归
+3. 复测断连恢复 `paper_active` 窗口的 abort：不得 reset/M30
+4. 完成生产与合规签核
+
+页尾 `M30`、`Changing=On`、换纸中 abort 与 P2 S4 已有历史实测，具体证据和未验证边界以 `release-readiness.md` 为准，不得作为默认待办重做。
 
 用户明确指定任务时可偏离；**不得**在未指定时重写文档地图或重开否决项。
 

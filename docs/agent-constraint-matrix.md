@@ -17,11 +17,13 @@
 
 ## 2. 动手前强制读序（各仓相同骨架）
 
-1. hutuji `docs/agent-handoff.md`  
-2. hutuji `docs/agent-anti-drift.md`  
-3. hutuji `docs/worktree-inventory.md` + 本仓 `git status`  
-4. 本仓 `AGENTS.md`  
-5. 任务契约：`protocol.md` / bringup / mcp-server README  
+1. hutuji `docs/agent-handoff.md`
+2. hutuji `docs/agent-anti-drift.md`
+3. hutuji `docs/agent-constraint-matrix.md`
+4. hutuji `docs/worktree-inventory.md` + hutuji / Grbl / xiaozhi / fz 的 `git status --short`
+5. hutuji `docs/release-readiness.md`
+6. hutuji `docs/agent-gate.md` + 任务契约：`protocol.md` / bringup / mcp-server README
+7. 外仓任务再读该仓根 `AGENTS.md`
 
 ## 3. 门禁矩阵（缺一不得宣称）
 

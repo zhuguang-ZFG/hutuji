@@ -476,13 +476,26 @@ def check_external_doc_line_refs() -> dict[str, Any]:
     if not present:
         detail = "三个外仓路径都不存在（" + "; ".join(absent) + "）；设 GRBL_ROOT/XIAOZHI_ROOT/INKSCAPE_PX_ROOT"
         return _layer("external_doc_line_refs", label, "fail", detail)
-    md_files = sorted({*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")})
+    candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
+    md_files = sorted(
+        path
+        for path in candidates
+        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
+    )
     bad: list[str] = []
     checked = 0
     skipped = 0
     for md in md_files:
-        text = md.read_text(encoding="utf-8", errors="replace")
         rel_md = md.relative_to(ROOT).as_posix()
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return _layer(
+                "external_doc_line_refs",
+                label,
+                "fail",
+                f"无法读取治理文档 {rel_md}（{type(exc).__name__}）",
+            )
         for m in _DOC_REF_RE.finditer(text):
             ref = m.group(1).replace("\\", "/").lstrip("./")
             if (ROOT / ref).is_file():

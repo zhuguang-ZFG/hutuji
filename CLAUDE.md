@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 代码去哪找 | 本地路径 | 角色 |
 |-----------|----------|------|
-| 运动控制 / 换纸固件 | `D:/Users/Grbl_Esp32` | Grbl_Esp32（成熟商业现役固件，分支 `fix/panel-hold-after-align-116687e`，源码 HEAD `1b56393`，2026-08-03 已烧录 COM11） |
+| 运动控制 / 换纸固件 | `D:/Users/Grbl_Esp32` | Grbl_Esp32（成熟商业现役固件，分支 `fix/panel-hold-after-align-116687e`，源码 HEAD `966723b`；板上行为基线 `f5c8985`，后续只改注释、未重烧） |
 | AI 交互 / 语音固件 | `D:/Users/xiaozhi-esp32` | xiaozhi-esp32（板型 `lichuang-dev` 立创实战派 ESP32-S3） |
 
 不要假设任何固件源码在本仓库——运动控制去 Grbl_Esp32 查，AI 交互去 xiaozhi-esp32 查。
@@ -128,11 +128,11 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 源码 HEAD `f1cf066` 已提交/推送（`15f73c9` 窗口化流控 S3 → `13057e8` 笔控 `G92 Z0` 旁路 + `ok` 超时兜底 → `f1cf066` 默认关闭的 §8.5 abort 取证脚手架）；**实机烧录基线（07-31 更新）= HEAD `06b962c` + 未提交第二轮审查修复**（COM6 镜像 `0x2cec90`，证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`）；历史：`0x2ce890`（20:39 构建）内容对应 `13057e8`，20:41 `app-flash` 成功（esptool `Hash of data verified`，证据 `results/s3-13057e8-com6-flash-evidence-20260729.md`）；2026-07-30 B-12 已归档 S3 自动路径出墨：409 行测试件全线连续，页尾 `M30` 后 `[PaperStatus] 0`、`state=done`、`replayable=1`。历史 `3ca9d31` 默认构建、8.3 自动触发镜像与 `15f73c9` 的 `0x2cdcb0` 均已烧录 COM6。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过。Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归。普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`。**§8.5 换纸中 abort 已于 2026-07-31 取证**；**P2 S4 已于 2026-08-03 有纸实测通过**（551 行玫瑰图全量下发 + 自动换纸八步全绿 + `state=done`，`pbuf_free` 未复现；证据 `results/s4-rose-20260803-evidence.md`）。**缺**：纸面实物画质人工目视、自适应 `Bf` 反压。
+2. **② 哑管道** — 🟡 源码 HEAD `83eb376` 已提交/推送；当前板上行为基线是 2026-08-04 烧录的 `55574cb`，`83eb376` 新增的 `TakeResponse()` 超时错误码回填**未烧录、未做硬件实测**。2026-08-03 P2 S4 使用 `ae4b524` 完成 551 行玫瑰图全量下发、自动换纸八步全绿与 `state=done`，`pbuf_free` 未复现（证据 `results/s4-rose-20260803-evidence.md`）；这份历史证据不证明后续源码 HEAD 已上板。**缺**：纸面实物画质人工目视、自适应 `Bf` 反压。
 3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 
-> **不可出货**。默认下一刀见 `docs/agent-handoff.md` §6：有纸页尾自动换纸与换纸中 `abort` 分流均已取证（2026-07-31 / 2026-08-03），下一刀是 App 真实语音端到端验收 + 纸面实物画质人工目视。
+> **不可出货**。默认下一刀见 `docs/agent-handoff.md` §6：纸面实物画质人工目视 → App 真实语音端到端 → 断连恢复 `paper_active` 窗口 abort 复测 → 生产签核。
 
 ## 约定
 

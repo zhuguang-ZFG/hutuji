@@ -128,7 +128,7 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 
 ## Testing & QA｜测试与门禁
 
-- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **249 项**。
+- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **258 项**。
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
 - 三个测试文件职责：`test_contract.py`（§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死）、`test_injection.py`（SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（桥接配置与不泄密日志）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。
@@ -147,5 +147,5 @@ python scripts\xiaozhi_console.py list | show <agent_id> | sync <agent_id> | upd
 - **禁止重开**：合并固件 / USB Host / CH9350 / 阿里云部署 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。
 - **禁止宣称**（除非 `docs/release-readiness.md` 对应行已 ✅）：可出货、商业放行、§9 已完成、§9 已修好、硬件已验证、联调完成、京东云已上线、M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
 - **凭据禁入库**：`D:/Downloads/VPS.txt`（VPS 明文密码 + API key）、真实小智 MCP 接入点、`小智控制台token.txt`，一律不复制、不引用、不提交。
-- **默认下一刀**（用户未指定时）：① 有纸验证换纸中 `abort` 分流（不得 reset/`M30`）；② App 真实语音端到端验收；③ P2 S3/S4 窗口化流控收尾。
+- **默认下一刀**（用户未指定时）：① 纸面实物画质人工目视；② App 真实语音端到端验收；③ 断连恢复 `paper_active` 窗口的 `abort` 复测；④ 生产签核。S4 有纸出图与换纸中 `abort` 已有历史取证，禁止作为默认待办重做。
 - **改完必同步**：契约 → `docs/protocol.md`；进度 → `docs/release-readiness.md`；脏树 → `docs/worktree-inventory.md`；结构与约定 → 本文件 + `README.md` + `CLAUDE.md`；门禁口径 → `docs/agent-gate.md` + `.cursor/rules/hutuji-agent-rails.mdc`。

@@ -55,9 +55,12 @@ python scripts\agent_gate.py --profile hub
 
 ## 默认下一刀（用户未指定时）
 
-1. 有纸验证页尾显式 `M30` 自动换纸成功，并确认最终 `done/Idle`
-2. 有纸验证 `Changing=On` 与换纸态断连分流（不得 reset/M30）
-3. 完成 App 真实语音端到端和 P2 S3/S4
+1. 纸面实物画质人工目视
+2. 完成 App 真实语音端到端和七工具逐项云端回归
+3. 复测断连恢复 `paper_active` 窗口的 abort（不得 reset/M30）
+4. 完成生产与合规签核
+
+页尾 `M30`、`Changing=On`、换纸中 abort 与 P2 S4 已有历史取证，不作为默认待办重做；状态边界以 `docs/release-readiness.md` 为准。
 
 禁止：重写文档地图当进度、跳阶段、把 MCP 组 0–4 当待办重做、凭据入库、为门禁绿改产品行为。
 
