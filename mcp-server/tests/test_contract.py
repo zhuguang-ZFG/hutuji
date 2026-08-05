@@ -1597,6 +1597,99 @@ def test_gate_external_refs_report_unreadable_governance_doc(
     assert "无法读取治理文档 docs/bad.md（PermissionError）" in result["detail"]
 
 
+def test_gate_doc_refs_report_unreadable_governance_doc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/hub 门禁同样要把治理文档读错收敛为结构化 fail。"""
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    unreadable = docs / "bad.md"
+    unreadable.write_text("gcode_gen.py:1", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == unreadable:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    result = gate.check_doc_line_refs()
+
+    assert result["status"] == "fail"
+    assert "无法读取治理文档 docs/bad.md（PermissionError）" in result["detail"]
+
+
+def test_gate_doc_refs_report_unreadable_reference_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """治理文档可读、但被引用的本仓目标不可读时，也必须是结构化 fail。
+
+    这一分支的 detail 要走 target.relative_to(ROOT)（外仓那条不能这么写，
+    会 ValueError），路径表达式最容易写错，所以单独钉住。"""
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "refs.md").write_text("gcode_gen.py:1", encoding="utf-8")
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    target = pkg / "gcode_gen.py"
+    target.write_text("line", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == target:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    result = gate.check_doc_line_refs()
+
+    assert result["status"] == "fail"
+    assert "无法读取引用目标 pkg/gcode_gen.py（PermissionError）" in result["detail"]
+
+
+def test_gate_external_refs_report_unreadable_reference_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """full 门禁必须把不可读的外仓引用目标收敛为结构化 fail。"""
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    governance_doc = docs / "refs.md"
+    governance_doc.write_text("Protocol.cpp:1", encoding="utf-8")
+    # 落点放在 tmp_path 内：`_external_index` 已被 mock，走外仓分支只取决于
+    # ref 字符串在本仓解析不到（ROOT/Protocol.cpp 不存在），与 target 真实位置无关。
+    # 用 tmp_path.parent 会在 session 级共享目录留固定名副作用，重复执行即 FileExistsError。
+    external = tmp_path / "external"
+    external.mkdir()
+    target = external / "Protocol.cpp"
+    target.write_text("line", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == target:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        gate,
+        "_external_index",
+        lambda: ({"Protocol.cpp": [target]}, ["test-repo"], []),
+    )
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    result = gate.check_external_doc_line_refs()
+
+    assert result["status"] == "fail"
+    assert "无法读取外仓引用目标 Protocol.cpp（PermissionError）" in result["detail"]
+
+
 def _load_cloud_bridge_smoke():
     import importlib.util
 

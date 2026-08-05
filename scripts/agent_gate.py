@@ -401,8 +401,16 @@ def check_doc_line_refs() -> dict[str, Any]:
     checked = 0
     skipped = 0
     for md in md_files:
-        text = md.read_text(encoding="utf-8", errors="replace")
         rel_md = md.relative_to(ROOT).as_posix()
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return _layer(
+                "doc_line_refs",
+                "文档 path:line 引用",
+                "fail",
+                f"无法读取治理文档 {rel_md}（{type(exc).__name__}）",
+            )
         for m in _DOC_REF_RE.finditer(text):
             ref = m.group(1).replace("\\", "/").lstrip("./")
             target = _resolve_doc_ref(ref, index)
@@ -412,7 +420,16 @@ def check_doc_line_refs() -> dict[str, Any]:
             # 区间引用（`:205-207`）只校验较大的端点：末行在范围内则整段在范围内
             lineno = max(int(m.group(2)), int(m.group(3) or 0))
             checked += 1
-            total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            try:
+                total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            except OSError as exc:
+                rel_target = target.relative_to(ROOT).as_posix()
+                return _layer(
+                    "doc_line_refs",
+                    "文档 path:line 引用",
+                    "fail",
+                    f"无法读取引用目标 {rel_target}（{type(exc).__name__}）",
+                )
             if lineno < 1 or lineno > total:
                 rel_target = target.relative_to(ROOT).as_posix()
                 bad.append(f"{rel_md} → {ref}:{lineno}（{rel_target} 共 {total} 行）")
@@ -510,7 +527,15 @@ def check_external_doc_line_refs() -> dict[str, Any]:
             target = cands[0]
             lineno = max(int(m.group(2)), int(m.group(3) or 0))
             checked += 1
-            total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            try:
+                total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+            except OSError as exc:
+                return _layer(
+                    "external_doc_line_refs",
+                    label,
+                    "fail",
+                    f"无法读取外仓引用目标 {ref}（{type(exc).__name__}）",
+                )
             if lineno < 1 or lineno > total:
                 bad.append(f"{rel_md} → {ref}:{lineno}（实际 {total} 行）")
     if bad:
