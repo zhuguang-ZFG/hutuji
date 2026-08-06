@@ -1,6 +1,8 @@
 # 发布与出货就绪度
 
 > 状态日期：2026-08-06（最新源码事实见下两条；生产是 `69c2198`，硬件状态按 2026-08-04 烧录与 2026-08-03 S4 证据分别记录）。
+> **2026-08-06 生产部署验真 + 真机下载出图（S3 COM6，Grbl COM12）**：先将当前 `server.py` 与 `deploy/preflight.sh` 经 scp 更新生产并重启 `hutuji-mcp`/`hutuji-cloud-bridge`；首次重启探针在 WSS/8300 尚未稳定时出现 `pass=12 fail=6`，等待服务收敛后重跑为 **`pass=18 fail=0 expected=18`**。生产 venv 真跑 `test_star.svg` 生成 14 行/243 字节产物，S3 通过生产 HTTPS URL `https://hutuji.donglicao.com/files/draw_20260806_210800_YbCMekhvCgYAuihAs83K1Q.gcode` 下载 **243 字节**，CRC 头 `775b4f31`，随后完成 `G92 Z0`、下载文件逐行转发、`Run→Idle`、页尾 `M30`、`[PaperStatus] 0`、最终 fresh `Idle`，任务 `state=done err= replayable=1`。日志未见下载/CRC错误或 panic；过程出现多次普通 1s 应答超时后仍收敛完成，需作为后续流控时序观察项。该实测覆盖生产 HTTPS 下载、长度/CRC、授权门后出图、逐行转发与有纸换纸闭环；不等于 App 语音、画质目视或出货签核。
+
 > **2026-08-06 Grbl GitHub/社区兼容性复核（只读，无固件改动）**：本地 `Protocol.cpp` 与 `bdring/Grbl_Esp32` 上游同样在 EOL 前检查 `len == LINE_BUFFER_SIZE - 1`，故 256 字节数组的安全 payload 是 254；grblHAL 后续用 257 明示“256 characters plus terminator”。社区 `bdring/Grbl_Esp32#992` 说明所谓 Telnet 实为 port 23 上的 raw TCP，行尾规范化应由 sender 负责；`#1364` 的 `pbuf_free` 报告把根因指向 `WiFiClient` 并发访问，`#249` 记录长任务 Telnet 停顿及缩短写超时的数据完整性争议。当前 fork 已有递归锁、四参数 keepalive、非阻塞整段写出或明确断链；MCP/S3 已封住 254 字节、CRLF、verbose error 与授权探针兼容边界。复核 `upstream/main...HEAD = 0/101`，未见漏合并上游修复；Grbl `966723b` 工作树为空；fz `standard` 重跑 `overall: pass exit=0`。决策：维持现状，不改全局行缓冲、错误格式、CRLF 接收或商业运动/换纸行为；该结论不增加烧录、纸张或生产证据。
 > **2026-08-06 Grbl 恢复后 S3 授权探活通过（COM6 + Grbl COM12）**：写字机恢复上电后，S3 缓存 IP 命中 `192.168.1.13` 并连接 Telnet:23；收到 Grbl `[VER:1.3a.20211103:]`，发送 `M5` 得 `ok`、收到 fresh `Idle`，随后发送更新后的 **`G1 G53 X0.000 F1500`** 零位移探针并得 `ok`，日志明确记录授权探测通过。该证据覆盖 S3→Grbl Telnet、banner、M5、fresh Idle、行首授权探针和当前授权状态；尚未覆盖下载/CRC/verbose error、暂停恢复、换纸、纸面画质或 App 语音。
 

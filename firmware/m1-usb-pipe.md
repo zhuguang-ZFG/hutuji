@@ -4,6 +4,8 @@
 > `f1cf066`（链 `3ca9d31` → `c1267ec` → `ed5b132` → `15f73c9` → `13057e8` → `f1cf066`；末位是
 > 默认关闭的 §8.5 abort 取证脚手架）。**实机烧录基线（07-31 更新）= HEAD `06b962c` + 未提交第二轮审查修复**（COM6 镜像 `0x2cec90`，证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`）；历史基线 `13057e8`/`0x2ce890` 勿当现状。
 > **2026-08-06 最新实机证据（supersede 上述旧“实机烧录基线”措辞）**：源码 `16f2f83` 的默认镜像已于 COM6 `app-flash`，`xiaozhi.bin=0x2cfdb0`，SHA-256 `AE634CD7FE7A6CB45A1F744799C6FB94C693C0FD83DE0E49DD8FC07EC024C132`，esptool 报 `Hash of data verified`。启动确认 ESP32-S3 rev0.2、8MB PSRAM、SKU `lichuang-dev`、七工具、WiFi `192.168.1.12`、MQTT 激活，无 panic/assert。写字机恢复上电后，S3 命中缓存 `192.168.1.13` 并连接 Telnet，收到 `[VER:1.3a.20211103:]`，`M5`→`ok`、fresh `Idle`，再发更新后的 `G1 G53 X0.000 F1500`→`ok` 并记录授权探测通过。未验证下载/CRC、verbose error、暂停恢复、换纸或出图。
+> **2026-08-06 生产下载真机验真（COM6 + COM12）**：生产 HTTPS 产物 14 行/243 字节，S3 日志记录下载完成 `243 字节 crc_hdr=775b4f31`；随后完成 `G92 Z0`、文件逐行转发、`Run→Idle`、`M30`、`[PaperStatus] 0`、最终 fresh `Idle`，任务 `state=done err= replayable=1`。默认镜像已回刷 COM6（`build/xiaozhi.bin=0x2cfdb0`，app-flash `Hash of data verified`）。本次确证生产下载/CRC/逐行/有纸换纸闭环；过程中多次普通 1s 应答超时但最终成功，后续需专项分析；未验证 App 语音与画质目视。
+
 
 > 下文历史段落里的「当前」按各自 commit 读，勿当现状。
 > 8.3 自动触发镜像已构建并烧录 COM6；普通画线断连后已实测到废纸 `M30`、PSRAM 从第 1 行重画、
