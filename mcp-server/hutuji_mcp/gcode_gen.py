@@ -27,6 +27,22 @@ _EPS = 0.01
 # 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；恰好 512KiB 放行，再多一字节才拒）
 MAX_BYTES = 512 * 1024
 
+# 单行 payload 上限（不含行尾换行符）。**254 不是 255**：Grbl_Esp32
+# `Protocol.h:34` 定义 `LINE_BUFFER_SIZE 256`，而 `Protocol.cpp:68` 的溢出判定排在
+# 换行判定**之前**——
+#     if (cl->len == (LINE_BUFFER_SIZE - 1)) return Error::Overflow;   // 先判溢出
+#     if (c == '\r' || c == '\n') { ... return Error::Eol; }            // 后判 EOL
+# 于是第 255 个 payload 字节能存进缓冲（len 变 255），但紧随的换行符进来时先撞上
+# `len == 255` → 回 `error:11`，且 `Protocol.cpp:218` 的 `empty_line()` 把整行丢掉，
+# **该行从未进入 `execute_line()`**。即 255 字节的行不是「勉强执行」而是「整行被吃」。
+# 逐字转写固件 add_char_to_line + protocol_poll_client 复现（payload → 设备应答/真正执行）：
+#   253B → ok / 253B        254B → ok / 254B
+#   255B → error:11 / 无     256B → error:11 + ok / 空行
+# 上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters
+# plus terminator"）正是为了让标称字符数真的可用；Grbl_Esp32 用 256 未加 1，故本机
+# 可用 payload 是 254。校验器必须按设备真正能执行的字节数判，宁可从严。
+MAX_LINE_PAYLOAD_BYTES = 254
+
 # 抬笔次数目前只做可观测告警；硬阈值须等机头实测后再锁定（README 组 1.3）。
 PEN_LIFT_WARN_THRESHOLD = 50
 
@@ -358,12 +374,17 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
 
         # Grbl LINE_BUFFER_SIZE 是字节数；S3 会原样转发 UTF-8，故不能只量 Python
         # 字符数。生产 G-code 只接受 ASCII，避免多字节注释撑爆设备行缓冲。
+        # `raw` 来自 splitlines()，已不含行尾换行符，故其长度就是 payload 字节数——
+        # 与 MAX_LINE_PAYLOAD_BYTES 的口径（不含换行）一致。
         try:
             line_bytes = raw.encode("ascii")
         except UnicodeEncodeError:
             raise GcodeError(f"第 {idx} 行含非 ASCII 字符（生产 G-code 只允许 ASCII）") from None
-        if len(line_bytes) > 255:
-            raise GcodeError(f"第 {idx} 行超过 255 字节")
+        if len(line_bytes) > MAX_LINE_PAYLOAD_BYTES:
+            raise GcodeError(
+                f"第 {idx} 行 {len(line_bytes)} 字节超上限 {MAX_LINE_PAYLOAD_BYTES}"
+                f"（Grbl LINE_BUFFER_SIZE 256 的可用 payload，第 255 字节起整行被 error:11 吃掉）"
+            )
 
         # 首行禁 G0 X0Y0Z0（软复位后首页触发点）
         if idx == 1 and re.fullmatch(r"G0?0\s*X0\s*Y0\s*Z0", upper.replace(" ", "")):

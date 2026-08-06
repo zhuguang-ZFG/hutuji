@@ -332,7 +332,21 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="hutuji MCP 生成服务", lifespan=lifespan)
+# 三个 URL 必须显式关成 None：FastAPI 默认自动挂 `/docs`、`/redoc`、
+# `/openapi.json`（外加 `/docs/oauth2-redirect`），实测四条全回 200。公网当前访问
+# 不到，但那份安全**完全来自 nginx 兜底**（443 的 `location / { return 404; }`），
+# 应用层零防御：`location /` 一旦为加健康检查之类放开、或有人给 :8300 开直连调试，
+# 攻击面即静默打开。对比 `/mcp` 是「nginx 显式 404 + 安全组不放行 8300 + preflight
+# 专项探针」三层，这四条原本只有第一层，且 preflight 与 pytest 都没有任何判据会红。
+# 与「公网只经 nginx 暴露 /files/」的既定口径对齐，在应用层也拒掉。
+# 注：`/mcp` 走 app.mount，本就不进 OpenAPI schema，关掉不影响 MCP 自身。
+app = FastAPI(
+    title="hutuji MCP 生成服务",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 # 静态文件源：自定义路由（非裸 StaticFiles），以带 protocol §5.1 完整性头
 # Content-Length + X-Hutuji-CRC32。S3 侧下完先比长度再比 CRC32 才开画（见 mcp-server README 组 0.2）。

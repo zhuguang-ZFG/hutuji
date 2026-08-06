@@ -39,10 +39,9 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   connected/ready/authorized 与应答队列，关闭旧 socket，按 1s/2s/4s…上限 30s 重连。
 - **TCP keepalive（v0.5 修正的实际 bug）**：原代码只设 `SO_KEEPALIVE=1`，注释写「尽快发现对端断电」——**实际是假的**：lwip 默认 `TCP_KEEPIDLE=7200s`(2h)/`KEEPINTVL=75s`/`KEEPCNT=9`，合计 **≈2h11m** 才发现死链。已改为显式设 `KEEPIDLE=10`/`INTVL=3`/`CNT=3`（≈19s 发现）。写字机侧同一坑见 `docs/protocol.md` §9-A。
 - `SendLine(const std::string&)`：send（自动补 `\n`，部分写循环）；未连接返回 false。
-- `TakeResponse()` / `WaitOk()`：32 深 FIFO 接收 `ok` / `error:`；当前仍以窗口=1 逐行发送，
-  队列为 P2 窗口化前置结构。
+- `TakeResponse()` / `WaitOk()`：FIFO 接收 `ok` / `error:`；容量由 512B 窗口推导为 255，覆盖最短非空行可形成的最大在途应答数，避免队满丢失 error 后错配后续 ok。
 - `IsConnected()` = TCP 已连接；`IsReady()` = 版本、抬笔、授权探测序列完成；
-  `IsAuthorized()` 由抬笔状态下的 `G53 G1` 零位移探测结果决定。
+  `IsAuthorized()` 由抬笔状态下的 `G1 G53` 零位移探测结果决定。`G1` 必须在 `G53` 前，命中 Grbl 行首授权门。
 - banner `Grbl ` 前缀检测表示**对端复位**：清 ready/授权/应答队列并重新探活。只有
   `PrepareAbortReset()` 标记过的本机 abort 复位允许自动 `$X`；其他复位或 Alarm 不自动解锁。
 
@@ -124,12 +123,12 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
 
 - 自动发现当前只扫描 `/24`；缓存与候选均先校验 Grbl banner。错误但可连的 :23 主机自愈路径
   已写入固件，恶意/错误候选场景尚未做专门 HIL。
-- 公网文件入口使用 `https://hutuji.donglicao.com`；真实 MCP 接入点和 token 不入库。
+- 公网文件入口使用 `https://hutuji.donglicao.com/files/`；设备只接受该生产域的 HTTPS 默认 443 或显式 `:443`，拒绝明文 HTTP、控制字符、userinfo、畸形/非 443 端口、非 `/files/` 路径与 fragment。HTTP 仅保留给 RFC1918 联调主机；真实 MCP 接入点和 token 不入库。
 - 需要烧录自动触发绘图的 8.3 调试镜像时，用 CMake 选项注入短时效 G-code URL，不要手写
   `CMAKE_CXX_FLAGS` 字符串宏转义，也不要把真实 URL/token 写入源码：
   `idf.py -DBOARD_NAME=lichuang-dev -DBOARD_TYPE=lichuang-dev -DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='<当前短时效 /files/*.gcode URL>' build`。
-- `[License] Authorized` 只发串口、Telnet 不可见；Pipe 以抬笔后的 `G53 G1` 零位移探测
-  `ok/error:110`。探测完成前 `ready=false`，禁止 draw 抢跑。
+- `[License] Authorized` 只发串口、Telnet 不可见；Pipe 以抬笔后的 `G1 G53` 零位移探测
+  `ok/error:110`。`G1` 必须置于 `G53` 前以命中行首授权门；探测完成前 `ready=false`，禁止 draw 抢跑。
 
 ## 验证状态
 
@@ -141,6 +140,7 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   `xiaozhi.bin` SHA256 `A77C8635405B7FB18B18CE2486621A7635374D75FEE37E0078CD1423F29F80CC`，
   `merged-binary.bin` SHA256 `9328F2B71CAC67603E9B9BF063980AE11D575A749CE7F124A4F13C0CFA690E1D`，
   `releases/v2.4.0_lichuang-dev.zip` SHA256 `F11E51853E0D6E7CD223344F748330CCB583E7CC913E02E43DCD4E08D52941C2`。
+- 2026-08-06 S3 深度复审工作树已用 ESP-IDF v6.0.1 全量构建：`hutuji_pipe.cc`、`hutuji_job.cc` 实际重编，`xiaozhi.bin=0x2cfdb0`，最小 app 分区余 29%。host unittest **13 passed**，C++ formatter check 通过；覆盖授权探针行首、CRC 头严格解析、生产 HTTPS/443 origin、255 深应答队列和 verbose error fail-closed。该镜像**未烧录**，不构成硬件证据。
 - `27eff73` 已提交并推送：移除过期硬编码自动测试 URL，改为 CMake 选项注入。
   IDF v6.0.1 验证两条构建路径：默认构建通过（`xiaozhi.bin=0x2ccde0`，余 29%，自动测试关闭）；
   `-DHUTUJI_AUTO_TEST_DRAW=ON -DHUTUJI_AUTO_TEST_DRAW_URL='http://127.0.0.1/files/test.gcode'`

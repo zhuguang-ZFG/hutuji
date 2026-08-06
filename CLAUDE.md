@@ -41,6 +41,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **哑管道原则**：G-code 全部在云端（京东云 VPS 的 MCP 服务）生成+转换完毕。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。
 
+**行长上限是 254 字节 payload，不是 255**：`Protocol.h:34` 是 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能进缓冲，紧随的换行符先撞上 `len == 255` 回 `error:11`，`:218` 的 `empty_line()` 把整行丢掉，**该行从未进 `execute_line()`**。上游 grblHAL 用 257 正是为绕开这个 off-by-one。校验器口径 `MAX_LINE_PAYLOAD_BYTES = 254`，**禁止改回 255**（旧口径会放行一种设备静默吃行的产物）。同理 **CRLF 行尾会让设备每行回两个 `ok`**（`\r`、`\n` 各触发一次 EOL，空行也回 ok），故 **S3 必须重切行、禁止原样透传下载字节**——透传会让在途窗口计数正向漂移。两条都在 `docs/protocol.md` §3。
+
+**Grbl 错误码有数字与文本两种线上形态**：`$Errors/Verbose=1` 时 `Report.cpp:236` 回 `error: Line too long` 而非 `error:11`。只认数字不是降级而是**行为反转**（`error:8` 换纸推迟会变成整单失败）。该 `$`-设置存在 NVS、可被任何上位机改写。S3 侧解析走 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()`，两种形态由 `scripts/tests/test_hutuji_recovery_core.py` 的 host 编译单测钉住。
+
+**奎享工作在负 X 坐标系**（唯一缓存产物 763 个 X 值里 762 个为负），我方硬拒负坐标（无限位开关，限幅是唯一安全防线）。故**奎享产物不能直接当回归基线**，需先平移到正象限；**不得为「对齐奎享」放宽负坐标限幅**。
+
 **§5 大小/长度一律按「设备看到的字节」计，不按 Python 字符**：512KiB 上限是 S3 侧 PSRAM 缓冲的硬约束，S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**。故 `_read_generated_gcode` 必须 `read_bytes()` 并把 `len(raw)` 显式传给 `validate_gcode(text, total_bytes=…)`——**禁止改回 `read_text()`**：后者走 universal newlines 把 CRLF 塌成 LF，每行少算 1 字节。实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 少报 20846。单行 255 字节上限（Grbl `LINE_BUFFER_SIZE`）同理已按 `encode("ascii")` 计。
 
 **换纸消息只做定点路由（别扩大修改面）**：原固件的换纸消息均走 `CLIENT_SERIAL`；§9 `e7f373f` 只把四处 `[PaperStatus] N` 结果码改为 `CLIENT_ALL`，其余 `[PaperAuto-N]` 进度仍只走 CH340。`[ESP901]` 的 `Changing=Off` 已经 Telnet 实测，`Changing=On` 与真实 `[PaperStatus]` 到达仍待有纸换纸验证。S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing` + `?` 探活。CH340 串口仍是最全诊断口。
@@ -125,7 +131,9 @@ python -m venv .venv
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **17** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`69c2198` 已于 2026-08-06 部署并取得 **17/17**（含首次在生产真跑通过的「生成链」与「unit 一致性」）；该结果不替代后续发布复验。**scp 完 unit 必须 `daemon-reload`**，否则 `check_units_match_templates` 判 fail。
+- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **18** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`69c2198` 已于 2026-08-06 部署并取得 **17/17**（当时共 17 项，含首次在生产真跑通过的「生成链」与「unit 一致性」）；该结果不替代后续发布复验，**第 18 项「应用层已关 FastAPI 自动文档端点」尚未在生产验过**。**scp 完 unit 必须 `daemon-reload`**，否则 `check_units_match_templates` 判 fail。
+
+- **FastAPI 自动文档端点必须在应用层关掉**：`FastAPI(...)` 须显式传 `docs_url=None`/`redoc_url=None`/`openapi_url=None`。不传时默认自动挂 `/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect`，实测四条全回 200。公网当前访问不到，但那份安全**完全来自 nginx 兜底**（443 的 `location / { return 404; }`），应用层零防御——`location /` 一旦放开、或给 `:8300` 开直连调试，攻击面即静默打开。对比 `/mcp` 有三层保护，这四条原本只有第一层。preflight 第 18 项直连 `:8300` 验它们必须 404（**不能经 nginx 探**，那证不到应用层）。
 - **preflight 曾有两处「文件对了但跑的不对」的盲区，现已各补一项**：
   - **生成链（`check_generate_chain`）**：旧版 15 项没有一条执行过部署的 `hutuji_mcp` 代码——下载探针用 `printf "G21\nG90\nF8000\n"` 人工拼产物，那份内容连 `validate_gcode` 自己都不接受，所以只证明了「nginx 能按字节发文件」。已实测复现：把 `hutuji_gwrite.toml` 移走后 `import hutuji_mcp.server` 仍成功、服务保持 active、`/mcp` 与 `/files` 照常响应，而真实 `svg_to_gcode()` 报 `vpype 转换失败（exit 2）`——即 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 `_PROFILE_PATH` 只在请求期被 `_vpype_command()` 用到，import 期不加载不校验，`systemctl active` 抓不到；`vpype` 更是 subprocess、从不 import，装坏同样只在请求期暴露。现在 `check_generate_chain` 用生产 venv 真跑 `svg_to_gcode()`，`check_download` 拿这份真产物验下载契约。**探针必须用 `/opt/hutuji/mcp-server/.venv/bin/python`，不能用系统 `python3`**：`_vpype_cmd()` 按 `sys.executable` 同目录找 vpype，换解释器即换掉被验对象。
   - **unit 漂移（`check_units_match_templates`）**：`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit——`--host 127.0.0.1`、`ProtectSystem=strict`、`SystemCallFilter` 等加固项可全部缺失而照样 active（监听面另有第 5/6 项覆盖，加固项原本无人验）。两个 unit 与 nginx 的安装方式完全同构（都从 `/opt/hutuji/deploy/` 复制到系统目录），却只有 nginx 有一致性判据。现在 `check_units_match_templates` 对两个 unit 各查四条：LF 归一化 md5 与模板一致、`NeedDaemonReload=no`（systemd 用加载时快照，忘了 `daemon-reload` 时磁盘一致而在跑的仍是旧配置）、`FragmentPath` 指向 `/etc/systemd/system/`（排除 `/lib` 残留）、**无 drop-in**（drop-in 能静默覆盖 ExecStart 与全部加固项，存在时前三条什么都证明不了；用文件系统 glob 判定，不能只信 `DropInPaths`——老版 systemd 返回空串即 fail-open）。

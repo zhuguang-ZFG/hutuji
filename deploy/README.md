@@ -13,7 +13,7 @@
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 当前 17 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。
+> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload → 当前 18 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。
 > preflight **无 skip 状态**（曾有的 `OPTIONAL_SKIP` 与 pass 等价放行，已删）：输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；取不到非 loopback IPv4 判 fail 而非跳过。
 > 下面的「首次上线」流程保留给**重建/换机**，不是待办。
 >
@@ -57,7 +57,7 @@ bash /opt/hutuji/deploy/prepare-host.sh
 2. 放 TLS 到 `/etc/nginx/ssl/hutuji/{fullchain,privkey}.pem`（或改 nginx 路径）。  
 3. `bash /opt/hutuji/deploy/install-from-repo.sh`  
 4. `systemctl enable --now hutuji-mcp hutuji-cloud-bridge nginx`  
-5. `nginx -t && systemctl reload nginx`，成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 17 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，故**必须先装好 venv 依赖**（vpype/vpype-gcode）并同步 `hutuji_mcp/hutuji_gwrite.toml`，否则该项判 fail——这正是它存在的意义。另：`check_units_match_templates` 要求 scp 完 unit 后必须 `systemctl daemon-reload`，否则即便文件与模板一致也判 fail。
+5. `nginx -t && systemctl reload nginx`，成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 18 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，故**必须先装好 venv 依赖**（vpype/vpype-gcode）并同步 `hutuji_mcp/hutuji_gwrite.toml`，否则该项判 fail——这正是它存在的意义。另：`check_units_match_templates` 要求 scp 完 unit 后必须 `systemctl daemon-reload`，否则即便文件与模板一致也判 fail。
 6. 公网：`/mcp` 须失败；直连 `http://117.72.118.95/files/*` 须 403；`/files/` 只经 HTTPS。
 7. 小智控制台 `tools/list`（阶段 6）；证据写入 `docs/templates/release-manifest.md`。
 

@@ -21,6 +21,7 @@ from hutuji_mcp.config import (
 )
 from hutuji_mcp.gcode_gen import (
     MAX_BYTES,
+    MAX_LINE_PAYLOAD_BYTES,
     PEN_LIFT_WARN_THRESHOLD,
     GcodeError,
     _read_generated_gcode,
@@ -280,20 +281,25 @@ def test_gcode_rejects_more_than_512_kib() -> None:
         validate_gcode(text)
 
 
-def test_gcode_accepts_exactly_512_kib() -> None:
-    """§5「≤ 512KB 含」：恰好 MAX_BYTES 放行，多一字节才拒。
+def _size_filler(remaining: int) -> str:
+    """凑出恰好 `remaining` 字节的注释行填充。
 
-    内容必须拆成 ≤255 ASCII 字节的多行注释（行长约束 + 注释被剥除），
-    不能一条长行填满——单行 256 字符会先撞上行长检查。
+    每行 payload 取满 MAX_LINE_PAYLOAD_BYTES（不含换行），故整行是 payload+1 字节。
+    不能一条长行填满——单行超 payload 上限会先撞上行长检查。
     """
-    base = _minimal_gcode()
-    remaining = MAX_BYTES - len(base.encode("utf-8"))
-    full_lines, tail_bytes = divmod(remaining, 256)
-    filler = (";" + "x" * 254 + "\n") * full_lines
+    per_line = MAX_LINE_PAYLOAD_BYTES + 1
+    full_lines, tail_bytes = divmod(remaining, per_line)
+    filler = (";" + "x" * (MAX_LINE_PAYLOAD_BYTES - 1) + "\n") * full_lines
     if tail_bytes:
         assert tail_bytes >= 2
         filler += ";" + "x" * (tail_bytes - 2) + "\n"
-    text = _minimal_gcode(filler)
+    return filler
+
+
+def test_gcode_accepts_exactly_512_kib() -> None:
+    """§5「≤ 512KB 含」：恰好 MAX_BYTES 放行，多一字节才拒。"""
+    base = _minimal_gcode()
+    text = _minimal_gcode(_size_filler(MAX_BYTES - len(base.encode("utf-8"))))
     assert len(text.encode("utf-8")) == MAX_BYTES
     stats = validate_gcode(text)
     assert stats.bytes == MAX_BYTES
@@ -309,13 +315,7 @@ def test_gcode_size_limit_counts_disk_bytes_not_collapsed_newlines(tmp_path) -> 
     S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。
     """
     base = _minimal_gcode()
-    remaining = MAX_BYTES - len(base.encode("utf-8"))
-    full_lines, tail_bytes = divmod(remaining, 256)
-    filler = (";" + "x" * 254 + "\n") * full_lines
-    if tail_bytes:
-        assert tail_bytes >= 2
-        filler += ";" + "x" * (tail_bytes - 2) + "\n"
-    text = _minimal_gcode(filler)
+    text = _minimal_gcode(_size_filler(MAX_BYTES - len(base.encode("utf-8"))))
     # LF 形态恰好等于上限；换成 CRLF 后磁盘字节必然超限（每行 +1）。
     assert len(text.encode("utf-8")) == MAX_BYTES
 
@@ -375,10 +375,110 @@ def test_generated_gcode_is_read_as_bytes_not_text() -> None:
     assert "total_bytes=len(raw)" in body_code
 
 
-def test_gcode_rejects_line_over_255_bytes() -> None:
-    """Grbl LINE_BUFFER_SIZE=256：单行（含注释）超 255 字节整行拒。"""
-    with pytest.raises(GcodeError, match="255"):
-        validate_gcode(_minimal_gcode(";" + "x" * 255 + "\n"))
+def test_gcode_line_payload_limit_is_254_not_255() -> None:
+    """行长上限是 **254** 字节 payload，不是 255。
+
+    Grbl_Esp32 `Protocol.h:34` 定义 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的
+    溢出判定排在换行判定**之前**：第 255 个 payload 字节能存进缓冲（len 变 255），
+    紧随的换行符进来时先撞上 `len == LINE_BUFFER_SIZE - 1` → 回 `error:11`，且
+    `Protocol.cpp:218` 的 `empty_line()` 把整行丢掉——该行**从未进入 execute_line()**。
+    即 255 字节的行不是「勉强执行」而是「整行被吃」，校验器放行等于让设备静默丢行。
+    上游 grblHAL 把 LINE_BUFFER_SIZE 定为 257（`protocol.h:36`）正是为绕开这个 off-by-one。
+    """
+    assert MAX_LINE_PAYLOAD_BYTES == 254
+
+    # 254 字节 payload：放行（含换行整行 255 字节，设备侧 len 走到 254 后收到 EOL）
+    ok_line = ";" + "x" * (MAX_LINE_PAYLOAD_BYTES - 1)
+    assert len(ok_line.encode("ascii")) == MAX_LINE_PAYLOAD_BYTES
+    validate_gcode(_minimal_gcode(ok_line + "\n"))
+
+    # 255 字节 payload：必须拒。这一条是本次修复的核心——旧口径 `> 255` 会放行。
+    bad_line = ";" + "x" * MAX_LINE_PAYLOAD_BYTES
+    assert len(bad_line.encode("ascii")) == MAX_LINE_PAYLOAD_BYTES + 1
+    with pytest.raises(GcodeError, match=r"255 字节超上限 254"):
+        validate_gcode(_minimal_gcode(bad_line + "\n"))
+
+    # 明显超长仍拒（回归保护，旧口径也能拦住这一条）
+    with pytest.raises(GcodeError, match=r"超上限 254"):
+        validate_gcode(_minimal_gcode(";" + "x" * 300 + "\n"))
+
+
+def test_grbl_line_buffer_offbyone_reproduced_from_firmware_source() -> None:
+    """转写固件收行逻辑，证明 254/255 的分界不是读码猜测。
+
+    忠实复现 `Grbl_Esp32/src/Protocol.cpp:57-79`（add_char_to_line）+ `:149-225`
+    （protocol_poll_client）的判定顺序与 empty_line 时机。若上游把溢出判定挪到 EOL
+    判定之后、或改用 grblHAL 的 257，本测试会红——那时才允许调整 MAX_LINE_PAYLOAD_BYTES。
+    """
+    LINE_BUFFER_SIZE = 256  # Protocol.h:34
+
+    def feed(payload: str, eol: str) -> tuple[list[str], list[int]]:
+        """返回（设备应答序列, 真正进 execute_line 的各行长度）。"""
+        resp: list[str] = []
+        executed: list[int] = []
+        ln, buf = 0, []
+        for c in payload + eol:
+            if ln == (LINE_BUFFER_SIZE - 1):  # :68 溢出判定在 EOL 判定之前
+                resp.append("error:11")
+                ln, buf = 0, []  # :218 empty_line()，整行丢弃
+                continue
+            if c in "\r\n":  # :71
+                executed.append(len(buf))  # :163 line 指向 buffer，此时未清
+                resp.append("ok")
+                ln, buf = 0, []  # :210 empty_line()
+                continue
+            buf.append(c)
+            ln += 1
+        return resp, executed
+
+    def payload(n: int) -> str:
+        return "G" + "1" * (n - 1)
+
+    # 254 字节：正常执行
+    assert feed(payload(254), "\n") == (["ok"], [254])
+    # 255 字节：整行被 error:11 吃掉，execute_line 一次都没进
+    assert feed(payload(255), "\n") == (["error:11"], [])
+    # 256 字节：溢出后残段继续攒，换行才落地成空行
+    assert feed(payload(256), "\n") == (["error:11", "ok"], [0])
+
+    # 边界即 MAX_LINE_PAYLOAD_BYTES：恰好放行的最大值、以及多一字节就被吃
+    assert feed(payload(MAX_LINE_PAYLOAD_BYTES), "\n")[1] == [MAX_LINE_PAYLOAD_BYTES]
+    assert feed(payload(MAX_LINE_PAYLOAD_BYTES + 1), "\n")[1] == []
+
+
+def test_crlf_makes_grbl_answer_twice_per_line() -> None:
+    """CRLF 行尾会让设备每行回 **两个** ok —— S3 必须重切行，禁止原样透传磁盘字节。
+
+    `\\r` 触发一次 EOL（执行真实行），紧随的 `\\n` 又触发一次 EOL，`execute_line` 对
+    `line[0] == 0` 直接返回 `Error::Ok`（`Protocol.cpp:84-86`）于是再回一个 ok。
+    奎享真实缓存产物就是 CRLF（946 CRLF / 0 裸 LF），Windows 上 vpype gwrite 走
+    `click.File("w")` 文本模式同样产 CRLF —— 这不是假设形态。
+
+    当前 S3 安全，靠的是 `hutuji_job.cc:1496-1502` 的 ParseLines() 自己按 `\\n`/`\\r`
+    切行并跳过空行、SendLine() 只补一个 `\\n`。一旦有人为省内存改成 zero-copy 直发
+    PSRAM 字节，每行多一个 ok 会让 `c_line` 窗口计数（`hutuji_job.cc:1744`）持续正向
+    漂移，表现为「越画越超发」。该不变量此前只存在于实现里，这里连同 §5 一起钉住。
+    """
+    LINE_BUFFER_SIZE = 256
+
+    def answers(payload: str, eol: str) -> list[str]:
+        resp: list[str] = []
+        ln, buf = 0, []
+        for c in payload + eol:
+            if ln == (LINE_BUFFER_SIZE - 1):
+                resp.append("error:11")
+                ln, buf = 0, []
+                continue
+            if c in "\r\n":
+                resp.append("ok")
+                ln, buf = 0, []
+                continue
+            buf.append(c)
+            ln += 1
+        return resp
+
+    assert answers("G1 X1Y1F8000", "\n") == ["ok"]
+    assert answers("G1 X1Y1F8000", "\r\n") == ["ok", "ok"]
 
 
 def test_gcode_rejects_non_ascii_even_when_character_count_fits() -> None:
@@ -418,6 +518,62 @@ def test_capability_download_has_integrity_headers(
     assert response.headers["content-length"] == str(len(data))
     assert response.headers["x-hutuji-crc32"] == f"{zlib.crc32(data) & 0xFFFFFFFF:08x}"
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_fastapi_auto_docs_endpoints_are_disabled() -> None:
+    """`/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect` 必须在应用层就不存在。
+
+    FastAPI 默认自动挂这四条，实测原本全回 200。公网访问不到，但那份安全**完全来自
+    nginx 兜底**（443 的 `location / { return 404; }`），应用层零防御——`location /`
+    一旦为加健康检查之类放开、或有人给 :8300 开直连调试，攻击面即静默打开，而
+    preflight 与 pytest 原本都没有任何判据会红。对比 `/mcp` 有三层保护（nginx 显式
+    404 + 安全组不放行 8300 + preflight 专项探针），这四条原本只有第一层。
+
+    断言用路由表而非 TestClient 状态码：`app.mount("/", _mcp_app)` 会把未注册路径
+    交给 MCP 子应用，其返回也是 404——即「端点已关掉」与「端点还在但被子应用兜住」
+    在状态码上不可区分。只认路由表才能真正钉住 `docs_url=None` 三参数没被去掉。
+    """
+    paths = {getattr(route, "path", None) for route in server.app.routes}
+    for forbidden in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+        assert forbidden not in paths, f"{forbidden} 仍在路由表内：FastAPI 自动文档端点未关"
+
+    # 该关的关掉了，该留的必须还在——否则本测试可被「删掉整个 app」满足。
+    assert "/files/{name}" in paths
+    # FastAPI 实例上的三个开关本身也钉住，避免有人只删路由不改构造参数。
+    assert server.app.docs_url is None
+    assert server.app.redoc_url is None
+    assert server.app.openapi_url is None
+
+
+def test_preflight_probes_docs_endpoints_directly_on_8300() -> None:
+    """preflight 必须直连 :8300 验四条自动文档端点已关，且判据只认 404。
+
+    这一项本身也需要判据钉住，否则它可以被静默删掉而没有任何东西会红——本仓已有
+    先例：「明文 :80 /files 须 403」曾在 preflight 与 pytest 两层同时形同虚设。
+
+    三条要求各有其对应的假绿形态：
+    - **必须探 127.0.0.1:8300**：经 nginx 探只能证明 nginx 在拦，证不到应用层是否已关，
+      而应用层零防御正是本项要覆盖的盲区。
+    - **判据必须是 `!= "404"` 即 fail**，不能写成 `=~ ^[45]` 之类：那样 000（服务没起来、
+      连不上）也落在范围外→报 pass，「探不到」就能蒙成绿。
+    - **四条路径一条不少**：`/docs/oauth2-redirect` 最容易漏——它不受 `docs_url=None`
+      之外的开关控制，实测原本同样回 200。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+
+    body_start = preflight.index("check_docs_endpoints_disabled() {")
+    body = preflight[body_start : preflight.index("\ncheck \"", body_start)]
+
+    for path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+        assert path in body, f"preflight 未探 {path}"
+    # 直连应用端口，不经 nginx
+    assert "http://127.0.0.1:8300${p}" in body
+    # 只认 404；任何其它码（含 000 连不上）都判 fail
+    assert '[[ "$code" != "404" ]]' in body
+    assert "return 1" in body
+    # 该项确实被注册成一条 check（否则函数写了也不跑）
+    assert 'check "应用层已关 FastAPI 自动文档端点' in preflight
 
 
 def test_legacy_or_guessable_filename_is_not_public(
@@ -1501,7 +1657,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 17
+    assert preflight.count('\ncheck "') == 18
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -1530,7 +1686,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 17
+    assert len(checks) == 18
     assert min(checks) > init_last
 
 

@@ -357,7 +357,7 @@ while (lines_sent_ < lines_.size() && !c_line.empty()) {
 |---|---|---|
 | **S1** | ✅ Pipe 侧应答队列 + 兼容包装 | 已编译、烧录 COM9、Telnet 连通（§5.1） |
 | **S2** | ✅ Job 侧预解析成零拷贝行索引，窗口=1 | 旧/新解析对真实产物与边界集逐字一致；IDF 构建、烧录、45s 启动观察通过（§5.2） |
-| **S3** | ✅ 窗口=512（`hutuji_job.cc:58` `kWindow`），换纸行前排空 `c_line`（`paper_pending`） | 已烧录（07-31 起 COM6 镜像 `0x2cec90` = HEAD `06b962c` + 未提交第二轮审查修复；首次落地于 `13057e8`/`0x2ce890`）；Telnet 实测：B-12 409 行测试件全线连续、页尾 `M30` 后 `state=done` |
+| **S3** | ✅ 窗口=512（`kStreamWindowBytes` / `kWindow`），应答队列按最短非空行最坏在途数推导为 255，换纸行前排空 `c_line`（`paper_pending`） | 历史镜像已烧录并通过 B-12 409 行连续出图；2026-08-06 容量修复 host 回归和 ESP-IDF v6.0.1 构建通过，**新镜像未烧录** |
 | **S4** | 🟡 容差已回调 0.05mm（`gcode_gen.py:38`）；自适应 `Bf` 反压**未做**（`hutuji_job.cc:1319-1320` TODO） | 缺 0.05mm 真实图样的**有纸**出图证据：曲线细节改善且无停顿 |
 
 S2 是**关键安全阀**：窗口=1 时行为必须与现状完全一致，S3 出问题一个常量回退。
@@ -368,10 +368,10 @@ S2 是**关键安全阀**：窗口=1 时行为必须与现状完全一致，S3 �
 
 | 项 | 改前 | 改后 |
 |---|---|---|
-| 应答载体 | `EventGroupHandle_t response_events_` 单 bit | `QueueHandle_t resp_queue_`，深度 32，元素 `{WaitResult, error_code}` |
+| 应答载体 | `EventGroupHandle_t response_events_` 单 bit | `QueueHandle_t resp_queue_`，深度由窗口推导为 255，元素 `{WaitResult, error_code}` |
 | 新增 API | — | `TakeResponse(timeout, err*)` 消费一条；`SetWindowed(bool)`；`DrainResponses()` |
 | 旧 API | `WaitResponse` / `WaitOk` | 保留，改为 `TakeResponse` 的包装（行为不变） |
-| 队列满 | 不适用 | 丢最老一条并告警（`PushResponse`），偏保守不误发 |
+| 队列满 | 不适用 | 容量覆盖 512B 窗口内最短非空行形成的最大 255 条在途应答；满仍告警，但正常窗口不得触发 |
 
 **`SendLine` 的隐患已按开关处理**：原先每次发送前 `xEventGroupClearBits` 清残留。
 现在由 `drain_on_send_` 控制——**默认 true = 逐行模式**（发前 `DrainResponses()`，
@@ -615,7 +615,7 @@ if (this.e && bl) {                                    // :73 运行中且要求
 **当前实现**：非换纸 abort 发 `!`，以 `?` 轮询到 `Hold/Idle`（最长约 8s）后标记并发
 `0x18`。只有这次自发 reset 的 banner 可走 `$X`，随后显式
 `G1G90 Z0.0F10000`；收到该行 `ok` 后继续等一份 fresh `Idle`，再 `$I`、`M5`、`?`、
-`G53 G1 X<当前 X> F1500` 恢复 ready/授权。其他 Alarm 仍人工处理。
+`G1 G53 X<当前 X> F1500` 恢复 ready/授权。`G1` 必须置于 `G53` 前以命中行首授权门；其他 Alarm 仍人工处理。
 
 COM6 最新镜像实测从 `streaming/Run,Z=5` 恢复到 `aborted/Idle,Z=0`，
 `ready=true`、`authorized=true`；继续观察 8 秒 XY 无漂移、planner 未恢复。绝不照抄奎享

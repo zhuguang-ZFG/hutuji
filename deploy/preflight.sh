@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=17
+EXPECTED_CHECKS=18
 PASS=0
 FAIL=0
 
@@ -345,6 +345,27 @@ check "两个 unit 与模板一致且已 daemon-reload、无 drop-in" check_unit
 check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[23] || "$code" == "400" || "$code" == "406" || "$code" == "415" ]]'
 # /files 无具体 token 时允许 404（4xx 在列）；连接失败（000）与 5xx 都不得报 pass。
 check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[234] ]]'
+
+# FastAPI 默认自动挂 /docs、/redoc、/openapi.json、/docs/oauth2-redirect，实测四条原本
+# 全回 200。公网访问不到，但那份安全**完全来自 nginx 兜底**（443 的 `location /` 返回
+# 404），应用层原本零防御：`location /` 一旦为加健康检查之类放开、或有人给 :8300 开直连
+# 调试，攻击面即静默打开。对比 /mcp 有三层保护（nginx 显式 404 + 安全组不放行 8300 +
+# 上面那条专项探针），这四条原本只有第一层，preflight 与 pytest 都没有判据会红。
+# **必须直连 :8300 探**：经 nginx 探只能证明 nginx 在拦，证不到应用层是否已关——那正是
+# 本项要覆盖的盲区。判据取「必须 404」：`docs_url=None` 后这些路径不再注册，落到
+# app.mount("/", _mcp_app) 由 MCP 子应用回 404；200/3xx 说明开关被去掉了。000（连不上）
+# 同样判 fail，否则服务没起来也能靠「探不到」蒙成绿。
+check_docs_endpoints_disabled() {
+  local p code
+  for p in /docs /redoc /openapi.json /docs/oauth2-redirect; do
+    code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8300${p}")
+    if [[ "$code" != "404" ]]; then
+      echo "应用层 ${p} 返回 ${code}（期望 404）：FastAPI 自动文档端点未关" >&2
+      return 1
+    fi
+  done
+}
+check "应用层已关 FastAPI 自动文档端点（/docs /redoc /openapi.json）" check_docs_endpoints_disabled
 
 # ---- nginx 层（应用直连绿≠经 nginx 绿）----
 check "nginx -t 通过且 enabled 配置含 loopback-only :80 /files ACL" check_active_nginx_acl

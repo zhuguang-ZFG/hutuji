@@ -95,8 +95,8 @@
   （欠压等）→ 清任务应答并重新探活。当前任务通常置 error；仅 §4.1 标记的自发 abort reset
   进入受限恢复并最终置 `aborted`。
 - **授权前置**：`[License] Authorized` 只发 `CLIENT_SERIAL`，Telnet 的 banner/`$I` 不可依赖。
-  连接探活后先 `M5`、取一份新 `?` 位置，再在抬笔状态发送 `G53 G1 X<当前机器 X> F1500`
-  零位移探测：`ok`=已授权，`error:110`=未授权。探测结束前 `ready=false`，未授权见 §6。
+  连接探活后先 `M5`、取一份新 `?` 位置，再在抬笔状态发送 `G1 G53 X<当前机器 X> F1500`
+  零位移探测：**`G1` 必须是第一个 G 字**，因为商业固件授权前置门只检查行首 G0–G3；旧顺序 `G53 G1` 会绕过前置门，未授权运动在 GCode 内层被静默跳过后整行仍回 `ok`，从而误报已授权。正确顺序下 `ok`=已授权，`error:110`=未授权。探测结束前 `ready=false`，未授权见 §6。
 - **解析器必须容忍**（异步混入字节流，均非应答）：`[MSG:…]`、`?` 触发的 `<Idle|MPos:…|Bf:…|FS:…>`、`ALARM:n`、`[VER:/[OPT:/[License]` 等裸 `[…]` 行。
   > 注意：`[MSG:[PaperAuto-N] …]` / `[MSG:[PaperStatus] N]` 这类**换纸消息在 §9 改动落地前不会出现在 Telnet**（见 §1.2）。解析器仍应容忍其格式（§9 落地后 `[PaperStatus]` 会到达）。
 
@@ -150,8 +150,11 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ## 3. 流控（Grbl 行协议）
 
-- **逐行发送，收到 `ok\r\n` 才发下一行**；`error:NN\r\n`（数字格式）按 §7 处理。**无 character-counting**，禁止预发抢跑（client_buffer 溢出会丢字节）。
-- **单行仅 ASCII 且 ≤ 255 字节**（`LINE_BUFFER_SIZE 256`），非 ASCII 或超长回 `error:11`。MCP 生成端折行负责。
+- **逐行发送，收到 `ok\r\n` 才发下一行**；`error:NN\r\n` 按 §7 处理。**无 character-counting**，禁止预发抢跑（client_buffer 溢出会丢字节）。
+  - ⚠️ **错误码有两种线上形态，解析必须都认**：`$Errors/Verbose` 为真时 `Report.cpp:236` 把应答从 `error:11` 换成 **`error: Line too long`**（文本，取自 `Error.cpp` 的 `ErrorNames`）。出厂默认是 0（`Defaults.h:82`），但该 `$`-设置存在 NVS 里，能被任何上位机（奎享本体、ESP3D WebUI）改写并持久化。只认数字的解析器不是降级而是**行为反转**：`error:8`（换纸期推迟、需重发该行）解析成 -1 后走 `Failed` → 整单失败而非重试；`error:110`（未授权）同样落进 `Failed` 而非「已知未授权」。S3 侧解析实现见 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()`，两种形态由 host 编译单测钉住。
+- **单行仅 ASCII 且 ≤ 254 字节 payload**（不含行尾换行符），非 ASCII 或超长回 `error:11`。MCP 生成端折行负责。
+  - **是 254，不是 255**：`Protocol.h:34` 定义 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能存进缓冲（`len` 变 255），紧随的换行符进来时先撞上 `len == LINE_BUFFER_SIZE - 1` → 回 `error:11`，且 `:218` 的 `empty_line()` 把整行丢掉，**该行从未进入 `execute_line()`**。即 255 字节的行不是「勉强执行」而是「整行被设备静默吃掉」。上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters plus terminator"）正是为绕开这个 off-by-one；Grbl_Esp32 未加 1，故本机可用 payload 是 254。校验器口径见 `gcode_gen.py` 的 `MAX_LINE_PAYLOAD_BYTES`。
+- **CRLF 行尾会让设备每行回两个 `ok`；S3 必须重切行，禁止原样透传下载字节**。`\r` 触发一次 EOL（执行真实行），紧随的 `\n` 又触发一次 EOL，而 `execute_line()` 对 `line[0] == 0` 直接返回 `Error::Ok`（`Protocol.cpp:84-86`）于是再回一个 `ok`。CRLF 不是假想形态：奎享真实缓存产物就是 CRLF（946 CRLF / 0 裸 LF），Windows 上 `vpype gwrite` 走 `click.File("w")` 文本模式同样产 CRLF。当前 S3 安全是因为 `ParseLines()` 自己按 `\n`/`\r` 切行并跳过空行、`SendLine()` 只补一个 `\n`——**这是契约要求，不是实现细节**。一旦为省内存改成 zero-copy 直发 PSRAM 字节，每行多一个 `ok` 会让在途窗口计数持续正向漂移，表现为「越画越超发」。
 - **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s（换纸行放宽到 90s）。此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。换纸期间 Grbl 主循环不转，S3 周期性 `?` 不会收到状态行；Pipe 用 `expect_blocking_peer_` 标记换纸期，silent-poll 超时不掐链（TCP keepalive 兜底），换纸结束/任务收尾清回。
   - ⚠️ **进度反馈不能靠 `[PaperAuto-N]`**（§2：那些走 CLIENT_SERIAL，Telnet 收不到）。S3 判「仍在换纸」的手段只有：**自己发的是 M30/M721**（自知，正常出图期够用），或换纸期周期性 `?` 探活（走实时旁路、换纸期可响应，见 §2）。结果码 `[PaperStatus] N` 须靠 §9 的路由改动才能到达。
 - 实时命令（`!` 暂停、`~` 恢复、`?` 状态、`0x18` 软复位）单字节立即生效，走实时旁路**不进 client_buffer、不吃 `ok`**（`is_realtime_command` 仅认这四个 + `≥0x80`）；`?` 的应答只回给发送 client。
@@ -193,8 +196,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 - 换纸挂起态下，等该行 `ok`/`error:90` 返回后**不再发任何后续行**，任务落 `aborted`。
 - 非换纸 reset 后的受限恢复顺序固定为：`$X` → `G1G90 Z0.0F10000` → 等一份新的
-  `Idle` → `$I` → `M5` → `?` → `G53 G1 X<当前机器 X> F1500` 授权探测。
-  只有 `PrepareAbortReset()` 标记对应的下一次 banner 可走 `$X`；任何其他 Alarm 不自动解锁。
+  `Idle` → `$I` → `M5` → `?` → `G1 G53 X<当前机器 X> F1500` 授权探测；`G1`
+  必须置于 `G53` 前以命中 Grbl 行首授权门。只有 `PrepareAbortReset()` 标记对应的下一次 banner 可走 `$X`；任何其他 Alarm 不自动解锁。
 - **不能把抬笔放在 reset 前排队**：`!` 后普通 G-code 只会进入 planner，`0x18` 又会丢弃它。
   实机还证明 reset 后单发 `M5` 可能因主轴模态已为 Off 而成为无动作，故先显式 Z=0。
 - Z=0 行的 `ok` 仍只代表进入 planner；必须等 fresh `Idle` 再发 `$I`，否则运动未停时会回
@@ -239,7 +242,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - **换纸失败语义**：`error:90`；`[MSG:[PaperStatus] N]`：0=成功，2=进纸超时，3=回找未定位，4=卡纸，5=缺纸。N≠0 → 暂停任务 + 云端提示用户，不自动重试。
   > ⚠️ `[PaperStatus] N` 经 Telnet 可达**以 §9 的 B1′ 改动为前提**（原路由为 `CLIENT_SERIAL`，S3 收不到）。未改动前 S3 只能靠 `error:90` 判失败、拿不到具体码。
 - **大小上限**：单文件 ≤ **512KB（含，即 ≤ 512×1024 字节）**，超一字节直接拒。
-  - **按「设备看到的字节」计，不按上位机的字符数**：S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**，故云端判上限必须量同一个对象。Python 的 `read_text()` 走 universal newlines，会把 CRLF 塌成单个 LF、每行少算 1 字节——实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 也少报 20846。512KiB 是 S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。单行 255 字节（Grbl `LINE_BUFFER_SIZE`）同理按字节计。
+  - **按「设备看到的字节」计，不按上位机的字符数**：S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**，故云端判上限必须量同一个对象。Python 的 `read_text()` 走 universal newlines，会把 CRLF 塌成单个 LF、每行少算 1 字节——实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 也少报 20846。512KiB 是 S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。单行 **254** 字节 payload（Grbl `LINE_BUFFER_SIZE` 的可用值，见 §3）同理按字节计。
 
 ### 5.1 下载完整性契约（先下完 + 校验 + 再发）
 
@@ -274,10 +277,11 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 情况 | 含义 | S3 行为 |
 |------|------|---------|
 | `error:8` | 换纸进行中，运动行被推迟（实为 `Error::IdleError`，`Protocol.cpp:186`） | **不算失败**，但 **⚠️ 该行已被 `empty_line()` 丢弃、不会排队**——S3 必须**自己重发这一行**，不可假设写字机记着。做法：暂停发送、等换纸行 ok 后**重发被拒的那一行**再继续（`[PaperStatus]` 须先做 §9 B1′ 才可达）。注：写字机侧的 `[MSG:]` 推迟提示有 3s 节流（`protocol_notify_paper_motion_deferred`）且只发 SERIAL，S3 只看得到 `error:8` 本身 |
-| `error:11` | 行含非 ASCII 或超 255 字节 | 任务 error，上报（MCP 生成端 bug） |
+| `error:11` | 行含非 ASCII 或 payload 超 **254** 字节（见 §3；该行同样被 `empty_line()` 丢弃、从未执行） | 任务 error，上报（MCP 生成端 bug） |
 | `error:90` | 换纸失败 | 任务 error，按 `[PaperStatus]` 码提示用户（**依赖 §9 B1′**；未改动前只能报「换纸失败，原因未知」） |
 | `error:110` | 未授权 | 停止全部发送，提示走授权 SOP。**正常不应出现**——§6 前置门已挡住。该行同样被 `empty_line()` 丢弃（`Protocol.cpp:195-204`） |
 | 其他 `error:NN` | 语法/参数错 | 停止，记录行号，任务 error 上报 |
+| **`error: <文本>`** | `$Errors/Verbose=1` 时的等价形态（`Report.cpp:236`），如 `error: Command requires idle state` = 8 | **必须映射回数字码后按本表同一行处置**，不得当作未知错误。只认数字会把 `error:8` 变成整单失败、把 `error:110` 变成未知故障（见 §3）。映射表见 `ParseGrblErrorCode()` |
 | `ALARM:n` | 报警 | 停止；一般 `$X`/`$RST` 解锁走人工 SOP。唯一例外是 S3 自己刚发出并标记的 abort reset，只允许一次 §4.1 受限 `$X` 恢复 |
 | banner 重放 | 对端复位（欠压等） | 状态机复位，任务 error，上报 |
 | TCP 断开 | 链路丢失/对端断电 | 指数退避重连；进行中任务置 error，按 §2.1 分流处置 |
