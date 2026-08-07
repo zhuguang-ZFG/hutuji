@@ -64,6 +64,28 @@ python -m venv .venv
 # 4) 单独跑假 Grbl（调转发用）：python -m hutuji_mcp.grbl_sim
 ```
 
+## PC 仿真 MCP（独立 stdio，不挂生产 `/mcp`）
+
+`hutuji_mcp.sim_server` 是给外部 agent 的 PC SIL 入口：固定白名单场景 + 结构化证据 + 强制
+`limitations`。场景执行复用生产 `validate_gcode()` / `svg_to_gcode()` 与既有
+`scripts/e2e_local.py`，不复制契约逻辑，也不提供任意 shell 命令入口。
+
+```bash
+# 打印工具与场景清单，不启动 stdio
+.venv/Scripts/python -m hutuji_mcp.sim_server --check
+
+# 作为 stdio MCP 服务器运行（由 MCP 客户端拉起）
+.venv/Scripts/python -m hutuji_mcp.sim_server
+```
+
+- 工具：`list_scenarios` / `run_scenario` / `validate_gcode`。
+- 场景：`normal_svg`、`local_stream_e2e`、`line_payload_254`、`line_payload_255`、
+  `reject_g91`、`reject_g92`、`reject_out_of_bounds`。
+- 负向场景以「生产校验器按预期拒绝」为场景 pass，证据里记录实际错误文本。
+- 回归：`.venv/Scripts/python -m pytest -q tests/test_sim_server.py`，其中含真实 stdio
+  `initialize` / `tools/list` / `tools/call`。
+- PC SIL 不证明真实换纸机械、App 语音、云端链路、烧录或 HIL 验收。
+
 ## 小智云 MCP 接入点接法（生产常驻与云端调用已验证）
 
 查证结论：小智官方云的 MCP 接入点是 **WebSocket**（`wss://api.xiaozhi.me/mcp/?token=xxxx`，
@@ -115,15 +137,15 @@ location / { return 404; }
 `G1 ... F8000` 画线，`G1G90 Z0.0F10000` 抬笔。下载文件无 `G92`、`M3/M5`、`G4`，校验器仍
 拒绝 `G92`；完整会话由 S3 在每次首画/重画前 fresh `Idle` + 100ms 后旁路固定 `G92 Z0`，
 随后发送下载文件，文件结束 fresh `Idle` 后再单独发送 `M30`。
-禁 `G28`/`G30`、禁任何 `G0` 落点 X0Y0（触发自动换纸）、首行禁 `G0 X0Y0Z0`、行仅 ASCII 且 ≤255 字节、
+禁 `G28`/`G30`、禁任何 `G0` 落点 X0Y0（触发自动换纸）、首行禁 `G0 X0Y0Z0`、行仅 ASCII 且 ≤254 字节 payload（不含换行；第 255 字节起整行被 `error:11` 吃掉，见 `docs/protocol.md` §5）、
 坐标限幅 `0≤X≤190mm`、`0≤Y≤277mm`（A4 四周 10mm 边距；写字机无限位开关，MCP 校验是唯一安全防线）。profile 见 `hutuji_mcp/hutuji_gwrite.toml`。
 
 ## 目录
 
 ```
-hutuji_mcp/  config.py llm_svg.py gcode_gen.py(+hutuji_gwrite.toml) grbl_sim.py pipe_sim.py server.py
+hutuji_mcp/  config.py llm_svg.py gcode_gen.py(+hutuji_gwrite.toml) grbl_sim.py pipe_sim.py server.py sim_server.py
 scripts/     e2e_local.py
-tests/       test_star.svg + pytest 契约/注入/限流/TTL 回归
+tests/       test_star.svg + pytest 契约/注入/限流/TTL 回归 + test_sim_server.py（PC 仿真 MCP）
 output/      生成产物（运行时创建）
 ```
 
