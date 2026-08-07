@@ -193,7 +193,10 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 ⛔ 铁律：**装纸之后才允许起 8300**。autodraw 镜像在每次复位时自动下载并出图，
 空载出图会让笔尖压在压板上（见 `troubleshooting.md`「本地临时测试服务(8300)」）。
 
-1. 装纸，`[ESP901]` 预检应见 `Paper=OK ... Changing=Off`。
+1. 装纸，`[ESP901]` 预检。**判据是 `Changing=Off` 且（`Paper=OK` 或 `PanelHold=On`）**——
+   `Paper=OK` 只在纸恰好压住台面传感器时出现；**经 `M30` 自动换纸就位的纸，终态是
+   `Paper=No` + `PanelHold=On`**（第 6 步快送到尾缘越过传感器、第 7 步回找、第 8 步再进
+   350 步又越过，2026-08-07 COM10 两次实测）。只写 `Paper=OK` 的护栏会把换纸成功误判为无纸。
 2. 从串口日志读出镜像里**硬编码的下载 URL**（编译期常量，历次批次不同：B-11/B-12 记录过 `192.168.1.12`，
    `firmware/README.md` 记录 `13057e8` 为 `192.168.1.3`）——**以本次日志自证为准**，不要按记忆填 IP。
 3. 用真管线产物覆盖被服务的文件内容、**不改文件名**（URL 是常量）。
@@ -259,7 +262,7 @@ python scripts\bringup_fault_capture.py --s3-port COM9 --grbl-port COM3 --durati
 脚手架已提交为 xiaozhi `f1cf066`（`feat/hutuji-usb-pipe`，`13057e8..f1cf066` 已推送，`+44/−0` 纯新增），
 可直接 `git -C D:/Users/xiaozhi-esp32 show f1cf066` 复核。**✅ 2026-07-31 21:49–21:50 实测取证**：基于 HEAD `6b39e66` 构建带宏镜像 `build-hutuji-8_5-abort/xiaozhi.bin`（`0x2cfc40`，SHA256 `e2ae19e0…1dad`），app-flash COM6；AutoTest 触发五角星（257B/CRC32 `87475d77`）→ 画完 `Run->Idle`、`state=paper_change` → 脚手架命中窗口调 `RequestAbort()` → 返回「换纸中无法即停，完成后即停」→ 页尾 `M30` → `[PaperStatus] 0` → `state=aborted` 不续跑。四判据全过；abort 前 status `state=paper_change` 证明命中 8.5 非 8.4。取证后已回刷不带宏默认镜像（`build/xiaozhi.bin`，Hash verified）。证据 `results/s3-8_5-abort-on-paper-evidence-20260731.md`。**仍缺**断连恢复 `paper_active` 窗口 abort 单独复测。
 
-**前置**：装纸（`[ESP901]` 预检应见 `Paper=OK ... Changing=Off`）；PC 起本机静态服务托**小**测试件
+**前置**：装纸（`[ESP901]` 预检见 `Changing=Off` 且 `Paper=OK` 或 `PanelHold=On`，判据同阶段 6）；PC 起本机静态服务托**小**测试件
 （8.3 用过 658B / CRC32 `2290095f`；件越小越快到页尾换纸窗口）；**先备份当前板上镜像对应的
 `xiaozhi.bin`**，取证后要回刷。
 

@@ -30,8 +30,8 @@ public class PathParameters {
 
 | 奎享字段 | 默认值 | hutuji 对应 | 我们的值 |
 |---|---|---|---|
-| `simplePaths` | **0.02mm** | vpype `linesimplify --tolerance` | **0.1mm** |
-| `nearDst` | **0.3mm** | vpype `linemerge --tolerance` | **0.05mm** |
+| `simplePaths` | **0.02mm** | vpype `linesimplify --tolerance` | **0.05mm** |
+| `nearDst` | **0.3mm** | vpype `linemerge --tolerance` | **0.3mm** |
 | `optimizePaths` | bool | vpype `linesort` | 固定启用 |
 | `startGcode` / `endGcode` | 空 | `document_start` / `document_end` | 已用 |
 | `notAutoReturn` | `not_go_zero`，默认 false | §5 禁令「收尾禁止 G0 X0 Y0」 | 恒不回零 |
@@ -140,9 +140,9 @@ public class PathParameters {
 
 | 优先级 | 事项 | 依据 |
 |---|---|---|
-| ✅ 已做 | `linesimplify` 容差 0.2mm → **0.1mm** | 实测算法拐点：逐行流控下 0.1mm 是"运动时间盖过往返"的最低简化；0.05mm 以下开始卡顿。比 0.2mm 细节密度翻倍 |
-| ✅ 已做 | `linemerge` 容差 0.05mm → **0.3mm** | 奎享 `nearDst=0.3` 现役值，实测安全，减少抬落笔次数 |
-| P2（若上窗口化流控） | 容差可再降到 0.02–0.05mm 对齐奎享 | 需先做窗口化流控 |
+| ✅ 已做 | `linesimplify` 容差 0.2mm → 0.1mm → **0.05mm** | 实测算法拐点后继续下调；现值 0.05 由 `gcode_gen.py:56` 定义、`test_contract.py:1174` 钉死 |
+| ✅ 已做 | `linemerge` 容差 0.05mm → **0.3mm** | 奎享 `nearDst=0.3` 现役值（现役安装 `settings.json` 实测，见 [[22-installed-config-vs-machine]] §4），实测安全，减少抬落笔次数 |
+| P2（若上窗口化流控） | `linesimplify` 可再降到 **0.02mm** 对齐奎享 | 需先做窗口化流控；现值 0.05 会简化掉奎享产物中 4.8% 的段（见 [[22-installed-config-vs-machine]] §6） |
 
 **不建议对齐的**：`autoReconnect=false`（我们无人值守场景需要自动重连）、`drawQuality` 默认 `VeryLow`（我们优先画质）、`singleStep`（已有 pause/resume）。
 

@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（21 份，深度递进）
+├── findings/                      ← 逆向发现（22 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -30,6 +30,7 @@ docs/kxnx/
 │   ├── 19-pause-abort-error-and-dual-executor.md ← 暂停/stop/reset2/error 白名单 + f/g 双执行器；勘误 findings/09 不存在的 f/c、f/i
 │   ├── 20-ui-job-lifecycle-and-reconnect.md ← UI→JobManager→Executor 生命周期、FileStatus、串口重连弱判据与 pollLast 缺陷闭环
 │   ├── 21-transport-watchdog-and-sd-executor.md ← 传输基类 `l`/`o` 发送侧语义勘误、三套探活互斥、缓冲 autoExpand 结案、ESP32-Grbl SD 执行器全链路
+│   ├── 22-installed-config-vs-machine.md ← **非反编译**：kdraw 3.9.9 现役安装配置 × 真机 `$$` 快照（14/16 与我方机器头逐字同）× 产物几何反推容差；负 X 成因 = 左上原点 + XY 互换
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划

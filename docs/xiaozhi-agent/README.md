@@ -4,6 +4,7 @@
 > 本目录是**可粘贴到控制台**的文稿，不含密钥。  
 > **进度（2026-07-26）**：全部通过脚本自动同步完成。模型 DeepSeek V4；角色提示含 few-shot + 智能补全策略（2459 字符）；知识库含硬件规格/故障排查/创意玩法/对话风格；助手自称已改为「呼图机」。S3 屏幕 UI 文案已定制（待构建烧录）。
 > **2026-07-31 事实对齐**：role-prompt 与 knowledge-base 已补「出图两步衔接」（云端 `hutuji_draw` 只返 url，须再调设备 `hutuji.draw`(url) 才落笔；原 KB「自动衔接」为假）、暂停超 10 分钟自动取消、可画区 190×277、断连从开头重画。**本批只改本仓文稿**；云端生效须用户在控制台重取 JWT 后跑 `python scripts/xiaozhi_console.py sync 2094251`（旧 token 已 401 失效，见 `release-readiness.md` #10），sync 前云端仍是旧文稿。
+> **2026-08-07 云端已真同步（本条 supersede 上条「sync 前云端仍是旧文稿」）**：用户重取 JWT 后跑 `sync 2094251` 成功——云端 `character` 与仓库 `role-prompt.md` 逐字节一致（2443 字符，md5 `d1ef811fba1c`），KB 换成新文档 `65569`（旧 `63334` 已删），召回测三问各 5 命中并返回新 few-shot 内容。**过程暴露一个此前从未触发的硬限**：云端 `character` 上限 **2000 tokens**，超限 `POST /agents/{id}/config` 返回 400 `CHARACTER_LENGTH_LIMIT`；07-31 那批修正把 role-prompt 写到 3675 字符，**当时 token 已 401，从未真正试过同步，故该限制一直没暴露**。现按「行为规则留角色提示、参考材料下沉知识库」重排：few-shot 对话示例（1085 字符）移入 `knowledge-base.md`（KB 无 token 限制），三条行为规则（两步衔接 / 暂停超 10 分钟自动取消 / 断连从开头重画）全部保留在角色提示内。**改 `role-prompt.md` 前先算上传字符数**（`cmd_update_role` 只剥第一行 `# ` 标题，其余全部上传），2443 字符可过、3675 必拒。
 
 ## 当前配置快照
 

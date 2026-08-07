@@ -1426,10 +1426,29 @@ def test_y_over_277mm_rejected() -> None:
         validate_gcode(_minimal_gcode("G1 X5 Y277.5 F8000\n"))
 
 
-def test_mid_file_g91_is_rejected() -> None:
-    """位置跟踪假定 G90 绝对坐标；中途切 G91 会让此后所有圆弧起点失真。"""
+@pytest.mark.parametrize(
+    ("form", "body"),
+    [
+        ("独立行", "G0 X10 Y10 F8000\nG91\nG1 X5 Y5 F8000\n"),
+        ("小写", "G0 X10 Y10 F8000\ng91\nG1 X5 Y5 F8000\n"),
+        ("同行混排", "G0 X10 Y10 F8000\nG1G91 X5 Y5 F8000\n"),
+    ],
+)
+def test_mid_file_g91_is_rejected(form: str, body: str) -> None:
+    """相对模式必须整类拒绝——理由是**撞机**，不只是圆弧起点失真。
+
+    本机 `custom_3axis_hr4988.h` 把 `X/Y/Z_LIMIT_PIN` 三个全部注释掉，且
+    `$20=0`（软限位关）、`$22=0`（无归零）——Grbl 完全不知道任何轴的物理边界。
+    相对模式下更没有「绝对目标」可供限幅比较：`G91` + `G1 X10` 反复执行会让 X
+    每轮 +10mm 一路顶到 `$130=210` 的机械死点。2026-08-07 用户在手动串口片段上
+    实测到这一现象（`MPos.X` 从 0 走到 10.000，反复跑即累积）。
+
+    故 `0~190/0~277` 的绝对限幅**只在全程 G90 时成立**，`G91` 是限幅的整体旁路，
+    必须由指令白名单在文件层拒死。三种绕过形态都要钉住：小写与同行混排若漏，
+    白名单形同虚设。
+    """
     with pytest.raises(GcodeError, match="G91"):
-        validate_gcode(_minimal_gcode("G0 X10 Y10 F8000\nG91\nG1 X5 Y5 F8000\n"))
+        validate_gcode(_minimal_gcode(body))
 
 
 @pytest.mark.parametrize(
@@ -1925,6 +1944,20 @@ def test_gate_forbidden_claims_scans_every_governance_doc(
         "| 可出货 / 商业放行 | bringup 0–8 有设备证据 + 生产/合规签核 |",
         # Markdown 标题 + 空行 + 并列清单（.cursor 硬轨的排版）
         "## 禁止宣称（除非 release-readiness 对应行已 ✅）\n\n可出货 / §9 已完成 / 硬件已验证",
+        # 重叠窗口：禁语 `可出货` 是 `不可出货` 的子串，否定词 `不可` 与它共享一个字。
+        # 若按「禁语起点之前」切窗会把 `不可` 拦腰截断，本例即误判判红。
+        "> **不可出货**",
+        # 「不提升/不升级 X 状态」= release-readiness 每条实机记录的收尾免责句式。
+        # 缺这两词时，凡在免责句里写全禁语字面量的条目一律误判判红——2026-08-07 实测
+        # 「本条不提升 M2、联调、硬件已验证或可出货状态」被判红两处，逼作者改写措辞绕开。
+        "本条不提升 M2、联调、硬件已验证或可出货状态。",
+        # 只含「不升级」：不得再带「不构成」等词表已有的否定词，否则本例会被它们
+        # 放行而钉不住「不升级」本身（实测原写法在无修复时照样 pass = 弱测试）。
+        "本条不升级 硬件已验证 状态。",
+        # 反引号举例：元语境导语在 `:` 之前，`_claim_sentence` 遇 `:` 截断把导语切掉。
+        # 须取「行首到命中处 + claim_sentence」才能覆盖（2026-08-07 E5 实测修复）。
+        "滥用形态举例：`现已可出货，后续不升级。`",
+        "2026-08-07 实测 `硬件已验证、可出货` 在整句口径下 pass：",
     ],
 )
 def test_gate_forbidden_claims_allows_quoting_the_rule(
@@ -1937,6 +1970,33 @@ def test_gate_forbidden_claims_allows_quoting_the_rule(
     monkeypatch.setattr(gate, "ROOT", tmp_path)
 
     assert gate.check_forbidden_claims()["status"] == "pass", body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # 免责词落在禁语**后面**：前半句已经把话说出去了，不得被后半句的否定词挡箭。
+        "现已可出货，后续不支持。",
+        "硬件已验证、可出货，本条不构成 M2 结论。",
+        "现已可出货，后续不升级。",
+        "硬件已验证、可出货，本条不提升 M2 状态。",
+    ],
+)
+def test_gate_forbidden_claims_rejects_trailing_disclaimer(
+    body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """否定词只在禁语**之前**才算免责语境。
+
+    整句口径下，`_CLAIM_QUOTE_RE` 会被反过来当挡箭牌：句尾补一个 `不支持`／`不升级`
+    就能让前半句的裸宣称整句放行。2026-08-07 实测四例在整句口径下全部 pass。
+    收紧为「只看禁语之前的半句」后全部判红，且 17 份治理文档零新误报
+    （真实免责句式的否定词一律在禁语之前）。
+    """
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    assert gate.check_forbidden_claims()["status"] == "fail", body
 
 
 @pytest.mark.parametrize(

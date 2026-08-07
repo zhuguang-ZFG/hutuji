@@ -267,6 +267,8 @@ Windows 当前 Python 标准库中，`HTTPServer` / `ThreadingHTTPServer` 的 `a
 「安全组漏放 8300」或改动生产网络配置；权威判据仍是机上 `deploy/preflight.sh`
 的「8300 仅本机监听 / 公网未监听 8300」两项（`ss -lnt`）。
 
+**2026-08-07 复现并补对照**：同一探针再次得到握手成功（`connect_ex=0`）但裸 `GET /mcp` 读回 **0 字节**；同轮对照 `117.72.118.95:9999` 与 `:4444` **同样 `connect_ex=0`**——即边缘对**任意端口**都接 SYN，握手成功与该端口上有没有服务完全无关。故 `connect_ex=0` 连「有东西在监听」都不能证明，更不能证明暴露。
+
 **二、Cloudflare WAF 按 UA 拦截，会被误读成服务故障。** 对
 `https://hutuji.donglicao.com/files/<不存在文件>`：
 
@@ -278,6 +280,113 @@ Windows 当前 Python 标准库中，`HTTPServer` / `ThreadingHTTPServer` 的 `a
 
 → 探测脚本必须显式设 UA；否则「边缘拦 UA」会被当成「隧道/服务挂了」。设备侧 UA 不被拦，
 S3 下载路径没有这个坑。另：`/` 与 `/healthz` 经隧道返回 301（跳 HTTPS / 无该路由），也不是故障。
+
+## PowerShell 5.1 读无 BOM UTF-8 脚本 = 伪语法错（2026-08-07 实测）
+
+**现象**：写一个带中文注释的 `.ps1` 去发串口序列，`powershell.exe -File` 报一串莫名解析错——
+`意外的标记「}」`、`「<」运算符保留供将来使用`、`Try 语句缺少 Catch 或 Finally 块`，
+报错行号还指向语法完全正确的行。空跑护栏因此在发送前就退出（这次是好事：零运动指令）。
+
+**根因**：本机 `powershell.exe` 是 **5.1**，`[Console]::OutputEncoding` / 默认代码页为 **gb2312**。
+PS 5.1 读 `.ps1` 时**没有 BOM 就按当前 ANSI 代码页解**，不会猜 UTF-8。于是文件里 569 个
+非 ASCII 字节（中文注释）被按 GBK 拆开，某些字节对被解成伪引号/伪括号，把后续 token 全带偏——
+报错行号是错位后的位置，跟真正的语法无关。
+
+**判据与处置**：
+
+```powershell
+$b = [IO.File]::ReadAllBytes($p)
+$hasBom = ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)   # 必须 True
+[System.Management.Automation.Language.Parser]::ParseFile($p, [ref]$null, [ref]$errs)  # 校验再跑
+```
+
+- 写 `.ps1` 一律用 **UTF-8 with BOM**(`utf-8-sig`)；本仓约定注释用中文，所以这条**每次都会踩**。
+- 或退化方案：脚本内**只用 ASCII**，中文说明留在配套 `.md` 里。
+- 跑之前先 `ParseFile` 静态校验，别让「伪语法错」浪费一轮硬件窗口。
+- 同源提醒：`bash` 工具里写 PowerShell 时，反引号会先被 shell 吃掉(本轮 `-split` 的 `` `n `` 就是这么丢的，切行切在字母 n 上)。需要反引号就写文件再 `-File` 执行,不要内联。
+
+## `[ESP901]` 有纸的字面量是 `Paper=OK`，不是 `Paper=Yes`（2026-08-07 源码核实）
+
+`PaperSystem.cpp:354-355` 的格式串是 `"Paper=%s ..."` + 三元 `paper_ok ? "OK" : "No"`,
+故有纸状态输出 **`Paper=OK`**。启动日志里另有 `GPIO34(HIGH=NoP LOW=HavP)` 与 `M704` 的
+`NoP/HavP` 写法,那是**引脚电平注释**,不是 `[ESP901]` 的字段值——按 `NoP/HavP` 或 `Paper=Yes`
+写匹配的护栏会 100% 误判。
+
+但**「有纸」的护栏不能只匹配 `Paper=OK`**（2026-08-07 COM10 两次实测）：`M30` 自动换纸**成功**
+的终态是 **`Paper=No` + `PanelHold=On`**——第 6 步快送直到 `sensor=lost`（尾缘越过传感器）、
+第 7 步反向回找到 `sensor=found`（精确定位尾缘）、第 8 步再向前 350 步对位，尾缘**又一次**越过
+传感器。`Paper=OK` 只在纸恰好压住 GPIO34 时成立（例如人工把纸直接放到台面传感器下）。
+可靠判据是 **`PanelHold=On` 且 `Changing=Off`**:`paper_panel_low_hold_active` 仅由
+`paper_enter_panel_low_hold()`（`PaperSystem.cpp:439-459`）置位,而它**只在
+`paper_auto_change` 成功收尾处被调用一次**(`:998`),任何 `paper_disable_drivers()`
+(`:388`)都会清零——含**Grbl 复位**,因为它是 RAM 里的 `volatile bool`。
+
+## `SerialPort` 拉高 DTR/RTS 后 `Close()` 会复位 Grbl（2026-08-07 实测）
+
+**现象**：脚本 A 发 `M30` 送纸成功（`PanelHold=On`）并 `Close()`；紧接着脚本 B 打开同一 COM
+口，读到的第一段是**开机横幅**（`Grbl_ESP32 Ver 1.3a ...`），`MPos` 从 `10.000,0.000,0.000`
+归零，`PanelHold` 变 `Off`——纸虽然物理上还在台面，**电机夹持已随复位释放**。
+
+**根因**:`.NET SerialPort` 显式 `$sp.DtrEnable = $true` / `$sp.RtsEnable = $true` 后,
+`Close()` 时这两条线被解除,跳变经 CH340 打到 ESP32 的自动复位电路。横幅在 Close 那一刻发出、
+留在 OS 输入缓冲里,所以**看起来像是下一次 Open 造成的**,其实不是。同轮对照:显式设
+`$false` 打开时 `OPEN-EMITTED: (nothing)`,确认无复位。
+
+**规避**:
+- 一律显式 `$sp.DtrEnable = $false` / `$sp.RtsEnable = $false` **在 `Open()` 之前**设置。
+- **有状态的多步操作必须写在同一脚本内、全程只 Open 一次**——送纸与出图之间任何 `Close()`
+  都是复位窗口,会把 `PanelHold` 这类 RAM 状态清零。
+- 判断「是否刚复位」看两个指标:输出里有开机横幅,或 `MPos` 意外归零。
+
+**已知未解**:本轮 14 行出图全部 `ok`、笔已抬起之后,COM10 端点卡死——枚举仍在、PnP
+`CM_PROB_NONE`、`Open()` 报「设备没有响应」、`Disable-PnpDevice` 软重插需管理员权限。
+只能**物理重插 USB** 恢复。根因与复现条件未定,不要写成结论。
+
+## `G91` 手动片段会把 X 一路顶到机械死点（2026-08-07 用户实测指出）
+
+**现象**：反复跑「画 10mm 线」的手动片段，X 轴一直往右走，最终顶到极限位。
+
+**根因**：那段片段是
+
+```
+G90
+G92 Z0
+G1 Z5.0 F10000
+G91              ← 切相对模式
+G1 X10.0 F800    ← 相对 +10mm，**从不返回**
+G90
+G1 Z0.0 F10000
+```
+
+`G91` 后的 `G1 X10.0` 是相对进给，每跑一次 X 就 +10mm 且不回退：`MPos.X` 实测已从
+`0` 走到 `10.000`。反复跑就是 10 → 20 → 30 … → 撞 `$130=210` 的机械死点。
+
+**为什么固件不拦**：本机 `custom_3axis_hr4988.h` 里 `X/Y/Z_LIMIT_PIN` **三个全部注释掉**，
+`DEFAULT_SOFT_LIMIT_ENABLE 0`（`$20=0`）、`DEFAULT_HOMING_ENABLE 0`（`$22=0`）。
+**Grbl 完全不知道任何轴的物理边界**，相对模式下更没有「绝对目标」可比——
+它会老老实实把电机往死点上顶。软限位即使打开也需要先归零才有意义，而本机无限位开关。
+
+**生产链不受此威胁（已实测复核，勿混为一谈）**：
+
+- 下载文件被 `validate_gcode()` 的指令白名单锁死，只放 `G0/G1/G2/G3/G21/G90`。
+  实测 `G91` 独立行、`g91` 小写、`G1G91` 同行混排、`G92 X0` 全部按
+  「第 N 行含 G91（生产文件允许 …）」拒绝——注意**必须用带合法尾行的样本复测**，
+  否则文件末尾契约会先触发，掩盖白名单是否真的拦住了 `G91`。
+- S3 旁路指令全是绝对或非运动：`G1G90 Z…`、`G92 Z0`（只动 Z 不动 XY）、`M5`、`M30`、
+  `$I`、`$X`、`?`、`!`、`0x18`；授权探针 `BuildLicenseProbeLine(x)` 用当前 MPos 构造
+  **零位移** `G1 G53`。全仓检索 `main/boards/lichuang-dev/` 无任何 `G91`。
+
+**处置**：手动脚本一律遵守三条——
+
+1. **动前算目标绝对位置并自行拒绝越界**，不靠固件兜底（`$20=0` 时没有兜底）。
+2. 用了 `G91` 就必须**抬笔后相对返回同等距离**，使净位移为 0；收尾复核 `MPos.X`
+   是否回到起始值，不回到就报警（可能丢步或返回段被拦）。
+3. 中途失败退出前注意**模态可能停在 `G91`**，需手动补发 `G90`，否则下一条裸轴字
+   会被按相对模式执行。
+
+`results/.tmp/manual_line_draw_com10.ps1` 已按此重写为幂等版（越界前置拒绝 +
+抬笔返回 + 净位移复核）。**该脚本尚未在恢复后的 COM10 上跑过**，只做过 PowerShell
+AST `ParseFile` 静态校验（PARSE OK）。
 
 ## MCP / 京东云
 

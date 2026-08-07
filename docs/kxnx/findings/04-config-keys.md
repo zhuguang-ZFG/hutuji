@@ -48,21 +48,30 @@ marlin_pen_up_mm=...
 
 ## 与 hutuji 的参数对照
 
-| 参数 | 奎享默认 | hutuji 对应 | 备注 |
-|------|----------|-------------|------|
-| `feed_rate` | 1500 | `hutuji_gwrite.toml` document_start 的 `F1500` | ✓ 一致 |
-| `jog_speed` | 2500 | `segment_first` 的 `F2500` | ✓ 一致 |
-| `zOn` | 2 | 待定 | 我们实测 **Z=5 触纸**，应取 5 |
-| `zOff` | 0 | 待定 | Z=0 抬起，取 0 |
-| `zSpeed` | 3000 | 待加 | F3000 = 50mm/s |
-| `tool_on_delay` | 0.2 | 现在的 `G4 P0.2` | **Stepper 模式不用，应去掉** |
-| `tool_off_delay` | 0.2 | 现在的 `G4 P0.2` | 同上 |
+> **⚠️ 本表是成文时（早期）的对照，多行已被后续证据推翻。**「奎享默认」一列指
+> `default.properties` / `Settings.java` 的**出厂缺省**；这台机器上的**现役持久化值**见
+> [[22-installed-config-vs-machine]] §4（`feedRate=8000`、`jogSpeed=8000`、`toolOn/OffDelay=0.0`）。
+> 「hutuji 对应」一列已按现行 `hutuji_gwrite.toml` 更新。
+
+| 参数 | 奎享出厂缺省 | 奎享本机现役值 | hutuji 现值 | 备注 |
+|------|----------|----------|-------------|------|
+| `feed_rate` | 1500 | **8000** | toml 画线 `F8000` | 早期写的「✓ 一致 F1500」已过时 |
+| `jog_speed` | 2500 | **8000** | toml 空走 `F8000` | 早期写的「✓ 一致 F2500」已过时 |
+| `zOn` | 2 | **5.0** | `segment_first` 的 `Z5.0` | 已定案，非「待定」 |
+| `zOff` | 0 | **0.0** | `line_end` 的 `Z0.0` | 已定案，非「待定」 |
+| `zSpeed` | 3000 | **10000** | Z 行 `F10000` | 已定案；`10000` 恰是 `$112` 轴上限（[[22-installed-config-vs-machine]] §3）|
+| `tool_on_delay` | 0.2 | **0.0** | 无 `G4` | Stepper 不用；现役值 0.0 佐证 |
+| `tool_off_delay` | 0.2 | **0.0** | 无 `G4` | 同上 |
 
 ## 结论
 
 奎享的 `default.properties` 是这套硬件的**出厂配置参照**。它明确告诉我们：
 - 步进电机笔控走 Z 轴运动，参数是 `zOn/zOff/zSpeed`
-- 出图 feed/jog 速度是 1500/2500（我们已对齐）
 - Stepper 模式不用 `tool_*_delay`（我们的 G4 是多余的）
 
-我们只需把 `zOn=5, zOff=0, zSpeed=3000` 注入 hutuji 的 vpype profile，去掉 G4 和 M3/M5，就完全对齐了。
+> **⚠️ 早期结论已 supersede**：本文成文时写的「只需把 `zOn=5, zOff=0, zSpeed=3000` 注入
+> vpype profile」中 **`zSpeed=3000` 是出厂缺省的误用**。真实产物与本机现役配置均为
+> **`zSpeed=10000`**，且该值恰为 Z 轴速率上限 `$112=10000`。现行 `hutuji_gwrite.toml`
+> 用的是 `F10000`，已正确；不要照本段旧文把它改成 3000。出图进给同理：
+> 出厂缺省 1500/2500，本机现役与我方产物均为 **8000**。详见
+> [[22-installed-config-vs-machine]] §3–§4。
