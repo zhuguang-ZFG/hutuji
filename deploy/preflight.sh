@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=18
+EXPECTED_CHECKS=19
 PASS=0
 FAIL=0
 
@@ -378,6 +378,34 @@ check "运行中 nginx conf 与固定部署模板一致（LF 归一化）" bash 
   b=$(tr -d "\r" < /etc/nginx/sites-enabled/hutuji | md5sum | cut -d" " -f1)
   [[ -n "$a" && "$a" == "$b" ]]'
 check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_response "$TUNNEL_HOST"
+# 兜底路径行为：隧道 `service: http://localhost:80` 使**全部**公网流量落进 :80 块，
+# 于是 :443 的 `location / { return 404; }` 隧道永远走不到。旧模板 :80 兜底无条件
+# 301 到 https://<隧道主机名>$request_uri —— 边缘再回源 :80 —— 自指死循环：实测
+# 公网 /docs、/zzz-nonexistent 全是 `301 Location: 自身`，`curl -L` 也停在 301。
+# 后果不是暴露而是判据造假:「公网非白名单路径须 404」从未成立过，却因 301∉2xx
+# 被一切「须失败」式复验蒙过。修法是按 `X-Forwarded-Proto` 分流，故本项必须**同时**
+# 验两个方向：带头(模拟隧道回源)须 404，不带头(真明文直连)须 301——只验一边，
+# 无条件 404 会让明文 /files 之外的路径丢掉强制 HTTPS。
+check_catchall_behavior() {
+  local code location response
+  response=$(curl --noproxy "*" --max-time 5 -sS -D - -o /dev/null -w '\n%{http_code}' \
+    -H "Host: ${TUNNEL_HOST}" -H "X-Forwarded-Proto: https" \
+    "http://127.0.0.1:80/zzz-preflight-probe") || return 1
+  code="${response##*$'\n'}"
+  if [[ "$code" != "404" ]]; then
+    echo "隧道回源态兜底路径返回 ${code}（期望 404）：301 则为自指死循环" >&2
+    return 1
+  fi
+  response=$(curl --noproxy "*" --max-time 5 -sS -D - -o /dev/null -w '\n%{http_code}' \
+    -H "Host: ${TUNNEL_HOST}" "http://127.0.0.1:80/zzz-preflight-probe") || return 1
+  code="${response##*$'\n'}"
+  location="$(printf '%s\n' "$response" | awk 'tolower($1) == "location:" {gsub("\r", "", $2); print $2}' | tail -1)"
+  if [[ "$code" != "301" || "$location" != "https://${TUNNEL_HOST}/zzz-preflight-probe" ]]; then
+    echo "明文直连兜底路径返回 ${code} / Location ${location}（期望 301 + https://${TUNNEL_HOST}/zzz-preflight-probe）：强制 HTTPS 已失效" >&2
+    return 1
+  fi
+}
+check "兜底路径：隧道回源态 404、明文直连 301（无自指 301 环）" check_catchall_behavior
 
 # 生成链正例：生产 venv 真跑 vpype + §5 校验（覆盖 profile / 依赖 / 校验器漂移）。
 check "生产 venv 真实生成链可用（vpype + profile + §5 校验）" check_generate_chain

@@ -1663,6 +1663,10 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert 'check_acl_response "$TUNNEL_HOST"' in preflight
     assert '"$get" == "404" && "$post" == "403" && "$mcp" == "404"' in preflight
     assert '"$denied" == "403"' in preflight
+    # 兜底行为必须验证状态码和明文分支的精确 HTTPS 目标，不能只凭 301 状态报绿。
+    assert 'location="$(printf' in preflight
+    assert '"$location" != "https://${TUNNEL_HOST}/zzz-preflight-probe"' in preflight
+    assert 'Location ${location}' in preflight
     # loopback 三项必须先 fail-closed；取不到非 loopback IPv4 时整个判据 fail（不得跳过，
     # 见上方 skip 注释），而不是只跳过后半个 denied 探针。
     loopback_result = preflight.index(
@@ -1676,7 +1680,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 18
+    assert preflight.count('\ncheck "') == 19
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -1705,7 +1709,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 18
+    assert len(checks) == 19
     assert min(checks) > init_last
 
 

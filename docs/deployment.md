@@ -97,7 +97,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | 🟡 2026-08-06 生产 **17/17**（当时 17 项；现为 18 项，第 18 项未在生产验过） | `69c2198` 部署后 `pass=17 fail=0 expected=17`，含首次在生产真跑通过的「生成链」与「unit 一致性」。此后仓内新增第 18 项「应用层已关 FastAPI 自动文档端点」（直连 `:8300` 验 `/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect` 必须 404），**未部署、未在生产验证**。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（无 skip）。`check_generate_chain` 要求生产 venv 依赖与 `hutuji_gwrite.toml` 齐备；`check_units_match_templates` 要求 scp 完 unit 后必须 `daemon-reload` |
+| `preflight.sh` 全 PASS | ✅ 2026-08-07 生产 **19/19** | `pass=19 fail=0 expected=19`（19 项版本）。第 18 项「应用层已关 FastAPI 自动文档端点」与第 19 项「兜底路径：隧道回源态 404、明文直连 301（无自指 301 环）」**首次在生产通过**；`69c2198` 当时的 17/17 已被 supersede。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（无 skip）。`check_generate_chain` 要求生产 venv 依赖与 `hutuji_gwrite.toml` 齐备；`check_units_match_templates` 要求 scp 完 unit 后必须 `daemon-reload`；**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
