@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_SVG = ROOT / "tests" / "test_star.svg"
 SERVER_NAME = "hutuji-pc-simulation"
 SERVER_VERSION = "1.0.0"
+LOCAL_E2E_TIMEOUT_SECONDS = 120
 SIL_LIMITATIONS = [
     "PC SIL 不证明真实换纸机械行为",
     "PC SIL 不证明 App 语音、云端链路、烧录或 HIL 验收",
@@ -64,18 +67,29 @@ def _normal_svg(output_dir: Path) -> dict[str, Any]:
 
 def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
     script = ROOT / "scripts" / "e2e_local.py"
-    completed = subprocess.run(
-        [sys.executable, str(script)],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**__import__("os").environ, "PYTHONUTF8": "1"},
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONUTF8": "1"},
+            check=False,
+            timeout=LOCAL_E2E_TIMEOUT_SECONDS,
+        )
+    except (subprocess.TimeoutExpired, TimeoutError):
+        return build_evidence(
+            ok=False,
+            scenario="local_stream_e2e",
+            observations=[{"name": "error", "value": "本地闭环超时"}],
+            contract_refs=["docs/protocol.md §3", "docs/protocol.md §5.1"],
+        )
     output = completed.stdout + completed.stderr
-    passed = completed.returncode == 0 and "PASS" in output
+    passed = completed.returncode == 0 and any(
+        line.strip() == "PASS" for line in output.splitlines()
+    )
     return build_evidence(
         ok=passed,
         scenario="local_stream_e2e",
@@ -223,6 +237,16 @@ def run_scenario(scenario_id: str, *, output_dir: Path | None = None) -> dict[st
         return entry["runner"](output_dir)
     with tempfile.TemporaryDirectory(prefix="hutuji-sim-") as tmp:
         result = entry["runner"](Path(tmp))
+        artifacts = [Path(path) for path in result["artifacts"]]
+        if artifacts:
+            artifact = artifacts[0]
+            raw = artifact.read_bytes()
+            result["embedded_artifact"] = {
+                "name": artifact.name,
+                "mime_type": "text/x-gcode",
+                "text": raw.decode("ascii"),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+            }
         result["artifacts"] = []
         return result
 

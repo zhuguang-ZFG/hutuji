@@ -10,9 +10,11 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from hutuji_mcp import sim_server
 from hutuji_mcp.sim_server import (
-    SCENARIOS,
+    SIL_LIMITATIONS,
     build_evidence,
+    create_server,
     list_scenarios,
     run_scenario,
     validate_gcode_tool,
@@ -21,9 +23,17 @@ from hutuji_mcp.sim_server import (
 
 def test_list_scenarios_is_fixed_and_structured() -> None:
     scenarios = list_scenarios()
-    assert scenarios
-    assert [item["id"] for item in scenarios] == sorted(SCENARIOS)
+    assert [item["id"] for item in scenarios] == [
+        "line_payload_254",
+        "line_payload_255",
+        "local_stream_e2e",
+        "normal_svg",
+        "reject_g91",
+        "reject_g92",
+        "reject_out_of_bounds",
+    ]
     assert all(set(item) == {"id", "description", "contract_refs", "limitations"} for item in scenarios)
+    assert all(item["limitations"] == SIL_LIMITATIONS for item in scenarios)
 
 
 def test_evidence_envelope_preserves_limitations() -> None:
@@ -56,25 +66,45 @@ def test_run_scenario_normal_svg_produces_real_evidence(tmp_path: Path) -> None:
     assert all(Path(path).exists() for path in result["artifacts"])
 
 
+def test_run_scenario_normal_svg_embeds_verifiable_artifact() -> None:
+    result = run_scenario("normal_svg")
+    artifact = result["embedded_artifact"]
+    assert artifact["name"] == "normal_svg.gcode"
+    assert artifact["mime_type"] == "text/x-gcode"
+    assert artifact["text"].replace("\r\n", "\n").startswith("G21\nG90\nF8000\n")
+    assert len(artifact["sha256"]) == 64
+
+
 def test_result_is_json_serializable(tmp_path: Path) -> None:
     json.dumps(run_scenario("normal_svg", output_dir=tmp_path), ensure_ascii=False)
 
 
 @pytest.mark.parametrize(
-    ("scenario_id", "expected_ok"),
+    ("scenario_id", "error_fragment"),
     [
-        ("line_payload_254", True),
-        ("line_payload_255", True),
-        ("reject_g91", True),
-        ("reject_g92", True),
-        ("reject_out_of_bounds", True),
+        ("line_payload_255", "255 字节超上限 254"),
+        ("reject_g91", "G91"),
+        ("reject_g92", "G92"),
+        ("reject_out_of_bounds", "X191.0 越界"),
     ],
 )
-def test_contract_boundary_scenarios_pass(scenario_id: str, expected_ok: bool) -> None:
+def test_rejection_scenarios_prove_their_specific_contract(
+    scenario_id: str, error_fragment: str,
+) -> None:
     result = run_scenario(scenario_id)
-    assert result["ok"] is expected_ok
+    observations = {item["name"]: item["value"] for item in result["observations"]}
+    assert result["ok"] is True
     assert result["status"] == "pass"
-    assert result["limitations"]
+    assert observations["expected"] == "rejected"
+    assert error_fragment in observations["error"]
+    assert result["limitations"] == SIL_LIMITATIONS
+
+
+def test_line_payload_254_is_accepted() -> None:
+    result = run_scenario("line_payload_254")
+    observations = {item["name"]: item["value"] for item in result["observations"]}
+    assert result["ok"] is True
+    assert observations["expected"] == "accepted"
 
 
 def test_local_stream_e2e_runs_real_pipe_and_grbl_sim() -> None:
@@ -85,11 +115,49 @@ def test_local_stream_e2e_runs_real_pipe_and_grbl_sim() -> None:
     assert observations["result"] == "PASS"
 
 
-def test_validate_gcode_tool_returns_failure_as_evidence() -> None:
-    result = validate_gcode_tool("G91\n")
+def test_local_stream_e2e_timeout_is_structured_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(sim_server.subprocess, "run", timeout)
+    result = run_scenario("local_stream_e2e")
+    observations = {item["name"]: item["value"] for item in result["observations"]}
+    assert result["ok"] is False
+    assert observations["error"] == "本地闭环超时"
+
+
+def test_validate_gcode_tool_returns_specific_failure_as_evidence() -> None:
+    result = validate_gcode_tool(sim_server._minimal_gcode("G91\n"))
     assert result["ok"] is False
     assert result["status"] == "fail"
-    assert "error" in result["observations"][0]["name"]
+    assert "G91" in result["observations"][0]["value"]
+
+
+def test_mcp_schema_and_unknown_tools_are_rejected() -> None:
+    async def exercise() -> None:
+        from mcp.shared.memory import create_connected_server_and_client_session
+
+        async with create_connected_server_and_client_session(create_server()) as session:
+            missing = await session.call_tool("run_scenario", {})
+            assert missing.isError is True
+            assert "required property" in missing.content[0].text
+
+            extra = await session.call_tool("list_scenarios", {"extra": True})
+            assert extra.isError is True
+            assert "Additional properties" in extra.content[0].text
+
+            unknown = await session.call_tool("not_registered", {})
+            assert unknown.isError is True
+            assert "unknown hutuji simulation tool" in unknown.content[0].text
+
+            rejected = await session.call_tool(
+                "validate_gcode", {"text": sim_server._minimal_gcode("G91\n")},
+            )
+            assert rejected.isError is True
+            assert rejected.structuredContent["ok"] is False
+            assert "G91" in rejected.content[0].text
+
+    asyncio.run(exercise())
 
 
 def test_stdio_mcp_initialize_list_and_call() -> None:
