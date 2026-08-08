@@ -86,6 +86,15 @@ class Settings:
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
         object.__setattr__(self, "llm_base_url", validate_llm_base_url(self.llm_base_url))
+        # 非 loopback 一律拒绝：锁定决策是「/mcp 只本机可达，公网由 nginx 404」。
+        # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
+        # 0.0.0.0 在生产静默无效、在开发直跑 `python -m hutuji_mcp.server` 却是真裸曝。
+        # 静默无效比报错危险：它让人误以为监听面已改。两条路径在此统一口径。
+        if self.host.lower() not in _LOOPBACK_HOSTS:
+            raise ValueError(
+                f"HUTUJI_HOST 只允许 loopback（{sorted(_LOOPBACK_HOSTS)}），当前 {self.host!r}；"
+                "公网访问只经 nginx 反代 /files，绝不直曝 /mcp"
+            )
         if not 1 <= self.port <= 65535:
             raise ValueError(f"port 必须在 1..65535，当前 {self.port}")
         if self.output_ttl_seconds <= 0:

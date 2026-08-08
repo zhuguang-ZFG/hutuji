@@ -52,7 +52,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 ## Development Commands｜开发命令
 
 ```powershell
-# 本仓门禁（推荐入口；默认 hub = 文档锚点 + pytest + e2e）
+# 本仓门禁（推荐入口；默认 hub = 文档锚点 + 外仓行号 + pytest + e2e）
 cd D:\Users\hutuji
 python scripts\agent_gate.py                   # 等价 --profile hub
 python scripts\agent_gate.py --profile docs    # 只改文档时
@@ -86,14 +86,14 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 .venv\Scripts\python scripts\cloud_bridge_smoke.py    # 仅当前终端注入 MCP_ENDPOINT
 ```
 
-**坑**：`-m uvicorn hutuji_mcp.server:app` **不读** `HUTUJI_HOST`，漏写 `--host 127.0.0.1` 就是 `0.0.0.0` 裸曝 `/mcp`。
+**坑**：`-m uvicorn hutuji_mcp.server:app` **不读** `HUTUJI_HOST`，漏写 `--host 127.0.0.1` 就是 `0.0.0.0` 裸曝 `/mcp`。反过来 `HUTUJI_HOST` 也不再能悄悄写错——`config.py` 在 import 期只放行 loopback，非 loopback 会让服务（含 uvicorn 路径）启动即抛错。
 
 ## Code Conventions & Common Patterns｜代码约定与常用模式
 
 - **语言**：文档与注释一律中文，标识符英文。注释解释「为什么这个数」，不复述代码。
-- **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（默认 `127.0.0.1`）、`HUTUJI_PORT`（`8300`）、`HUTUJI_OUTPUT_TTL_SECONDS`（`600`）；桥接侧 `MCP_ENDPOINT`（必须 `wss://`）、`HUTUJI_LOCAL_MCP_URL`（必须 loopback 且路径 `/mcp`）。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
+- **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（默认 `127.0.0.1`，**只允许 loopback**，非 loopback 直接抛错；监听面真值是 unit 的 `--host`）、`HUTUJI_PORT`（`8300`）、`HUTUJI_OUTPUT_TTL_SECONDS`（`600`）；桥接侧 `MCP_ENDPOINT`（必须 `wss://`）、`HUTUJI_LOCAL_MCP_URL`（必须 loopback 且路径 `/mcp`）。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
 - **状态与注入**：模块级单例代替 DI 容器——`config.settings` 在 import 时构造，`server._draw_limiter` 是模块全局；测试用 `monkeypatch.setattr(module, "settings", ...)` 或改环境变量覆盖，没有 FastAPI 依赖注入。
-- **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。
+- **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。`generate_svg` 用 `finish_reason` **只解释**「一段 SVG 都提取不到」（`length` → 报 `max_tokens` 预算耗尽），**不得**据它拒掉已闭合的 SVG，也**不得**盖住 `_validate_svg` 的白名单拒绝（那是注入事件，处置完全不同）。
 - **async/sync 分工**：MCP 工具是 `async`；TTL 清理走 `asyncio.to_thread`，vpype 用 `asyncio.create_subprocess_exec` 并在取消时回收子进程；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
 - **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。第三方 logging 必须在 handler filter 中先 `record.getMessage()` 再脱敏最终文本，并单独脱敏 `exc_info`/`exc_text`/`stack_info`；只扫字符串 `msg/args` 会漏异常对象和 traceback。
 - **产物与 TTL**：只有匹配 `draw_YYYYMMDD_HHMMSS_<22 位 urlsafe token>.{gcode,svg}` 的名字可下载；TTL 600s，过期即删并返 404；清理是访问时顺带做的，**没有后台扫描线程**。
@@ -134,7 +134,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
 - 三个测试文件职责：`test_contract.py`（§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死）、`test_injection.py`（SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（桥接配置与不泄密日志）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。
-- 门禁分层（`docs/agent-gate.md` 是定义真值）：`docs` = 必备文件 + 决策锚点 + 否决项复活扫描 + **禁止宣称扫描** + 白名单 JSON + 防漂移文档 + 三仓矩阵 + 文档 `path:line` 引用；`hub` 再加 pytest + e2e；`full` 再加外仓引用 + Grbl §9 源码标记。任一层 fail → overall fail、exit 1。
+- 门禁分层（`docs/agent-gate.md` 是定义真值）：`docs` = 必备文件 + 决策锚点 + 否决项复活扫描 + **禁止宣称扫描** + 白名单 JSON + 防漂移文档 + 三仓矩阵 + 文档 `path:line` 引用；`hub` 再加**外仓 `path:line` 引用** + pytest + e2e；`full` 再加 Grbl §9 源码标记，并把「三仓全缺」从 pass 收紧为 fail。任一层 fail → overall fail、exit 1。分层真值在 `scripts/agent_gate.py` 的 `profile_layers()`（纯函数，有门禁自测钉死），不要再在 `main()` 里另加分支。
 - **复活扫描与禁语扫描共用 `GOVERNANCE_DOCS`（17 份）**：新增治理文档必须加进 `scripts/agent_gate.py` 的该清单，否则两层都绕过它。此前三条复活规则各带手写清单、合计只覆盖 5 份，`CLAUDE.md` 与 `.cursor/rules/` 硬轨都不在其中；`claims_forbidden` 更是只做列表比对、从不扫正文（实测在 README 追加一句含三条禁语的完成式断言，门禁全绿）。
 - 写文档注意：门禁会校验 `path:line` 引用的行号是否越界，行号最易悄悄过期——不确定就别写行号。
 - **无覆盖率工具、无 CI**：门禁 + 实机证据就是验收面。软件改动必须给出测试命令与结果；硬件结论必须给设备编号、固件 commit、实测记录（模板在 `docs/templates/`）。

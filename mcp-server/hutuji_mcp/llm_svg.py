@@ -250,11 +250,31 @@ async def generate_svg(description: str) -> str:
             await asyncio.sleep(retry_delay)
     try:
         data = json.loads(bytes(body))
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        content = choice["message"]["content"]
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise LlmError("LLM 响应不是合法 JSON") from e
     except (KeyError, IndexError, TypeError) as e:
         raise LlmError(f"LLM 响应格式异常：{e}") from e
     if not isinstance(content, str):
         raise LlmError(f"LLM 响应 content 不是字符串：{type(content).__name__}")
+    # finish_reason 只用来**解释**「一段 SVG 都提取不到」，不做别的：
+    # - 不用来制造失败：SVG 已闭合、只是尾随说明被截断的回复完全能画，按 stop
+    #   reason 拒掉它等于把可用产物判死。
+    # - 不覆盖白名单拒绝：_extract_svg 里的 _validate_svg 报的是「模型产出了禁用
+    #   元素」，属注入事件，处置与预算问题完全不同；把它改口成「预算耗尽」会让真实
+    #   拒绝原因消失。故这里只在 _SVG_RE 压根匹配不到时接管。
+    # 字段可能缺失或非字符串（上游实现不一），一律容忍成 ""。
+    finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+    if not isinstance(finish_reason, str):
+        finish_reason = ""
+    if _SVG_RE.search(content) is None and finish_reason not in ("", "stop"):
+        # 半截 SVG 没有 </svg>，_SVG_RE 匹配不到 → 原消息是「未找到 <svg> 内容」，
+        # 把「输出预算耗尽」误诊成「模型没给图」。重试同一请求只会再撞一次预算。
+        if finish_reason == "length":
+            raise LlmError(
+                f"LLM 输出预算（max_tokens={LLM_MAX_TOKENS}）耗尽，回复在 SVG 收尾前被截断；"
+                "请换更简单的主题，或调高 LLM_MAX_TOKENS"
+            )
+        raise LlmError(f"LLM 因 finish_reason={finish_reason} 提前结束，未给出完整 SVG")
     return _extract_svg(content)

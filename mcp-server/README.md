@@ -35,7 +35,7 @@ LLM（OpenAI 兼容）→ SVG ──vpype(read→linesort→gwrite --profile hut
 | `HUTUJI_LLM_MODEL` | `auto` | 模型名 |
 | `HUTUJI_OUTPUT_DIR` | `./output` | G-code/SVG 产出目录 |
 | `HUTUJI_PUBLIC_BASE_URL` | `http://127.0.0.1:8300` | 返回给 S3 的下载 URL 前缀；VPS 上填 nginx 的 HTTPS 公网地址 |
-| `HUTUJI_HOST` | `127.0.0.1` | uvicorn 监听地址；公网部署保持 localhost，禁止把 `/mcp` 裸露 |
+| `HUTUJI_HOST` | `127.0.0.1` | uvicorn 监听地址；**只接受 `127.0.0.1` / `::1` / `localhost` 三个值**（大小写不敏感，非集合内一律拒绝，`127.0.0.2` 之类同段地址也拒），非法值在构造 `settings`（import `config` 时）即抛 `ValueError` 拒绝启动。原先只在文档里劝，生产漏配还能静默把 `/mcp` 绑到 `0.0.0.0`；注意 `python -m uvicorn hutuji_mcp.server:app` **不读**本变量，必须显式 `--host 127.0.0.1` |
 | `HUTUJI_PORT` | `8300` | HTTP 端口 |
 | `HUTUJI_OUTPUT_TTL_SECONDS` | `600` | capability 文件有效期；过期下载直接 404 并清理同组产物 |
 
@@ -200,6 +200,12 @@ output/      生成产物（运行时创建）
 - **为什么**：抬笔次数反映「碎线程度」，但硬阈值需 ② 实测机头 Z 抬落速度/简笔画典型复杂度才能定 —— 现在硬拍会误杀。故先出可观测数据，硬门 🔬 待 ② 实测。
 - **验收**：`hutuji_draw` 返回含 `pen_lifts`；构造 >50 抬笔的 G-code 有 warning 日志、但不失败。
 
+### 1.4 截断失败给出可诊断原因（2026-08-08 补）
+- **改什么**：`llm_svg.generate_svg()` 在 `_SVG_RE` **抽不到** `<svg>…</svg>` 且 `finish_reason` 不在 `("", "stop")` 时，才用它解释失败：`length` 报「LLM 输出预算（`max_tokens=1200`，即 `LLM_MAX_TOKENS`）耗尽，回复在 SVG 收尾前被截断」，其余原因报 `LLM 因 finish_reason=<原值> 提前结束`。
+- **为什么**：截断的响应尾部缺 `</svg>`，正则必然不匹配，原先只报「未找到 SVG」——与「模型答非所问」同一句话，排错要靠猜。判定放在抽取之后，是为了不误伤「已拿到完整 SVG 但 `finish_reason` 非 `stop`」的可用产物，也不覆盖白名单/属性校验自己的拒绝原因。
+- **注意**：这是**诊断**而非补救，不会自动补 `</svg>` 或续写——补出来的图形没有任何保证，不能进出图链。真遇到反复截断要看 `max_tokens` 与提示词，不要在校验侧放水。
+- **再验**：构造 `finish_reason="length"` 且正文无 `<svg>` 的假响应 → `LlmError` 文案含 `max_tokens`；同 `finish_reason` 但正文含合法 SVG → 正常返回。
+
 ## 组 2：注入防御（Q2）✅ 已落地
 
 > 输出侧白名单为主防线；`tests/test_injection.py` 回归。下文保留威胁模型与验收口径。
@@ -238,7 +244,7 @@ output/      生成产物（运行时创建）
 
 ## 组 3：公网安全（Q3，服务将部署京东云公网）
 
-**已落实边界**：`server.py` 默认 `host="127.0.0.1"`；公网只能由 nginx 暴露 `/files`。若部署时改成 `0.0.0.0` 或把整个 8300 端口开放，仍会重新引入 LLM 算力盗刷和 `/mcp` 裸露风险。
+**已落实边界**：`config.py` 的 `_validate_host()` 把 `HUTUJI_HOST` 硬限为 loopback，非 loopback 值 import 期 `ValueError`；公网只能由 nginx 暴露 `/files`。**注意仍有一条口径外的路径**：直接 `python -m uvicorn hutuji_mcp.server:app --host 0.0.0.0` 绕过本变量（uvicorn 自己的 `--host` 不经 `config`），仍会裸露 `/mcp`；生产靠 systemd unit 固定 `--host 127.0.0.1` + 安全组不放行 8300 + nginx `/mcp` 显式 404 三层兜住。
 
 ### 3.1 `/mcp` 端点不上公网（只经同机桥接器）
 - **改哪里**：部署拓扑 + `server.py` 监听/防火墙。

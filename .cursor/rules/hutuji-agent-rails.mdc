@@ -46,6 +46,7 @@ python scripts\agent_gate.py --profile hub
 
 - 文档：`--profile docs`
 - 改 Grbl：`--profile full`（`GRBL_ROOT`）**且** fz `agent_gate.py --profile standard`
+- `external_doc_line_refs`：`full` 走 `require_repos`，缺外仓即判红；`hub`/`docs` 不要求外仓，缺仓时该项 pass 但 detail 自陈「无可校验」——不得据此宣称外仓引用已验证
 - 报告：`results/hutuji_gate_last.md`
 - `revived_decisions` 允许同一行 `禁止重开：A / B / C`（含粗体标题）的显式否决清单；另起短语重新主张现行方案仍判红，不能借相邻项的“已否决”逃逸。
 - 生产更新 scp unit 后先 `daemon-reload`，再显式 `restart hutuji-mcp hutuji-cloud-bridge`；`enable --now` 不会重启已 active 服务。当前 19 项 preflight 的 unit 项还须证明 MCP `ExecStartPre` 已成功、主进程不早于本次 unit/代码/profile。

@@ -93,7 +93,7 @@ python -m venv .venv
 | 起开发服务 | `.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300` |
 | 起假 Grbl | `.venv/Scripts/python -m hutuji_mcp.grbl_sim` |
 
-> **`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`。
+> **`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`。`HUTUJI_HOST` 本身已收紧为**只允许 loopback**（`config.py` import 期校验），写成 `0.0.0.0` 不再被静默忽略，而是让服务起不来。
 
 ### 本仓门禁
 
@@ -102,8 +102,8 @@ python -m venv .venv
 | Profile | 内容 |
 |---------|------|
 | `docs` | 仅文档锚点/一致性检查 |
-| `hub`（默认） | `docs` + pytest + e2e |
-| `full` | `hub` + 外仓文档 `path:line` 校验 + Grbl §9 源码标记（**必须设 `GRBL_ROOT`，未设时该层直接 fail、不再 skip**）；且仍须自己另跑 fz |
+| `hub`（默认） | `docs` + 外仓文档 `path:line` 校验 + pytest + e2e（缺 fork 时该层 pass 但 detail 自陈「无可校验」） |
+| `full` | `hub` + 外仓引用要求三仓至少一个在位（全缺即 fail） + Grbl §9 源码标记（**必须设 `GRBL_ROOT`，未设时该层直接 fail、不再 skip**）；且仍须自己另跑 fz |
 
 ### 环境变量
 

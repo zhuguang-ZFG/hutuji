@@ -50,6 +50,33 @@ def _mask_secret(text: str, secret: str) -> str:
     return text.replace(secret, "***") if secret else text
 
 
+def classify_response(resp: str) -> tuple[bool, str]:
+    """判定一条 ESP 配置命令的应答，返回 (是否成功, 用于展示的关键行)。
+
+    不能用 `"ok" in resp` 子串判定：固件在 verbose 回显下把原命令和状态拼在
+    同一行（`Report.cpp:506` 的 `>{line}:` 紧接 `report_status_message`），
+    而 SSID/密码本身可能含 "ok"（BookCafe、Tokyo5G），于是失败应答
+    `>[ESP100]Tokyo5G:error:3` 会被读成成功，脚本继续发 `[ESP444]RESTART`，
+    击穿「任一命令失败即中止、不重启」的约定。
+
+    固件真值（`Report.cpp:210/213/237/239`）：
+    成功 = 独立一行 `ok`；失败 = `error:<N>` 或 `error: <文本>`。
+    回显形态下二者分别以 `:ok` 结尾、含 `:error:`。
+    """
+    lines = [line.strip() for line in resp.splitlines() if line.strip()]
+    # error 优先：固件可能先 webPrint 若干信息行再给状态，且失败必须压过任何
+    # 看起来像成功的回显内容。
+    for line in lines:
+        low = line.lower()
+        if low.startswith("error:") or ":error:" in low:
+            return False, line
+    for line in lines:
+        low = line.lower()
+        if low == "ok" or low.endswith(":ok"):
+            return True, line
+    return False, lines[0] if lines else "(无应答)"
+
+
 def main() -> int:
     """配置写字机 WiFi；全部命令应答 ok 且确认联网才返回 0。"""
     parser = argparse.ArgumentParser(description="配置 Grbl 写字机 WiFi")
@@ -115,10 +142,10 @@ def main() -> int:
             s.write(f"{cmd}\r\n".encode())
             time.sleep(1)
             resp = s.read(s.in_waiting or 512).decode("ascii", errors="replace").strip()
-            ok = "ok" in resp.lower()
-            head = resp.splitlines()[0] if resp else "(无应答)"
-            # 设置密码的命令应答可能回显完整命令（含密码），stdout/终端录制会泄密。
-            print(f"  [{'OK' if ok else 'WARN'}] {desc}: {_mask_secret(head, password)}")
+            ok, key_line = classify_response(resp)
+            # 展示 error 行而非首行：固件可能先回显命令再给状态，只印首行会把
+            # 真实失败原因藏掉。设置密码的应答会回显完整命令（含密码），必须脱敏。
+            print(f"  [{'OK' if ok else 'WARN'}] {desc}: {_mask_secret(key_line, password)}")
             return ok
 
         print(f"配置 Grbl WiFi（{args.port}）...")

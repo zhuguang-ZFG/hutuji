@@ -357,6 +357,94 @@ def test_generate_svg_rejects_response_exceeding_stream_limit(monkeypatch) -> No
         asyncio.run(llm_svg.generate_svg("测试"))
 
 
+# max_tokens=1200 是刻意设的输出预算（见 llm_svg.LLM_MAX_TOKENS）。复杂主题撞上它时
+# 上游给 finish_reason="length"，content 是被切断的半截 SVG——没有 </svg>，_SVG_RE
+# 匹配不到，于是报「未找到 <svg> 内容」。那句话把「预算耗尽」误诊成「模型没给图」：
+# 重试同一请求只会再撞一次预算，运维照着错误方向查模型/网络。
+def test_generate_svg_reports_output_budget_when_truncated(monkeypatch) -> None:  # noqa: ANN001
+    truncated = json.dumps({
+        "choices": [{
+            "finish_reason": "length",
+            "message": {"content": (
+                '<svg xmlns="http://www.w3.org/2000/svg" fill="none">'
+                '<path d="M0 0L1 1L2 2L3 3" fill="none"/><path d="M4 4L5'
+            )},
+        }]
+    }).encode()
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [truncated]))
+
+    with pytest.raises(LlmError, match="输出预算") as caught:
+        asyncio.run(llm_svg.generate_svg("测试"))
+    message = str(caught.value)
+    assert str(llm_svg.LLM_MAX_TOKENS) in message, "须指名预算数值，否则运维不知道调哪个量"
+    assert "未找到" not in message, "不得再把预算耗尽误报成模型没给图"
+
+
+def test_generate_svg_accepts_complete_svg_truncated_after_close_tag(monkeypatch) -> None:  # noqa: ANN001
+    """SVG 已闭合、只是尾随说明被截断时必须照常出图。
+
+    finish_reason 只用来**解释**失败，不得用来**制造**失败：这份回复能画，
+    因为预算而拒掉它就是把可用产物判死。
+    """
+    complete_then_cut = json.dumps({
+        "choices": [{
+            "finish_reason": "length",
+            "message": {"content": (
+                '<svg xmlns="http://www.w3.org/2000/svg" fill="none">'
+                '<path d="M0 0L1 1" fill="none"/></svg>\n'
+                "这幅图的构图思路是先画外轮廓，再补内部细"
+            )},
+        }]
+    }).encode()
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [complete_then_cut]))
+
+    assert asyncio.run(llm_svg.generate_svg("测试")).startswith("<svg")
+
+
+def test_generate_svg_reports_content_filter_stop_reason(monkeypatch) -> None:  # noqa: ANN001
+    """被上游内容过滤拦下时同样不能报成「没找到 SVG」。"""
+    filtered = json.dumps({
+        "choices": [{"finish_reason": "content_filter", "message": {"content": ""}}]
+    }).encode()
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [filtered]))
+
+    with pytest.raises(LlmError, match="content_filter"):
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+
+def test_generate_svg_missing_finish_reason_keeps_original_error(monkeypatch) -> None:  # noqa: ANN001
+    """上游不给 finish_reason（字段缺失）时不得因此崩，仍报原来的「未找到」。"""
+    no_svg = json.dumps({"choices": [{"message": {"content": "抱歉，我无法完成"}}]}).encode()
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [no_svg]))
+
+    with pytest.raises(LlmError, match="未找到"):
+        asyncio.run(llm_svg.generate_svg("测试"))
+
+
+def test_truncation_message_never_masks_injection_gate_rejection(monkeypatch) -> None:  # noqa: ANN001
+    """SVG 完整但被白名单拒掉时，不得因 finish_reason=length 改口成「预算耗尽」。
+
+    这两件事的处置完全不同：预算问题换主题重试即可，白名单拒绝意味着模型产出了
+    禁用元素，必须按注入事件看。把后者说成前者会让真实拒绝原因彻底消失。
+    """
+    forbidden = json.dumps({
+        "choices": [{
+            "finish_reason": "length",
+            "message": {"content": (
+                '<svg xmlns="http://www.w3.org/2000/svg" fill="none">'
+                '<circle cx="1" cy="1" r="1" fill="none"/></svg>\n尾随说明被截'
+            )},
+        }]
+    }).encode()
+    _install_fake_llm_response(monkeypatch, _FakeResponse(200, [forbidden]))
+
+    with pytest.raises(LlmError) as caught:
+        asyncio.run(llm_svg.generate_svg("测试"))
+    message = str(caught.value)
+    assert "输出预算" not in message, "白名单拒绝被伪装成预算问题"
+    assert "circle" in message.lower(), f"须报出被拒元素，当前：{message}"
+
+
 def test_extract_svg_never_echoes_model_reply() -> None:
     secret = "model-reply-secret-must-not-leak"
     with pytest.raises(LlmError, match="未找到 <svg>") as caught:

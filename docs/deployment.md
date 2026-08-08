@@ -222,7 +222,7 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 
 | 文件 | 变量 | 说明 |
 |------|------|------|
-| `mcp.env` | `HUTUJI_HOST/PORT` | 服务内默认仍绑 127.0.0.1；unit 已写死 loopback |
+| `mcp.env` | `HUTUJI_HOST/PORT` | **不是**监听面真值（unit 的 `--host/--port` 才是）；但 `HUTUJI_HOST` 非 loopback 会在 import 期抛错、服务起不来 |
 | `mcp.env` | `HUTUJI_PUBLIC_BASE_URL` | HTTPS 公网前缀（S3 下载） |
 | `mcp.env` | `HUTUJI_LLM_*` | LLM |
 | `mcp.env` | `HUTUJI_OUTPUT_*` | 产出目录与 TTL |

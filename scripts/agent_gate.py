@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -728,17 +729,29 @@ def _external_index() -> tuple[dict[str, list[Path]], list[str], list[str]]:
     return index, present, absent
 
 
-def check_external_doc_line_refs() -> dict[str, Any]:
-    """full profile：把文档引用的 fork / 参考仓行号也校验一遍。
+def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any]:
+    """把文档引用的 fork / 参考仓行号也校验一遍。
 
-    hub 层只认本仓文件，外仓引用一律跳过（114 处里有 103 处）。行号漂掉的证据引用
-    等于没有证据，full 下必须把这批也校验掉；命中不唯一仍跳过，见 _external_index。
+    doc_line_refs 只认本仓文件，外仓引用一律跳过（211 处里有 164 处）。行号漂掉的
+    证据引用等于没有证据，故 hub 与 full 两层都要把这批校验掉；命中不唯一仍跳过，
+    见 _external_index。
+
+    require_repos 区分两层对「外仓不存在」的态度：full 本来就要求 GRBL_ROOT（改
+    Grbl 才跑），缺仓即 fail；hub 是日常层，换到没有 fork 的机器不该因此变红，缺仓
+    时如实报「无可校验」，而不是假装通过了一次校验。
     """
     label = "文档 path:line 外仓引用"
     index, present, absent = _external_index()
     if not present:
         detail = "三个外仓路径都不存在（" + "; ".join(absent) + "）；设 GRBL_ROOT/XIAOZHI_ROOT/INKSCAPE_PX_ROOT"
-        return _layer("external_doc_line_refs", label, "fail", detail)
+        if require_repos:
+            return _layer("external_doc_line_refs", label, "fail", detail)
+        return _layer(
+            "external_doc_line_refs",
+            label,
+            "pass",
+            detail + "；本层无可校验（改 Grbl 前须跑 full）",
+        )
     candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
     md_files = sorted(
         path
@@ -933,6 +946,48 @@ def check_section9(grbl_root: Path | None) -> dict[str, Any]:
     )
 
 
+def _section9_layer() -> dict[str, Any]:
+    """GRBL_ROOT 在调用时读，不在建计划时读——测试可 monkeypatch 环境。"""
+    grbl = os.environ.get("GRBL_ROOT")
+    return check_section9(Path(grbl) if grbl else None)
+
+
+def profile_layers(profile: str) -> list[tuple[str, Any]]:
+    """profile → [(层 id, 零参可调用)]，是分层覆盖范围的唯一真值。
+
+    抽成纯函数是为了能被测试钉死：此前 profile 分支只存在于 main() 里，
+    要验证「hub 到底查了哪些层」就得真跑一遍门禁（会递归 spawn pytest），
+    于是分层缩水没有任何自动化防线。docs/agent-gate.md 是文字定义，本函数是
+    机器定义，两者须一致。
+    """
+    layers: list[tuple[str, Any]] = [
+        ("required_files", check_required_files),
+        ("decision_anchors", check_decision_anchors),
+        ("revived_decisions", check_revived_decisions),
+        ("forbidden_claims", check_forbidden_claims),
+        ("edit_allowlist", check_edit_allowlist),
+        ("anti_drift", check_anti_drift_doc),
+        ("constraint_matrix", check_constraint_matrix),
+        ("doc_line_refs", check_doc_line_refs),
+    ]
+    if profile in ("hub", "full"):
+        # 外仓行号：hub 缺 fork 时如实报「无可校验」，full 缺 fork 即 fail。
+        layers.append(
+            (
+                "external_doc_line_refs",
+                functools.partial(
+                    check_external_doc_line_refs,
+                    require_repos=(profile == "full"),
+                ),
+            )
+        )
+        layers.append(("pytest", run_pytest))
+        layers.append(("e2e_local", run_e2e))
+    if profile == "full":
+        layers.append(("section9_markers", _section9_layer))
+    return layers
+
+
 def _atomic_write(path: Path, text: str) -> None:
     """同目录临时文件 + os.replace 原子落盘，避免进程中断留下半截报告。
 
@@ -1000,28 +1055,17 @@ def main(argv: list[str] | None = None) -> int:
         "--profile",
         choices=("docs", "hub", "full"),
         default="hub",
-        help="docs=文档层; hub=文档+MCP(默认); full=hub+§9源码标记",
+        help="docs=文档层; hub=文档+外仓行号+MCP(默认); full=hub+§9源码标记",
     )
     args = parser.parse_args(argv)
 
     layers: list[dict[str, Any]] = []
-    layers.append(check_required_files())
-    layers.append(check_decision_anchors())
-    layers.append(check_revived_decisions())
-    layers.append(check_forbidden_claims())
-    layers.append(check_edit_allowlist())
-    layers.append(check_anti_drift_doc())
-    layers.append(check_constraint_matrix())
-    layers.append(check_doc_line_refs())
-
-    if args.profile in ("hub", "full"):
-        layers.append(run_pytest())
-        layers.append(run_e2e())
-
-    if args.profile == "full":
-        layers.append(check_external_doc_line_refs())
-        grbl = os.environ.get("GRBL_ROOT")
-        layers.append(check_section9(Path(grbl) if grbl else None))
+    for layer_id, run_layer in profile_layers(args.profile):
+        layer = run_layer()
+        # plan 的 id 与 _layer() 落盘的 id 必须一致，否则报告里的层名会与
+        # docs/agent-gate.md 的分层定义脱钩，读报告的人无法判断查了什么。
+        assert layer["id"] == layer_id, f"层 id 不一致: plan={layer_id} actual={layer['id']}"
+        layers.append(layer)
 
     failed = [L for L in layers if L["status"] == "fail"]
     overall = "fail" if failed else "pass"

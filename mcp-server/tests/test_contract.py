@@ -139,6 +139,40 @@ def test_settings_rejects_invalid_port(tmp_path: Path, port: int) -> None:
         )
 
 
+# 锁定决策：MCP 服务绝不直曝，`/mcp` 只本机可达、公网由 nginx 404。生产 unit 用
+# `--host 127.0.0.1` 钉死，`-m uvicorn` 根本不读 HUTUJI_HOST——于是把它设成
+# 0.0.0.0 在生产是**静默无效**，在开发直跑 `python -m hutuji_mcp.server` 时却是
+# 真裸曝。静默无效的配置比报错更危险：它让人以为改了监听面。此处让非 loopback
+# 取值直接拒绝，两条路径口径一致。
+@pytest.mark.parametrize(
+    "host",
+    ["0.0.0.0", "::", "192.168.1.13", "117.72.118.95", "example.com"],
+)
+def test_settings_rejects_non_loopback_host(tmp_path: Path, host: str) -> None:
+    with pytest.raises(ValueError, match="HUTUJI_HOST"):
+        Settings(
+            llm_base_url="https://example.invalid/v1", llm_api_key="", llm_model="test",
+            output_dir=tmp_path, public_base_url="https://draw.example", host=host,
+            port=8300, output_ttl_seconds=600,
+        )
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
+def test_settings_accepts_loopback_host(tmp_path: Path, host: str) -> None:
+    configured = Settings(
+        llm_base_url="https://example.invalid/v1", llm_api_key="", llm_model="test",
+        output_dir=tmp_path, public_base_url="https://draw.example", host=host,
+        port=8300, output_ttl_seconds=600,
+    )
+    assert configured.host == host
+
+
+def test_load_settings_rejects_non_loopback_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HUTUJI_HOST", "0.0.0.0")
+    with pytest.raises(ValueError, match="HUTUJI_HOST"):
+        load_settings()
+
+
 @pytest.mark.parametrize("ttl", [0, -1])
 def test_settings_rejects_nonpositive_ttl(tmp_path: Path, ttl: int) -> None:
     with pytest.raises(ValueError, match="output_ttl_seconds.*> 0"):
@@ -1651,6 +1685,37 @@ def test_public_download_template_requires_https_and_loopback_http_origin() -> N
     allow_v6_at = acl_lines.index("allow ::1;")
     assert allow_v4_at < deny_at, acl_lines
     assert allow_v6_at < deny_at, acl_lines
+
+
+def test_nginx_tunnel_rate_limit_and_logs_use_real_client_ip() -> None:
+    """Tunnel 回源都来自 127.0.0.1，不能让全体公网用户共享一个限速桶。
+
+    `CF-Connecting-IP` 只可信于 cloudflared 的 loopback 回源；公网直连 :80 可伪造
+    任意请求头，故必须先按连接源分流。头缺失时回退 `$remote_addr`，保持非空 key，
+    不能让 nginx 按「空 key 不计数」规则静默关闭限速。
+    """
+    root = Path(__file__).resolve().parents[2]
+    nginx = (root / "deploy" / "nginx-hutuji.conf").read_text(encoding="utf-8")
+
+    assert "map $http_cf_connecting_ip $hutuji_cf_client_ip {" in nginx
+    assert re.search(
+        r"map \$http_cf_connecting_ip \$hutuji_cf_client_ip \{\s*"
+        r'"" \$remote_addr;\s*default \$http_cf_connecting_ip;\s*\}',
+        nginx,
+    ), "CF 头缺失必须回退连接源，不能产生不计数的空 key"
+    assert re.search(
+        r"map \$remote_addr \$hutuji_client_ip \{\s*"
+        r"default \$remote_addr;\s*127\.0\.0\.1 \$hutuji_cf_client_ip;\s*"
+        r"::1 \$hutuji_cf_client_ip;\s*\}",
+        nginx,
+    ), "只有 loopback cloudflared 回源可信 CF-Connecting-IP"
+
+    assert "limit_req_zone $hutuji_client_ip zone=hutuji_files:10m rate=10r/s;" in nginx
+    assert "limit_req_zone $binary_remote_addr zone=hutuji_files:" not in nginx
+    assert "proxy_set_header X-Real-IP $hutuji_client_ip;" in nginx
+    assert "proxy_set_header X-Forwarded-For $hutuji_client_ip;" in nginx
+    assert "log_format hutuji_client '$hutuji_client_ip " in nginx
+    assert nginx.count("access_log /var/log/nginx/hutuji-access.log hutuji_client;") == 2
 
 
 def test_nginx_http_redirect_target_is_not_attacker_controlled() -> None:
