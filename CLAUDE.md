@@ -113,6 +113,8 @@ python -m venv .venv
 
 公网只经 nginx 暴露 `/files/`；`/mcp` 在 `deploy/nginx-hutuji.conf` 里显式 404，安全组不放行 8300。小智云工具发现冒烟：仅当前终端设 `MCP_ENDPOINT` 后跑 `scripts/cloud_bridge_smoke.py`（接入点禁入库）。
 
+设备侧 MCP 可经官方消息 API 直调：仓库根运行 `python scripts/xiaozhi_console.py device-tools` 或 `device-call hutuji.status`。它使用独立的 `XIAOZHI_DEVICE_TOKEN`（设备自定义主题 URL 的 token 参数），不是控制台 JWT；脚本只允许七个 `hutuji.*` 工具并脱敏能力 URL/凭据。
+
 ### ② S3 固件补丁（不在本仓构建）
 
 在 `D:/Users/xiaozhi-esp32` 用 ESP-IDF 构建 `python3 scripts/release.py lichuang-dev`。挂点是板级 `InitializeTools()`，参照 `press_to_talk_mcp_tool.cc` 做独立工具类，**板级行为不进核心模块**。说明见 `firmware/`。
@@ -131,19 +133,19 @@ python -m venv .venv
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后跑 `deploy/preflight.sh`（当前共 **19** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。**2026-08-07 已部署并取得 `pass=19 fail=0 expected=19`**（第 18 项「应用层已关文档端点」与第 19 项「兜底路径无自指 301 环」首次在生产通过；`69c2198` 当时的 17/17 已被 supersede）；该结果不替代后续发布复验。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`），**scp 完 unit 必须 `daemon-reload`**，否则 `check_units_match_templates` 判 fail。
+- 改动前先备份，`daemon-reload` 后必须显式重启 `hutuji-mcp` 与 `hutuji-cloud-bridge`，再跑 `deploy/preflight.sh`（当前共 **19** 项，另核 bridge endpoint 为 `wss://` 及 bridge active，仍覆盖 HTTPS 前缀、enabled 精确目标、活动配置哈希及下载 200/长度/CRC32/正文）+ 公网复验 `/mcp` 须 404、直连明文 `:80 /files` 须 403、8300 须连不上。`enable --now` 不会重启已 active 的服务。**2026-08-07 已部署并取得 `pass=19 fail=0 expected=19`**（第 18 项「应用层已关文档端点」与第 19 项「兜底路径无自指 301 环」首次在生产通过；`69c2198` 当时的 17/17 已被 supersede）；该历史结果不包含当前新增的 ExecStartPre 成功结果与主进程新鲜度判据，不能替代后续发布复验。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`）；只 `daemon-reload` 不重启会被 `check_units_match_templates` 判 fail。
 
 - **FastAPI 自动文档端点必须在应用层关掉**：`FastAPI(...)` 须显式传 `docs_url=None`/`redoc_url=None`/`openapi_url=None`。不传时默认自动挂 `/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect`，实测四条全回 200。公网当前访问不到，但那份安全**完全来自 nginx 兜底**（443 的 `location / { return 404; }`），应用层零防御——`location /` 一旦放开、或给 `:8300` 开直连调试，攻击面即静默打开。对比 `/mcp` 有三层保护，这四条原本只有第一层。preflight 第 18 项直连 `:8300` 验它们必须 404（**不能经 nginx 探**，那证不到应用层）。
 - **公网兜底路径曾是自指 301 死循环，不是 404**（2026-08-07 实测并修复）：Cloudflare Tunnel 的 `service: http://localhost:80` 使**全部**公网流量落进 nginx `:80` 块，`:443` 块的 `location / { return 404; }` 隧道永远走不到；旧 `:80` 兜底无条件 `return 301 https://hutuji.donglicao.com$request_uri`，边缘拿到 301 后再回源 `:80`，于是公网 `/docs`、`/redoc`、`/openapi.json`、任意随机路径全是 `301 Location: 自身`，`curl -L` 也停在 301。危害不是暴露而是**判据造假**：文档长期写的「公网非白名单路径须 404」从未成立，却因 `301 ∉ 2xx` 骗过一切「须失败」式复验（第 18 项之所以看起来「安全」也靠这层假象）。修法是 `:80` 兜底按 `$http_x_forwarded_proto` 分流——隧道回源（实测确带 `X-Forwarded-Proto: https`）`return 404`，真明文直连仍 `301` 强制 HTTPS。preflight 第 19 项必须**同时**验两个方向：只验 404 会静默丢掉明文强制 HTTPS，只验 301 就是回到死循环。
 - **preflight 曾有两处「文件对了但跑的不对」的盲区，现已各补一项**：
   - **生成链（`check_generate_chain`）**：旧版 15 项没有一条执行过部署的 `hutuji_mcp` 代码——下载探针用 `printf "G21\nG90\nF8000\n"` 人工拼产物，那份内容连 `validate_gcode` 自己都不接受，所以只证明了「nginx 能按字节发文件」。已实测复现：把 `hutuji_gwrite.toml` 移走后 `import hutuji_mcp.server` 仍成功、服务保持 active、`/mcp` 与 `/files` 照常响应，而真实 `svg_to_gcode()` 报 `vpype 转换失败（exit 2）`——即 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 `_PROFILE_PATH` 只在请求期被 `_vpype_command()` 用到，import 期不加载不校验，`systemctl active` 抓不到；`vpype` 更是 subprocess、从不 import，装坏同样只在请求期暴露。现在 `check_generate_chain` 用生产 venv 真跑 `svg_to_gcode()`，`check_download` 拿这份真产物验下载契约。**探针必须用 `/opt/hutuji/mcp-server/.venv/bin/python`，不能用系统 `python3`**：`_vpype_cmd()` 按 `sys.executable` 同目录找 vpype，换解释器即换掉被验对象。
-  - **unit 漂移（`check_units_match_templates`）**：`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit——`--host 127.0.0.1`、`ProtectSystem=strict`、`SystemCallFilter` 等加固项可全部缺失而照样 active（监听面另有第 5/6 项覆盖，加固项原本无人验）。两个 unit 与 nginx 的安装方式完全同构（都从 `/opt/hutuji/deploy/` 复制到系统目录），却只有 nginx 有一致性判据。现在 `check_units_match_templates` 对两个 unit 各查四条：LF 归一化 md5 与模板一致、`NeedDaemonReload=no`（systemd 用加载时快照，忘了 `daemon-reload` 时磁盘一致而在跑的仍是旧配置）、`FragmentPath` 指向 `/etc/systemd/system/`（排除 `/lib` 残留）、**无 drop-in**（drop-in 能静默覆盖 ExecStart 与全部加固项，存在时前三条什么都证明不了；用文件系统 glob 判定，不能只信 `DropInPaths`——老版 systemd 返回空串即 fail-open）。
+  - **unit 漂移（`check_units_match_templates`）**：`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit——`--host 127.0.0.1`、`ProtectSystem=strict`、`SystemCallFilter` 等加固项可全部缺失而照样 active（监听面另有第 5/6 项覆盖，加固项原本无人验）。两个 unit 与 nginx 的安装方式完全同构（都从 `/opt/hutuji/deploy/` 复制到系统目录），却只有 nginx 有一致性判据。现在 `check_units_match_templates` 对两个 unit 各查 LF 归一化 md5 与模板一致、`NeedDaemonReload=no`、`FragmentPath` 指向 `/etc/systemd/system/`、**无 drop-in**；对 MCP 还查 `ExecStartPre` 的实际退出结果为成功，并要求主进程启动时间不早于已部署 unit、包内 Python 代码与 profile。这样既抓漏 `daemon-reload`，也抓 reload 后未 restart 的旧进程。
 - **preflight 无 skip 状态**：输出 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`。历史 `OPTIONAL_SKIP` 与 pass 等价放行，使「明文 `:80 /files` 须 403」可从未被验证却报全绿，已删除；**禁止重新引入 skip**，取不到非 loopback IPv4 一律判 fail。**探 8300 用 `curl`，别用 bash 的 `/dev/tcp`**（Git Bash 下会假阳性）。
 
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 源码 HEAD `83eb376` 已提交/推送；当前板上行为基线是 2026-08-04 烧录的 `55574cb`，`83eb376` 新增的 `TakeResponse()` 超时错误码回填**未烧录、未做硬件实测**。2026-08-03 P2 S4 使用 `ae4b524` 完成 551 行玫瑰图全量下发、自动换纸八步全绿与 `state=done`，`pbuf_free` 未复现（证据 `results/s4-rose-20260803-evidence.md`）；这份历史证据不证明后续源码 HEAD 已上板。**缺**：纸面实物画质人工目视、自适应 `Bf` 反压。
+2. **② 哑管道** — 🟡 源码 HEAD `16f2f83` 已提交/推送；2026-08-08 已用 ESP-IDF 6.0.1 重建标准 release 并 app-flash COM12，板上 ELF SHA `62e1a12e5...` 与发布构建一致，七工具、WiFi、Telnet、授权探针及持续 fresh-`Idle` 已复核。2026-08-03 P2 S4 使用较早的 `ae4b524` 完成 551 行玫瑰图全量下发、自动换纸八步全绿与 `state=done`；这份历史证据不替代当前 HEAD 的下载/CRC/窗口应答配对回归。**缺**：真实设备 token、当前 HEAD 纸面回归、画质人工目视、自适应 `Bf` 反压。
 3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 

@@ -51,6 +51,7 @@
 - `docs/agent-gate.md` — **本仓门禁定义**（profile / 禁止宣称）
 - `docs/foundation-checklist.md` — ① 基础建设闭环勾选
 - `scripts/agent_gate.py` — **可跑门禁**（默认 `hub` → `results/hutuji_gate_last.md`）
+- `scripts/xiaozhi_console.py` — 小智控制台配置同步 + 官方设备消息 API 的七个 `hutuji.*` 白名单直调（凭据只走环境变量）
 - `.cursor/rules/hutuji-agent-rails.mdc` — Cursor 硬轨（防跑偏 / 防幻觉）
 - `docs/README.md` — **文档总入口**：新 agent/开发/测试/运维/生产从这里开始
 - `docs/release-readiness.md` — 当前真实就绪度与出货阻断项
@@ -65,8 +66,8 @@
 ## 路线图
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、**本仓门禁/硬轨** — ✅ 见 `docs/foundation-checklist.md`
-2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 源码 HEAD `83eb376` 已提交/推送；它在已烧录的 `55574cb` 纪元闸基础上补 `TakeResponse()` 超时错误码，**尚未烧录、未做硬件实测**。当前板上行为基线为 2026-08-04 烧录的 `55574cb`；2026-08-03 的 S4 证据使用更早的 `ae4b524`，不得写成与当前 HEAD 合流。2026-07-30 B-12 已归档 S3 自动路径出墨：`G92 Z0` + `Z5.0F10000` 自动落笔，409 行测试件全线连续，页尾 `M30` 后 `state=done`。七工具注册、Telnet/授权与持续 fresh-`Idle` 启动核验通过；Pipe 下载/CRC/窗口化流控、fresh-`Idle` 完成判定与 abort 恢复已实机回归；普通画线断连主路径已实测到废纸 `M30`、`[PaperStatus] 0`、PSRAM 从第 1 行重画、55/55 行完成和 fresh `Idle`；**§8.5 换纸中 abort 已于 2026-07-31 取证**；**P2 S4 已于 2026-08-03 有纸实测通过**（551 行玫瑰图全量下发、自动换纸八步全绿、`state=done`，`pbuf_free` 未复现；证据 `results/s4-rose-20260803-evidence.md`）。**仍缺**：纸面实物画质人工目视、自适应 `Bf` 反压
-3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云 `draw/status/abort` 调用已通；`69c2198` 已于 2026-08-06 全量对齐部署，preflight **17/17 PASS**（含首次在生产真跑通过的「生成链」与「unit 一致性」），公网 `/mcp` 404、直连 `:80 /files` 403、8300 不可达；缺 App 真实语音验收
+2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 源码 HEAD `16f2f83` 已提交/推送，并于 2026-08-08 用 ESP-IDF 6.0.1 生成标准 release 后 app-flash 到 S3-LC-01（COM12）；板上启动 ELF SHA 前缀 `62e1a12e5` 与发布镜像一致，七工具注册、WiFi、Telnet、授权探针及持续 fresh-`Idle` 已复核。标准 `releases/v2.4.0_lichuang-dev.zip` 已重建（SHA256 `53BB05ED...2FF33`），8 月 1 日旧包另名保留。2026-08-03 的 S4 证据仍使用较早的 `ae4b524`，不能替代当前 HEAD 的窗口应答配对和恢复路径回归。历史自动路径出墨、换纸、断连重发与 §8.5 abort 证据继续有效。**仍缺**：当前 HEAD 的真实下载出图/窗口应答配对、纸面实物画质人工目视、自适应 `Bf` 反压
+3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云历史 `draw/status/abort` 调用已有证据；2026-08-07 生产 preflight **19/19 PASS**（含生成链、旧版 unit 一致性、应用文档端点关闭与隧道兜底 404），公网 `/mcp` 404、直连 `:80 /files` 403、8300 不可达。仓内现已给同一 19 项补上 ExecStartPre 成功与主进程新鲜度判据，尚未重新部署验证。Agnes 生成链已恢复；官方设备消息 API 客户端已落地但缺真实设备 token 验证，App 两步语音仍待复验
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
 实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。

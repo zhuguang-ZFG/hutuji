@@ -68,6 +68,8 @@ else
   echo "    未检测到 sites-available；请手工 include ${APP_ROOT}/deploy/nginx-hutuji.conf"
 fi
 
-echo "==> 未自动 start。填密钥并放好 TLS 后："
-echo "    systemctl enable --now hutuji-mcp hutuji-cloud-bridge nginx"
+echo "==> 未自动 start。填密钥并放好 TLS 后（首次上线与更新均显式 restart）："
+echo "    systemctl enable hutuji-mcp hutuji-cloud-bridge nginx"
+echo "    systemctl restart hutuji-mcp hutuji-cloud-bridge"
+echo "    systemctl start nginx"
 echo "    bash ${APP_ROOT}/deploy/preflight.sh"

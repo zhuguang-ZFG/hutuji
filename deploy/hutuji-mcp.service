@@ -12,6 +12,8 @@ WorkingDirectory=/opt/hutuji/mcp-server
 EnvironmentFile=/etc/hutuji/mcp.env
 # 明确绑 loopback，避免 EnvironmentFile 缺失时误听 0.0.0.0
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300
+# 必须在与主进程相同的 systemd 沙箱里跑真实 vpype；服务外 preflight 覆盖不到 seccomp。
+ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.gcode_gen --self-test
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
@@ -45,7 +47,9 @@ ProtectProc=invisible
 ProcSubset=pid
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources @obsolete
+SystemCallFilter=~@privileged @obsolete
+# vpype 的数值依赖会调用 mbind；其余 @resources 调用仍逐项拒绝。
+SystemCallFilter=~ioprio_set migrate_pages move_pages nice sched_setaffinity sched_setattr sched_setparam sched_setscheduler set_mempolicy set_mempolicy_home_node setpriority setrlimit
 
 [Install]
 WantedBy=multi-user.target

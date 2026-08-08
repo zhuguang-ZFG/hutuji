@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ `69c2198` 已于 2026-08-06 全量对齐部署：生产 `pass=17 fail=0 expected=17`，回滚副本 `/root/hutuji-bak-20260806-69c2198/`；此前 `bdbb107` 的 `pass=15 fail=0 skip=0`，bridge 重连完成 `initialize`/`tools/list`/`ping`，四个发布文件哈希与本地一致，回滚副本 `/root/hutuji-bak-20260805-bdbb107/`——真值以 `../docs/release-readiness.md` 为准 |
+| VPS 实机部署与验收 | ✅ 2026-08-07 已发布 vpype `SIGSYS` 修复、服务沙箱内 `ExecStartPre` 生成自检与 Agnes `agnes-2.5-flash` 配置；后续针对 Agnes 响应头随机挂起，增加 15s 单次等待、最多三次有限重试与 `max_tokens=1200`。生产 `pass=19 fail=0 expected=19`，真实链在两次 ReadTimeout 后第三次成功（39.87s、296 行 G-code），回滚副本 `/root/hutuji-bak-20260807-231210-agnes-retry/`。App 两步衔接和实机运动仍待复验；真值以 `../docs/release-readiness.md` 为准 |
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
@@ -56,8 +56,8 @@ bash /opt/hutuji/deploy/prepare-host.sh
 1. 填 `/etc/hutuji/mcp.env`、`bridge.env`（`chmod 600`）。  
 2. 放 TLS 到 `/etc/nginx/ssl/hutuji/{fullchain,privkey}.pem`（或改 nginx 路径）。  
 3. `bash /opt/hutuji/deploy/install-from-repo.sh`  
-4. `systemctl enable --now hutuji-mcp hutuji-cloud-bridge nginx`  
-5. `nginx -t && systemctl reload nginx`，成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 19 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，故**必须先装好 venv 依赖**（vpype/vpype-gcode）并同步 `hutuji_mcp/hutuji_gwrite.toml`，否则该项判 fail——这正是它存在的意义。另：`check_units_match_templates` 要求 scp 完 unit 后必须 `systemctl daemon-reload`，否则即便文件与模板一致也判 fail；`check_catchall_behavior` 要求 `:80` 兜底按 `$http_x_forwarded_proto` 分流（隧道回源 404、明文 301），无条件 301 即自指死循环、无条件 404 则丢掉明文强制 HTTPS。
+4. `systemctl enable hutuji-mcp hutuji-cloud-bridge nginx && systemctl restart hutuji-mcp hutuji-cloud-bridge && systemctl start nginx`。必须显式 `restart`：更新时服务通常已经 active，`enable --now` 不会重启，新增的 `ExecStartPre` 也就不会执行。
+5. `nginx -t && systemctl reload nginx`，成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 19 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，故**必须先装好 venv 依赖**（vpype/vpype-gcode）并同步 `hutuji_mcp/hutuji_gwrite.toml`，否则该项判 fail。它运行在 systemd 服务外，不能覆盖 unit 的 syscall 沙箱；`hutuji-mcp.service` 的 `ExecStartPre=...gcode_gen --self-test` 必须在重启时另行通过，且 `SystemCallFilter` 只能按模板为 vpype 数值依赖放行 `mbind`。另：`check_units_match_templates` 除要求 unit 模板一致、已 `daemon-reload`、无 drop-in 外，还要求 `ExecStartPre` 已成功退出，且 MCP 主进程不早于本次部署的 unit、包内 Python 代码和 profile；只 reload 不 restart 会判 fail。`check_catchall_behavior` 要求 `:80` 兜底按 `$http_x_forwarded_proto` 分流（隧道回源 404、明文 301），无条件 301 即自指死循环、无条件 404 则丢掉明文强制 HTTPS。
 6. 公网：`/mcp` 须 404；**`/docs`、`/redoc`、`/openapi.json` 与任意随机路径也须 404**（历史上它们是自指 301 环，见 `../docs/deployment.md`）；直连明文 `http://117.72.118.95/files/*` 须 403 而其他路径须 301；`/files/` 只经 HTTPS。
 7. 小智控制台 `tools/list`（阶段 6）；证据写入 `docs/templates/release-manifest.md`。
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import os
@@ -1759,10 +1760,11 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     `ProtectSystem=strict`、`SystemCallFilter` 等指令一旦漂移，监听面还有第 5/6
     项兜着，加固项则无人验证。
 
-    四条判据缺一不可：md5 一致（堵手改/漏同步）、`NeedDaemonReload=no`（systemd
+    静态四条判据缺一不可：md5 一致（堵手改/漏同步）、`NeedDaemonReload=no`（systemd
     用加载时快照，忘了 reload 时磁盘一致而在跑的是旧配置）、`FragmentPath` 指向
     `/etc/systemd/system`（排除 `/lib` 残留）、无 drop-in（drop-in 能静默覆盖
-    ExecStart 与全部加固项，存在时前三条什么都证明不了）。
+    ExecStart 与全部加固项，存在时前三条什么都证明不了）。此外必须验证 MCP 的
+    ExecStartPre 实际成功，并拒绝早于本次部署文件的旧主进程。
     """
     root = Path(__file__).resolve().parents[2]
     preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
@@ -1797,6 +1799,75 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     # drop-in 搜索面必须覆盖 systemd 真实读取的四个层级。
     for d in ("/etc/systemd/system", "/run/systemd/system", "/usr/lib/systemd/system"):
         assert d in preflight_code, d
+
+    # daemon-reload 与 enable --now 都不会重启已 active 的服务。必须读取运行时
+    # ExecStartPre 结果，并用主进程启动时间覆盖本次 unit/代码/profile 的 mtime。
+    assert "check_mcp_prestart_and_restart()" in preflight
+    assert "systemctl show hutuji-mcp -p ExecStartPre --value" in preflight_code
+    assert '[[ "$prestart" == *"hutuji_mcp.gcode_gen --self-test"* ]] || return 1' in preflight_code
+    assert '"$prestart" == *"code=exited"*' in preflight_code
+    assert '"$prestart" == *"status=0"*' in preflight_code
+    assert "ExecMainStartTimestamp --value" in preflight_code
+    assert 'date -d "$started" +%s' in preflight_code
+    assert 'stat -c %Y "$path"' in preflight_code
+    for deployed in (
+        "/etc/systemd/system/hutuji-mcp.service",
+        "/opt/hutuji/deploy/hutuji-mcp.service",
+        "/opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml",
+        "/opt/hutuji/mcp-server/hutuji_mcp/*.py",
+    ):
+        assert deployed in preflight_code, deployed
+    assert "(( start_epoch < newest ))" in preflight_code
+    assert "check_mcp_prestart_and_restart" in preflight_code
+
+
+def test_mcp_unit_self_tests_vpype_inside_sandbox_and_only_allows_mbind() -> None:
+    """服务启动必须在真实 seccomp 下跑 vpype，且 @resources 只放行其必需的 mbind。"""
+    root = Path(__file__).resolve().parents[2]
+    unit = (root / "deploy" / "hutuji-mcp.service").read_text(encoding="utf-8")
+
+    assert "ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.gcode_gen --self-test" in unit
+    assert "SystemCallFilter=~@privileged @resources @obsolete" not in unit
+    assert "SystemCallFilter=~@privileged @obsolete" in unit
+    denied_resources = next(
+        line for line in unit.splitlines()
+        if line.startswith("SystemCallFilter=~ioprio_set ")
+    ).split("=~", 1)[1].split()
+    assert "mbind" not in denied_resources
+    assert set(denied_resources) == {
+        "ioprio_set", "migrate_pages", "move_pages", "nice", "sched_setaffinity",
+        "sched_setattr", "sched_setparam", "sched_setscheduler", "set_mempolicy",
+        "set_mempolicy_home_node", "setpriority", "setrlimit",
+    }
+
+
+def test_gcode_module_self_test_runs_real_generation_chain() -> None:
+    gcode_gen._run_self_test()
+    assert gcode_gen._main(["--self-test"]) == 0
+    assert gcode_gen._main([]) == 2
+
+
+def test_deploy_guidance_explicitly_restarts_active_application_services() -> None:
+    root = Path(__file__).resolve().parents[2]
+    install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
+    readme = (root / "deploy" / "README.md").read_text(encoding="utf-8")
+
+    restart = "systemctl restart hutuji-mcp hutuji-cloud-bridge"
+    assert restart in install
+    assert restart in readme
+    assert "enable --now hutuji-mcp hutuji-cloud-bridge nginx" not in install
+    assert "enable --now hutuji-mcp hutuji-cloud-bridge nginx" not in readme
+
+
+def test_xiaozhi_knowledge_base_uses_protocol_paper_change_timing() -> None:
+    root = Path(__file__).resolve().parents[2]
+    knowledge = (root / "docs" / "xiaozhi-agent" / "knowledge-base.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "换纸（约 10 秒）" not in knowledge
+    assert "通常需要 60 秒以上" in knowledge
+    assert "90 秒换纸应答上限" in knowledge
 
 
 def test_install_script_keeps_package_index_tls_verification() -> None:
@@ -2419,6 +2490,88 @@ def test_console_redirect_strips_auth_only_when_origin_changes() -> None:
     )
     assert same_origin is not None
     assert same_origin.get_header("Authorization") == "Bearer secret"
+
+
+def test_console_device_api_uses_separate_token_and_official_path(monkeypatch) -> None:
+    console = _load_root_script("hutuji_console_device_api_test", "xiaozhi_console.py")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"success":true,"data":{"accepted":true}}'
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+    monkeypatch.setattr(console, "get_device_token", lambda: "device-only-secret")
+    monkeypatch.setattr(console, "_URL_OPENER", FakeOpener())
+
+    result = console.device_api("POST", "/messaging/device/tools/call", {
+        "name": "hutuji.status",
+        "arguments": {},
+    })
+
+    request = captured["request"]
+    assert request.full_url == "https://xiaozhi.me/api/messaging/device/tools/call"
+    assert request.get_header("Authorization") == "Bearer device-only-secret"
+    assert json.loads(request.data) == {"name": "hutuji.status", "arguments": {}}
+    assert captured["timeout"] == 30
+    assert result["data"]["accepted"] is True
+
+
+@pytest.mark.parametrize("tool_name", [
+    "hutuji.status", "hutuji.abort", "hutuji.pause", "hutuji.resume",
+    "hutuji.repeat", "hutuji.pen_test",
+])
+def test_console_device_no_argument_tools_are_whitelisted(tool_name) -> None:  # noqa: ANN001
+    console = _load_root_script(
+        f"hutuji_console_device_{tool_name.replace('.', '_')}_test",
+        "xiaozhi_console.py",
+    )
+    assert console._parse_device_arguments(tool_name, None) == {}
+    with pytest.raises(ValueError, match="参数必须严格"):
+        console._parse_device_arguments(tool_name, '{"unexpected":1}')
+
+
+def test_console_device_draw_requires_exact_url_argument() -> None:
+    console = _load_root_script("hutuji_console_device_draw_test", "xiaozhi_console.py")
+    url = "https://hutuji.donglicao.com/files/draw_20260807_120000_abcdefghijklmnopqrstuv.gcode"
+
+    assert console._parse_device_arguments("hutuji.draw", json.dumps({"url": url})) == {
+        "url": url,
+    }
+    for raw in (None, "[]", "{}", '{"url":""}', '{"url":"x","extra":1}'):
+        with pytest.raises(ValueError):
+            console._parse_device_arguments("hutuji.draw", raw)
+    with pytest.raises(ValueError, match="不在白名单"):
+        console._parse_device_arguments("self.system.reboot", None)
+
+
+def test_console_device_output_redacts_capability_and_credentials() -> None:
+    console = _load_root_script("hutuji_console_device_redact_test", "xiaozhi_console.py")
+    text = (
+        '{"token":"device-secret","authorization":"Bearer bearer-secret",'
+        '"api_key":"sk-examplelongsecret",'
+        '"url":"https://hutuji.example/files/'
+        'draw_20260807_120000_abcdefghijklmnopqrstuv.gcode"}'
+    )
+
+    redacted = console._redact_device_text(text)
+
+    assert "device-secret" not in redacted
+    assert "bearer-secret" not in redacted
+    assert "sk-examplelongsecret" not in redacted
+    assert "abcdefghijklmnopqrstuv" not in redacted
+    assert redacted.count("<redacted>") == 4
 
 
 def _load_e2e_local():

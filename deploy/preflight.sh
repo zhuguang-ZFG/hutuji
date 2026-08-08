@@ -195,7 +195,7 @@ check_acl_response() {
   [[ "$denied" == "403" ]]
 }
 
-# 两个 unit 与固定模板一致，且 systemd 当前加载的就是它。
+# 两个 unit 与固定模板一致，且 systemd 当前加载并启动的就是本次部署版本。
 #
 # 此前只有「运行中 nginx conf 与模板一致」这一项，两个 unit 却没有对应判据——而它们
 # 的安装方式完全同构（`install-from-repo.sh:58-59` 从 `/opt/hutuji/deploy/` 复制到
@@ -203,7 +203,7 @@ check_acl_response() {
 # unit 里的 `--host 127.0.0.1`、`ProtectSystem=strict`、`SystemCallFilter` 等加固项
 # 全部可以缺失而 active 照样绿（监听面另有第 5/6 项覆盖，加固项则无人验）。
 #
-# 四条判据缺一不可，每条堵一种「文件对了但跑的不对」：
+# 前四条判据缺一不可，每条堵一种「文件对了但跑的不对」：
 #   ①LF 归一化 md5 与模板一致——堵手改与漏同步；
 #   ②`NeedDaemonReload=no`——systemd 用的是**加载时快照**，scp 完忘了 daemon-reload
 #     时磁盘文件与模板一致（①绿）而在跑的进程仍是旧配置，正是 nginx 那项要求
@@ -232,9 +232,45 @@ check_unit_matches_template() {
   done
 }
 
+# `daemon-reload` 只更新 unit 快照，不会重启已经 active 的服务；`enable --now` 对
+# 已 active 的服务同样不会重启。因此还要证明 hutuji-mcp 的本次启动确实执行了
+# 新增的沙箱内生成自检，且主进程不早于本次部署的 unit、代码和 profile。
+check_mcp_prestart_and_restart() {
+  local prestart started start_epoch newest path mtime
+  local -a deployed_files=(
+    /etc/systemd/system/hutuji-mcp.service
+    /opt/hutuji/deploy/hutuji-mcp.service
+    /opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml
+    /opt/hutuji/mcp-server/hutuji_mcp/*.py
+  )
+
+  prestart="$(systemctl show hutuji-mcp -p ExecStartPre --value 2>/dev/null)" || return 1
+  [[ "$prestart" == *"hutuji_mcp.gcode_gen --self-test"* ]] || return 1
+  [[ "$prestart" == *"code=exited"* && "$prestart" == *"status=0"* ]] || {
+    echo "hutuji-mcp 的 ExecStartPre 未在本次启动成功执行，须显式 restart" >&2
+    return 1
+  }
+
+  started="$(LC_ALL=C systemctl show hutuji-mcp -p ExecMainStartTimestamp --value 2>/dev/null)" || return 1
+  start_epoch="$(LC_ALL=C date -d "$started" +%s 2>/dev/null)" || return 1
+  [[ "$start_epoch" =~ ^[0-9]+$ ]] || return 1
+
+  newest=0
+  for path in "${deployed_files[@]}"; do
+    [[ -f "$path" ]] || return 1
+    mtime="$(stat -c %Y "$path" 2>/dev/null)" || return 1
+    (( mtime > newest )) && newest="$mtime"
+  done
+  if (( start_epoch < newest )); then
+    echo "hutuji-mcp 主进程早于本次 unit/代码/profile，须显式 restart" >&2
+    return 1
+  fi
+}
+
 check_units_match_templates() {
   check_unit_matches_template hutuji-mcp &&
-    check_unit_matches_template hutuji-cloud-bridge
+    check_unit_matches_template hutuji-cloud-bridge &&
+    check_mcp_prestart_and_restart
 }
 
 # 用**生产 venv 的真实转换链**造产物：vpype → gwrite --profile hutuji → §5 校验。
@@ -336,8 +372,8 @@ check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
-# active 不证明跑的是哪一版 unit：加固项可全部缺失而照样 active。
-check "两个 unit 与模板一致且已 daemon-reload、无 drop-in" check_units_match_templates
+# active 不证明跑的是哪一版 unit；daemon-reload 也不会重启旧进程。
+check "两个 unit 与模板一致，且已重启并通过 ExecStartPre" check_units_match_templates
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。
 # 404 必须排除：MCP 子应用挂载失败（server.py 的 app.mount("/", _mcp_app) 未生效）时
 # 裸 POST /mcp 由 FastAPI 返回 404，落在 ^[234] 内会把「端点已不存在」报成 pass。

@@ -25,15 +25,24 @@
     # 知识库召回测试
     python scripts/xiaozhi_console.py recall <kb_id> "画一只猫"
 
+    # 设备侧 MCP 工具列表（设备消息 token，不是控制台 JWT）
+    python scripts/xiaozhi_console.py device-tools
+
+    # 直接调用白名单内的设备侧工具
+    python scripts/xiaozhi_console.py device-call hutuji.status
+    python scripts/xiaozhi_console.py device-call hutuji.draw '{"url":"https://.../files/...gcode"}'
+
 环境变量:
     XIAOZHI_TOKEN  — Bearer token（必须；浏览器控制台 localStorage.getItem('token')）
+    XIAOZHI_DEVICE_TOKEN — 设备消息 Bearer token（自定义主题 URL 的 token 参数）
     XIAOZHI_API    — API 基址（默认 https://xiaozhi.me/api）
 """
 
 import json
 import os
+import re
 import sys
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -42,6 +51,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ROLE_PROMPT_PATH = REPO_ROOT / "docs" / "xiaozhi-agent" / "role-prompt.md"
 KNOWLEDGE_BASE_PATH = REPO_ROOT / "docs" / "xiaozhi-agent" / "knowledge-base.md"
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_DEVICE_TOOL_ARGUMENTS = {
+    "hutuji.status": frozenset(),
+    "hutuji.draw": frozenset({"url"}),
+    "hutuji.abort": frozenset(),
+    "hutuji.pause": frozenset(),
+    "hutuji.resume": frozenset(),
+    "hutuji.repeat": frozenset(),
+    "hutuji.pen_test": frozenset(),
+}
+_CAPABILITY_URL_RE = re.compile(
+    r"(?P<prefix>/files/)draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.gcode"
+)
+_TOKEN_FIELD_RE = re.compile(
+    r'(?i)("?(?:token|api[_-]?key|authorization)"?\s*[:=]\s*)'
+    r'("[^"]*"|[^,\s}]+)'
+)
+_BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+_SK_KEY_RE = re.compile(r"(?i)(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{8,}")
 
 
 def _validate_api_base(value: str) -> str:
@@ -100,6 +127,17 @@ def get_token():
     return token
 
 
+def get_device_token():
+    """设备消息 token 与控制台 JWT 分离，避免拿错凭据跨接口发送。"""
+    token = os.environ.get("XIAOZHI_DEVICE_TOKEN", "").strip()
+    if not token:
+        print("错误: 未设置 XIAOZHI_DEVICE_TOKEN 环境变量", file=sys.stderr)
+        print("获取方式: 小智控制台打开设备自定义主题，读取 URL 的 token 参数",
+              file=sys.stderr)
+        sys.exit(1)
+    return token
+
+
 def api(method, path, body=None):
     token = get_token()
     url = f"{API_BASE}{path}"
@@ -116,6 +154,56 @@ def api(method, path, body=None):
         body_text = e.read().decode(errors="replace")
         print(f"API 错误 {e.code}: {body_text}", file=sys.stderr)
         sys.exit(1)
+
+
+def device_api(method, path, body=None):
+    """调用官方设备消息 API；响应和错误正文先脱敏再输出。"""
+    token = get_device_token()
+    url = f"{API_BASE}{path}"
+    headers = {"Authorization": f"Bearer {token}"}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = Request(url, data=data, headers=headers, method=method)
+    try:
+        with _URL_OPENER.open(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        body_text = _redact_device_text(exc.read().decode(errors="replace"))
+        print(f"设备 API 错误 {exc.code}: {body_text}", file=sys.stderr)
+        sys.exit(1)
+    except URLError as exc:
+        print(f"设备 API 网络错误: {type(exc.reason).__name__}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _redact_device_text(text: str) -> str:
+    text = _CAPABILITY_URL_RE.sub(r"\g<prefix><redacted>", text)
+    text = _BEARER_RE.sub("Bearer <redacted>", text)
+    text = _TOKEN_FIELD_RE.sub(r'\1"<redacted>"', text)
+    return _SK_KEY_RE.sub("<redacted>", text)
+
+
+def _parse_device_arguments(tool_name: str, raw: str | None) -> dict:
+    expected = _DEVICE_TOOL_ARGUMENTS.get(tool_name)
+    if expected is None:
+        allowed = ", ".join(sorted(_DEVICE_TOOL_ARGUMENTS))
+        raise ValueError(f"设备工具不在白名单：{tool_name}；允许：{allowed}")
+    try:
+        arguments = {} if raw is None else json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("arguments 必须是 JSON object") from exc
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments 必须是 JSON object")
+    if frozenset(arguments) != expected:
+        names = ", ".join(sorted(expected)) or "无参数"
+        raise ValueError(f"{tool_name} 参数必须严格为：{names}")
+    if tool_name == "hutuji.draw":
+        url = arguments.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("hutuji.draw 的 url 必须是非空字符串")
+    return arguments
 
 
 def api_upload(path, file_path):
@@ -316,6 +404,24 @@ def cmd_recall(kb_id, query):
         print(f"召回结果: {chunks}")
 
 
+def cmd_device_tools():
+    result = device_api("POST", "/messaging/device/tools/list")
+    print(_redact_device_text(json.dumps(result, ensure_ascii=False, indent=2)))
+
+
+def cmd_device_call(tool_name: str, raw_arguments: str | None = None):
+    try:
+        arguments = _parse_device_arguments(tool_name, raw_arguments)
+    except ValueError as exc:
+        print(f"错误: {exc}", file=sys.stderr)
+        sys.exit(2)
+    result = device_api("POST", "/messaging/device/tools/call", {
+        "name": tool_name,
+        "arguments": arguments,
+    })
+    print(_redact_device_text(json.dumps(result, ensure_ascii=False, indent=2)))
+
+
 def cmd_sync(agent_id):
     print("=== 同步呼图机智能体 ===\n")
 
@@ -380,6 +486,14 @@ def main():
             print("用法: recall <kb_id> <query>", file=sys.stderr)
             sys.exit(1)
         cmd_recall(sys.argv[2], sys.argv[3])
+    elif cmd == "device-tools":
+        cmd_device_tools()
+    elif cmd == "device-call":
+        if len(sys.argv) not in {3, 4}:
+            print("用法: device-call <tool_name> [arguments_json]", file=sys.stderr)
+            sys.exit(1)
+        raw_arguments = sys.argv[3] if len(sys.argv) == 4 else None
+        cmd_device_call(sys.argv[2], raw_arguments)
     elif cmd == "sync":
         if len(sys.argv) < 3:
             print("用法: sync <agent_id>", file=sys.stderr)

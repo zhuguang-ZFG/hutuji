@@ -321,26 +321,42 @@ $hasBom = ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)   # 必须 Tr
 `paper_auto_change` 成功收尾处被调用一次**(`:998`),任何 `paper_disable_drivers()`
 (`:388`)都会清零——含**Grbl 复位**,因为它是 RAM 里的 `volatile bool`。
 
-## `SerialPort` 拉高 DTR/RTS 后 `Close()` 会复位 Grbl（2026-08-07 实测）
+## `SerialPort` 打开/关闭 COM 口可能复位 Grbl（2026-08-07 实测）
 
 **现象**：脚本 A 发 `M30` 送纸成功（`PanelHold=On`）并 `Close()`；紧接着脚本 B 打开同一 COM
 口，读到的第一段是**开机横幅**（`Grbl_ESP32 Ver 1.3a ...`），`MPos` 从 `10.000,0.000,0.000`
 归零，`PanelHold` 变 `Off`——纸虽然物理上还在台面，**电机夹持已随复位释放**。
 
-**根因**:`.NET SerialPort` 显式 `$sp.DtrEnable = $true` / `$sp.RtsEnable = $true` 后,
-`Close()` 时这两条线被解除,跳变经 CH340 打到 ESP32 的自动复位电路。横幅在 Close 那一刻发出、
-留在 OS 输入缓冲里,所以**看起来像是下一次 Open 造成的**,其实不是。同轮对照:显式设
-`$false` 打开时 `OPEN-EMITTED: (nothing)`,确认无复位。
+**已证事实**:`.NET SerialPort` 显式 `$sp.DtrEnable = $true` / `$sp.RtsEnable = $true` 后,
+`Close()` 紧接着出现开机横幅、`MPos` 归零且 `PanelHold` 清零,说明该打开/关闭周期确实触发了
+复位。早先同轮对照中,显式设 `$false` 后 `OPEN-EMITTED: (nothing)`,曾被解释为“打开不复位”。
+
+**2026-08-07 20:52 复测收紧**:COM10 从“设备无响应”恢复后,`diag.ps1` 仍在 `Open()` 前显式
+设置 DTR/RTS 为 `$false`;打开后 400ms 的 `OPEN-EMITTED` 为空,但发送只读 `?` 并再等 600ms
+后收到完整开机横幅。随后不再打开串口,Grbl `192.168.1.13` 与 S3 `192.168.1.12` 均恢复为
+连续 3/3 ping。该单次样本不能区分是本次 Open 触发、设备此前已在重启,还是横幅延迟到达,
+但足以否定“`OPEN-EMITTED` 为空即可证明未复位”。因此**不得再把 DTR/RTS=false 当成无复位保证**。
 
 **规避**:
-- 一律显式 `$sp.DtrEnable = $false` / `$sp.RtsEnable = $false` **在 `Open()` 之前**设置。
-- **有状态的多步操作必须写在同一脚本内、全程只 Open 一次**——送纸与出图之间任何 `Close()`
-  都是复位窗口,会把 `PanelHold` 这类 RAM 状态清零。
-- 判断「是否刚复位」看两个指标:输出里有开机横幅,或 `MPos` 意外归零。
+- 仍应在 `Open()` 前显式设置 DTR/RTS 为 `$false`,但只把它当减小复位风险,不当保证。
+- 把任何 Open/Close 周期都视为潜在复位点;打开后先等启动窗口结束并重新确认授权、fresh `Idle`
+  与纸张夹持状态,再执行有状态操作。
+- **有状态的多步操作必须写在同一脚本内、全程只 Open 一次**——送纸与出图之间不得 Close/reopen。
+- 判断「是否刚复位」不能只看打开后首个缓冲;须覆盖启动窗口持续采集,并核对开机横幅、`MPos`
+  是否意外归零、`PanelHold` 是否清零。
 
-**已知未解**:本轮 14 行出图全部 `ok`、笔已抬起之后,COM10 端点卡死——枚举仍在、PnP
-`CM_PROB_NONE`、`Open()` 报「设备没有响应」、`Disable-PnpDevice` 软重插需管理员权限。
-只能**物理重插 USB** 恢复。根因与复现条件未定,不要写成结论。
+**恢复后受控复测**：COM10 使用 WCH `3.9.2024.9` 驱动，父设备不是 Root Hub，而是
+`USB\VID_058F&PID_6254` 通用 Hub；同一 Hub 还挂视频适配器与 USB 网卡。`DTR/RTS=false`
+连续做 5 轮 Open/Close，只发送 `?` 与 `[ESP901]`：5/5 打开和状态应答成功、0 次启动横幅、
+0 次端点失效。Close 后 40 次 ping 有 7 次零散丢包，但没有连续掉线后恢复形状，不能据此判复位。
+Windows 当前电源方案的「USB 选择性暂停」原为 AC/DC `1/1`，已改为 `0/0`；切换后保持同一
+COM10 句柄在线，PnP 仍为 `CM_PROB_NONE`。
+
+**已知未解**：本轮较早的 14 行出图全部 `ok`、笔已抬起之后，COM10 端点确曾卡死——枚举仍在、
+PnP `CM_PROB_NONE`、`Open()` 报「设备没有响应」。恢复原因和复现条件仍未定，5 轮空闲复测不能
+覆盖电机负载。下一轮应先把 CH340 移到主板直连端口，再做「直连/当前 Hub × 空闲/出图」A/B；
+卡死时用管理员 `pnputil /restart-device "<instance-id>"` 取代反复 Open，不先回滚当前驱动。
+不要把 Hub 或选择性暂停写成已证根因。
 
 ## `G91` 手动片段会把 X 一路顶到机械死点（2026-08-07 用户实测指出）
 
@@ -393,8 +409,12 @@ AST `ParseFile` 静态校验（PARSE OK）。
 | 现象 | 可能原因 | 处置 |
 |------|----------|------|
 | `hutuji_draw` 报未配置 LLM | 缺 `HUTUJI_LLM_API_KEY` | 进程环境注入；勿写仓库 |
+| LLM 间歇返回 `429`/`5xx`，或长时间不返回响应头 | 上游限流、排队或瞬时网络故障 | 当前单次网络等待 15s；网络错误与 `429/500/502/503/504` 最多退避重试两次（1s/3s，总上界约 49s），鉴权和其他 4xx 直接失败。生产实测过前两次 ReadTimeout、第三次成功；持续失败应查 provider 配额与可用性，不要恢复 120s 单连接等待或无限重试占满绘图并发槽 |
+| vpype 报 `exit -31`，内核审计含 `sig=31 syscall=237` | systemd seccomp 把 x86_64 `mbind` 拦成 `SIGSYS` | 对齐当前 `hutuji-mcp.service`：用逐项 `SystemCallFilter` 保留其他资源类禁用项，仅放行 `mbind`；执行 `daemon-reload` 后重启，并确认服务沙箱内 `ExecStartPre` 自检为 `0/SUCCESS` |
+| preflight 生成链通过，但真实请求仍在 vpype 退出 | `check_generate_chain` 在 systemd 服务外运行，未覆盖 unit 的 syscall 沙箱 | 先查 `journalctl -u hutuji-mcp` 与内核审计；当前 unit 的 `ExecStartPre=...gcode_gen --self-test` 才是服务沙箱内判据。两项都要保留，职责不同 |
 | CRC32 总失败 | 变体不一致 | 两侧钉 zlib/IEEE（`zlib.crc32`） |
 | 下载 404 | TTL 过期或 token 错 | 重新 `hutuji_draw`；查 `HUTUJI_OUTPUT_TTL_SECONDS` |
+| `hutuji_draw` 最终生成成功，但 nginx 无 S3 `/files` 下载、Grbl 一直 `Idle` | 小智官方云不支持 10 秒级慢 MCP（维护者答复 `78/xiaozhi-esp32#964`）；Agnes 新提示实测 39.50s，同轮第二个设备工具因实时窗口结束或多工具漏调（`#1011`）而未执行。重复慢调用还会排队生成重复产物 | 临时验收：用设备“自定义主题”URL 的 token 设置 `XIAOZHI_DEVICE_TOKEN`，先跑 `python scripts/xiaozhi_console.py device-tools`，再以新鲜能力 URL 跑 `device-call hutuji.draw '{"url":"..."}'`。产品修复：MCP 快速返回、后台异步生成，完成后经官方 `/api/messaging/device/tools/call` 主动调 `hutuji.draw`；实施前须定义任务幂等、失败状态、token 保管与服务重启恢复。不要再靠增加同步重试或只改提示词 |
 | 公网能打 `/mcp` | nginx/防火墙配错 | **立即**关掉；只暴露 `/files` + TLS |
 | 小智看不到工具 | 桥接未起或 `MCP_ENDPOINT` 错 | 查 `cloud_bridge` 与 smoke；接入点禁入库 |
 | VPS 服务起不来 | venv/路径/EnvironmentFile | 见 `deployment.md` 与 `journalctl -u hutuji-mcp` |

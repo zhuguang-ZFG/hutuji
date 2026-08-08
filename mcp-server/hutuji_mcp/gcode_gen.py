@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,6 +83,22 @@ logger = logging.getLogger(__name__)
 
 class GcodeError(RuntimeError):
     """G-code 转换或合同校验失败。"""
+
+
+_SELF_TEST_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" viewBox="0 0 190 277">
+<path d="M20 20 L30 30 L40 20" fill="none" stroke="black" stroke-width="0.5"/>
+</svg>"""
+
+
+def _run_self_test() -> None:
+    """在 systemd ExecStartPre 沙箱内跑一次真实 vpype + profile + §5 校验。"""
+    with tempfile.TemporaryDirectory(prefix="hutuji-gcode-selftest-") as tmp:
+        svg_path = Path(tmp) / "probe.svg"
+        gcode_path = Path(tmp) / "probe.gcode"
+        svg_path.write_text(_SELF_TEST_SVG, encoding="ascii")
+        stats = svg_to_gcode(svg_path, gcode_path)
+        if stats.lines <= 0 or stats.bytes <= 0:
+            raise GcodeError("生产生成链自检得到空产物")
 
 
 def _arc_center(
@@ -567,3 +584,16 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
         )
 
     return GcodeStats(lines=len(lines), bytes=total_bytes, pen_lifts=pen_lifts)
+
+
+def _main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args != ["--self-test"]:
+        print("usage: python -m hutuji_mcp.gcode_gen --self-test", file=sys.stderr)
+        return 2
+    _run_self_test()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

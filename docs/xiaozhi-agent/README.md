@@ -1,10 +1,14 @@
 # 小智云智能体配置（让呼图机更聪明）
 
-> 目标：小智云负责「听懂 + 选工具」；绘图质量由京东云 MCP + **llm7**（现行）决定。  
+> 目标：小智云负责「听懂 + 选工具」；绘图质量由京东云 MCP + **Agnes `agnes-2.5-flash`**（现行；llm7 为历史配置）决定。
 > 本目录是**可粘贴到控制台**的文稿，不含密钥。  
 > **进度（2026-07-26）**：全部通过脚本自动同步完成。模型 DeepSeek V4；角色提示含 few-shot + 智能补全策略（2459 字符）；知识库含硬件规格/故障排查/创意玩法/对话风格；助手自称已改为「呼图机」。S3 屏幕 UI 文案已定制（待构建烧录）。
 > **2026-07-31 事实对齐**：role-prompt 与 knowledge-base 已补「出图两步衔接」（云端 `hutuji_draw` 只返 url，须再调设备 `hutuji.draw`(url) 才落笔；原 KB「自动衔接」为假）、暂停超 10 分钟自动取消、可画区 190×277、断连从开头重画。**本批只改本仓文稿**；云端生效须用户在控制台重取 JWT 后跑 `python scripts/xiaozhi_console.py sync 2094251`（旧 token 已 401 失效，见 `release-readiness.md` #10），sync 前云端仍是旧文稿。
 > **2026-08-07 云端已真同步（本条 supersede 上条「sync 前云端仍是旧文稿」）**：用户重取 JWT 后跑 `sync 2094251` 成功——云端 `character` 与仓库 `role-prompt.md` 逐字节一致（2443 字符，md5 `d1ef811fba1c`），KB 换成新文档 `65569`（旧 `63334` 已删），召回测三问各 5 命中并返回新 few-shot 内容。**过程暴露一个此前从未触发的硬限**：云端 `character` 上限 **2000 tokens**，超限 `POST /agents/{id}/config` 返回 400 `CHARACTER_LENGTH_LIMIT`；07-31 那批修正把 role-prompt 写到 3675 字符，**当时 token 已 401，从未真正试过同步，故该限制一直没暴露**。现按「行为规则留角色提示、参考材料下沉知识库」重排：few-shot 对话示例（1085 字符）移入 `knowledge-base.md`（KB 无 token 限制），三条行为规则（两步衔接 / 暂停超 10 分钟自动取消 / 断连从开头重画）全部保留在角色提示内。**改 `role-prompt.md` 前先算上传字符数**（`cmd_update_role` 只剥第一行 `# ` 标题，其余全部上传），2443 字符可过、3675 必拒。
+> **2026-08-07 设备 MCP 官方消息入口补查**：此前只探测 11 个猜测路由并据其 404 断言「PC 无设备工具入口」，该全称结论错误。上游维护者在 `78/xiaozhi-esp32#1956` 给出官方入口 `POST /api/messaging/device/tools/list` 与 `POST /api/messaging/device/tools/call`，并指向 `78/xiaozhi-assets-generator` 的现役调用代码；本机无认证请求已得到 `No token provided`，证明路由存在。该入口使用设备消息 token（官方示例从自定义主题 URL 取得），当前终端未持有，故认证后的七工具列表与 `hutuji.draw` 调用仍待验证；不要再用那 11 个 404 推导「不存在入口」。
+> **2026-08-07 直调客户端已落地**：`scripts/xiaozhi_console.py` 新增 `device-tools` / `device-call`，使用独立 `XIAOZHI_DEVICE_TOKEN`，只允许七个 `hutuji.*` 工具，严格校验参数并脱敏能力 URL、Bearer、token 与 API key。定向 9 项通过；完整 hub `339 passed` + e2e PASS；假 token 在线探针准确返回 401 `Invalid token`。真实 token 的 `tools/list` 与运动调用仍未验证。
+> **2026-08-08 知识库契约纠错（仅本地）**：`knowledge-base.md` 原称坐标越界会被云端裁掉、画面会自动适配纸张，且没有把「漏调设备 `hutuji.draw(url)`」列入纸不动原因，换纸停止语义也不完整；现已对齐 `protocol.md`：越界整幅拒绝并说明原因，不裁剪、不静默缩放；生成成功后必须执行设备侧第二步；换纸中停止请求要等当前换纸完成后生效。云端现役 KB 文档 `65569` 尚未同步这组纠错；当前进程/User/Machine 三个环境作用域均无 `XIAOZHI_TOKEN`，取得控制台 JWT 后须重新执行 `python scripts/xiaozhi_console.py sync 2094251` 并复核召回结果。
+> **2026-08-08 慢 MCP 根因确认（只读社区复核 + 生产实测）**：小智维护者在 `78/xiaozhi-esp32#964` 明确说明官方云不支持 10 秒级慢 MCP，请求其他大模型应走异步 A2A；当前尚不支持 A2A，建议 MCP 先快速返回“进行中”，后续再查状态。`#1011` 还记录了同轮多设备工具会概率漏调，故角色提示不能保证第二步。生产同提示实测：`agnes-2.0-flash` 2/2 在三轮 15 秒尝试后失败；`agnes-2.5-flash` 首个新请求 39.50 秒，完全相同提示的缓存命中才是 0.30 秒。现有证据支持“生成成功但纸不动”主因是长调用越过云端实时窗口，而非 S3/Grbl 不在线。临时验收可用官方设备消息 API 直调；产品级修复需异步生成完成后再通过该 API 调设备 `hutuji.draw`，仍待设备消息 token 与 MCP 代码改动授权。
 
 ## 当前配置快照
 
@@ -42,6 +46,12 @@ python scripts/xiaozhi_console.py sync 2094251
 python scripts/xiaozhi_console.py update-role 2094251   # 仅角色提示
 python scripts/xiaozhi_console.py update-kb 71153       # 仅知识库
 python scripts/xiaozhi_console.py recall 71153 "画一只猫"  # 召回测试
+
+# 3. 设备消息 token 来自设备“自定义主题”URL 的 token 参数，不是上面的控制台 JWT
+$env:XIAOZHI_DEVICE_TOKEN='...'
+python scripts/xiaozhi_console.py device-tools
+python scripts/xiaozhi_console.py device-call hutuji.status
+python scripts/xiaozhi_console.py device-call hutuji.draw '{"url":"https://hutuji.donglicao.com/files/<capability>.gcode"}'
 ```
 
 详见 `scripts/xiaozhi_console.py`。
@@ -51,7 +61,7 @@ python scripts/xiaozhi_console.py recall 71153 "画一只猫"  # 召回测试
 | 层 | 谁 | 变聪明靠什么 |
 |----|-----|--------------|
 | 对话/意图 | 小智云（DeepSeek V4） | 角色提示 + 知识库 + few-shot 对话示例 |
-| 出图 | 京东云 MCP `llm_svg.py` | `SYSTEM_PROMPT` + **llm7**（现行；FreeModel 可作备用） |
+| 出图 | 京东云 MCP `llm_svg.py` | `SYSTEM_PROMPT` + Agnes `agnes-2.5-flash`（现行；llm7 为历史配置） |
 
 ## 验收话术
 

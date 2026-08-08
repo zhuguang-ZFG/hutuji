@@ -13,7 +13,7 @@
 | 上行实测 | **2026-07-26**：公网拉 512KiB 中位 **1.13s / ~3.72 Mbps**（本机→`http://117.72.118.95/…`，3 轮；测完文件已删） |
 | 角色 | 专机只跑 ③（uvicorn + 小智桥接 + nginx） |
 | 冗余 | 无；单点 |
-| 实机业务 | **2026-07-27**：`hutuji-mcp` + **Cloudflare Tunnel HTTPS**（Let's Encrypt） + `hutuji-cloud-bridge` 已连小智 WSS；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；绘图 LLM = llm7 |
+| 实机业务 | `hutuji-mcp` + **Cloudflare Tunnel HTTPS**（Let's Encrypt） + `hutuji-cloud-bridge` 已连小智 WSS；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；**2026-08-07 起绘图 LLM = Agnes `agnes-2.5-flash`**（此前 llm7 为历史配置） |
 
 ## 拓扑
 
@@ -69,7 +69,7 @@
 - [x] 点名业务已停删（dlc-drawing / MySQL / Redis / qwen-gateway / nginx new-api）；UFW 仅 22/80/443  
 - [x] `/opt/hutuji` **本仓代码**就位  
 - [x] UFW 仅 22/80/443；8300 未放行（安全组请再复核一眼）  
-- [x] `mcp.env` 已填（llm7）；TLS 自签已放 `/etc/nginx/ssl/hutuji/`  
+- [x] `mcp.env` 已填（Agnes `agnes-2.5-flash`；密钥仅在机上 600 文件）；TLS 自签已放 `/etc/nginx/ssl/hutuji/`
 - [x] `bridge.env` 已填真实 `MCP_ENDPOINT`（600；禁入库）
 
 ### 实机清理（2026-07-26，用户点名后已执行）
@@ -93,16 +93,18 @@
 | 项 | 状态 | 证据 |
 |----|------|------|
 | 代码 → `/opt/hutuji` | ✅ | `requirements.txt` 在位；venv IMPORT_OK |
-| `mcp.env`（llm7） | ✅ | 本机 `generate_svg` 出 SVG_LEN≈1.4k |
+| `mcp.env`（Agnes `agnes-2.5-flash`） | ✅ 2026-08-07 | 本地完整链生成 1336B SVG、286 行/6891B G-code；生产真实链在“前两次 15s ReadTimeout、第三次成功”下总耗时 39.87s，生成 296 行/6870B G-code。请求限制 `max_tokens=1200`，网络错误及 `429/500/502/503/504` 最多重试两次（1s/3s）；当前协议消费 SVG 文本，故不用位图模型 |
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ 2026-08-07 生产 **19/19** | `pass=19 fail=0 expected=19`（19 项版本）。第 18 项「应用层已关 FastAPI 自动文档端点」与第 19 项「兜底路径：隧道回源态 404、明文直连 301（无自指 301 环）」**首次在生产通过**；`69c2198` 当时的 17/17 已被 supersede。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（无 skip）。`check_generate_chain` 要求生产 venv 依赖与 `hutuji_gwrite.toml` 齐备；`check_units_match_templates` 要求 scp 完 unit 后必须 `daemon-reload`；**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
+| `preflight.sh` 全 PASS | ✅ 2026-08-07 生产 **19/19（历史版本）** | `pass=19 fail=0 expected=19`（19 项版本）。第 18 项「应用层已关 FastAPI 自动文档端点」与第 19 项「兜底路径：隧道回源态 404、明文直连 301（无自指 301 环）」**首次在生产通过**；`69c2198` 当时的 17/17 已被 supersede。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（无 skip）。仓内现已强化 `check_units_match_templates`：除 unit 一致与 daemon-reload 外，还查 ExecStartPre 成功及主进程不早于本次 unit/代码/profile；该新增判据**尚未重新部署验证**，2026-08-07 的 19/19 不覆盖它。**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
 > TLS 已切 Cloudflare Tunnel + Let’s Encrypt（2026-07-27），ESP-IDF cert bundle 信任，S3 无需 `-k`。  
 > `install-from-repo.sh` 默认清华 HTTPS PyPI 源（京东云直连 PyPI 易卡住），不再使用 `--trusted-host` 绕过 TLS；私有 CA 场景显式传 `HUTUJI_PIP_CERT`。
+
+> **systemd 生成链边界（2026-08-07，2026-08-08 补运行态验真）**：preflight 的 `check_generate_chain` 在服务外验证生产 venv、profile 与 §5 校验器，但不能证明同一程序能穿过 unit 的 seccomp。生产曾出现 preflight 19/19 与真实 vpype `SIGSYS` 同时成立；内核审计定位到 `mbind`。当前 `hutuji-mcp.service` 用 `ExecStartPre=...python -m hutuji_mcp.gcode_gen --self-test` 在服务沙箱内真跑 vpype/profile/§5 自检，`SystemCallFilter` 仅从原 `@resources` 禁用组中放行 `mbind`。发布后必须 `daemon-reload` 并**显式 restart** 两个应用服务；`enable --now` 对 active 服务不会重启。仓内当前 19 项中的 unit 检查会读取 ExecStartPre 的实际成功结果，并要求 MCP 主进程不早于已部署 unit、包内 Python 文件和 profile；只 reload 未 restart 会判 fail。此补强尚未重新部署生产。
 
 ### nginx 站点收敛（2026-07-31 14:51–14:53，已执行）
 

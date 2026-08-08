@@ -6,7 +6,9 @@
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
 
-## 0. 一句话现状（2026-08-06）
+## 0. 一句话现状（2026-08-08）
+
+> **2026-08-08 最新 S3/发布包基线（supersede 下方旧烧录状态）**：xiaozhi HEAD `16f2f83` 已推远端、工作树无改动；host 13 tests OK。ESP-IDF v6.0.1 标准 release 已完整重建，app/merged/ZIP SHA256 分别为 `EAE65EB0...70ED8` / `6A5102D4...E3EC4` / `53BB05ED...2FF33`；最终 app 已写入 COM12 并通过 hash verify，板上 ELF SHA `62e1a12e5...` 与发布构建一致。七个 `hutuji.*`、WiFi、MQTT、Grbl Telnet、`M5`、fresh `Idle` 与行首 `G1 G53 X0.000 F1500` 授权探针均通过。当前 HEAD 的错误 CRC 路径也已用构建开关探针实测：48B 完整下载后置 error，零 `G92`/streaming/`M30`/Run，COM13 同期 174 条状态均 Idle/MPos=0；随后已回刷正式 app，板端 ELF 恢复且 `AutoTest` 0 命中。当前仍缺真实 `XIAOZHI_DEVICE_TOKEN`，所以正确 CRC、窗口应答配对、有效文件出图、纸面目视和 App 两步语音尚未复验；启动时写字机连接通知偶发早于 MQTT 的竞态也保留为观察项。详见 `release-readiness.md` 顶部与 `worktree-inventory.md` 最新条。
 
 > **2026-08-06 Grbl GitHub/社区复核结论（只读，无固件改动）**：针对「S3 修复而 Grbl 未改是否有遗漏」复核本 fork、`bdring/Grbl_Esp32` 上游与社区报告。结论是维持 Grbl `966723b`：255 字节 payload 丢行与 CRLF 双 `ok` 均来自上游接收语义，生产链已分别由 MCP 限制 254 字节和 S3 重切行封住；verbose error 与授权探针顺序同属客户端兼容责任。Telnet 社区已知的 `pbuf_free`/长任务停顿风险，本 fork 已有 §9-A/A2 的四参数 keepalive、递归锁和 `MSG_DONTWAIT` + 1s 绝对 deadline。`upstream/main...HEAD` 为 `0/101`，没有漏合并的上游提交；Grbl 与 S3 工作树均为空。重新执行 fz `standard` 得 `overall: pass exit=0`（optional Wokwi 层失败不改变该 profile；host SIL 不替代实机）。因此不扩大 §9 白名单，不改 `LINE_BUFFER_SIZE`、错误格式或 CRLF 接收逻辑。
 > **2026-08-06 生产部署验真与真机下载（S3 COM6，Grbl COM12）**：生产更新 `server.py`/`preflight.sh` 后首次重启尚未收敛，preflight 短暂为 `pass=12 fail=6`；等待 WSS、8300 与 MCP 会话稳定后重跑 **`pass=18 fail=0 expected=18`**。生产 venv 生成 14 行/243 字节合法 G-code；S3 通过生产 HTTPS 下载，日志记录 `下载完成 243 字节 crc_hdr=775b4f31`，完成授权后逐行发送、`Run→Idle`、`M30`、`[PaperStatus] 0`、最终 `state=done err= replayable=1`。真机下载、CRC、逐行转发和有纸换纸均已通过；出现多次普通 1s 应答等待超时但最终收敛，需后续专项调查。App 语音、纸面画质目视与出货签核仍未验证。
