@@ -274,13 +274,17 @@ async def bridge_once(config: BridgeConfig) -> None:
             stderr=asyncio.subprocess.PIPE,
             limit=MCP_PROXY_STREAM_LIMIT,
         )
-        _set_bridge_ready(True)
-        tasks = {
-            asyncio.create_task(_cloud_to_proxy(websocket, process)),
-            asyncio.create_task(_proxy_to_cloud(process, websocket)),
-            asyncio.create_task(_proxy_stderr(process)),
-        }
+        # ready 文件写入与 task 创建都必须在 try 之内：一旦它们抛错（运行时目录缺失、
+        # 权限不足、创建 task 时被取消），finally 才能回收刚 spawn 的 mcp-proxy。
+        # 否则 run_forever 每次重连都会再 spawn 一个,泄漏进程无上限累积。
+        tasks: set[asyncio.Task] = set()
         try:
+            _set_bridge_ready(True)
+            tasks = {
+                asyncio.create_task(_cloud_to_proxy(websocket, process)),
+                asyncio.create_task(_proxy_to_cloud(process, websocket)),
+                asyncio.create_task(_proxy_stderr(process)),
+            }
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             first_error: BaseException | None = None
             for task in done:

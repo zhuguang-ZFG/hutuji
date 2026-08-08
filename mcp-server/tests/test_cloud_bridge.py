@@ -442,3 +442,36 @@ def test_bridge_reaps_proxy_when_stderr_line_exceeds_limit(
 
     asyncio.run(exercise())
     assert processes[0].returncode is not None
+
+
+def test_bridge_reaps_proxy_when_ready_marker_write_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ready 文件写失败也必须回收刚 spawn 的 mcp-proxy。
+
+    `_set_bridge_ready(True)` 若留在 try 之外，运行时目录缺失/权限不足就会在
+    spawn 之后、finally 生效之前抛错 → mcp-proxy 变孤儿；`run_forever` 每次
+    重连再 spawn 一个，泄漏无上限累积。
+    """
+    import asyncio
+
+    cloud_bridge, processes = _capture_proxy_process(
+        monkeypatch, "import time; time.sleep(60)"
+    )
+
+    def exploding_ready(ready: bool) -> None:
+        if ready:
+            raise OSError("运行时目录不可写")
+
+    monkeypatch.setattr(cloud_bridge, "_set_bridge_ready", exploding_ready)
+
+    async def exercise() -> None:
+        with pytest.raises(OSError, match="运行时目录不可写"):
+            await cloud_bridge.bridge_once(cloud_bridge.BridgeConfig(
+                endpoint="wss://example.invalid/mcp?token=secret",
+                local_mcp_url="http://127.0.0.1:8300/mcp",
+            ))
+
+    asyncio.run(exercise())
+    assert processes, "应已 spawn mcp-proxy 才能验证回收"
+    assert processes[0].returncode is not None

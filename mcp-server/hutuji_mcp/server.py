@@ -147,7 +147,11 @@ def _delete_output_pair(stem: str) -> None:
         try:
             (settings.output_dir / f"{stem}{suffix}").unlink(missing_ok=True)
         except OSError as exc:
-            logger.warning("删除过期产物失败 %s：%s", f"{stem}{suffix}", exc)
+            logger.warning(
+                "删除过期产物失败 %s：%s",
+                _redact_capability_name(f"{stem}{suffix}"),
+                exc,
+            )
 
 
 def _is_expired(path: Path, *, now: float | None = None) -> bool:
@@ -213,7 +217,7 @@ def _cleanup_expired_outputs(*, now: float | None = None) -> int:
                     expired_stems.add(path.stem)
             except OSError as exc:
                 # mtime 拿不到（权限/竞态）→ 跳过该项，不穿透
-                logger.warning("跳过清理 %s：%s", path.name, exc)
+                logger.warning("跳过清理 %s：%s", _redact_capability_name(path.name), exc)
                 continue
 
     deleted = 0
@@ -226,7 +230,11 @@ def _cleanup_expired_outputs(*, now: float | None = None) -> int:
             except FileNotFoundError:
                 pass
             except OSError as exc:
-                logger.warning("删除过期产物失败 %s：%s", path.name, exc)
+                logger.warning(
+                    "删除过期产物失败 %s：%s",
+                    _redact_capability_name(path.name),
+                    exc,
+                )
     return deleted
 
 
@@ -270,7 +278,11 @@ async def hutuji_draw(description: str) -> str:
                 try:
                     path.unlink(missing_ok=True)
                 except OSError as exc:
-                    logger.warning("清理失败产物失败 %s：%s", path.name, exc)
+                    logger.warning(
+                        "清理失败产物失败 %s：%s",
+                        _redact_capability_name(path.name),
+                        exc,
+                    )
         raise
 
     assert gcode_path is not None

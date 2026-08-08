@@ -721,6 +721,50 @@ def test_delete_output_pair_logs_unlink_failure(
     assert "denied" in caplog.text
 
 
+def test_cleanup_warning_logs_never_leak_capability_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """产物清理路径的 warning 必须走 `_redact_capability_name`。
+
+    这些 warning 会进 journald。`_is_expired` 抛错跳过与失败绘制清理两条路径上，
+    token 可能**仍在 TTL 窗口内有效**，直接记原名等于把 capability URL 写进日志。
+    """
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    token = "AbCdEf_GhIjKlMnOpQrStU"
+    assert len(token) == 22
+    stem = f"draw_20260805_120000_{token}"
+    (tmp_path / f"{stem}.gcode").write_text("G21\nG90\n", encoding="utf-8")
+
+    def denied(*_args, **_kwargs) -> None:
+        raise PermissionError("denied")
+
+    with caplog.at_level(logging.WARNING):
+        # 站点一：_delete_output_pair 的 unlink 失败
+        monkeypatch.setattr(Path, "unlink", denied)
+        server._delete_output_pair(stem)
+        monkeypatch.undo()
+        monkeypatch.setattr(server, "settings", _settings(tmp_path))
+
+        # 站点二：_is_expired 抛 OSError → 跳过该项
+        monkeypatch.setattr(
+            server, "_is_expired", lambda *_a, **_k: (_ for _ in ()).throw(PermissionError("stat"))
+        )
+        server._cleanup_expired_outputs()
+        monkeypatch.undo()
+        monkeypatch.setattr(server, "settings", _settings(tmp_path))
+
+        # 站点三：已过期但 unlink 失败
+        monkeypatch.setattr(server, "_is_expired", lambda *_a, **_k: True)
+        monkeypatch.setattr(Path, "unlink", denied)
+        server._cleanup_expired_outputs()
+
+    assert "删除过期产物失败" in caplog.text
+    assert "跳过清理" in caplog.text
+    assert token not in caplog.text
+    # 结构化脱敏形态：保留时间戳前缀，token 整段变 `*`
+    assert f"draw_20260805_120000_*.gcode" in caplog.text
+
+
 def test_status_latest_filename_is_redacted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
