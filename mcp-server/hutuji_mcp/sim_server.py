@@ -125,38 +125,59 @@ def _kill_process_tree_on_close(child: "subprocess.Popen[str]") -> None:
     JobObjectExtendedLimitInformation = 9
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # 必须显式声明：默认 restype 是 c_int(32 位)，返回 HANDLE 的函数在 64 位下
+    # 有截断风险；实测当前句柄值小（0x1f8）未触发，但不可依赖。
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD
+    ]
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     job = kernel32.CreateJobObjectW(None, None)
     if not job:
         return
     info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
     info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
     ok = kernel32.SetInformationJobObject(
-        wintypes.HANDLE(job),
+        job,
         JobObjectExtendedLimitInformation,
         ctypes.byref(info),
         ctypes.sizeof(info),
     )
-    if not ok or not kernel32.AssignProcessToJobObject(
-        wintypes.HANDLE(job), wintypes.HANDLE(int(child._handle))
-    ):
+    if not ok or not kernel32.AssignProcessToJobObject(job, int(child._handle)):
         kernel32.CloseHandle(wintypes.HANDLE(job))
         return
-    child._hutuji_job = job  # 阻止 GC 提前关句柄；child 释放时整树回收
+    # 句柄由 `_release_job` 在 `_local_stream_e2e` 的 finally 里确定性关闭——
+    # 不依赖 GC，否则 KILL_ON_JOB_CLOSE 的触发时机不可知。
+    child._hutuji_job = job
+
+
+def _release_job(child: "subprocess.Popen[str]") -> None:
+    """关闭 job 句柄。这是 KILL_ON_JOB_CLOSE 真正生效的时刻：句柄全关时 OS 终止
+    job 内残留进程，故正常路径也必须调，既防句柄泄漏又兜底回收漏杀的孙进程。"""
+    job = getattr(child, "_hutuji_job", None)
+    if not job:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(wintypes.HANDLE(job))
+    child._hutuji_job = None
 
 def _terminate_whole_tree(child: "subprocess.Popen[str]") -> None:
     """终止子进程及其全部后代。优先 TerminateJobObject 杀 job 内整树（含 grbl_sim
     孙进程）；无 job（非 Windows 或挂接失败）时退回 child.kill() 只杀直接子进程。"""
     job = getattr(child, "_hutuji_job", None)
-    if job:
-        import ctypes
-        from ctypes import wintypes
-
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
-        kernel32.CloseHandle(wintypes.HANDLE(job))
-        child._hutuji_job = None
+    if not job:
+        child.kill()
         return
-    child.kill()
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
+    _release_job(child)
 
 def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
     script = ROOT / "scripts" / "e2e_local.py"
@@ -179,9 +200,13 @@ def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
             try:
                 stdout, stderr = child.communicate(timeout=LOCAL_E2E_TIMEOUT_SECONDS)
             except (subprocess.TimeoutExpired, TimeoutError):
-                child.kill()
+                # 必须整树终止：child.kill() 不跑 e2e 的 finally，grbl_sim 会成孤儿
+                # 永占 2323，之后所有 e2e 全挂（已实证 ORPHAN_ALIVE=True）。
+                _terminate_whole_tree(child)
                 child.communicate()
                 raise
+            finally:
+                _release_job(child)
     except (subprocess.TimeoutExpired, TimeoutError):
         return build_evidence(
             ok=False,

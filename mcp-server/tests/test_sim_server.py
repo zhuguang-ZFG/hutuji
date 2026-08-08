@@ -128,6 +128,72 @@ def test_local_stream_e2e_timeout_is_structured_failure(monkeypatch: pytest.Monk
     assert observations["error"] == "本地闭环超时"
 
 
+def test_e2e_child_job_handle_is_released_on_normal_path() -> None:
+    """正常跑完也必须关 job 句柄。
+
+    修前只有取消路径关句柄，实测每次运行泄漏 1 个内核句柄（3 次运行 delta=3）；
+    更要紧的是 KILL_ON_JOB_CLOSE 要等句柄全关才终止残留进程，靠 GC 回收时机不可知。
+    """
+    captured: list[object] = []
+    real_popen = sim_server.subprocess.Popen
+
+    class Spy(real_popen):  # type: ignore[misc,valid-type]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)
+            captured.append(self)
+
+    sim_server.subprocess.Popen = Spy  # type: ignore[misc]
+    try:
+        result = run_scenario("local_stream_e2e")
+    finally:
+        sim_server.subprocess.Popen = real_popen  # type: ignore[misc]
+
+    assert result["ok"] is True
+    assert captured, "未捕获到 e2e 子进程"
+    # 句柄已被 _release_job 置空；Windows 下挂接成功过，非 Windows 下从未挂接。
+    assert getattr(captured[0], "_hutuji_job", None) is None
+
+
+def test_local_stream_e2e_timeout_kills_whole_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """超时路径必须整树终止，不能只 kill 直接子进程。
+
+    e2e_local.py 自己 spawn grbl_sim 孙进程（e2e_local.py:108）。child.kill() 是
+    TerminateProcess，不跑 e2e 的 finally，grbl_sim 会成孤儿永占 2323，之后所有
+    e2e 全挂。修前实测 ORPHAN_ALIVE=True。
+    """
+    tree_kills: list[object] = []
+    direct_kills: list[object] = []
+    real_terminate = sim_server._terminate_whole_tree
+    real_kill = sim_server.subprocess.Popen.kill
+
+    def spy_terminate(child: object) -> None:
+        tree_kills.append(child)
+        real_terminate(child)
+
+    def spy_kill(self) -> None:
+        # 只记录「绕过整树终止的直杀」；_terminate_whole_tree 的非 Windows 回退
+        # 也会走到这里，故用 tree_kills 是否已记录来区分。
+        if not tree_kills:
+            direct_kills.append(self)
+        real_kill(self)
+
+    def timeout(self, *_args: object, **_kwargs: object):
+        raise sim_server.subprocess.TimeoutExpired(cmd="e2e_local.py", timeout=1)
+
+    monkeypatch.setattr(sim_server, "_terminate_whole_tree", spy_terminate)
+    monkeypatch.setattr(sim_server.subprocess.Popen, "kill", spy_kill)
+    monkeypatch.setattr(sim_server.subprocess.Popen, "communicate", timeout)
+
+    result = run_scenario("local_stream_e2e")
+    observations = {item["name"]: item["value"] for item in result["observations"]}
+    assert result["ok"] is False
+    assert observations["error"] == "本地闭环超时"
+    assert tree_kills, "超时路径未走整树终止，grbl_sim 孙进程会成孤儿永占 2323"
+    assert not direct_kills, "超时路径绕过整树终止直接 kill 子进程"
+
+
 def test_cancelled_scenario_kills_child_and_releases_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
