@@ -36,7 +36,7 @@
                                                └─ `LoopbackOnlyMcpGuard` 按 socket 对端复核；非 loopback/未知对端 404
 ```
 
-> 应用层守卫不替代 unit 的 `--host 127.0.0.1`、安全组不放行 8300、nginx `/mcp` 404：它只兜 `/mcp` 控制面，不能阻止 `/files` 绕开 nginx 限速与 ACL。该守卫已于 2026-08-09 随 `8184860`（守卫本体 `19d1df1`）部署生产，`server.py` md5 `60801395b0ba7d70bf0322fa173d8619`，21 项 preflight `pass=21 fail=0 expected=21`；行为面实测：loopback `initialize` 200、同机非 loopback 对端伪造 `Host: 127.0.0.1:8300` 打 `/mcp` 得 404 且正文恰为 9 字节 `not found`（守卫路径）、同一对端打 `/files/nope.gcode` 得 404 但正文 `{"detail":"not found"}`（应用路径，未被守卫拦）、公网 HTTPS `/mcp` 仍 404。回滚副本 `/root/hutuji-bak-20260809-020732-pre-8184860/server.py.a939eb67`。
+> 应用层守卫不替代 unit 的 `--host 127.0.0.1`、安全组不放行 8300、nginx `/mcp` 404：它只兜 `/mcp` 控制面，不能阻止 `/files` 绕开 nginx 限速与 ACL。该守卫已于 2026-08-09 随 `8184860`（守卫本体 `19d1df1`）部署生产，`server.py` md5 `60801395b0ba7d70bf0322fa173d8619`，21 项 preflight `pass=21 fail=0 expected=21`；行为面实测：loopback `initialize` 200；**非 loopback 向量必须在同一份已部署代码的临时实例上取证**——生产 unit 只绑 `127.0.0.1:8300`，非 loopback 对端连不上（`curl` 回 `000`，这是监听面而非守卫的功劳），故用 `--host 0.0.0.0 --port 8399` 起同一个 `server.py`、探完即杀（`ss` 复核 8399 已消失、`0.0.0.0` 监听面仍只有 80/443/22）：同机非 loopback 对端（`curl --interface 172.16.0.4`）伪造 `Host: 127.0.0.1:8399` 打 `/mcp` 得 404 且正文恰为 9 字节 `not found`（守卫路径）、同一对端打 `/files/nope.gcode` 得 404 但正文 `{"detail":"not found"}`（应用路径，未被守卫拦）、公网 HTTPS `/mcp` 仍 404。回滚副本 `/root/hutuji-bak-20260809-020732-pre-8184860/server.py.a939eb67`。
 
 ### Cloudflare Tunnel（2026-07-27 上线）
 
