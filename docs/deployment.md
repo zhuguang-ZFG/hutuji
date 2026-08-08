@@ -36,7 +36,7 @@
                                                └─ `LoopbackOnlyMcpGuard` 按 socket 对端复核；非 loopback/未知对端 404
 ```
 
-> 应用层守卫不替代 unit 的 `--host 127.0.0.1`、安全组不放行 8300、nginx `/mcp` 404：它只兜 `/mcp` 控制面，不能阻止 `/files` 绕开 nginx 限速与 ACL。该守卫截至 2026-08-09 仅在仓内候选，生产基线 `25ff33d` 尚未包含。
+> 应用层守卫不替代 unit 的 `--host 127.0.0.1`、安全组不放行 8300、nginx `/mcp` 404：它只兜 `/mcp` 控制面，不能阻止 `/files` 绕开 nginx 限速与 ACL。该守卫已于 2026-08-09 随 `8184860`（守卫本体 `19d1df1`）部署生产，`server.py` md5 `60801395b0ba7d70bf0322fa173d8619`，21 项 preflight `pass=21 fail=0 expected=21`；行为面实测：loopback `initialize` 200、同机非 loopback 对端伪造 `Host: 127.0.0.1:8300` 打 `/mcp` 得 404 且正文恰为 9 字节 `not found`（守卫路径）、同一对端打 `/files/nope.gcode` 得 404 但正文 `{"detail":"not found"}`（应用路径，未被守卫拦）、公网 HTTPS `/mcp` 仍 404。回滚副本 `/root/hutuji-bak-20260809-020732-pre-8184860/server.py.a939eb67`。
 
 ### Cloudflare Tunnel（2026-07-27 上线）
 
@@ -101,7 +101,7 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ 2026-08-08 生产 **21/21**（基线 `25ff33d`） | `pass=21 fail=0 expected=21`。第 16 项「nginx 活动配置真的在跑」（带 marker 的 loopback 探针必须落进 `hutuji-access.log` 的 `hutuji_client` 自定义格式，行首 `127.0.0.1 via=127.0.0.1 `）与第 17 项「worker 新鲜度」（无早于 `stat -L` 配置 mtime 的 worker；worker 启动后无 `[emerg]`）**首次在生产通过**；同批还首次验真了 `check_units_match_templates` 的 ExecStartPre 成功结果与主进程新鲜度判据。**历史 `pass=19`（2026-08-07）/ 17/17 / 15/15 均已 supersede，不得复用为放行依据**——19 项在「nginx reload 被静默丢弃、旧配置继续服务 37 分钟」时依然全绿。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（脚本已删 skip 状态，禁止重新引入 `OPTIONAL_SKIP`）。**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
+| `preflight.sh` 全 PASS | ✅ 2026-08-09 生产 **21/21**（基线 `8184860`，含 `19d1df1` 的 `/mcp` loopback 守卫） | `pass=21 fail=0 expected=21`。本轮只需发 `server.py` 一个文件（安装后 md5 `60801395b0ba7d70bf0322fa173d8619`、mode 644、0 个 CR），清 `__pycache__` 后显式重启两个应用服务，`ExecStartPre` 自检 `status=0`，`ss -ltnp` 仍只有 `127.0.0.1:8300`；回滚副本 `/root/hutuji-bak-20260809-020732-pre-8184860/server.py.a939eb67`。第 16 项「nginx 活动配置真的在跑」（带 marker 的 loopback 探针必须落进 `hutuji-access.log` 的 `hutuji_client` 自定义格式，行首 `127.0.0.1 via=127.0.0.1 `）与第 17 项「worker 新鲜度」（无早于 `stat -L` 配置 mtime 的 worker；worker 启动后无 `[emerg]`）自 2026-08-08 起在生产通过；同批还首次验真了 `check_units_match_templates` 的 ExecStartPre 成功结果与主进程新鲜度判据。**历史 `pass=21`（2026-08-08 `25ff33d`）/ `pass=19`（2026-08-07）/ 17/17 / 15/15 均已 supersede，不得复用为放行依据**——19 项在「nginx reload 被静默丢弃、旧配置继续服务 37 分钟」时依然全绿。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（脚本已删 skip 状态，禁止重新引入 `OPTIONAL_SKIP`）。**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 

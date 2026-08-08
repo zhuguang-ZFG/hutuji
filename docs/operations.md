@@ -6,7 +6,7 @@
 
 | unit | 职责 | EnvironmentFile | 健康信号 |
 |------|------|-----------------|----------|
-| `hutuji-mcp` | uvicorn：`/mcp` + `/files`（仅本机）；仓内候选另有 `/mcp` socket 对端 loopback 守卫 | `/etc/hutuji/mcp.env` | `preflight.sh`；或本机 curl `:8300`；守卫部署后非 loopback 对端 `/mcp` 应为 404 |
+| `hutuji-mcp` | uvicorn：`/mcp` + `/files`（仅本机）；`/mcp` 另有 socket 对端 loopback 守卫（2026-08-09 起在生产运行） | `/etc/hutuji/mcp.env` | `preflight.sh`；或本机 curl `:8300`；非 loopback 对端打 `/mcp` 须 404 且正文恰 9 字节 `not found`（守卫路径，区别于 `/files` 的 `{"detail":"not found"}`） |
 | `hutuji-cloud-bridge` | 小智 WSS ↔ 本机 MCP | `/etc/hutuji/bridge.env` | journal 无连续鉴权失败；控制台工具在线 |
 | `nginx` | TLS + 仅 `/files` | — | `https://…/files/` 可达；`/mcp` 404 |
 

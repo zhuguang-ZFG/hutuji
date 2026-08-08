@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ 2026-08-08 已发布应用基线 `25ff33d`（8 文件：`config.py`/`llm_svg.py`/`server.py`/`gcode_gen.py`/`cloud_bridge.py`/`sim_server.py`/`preflight.sh`/`nginx-hutuji.conf`，md5 逐个与 HEAD 一致），生产 **`pass=21 fail=0 expected=21`**；本轮同时暴露并修掉一次 nginx **reload 静默失败**（限速 key 变更不能热改共享内存区，`restart` 才生效，详见「nginx reload 陷阱」），新增第 16–17 项运行态判据即为此。回滚副本 `/root/hutuji-bak-20260808-204725-pre-25ff33d/`。历史：2026-08-07 发布 vpype `SIGSYS` 修复、服务沙箱内 `ExecStartPre` 生成自检与 Agnes `agnes-2.5-flash` 配置（`pass=19`，已被 supersede）。App 两步衔接和实机运动仍待复验；真值以 `../docs/release-readiness.md` 为准 |
+| VPS 实机部署与验收 | ✅ 2026-08-09 已发布应用基线 `8184860`（本轮只需 1 文件：`server.py`，md5 `60801395b0ba7d70bf0322fa173d8619` 与 HEAD 一致，含 `19d1df1` 的 `/mcp` loopback 守卫；其余 5 个模块与 `preflight.sh`/`nginx-hutuji.conf` 早已一致），生产 **`pass=21 fail=0 expected=21`**，`ExecStartPre` self-test `status=0`，监听面仍 `127.0.0.1:8300`；守卫行为面实测 loopback `initialize` 200 + `tools/list` 三工具、非 loopback 对端 `/mcp` **404（正文恰 9 字节 `not found`）**、同对端 `/files/nope.gcode` 仍是应用 404（`{"detail":"not found"}`）、公网 HTTPS `/mcp` 404，公网 `/files` 真产物 200/243B/CRC `775b4f31` 且与服务器文件逐字节一致。回滚副本 `/root/hutuji-bak-20260809-020732-pre-8184860/server.py.a939eb67`。历史：2026-08-08 发布 `25ff33d`（8 文件）并暴露修掉一次 nginx **reload 静默失败**（限速 key 变更不能热改共享内存区，`restart` 才生效，详见「nginx reload 陷阱」），新增第 16–17 项运行态判据即为此，回滚副本 `/root/hutuji-bak-20260808-204725-pre-25ff33d/`；2026-08-07 发布 vpype `SIGSYS` 修复、服务沙箱内 `ExecStartPre` 生成自检与 Agnes `agnes-2.5-flash` 配置（`pass=19`，已被 supersede）。App 两步衔接和实机运动仍待复验；真值以 `../docs/release-readiness.md` 为准 |
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
