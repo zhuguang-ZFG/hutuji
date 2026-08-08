@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import contextvars
 import hashlib
 import json
 import os
@@ -27,6 +29,15 @@ SIL_LIMITATIONS = [
     "PC SIL 不证明真实换纸机械行为",
     "PC SIL 不证明 App 语音、云端链路、烧录或 HIL 验收",
 ]
+
+# 取消传播槽：`asyncio.to_thread` 会 copy_context，故这里放的可变 list 在工作线程内
+# 是同一对象。线程把活的 Popen 注册进来，async 侧被取消时据此 kill 子进程，
+# 让阻塞的 subprocess 立刻返回、线程归还默认执行器。
+# 不这样做的话：取消只让 await 立即返回，线程与子进程仍活到 120s 超时，
+# 反复取消可占满 min(32, cpu+4) 个默认执行器线程，阻塞同进程一切 to_thread。
+_ACTIVE_CHILDREN: contextvars.ContextVar[list[subprocess.Popen] | None] = (
+    contextvars.ContextVar("hutuji_sim_active_children", default=None)
+)
 
 
 def build_evidence(
@@ -68,17 +79,26 @@ def _normal_svg(output_dir: Path) -> dict[str, Any]:
 def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
     script = ROOT / "scripts" / "e2e_local.py"
     try:
-        completed = subprocess.run(
+        with subprocess.Popen(
             [sys.executable, str(script)],
             cwd=ROOT,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
             env={**os.environ, "PYTHONUTF8": "1"},
-            check=False,
-            timeout=LOCAL_E2E_TIMEOUT_SECONDS,
-        )
+        ) as child:
+            # 注册后 async 侧才能在取消时 kill；with 块保证任何出口都关句柄。
+            sink = _ACTIVE_CHILDREN.get()
+            if sink is not None:
+                sink.append(child)
+            try:
+                stdout, stderr = child.communicate(timeout=LOCAL_E2E_TIMEOUT_SECONDS)
+            except (subprocess.TimeoutExpired, TimeoutError):
+                child.kill()
+                child.communicate()
+                raise
     except (subprocess.TimeoutExpired, TimeoutError):
         return build_evidence(
             ok=False,
@@ -86,15 +106,16 @@ def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
             observations=[{"name": "error", "value": "本地闭环超时"}],
             contract_refs=["docs/protocol.md §3", "docs/protocol.md §5.1"],
         )
-    output = completed.stdout + completed.stderr
-    passed = completed.returncode == 0 and any(
+    returncode = child.returncode
+    output = (stdout or "") + (stderr or "")
+    passed = returncode == 0 and any(
         line.strip() == "PASS" for line in output.splitlines()
     )
     return build_evidence(
         ok=passed,
         scenario="local_stream_e2e",
         observations=[
-            {"name": "exit_code", "value": completed.returncode},
+            {"name": "exit_code", "value": returncode},
             {"name": "result", "value": "PASS" if passed else "FAIL"},
         ],
         contract_refs=["docs/protocol.md §3", "docs/protocol.md §5.1"],
@@ -251,6 +272,33 @@ def run_scenario(scenario_id: str, *, output_dir: Path | None = None) -> dict[st
         return result
 
 
+async def _run_scenario_cancellable(scenario_id: str) -> dict[str, Any]:
+    """在工作线程跑场景，但让取消能真正终止其子进程。
+
+    `asyncio.to_thread` 不可中断：裸取消会立刻返回，而线程与它 spawn 的
+    e2e 子进程继续跑到 120s 超时，占着默认执行器的线程位（上限
+    `min(32, cpu+4)`），重复取消即耗尽整个进程的 to_thread 能力。
+    这里先建 kill 槽，取消时先杀子进程让线程尽快退出，再等线程收尾。
+    """
+    children: list[subprocess.Popen[str]] = []
+    token = _ACTIVE_CHILDREN.set(children)
+    try:
+        task = asyncio.ensure_future(asyncio.to_thread(run_scenario, scenario_id))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            for child in list(children):
+                if child.poll() is None:
+                    with contextlib.suppress(OSError):
+                        child.kill()
+            # 子进程已死 → 线程的 communicate() 立即返回，线程位随即释放。
+            with contextlib.suppress(BaseException):
+                await task
+            raise
+    finally:
+        _ACTIVE_CHILDREN.reset(token)
+
+
 def validate_gcode_tool(text: str) -> dict[str, Any]:
     try:
         stats = validate_gcode(text)
@@ -331,7 +379,7 @@ def create_server() -> Server:
         if name == "list_scenarios":
             envelope: Any = {"ok": True, "scenarios": list_scenarios(), "limitations": SIL_LIMITATIONS}
         elif name == "run_scenario":
-            envelope = await asyncio.to_thread(run_scenario, arguments["scenario_id"])
+            envelope = await _run_scenario_cancellable(arguments["scenario_id"])
         elif name == "validate_gcode":
             envelope = validate_gcode_tool(arguments["text"])
         else:

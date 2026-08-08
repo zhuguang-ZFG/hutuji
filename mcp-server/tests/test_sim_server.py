@@ -116,14 +116,52 @@ def test_local_stream_e2e_runs_real_pipe_and_grbl_sim() -> None:
 
 
 def test_local_stream_e2e_timeout_is_structured_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    def timeout(*_args, **_kwargs):
-        raise TimeoutError("timed out")
+    # 超时现由 Popen.communicate(timeout=…) 抛出（改用 Popen 是为了让取消可
+    # 杀子进程，见 sim_server._run_scenario_cancellable）；契约不变：结构化失败。
+    def timeout(self, *_args, **_kwargs):
+        raise sim_server.subprocess.TimeoutExpired(cmd="e2e_local.py", timeout=1)
 
-    monkeypatch.setattr(sim_server.subprocess, "run", timeout)
+    monkeypatch.setattr(sim_server.subprocess.Popen, "communicate", timeout)
     result = run_scenario("local_stream_e2e")
     observations = {item["name"]: item["value"] for item in result["observations"]}
     assert result["ok"] is False
     assert observations["error"] == "本地闭环超时"
+
+
+def test_cancelled_scenario_kills_child_and_releases_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """取消不只取消 await；必须杀子进程，让工作线程立即归还执行器。"""
+    processes = []
+
+    def blocking_runner(_output_dir: Path):
+        child = sim_server.subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"]
+        )
+        processes.append(child)
+        sink = sim_server._ACTIVE_CHILDREN.get()
+        assert sink is not None
+        sink.append(child)
+        child.wait()
+        return build_evidence(
+            ok=False,
+            scenario="cancel_probe",
+            observations=[],
+            contract_refs=[],
+        )
+
+    monkeypatch.setitem(sim_server.SCENARIOS, "cancel_probe", {"runner": blocking_runner})
+
+    async def exercise() -> None:
+        task = asyncio.create_task(sim_server._run_scenario_cancellable("cancel_probe"))
+        while not processes:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(exercise())
+    assert processes[0].returncode is not None
 
 
 def test_validate_gcode_tool_returns_specific_failure_as_evidence() -> None:

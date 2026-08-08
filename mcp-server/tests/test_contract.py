@@ -1465,6 +1465,28 @@ def test_coordinate_at_boundary_passes() -> None:
     validate_gcode(_minimal_gcode("G1 X190 Y277 F8000\n"))
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "G1 X190.0001 Y5 F8000\n",
+        "G1 X5 Y277.0001 F8000\n",
+        "G1 X-0.0001 Y5 F8000\n",
+        "G1 X5 Y-0.0001 F8000\n",
+    ],
+)
+def test_explicit_coordinate_outside_hard_boundary_is_rejected(body: str) -> None:
+    """§5 的显式 X/Y 是硬边界；几何浮点容差不得放大可下发画幅。"""
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(_minimal_gcode(body))
+
+
+@pytest.mark.parametrize("z", ["0.0001", "-0.0001", "4.9999", "5.0001"])
+def test_explicit_z_requires_exact_production_pen_position(z: str) -> None:
+    """Z 只允许精确 0/5；容差会把非生产笔位送给 Grbl。"""
+    with pytest.raises(GcodeError, match="只允许 Z0/Z5"):
+        validate_gcode(_minimal_gcode(f"G1G90 Z{z}F10000\n"))
+
+
 def test_y_over_277mm_rejected() -> None:
     """Y=277.5 超出 Y 轴限幅 277mm。"""
     with pytest.raises(GcodeError, match="越界"):

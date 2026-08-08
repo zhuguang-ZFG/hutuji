@@ -42,6 +42,12 @@ _SECRETISH_RE = re.compile(
     r"|(?<![A-Za-z0-9])(sk-[A-Za-z0-9_-]{8,})"
     r"|(wss://\S+)|(https?://\S+)"
 )
+# 能力文件名自带不可猜 token，等价于 capability URL 的凭据部分。即便不带主机名，
+# 裸文件名配上已知公网前缀就能直接下载，故与 token 同等对待：整段 token 变 `*`，
+# 保留时间戳前缀与扩展名供诊断。与 server._redact_capability_name 同口径。
+_CAPABILITY_NAME_RE = re.compile(
+    r"(draw_\d{8}_\d{6})_[A-Za-z0-9_-]{22}\.(gcode|svg)"
+)
 MCP_PROXY_STREAM_LIMIT = 2 * 1024 * 1024
 _MAX_LOG_LINE = 200
 _READY_FILE_ENV = "HUTUJI_BRIDGE_READY_FILE"
@@ -133,7 +139,19 @@ def _message_label(message: str | bytes) -> str:
             message = message.decode("utf-8")
         payload = json.loads(message)
         if isinstance(payload, dict):
-            label = str(payload.get("method") or f"response:{payload.get('id', '?')}")
+            method = payload.get("method")
+            if method:
+                label = str(method)
+            else:
+                # 响应无 method。id 由云端可控且可为任意 JSON 值（长字符串、
+                # 嵌套结构），原样拼进标签等于把云端可控数据写进日志。只在 id
+                # 是整数（JSON-RPC 常态）时保留其数值用于配对请求，其余一律不记。
+                raw_id = payload.get("id")
+                label = (
+                    f"response:{raw_id}"
+                    if isinstance(raw_id, int) and not isinstance(raw_id, bool)
+                    else "response"
+                )
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
     label = "".join(ch if ch.isprintable() else " " for ch in label)
@@ -155,7 +173,10 @@ def _redact_secret_text(text: str) -> str:
                 return f"{group}<redacted>"
         return "<redacted>"
 
-    return _SECRETISH_RE.sub(_sub, text)
+    # 先按结构去掉能力文件名的 token，再跑凭据/URL 规则：两者互不重叠，
+    # 但文件名先行可避免 URL 规则把整条含 capability URL 的行整段吞掉后
+    # 丢失「哪个产物出问题」的诊断信息。
+    return _SECRETISH_RE.sub(_sub, _CAPABILITY_NAME_RE.sub(r"\1_*.\2", text))
 
 
 def _safe_stderr_line(line: str | bytes) -> str:

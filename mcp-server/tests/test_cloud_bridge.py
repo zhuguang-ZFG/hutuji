@@ -71,6 +71,31 @@ def test_message_label_caps_length_and_control_chars() -> None:
     assert _message_label('{"method":"evil\\nINJECTED"}') == "evil INJECTED"
     assert _message_label('{"id":123}').startswith("response:")
 
+def test_message_label_never_logs_cloud_controlled_response_id() -> None:
+    # 整数 id 是 JSON-RPC 常态且不可承载 secret；字符串/结构可由云端塞任意内容，
+    # 不得进入日志。bool 是 int 子类但不是合法的安全数值标签。
+    assert _message_label('{"jsonrpc":"2.0","id":42,"result":{}}') == "response:42"
+    for raw in (
+        '{"id":"attacker-controlled\\nsecret"}',
+        '{"id":{"token":"secret"}}',
+        '{"id":["secret"]}',
+        '{"id":true}',
+        '{"id":null}',
+    ):
+        assert _message_label(raw) == "response"
+
+
+def test_proxy_stderr_redacts_bare_capability_filenames() -> None:
+    token = "AbCdEf_GhIjKlMnOpQrStU"
+    assert len(token) == 22
+    for ext in ("gcode", "svg"):
+        safe = _safe_stderr_line(
+            f"failed artifact draw_20260808_120000_{token}.{ext}: denied"
+        )
+        assert token not in safe
+        assert f"draw_20260808_120000_*.{ext}" in safe
+        assert "failed artifact" in safe
+
 
 def test_proxy_stderr_redacts_token_and_wss_urls() -> None:
     raw = "connecting wss://api.xiaozhi.me/mcp/?token=super-secret-value ok"

@@ -23,7 +23,9 @@ _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 # 坐标限幅：A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
 MAX_X_MM = 190.0
 MAX_Y_MM = 277.0
-_EPS = 0.01
+# 仅用于派生几何：圆弧三角函数浮点误差，以及 G0 近原点的保守换纸保护。
+# 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤190、Y≤277、Z∈{0,5} 是硬边界。
+_GEOMETRY_EPS_MM = 0.01
 
 # 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；恰好 512KiB 放行，再多一字节才拒）
 MAX_BYTES = 512 * 1024
@@ -440,7 +442,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
                 if letter in value_letters:
                     raise GcodeError(f"第 {idx} 行重复 {letter} 字（Grbl 不接受同块重复字）：{line}")
                 value_letters.add(letter)
-            if letter == "Z" and not (abs(value) < _EPS or abs(value - 5.0) < _EPS):
+            if letter == "Z" and value not in (0.0, 5.0):
                 raise GcodeError(f"第 {idx} 行 Z{value} 非生产笔位（只允许 Z0/Z5）：{line}")
             if letter == "F":
                 if value <= 0 or value > 10000:
@@ -520,7 +522,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
         # 抬笔 = 纯 G1G90 Z0 F10000（本 profile 不产 M3/M5，笔控纯 Z 运动）。
         if has_motion and active_motion in {"G0", "G1"}:
             _z = z_values[0] if z_values else None
-            if _z is not None and abs(_z) < _EPS:
+            if _z == 0.0:
                 pen_lifts += 1
 
         seen_g21 = seen_g21 or "G21" in codes
@@ -533,7 +535,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
         if has_motion:
             for axis, val in coords:
                 limit = MAX_X_MM if axis == "X" else MAX_Y_MM
-                if val < -_EPS or val > limit + _EPS:
+                if val < 0.0 or val > limit:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{limit}mm）：{line}")
 
         target_x = xy.get("X", cur_x)
@@ -544,7 +546,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
         if has_motion and active_motion == "G0":
             if target_x is None or target_y is None:
                 raise GcodeError(f"第 {idx} 行 G0 缺少已知完整 XY 起点/目标（无法排除自动换纸）：{line}")
-            if abs(target_x) < _EPS and abs(target_y) < _EPS:
+            if abs(target_x) < _GEOMETRY_EPS_MM and abs(target_y) < _GEOMETRY_EPS_MM:
                 raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
 
         # G2/G3 端点合规仍可能中途凸出画幅（§5「含圆弧包围盒，不只是端点」）。
@@ -562,7 +564,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
             )
             for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
                 limit = MAX_X_MM if label == "X" else MAX_Y_MM
-                if lo < -_EPS or hi > limit + _EPS:
+                if lo < -_GEOMETRY_EPS_MM or hi > limit + _GEOMETRY_EPS_MM:
                     raise GcodeError(
                         f"第 {idx} 行圆弧 {label} 包围盒 [{lo:.3f}, {hi:.3f}] "
                         f"越界（限幅 0~{limit}mm）：{line}"
