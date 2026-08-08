@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=19
+EXPECTED_CHECKS=21
 PASS=0
 FAIL=0
 
@@ -413,6 +413,101 @@ check "运行中 nginx conf 与固定部署模板一致（LF 归一化）" bash 
   a=$(tr -d "\r" < /opt/hutuji/deploy/nginx-hutuji.conf | md5sum | cut -d" " -f1)
   b=$(tr -d "\r" < /etc/nginx/sites-enabled/hutuji | md5sum | cut -d" " -f1)
   [[ -n "$a" && "$a" == "$b" ]]'
+
+# 「配置文件与模板一致」证不到「在跑的 nginx 读了它」。nginx 的 reload 有一条静默
+# 失败路径，`nginx -t` 与 `systemctl reload` 都抓不到：
+#   - `nginx -t` 起的是**新进程**，没有继承的共享内存区，故必然通过；
+#   - `systemctl reload` 走 `nginx -s reload`，只负责发信号，不等 master 受理，
+#     恒返回 status=0/SUCCESS；
+#   - master 若拒绝新配置，只在 error.log 写 [emerg] 并**继续用旧配置服务**，
+#     旧 worker 不被替换，`systemctl is-active` 照样 active。
+# 2026-08-08 实测踩中：把限速 key 从 $binary_remote_addr 改为 $hutuji_client_ip 后
+# reload 报 `[emerg] limit_req "hutuji_files" uses the "$hutuji_client_ip" key while
+# previously it used the "$binary_remote_addr" key`（共享内存区的 key 不能热改），
+# 于是 nginx 整整 37 分钟跑着旧配置，而当时 19 项 preflight **全绿**——因为其余判据
+# 在旧配置下同样成立，唯一变化的限速身份没有任何判据覆盖。此类 key/zone 变更必须
+# `systemctl restart nginx`，reload 不足。
+#
+# 下面两项一个查行为、一个查进程，缺一不可：
+#   ①行为：从 loopback 打一发带唯一标记的探针，要求它出现在 `hutuji_client` 自定义
+#     格式的专用日志里。旧配置没有该 access_log 指令，请求会落到 http 级默认
+#     /var/log/nginx/access.log 的 combined 格式——正是当时观察到的现象。这是唯一
+#     直接证明「运行时用的是这份配置」的判据，且顺带验证限速身份变量已生效。
+#   ②进程：全部 worker 的启动时间不得早于配置 mtime，并扫「最老 worker 启动之后」的
+#     [emerg]。行为判据在「旧配置恰好也含同名 access_log」时会假绿，进程判据补住；
+#     反过来 mtime 可被 touch 干扰，故不能只靠进程判据。
+#     两处易踩的坑，均已实测：
+#       - `stat -c %Y /etc/nginx/sites-enabled/hutuji` 取到的是**符号链接自身**的
+#         mtime（即 `ln -sfn` 的时刻，实测 2026/08/07 17:31:15），不是配置本体
+#         （2026/08/08 20:54:01）。必须 `stat -L` 解引用，否则判据会被 ln 时刻带偏。
+#       - [emerg] 的基准不能用配置 mtime：那样一次被拒后即使已 restart 修好，旧
+#         [emerg] 仍永久判红。基准取最老 worker 的启动时刻——reload 被拒时 emerg
+#         晚于当时的旧 worker 故命中；restart 成功后 worker 更新，旧 emerg 自动出局。
+#     已知盲区：worker 启动后 error.log 若被 logrotate 轮转，[emerg] 会落到 .1 而漏扫；
+#     此路径由行为判据兜住，不在此项内重复实现。
+check_nginx_running_config_is_live() {
+  local h="$1" marker log line
+  [[ -n "$h" ]] || return 1
+  log=/var/log/nginx/hutuji-access.log
+  if [[ ! -r "$log" ]]; then
+    echo "读不到 ${log}：无法证明在跑的 nginx 用的是本次配置，判 fail" >&2
+    return 1
+  fi
+  marker="hutuji-preflight-live-$$-$(date +%s)"
+  curl --noproxy "*" --max-time 5 -s -o /dev/null \
+    -H "Host: $h" -A "$marker" http://127.0.0.1/files/__nonexistent__ || return 1
+  line="$(grep -F "$marker" "$log" | tail -1)"
+  if [[ -z "$line" ]]; then
+    echo "探针未进 ${log}：在跑的 nginx 仍是旧配置（reload 被 [emerg] 拒绝时即如此），须 systemctl restart nginx" >&2
+    return 1
+  fi
+  # hutuji_client 格式首字段是限速身份 $hutuji_client_ip，第二字段是 via=$remote_addr。
+  # 本机不带 CF-Connecting-IP，两者都应为 127.0.0.1；缺 via= 说明日志格式不是这一版。
+  if [[ "$line" != "127.0.0.1 via=127.0.0.1 "* ]]; then
+    echo "专用日志行首不是 '127.0.0.1 via=127.0.0.1'：$line（限速身份变量未生效）" >&2
+    return 1
+  fi
+}
+
+check_nginx_workers_fresh() {
+  local conf mtime pid started epoch oldest emerg since
+  conf=/etc/nginx/sites-enabled/hutuji
+  [[ -e "$conf" ]] || return 1
+  # -L 必须有：见上方注释，不解引用会读到 symlink 自己的 mtime。
+  mtime="$(stat -L -c %Y "$conf" 2>/dev/null)" || return 1
+  [[ "$mtime" =~ ^[0-9]+$ ]] || return 1
+
+  # master 可以是旧的（reload 不换 master），worker 必须是新的：受理成功才换 worker。
+  oldest=""
+  for pid in $(pgrep -x nginx); do
+    grep -qs 'master process' "/proc/$pid/cmdline" && continue
+    started="$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | head -1)"
+    [[ -n "$started" ]] || return 1
+    epoch="$(LC_ALL=C date -d "$started" +%s 2>/dev/null)" || return 1
+    [[ "$epoch" =~ ^[0-9]+$ ]] || return 1
+    # 容 1s：mtime 与进程启动同秒时 stat/ps 的取整方向可能相反。
+    if (( epoch + 1 < mtime )); then
+      echo "nginx worker $pid 启动于 $started，早于配置 mtime $(date -d "@$mtime" '+%F %T')：新配置未被受理，须 systemctl restart nginx" >&2
+      return 1
+    fi
+    if [[ -z "$oldest" ]] || (( epoch < oldest )); then oldest="$epoch"; fi
+  done
+  if [[ -z "$oldest" ]]; then
+    echo "找不到 nginx worker 进程：无法证明新配置已被受理，判 fail" >&2
+    return 1
+  fi
+
+  # error.log 的时间戳形如 `2026/08/08 20:54:44`，定宽故可与同格式基准做字典序比较。
+  since="$(date -d "@$oldest" '+%Y/%m/%d %H:%M:%S' 2>/dev/null)" || return 1
+  emerg="$(awk -v s="$since" '/\[emerg\]/ {ts = $1 " " $2; if (ts >= s) print}' \
+    /var/log/nginx/error.log 2>/dev/null | tail -1)"
+  if [[ -n "$emerg" ]]; then
+    echo "当前 worker 启动后 error.log 有 [emerg]，新配置曾被拒绝：$emerg" >&2
+    return 1
+  fi
+}
+check "在跑的 nginx 确实是本次配置（探针进专用日志且限速身份生效）" check_nginx_running_config_is_live "$TUNNEL_HOST"
+check "nginx worker 不早于配置 mtime 且启动后无 [emerg]" check_nginx_workers_fresh
 check "活动 :80 /files ACL：loopback 放行、非 loopback 拒绝" check_acl_response "$TUNNEL_HOST"
 # 兜底路径行为：隧道 `service: http://localhost:80` 使**全部**公网流量落进 :80 块，
 # 于是 :443 的 `location / { return 404; }` 隧道永远走不到。旧模板 :80 兜底无条件

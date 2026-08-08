@@ -1812,7 +1812,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 19
+    assert preflight.count('\ncheck "') == 21
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -1841,7 +1841,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 19
+    assert len(checks) == 21
     assert min(checks) > init_last
 
 
@@ -1950,6 +1950,61 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
         assert deployed in preflight_code, deployed
     assert "(( start_epoch < newest ))" in preflight_code
     assert "check_mcp_prestart_and_restart" in preflight_code
+
+
+def test_preflight_pins_running_nginx_to_deployed_config() -> None:
+    """「配置文件与模板一致」证不到「在跑的 nginx 读了它」。
+
+    nginx 的 reload 有一条对三道常规检查全隐形的静默失败路径：`nginx -t` 起的是新
+    进程、没有继承的共享内存区，故必过；`systemctl reload` 走 `nginx -s reload`，
+    只发信号不等受理，恒 `status=0/SUCCESS`；master 拒绝新配置时只在 error.log 写
+    `[emerg]` 并**继续用旧配置服务**，`is-active` 照样 active。2026-08-08 生产实测：
+    限速 key 从 `$binary_remote_addr` 改为 `$hutuji_client_ip` 后 reload 被
+    `[emerg] limit_req "hutuji_files" uses the "$hutuji_client_ip" key while
+    previously it used the "$binary_remote_addr" key` 拒绝，旧配置又服务了 37 分钟，
+    而当时 19 项 preflight **全绿**——其余判据在旧配置下同样成立。
+
+    故必须同时有行为判据与进程判据：行为判据（标记探针落进 `hutuji_client` 专用
+    日志）在「旧配置恰好也含同名 access_log」时会假绿，进程判据补住；而进程判据的
+    mtime 可被 `touch` 干扰，故不能只留一条。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    # 两项都必须存在且被注册成 check，否则写了也不跑。
+    assert "check_nginx_running_config_is_live()" in preflight
+    assert "check_nginx_workers_fresh()" in preflight
+    assert 'check "在跑的 nginx 确实是本次配置' in preflight
+    assert 'check "nginx worker 不早于配置 mtime 且启动后无 [emerg]"' in preflight
+
+    # 行为判据：loopback 探针带唯一标记，且必须在专用日志里找到它。
+    assert "/var/log/nginx/hutuji-access.log" in preflight_code
+    assert 'marker="hutuji-preflight-live-$$-$(date +%s)"' in preflight_code
+    assert '-A "$marker" http://127.0.0.1/files/__nonexistent__' in preflight_code
+    assert 'grep -F "$marker" "$log"' in preflight_code
+    # 读不到日志必须判 fail，不得当作「无法验证」放过。
+    assert '[[ ! -r "$log" ]]' in preflight_code
+    # 行首必须是限速身份 + via=$remote_addr：缺 via= 说明跑的不是这一版日志格式。
+    assert '"$line" != "127.0.0.1 via=127.0.0.1 "*' in preflight_code
+
+    # 进程判据：worker 不得早于配置 mtime。stat 必须 -L——sites-enabled/hutuji 是
+    # `ln -sfn` 建的符号链接，不解引用会读到建链时刻（实测差整整一天）。
+    assert 'stat -L -c %Y "$conf"' in preflight_code
+    assert "stat -c %Y /etc/nginx/sites-enabled/hutuji" not in preflight_code
+    # master 不换、worker 才换，故必须排除 master 进程。
+    assert "grep -qs 'master process' \"/proc/$pid/cmdline\" && continue" in preflight_code
+    assert "(( epoch + 1 < mtime ))" in preflight_code
+    # 找不到 worker 是 fail，不是 pass。
+    assert '[[ -z "$oldest" ]]' in preflight_code
+
+    # [emerg] 基准必须取最老 worker 启动时刻：用配置 mtime 会让已被 restart 修好的
+    # 历史 [emerg] 永久判红。
+    assert 'since="$(date -d "@$oldest"' in preflight_code
+    assert '/\\[emerg\\]/ {ts = $1 " " $2; if (ts >= s) print}' in preflight_code
+    assert "/var/log/nginx/error.log" in preflight_code
 
 
 def test_mcp_unit_self_tests_vpype_inside_sandbox_and_only_allows_mbind() -> None:

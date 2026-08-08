@@ -97,14 +97,14 @@
 | Cloudflare Tunnel HTTPS | ✅ | `https://hutuji.donglicao.com/files/…` 经隧道到 nginx；Let's Encrypt 证书 |
 | `hutuji-mcp` | ✅ | `systemctl active`；`127.0.0.1:8300` |
 | `hutuji-cloud-bridge` | ✅ | WSS 已连接；云端 `initialize` + `tools/list` 已进日志 |
-| `preflight.sh` 全 PASS | ✅ 2026-08-07 生产 **19/19（历史版本）** | `pass=19 fail=0 expected=19`（19 项版本）。第 18 项「应用层已关 FastAPI 自动文档端点」与第 19 项「兜底路径：隧道回源态 404、明文直连 301（无自指 301 环）」**首次在生产通过**；`69c2198` 当时的 17/17 已被 supersede。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（无 skip）。仓内现已强化 `check_units_match_templates`：除 unit 一致与 daemon-reload 外，还查 ExecStartPre 成功及主进程不早于本次 unit/代码/profile；该新增判据**尚未重新部署验证**，2026-08-07 的 19/19 不覆盖它。**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
+| `preflight.sh` 全 PASS | ✅ 2026-08-08 生产 **21/21**（基线 `25ff33d`） | `pass=21 fail=0 expected=21`。第 16 项「nginx 活动配置真的在跑」（带 marker 的 loopback 探针必须落进 `hutuji-access.log` 的 `hutuji_client` 自定义格式，行首 `127.0.0.1 via=127.0.0.1 `）与第 17 项「worker 新鲜度」（无早于 `stat -L` 配置 mtime 的 worker；worker 启动后无 `[emerg]`）**首次在生产通过**；同批还首次验真了 `check_units_match_templates` 的 ExecStartPre 成功结果与主进程新鲜度判据。**历史 `pass=19`（2026-08-07）/ 17/17 / 15/15 均已 supersede，不得复用为放行依据**——19 项在「nginx reload 被静默丢弃、旧配置继续服务 37 分钟」时依然全绿。输出格式 `pass=N fail=N expected=N`，放行判据 `PASS==EXPECTED_CHECKS && FAIL==0`（脚本已删 skip 状态，禁止重新引入 `OPTIONAL_SKIP`）。**scp 前必须 LF 归一化**，否则 `preflight.sh` 上机即 `set: pipefail: invalid option name` |
 | 小智控制台工具可见 | 🔬 | 控制台刷新后应见 `hutuji_draw` 等 |
 | 小智知识库 | ✅ | 用户已上传 `docs/xiaozhi-agent/knowledge-base.md`（2026-07-26）；请确认智能体页已**关联** |
 
 > TLS 已切 Cloudflare Tunnel + Let’s Encrypt（2026-07-27），ESP-IDF cert bundle 信任，S3 无需 `-k`。  
 > `install-from-repo.sh` 默认清华 HTTPS PyPI 源（京东云直连 PyPI 易卡住），不再使用 `--trusted-host` 绕过 TLS；私有 CA 场景显式传 `HUTUJI_PIP_CERT`。
 
-> **systemd 生成链边界（2026-08-07，2026-08-08 补运行态验真）**：preflight 的 `check_generate_chain` 在服务外验证生产 venv、profile 与 §5 校验器，但不能证明同一程序能穿过 unit 的 seccomp。生产曾出现 preflight 19/19 与真实 vpype `SIGSYS` 同时成立；内核审计定位到 `mbind`。当前 `hutuji-mcp.service` 用 `ExecStartPre=...python -m hutuji_mcp.gcode_gen --self-test` 在服务沙箱内真跑 vpype/profile/§5 自检，`SystemCallFilter` 仅从原 `@resources` 禁用组中放行 `mbind`。发布后必须 `daemon-reload` 并**显式 restart** 两个应用服务；`enable --now` 对 active 服务不会重启。仓内当前 19 项中的 unit 检查会读取 ExecStartPre 的实际成功结果，并要求 MCP 主进程不早于已部署 unit、包内 Python 文件和 profile；只 reload 未 restart 会判 fail。此补强尚未重新部署生产。
+> **systemd 生成链边界（2026-08-07 定案，2026-08-08 已部署验真）**：preflight 的 `check_generate_chain` 在服务外验证生产 venv、profile 与 §5 校验器，但不能证明同一程序能穿过 unit 的 seccomp。生产曾出现 preflight 19/19 与真实 vpype `SIGSYS` 同时成立；内核审计定位到 `mbind`。当前 `hutuji-mcp.service` 用 `ExecStartPre=...python -m hutuji_mcp.gcode_gen --self-test` 在服务沙箱内真跑 vpype/profile/§5 自检，`SystemCallFilter` 仅从原 `@resources` 禁用组中放行 `mbind`。发布后必须 `daemon-reload` 并**显式 restart** 两个应用服务；`enable --now` 对 active 服务不会重启。当前 21 项中的 unit 检查会读取 ExecStartPre 的实际成功结果，并要求 MCP 主进程不早于已部署 unit、包内 Python 文件和 profile；只 reload 未 restart 会判 fail。此补强已随 `25ff33d` 部署，2026-08-08 生产 `pass=21 fail=0 expected=21` 时 ExecStartPre `status=0`、MCP 主进程 20:54:41 启动（晚于全部落盘文件）。
 
 ### nginx 站点收敛（2026-07-31 14:51–14:53，已执行）
 
@@ -183,6 +183,10 @@ HTTPS `/files/__nonexistent__` 404。桥接重连后云端真实 `initialize`+`t
 > 「线上 nginx conf 与本仓模板一致」**fail**——该项比较基准是 `/opt/hutuji/deploy/nginx-hutuji.conf`,
 > 两处都要同步。
 
+> **2026-08-08 `25ff33d` 已部署（supersede 上方全部「仓内未部署」与历史 pass 数）**：实际范围大于本批五修——生产 `server.py`/`gcode_gen.py`/`cloud_bridge.py` 都与 HEAD 有差、`sim_server.py` 缺失，等效 `69c2198` → `25ff33d`。`requirements.txt` 两端相同（`0b4629800c6f4bc7ea51f7f98028e8c6`），未装依赖。备份 `/root/hutuji-bak-20260808-204725-pre-25ff33d/`（`hutuji_mcp/`、`deploy/`、`nginx-hutuji.conf`、`units/`）。8 文件经 `git show HEAD:` 管道进 `/tmp/hutuji-stage/`，md5 与 HEAD blob 逐一相符、0 个 CR、`py_compile` + `bash -n` 通过；装后 md5：`config.py b3d70811cb7d630bc7dd0fc2da246bf2`、`llm_svg.py 1755860ae3c6ebb8d77914ca847b35ae`、`server.py a939eb676716923d47789ca813b4bd4c`、`gcode_gen.py 4211d365f68b25cf7fbed9c64bb4784e`、`cloud_bridge.py e2ab68d37cb03c9bfec026e47d990ed2`、`sim_server.py 35e175329b048154a1aa86d0a9d48201`、`preflight.sh 4f71860303268313bac36a2286be44ec`、nginx `9f71eacd21e85a4f19fcb1474bbfee53`。`daemon-reload` + 显式 restart（`hutuji-mcp` 20:54:41、`hutuji-cloud-bridge` 20:54:44）、ExecStartPre 自检 `status=0`、loopback `/mcp` 406（预期）。**首轮 preflight `pass=19 fail=0 expected=19` 是假绿**：同一时刻的 `nginx reload` 已被 master 静默丢弃（见下条），旧配置又继续服务了 37 分钟。修复后加固到 21 项，复跑 **`pass=21 fail=0 expected=21`**。公网复验 fix #2：真产物 CRC `775b4f31`/243B，HTTPS 200 且逐字节相符，日志 `123.202.***.*** via=127.0.0.1 … "GET /files/draw_….gcode" 200 243`（客户端 IP 末两段脱敏，实测值与 ipify 返回的本机公网 IP 一致）——`$hutuji_client_ip` 是真实公网客户端 IP、`via=$remote_addr` 是 cloudflared loopback。未改固件、未做硬件验证、未提升出货类判据。
+>
+> **`limit_req` 键变更无法 reload（2026-08-08 实测并已修）**：把 `/files` 限流键从 `$binary_remote_addr` 改成 `$hutuji_client_ip` 后 `nginx -t` 通过、`systemctl reload nginx` 退出 0、`is-active` 仍 active、19 项 preflight 全绿，但 `error.log` 里是 `[emerg] limit_req "hutuji_files" uses the "$hutuji_client_ip" key while previously it used the "$binary_remote_addr" key`——nginx 不能在 reload 时改共享内存 zone 的键，master **丢弃新配置、继续用旧配置服务**。旁证：worker 时间戳仍是前一天 17:31、没有 worker 持有 `hutuji-access.log` 的 fd、探针落进 http 层默认 `access.log`。已在独立 nginx 实例（`/tmp/nginx-repro`，用后清理）复现全部四个特征，含 reload 前后 PID 不变。处置：确认 `:80/:443` 无 established 连接、无在途 `/files`、`nginx -t` 通过、备份在位后 `systemctl restart nginx`（master `1055773`、worker `1055774`/`1055775`，`Sat Aug 8 21:31:57 2026`）。**规则**：改 `limit_req`/`limit_conn` 的键或 zone 名必须 `restart`，不能只 `reload`。新增第 16/17 项就是为了机器化这条：探针必须落进自定义日志格式，且 worker 不得早于 `stat -L` 读出的配置 mtime（`sites-enabled/hutuji` 是 `ln -sfn` 建的符号链接，不加 `-L` 会读到建链时刻——实测 `1786095075`=08-07 17:31:15 vs `1786193641`=08-08 20:54:01，整整差一天）；`[emerg]` 的比较基准取**当前最老 worker 启动时刻**而非配置 mtime，否则已被 restart 解决的历史 `[emerg]` 会永久红。
+>
 > **当时的仓内 preflight 修复已部署（2026-08-04，supersede 2026-08-01“未部署”状态）**：此前 `f3ef14b`/`8e4b9b4` 引入的变量初始化顺序回归，以及随后补齐的 `[skip]`、`ss` 前置、curl 超时/禁代理、本机 5xx 不算可达等硬化，已随 hutuji `f59c0a0` scp 到 `/opt/hutuji/deploy/preflight.sh`。生产当场复验 `pass=14 fail=0 skip=0`，生产脚本 SHA-256 `7196aa9efa13ccc839bf4b2e59294aee14142e062659efb44fab9a669ae8dc97` 与提交对象一致；回滚副本 `/root/hutuji-bak-20260804-f59c0a0/`。该证据只覆盖当时 14 项版本。
 >
 > **2026-08-05 `bdbb107` 已部署（supersede “仓内新增检查，尚未部署”）**：先备份到 `/root/hutuji-bak-20260805-bdbb107/`，再经 `/tmp/hutuji-deploy-bdbb107/` 统一 LF、`py_compile`/`bash -n` 后安装 `server.py`、`gcode_gen.py`、`preflight.sh`、`install-from-repo.sh`，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge`。四文件 SHA-256 分别为 `c9fe792d…72ea8`、`9eb9d5d8…941a`、`2f26bd76…77cf`、`61e7bcf0…2327`，与本地候选一致。生产 preflight `pass=15 fail=0 skip=0`；生产 e2e `PASS`（14 行/242 字节）；四服务均 active；bridge 重连后 `initialize`、`tools/list`、`ping` 成功且 URL 脱敏；经运行中 `/mcp` 调用 `hutuji_status` 返回 `output_dir_exists=true`、公网基址正确、LLM 已配置、latest=`*.gcode`。开发机站外复验：HTTPS `/mcp` GET/POST 均 404、直连 `:80 /files` 403、`:8300` 为 `000`/连接超时。未改固件、未做硬件验证。
@@ -233,8 +237,8 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 
 1. `systemctl stop hutuji-cloud-bridge hutuji-mcp`  
 2. 检出上一发布 commit / 恢复上一 venv  
-3. 恢复对应 EnvironmentFile 与 nginx conf  
-4. 再 `start`；跑 `preflight.sh` + 一次 `hutuji_status`  
+3. 恢复对应 EnvironmentFile 与 nginx conf；若回滚会改回 `limit_req` 的键或 zone 名，必须 `systemctl restart nginx`，`reload` 会被静默丢弃
+4. 再 `start`；跑 `preflight.sh`（须 `pass=21 fail=0 expected=21`）+ 一次 `hutuji_status`
 5. 在 `docs/templates/release-manifest.md` 记回滚原因与时间  
 
 详细命令见 `../deploy/README.md`。运维日常见 `operations.md`。
