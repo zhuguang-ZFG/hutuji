@@ -96,6 +96,21 @@ def test_proxy_stderr_redacts_bare_capability_filenames() -> None:
         assert f"draw_20260808_120000_*.{ext}" in safe
         assert "failed artifact" in safe
 
+def test_capability_url_keeps_artifact_path_but_drops_token() -> None:
+    """完整 capability URL：token 必删，但产物路径（时间戳+扩展名）要保留供诊断。
+
+    与无关 URL 整段吞成 <redacted-url> 不同——能力 URL 的凭据全在文件名 token 里，
+    token 删掉后路径本身不再敏感。这是 F-5 的核心诉求：日志里仍看得出「哪个产物」。"""
+    token = "AbCdEf_GhIjKlMnOpQrStU"
+    safe = _safe_stderr_line(
+        f"GET https://hutuji.donglicao.com/files/draw_20260808_120000_{token}.gcode 200"
+    )
+    assert token not in safe
+    assert "draw_20260808_120000_*.gcode" in safe
+    assert "<redacted-url>" not in safe  # 能力 URL 不整段吞
+    # 无关 URL 仍整段脱敏
+    assert _safe_stderr_line("see https://example.com/private/path") == "see <redacted-url>"
+
 
 def test_proxy_stderr_redacts_token_and_wss_urls() -> None:
     raw = "connecting wss://api.xiaozhi.me/mcp/?token=super-secret-value ok"

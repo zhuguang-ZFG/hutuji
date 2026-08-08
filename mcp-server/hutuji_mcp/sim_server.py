@@ -76,6 +76,88 @@ def _normal_svg(output_dir: Path) -> dict[str, Any]:
     )
 
 
+
+def _kill_process_tree_on_close(child: "subprocess.Popen[str]") -> None:
+    """Windows：把子进程挂进 kill-on-close job object，被杀时连孙进程一起回收。
+
+    e2e_local.py 会 spawn grbl_sim 孙进程；`_run_scenario_cancellable` 的
+    `child.kill()` 是 TerminateProcess，不跑 e2e 的 finally（那里本应对 grbl_sim
+    `_stop`），孙进程会变孤儿占用 2323。job object 设 KILL_ON_JOB_CLOSE 后，job
+    句柄全关时其内全部进程被 OS 终止，故 e2e 一被杀 grbl_sim 随之回收。
+    POSIX 非本场景目标，直接 no-op。句柄存到 child 上阻止 GC 提前关闭。"""
+    if os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    # 用与 Win32 头文件一致的嵌套布局，避免手算字节偏移（此前 c_byte 数组版本
+    # 因 sizeof 与系统期望不符而 SetInformationJobObject 返回 ERROR_BAD_LENGTH）。
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [(f, ctypes.c_uint64) for f in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+        )]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    JobObjectExtendedLimitInformation = 9
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ok = kernel32.SetInformationJobObject(
+        wintypes.HANDLE(job),
+        JobObjectExtendedLimitInformation,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    )
+    if not ok or not kernel32.AssignProcessToJobObject(
+        wintypes.HANDLE(job), wintypes.HANDLE(int(child._handle))
+    ):
+        kernel32.CloseHandle(wintypes.HANDLE(job))
+        return
+    child._hutuji_job = job  # 阻止 GC 提前关句柄；child 释放时整树回收
+
+def _terminate_whole_tree(child: "subprocess.Popen[str]") -> None:
+    """终止子进程及其全部后代。优先 TerminateJobObject 杀 job 内整树（含 grbl_sim
+    孙进程）；无 job（非 Windows 或挂接失败）时退回 child.kill() 只杀直接子进程。"""
+    job = getattr(child, "_hutuji_job", None)
+    if job:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
+        kernel32.CloseHandle(wintypes.HANDLE(job))
+        child._hutuji_job = None
+        return
+    child.kill()
+
 def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
     script = ROOT / "scripts" / "e2e_local.py"
     try:
@@ -89,6 +171,7 @@ def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
             errors="replace",
             env={**os.environ, "PYTHONUTF8": "1"},
         ) as child:
+            _kill_process_tree_on_close(child)
             # 注册后 async 侧才能在取消时 kill；with 块保证任何出口都关句柄。
             sink = _ACTIVE_CHILDREN.get()
             if sink is not None:
@@ -290,7 +373,7 @@ async def _run_scenario_cancellable(scenario_id: str) -> dict[str, Any]:
             for child in list(children):
                 if child.poll() is None:
                     with contextlib.suppress(OSError):
-                        child.kill()
+                        _terminate_whole_tree(child)
             # 子进程已死 → 线程的 communicate() 立即返回，线程位随即释放。
             with contextlib.suppress(BaseException):
                 await task

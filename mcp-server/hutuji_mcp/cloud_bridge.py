@@ -40,8 +40,11 @@ _SECRETISH_RE = re.compile(
     # 至少 6 位），避免把「bearer token/authentication」这类纯字母普通句子当密钥。
     r"|(?<![A-Za-z0-9])(Bearer[ \t]+)(?![=:]|header\b)((?=[^\s\"',}]*(?:[0-9]|[-_./]))[^\s\"',}]{6,})"
     r"|(?<![A-Za-z0-9])(sk-[A-Za-z0-9_-]{8,})"
-    r"|(wss://\S+)|(https?://\S+)"
 )
+# URL 单独一条规则、在凭据规则之后跑：凭据规则先剥掉 token=…/Bearer，URL 规则
+# 再决定整段 URL 去留。这样 URL 内的能力文件名先经结构规则脱敏后还能被识别放行，
+# 保留时间戳+扩展名供诊断；其余 URL 一律整段变 <redacted-url>。
+_URL_ONLY_RE = re.compile(r"(?i)(wss://\S+|https?://\S+)")
 # 能力文件名自带不可猜 token，等价于 capability URL 的凭据部分。即便不带主机名，
 # 裸文件名配上已知公网前缀就能直接下载，故与 token 同等对待：整段 token 变 `*`，
 # 保留时间戳前缀与扩展名供诊断。与 server._redact_capability_name 同口径。
@@ -173,10 +176,18 @@ def _redact_secret_text(text: str) -> str:
                 return f"{group}<redacted>"
         return "<redacted>"
 
-    # 先按结构去掉能力文件名的 token，再跑凭据/URL 规则：两者互不重叠，
-    # 但文件名先行可避免 URL 规则把整条含 capability URL 的行整段吞掉后
-    # 丢失「哪个产物出问题」的诊断信息。
-    return _SECRETISH_RE.sub(_sub, _CAPABILITY_NAME_RE.sub(r"\1_*.\2", text))
+    # 先按结构去掉能力文件名的 token，并用放行标记替换，再跑凭据/URL 规则。
+    # 标记让 URL 规则能识别「这是已脱敏的能力产物 URL」而保留其路径（时间戳+
+    # 扩展名 = 哪个产物出问题），其余 URL 一律整段变 <redacted-url>；最后还原标记。
+    # 不能回查 _CAPABILITY_NAME_RE：脱敏后的名字含 `*`，已不匹配 22 位 token 模式。
+    text = _CAPABILITY_NAME_RE.sub(lambda m: f"{m.group(1)}_\x00ALLOW\x00.{m.group(2)}", text)
+
+    def _redact_url(match: re.Match[str]) -> str:
+        url = match.group(0)
+        return url if "\x00ALLOW\x00" in url else "<redacted-url>"
+
+    text = _URL_ONLY_RE.sub(_redact_url, _SECRETISH_RE.sub(_sub, text))
+    return text.replace("_\x00ALLOW\x00.", "_*.")
 
 
 def _safe_stderr_line(line: str | bytes) -> str:
