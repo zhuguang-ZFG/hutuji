@@ -173,6 +173,118 @@ def test_load_settings_rejects_non_loopback_host(monkeypatch: pytest.MonkeyPatch
         load_settings()
 
 
+# 上一条只堵住 HUTUJI_HOST 这一条路。`python -m uvicorn hutuji_mcp.server:app
+# --host 0.0.0.0` 完全绕开 settings.host：监听面由 CLI 参数决定，配置校验根本没
+# 被问过（HUTUJI_HOST 可以是合法的 127.0.0.1 而进程照样绑 0.0.0.0）。`/mcp` 是
+# **无鉴权控制面**，能驱动写字机出图，生产却只有两层网络防线：nginx 显式 404 +
+# 安全组不放行 8300。任一层被绕（直跑 uvicorn、安全组改宽、换反代）控制面即裸曝。
+# 所以应用层必须自己再兜一刀，且判据只能是「对端地址」——它不可伪造。
+# SDK 自带的 DNS-rebinding 防护挡不住：它校验 `Host` 请求头，而请求头由攻击方
+# 控制。2026-08-09 实测（绑 0.0.0.0，从非 loopback 对端裸 socket）：`Host:
+# 127.0.0.1:<port>` 被 SDK 放行，`initialize` 回 200 与真实 result。
+def _asgi_scope(path: str, client: tuple[str, int] | None) -> dict[str, object]:
+    return {"type": "http", "path": path, "method": "POST", "headers": [], "client": client}
+
+
+def _run_guard(path: str, client: tuple[str, int] | None) -> tuple[bool, list[dict[str, object]]]:
+    """用裸 ASGI scope 驱动守卫，返回（是否进到内层 app，发出的消息）。
+
+    不用 TestClient：本仓测试一律直调被测对象 + monkeypatch 模块全局。
+    """
+    reached: list[bool] = []
+
+    async def _inner(scope: dict[str, object], receive: object, send: object) -> None:
+        reached.append(True)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    sent: list[dict[str, object]] = []
+
+    async def _send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    async def _receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    guard = server.LoopbackOnlyMcpGuard(_inner)
+    asyncio.run(guard(_asgi_scope(path, client), _receive, _send))
+    return bool(reached), sent
+
+
+@pytest.mark.parametrize(
+    "client",
+    [
+        ("117.72.118.95", 40000),   # 生产公网地址
+        ("192.168.1.13", 40000),    # 同网段写字机
+        ("0.0.0.0", 40000),
+        ("::ffff:9.9.9.9", 40000),  # IPv4-mapped 公网，不能当 loopback 放行
+    ],
+)
+def test_mcp_rejects_non_loopback_peer(client: tuple[str, int]) -> None:
+    reached, sent = _run_guard("/mcp", client)
+    assert reached is False, "非 loopback 对端不得进到 MCP 应用"
+    start = sent[0]
+    assert start["status"] == 404, "口径与 nginx 公网一致：不回显端点是否存在"
+
+
+@pytest.mark.parametrize(
+    "client",
+    [
+        ("127.0.0.1", 50000),
+        ("127.0.0.2", 50000),        # 整个 127/8 都是本机
+        ("::1", 50000),
+        ("::ffff:127.0.0.1", 50000),  # 双栈 socket 上 uvicorn 会这样报
+    ],
+)
+def test_mcp_allows_loopback_peer(client: tuple[str, int]) -> None:
+    reached, _ = _run_guard("/mcp", client)
+    assert reached is True, f"loopback 对端 {client[0]} 必须放行，否则桥接器打不通"
+
+
+@pytest.mark.parametrize("client", [None, ("", 0), ("not-an-ip", 1), ("127.0.0.1.5", 1)])
+def test_mcp_guard_fails_closed_on_unknown_peer(client: tuple[str, int] | None) -> None:
+    """对端取不到或解析不了时按拒绝处理：宁可打不通，不可静默放行控制面。"""
+    reached, sent = _run_guard("/mcp", client)
+    assert reached is False
+    assert sent[0]["status"] == 404
+
+
+@pytest.mark.parametrize("path", ["/mcp", "/mcp/", "/mcp/messages"])
+def test_mcp_guard_covers_endpoint_and_subpaths(path: str) -> None:
+    reached, _ = _run_guard(path, ("9.9.9.9", 1234))
+    assert reached is False, f"{path} 属于 MCP 端点，必须受守卫"
+
+
+@pytest.mark.parametrize("path", ["/files/draw_20260808_120000_" + "A" * 22 + ".gcode", "/mcpx", "/"])
+def test_guard_leaves_public_capability_path_alone(path: str) -> None:
+    """`/files` 是设计上的公网下载面（经 nginx 反代），不能被这刀带走；
+    前缀也必须按路径段匹配，`/mcpx` 不是 MCP 端点。"""
+    reached, _ = _run_guard(path, ("9.9.9.9", 1234))
+    assert reached is True
+
+
+def test_guard_passes_through_non_http_scopes() -> None:
+    """lifespan 等非 http scope 必须原样透传，否则服务起不来。"""
+    reached: list[bool] = []
+
+    async def _inner(scope: dict[str, object], receive: object, send: object) -> None:
+        reached.append(True)
+
+    async def _noop(*_args: object) -> dict[str, object]:
+        return {"type": "lifespan.startup"}
+
+    guard = server.LoopbackOnlyMcpGuard(_inner)
+    asyncio.run(guard({"type": "lifespan"}, _noop, _noop))
+    assert reached == [True]
+
+
+def test_app_registers_loopback_guard() -> None:
+    """光有类没挂上等于死代码——把接线本身钉死。"""
+    assert any(
+        entry.cls is server.LoopbackOnlyMcpGuard for entry in server.app.user_middleware
+    ), "LoopbackOnlyMcpGuard 必须挂在 app 上"
+
+
 @pytest.mark.parametrize("ttl", [0, -1])
 def test_settings_rejects_nonpositive_ttl(tmp_path: Path, ttl: int) -> None:
     with pytest.raises(ValueError, match="output_ttl_seconds.*> 0"):

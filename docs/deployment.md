@@ -32,7 +32,11 @@
         │
         ▼
  hutuji-cloud-bridge（本机）──mcp-proxy──► 127.0.0.1:8300/mcp
+                                               │
+                                               └─ `LoopbackOnlyMcpGuard` 按 socket 对端复核；非 loopback/未知对端 404
 ```
+
+> 应用层守卫不替代 unit 的 `--host 127.0.0.1`、安全组不放行 8300、nginx `/mcp` 404：它只兜 `/mcp` 控制面，不能阻止 `/files` 绕开 nginx 限速与 ACL。该守卫截至 2026-08-09 仅在仓内候选，生产基线 `25ff33d` 尚未包含。
 
 ### Cloudflare Tunnel（2026-07-27 上线）
 
@@ -226,7 +230,7 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 
 | 文件 | 变量 | 说明 |
 |------|------|------|
-| `mcp.env` | `HUTUJI_HOST/PORT` | **不是**监听面真值（unit 的 `--host/--port` 才是）；但 `HUTUJI_HOST` 非 loopback 会在 import 期抛错、服务起不来 |
+| `mcp.env` | `HUTUJI_HOST/PORT` | **不是**监听面真值（unit 的 `--host/--port` 才是）；`HUTUJI_HOST` 非 loopback 会在 import 期抛错，但 uvicorn CLI 可另绑 `0.0.0.0`。仓内候选另由 `LoopbackOnlyMcpGuard` 按 socket 对端把非 loopback/未知 `/mcp` 请求塌成 404；仍不可省略 unit loopback 监听 |
 | `mcp.env` | `HUTUJI_PUBLIC_BASE_URL` | HTTPS 公网前缀（S3 下载） |
 | `mcp.env` | `HUTUJI_LLM_*` | LLM |
 | `mcp.env` | `HUTUJI_OUTPUT_*` | 产出目录与 TTL |

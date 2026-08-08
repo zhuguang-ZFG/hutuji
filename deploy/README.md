@@ -80,4 +80,4 @@ rm -rf /opt/hutuji/mcp-server/output/*
 # 保留 /etc/hutuji/*.env（若已填好）；否则按 example 重建
 ```
 
-验收铁律：公网不能访问 `/mcp`；8300 不进安全组；明文 `:80 /files/` 只允许 loopback Tunnel 回源。
+验收铁律：公网不能访问 `/mcp`；8300 不进安全组；明文 `:80 /files/` 只允许 loopback Tunnel 回源。应用层另有 `server.LoopbackOnlyMcpGuard` 按 socket 对端兜底（非 loopback 对端访问 `/mcp` 回 404），但它**只兜控制面**——`/files` 一旦绕开 nginx 就没有限速与 ACL，故上面三条一条都不能省。

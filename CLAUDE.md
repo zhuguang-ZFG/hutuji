@@ -93,7 +93,7 @@ python -m venv .venv
 | 起开发服务 | `.venv/Scripts/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300` |
 | 起假 Grbl | `.venv/Scripts/python -m hutuji_mcp.grbl_sim` |
 
-> **`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即 `0.0.0.0` 裸曝 `/mcp`。`HUTUJI_HOST` 本身已收紧为**只允许 loopback**（`config.py` import 期校验），写成 `0.0.0.0` 不再被静默忽略，而是让服务起不来。
+> **`-m uvicorn` 不读 `HUTUJI_HOST`**，只有 `python -m hutuji_mcp.server` 才走 `settings.host`；`--host` 漏写即监听 `0.0.0.0`。`HUTUJI_HOST` 本身已收紧为**只允许 loopback**（`config.py` import 期校验），写成 `0.0.0.0` 不再被静默忽略，而是让服务起不来。监听面裸开时 `/mcp` 另有应用层兜底 `server.LoopbackOnlyMcpGuard`（按 ASGI 对端地址拒非 loopback、回 404），但 `/files` 会绕开 nginx 限速/ACL 直曝，故 `--host` 仍不能漏。
 
 ### 本仓门禁
 

@@ -6,7 +6,7 @@
 
 | unit | 职责 | EnvironmentFile | 健康信号 |
 |------|------|-----------------|----------|
-| `hutuji-mcp` | uvicorn：`/mcp` + `/files`（仅本机） | `/etc/hutuji/mcp.env` | `preflight.sh`；或本机 curl `:8300` |
+| `hutuji-mcp` | uvicorn：`/mcp` + `/files`（仅本机）；仓内候选另有 `/mcp` socket 对端 loopback 守卫 | `/etc/hutuji/mcp.env` | `preflight.sh`；或本机 curl `:8300`；守卫部署后非 loopback 对端 `/mcp` 应为 404 |
 | `hutuji-cloud-bridge` | 小智 WSS ↔ 本机 MCP | `/etc/hutuji/bridge.env` | journal 无连续鉴权失败；控制台工具在线 |
 | `nginx` | TLS + 仅 `/files` | — | `https://…/files/` 可达；`/mcp` 404 |
 

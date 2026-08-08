@@ -251,6 +251,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 方向 | 约定 |
 |------|------|
 | MCP 服务产出 | 公网能力 URL **必须是 `https://`**；HTTP 响应头给 `Content-Length` + `X-Hutuji-CRC32:<hex>`。Cloudflare Tunnel 的明文回源只允许 loopback，公网直连 `:80 /files/` 必须拒绝 |
+| MCP 控制面 | `/mcp` 只允许同机 bridge 通过 loopback 对端连接；服务应用层必须按 ASGI socket 对端地址再判一次，未知/非 loopback 一律 404。不得以 `Host`、`X-Forwarded-For`、`CF-Connecting-IP` 等请求头代替——攻击方可伪造。systemd loopback 监听、安全组不放行 8300、nginx `/mcp` 404 三层仍必须保留；应用层守卫只兜住控制面，不能防 `/files` 绕过 nginx 限速/ACL 直曝。 |
 | 校验算法 | **CRC32**只负责发现传输截断/位翻转，**不是认证码**，不能抵抗同时篡改正文与响应头的中间人；公网传输认证由 HTTPS 承担，不上 SHA256。⚠️ **变体两侧必须钉死同一个**（zlib/IEEE，Python `zlib.crc32` ↔ ESP32 侧同变体） |
 | S3 侧流程 | 全量下载入 PSRAM（`GetBodyLength()` / `GetResponseHeader()` / `Read()` 循环，模板 `ota.cc:292-321`）→ **先比长度**（快速失败）→ **再比 CRC32** → 全部通过**才**发第一行 |
 | 任一不符 | 任务 error，**一个字节都不发写字机**，推送提示（见 §7） |

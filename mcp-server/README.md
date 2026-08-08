@@ -244,7 +244,7 @@ output/      生成产物（运行时创建）
 
 ## 组 3：公网安全（Q3，服务将部署京东云公网）
 
-**已落实边界**：`config.py` 的 `_validate_host()` 把 `HUTUJI_HOST` 硬限为 loopback，非 loopback 值 import 期 `ValueError`；公网只能由 nginx 暴露 `/files`。**注意仍有一条口径外的路径**：直接 `python -m uvicorn hutuji_mcp.server:app --host 0.0.0.0` 绕过本变量（uvicorn 自己的 `--host` 不经 `config`），仍会裸露 `/mcp`；生产靠 systemd unit 固定 `--host 127.0.0.1` + 安全组不放行 8300 + nginx `/mcp` 显式 404 三层兜住。
+**已落实边界**：`config.py` 把 `HUTUJI_HOST` 硬限为 loopback，非 loopback 值 import 期 `ValueError`；公网只能由 nginx 暴露 `/files`。直接 `python -m uvicorn hutuji_mcp.server:app --host 0.0.0.0` 仍会绕过本变量（uvicorn 自己的 `--host` 不经 `config`），但 `/mcp` 现有独立应用层兜底 `server.LoopbackOnlyMcpGuard`：只按 ASGI socket 对端地址放行 loopback，未知/非 loopback 一律回 404，且不信任可伪造的 `Host` / `X-Forwarded-For`。这刀不能取代既有三层：生产 systemd unit 仍固定 `--host 127.0.0.1`、安全组仍不放行 8300、nginx `/mcp` 仍显式 404；否则 `/files` 会绕开 nginx 限速与 ACL 直曝。
 
 ### 3.1 `/mcp` 端点不上公网（只经同机桥接器）
 - **改哪里**：部署拓扑 + `server.py` 监听/防火墙。

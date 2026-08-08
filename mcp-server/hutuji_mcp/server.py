@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import os
@@ -336,6 +337,72 @@ async def hutuji_preview_svg(description: str) -> str:
 _mcp_app = mcp.streamable_http_app()
 
 
+_MCP_PATH = mcp.settings.streamable_http_path.rstrip("/") or "/mcp"
+
+
+class LoopbackOnlyMcpGuard:
+    """应用层兜底：`/mcp` 只接受 loopback 对端连接。
+
+    `settings.host` 只管 `python -m hutuji_mcp.server` 这一条启动路径；生产 unit 与
+    开发常用的 `python -m uvicorn hutuji_mcp.server:app --host …` 由 CLI 决定监听面，
+    根本不读该字段——HUTUJI_HOST 合法为 127.0.0.1 而进程绑 0.0.0.0 是可达状态。
+    `/mcp` 是无鉴权控制面（能驱动写字机出图），此前防线全在应用之外：nginx 显式
+    404 + 安全组不放 8300。任一层被绕（直跑 uvicorn、安全组放宽、换反代）即裸曝。
+
+    判据只用 ASGI `scope["client"]` 的对端地址：它来自 socket，不可伪造。
+    SDK 自带的 DNS-rebinding 防护（FastMCP 因 host 是 loopback 而自动开启，
+    `allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"]`）**不能替代本刀**：
+    它校验的是 `Host` 请求头，而请求头由攻击方完全控制。2026-08-09 实测：绑
+    0.0.0.0 后从非 loopback 对端裸 socket 发 `Host: 127.0.0.1:<port>`，SDK 放行、
+    `initialize` 回 200 与真实 result（换成不带端口的 `Host: localhost` 才 421——
+    allowed_hosts 模式要求端口后缀，绕过门槛低到「补上端口」）。同理
+    `X-Forwarded-For`/`CF-Connecting-IP` 也不可信。
+    对端缺失或解析不了一律拒绝（fail-closed）——宁可桥接打不通被立刻发现，
+    也不能静默放行控制面。回 404 而非 403，与 nginx 公网口径一致：不回显端点存在。
+    """
+
+    def __init__(self, app: Callable) -> None:
+        self._app = app
+
+    @staticmethod
+    def _is_loopback(host: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            # uvicorn 只会给出数值地址；非法值按未知处理。
+            return False
+        # 双栈 socket 上 IPv4 对端会以 ::ffff:127.0.0.1 形式出现，
+        # ip_address().is_loopback 对它已返回 True，无需另行拆解。
+        return ip.is_loopback
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http":
+            await self._app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        # 按路径段匹配：`/mcpx` 不是 MCP 端点，不能连带拦掉。
+        if path != _MCP_PATH and not path.startswith(f"{_MCP_PATH}/"):
+            await self._app(scope, receive, send)
+            return
+        client = scope.get("client")
+        host = client[0] if client else ""
+        if not host or not self._is_loopback(host):
+            logger.warning("拒绝非 loopback 对端访问 MCP 控制面")
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 404,
+                    "headers": [
+                        (b"content-length", b"9"),
+                        (b"content-type", b"text/plain; charset=utf-8"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"not found"})
+            return
+        await self._app(scope, receive, send)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     # 挂载的子应用 lifespan 不会自动运行，必须显式拉起 MCP session manager
@@ -359,6 +426,7 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+app.add_middleware(LoopbackOnlyMcpGuard)
 
 # 静态文件源：自定义路由（非裸 StaticFiles），以带 protocol §5.1 完整性头
 # Content-Length + X-Hutuji-CRC32。S3 侧下完先比长度再比 CRC32 才开画（见 mcp-server README 组 0.2）。
