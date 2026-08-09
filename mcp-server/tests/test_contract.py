@@ -2467,23 +2467,27 @@ def test_gate_governance_docs_cover_repo_governance_surface() -> None:
         assert must in gate.GOVERNANCE_DOCS, must
 
 
-def test_gate_governance_docs_are_all_required_files() -> None:
-    """每份治理文档都必须同时在 REQUIRED_FILES 里，否则改名/删除即静默缩小扫描面。
+def test_gate_required_files_derives_governance_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`check_required_files` 必须**在调用时**把 GOVERNANCE_DOCS 并进必备文件面。
 
-    两个扫描器对缺失文件都是 `continue`，且 forbidden_claims 的 pass 文案直接打
-    `len(GOVERNANCE_DOCS)`。2026-08-09 实测往 GOVERNANCE_DOCS 塞一个不存在的路径，
-    forbidden_claims 回 pass 且把份数印成「19 份均未做出」（实际只扫了 18），
-    revived_decisions 同样回 pass —— 报告数字与实际扫描面脱钩。
-
-    修法不是让扫描器对缺失判红：`check_forbidden_claims` 的既有测试会把 ROOT 指向
-    只放一份文档的 tmp_path，缺失在那里是合法的测试构造。故存在性交给
-    required_files 层（docs/hub/full 三个 profile 都跑），本测试钉死两张清单的包含关系。
+    静态断言「两张清单包含关系成立」只能证明当下没漂，管不住下一次新增：加一份治理
+    文档时若忘了同步 REQUIRED_FILES，那份文档在 `docs` 层（不跑 pytest）被删/改名后，
+    禁语与复活两层只会 `continue` 静默跳过，而 forbidden_claims 的 pass 文案照打
+    `len(GOVERNANCE_DOCS)`（2026-08-09 实测印「19 份均未做出」而实际只扫 18）。
+    故并集必须在 `check_required_files` 里现算，让「治理文档必存在」成为结构不变量，
+    而不是一条要靠人记得同步的清单。
     """
     gate = _load_agent_gate()
+    monkeypatch.setattr(
+        gate, "GOVERNANCE_DOCS", [*gate.GOVERNANCE_DOCS, "docs/brand-new-governance.md"]
+    )
 
-    orphans = [d for d in gate.GOVERNANCE_DOCS if d not in gate.REQUIRED_FILES]
+    result = gate.check_required_files()
 
-    assert orphans == [], orphans
+    assert result["status"] == "fail", result
+    assert "docs/brand-new-governance.md" in result["detail"], result
 
 
 def test_gate_section9_rejects_marker_files_outside_grbl_repo(tmp_path: Path) -> None:

@@ -40,12 +40,6 @@ REQUIRED_FILES = [
     "docs/release-readiness.md",
     "docs/protocol.md",
     "docs/bringup-sop.md",
-    # 这两份是治理文档（在 GOVERNANCE_DOCS 里）却长期不在必备文件里：两个扫描器对
-    # 缺失文件都只 continue，故改名/删除后禁语与复活两层会静默跳过它，而
-    # forbidden_claims 的 pass 文案照打 len(GOVERNANCE_DOCS) —— 数字与实际扫描面脱钩。
-    # 存在性由本层兜住（docs/hub/full 都跑），包含关系由 test_contract 钉死。
-    "docs/daytime-tuning-runbook.md",
-    "docs/operations.md",
     "docs/development.md",
     "docs/deployment.md",
     "docs/hardware.md",
@@ -200,17 +194,33 @@ def _layer(lid: str, name: str, status: str, detail: str = "", **extra: Any) -> 
     return out
 
 
+def required_file_set() -> list[str]:
+    """必备文件面 = REQUIRED_FILES ∪ GOVERNANCE_DOCS（保序去重）。
+
+    并集在**调用时**现算，而不是把治理文档手抄进 REQUIRED_FILES。手抄版只能靠一条
+    静态包含关系测试兜，那条测试证明的是「当下没漂」，管不住下一次新增：两个扫描器
+    对读不到的文件都只 continue，`forbidden_claims` 的 pass 文案却照打
+    len(GOVERNANCE_DOCS)，于是新增的治理文档一旦被删/改名，`docs` 层（不跑 pytest）
+    会静默少扫一份并印出与实际扫描面脱钩的份数。现算并集把「治理文档必存在」变成
+    结构不变量：往 GOVERNANCE_DOCS 加一行，它当场就受必备文件层保护。
+    """
+    seen: dict[str, None] = dict.fromkeys(REQUIRED_FILES)
+    seen.update(dict.fromkeys(GOVERNANCE_DOCS))
+    return list(seen)
+
+
 def check_required_files() -> dict[str, Any]:
     # lstat 语义：symlink 视为缺失。门禁校验的是真实落盘的必备文件，
     # 链接到别处的文件可能在部署后被抽走/换指向而不被发现。
+    required = required_file_set()
     missing = [
         p
-        for p in REQUIRED_FILES
+        for p in required
         if (ROOT / p).is_symlink() or not (ROOT / p).is_file()
     ]
     if missing:
         return _layer("required_files", "必备文件", "fail", f"missing={missing}")
-    return _layer("required_files", "必备文件", "pass", f"count={len(REQUIRED_FILES)}")
+    return _layer("required_files", "必备文件", "pass", f"count={len(required)}")
 
 
 def check_decision_anchors() -> dict[str, Any]:

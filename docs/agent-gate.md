@@ -54,8 +54,9 @@
 - 只认能**唯一**落到本仓的引用：相对路径直接命中，或裸文件名在本仓内恰好 1 个同名文件命中；`.venv`/`.claude`/`results`/`output` 等副本目录不参与解析（`.claude/worktrees/*` 是整仓副本，会把唯一性打破）。
 - 落不到本仓的引用（fork 侧、逆向产物）本层一律跳过，由下面的 `external_doc_line_refs` 接管（`hub` 起就跑）。本层不管「路径拼错」。
 - detail 同时报 `校验 N 处` 与 `跳过 M 处`；`N=0` 判 **fail**（解析规则失效的空转门禁比红更危险）。行号在范围内 ≠ 指向对的代码，语义仍须人工核对。
-- **本层查不出「指向错」，而指向错是静默的**。2026-08-09 实测：`docs/release-readiness.md` 里 `AGENTS.md:149` 本意指硬规则「**禁止宣称**（除非 …）」，该条早已随 `AGENTS.md` 多轮插行漂到 **153**，但 149 一直落在文件行数内，故本层历轮全绿、从未报过。同轮另有两处同源漂移：上一轮写的 `agent_gate.py:131`（指 `GOVERNANCE_DOCS` 注释「新增治理文档请加进本清单」）被 `REQUIRED_FILES` 补两行推到 137，`docs/agent-gate.md` 的「第 137 行」被 §3/§5 插行推到 139。
-- **处置约定**：引用处若已逐字引了目标句（如上例已写出「**禁止宣称**（除非 …）」），**删掉行号、只留引文**——引文自带定位且不会过期，行号只是额外的过期源。确需行号时，改完插行的文件后须回扫指向它的引用（`grep -n '<文件名>:[0-9]'`），本层不会替你发现。
+- **本层查不出「指向错」，而指向错是静默的**。2026-08-09 实测：`docs/release-readiness.md` 里指向 `AGENTS.md` **第 149 行**的引用，本意指硬规则「**禁止宣称**（除非 …）」，而该条早已随多轮插行漂到 **第 153 行**；149 一直落在文件行数内，故本层历轮全绿、从未报过。同轮另有两处同源漂移：写 `agent_gate.py` **第 131 行**（指 `GOVERNANCE_DOCS` 注释「新增治理文档请加进本清单」）被 `REQUIRED_FILES` 补行推到 **137**；本文 §5 那条写的「第 137 行」被 §3/§5 插行推到 **139**。
+- **处置约定**：引用处若已逐字引了目标句（如上例已写出「**禁止宣称**（除非 …）」），**删掉行号、只留引文**——引文自带定位且不会过期，行号只是额外的过期源。确需行号时，改完插行的文件后须回扫指向它的引用（按 `<文件名>:<数字>` 检索），本层不会替你发现。
+- **讲「过期行号」时不要用 `file.ext:NNN` 写法**（本节两条自身即按此改写）：本层会把它当**活指针**解析并计入 `校验 N 处`——那等于给一个按构造就指错的示例发通行证，还会在目标文件缩短时红在「关于门禁的文档」上而非真实内容。举例一律用「`文件名` 第 NNN 行」的散文式写法，本层不解析。
 
 `external_doc_line_refs` 层（`hub` 与 `full`）把同一套校验延伸到三个只读参考仓——本仓文档里的
 `path:line` 引用九成指向那边（`hutuji_pipe.cc`、`Serial.cpp`、`grbl_plotter.py`…），只在本仓解析
@@ -70,7 +71,10 @@
 
 ## 3. 必备文件（`docs` 层）
 
-下列文件缺失 → 门禁红；禁止用「差不多齐了」绕过：
+下列文件缺失 → 门禁红；禁止用「差不多齐了」绕过。**实际校验面 = `REQUIRED_FILES` ∪ `GOVERNANCE_DOCS`**，由
+`required_file_set()` 在调用时现算（保序去重，本机 33 ∪ 18 → **35**），不是一张手抄清单：治理文档必须存在
+这条不变量因此是结构性的，新增治理文档只改 `GOVERNANCE_DOCS` 一处即自动获得存在性保护。下表列基础清单，
+带「治理」标记的另受 §5 禁语与否决项复活两层扫描。
 
 | 路径 | 作用 |
 |------|------|
@@ -86,8 +90,8 @@
 | `docs/release-readiness.md` | 状态真值 |
 | `docs/protocol.md` | 契约 v0.5 |
 | `docs/bringup-sop.md` | 联调阶段顺序 |
-| `docs/daytime-tuning-runbook.md` | 单日取证编排（2026-08-09 补入，见下） |
-| `docs/operations.md` | 运维手册（2026-08-09 补入，见下） |
+| `docs/daytime-tuning-runbook.md` | 单日取证编排（治理，2026-08-09 纳入，见下） |
+| `docs/operations.md` | 运维手册（治理，2026-08-09 纳入，见下） |
 | `docs/development.md` | 开发规范 |
 | `docs/deployment.md` + `deploy/` | 京东云模板 |
 | `docs/templates/device-test-record.md` | 逐台记录 |
@@ -139,7 +143,10 @@ claims_forbidden 约束」——**没有任何一层扫过文档里有没有真�
 `README.md` 追加一句同时含表中三条禁语的完成式断言，`docs` 层七项全绿并照常打印那句提示。
 
 - 扫描面 = `GOVERNANCE_DOCS`（**18 份**，见 `scripts/agent_gate.py`）。新增治理文档**必须**加进该清单，否则禁语与复活两层都会绕过它。2026-08-09 补入第 18 份 `docs/daytime-tuning-runbook.md`：它决定「哪几步真机验证可以跳过」，一旦写出「已完成/可跳过」后续代理就不再上真机复验，属 agent 行为的直接约束源，此前其状态措辞完全无机器把关。补入后 `test_gate_governance_docs_cover_repo_governance_surface` 的 `must` 清单已把它钉死，禁语与复活两层实测均 pass（该文零禁语命中、三条复活正则零命中）。
-- **扫描面里的每一份都必须同时在 §3 必备文件里**（`test_gate_governance_docs_are_all_required_files` 钉死）。两个扫描器对读不到的文件都只 `continue`，且 `forbidden_claims` 的 pass 文案直接打 `len(GOVERNANCE_DOCS)`——2026-08-09 实测往清单塞一个不存在的路径，该层仍回 pass 且把份数印成「19 份均未做出」（实际只扫了 18），`revived_decisions` 同样回 pass，**报告数字与真实扫描面脱钩**。当日 `docs/daytime-tuning-runbook.md` 与 `docs/operations.md` 正处于这个状态（在扫描面、不在必备文件），改名或删除即可静默退出两层扫描而换来全绿，已补入 §3（必备文件 33→35）。修法不是让扫描器对缺失判红：`check_forbidden_claims` 的既有测试会把 `ROOT` 指向只放一份文档的 `tmp_path`，缺失在那里是合法的测试构造，改判红会误伤 20 项既有测试（实测）。存在性由 `required_files` 层兜（三个 profile 都跑），变异复验：临时改名 `docs/operations.md` → `docs` 层 `overall=fail exit=1`、精确报 `missing=['docs/operations.md']`，复原后复绿。
+- **扫描面里的每一份都自动进入 §3 必备文件面**：`required_file_set()` 在调用时现算 `REQUIRED_FILES ∪ GOVERNANCE_DOCS`，故「治理文档必须存在」是结构不变量，新增一份只改 `GOVERNANCE_DOCS` 即获得存在性保护，无需人工同步两张清单。起因：两个扫描器对读不到的文件都只 `continue`，而 `forbidden_claims` 的 pass 文案直接打 `len(GOVERNANCE_DOCS)`——2026-08-09 实测往清单塞一个不存在的路径，该层仍回 pass 且把份数印成「19 份均未做出」（实际只扫了 18），`revived_decisions` 同样回 pass，**报告数字与真实扫描面脱钩**。当日 `docs/daytime-tuning-runbook.md` 与 `docs/operations.md` 正在扫描面内却不在必备清单，改名或删除即可静默退出两层扫描换全绿。
+  - **不改扫描器对缺失判红**：`check_forbidden_claims` 的既有测试会把 `ROOT` 指向只放一份文档的 `tmp_path`，缺失在那里是合法测试构造，改判红实测误伤 20 项既有测试（其中 `allows_quoting_the_rule` 那组要求 pass，把 missing 折进 fail detail 也救不回来）。存在性交 `required_files` 层（三个 profile 都跑）。
+  - **先落的修法是手工把两份补进 `REQUIRED_FILES`，已被 code review 判为不足**：静态清单只能证明当下没漂，管不住下一次新增——`test_gate_required_files_derives_governance_docs` 用 monkeypatch 加一份虚构治理文档取 RED 时，旧实现回 `pass count=35`，即新文档零保护。改为调用时现算并集后转 GREEN。
+  - 变异复验：临时改名 `docs/operations.md` → `docs` 层 `overall=fail exit=1`、精确报 `missing=['docs/operations.md']`，复原后复绿；删掉 `check_required_files` 的 symlink 判据 → `test_gate_required_files_rejects_symlink` 转红（`required.md` 从 `missing` 里消失），证明并集没有把该判据稀释成「反正会红」。
 - 判据区分「做出宣称」与「引述规则」：命中若处于否定/免责语境（`不得` / `≠` / `不证明` / `不支持` / `除非` / `不提升` / `不升级` …），或被反引号包裹、或落在「禁语 → 前置条件」表格的定义列、或其上方是否决类标题/导语（可跨空行与同级列表项），一律放行。
 - **句窗取「整句中禁语之前的那一半」**，不是整句、也不是最小短语。取整句是为了容纳否定词与禁语隔着顿号/斜杠/`≠` 的真实句式（`写了说明 ≠ 代码已改 ≠ 可出货`）；**只认前半句**是因为整句口径会让否定词反过来给裸宣称当挡箭牌——句尾补一个 `不支持` / `不升级` 就能整句放行（2026-08-07 实测 `现已可出货，后续不支持。` 与另一变异形态 `硬件已验证、可出货，本条不构成 M2 结论。` 在整句口径下双双 pass）。真实免责句式的否定词一律在禁语**之前**，故收紧后当时的 17 份治理文档零新误报（2026-08-09 扩到 18 份后复跑仍零误报）。切窗含 1 字重叠：禁语 `可出货` 是 `不可出货` 的子串、与否定词 `不可` 共享一个字，切在禁语起点会把 `不可` 拦腰截断而误报 `> **不可出货**`。
 - 这样 §5 这张表自身、`.cursor` 硬轨的禁语清单、以及各文档里「本条不支持『可出货』任何一项宣称」都能正常存在，而散文式断言（「本机已联调完成」）判红。
