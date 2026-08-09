@@ -2362,7 +2362,7 @@ def test_gate_forbidden_claims_rejects_trailing_disclaimer(
 
     整句口径下，`_CLAIM_QUOTE_RE` 会被反过来当挡箭牌：句尾补一个 `不支持`／`不升级`
     就能让前半句的裸宣称整句放行。2026-08-07 实测四例在整句口径下全部 pass。
-    收紧为「只看禁语之前的半句」后全部判红，且 17 份治理文档零新误报
+    收紧为「只看禁语之前的半句」后全部判红，且当时的 17 份治理文档零新误报
     （真实免责句式的否定词一律在禁语之前）。
     """
     gate = _load_agent_gate()
@@ -2465,6 +2465,25 @@ def test_gate_governance_docs_cover_repo_governance_surface() -> None:
         "docs/daytime-tuning-runbook.md",
     ):
         assert must in gate.GOVERNANCE_DOCS, must
+
+
+def test_gate_governance_docs_are_all_required_files() -> None:
+    """每份治理文档都必须同时在 REQUIRED_FILES 里，否则改名/删除即静默缩小扫描面。
+
+    两个扫描器对缺失文件都是 `continue`，且 forbidden_claims 的 pass 文案直接打
+    `len(GOVERNANCE_DOCS)`。2026-08-09 实测往 GOVERNANCE_DOCS 塞一个不存在的路径，
+    forbidden_claims 回 pass 且把份数印成「19 份均未做出」（实际只扫了 18），
+    revived_decisions 同样回 pass —— 报告数字与实际扫描面脱钩。
+
+    修法不是让扫描器对缺失判红：`check_forbidden_claims` 的既有测试会把 ROOT 指向
+    只放一份文档的 tmp_path，缺失在那里是合法的测试构造。故存在性交给
+    required_files 层（docs/hub/full 三个 profile 都跑），本测试钉死两张清单的包含关系。
+    """
+    gate = _load_agent_gate()
+
+    orphans = [d for d in gate.GOVERNANCE_DOCS if d not in gate.REQUIRED_FILES]
+
+    assert orphans == [], orphans
 
 
 def test_gate_section9_rejects_marker_files_outside_grbl_repo(tmp_path: Path) -> None:

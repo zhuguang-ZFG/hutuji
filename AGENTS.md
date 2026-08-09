@@ -131,12 +131,13 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 
 ## Testing & QA｜测试与门禁
 
-- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **414 项**。
+- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **415 项**。
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
-- 五个测试文件职责：`test_contract.py`（293 项：§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死、`/mcp` 对端 loopback 守卫，以及 `deploy/preflight.sh` 与两个 unit 的形状/条数钉死）、`test_injection.py`（29 项：SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（52 项：桥接配置与不泄密日志）、`test_field_tools.py`（21 项：`scripts/` 实机与门禁工具，如 `classify_response()`、`check_external_doc_line_refs` 的 `require_repos` 分岔）、`test_sim_server.py`（19 项：PC 仿真 MCP 的 stdio `initialize`/`tools/list`/`tools/call` 与场景白名单）。
+- 五个测试文件职责：`test_contract.py`（294 项：§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死、`/mcp` 对端 loopback 守卫，以及 `deploy/preflight.sh` 与两个 unit 的形状/条数钉死）、`test_injection.py`（29 项：SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（52 项：桥接配置与不泄密日志）、`test_field_tools.py`（21 项：`scripts/` 实机与门禁工具，如 `classify_response()`、`check_external_doc_line_refs` 的 `require_repos` 分岔）、`test_sim_server.py`（19 项：PC 仿真 MCP 的 stdio `initialize`/`tools/list`/`tools/call` 与场景白名单）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。
 - 门禁分层（`docs/agent-gate.md` 是定义真值）：`docs` = 必备文件 + 决策锚点 + 否决项复活扫描 + **禁止宣称扫描** + 白名单 JSON + 防漂移文档 + 三仓矩阵 + 文档 `path:line` 引用；`hub` 再加**外仓 `path:line` 引用** + pytest + e2e；`full` 再加 Grbl §9 源码标记，并把「三仓全缺」从 pass 收紧为 fail。任一层 fail → overall fail、exit 1。分层真值在 `scripts/agent_gate.py` 的 `profile_layers()`（纯函数，有门禁自测钉死），不要再在 `main()` 里另加分支。
 - **复活扫描与禁语扫描共用 `GOVERNANCE_DOCS`（18 份）**：新增治理文档必须加进 `scripts/agent_gate.py` 的该清单，否则两层都绕过它。此前三条复活规则各带手写清单、合计只覆盖 5 份，`CLAUDE.md` 与 `.cursor/rules/` 硬轨都不在其中；`claims_forbidden` 更是只做列表比对、从不扫正文（实测在 README 追加一句含三条禁语的完成式断言，门禁全绿）。**2026-08-09 补入第 18 份 `docs/daytime-tuning-runbook.md`**：它决定「哪几步真机验证可以跳过」，写出「已完成/可跳过」后续代理就不再上真机复验，属行为直接约束源，此前无机器把关；已由 `test_gate_governance_docs_cover_repo_governance_surface` 的 `must` 清单钉死（RED→GREEN 实测），两层扫描均 pass。
+- **扫描面每一份都必须同时在 `REQUIRED_FILES` 里**（`test_gate_governance_docs_are_all_required_files` 钉死，必备文件 33→**35**）。两个扫描器对读不到的文件都只 `continue`，`forbidden_claims` 的 pass 文案却直接打 `len(GOVERNANCE_DOCS)`——2026-08-09 实测塞一个不存在的路径进清单，该层仍 pass 且印成「19 份均未做出」（实际只扫 18），`revived_decisions` 同样 pass，**报告数字与真实扫描面脱钩**；当日 `daytime-tuning-runbook.md` 与 `operations.md` 正在扫描面内却不在必备文件，改名即可静默退出两层扫描换全绿。不改扫描器判红（既有测试把 `ROOT` 指向只放一份文档的 `tmp_path`，缺失是合法测试构造，改了误伤 20 项），存在性交 `required_files` 层兜。**三条复活规则的 `files` 现已全为 `None`**（均回落 `GOVERNANCE_DOCS`），上文「合计只覆盖 5 份」是已修复的历史观察。
 - 写文档注意：门禁会校验 `path:line` 引用的行号是否越界，行号最易悄悄过期——不确定就别写行号。
 - **无覆盖率工具、无 CI**：门禁 + 实机证据就是验收面。软件改动必须给出测试命令与结果；硬件结论必须给设备编号、固件 commit、实测记录（模板在 `docs/templates/`）。
 
