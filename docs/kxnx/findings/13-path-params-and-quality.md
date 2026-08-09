@@ -78,7 +78,7 @@ public class PathParameters {
 0.3mm 意味着两条笔画端点相距 0.3mm 以内就并成一条 —— 少一次抬笔和一次落笔。当前生产 profile
 无 `G4`，Z 行程 5mm 使用 `F10000`（理论运动时间约 0.03s/单程）；减少抬落笔次数仍能降低机械动作与笔尖扰动。
 
-~~可考虑把 `LINEMERGE_TOLERANCE_MM` 从 0.05 提到 0.2–0.3。风险低（只合并端点几乎相接的线，不改变构图），收益是抬落笔次数下降。但**这会改变画面**（原本断开的两笔变连笔），属于画质决策，需要用户确认后再改。~~ **⚠️ 已 supersede（2026-07-31）**：`LINEMERGE_TOLERANCE_MM` **已是 0.3**（`gcode_gen.py`，对齐奎享 `nearDst`，`test_contract.py:285` 钉死）。本段把现值写成 0.05 是过时陈述；0.3 为现行锁定值，非「待考虑」。
+~~可考虑把 `LINEMERGE_TOLERANCE_MM` 从 0.05 提到 0.2–0.3。风险低（只合并端点几乎相接的线，不改变构图），收益是抬落笔次数下降。但**这会改变画面**（原本断开的两笔变连笔），属于画质决策，需要用户确认后再改。~~ **⚠️ 已 supersede（2026-07-31）**：`LINEMERGE_TOLERANCE_MM` **已是 0.3**（`gcode_gen.py`，对齐奎享 `nearDst`，`test_contract.py` 钉死）。本段把现值写成 0.05 是过时陈述；0.3 为现行锁定值，非「待考虑」。
 
 ## 4. 画质档位 → 进给速率映射表
 
@@ -140,7 +140,7 @@ public class PathParameters {
 
 | 优先级 | 事项 | 依据 |
 |---|---|---|
-| ✅ 已做 | `linesimplify` 容差 0.2mm → 0.1mm → **0.05mm** | 实测算法拐点后继续下调；现值 0.05 由 `gcode_gen.py` 定义、`test_contract.py:1174` 钉死 |
+| ✅ 已做 | `linesimplify` 容差 0.2mm → 0.1mm → **0.05mm** | 实测算法拐点后继续下调；现值 0.05 由 `gcode_gen.py` 定义、`test_contract.py` 钉死 |
 | ✅ 已做 | `linemerge` 容差 0.05mm → **0.3mm** | 奎享 `nearDst=0.3` 现役值（现役安装 `settings.json` 实测，见 [[22-installed-config-vs-machine]] §4），实测安全，减少抬落笔次数 |
 | P2（若上窗口化流控） | `linesimplify` 可再降到 **0.02mm** 对齐奎享 | 需先做窗口化流控；现值 0.05 会简化掉奎享产物中 4.8% 的段（见 [[22-installed-config-vs-machine]] §6） |
 

@@ -20,7 +20,7 @@ LLM 生成单线笔画 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验�
                       │            └─ hutuji_preview_svg(description) 只出 SVG（调试）
                       └─ /files/{name}.gcode   G-code 静态文件源（S3 板下载入口）
 
-LLM（OpenAI 兼容）→ SVG ──vpype(read→layout 归一化→linemerge→linesort→linesimplify→gwrite --profile hutuji)──► G-code
+LLM（OpenAI 兼容）文生图 → 位图 → sknw 中心线描摹 → SVG ──vpype(read→layout 归一化→linemerge→linesort→linesimplify→gwrite --profile hutuji)──► G-code
                                                                     └─ validate_gcode() §5 逐行断言
 
 无硬件闭环：scripts/e2e_local.py = grbl_sim(假 Grbl:2323) ← pipe_sim(模拟 S3 转发) ← 测试 SVG
@@ -33,6 +33,7 @@ LLM（OpenAI 兼容）→ SVG ──vpype(read→layout 归一化→linemerge→
 | `HUTUJI_LLM_BASE_URL` | `https://api.freemodel.dev/v1` | OpenAI 兼容接口地址 |
 | `HUTUJI_LLM_API_KEY` | （空） | LLM key；未配置时 `hutuji_draw` 返回清晰错误 |
 | `HUTUJI_LLM_MODEL` | `auto` | 模型名 |
+| `HUTUJI_IMAGE_MODEL` | `agnes-image-2.1-flash` | 文生图模型（`hutuji_draw` 位图路线），与 LLM 共用 base_url/key |
 | `HUTUJI_OUTPUT_DIR` | `./output` | G-code/SVG 产出目录 |
 | `HUTUJI_PUBLIC_BASE_URL` | `http://127.0.0.1:8300` | 返回给 S3 的下载 URL 前缀；VPS 上填 nginx 的 HTTPS 公网地址 |
 | `HUTUJI_HOST` | `127.0.0.1` | uvicorn 监听地址；**只接受 `127.0.0.1` / `::1` / `localhost` 三个值**（大小写不敏感，非集合内一律拒绝，`127.0.0.2` 之类同段地址也拒），非法值在构造 `settings`（import `config` 时）即抛 `ValueError` 拒绝启动。原先只在文档里劝，生产漏配还能静默把 `/mcp` 绑到 `0.0.0.0`；注意 `python -m uvicorn hutuji_mcp.server:app` **不读**本变量，必须显式 `--host 127.0.0.1` |

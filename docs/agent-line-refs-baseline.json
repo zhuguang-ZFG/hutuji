@@ -1,5 +1,5 @@
 {
-  "git_head": "3213bf2df1963c260e5fb2e8292c638b068f34ac",
+  "git_head": "6c524afa0c42983ac3976c6f2254b8e4bf267d3a",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -173,14 +173,6 @@
       "sha8": "89a03f79",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/kxnx/findings/13-path-params-and-quality.md -> test_contract.py:1174": {
-      "sha8": "41c11ee2",
-      "target": "mcp-server/tests/test_contract.py"
-    },
-    "docs/kxnx/findings/13-path-params-and-quality.md -> test_contract.py:285": {
-      "sha8": "893feb2e",
-      "target": "mcp-server/tests/test_contract.py"
-    },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> Config.h:118-123": {
       "sha8": "f7b49357",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
@@ -308,10 +300,6 @@
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> hutuji_gwrite.toml:22-25": {
       "sha8": "f6d27ec9",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
-    },
-    "docs/kxnx/findings/22-installed-config-vs-machine.md -> test_contract.py:1174": {
-      "sha8": "41c11ee2",
-      "target": "mcp-server/tests/test_contract.py"
     },
     "docs/protocol.md -> Defaults.h:82": {
       "sha8": "721be54f",
@@ -698,6 +686,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-09T10:00:47Z",
+  "updated": "2026-08-09T10:40:42Z",
   "version": 1
 }

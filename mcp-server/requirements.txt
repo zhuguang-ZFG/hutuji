@@ -17,3 +17,12 @@ mcp>=1.27,<2
 # 小智官方云 WSS ↔ 本机 streamable HTTP 桥接（cloud_bridge.py 直接依赖）
 mcp-proxy>=0.8.2,<1
 websockets>=13,<17
+# 位图路线描摹链（bitmap_svg.py）：骨架化 + 骨架图建图。skimage 选 Lee 骨架、
+# sknw 处理多像素交叉簇——2026-08-09 探针实测 Guo-Hall+手写走查会虚线化，
+# 这三个包是描摹质量的负载，不是可选项。
+scikit-image>=0.24,<0.27
+networkx>=3,<4
+sknw>=0.1,<1
+imageio>=2.34,<3
+# bitmap_svg 模块级 import；此前一直靠 vpype 传递依赖引入，显式声明。
+numpy>=1.26,<3

@@ -83,6 +83,10 @@ class Settings:
     port: int
     output_ttl_seconds: int
 
+    # 文生图模型（hutuji_draw 的位图路线）；与 LLM 共用 base_url/api_key。
+    # 带默认值：既有测试构造点不必全跟着加参数。
+    image_model: str = "agnes-image-2.1-flash"
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
         object.__setattr__(self, "llm_base_url", validate_llm_base_url(self.llm_base_url))
@@ -119,6 +123,7 @@ def load_settings() -> Settings:
         llm_base_url=os.environ.get("HUTUJI_LLM_BASE_URL", "https://api.freemodel.dev/v1"),
         llm_api_key=os.environ.get("HUTUJI_LLM_API_KEY", ""),
         llm_model=os.environ.get("HUTUJI_LLM_MODEL", "auto"),
+        image_model=os.environ.get("HUTUJI_IMAGE_MODEL", "agnes-image-2.1-flash"),
         output_dir=Path(os.environ.get("HUTUJI_OUTPUT_DIR", "./output")).resolve(),
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
         # 默认仅本机监听；公网只让 nginx 反代 /files，绝不直曝 /mcp。

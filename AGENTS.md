@@ -22,7 +22,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
      → WiFi Telnet :23 逐行发给 Grbl → 页尾 fresh `Idle` 后 S3 单独发 `M30` → 自动换纸
 ```
 
-服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_draw_limiter.slot()`（覆盖全程）→ `_cleanup_expired_outputs()` → `llm_svg.generate_svg()`（`_sanitize_description` → LLM → `_extract_svg` → `_validate_svg`）→ `gcode_gen.svg_to_gcode_async()`（可取消 vpype：`read → layout 归一化（--fit-to-margins 10mm 190x277mm，居中+等比缩放，兜 LLM 构图散布）→ linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。
+服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_draw_limiter.slot()`（覆盖全程）→ `_cleanup_expired_outputs()` → `bitmap_svg.generate_bitmap_svg()`（位图路线，2026-08-09 起为现行：`_sanitize_description` → agnes 文生图 `/images/generations` → 下载 PNG → skimage 骨架化 + sknw 建图描摹 → 单线 SVG → `_validate_svg`）→ `gcode_gen.svg_to_gcode_async()`（可取消 vpype：`read → layout 归一化（--fit-to-margins 10mm 190x277mm，居中+等比缩放）→ linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。LLM 直写 SVG（`llm_svg.generate_svg`）只留给 `hutuji_preview_svg` 调试。
 
 **锁定决策（编号同根 `README.md`，禁止重开）**
 
@@ -40,7 +40,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 
 | 路径 | 用途 |
 |---|---|
-| `mcp-server/hutuji_mcp/` | ③ MCP 生成服务包（8 个模块 + `hutuji_gwrite.toml`） |
+| `mcp-server/hutuji_mcp/` | ③ MCP 生成服务包（9 个模块 + `hutuji_gwrite.toml`） |
 | `mcp-server/tests/` | pytest 契约/注入回归 + `test_star.svg` 夹具 |
 | `mcp-server/scripts/` | `e2e_local.py`（无硬件闭环）、`cloud_bridge_smoke.py`（云工具发现） |
 | `scripts/` | 本仓门禁 `agent_gate.py` + 实机工具（WiFi 配网、故障注入抓包、小智控制台） |
@@ -91,9 +91,9 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 ## Code Conventions & Common Patterns｜代码约定与常用模式
 
 - **语言**：文档与注释一律中文，标识符英文。注释解释「为什么这个数」，不复述代码。
-- **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（默认 `127.0.0.1`，**只允许 loopback**，非 loopback 直接抛错；监听面真值是 unit 的 `--host`）、`HUTUJI_PORT`（`8300`）、`HUTUJI_OUTPUT_TTL_SECONDS`（`600`）；桥接侧 `MCP_ENDPOINT`（必须 `wss://`）、`HUTUJI_LOCAL_MCP_URL`（必须 loopback 且路径 `/mcp`）。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
+- **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_IMAGE_MODEL`（位图路线生图模型，默认 `agnes-image-2.1-flash`）、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（默认 `127.0.0.1`，**只允许 loopback**，非 loopback 直接抛错；监听面真值是 unit 的 `--host`）、`HUTUJI_PORT`（`8300`）、`HUTUJI_OUTPUT_TTL_SECONDS`（`600`）；桥接侧 `MCP_ENDPOINT`（必须 `wss://`）、`HUTUJI_LOCAL_MCP_URL`（必须 loopback 且路径 `/mcp`）。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
 - **状态与注入**：模块级单例代替 DI 容器——`config.settings` 在 import 时构造，`server._draw_limiter` 是模块全局；测试用 `monkeypatch.setattr(module, "settings", ...)` 或改环境变量覆盖，没有 FastAPI 依赖注入。
-- **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。`generate_svg` 用 `finish_reason` **只解释**「一段 SVG 都提取不到」（`length` → 报 `max_tokens` 预算耗尽），**不得**据它拒掉已闭合的 SVG，也**不得**盖住 `_validate_svg` 的白名单拒绝（那是注入事件，处置完全不同）。
+- **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `BitmapError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。`generate_svg` 用 `finish_reason` **只解释**「一段 SVG 都提取不到」（`length` → 报 `max_tokens` 预算耗尽），**不得**据它拒掉已闭合的 SVG，也**不得**盖住 `_validate_svg` 的白名单拒绝（那是注入事件，处置完全不同）。
 - **async/sync 分工**：MCP 工具是 `async`；TTL 清理走 `asyncio.to_thread`，vpype 用 `asyncio.create_subprocess_exec` 并在取消时回收子进程；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
 - **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。第三方 logging 必须在 handler filter 中先 `record.getMessage()` 再脱敏最终文本，并单独脱敏 `exc_info`/`exc_text`/`stack_info`；只扫字符串 `msg/args` 会漏异常对象和 traceback。
 - **产物与 TTL**：只有匹配 `draw_YYYYMMDD_HHMMSS_<22 位 urlsafe token>.{gcode,svg}` 的名字可下载；TTL 600s，过期即删并返 404；清理是访问时顺带做的，**没有后台扫描线程**。
@@ -121,7 +121,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 ## Runtime/Tooling Preferences｜运行时与工具链
 
 - Python ≥3.12（本机 3.13）。**纯 `requirements.txt` + 手动 venv：无 `pyproject.toml`、无 lockfile、无 linter/formatter 配置**——不要引入 ruff/black/poetry/uv，也不要新增 CI 配置。
-- 依赖是范围下界而非精确 pin：`fastapi>=0.115`、`uvicorn[standard]>=0.30`、`httpx>=0.27`、`vpype>=1.14`、`vpype-gcode>=0.13`、`mcp>=1.27,<2`、`mcp-proxy>=0.8.2,<1`、`websockets>=13,<17`；dev 只多 `pytest>=8.3,<9`。
+- 依赖是范围下界而非精确 pin：`fastapi>=0.115`、`uvicorn[standard]>=0.30`、`httpx>=0.27`、`vpype>=1.14`、`vpype-gcode>=0.13`、`mcp>=1.27,<2`、`mcp-proxy>=0.8.2,<1`、`websockets>=13,<17`、`scikit-image>=0.24,<0.27`、`networkx>=3,<4`、`sknw>=0.1,<1`、`imageio>=2.34,<3`、`numpy>=1.26,<3`；dev 只多 `pytest>=8.3,<9`。
 - 开发机 Windows（PowerShell，venv 在 `.venv\Scripts\`）；生产 Ubuntu + systemd + nginx（venv 在 `/opt/hutuji/mcp-server/.venv/bin/`）。
 - 生产拓扑：uvicorn 只监听 `127.0.0.1:8300`；nginx 只公开反代 `GET/HEAD /files/`（限速 10r/s），`/mcp` 显式 404；安全组只开 22/80/443，**不放行 8300**。
 - 生产更新用 `scp`，**不能 `git pull`**（`/opt/hutuji` 无 `.git`）；本地工作树是 CRLF 检出，**scp 前必须 LF 归一化**（`git show HEAD:<path>` 或 `tr -d '\r'`），否则 `preflight.sh` 上机即 `set: pipefail: invalid option name`。scp unit 后先 `daemon-reload`，再**显式重启** `hutuji-mcp` 与 `hutuji-cloud-bridge`（`enable --now` 不会重启已 active 的服务），最后跑 `bash deploy/preflight.sh`（**当前 21 项**：含有效 `wss://` bridge endpoint、两个服务 active、**两个 unit 与模板一致、无 drop-in，且 MCP 的 ExecStartPre 已成功、主进程不早于本次 unit/代码/profile**、HTTPS 公网前缀、enabled 链接精确目标、活动配置 LF md5、隧道 Host 路由、**应用层已关 FastAPI 自动文档端点**、**兜底路径隧道回源态 404 / 明文直连 301**、**在跑的 nginx 确实是本次配置（探针进专用日志 + worker 新鲜度 + 无 [emerg]）**，以及**用生产 venv 真跑一次 `svg_to_gcode()` 的生成链**与拿该真产物验的 200/长度/CRC32/正文；须全 pass）。这些项都在堵「文件对了但跑的不对」：**生成链**——旧版没有任何一项执行过部署的 `hutuji_mcp` 代码，下载探针用人工拼的三行文本冒充产物（`validate_gcode` 本身就不接受它），故 `hutuji_gwrite.toml` 漏传、vpype 装坏、profile 与校验器漂移全部逃过体检，已实测复现「服务 active + 15/15 全绿 + 真实 `svg_to_gcode()` 报 exit 2」同时成立；**unit 一致性**——`is-active` 不证明跑的是哪一版，加固项可全缺而照样 active；`daemon-reload` 只更新 unit 快照，不会重启旧进程，故还须验证 ExecStartPre 结果与进程启动时间；drop-in 更能静默覆盖 ExecStart；**兜底路径**（2026-08-07 新增并当日在生产修复+验过）——隧道 `service: http://localhost:80` 使全部公网流量落进 `:80` 块，`:443` 的 `location / { return 404; }` 永远走不到，而旧 `:80` 兜底无条件 `301 https://<隧道主机名>$request_uri` → 边缘再回源 `:80` → **自指 301 死循环**（实测公网 `/docs`、`/redoc`、`/openapi.json`、随机路径全是 `301 Location: 自身`，`curl -L` 也停在 301）；危害不是暴露而是**判据造假**：「公网非白名单路径须 404」从未成立过，却因 `301 ∉ 2xx` 被一切「须失败」式复验蒙过。修法是 `:80` 兜底按 `$http_x_forwarded_proto`（隧道实测确带 `https`）分流：隧道回源 404、真明文 301，故该判据必须**同时**验两个方向——只验 404 会丢掉明文强制 HTTPS；**nginx 运行态**（第 16–17 项，2026-08-08 新增，起因见下条 reload 静默失败）。**脚本已删 skip 状态**：现输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；旧 `OPTIONAL_SKIP` 与 pass 等价放行，会让「明文 `:80 /files` 须 403」从未被验证却报全绿，禁止重新引入。历史 `pass=19` 结果不得复用为放行依据。
@@ -131,9 +131,9 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 
 ## Testing & QA｜测试与门禁
 
-- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **429 项**。
+- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **438 项**。
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
-- 五个测试文件职责：`test_contract.py`（307 项：§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死、`/mcp` 对端 loopback 守卫、`deploy/preflight.sh` 与两个 unit 的形状/条数钉死、管线 layout 归一化，以及门禁自身的 tombstone/HEAD 绑定/行号指纹回归）、`test_injection.py`（29 项：SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（52 项：桥接配置与不泄密日志）、`test_field_tools.py`（22 项：`scripts/` 实机与门禁工具，如 `classify_response()`、`check_external_doc_line_refs` 的 `require_repos` 分岔、指纹层 profile 归属）、`test_sim_server.py`（19 项：PC 仿真 MCP 的 stdio `initialize`/`tools/list`/`tools/call` 与场景白名单）。
+- 五个测试文件职责：`test_contract.py`（316 项：§5 契约、限流、TTL、脱敏、TOCTOU、profile 形状、容差钉死、`/mcp` 对端 loopback 守卫、`deploy/preflight.sh` 与两个 unit 的形状/条数钉死、管线 layout 归一化、位图路线描摹/重试/接线，以及门禁自身的 tombstone/HEAD 绑定/行号指纹回归）、`test_injection.py`（29 项：SVG/LLM 输出闸门，改校验必过）、`test_cloud_bridge.py`（52 项：桥接配置与不泄密日志）、`test_field_tools.py`（22 项：`scripts/` 实机与门禁工具，如 `classify_response()`、`check_external_doc_line_refs` 的 `require_repos` 分岔、指纹层 profile 归属）、`test_sim_server.py`（19 项：PC 仿真 MCP 的 stdio `initialize`/`tools/list`/`tools/call` 与场景白名单）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。
 - 门禁分层（`docs/agent-gate.md` 是定义真值）：`docs` = 必备文件 + 决策锚点 + 否决项复活扫描 + **禁止宣称扫描** + 白名单 JSON + 防漂移文档 + 三仓矩阵 + 文档 `path:line` 引用 + **行号内容指纹**（半漂移防线，基线 `docs/agent-line-refs-baseline.json`）；`hub` 再加**外仓 `path:line` 引用** + pytest + e2e；`full` 再加 Grbl §9 源码标记，并把「三仓全缺」从 pass 收紧为 fail。任一层 fail → overall fail、exit 1。分层真值在 `scripts/agent_gate.py` 的 `profile_layers()`（纯函数，有门禁自测钉死），不要再在 `main()` 里另加分支。
 - **复活扫描与禁语扫描共用 `GOVERNANCE_DOCS`（18 份）**：新增治理文档必须加进 `scripts/agent_gate.py` 的该清单，否则两层都绕过它。此前三条复活规则各带手写清单、合计只覆盖 5 份，`CLAUDE.md` 与 `.cursor/rules/` 硬轨都不在其中；`claims_forbidden` 更是只做列表比对、从不扫正文（实测在 README 追加一句含三条禁语的完成式断言，门禁全绿）。**2026-08-09 补入第 18 份 `docs/daytime-tuning-runbook.md`**：它决定「哪几步真机验证可以跳过」，写出「已完成/可跳过」后续代理就不再上真机复验，属行为直接约束源，此前无机器把关；已由 `test_gate_governance_docs_cover_repo_governance_surface` 的 `must` 清单钉死（RED→GREEN 实测），两层扫描均 pass。

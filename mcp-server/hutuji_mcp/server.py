@@ -34,6 +34,7 @@ from mcp.server.fastmcp import FastMCP
 from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import svg_to_gcode_async
+from .bitmap_svg import generate_bitmap_svg
 from .llm_svg import generate_svg
 
 # 保持默认 streamable_http_path="/mcp"，子应用挂到根（/files 先注册优先匹配），
@@ -249,8 +250,8 @@ async def _generate_svg_limited(description: str) -> str:
 async def hutuji_draw(description: str) -> str:
     """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
 
-    参数 description：简短中文主题，建议 10～40 字，带「单线/简笔」更稳。
-    好例子：「单线简笔侧脸小猫」「站在树枝上的小鸟轮廓」。
+    参数 description：简短中文主题，建议 10～40 字。
+    好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」。
     坏例子：长篇故事、要求填色/照片写实、无主题的空话。
 
     返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址）、lines/bytes/pen_lifts。
@@ -264,7 +265,10 @@ async def hutuji_draw(description: str) -> str:
         async with _draw_limiter.slot():
             settings.output_dir.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(_cleanup_expired_outputs)
-            svg = await generate_svg(description)
+            # 位图路线（2026-08-09 起为现行路线）：agnes 文生图 → 中心线描摹 →
+            # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
+            # 两条路线的实测对比见 docs/worktree-inventory.md 当日探针行。
+            svg = await generate_bitmap_svg(description)
 
             base = _new_basename()
             svg_path = settings.output_dir / f"{base}.svg"
@@ -315,6 +319,7 @@ async def hutuji_status() -> str:
     ) if out.is_dir() else []
     return json.dumps({
         "output_dir_exists": out.is_dir(),
+        "image_model": settings.image_model,
         "public_base_url": settings.public_base_url,
         "llm_configured": settings.llm_configured,
         "llm_model": settings.llm_model,
@@ -327,6 +332,7 @@ async def hutuji_status() -> str:
 async def hutuji_preview_svg(description: str) -> str:
     """只预览矢量草稿、不生成 G-code、不驱动写字机。调试构图或用户说「先看看别出纸」时用。
 
+    走的是 LLM 直写 SVG 旧路线（调试用）；hutuji_draw 出图走位图路线，两者观感不同。
     参数 description 同 hutuji_draw。返回 SVG 文本截断（前 2000 字符）。"""
     svg = await _generate_svg_limited(description)
     return svg[:2000]

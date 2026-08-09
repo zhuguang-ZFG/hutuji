@@ -127,7 +127,7 @@ findings/13 §2 明说：`linesimplify`/`linemerge` 是服务端逻辑，客户�
 **画质差量（可量化）**：我方 `LINESIMPLIFY_TOLERANCE_MM = 0.05`，是奎享 0.02 的 2.5 倍。
 奎享产物里 **32/673 = 4.8%** 的段短于 0.05mm，这批细节在我方管线里会被简化掉。
 这是与商业基线的**已知画质差量**，不是缺陷：0.05 是显式定案且被
-`test_contract.py:1174` 钉死，findings/13 §6 记的前置条件（窗口化流控）未做之前不改。
+`test_contract.py` 钉死，findings/13 §6 记的前置条件（窗口化流控）未做之前不改。
 
 ## 7 笔画结构：抬笔数与「碎笔」的判别尺度
 
@@ -198,7 +198,7 @@ kdraw 整个任务期间**不关串口**，因此从不触发关闭时的跳变�
 
 | 位置 | 原文 | 实际 |
 |---|---|---|
-| `findings/13` §1 表 | 我方 `linesimplify` = 0.1mm | **0.05**（`gcode_gen.py`，`test_contract.py:1174` 钉死） |
+| `findings/13` §1 表 | 我方 `linesimplify` = 0.1mm | **0.05**（`gcode_gen.py`，`test_contract.py` 钉死） |
 | `findings/13` §1 表 | 我方 `linemerge` = 0.05mm | **0.3**（§3 早已 supersede，但表格行未跟改） |
 | `findings/13` §6 表 | 「已做：`linesimplify` 0.2 → 0.1」 | 现值 **0.05** |
 | `findings/04` §对照表 | `feed_rate 1500` → toml `F1500`；`jog_speed 2500` → `F2500` | toml 画线/空走均 **F8000** |

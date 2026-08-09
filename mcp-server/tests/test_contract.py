@@ -10,6 +10,7 @@ import os
 import time
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -345,7 +346,7 @@ def test_draw_uses_normalized_injected_public_origin(
     async def fake_svg_to_gcode(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
         return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-    monkeypatch.setattr(server, "generate_svg", fake_generate_svg)
+    monkeypatch.setattr(server, "generate_bitmap_svg", fake_generate_svg)
     monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260731_120000_abcdefghijklmnopqrstuv")
     monkeypatch.setattr(server, "svg_to_gcode_async", fake_svg_to_gcode)
     monkeypatch.setattr(
@@ -802,7 +803,7 @@ def test_draw_limit_covers_vpype_conversion(
             await release.wait()
             return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-        monkeypatch.setattr(server, "generate_svg", fake_generate_svg)
+        monkeypatch.setattr(server, "generate_bitmap_svg", fake_generate_svg)
         monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
         tasks = [
             asyncio.create_task(server.hutuji_draw("first")),
@@ -841,7 +842,7 @@ def test_draw_cancellation_removes_partial_outputs(
             started.set()
             await asyncio.Event().wait()
 
-        monkeypatch.setattr(server, "generate_svg", fake_generate_svg)
+        monkeypatch.setattr(server, "generate_bitmap_svg", fake_generate_svg)
         monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
         task = asyncio.create_task(server.hutuji_draw("cancel"))
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -851,6 +852,206 @@ def test_draw_cancellation_removes_partial_outputs(
 
     asyncio.run(exercise())
     assert list(tmp_path.iterdir()) == []
+
+
+
+# ---------------------------------------------------------------------------
+# 位图生成路线（bitmap_svg）
+# ---------------------------------------------------------------------------
+
+
+def _star_png_bytes() -> bytes:
+    """合成 1024×1024 五角星线稿 PNG（确定性，无网络无模型）。"""
+    import io
+    import math as _math
+
+    import imageio.v3 as iio
+    import numpy as np
+
+    img = np.full((1024, 1024), 255, dtype=np.uint8)
+    cx = cy = 512.0
+    outer, inner = 400.0, 160.0
+    verts = []
+    for i in range(10):
+        r = outer if i % 2 == 0 else inner
+        ang = -_math.pi / 2 + i * _math.pi / 5
+        verts.append((cx + r * _math.cos(ang), cy + r * _math.sin(ang)))
+    verts.append(verts[0])
+    for (x0, y0), (x1, y1) in zip(verts, verts[1:]):
+        steps = int(max(abs(x1 - x0), abs(y1 - y0))) * 2 + 1
+        for t in np.linspace(0, 1, steps):
+            x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+            xi, yi = int(x), int(y)
+            img[yi - 2 : yi + 3, xi - 2 : xi + 3] = 0  # 5px 粗线
+    buf = io.BytesIO()
+    iio.imwrite(buf, img, extension=".png")
+    return buf.getvalue()
+
+
+def test_hutuji_draw_uses_bitmap_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """hutuji_draw 必须走位图路线；接回 LLM 直写（旧路线）要红。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
+    called: list[str] = []
+
+    async def fake_bitmap(_desc: str) -> str:
+        called.append("bitmap")
+        return "<svg/>"
+
+    async def fake_llm(_desc: str) -> str:
+        raise AssertionError("draw 不得走 LLM 直写路线")
+
+    async def fake_convert(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
+
+    monkeypatch.setattr(server, "generate_bitmap_svg", fake_bitmap)
+    monkeypatch.setattr(server, "generate_svg", fake_llm)
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+
+    asyncio.run(server.hutuji_draw("test"))
+    assert called == ["bitmap"]
+
+
+def test_bitmap_trace_synthetic_star_full_chain(tmp_path: Path) -> None:
+    """合成星稿 → 描摹 → SVG 过白名单 → 真 vpype 过 §5，全链无模型参与。"""
+    from hutuji_mcp import bitmap_svg, gcode_gen, llm_svg
+
+    polys, w, h = bitmap_svg.trace_bitmap_to_polylines(_star_png_bytes())
+    assert polys, "一条折线都没描出来"
+    assert sum(len(p) for p in polys) > 500
+    svg = bitmap_svg.polylines_to_svg(polys, w, h)
+    llm_svg._validate_svg(svg)  # 不抛即过白名单
+
+    svg_path = tmp_path / "in.svg"
+    gcode_path = tmp_path / "out.gcode"
+    svg_path.write_text(svg, encoding="utf-8")
+    stats = gcode_gen.svg_to_gcode(svg_path, gcode_path)
+    assert stats.lines > 5
+
+
+def test_bitmap_trace_rejects_non_png() -> None:
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match="不是 PNG"):
+        bitmap_svg.trace_bitmap_to_polylines(b"definitely not a png")
+
+
+def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(llm_api_key="", llm_base_url="https://x.invalid/v1", image_model="m"),
+    )
+    with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_LLM_API_KEY"):
+        asyncio.run(bitmap_svg.generate_bitmap_svg("test"))
+
+
+def _png_stub() -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + b"0" * 32
+
+
+def test_bitmap_fetch_retries_transient_then_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """429→429→200 必须重试成功；prompt 带线稿风格与用户主题，model 走配置。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="img-m"
+        ),
+    )
+    calls: list[dict] = []
+    image_url = "https://cdn.example/ok.png"
+
+    def handler(request):  # noqa: ANN001, ANN202
+        import httpx as _httpx
+
+        if request.url.path.endswith("/images/generations"):
+            calls.append(json.loads(request.content))
+            if len(calls) < 3:
+                return _httpx.Response(429)
+            return _httpx.Response(200, json={"data": [{"url": image_url}]})
+        return _httpx.Response(200, content=_png_stub())
+
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    transport = _httpx.MockTransport(handler)
+    body = asyncio.run(bitmap_svg._fetch_image_png("五角星", transport=transport))
+    assert body == _png_stub()
+    assert len(calls) == 3, "瞬态 429 必须重试"
+    assert calls[0]["model"] == "img-m"
+    assert "五角星" in calls[0]["prompt"]
+    assert "线稿" in calls[0]["prompt"]
+
+
+
+def test_bitmap_fetch_persistent_500_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    transport = _httpx.MockTransport(lambda request: _httpx.Response(500))
+    with pytest.raises(bitmap_svg.BitmapError, match="生图 API 返回 500"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def test_bitmap_fetch_rejects_bad_response_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    import httpx as _httpx
+
+    transport = _httpx.MockTransport(lambda request: _httpx.Response(200, json={}))
+    with pytest.raises(bitmap_svg.BitmapError, match="响应结构异常"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def test_bitmap_generate_end_to_end_mocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mock 生图下载，描摹+校验全真：返回合法单线 SVG。"""
+    from hutuji_mcp import bitmap_svg
+
+    async def fake_fetch(_desc: str) -> bytes:
+        return _star_png_bytes()
+
+    monkeypatch.setattr(bitmap_svg, "_fetch_image_png", fake_fetch)
+    svg = asyncio.run(bitmap_svg.generate_bitmap_svg("五角星"))
+    assert "<polyline" in svg
+    assert svg.startswith("<svg")
+
+
+def test_load_settings_image_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HUTUJI_IMAGE_MODEL", "img-x")
+    from hutuji_mcp.config import load_settings
+
+    assert load_settings().image_model == "img-x"
 
 
 def test_delete_output_pair_logs_unlink_failure(
