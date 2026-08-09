@@ -954,6 +954,21 @@ def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> No
         asyncio.run(bitmap_svg.generate_bitmap_svg("test"))
 
 
+def test_bitmap_fetch_rejects_blank_image_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HUTUJI_IMAGE_MODEL 空白必须在本地拦下：空 model 名不该发进计费请求。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="  "
+        ),
+    )
+    with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_IMAGE_MODEL"):
+        asyncio.run(bitmap_svg._fetch_image_png("x"))
+
+
 def _png_stub() -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"0" * 32
 
@@ -2317,8 +2332,42 @@ def test_preflight_exercises_real_bitmap_trace_chain() -> None:
         'PYTHONPATH=/opt/hutuji/mcp-server "$VENV_PY" '
         "-m hutuji_mcp.bitmap_svg --self-test"
     ) in preflight_code
-    assert 'if ! out="$(' in preflight_code
+    # 退出码必须真实回显：`if ! out="$(...)"` 形态下 `!` 已消费命令替换的退出状态，
+    # 其后 `$?` 恒为 0（本机 bash 5 实测，探针在 results/_rc_probe.sh）——「回显
+    # 真实退出码」会永远打印 exit=0，等于没回显。该形态不得复活。
+    assert 'if ! out="$(' not in preflight_code
+    assert "|| rc=$?" in preflight_code
+    # 数值栈卡死（死锁、OOM 前长时间挂住）时 preflight 不得无限等；124=超时靠
+    # timeout 提供，退出码单独成行先打就是为了让这三类失败可区分。
+    assert "timeout 60 env" in preflight_code
     assert 'printf \'%s\\n\' "$out" | tail -1' in preflight_code
+    # 自检成功行里的模块路径必须断言落在安装目录：venv 若另有一份 site-packages
+    # 装的 hutuji_mcp，preflight 的 PYTHONPATH 版与 unit 开机走的就是两份代码，
+    # 「真跑当前落盘的代码」失效。
+    assert "^bitmap self-test OK module=" in preflight_code
+    assert "/opt/hutuji/mcp-server/*" in preflight_code
+
+
+def test_preflight_mcp_env_rejects_blank_image_model() -> None:
+    """HUTUJI_IMAGE_MODEL 显式置空是 fail-open：闸必须落在有 env 可读的 preflight 层。
+
+    自检保持封闭、不读环境（bitmap_svg._run_self_test 的 docstring 解释了为什么不能
+    由自检代劳：preflight 以 root 直跑且刻意不 source mcp.env，自检读 settings 会让
+    健康机器过不了体检）。凭据类检查全部归 check_mcp_env：键缺省放行（config.py 有
+    内置默认值），显式出现而空白才判红。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "check_image_model_shape()" in preflight_code
+    assert "env_value /etc/hutuji/mcp.env HUTUJI_IMAGE_MODEL" in preflight_code
+    # 闸必须串进 check_mcp_env，否则函数写了也不跑。
+    assert "check_image_model_shape &&" in preflight_code
+    # 缺省不算缺、显式空白才红：判据必须是「键出现 → 值非空白」，不是「值必须存在」。
+    assert "HUTUJI_IMAGE_MODEL[[:space:]]*=" in preflight_code
 
 
 def test_preflight_pins_running_systemd_units_to_templates() -> None:
@@ -2393,6 +2442,14 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
         assert deployed in preflight_code, deployed
     assert "(( start_epoch < newest ))" in preflight_code
     assert "check_mcp_prestart_and_restart" in preflight_code
+
+    # 条数也必须是显式判据：systemd 的多条目单行渲染是内部格式而非契约，若某版把
+    # 两条 ExecStartPre 拼到同一行，逐条判就退化成整段子串匹配（那行同时含
+    # code=exited 与 status=0 即全绿）。格式漂移必须是红不是绿。
+    assert "records=$(( records + 1 ))" in preflight_code
+    assert "(( records == 2 ))" in preflight_code
+    # 顺序钉死：位图自检先于生成链自检出现，说明 unit 两条被对调、模板已漂移。
+    assert "ExecStartPre 顺序与模板不一致" in preflight_code
 
 
 def test_preflight_pins_running_nginx_to_deployed_config() -> None:
@@ -2491,7 +2548,10 @@ def test_bitmap_module_self_test_runs_offline_trace_chain(
     polys, width, height = bitmap_svg.trace_bitmap_to_polylines(
         bitmap_svg._encode_probe_png()
     )
-    assert (width, height) == (64, 64)
+    # 探针边长必须与生图输出同量级（_IMAGE_SIZE）：小探针几乎走不到大数组/多线程
+    # 路径，对沙箱漏项（seccomp 放行缺失）的覆盖只是碰运气。
+    probe_edge = int(bitmap_svg._IMAGE_SIZE.split("x", 1)[0])
+    assert (width, height) == (probe_edge, probe_edge)
     assert len(polys) == 3
     assert all(len(poly) >= bitmap_svg._MIN_POLY_PX for poly in polys)
     assert all(len(poly) >= bitmap_svg._SMOOTH_WINDOW for poly in polys)

@@ -1,5 +1,5 @@
 {
-  "git_head": "7aab460dc2a261022e41422df9f0e442775cee49",
+  "git_head": "70d375b9a924c51052d7235ee25e989565dbe6a5",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -646,7 +646,7 @@
       "target": "docs/kxnx/findings/09-flow-control-deep.md"
     },
     "docs/worktree-inventory.md -> docs/release-readiness.md:3": {
-      "sha8": "42f956d0",
+      "sha8": "8ac76602",
       "target": "docs/release-readiness.md"
     },
     "docs/worktree-inventory.md -> docs/troubleshooting.md:26": {
@@ -686,6 +686,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-09T14:58:13Z",
+  "updated": "2026-08-09T17:55:19Z",
   "version": 1
 }

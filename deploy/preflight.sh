@@ -79,9 +79,20 @@ safe_output_dir() {
   [[ "$resolved" == /opt/* ]]
 }
 
+# HUTUJI_IMAGE_MODEL 缺省走 config.py 的内置默认值，不在 mcp.env 里不算缺；
+# 但若键显式出现而值为空白，settings.image_model 就是空串——生图请求 payload
+# 带空 model 被端点拒绝，服务却照常 active（与描摹依赖同构的 fail-open）。
+# 自检保持封闭不读 env（见 bitmap_svg._run_self_test docstring），这道闸只能
+# 落在有 env 文件可读的 preflight。
+check_image_model_shape() {
+  if grep -Eq '^[[:space:]]*HUTUJI_IMAGE_MODEL[[:space:]]*=' /etc/hutuji/mcp.env; then
+    [[ -n "${IMAGE_MODEL//[[:space:]]/}" ]]
+  fi
+}
+
 check_mcp_env() {
   [[ -f /etc/hutuji/mcp.env ]] && check_no_placeholder /etc/hutuji/mcp.env &&
-    [[ -n "$LLM_BASE_URL" && -n "$LLM_API_KEY" && -n "$LLM_MODEL" ]] &&
+    [[ -n "$LLM_BASE_URL" && -n "$LLM_API_KEY" && -n "$LLM_MODEL" ]] && check_image_model_shape &&
     check_public_base_url "$PUBLIC_BASE_URL" &&
     safe_output_dir "$OUTPUT_DIR"
 }
@@ -237,7 +248,7 @@ check_unit_matches_template() {
 # 两条沙箱内自检（生成链 + 位图描摹链），且主进程不早于本次部署的 unit、代码和 profile。
 check_mcp_prestart_and_restart() {
   local prestart started start_epoch newest path mtime line
-  local saw_gcode=0 saw_bitmap=0
+  local saw_gcode=0 saw_bitmap=0 records=0
   local -a deployed_files=(
     /etc/systemd/system/hutuji-mcp.service
     /opt/hutuji/deploy/hutuji-mcp.service
@@ -249,17 +260,36 @@ check_mcp_prestart_and_restart() {
   # 逐条判，不能对整段做子串匹配：两条 ExecStartPre 会输出两条记录，整段里只要有
   # 一个 status=0 就能被「含 status=0」蒙过——那正好是「生成链绿、位图链红」的形状。
   # 每条都必须自己 code=exited 且 status=0；没跑过的条目没有 status 字段，同样判红。
+  #
+  # 逐条判本身不够：`{ path=… ; argv[]=… ; code=exited ; status=0 }` 每条一行是
+  # systemd 的内部渲染（本机 systemd 255 实测如此），不是稳定契约。若某版把多条目
+  # 渲染成同一行空格拼接，循环就只看到一行、那行里同时有 code=exited 与 status=0
+  # 便全绿——**静默退化成上面刚否掉的整段子串匹配**。故必须把条数也变成显式判据：
+  # 数出的记录数不等于 2（本 unit 的 ExecStartPre 条数）即判红，格式漂移是红不是绿。
   while IFS= read -r line; do
     [[ -z "${line//[[:space:]]/}" ]] && continue
+    records=$(( records + 1 ))
     case "$line" in
       *"hutuji_mcp.gcode_gen --self-test"*) saw_gcode=1 ;;
-      *"hutuji_mcp.bitmap_svg --self-test"*) saw_bitmap=1 ;;
+      *"hutuji_mcp.bitmap_svg --self-test"*)
+        saw_bitmap=1
+        # 顺序也钉死：生成链自检必须先于位图自检（与 unit 模板和 test_contract.py
+        # 的有序全等一致）。位图先出现说明 unit 里两条被对调，模板已漂移。
+        (( saw_gcode == 1 )) || {
+          echo "hutuji-mcp ExecStartPre 顺序与模板不一致（位图自检出现在生成链自检之前）" >&2
+          return 1
+        }
+        ;;
     esac
     [[ "$line" == *"code=exited"* && "$line" == *"status=0"* ]] || {
       echo "hutuji-mcp 有 ExecStartPre 未在本次启动成功执行，须显式 restart：$line" >&2
       return 1
     }
   done <<< "$prestart"
+  (( records == 2 )) || {
+    echo "hutuji-mcp ExecStartPre 记录数为 ${records}（期望 2）：unit 漂移，或 systemd 改了多条目渲染格式使逐条判退化成整段匹配" >&2
+    return 1
+  }
   (( saw_gcode == 1 )) || {
     echo "hutuji-mcp 缺生成链自检 ExecStartPre（gcode_gen --self-test）" >&2
     return 1
@@ -342,13 +372,33 @@ raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
 # scp 了坏依赖但没 restart 时它仍是绿的；这一项真跑当前落盘的代码，把那个洞堵掉。
 # 自检不碰网络（探针 PNG 由 stdlib zlib 现造），故不会因生图 API 抖动误红。
 check_bitmap_chain() (
-  local out
+  local out rc=0 modpath
   [[ -x "$VENV_PY" ]] || exit 1
-  # 用 `if !` 包住赋值，不写 `out=$(...); rc=$?`：errexit 下失败的命令替换会让子 shell
-  # 直接退出，rc 那行根本执行不到，诊断也就永远打不出来。
-  if ! out="$(PYTHONPATH=/opt/hutuji/mcp-server "$VENV_PY" -m hutuji_mcp.bitmap_svg --self-test 2>&1)"; then
-    # 只回最后一行：BitmapError 的那句话就是可行动的诊断，traceback 无用且刷屏。
+  # 写 `out=$(...) || rc=$?`，不写 `if ! out=$(...); then rc=$?`：`!` 已经消费掉命令
+  # 替换的状态，那种写法里 `$?` 恒为 0——本机 bash 5 实测（results/_rc_probe.sh）
+  # A 形式 rc=0、B 形式 rc=42，于是「回显真实退出码」会永远打印 exit=0，等于没回显。
+  # `|| rc=$?` 同时豁免 errexit：失败不会让子壳在赋值那行就被打死，诊断才有机会打出来。
+  #
+  # timeout 60：数值栈卡死（numpy 内部死锁、OOM 前长时间挂住）时不让 preflight 无限等。
+  # 退出码本身就是诊断：124=超时，128+N=被信号杀死（SIGSYS 即 159，正是 vpype 被
+  # mbind 咬的那类沙箱漏项形状），1=自检自己判红。这三者被信号杀死时 $out 可能为空，
+  # 故退出码单独成行先打，再打输出末行——否则「失败但没说为什么」。
+  # 用 `env` 传 PYTHONPATH 而不是嵌套 `bash -c`：少一层引号，且 timeout 直接管到解释器。
+  out="$(timeout 60 env PYTHONPATH=/opt/hutuji/mcp-server "$VENV_PY" -m hutuji_mcp.bitmap_svg --self-test 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    printf 'bitmap_chain failed: exit=%d（124=超时，128+N=被信号杀死，1=自检判红）\n' "$rc" >&2
+    # 只回最后一行：BitmapError 那句话就是可行动的诊断，traceback 无用且刷屏。
     printf '%s\n' "$out" | tail -1 >&2
+    exit 1
+  fi
+  # self-test 成功时会打印 "bitmap self-test OK module=<path>"。
+  # 断言路径落在安装目录：若 venv 里有另一份旧的 site-packages/hutuji_mcp，preflight
+  # 走的 PYTHONPATH 版与 unit 开机走的版本就是两份不同代码，「真跑落盘代码」失效。
+  # `|| modpath=""`：pipefail 下 grep 无命中会让整条管线非零，命令替换失败即被 errexit
+  # 打死在这一行，下面那条诊断同样永远打不出来（与上面那个坑同源，别只修一处）。
+  modpath="$(printf '%s\n' "$out" | grep '^bitmap self-test OK module=' | head -1 | sed 's/^bitmap self-test OK module=//')" || modpath=""
+  if [[ -z "$modpath" || "$modpath" != /opt/hutuji/mcp-server/* ]]; then
+    printf 'bitmap_chain: 自检模块路径未落在安装目录（%s）\n' "${modpath:-未输出}" >&2
     exit 1
   fi
 )
@@ -385,12 +435,14 @@ OUTPUT_DIR=""
 LLM_BASE_URL=""
 LLM_API_KEY=""
 LLM_MODEL=""
+IMAGE_MODEL=""
 if [[ -f /etc/hutuji/mcp.env ]]; then
   env_value /etc/hutuji/mcp.env HUTUJI_PUBLIC_BASE_URL; PUBLIC_BASE_URL="$ENV_VALUE"
   env_value /etc/hutuji/mcp.env HUTUJI_OUTPUT_DIR; OUTPUT_DIR="$ENV_VALUE"
   env_value /etc/hutuji/mcp.env HUTUJI_LLM_BASE_URL; LLM_BASE_URL="$ENV_VALUE"
   env_value /etc/hutuji/mcp.env HUTUJI_LLM_API_KEY; LLM_API_KEY="$ENV_VALUE"
   env_value /etc/hutuji/mcp.env HUTUJI_LLM_MODEL; LLM_MODEL="$ENV_VALUE"
+  env_value /etc/hutuji/mcp.env HUTUJI_IMAGE_MODEL; IMAGE_MODEL="$ENV_VALUE"
 fi
 BRIDGE_ENDPOINT=""
 if [[ -f /etc/hutuji/bridge.env ]]; then
@@ -405,7 +457,7 @@ fi
 
 check "mcp.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/mcp.env 2>/dev/null || echo x)" == "600" ]]'
 check "bridge.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
-check "mcp.env 无占位、LLM 完整且公网前缀为 HTTPS:443" check_mcp_env
+check "mcp.env 无占位、LLM 完整、image_model 非空白且公网前缀为 HTTPS:443" check_mcp_env
 check "bridge.env 无占位且 MCP_ENDPOINT 为 wss://" check_bridge_env
 check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'
 # `ss` 不在时 `! ss | grep` 会因无输出而假绿（第 5 项那条 fail-closed，这条不是），先探二进制。
