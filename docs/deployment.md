@@ -3,6 +3,7 @@
 > ③ MCP 服务**唯一**生产落点：京东云 VPS。模板在 `../deploy/`。真实凭据不入库。  
 > **当前**：生产服务已常驻并实机验收；最新 MCP 校验器发布为 `b50a10a`（2026-07-29），
 > 证据见 `release-readiness.md`。
+> **2026-08-09 layout 归一化发布（本仓 `3126a84`）**：`gcode_gen.py` scp（LF，md5 `a61be0bf1adec2076994aae495f4b615` 对账一致）→ 显式 `restart hutuji-mcp` → preflight **21/21 PASS**（含生产 venv 真实生成链）。生产真 draw「五角星」：`lines=19 bytes=364`，产物 bbox X[10.0,180.0]、Y 中心 138.5 = 画布正中——归一化在生产生效。回滚副本 `/root/hutuji-bak-20260809-182426-pre-layout/`。
 
 ## 目标机
 
