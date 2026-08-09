@@ -1,0 +1,755 @@
+{
+  "git_head": "356ae3ec6c525cb21ee4180d9ada9662362a8d40",
+  "refs": {
+    "CLAUDE.md -> Protocol.cpp:68": {
+      "sha8": "9b1d68b6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "CLAUDE.md -> Protocol.h:34": {
+      "sha8": "74915816",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
+    },
+    "CLAUDE.md -> Report.cpp:236": {
+      "sha8": "9209b4cf",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/agent-handoff.md -> Protocol.cpp:68": {
+      "sha8": "9b1d68b6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/agent-handoff.md -> Protocol.h:34": {
+      "sha8": "74915816",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
+    },
+    "docs/agent-handoff.md -> Report.cpp:236": {
+      "sha8": "9209b4cf",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/agent-handoff.md -> hutuji_job.cc:951": {
+      "sha8": "ae16d174",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/agent-handoff.md -> protocol.h:36": {
+      "sha8": "5817611c",
+      "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
+    },
+    "docs/agent-handoff.md -> troubleshooting.md:280": {
+      "sha8": "e3b0c442",
+      "target": "docs/troubleshooting.md"
+    },
+    "docs/bringup-sop.md -> TelnetServer.h:31": {
+      "sha8": "a2e0c3c2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/daytime-tuning-runbook.md -> PaperSystem.cpp:998": {
+      "sha8": "eceef844",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:809": {
+      "sha8": "e85fc94b",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/design/p2-windowed-flow-control.md -> InputBuffer.cpp:48-63": {
+      "sha8": "a6ddb8d0",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> InputBuffer.h:55": {
+      "sha8": "9b0732a6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Protocol.h:33-34": {
+      "sha8": "21d23784",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Report.cpp:55": {
+      "sha8": "1f3f546c",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Report.cpp:605-607": {
+      "sha8": "98d8c3ac",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Report.cpp:616": {
+      "sha8": "023ef49e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Serial.cpp:134-140": {
+      "sha8": "eb8f3794",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Serial.cpp:160-165": {
+      "sha8": "442d7213",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Serial.cpp:161-164": {
+      "sha8": "835694dc",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> Serial.h:26": {
+      "sha8": "76dd1ad1",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.h"
+    },
+    "docs/design/p2-windowed-flow-control.md -> TelnetServer.cpp:155-167": {
+      "sha8": "96496a11",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
+    },
+    "docs/design/p2-windowed-flow-control.md -> TelnetServer.h:33": {
+      "sha8": "1bdf9e2e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/design/p2-windowed-flow-control.md -> WebUI/InputBuffer.h:55": {
+      "sha8": "9b0732a6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
+    },
+    "docs/design/p2-windowed-flow-control.md -> WebUI/TelnetServer.h:33": {
+      "sha8": "1bdf9e2e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/design/p2-windowed-flow-control.md -> gcode_gen.py:38": {
+      "sha8": "1e426302",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1319-1320": {
+      "sha8": "86e6c076",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:573-604": {
+      "sha8": "c82d10a3",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:129-141": {
+      "sha8": "ebb163d4",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:396-411": {
+      "sha8": "cf06d6f1",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/design/p2-windowed-flow-control.md -> inkscape-clean/share/extensions/paixi_runtime/grbl_serial_ops.py:128-157": {
+      "sha8": "1158f52c",
+      "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/paixi_runtime/grbl_serial_ops.py"
+    },
+    "docs/design/p2-windowed-flow-control.md -> inkscape-clean/tools/paixi_runtime/serial_runtime.py:130-203": {
+      "sha8": "98554f91",
+      "target": "D:/GitHub/inkscape_px/inkscape-clean/tools/paixi_runtime/serial_runtime.py"
+    },
+    "docs/design/p2-windowed-flow-control.md -> mcp-server/hutuji_mcp/gcode_gen.py:38": {
+      "sha8": "1e426302",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/design/p2-windowed-flow-control.md -> simple_stream.py:5-12": {
+      "sha8": "3b9d69be",
+      "target": "D:/Users/Grbl_Esp32/doc/script/simple_stream.py"
+    },
+    "docs/design/p2-windowed-flow-control.md -> stream.py:129-149": {
+      "sha8": "f73e8f61",
+      "target": "D:/Users/Grbl_Esp32/doc/script/stream.py"
+    },
+    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1319-1320": {
+      "sha8": "86e6c076",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/alignment/plan.md -> docs/troubleshooting.md:26": {
+      "sha8": "1ed9d791",
+      "target": "docs/troubleshooting.md"
+    },
+    "docs/kxnx/findings/09-flow-control-deep.md -> Grbl_Esp32/src/WebUI/WebSettings.cpp:433": {
+      "sha8": "65c4e21e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
+    "docs/kxnx/findings/09-flow-control-deep.md -> Report.cpp:603": {
+      "sha8": "67aa53ed",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/kxnx/findings/09-flow-control-deep.md -> Report.cpp:605-607": {
+      "sha8": "98d8c3ac",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/kxnx/findings/09-flow-control-deep.md -> WebUI/TelnetServer.h:33": {
+      "sha8": "1bdf9e2e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/kxnx/findings/09-flow-control-deep.md -> hutuji_job.cc:57-58": {
+      "sha8": "18106389",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:118-122": {
+      "sha8": "803d6341",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:118-123": {
+      "sha8": "89a03f79",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/12-summary-and-action-list.md -> gcode_gen.py:38": {
+      "sha8": "1e426302",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/kxnx/findings/13-path-params-and-quality.md -> gcode_gen.py:38": {
+      "sha8": "1e426302",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/kxnx/findings/13-path-params-and-quality.md -> gcode_gen.py:41": {
+      "sha8": "a23cdd7f",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/kxnx/findings/13-path-params-and-quality.md -> gcode_gen.py:56": {
+      "sha8": "c3b14141",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/kxnx/findings/13-path-params-and-quality.md -> test_contract.py:1174": {
+      "sha8": "41c11ee2",
+      "target": "mcp-server/tests/test_contract.py"
+    },
+    "docs/kxnx/findings/13-path-params-and-quality.md -> test_contract.py:285": {
+      "sha8": "893feb2e",
+      "target": "mcp-server/tests/test_contract.py"
+    },
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> Config.h:118-123": {
+      "sha8": "f7b49357",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> WebServer.cpp:188-192": {
+      "sha8": "899f09c3",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
+    },
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> WebServer.cpp:206": {
+      "sha8": "4d4023b6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
+    },
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:124": {
+      "sha8": "d10b36aa",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> InputBuffer.cpp:113-116": {
+      "sha8": "442c7f59",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> InputBuffer.cpp:48-63": {
+      "sha8": "a6ddb8d0",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:134": {
+      "sha8": "2bd7ebea",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:185-187": {
+      "sha8": "fddd9c8c",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:186": {
+      "sha8": "4fcfc884",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:222-228": {
+      "sha8": "91bb647e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> WebUI/InputBuffer.h:55": {
+      "sha8": "9b0732a6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> grbl_plotter.py:114-115": {
+      "sha8": "10a98d7e",
+      "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1434-1445": {
+      "sha8": "a587d1d7",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1473-1474": {
+      "sha8": "6562eff4",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1574-1579": {
+      "sha8": "04b4d236",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_pipe.cc:606-617": {
+      "sha8": "c9dad535",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> writing_console.py:358-359": {
+      "sha8": "bc2b08a2",
+      "target": "D:/GitHub/inkscape_px/inkscape-clean/tools/writing_console/writing_console.py"
+    },
+    "docs/kxnx/findings/18-paixi-inkscape-px-comparison.md -> GCode.cpp:1484-1496": {
+      "sha8": "efb72470",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
+    "docs/kxnx/findings/18-paixi-inkscape-px-comparison.md -> custom_3axis_hr4988.h:52-54": {
+      "sha8": "e3ac5d86",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:45": {
+      "sha8": "311c42b1",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> docs/agent-constraint-matrix.md:34": {
+      "sha8": "59e70fac",
+      "target": "docs/agent-constraint-matrix.md"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_job.cc:329-352": {
+      "sha8": "6ed2242a",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:164-181": {
+      "sha8": "7110efd8",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:32": {
+      "sha8": "487c0082",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:39": {
+      "sha8": "e3b0c442",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:49-55": {
+      "sha8": "1a4e0831",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> Grbl_Esp32/src/Defaults.h:97-106": {
+      "sha8": "9288a33d",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> Grbl_Esp32/src/Machines/custom_3axis_hr4988.h:314-351": {
+      "sha8": "3a4258e2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> alignment/plan.md:53-54": {
+      "sha8": "949b5657",
+      "target": "docs/kxnx/alignment/plan.md"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> custom_3axis_hr4988.h:307-308": {
+      "sha8": "24ac13b5",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> docs/kxnx/alignment/plan.md:45-46": {
+      "sha8": "6d782791",
+      "target": "docs/kxnx/alignment/plan.md"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> gcode_gen.py:46": {
+      "sha8": "eccd22ca",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> gcode_gen.py:56": {
+      "sha8": "c3b14141",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> hutuji_gwrite.toml:22-25": {
+      "sha8": "f6d27ec9",
+      "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
+    },
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> test_contract.py:1174": {
+      "sha8": "41c11ee2",
+      "target": "mcp-server/tests/test_contract.py"
+    },
+    "docs/protocol.md -> Defaults.h:82": {
+      "sha8": "721be54f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
+    },
+    "docs/protocol.md -> ESPResponse.cpp:46": {
+      "sha8": "50d6db08",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/ESPResponse.cpp"
+    },
+    "docs/protocol.md -> Error.h:84": {
+      "sha8": "cc61c70d",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Error.h"
+    },
+    "docs/protocol.md -> GCode.cpp:1104": {
+      "sha8": "6da266b8",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
+    "docs/protocol.md -> GCode.cpp:1728": {
+      "sha8": "05a8475f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:351": {
+      "sha8": "d10bb1da",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:50": {
+      "sha8": "65762a57",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:802": {
+      "sha8": "8495e0b2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> ProcessSettings.cpp:615": {
+      "sha8": "b063367a",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ProcessSettings.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:184": {
+      "sha8": "ce7cf9b2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:186": {
+      "sha8": "1bf44686",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:195-204": {
+      "sha8": "f3742770",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:257-266": {
+      "sha8": "20636c4b",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:639-672": {
+      "sha8": "725ffebb",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:68": {
+      "sha8": "9b1d68b6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:84-86": {
+      "sha8": "11ae578c",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/protocol.md -> Protocol.h:34": {
+      "sha8": "74915816",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
+    },
+    "docs/protocol.md -> ProtocolDecisionCore.h:287-293": {
+      "sha8": "3a724d78",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ProtocolDecisionCore.h"
+    },
+    "docs/protocol.md -> Report.cpp:236": {
+      "sha8": "9209b4cf",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/protocol.md -> Report.cpp:583": {
+      "sha8": "a8277f33",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/protocol.md -> Serial.cpp:120": {
+      "sha8": "975021e9",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/protocol.md -> Serial.cpp:380": {
+      "sha8": "cd770637",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/protocol.md -> Settings.cpp:6-8": {
+      "sha8": "cdccf908",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Settings.cpp"
+    },
+    "docs/protocol.md -> TelnetServer.cpp:98": {
+      "sha8": "fc7c4faa",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
+    },
+    "docs/protocol.md -> TelnetServer.h:31": {
+      "sha8": "a2e0c3c2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/protocol.md -> WebSettings.cpp:1008": {
+      "sha8": "f93ca625",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
+    "docs/protocol.md -> WebSettings.cpp:1121": {
+      "sha8": "212d6e3a",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
+    "docs/protocol.md -> WebUI/TelnetServer.cpp:43-74": {
+      "sha8": "1670476d",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
+    },
+    "docs/protocol.md -> WebUI/TelnetServer.cpp:92": {
+      "sha8": "25ad2ee5",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
+    },
+    "docs/protocol.md -> gcode_gen.py:239-243": {
+      "sha8": "7b8de503",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/protocol.md -> hutuji_job.cc:346-464": {
+      "sha8": "089c00bf",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/protocol.md -> hutuji_recovery_core.h:14-45": {
+      "sha8": "5866b98a",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
+    },
+    "docs/protocol.md -> ota.cc:292-321": {
+      "sha8": "461c8cb2",
+      "target": "D:/Users/xiaozhi-esp32/main/ota.cc"
+    },
+    "docs/protocol.md -> ota.cc:292-322": {
+      "sha8": "4c64a822",
+      "target": "D:/Users/xiaozhi-esp32/main/ota.cc"
+    },
+    "docs/protocol.md -> protocol.h:36": {
+      "sha8": "5817611c",
+      "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
+    },
+    "docs/release-readiness.md -> Defaults.h:82": {
+      "sha8": "721be54f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
+    },
+    "docs/release-readiness.md -> PaperSystem.cpp:887-1002": {
+      "sha8": "2d1d8ad6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/release-readiness.md -> Protocol.cpp:68": {
+      "sha8": "9b1d68b6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/release-readiness.md -> Protocol.h:34": {
+      "sha8": "74915816",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
+    },
+    "docs/release-readiness.md -> Report.cpp:237": {
+      "sha8": "3b66d88e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
+    },
+    "docs/release-readiness.md -> hutuji_job.cc:1496-1502": {
+      "sha8": "7fc1e07c",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/release-readiness.md -> hutuji_job.cc:1731-1732": {
+      "sha8": "3356dd24",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/release-readiness.md -> hutuji_pipe.h:48-50": {
+      "sha8": "c8ef28ce",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h"
+    },
+    "docs/release-readiness.md -> protocol.h:36": {
+      "sha8": "5817611c",
+      "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
+    },
+    "docs/troubleshooting.md -> Config.h:410": {
+      "sha8": "426608a8",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
+    "docs/troubleshooting.md -> Config.h:415": {
+      "sha8": "a9f81258",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
+    "docs/troubleshooting.md -> Config.h:469": {
+      "sha8": "5059e26f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
+    "docs/troubleshooting.md -> Error.h:36": {
+      "sha8": "8a729b6a",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Error.h"
+    },
+    "docs/troubleshooting.md -> GCode.cpp:141": {
+      "sha8": "02936fe4",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
+    "docs/troubleshooting.md -> MotionControl.cpp:69-83": {
+      "sha8": "84164ef4",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/MotionControl.cpp"
+    },
+    "docs/troubleshooting.md -> PaperSystem.cpp:147": {
+      "sha8": "a9f10fcb",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/troubleshooting.md -> PaperSystem.cpp:354-355": {
+      "sha8": "2dcd8244",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/troubleshooting.md -> PaperSystem.cpp:439-459": {
+      "sha8": "c2162a38",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/troubleshooting.md -> Planner.cpp:315-337": {
+      "sha8": "79432f1f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Planner.cpp"
+    },
+    "docs/troubleshooting.md -> Protocol.cpp:129-144": {
+      "sha8": "fd63f1e9",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/troubleshooting.md -> Protocol.cpp:147-158": {
+      "sha8": "04df37e7",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/troubleshooting.md -> Protocol.cpp:180": {
+      "sha8": "1e258076",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/troubleshooting.md -> Protocol.cpp:38-43": {
+      "sha8": "297da491",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
+    "docs/troubleshooting.md -> Serial.cpp:185-187": {
+      "sha8": "fddd9c8c",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/troubleshooting.md -> Stepper.cpp:313-324": {
+      "sha8": "fd0a3fb8",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Stepper.cpp"
+    },
+    "docs/troubleshooting.md -> System.cpp:220-234": {
+      "sha8": "0e198573",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/System.cpp"
+    },
+    "docs/troubleshooting.md -> System.cpp:422": {
+      "sha8": "5c7f6111",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/System.cpp"
+    },
+    "docs/troubleshooting.md -> TelnetServer.cpp:138-252": {
+      "sha8": "a8bdec10",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
+    },
+    "docs/troubleshooting.md -> Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31": {
+      "sha8": "a2e0c3c2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/troubleshooting.md -> WebServer.cpp:121": {
+      "sha8": "96d4813f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
+    },
+    "docs/troubleshooting.md -> WebServer.cpp:1561": {
+      "sha8": "02e5ada1",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
+    },
+    "docs/troubleshooting.md -> WebServer.cpp:515-519": {
+      "sha8": "49740a42",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
+    },
+    "docs/troubleshooting.md -> WebSettings.cpp:661-673": {
+      "sha8": "e8f9440a",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
+    "docs/troubleshooting.md -> WebUI/InputBuffer.cpp:48-63": {
+      "sha8": "a6ddb8d0",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
+    },
+    "docs/troubleshooting.md -> docs/kxnx/findings/02-gcode-template.md:19-20": {
+      "sha8": "aa2cec01",
+      "target": "docs/kxnx/findings/02-gcode-template.md"
+    },
+    "docs/troubleshooting.md -> docs/kxnx/findings/02-gcode-template.md:46": {
+      "sha8": "72e93d43",
+      "target": "docs/kxnx/findings/02-gcode-template.md"
+    },
+    "docs/troubleshooting.md -> docs/protocol.md:221": {
+      "sha8": "8bcdb34f",
+      "target": "docs/protocol.md"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:1434-1445": {
+      "sha8": "a587d1d7",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:1473": {
+      "sha8": "497e05f6",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:1574-1579": {
+      "sha8": "04b4d236",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:57-58": {
+      "sha8": "18106389",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/troubleshooting.md -> hutuji_pipe.cc:399-400": {
+      "sha8": "1f337af2",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/troubleshooting.md -> mcp-server/hutuji_mcp/gcode_gen.py:174": {
+      "sha8": "b7a3f449",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/troubleshooting.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:850-872": {
+      "sha8": "c05a74c2",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/worktree-inventory.md -> Config.h:469": {
+      "sha8": "5059e26f",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
+    "docs/worktree-inventory.md -> Grbl_Esp32/src/WebUI/TelnetServer.h:31": {
+      "sha8": "a2e0c3c2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
+    "docs/worktree-inventory.md -> README.md:59": {
+      "sha8": "7ba82b55",
+      "target": "README.md"
+    },
+    "docs/worktree-inventory.md -> alignment/plan.md:53-54": {
+      "sha8": "949b5657",
+      "target": "docs/kxnx/alignment/plan.md"
+    },
+    "docs/worktree-inventory.md -> custom_3axis_hr4988.h:314-351": {
+      "sha8": "3a4258e2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    },
+    "docs/worktree-inventory.md -> docs/design/p2-windowed-flow-control.md:246": {
+      "sha8": "23cca02b",
+      "target": "docs/design/p2-windowed-flow-control.md"
+    },
+    "docs/worktree-inventory.md -> docs/kxnx/findings/02-gcode-template.md:19-20": {
+      "sha8": "aa2cec01",
+      "target": "docs/kxnx/findings/02-gcode-template.md"
+    },
+    "docs/worktree-inventory.md -> docs/kxnx/findings/02-gcode-template.md:46": {
+      "sha8": "72e93d43",
+      "target": "docs/kxnx/findings/02-gcode-template.md"
+    },
+    "docs/worktree-inventory.md -> docs/kxnx/findings/09-flow-control-deep.md:7": {
+      "sha8": "fe41ea29",
+      "target": "docs/kxnx/findings/09-flow-control-deep.md"
+    },
+    "docs/worktree-inventory.md -> docs/release-readiness.md:3": {
+      "sha8": "19352265",
+      "target": "docs/release-readiness.md"
+    },
+    "docs/worktree-inventory.md -> docs/troubleshooting.md:26": {
+      "sha8": "1ed9d791",
+      "target": "docs/troubleshooting.md"
+    },
+    "docs/worktree-inventory.md -> docs/troubleshooting.md:34": {
+      "sha8": "5c943ad0",
+      "target": "docs/troubleshooting.md"
+    },
+    "docs/worktree-inventory.md -> gcode_gen.py:239-243": {
+      "sha8": "7b8de503",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/worktree-inventory.md -> gcode_gen.py:38": {
+      "sha8": "1e426302",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/worktree-inventory.md -> gcode_gen.py:46": {
+      "sha8": "eccd22ca",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/worktree-inventory.md -> hutuji_job.cc:1319": {
+      "sha8": "e3b0c442",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/worktree-inventory.md -> hutuji_job.cc:1473": {
+      "sha8": "497e05f6",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/worktree-inventory.md -> hutuji_job.cc:57-58": {
+      "sha8": "18106389",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/worktree-inventory.md -> hutuji_job.cc:58": {
+      "sha8": "e3b0c442",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/worktree-inventory.md -> hutuji_pipe.cc:44-45": {
+      "sha8": "28510eab",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
+    },
+    "docs/worktree-inventory.md -> mcp-server/hutuji_mcp/hutuji_gwrite.toml:8": {
+      "sha8": "2fa7fa0e",
+      "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
+    },
+    "docs/worktree-inventory.md -> xiaozhi_console.py:107": {
+      "sha8": "e3b0c442",
+      "target": "scripts/xiaozhi_console.py"
+    }
+  },
+  "updated": "2026-08-09T09:12:58Z",
+  "version": 1
+}

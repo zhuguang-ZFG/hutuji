@@ -2692,6 +2692,269 @@ def test_gate_external_refs_report_unreadable_reference_target(
     assert "无法读取外仓引用目标 Protocol.cpp（PermissionError）" in result["detail"]
 
 
+
+# ---------------------------------------------------------------------------
+# 门禁防旧绿（tombstone + HEAD 绑定）与行号内容指纹
+# ---------------------------------------------------------------------------
+
+
+def _gate_main_sandbox(
+    gate, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """把 main() 的产物面（报告 + tombstone）整体指到 tmp，互不污染真仓。"""
+    results = tmp_path / "results"
+    monkeypatch.setattr(gate, "RESULTS", results)
+    monkeypatch.setattr(gate, "REPORT_JSON", results / "hutuji_gate_last.json")
+    monkeypatch.setattr(gate, "REPORT_MD", results / "hutuji_gate_last.md")
+    monkeypatch.setattr(gate, "RUNNING_MARK", results / ".hutuji_gate_running")
+    return results
+
+
+def test_gate_main_running_mark_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tombstone 契约：运行期间必须存在且带计划层清单，正常结束必须清除。
+
+    崩溃后磁盘上只剩上一轮报告是「旧绿」的根源；git index.lock / dpkg
+    两阶段状态的社区解法是在场即「没跑完」。同时钉死报告绑定 git HEAD，
+    让肉眼能分辨报告属于哪一版代码。"""
+    gate = _load_agent_gate()
+    _gate_main_sandbox(gate, tmp_path, monkeypatch)
+    seen: dict = {}
+
+    def probe() -> dict:
+        seen["mark_exists_during_run"] = gate.RUNNING_MARK.is_file()
+        if gate.RUNNING_MARK.is_file():
+            seen["mark"] = json.loads(gate.RUNNING_MARK.read_text(encoding="utf-8"))
+        return gate._layer("probe", "探针", "pass")
+
+    monkeypatch.setattr(gate, "profile_layers", lambda profile: [("probe", probe)])
+    monkeypatch.setattr(gate, "_git_head", lambda: "deadbeef" * 5)
+
+    code = gate.main(["--profile", "docs"])
+
+    assert code == 0
+    assert seen["mark_exists_during_run"] is True, "运行期间 tombstone 必须在场"
+    assert seen["mark"]["plan"] == ["probe"]
+    assert seen["mark"]["profile"] == "docs"
+    assert not gate.RUNNING_MARK.exists(), "正常结束后 tombstone 必须清除"
+    report = json.loads(gate.REPORT_JSON.read_text(encoding="utf-8"))
+    assert report["git_head"] == "deadbeef" * 5
+    assert "deadbeef" in gate.REPORT_MD.read_text(encoding="utf-8")
+
+
+def test_gate_main_crash_leaves_running_mark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """层执行中途崩溃：tombstone 必须留在盘上，且不产生新报告。
+
+    这样下一个 agent 看到 `.hutuji_gate_running` 在场即知上次没跑完，
+    旁边的旧报告不得当作本轮结果。"""
+    gate = _load_agent_gate()
+    _gate_main_sandbox(gate, tmp_path, monkeypatch)
+
+    def boom() -> dict:
+        raise RuntimeError("simulated crash")
+
+    monkeypatch.setattr(gate, "profile_layers", lambda profile: [("boom", boom)])
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        gate.main(["--profile", "docs"])
+
+    assert gate.RUNNING_MARK.is_file(), "崩溃后 tombstone 必须留盘"
+    mark = json.loads(gate.RUNNING_MARK.read_text(encoding="utf-8"))
+    assert mark["plan"] == ["boom"]
+    assert not gate.REPORT_JSON.exists(), "崩溃路径不得写出新报告"
+
+@pytest.mark.parametrize("mode", ["no_git_binary", "not_a_repo"])
+def test_gate_git_head_degrades_gracefully(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    """git 不存在 / 非 git 仓时返回 None，不得炸掉整个门禁。
+
+    不能用「tmp_path 不是 git 仓」当真：门禁把 pytest basetemp 放在仓内
+    results/.tmp/ 下，`git rev-parse` 会从 tmp_path 一路上溯到真仓 .git
+    并返回真实 HEAD——该写法在直跑 pytest 时绿、在门禁里红（2026-08-09
+    实测）。故打桩 subprocess.run 覆盖两条失败路径。"""
+    gate = _load_agent_gate()
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    if mode == "no_git_binary":
+
+        def no_git(*args, **kwargs):  # noqa: ANN002, ANN003
+            raise FileNotFoundError("git not installed")
+
+        monkeypatch.setattr(gate.subprocess, "run", no_git)
+    else:
+
+        class _Done:
+            returncode = 128
+            stdout = ""
+
+        monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: _Done())
+
+    assert gate._git_head() is None
+
+
+def _finger_sandbox(
+    gate,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    docs: dict[str, str],
+    files: dict[str, str],
+) -> None:
+    """搭一个最小仓：docs/ 下放引用文档，files 下放被引用的代码。"""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    for name, text in docs.items():
+        (docs_dir / name).write_text(text, encoding="utf-8")
+    for name, text in files.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    # 本组测试只关心本仓解析；外仓索引置空（全部缺席）
+    monkeypatch.setattr(gate, "_external_index", lambda: ({}, [], ["none"]))
+
+
+def test_gate_line_ref_fingerprint_detects_half_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """行号在界内但指向内容已变的「半漂移」，行号校验查不出，指纹必须判红。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:2\n"},
+        files={"target.py": "first\nsecond\nthird\n"},
+    )
+    assert gate.accept_line_refs() == 0
+    assert gate.check_line_ref_fingerprints()["status"] == "pass"
+
+    # 行数不变、第二行内容变：check_doc_line_refs 必然全绿的那种漂移
+    (tmp_path / "target.py").write_text(
+        "first\nSECOND-CHANGED\nthird\n", encoding="utf-8"
+    )
+
+    result = gate.check_line_ref_fingerprints()
+    assert result["status"] == "fail"
+    assert "半漂移" in result["detail"]
+
+
+def test_gate_line_ref_fingerprint_rejects_unregistered_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """文档新增 path:line 引用却不登记基线 = 证据未经核对，必须判红。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:1\n"},
+        files={"target.py": "only\n"},
+    )
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.write_text(
+        json.dumps({"version": 1, "refs": {}}), encoding="utf-8"
+    )
+
+    result = gate.check_line_ref_fingerprints()
+    assert result["status"] == "fail"
+    assert "未登记" in result["detail"]
+
+
+def test_gate_line_ref_fingerprint_flags_stale_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """基线里残留文档已不再包含的引用条目 = 登记面与文档脱钩，必须判红。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "没有任何行号引用\n"},
+        files={"target.py": "only\n"},
+    )
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "refs": {
+                    "docs/refs.md -> target.py:1": {
+                        "target": "target.py",
+                        "sha8": "00000000",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gate.check_line_ref_fingerprints()
+    assert result["status"] == "fail"
+    assert "陈旧" in result["detail"]
+
+
+def test_gate_line_ref_fingerprint_keeps_unresolvable_external_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """外仓缺席时其引用解析不到：基线条目必须保留且不判陈旧。
+
+    否则在没有 fork 的机器上跑一次 accept 就会把全部外仓条目冲掉，
+    回到有 fork 的机器整层假绿。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "外仓证据见 ghost_ext.py:1\n"},
+        files={},
+    )
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "refs": {
+                    "docs/refs.md -> ghost_ext.py:1": {
+                        "target": "Grbl_Esp32/src/ghost_ext.py",
+                        "sha8": "11111111",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert gate.check_line_ref_fingerprints()["status"] == "pass"
+    # accept 也不得冲掉当前解析不到但文档仍引用的条目
+    assert gate.accept_line_refs() == 0
+    kept = json.loads(baseline.read_text(encoding="utf-8"))
+    assert "docs/refs.md -> ghost_ext.py:1" in kept["refs"]
+
+
+def test_gate_line_ref_fingerprint_range_ref_hashes_all_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """区间引用 `:2-3` 的指纹必须覆盖整段，只动区间中间一行也要判红。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:2-3\n"},
+        files={"target.py": "a\nb\nc\nd\n"},
+    )
+    assert gate.accept_line_refs() == 0
+    (tmp_path / "target.py").write_text("a\nb\nC\nd\n", encoding="utf-8")
+
+    result = gate.check_line_ref_fingerprints()
+    assert result["status"] == "fail"
+    assert "半漂移" in result["detail"]
+
+
 def _load_cloud_bridge_smoke():
     import importlib.util
 

@@ -97,11 +97,11 @@ python -m venv .venv
 
 ### 本仓门禁
 
-仓库根执行 `python scripts/agent_gate.py` → `results/hutuji_gate_last.md`
+仓库根执行 `python scripts/agent_gate.py` → `results/hutuji_gate_last.md`。**退出码是唯一真值**：`results/.hutuji_gate_running` 在场 = 上次没跑完、其间报告不可信；报告头 `git_head` 与当前 HEAD 不符即过期。
 
 | Profile | 内容 |
 |---------|------|
-| `docs` | 仅文档锚点/一致性检查 |
+| `docs` | 仅文档锚点/一致性检查 + 文档 `path:line` 越界与行内容指纹（基线 `docs/agent-line-refs-baseline.json`，改动引用后须 `--accept-line-refs` 重登） |
 | `hub`（默认） | `docs` + 外仓文档 `path:line` 校验 + pytest + e2e（缺 fork 时该层 pass 但 detail 自陈「无可校验」） |
 | `full` | `hub` + 外仓引用要求三仓至少一个在位（全缺即 fail） + Grbl §9 源码标记（**必须设 `GRBL_ROOT`，未设时该层直接 fail、不再 skip**）；且仍须自己另跑 fz |
 

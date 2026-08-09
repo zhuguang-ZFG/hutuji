@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,12 @@ ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
 REPORT_JSON = RESULTS / "hutuji_gate_last.json"
 REPORT_MD = RESULTS / "hutuji_gate_last.md"
+RUNNING_MARK = RESULTS / ".hutuji_gate_running"
+
+# 行号内容指纹基线（入库 tracked）。指纹层查的是「行号在界内但指向内容已变」的
+# 半漂移；基线只能由 --accept-line-refs 显式重新登记，重新登记前必须人工核对
+# 被引用行仍是当初证据所指——否则指纹层退化成自动追认。
+LINE_REF_BASELINE_REL = "docs/agent-line-refs-baseline.json"
 
 REQUIRED_FILES = [
     "README.md",
@@ -60,6 +67,7 @@ REQUIRED_FILES = [
     "firmware/README.md",
     "deploy/env.example",
     ".cursor/rules/hutuji-agent-rails.mdc",
+    LINE_REF_BASELINE_REL,
 ]
 
 ALLOWLIST_REQUIRED_KEYS = [
@@ -186,6 +194,44 @@ SECTION9_MARKERS = [
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _git_head() -> str | None:
+    """当前 HEAD 完整 SHA；非 git 环境返回 None 而不是炸掉门禁。
+
+    报告绑定 HEAD 是给「肉眼读报告」的消费方一个新旧判据：报告里的 HEAD
+    与 `git rev-parse HEAD` 不符即过期。所有失败路径都必须静默降级
+    （测试打桩 subprocess.run 覆盖无 git / 非 git 仓两条路径）。"""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() or None
+
+
+def _write_running_mark(profile: str, plan: list[str]) -> None:
+    """开工 tombstone：在场即「本次没跑完」，旁边的报告不得当作本轮结果。
+
+    门禁崩溃/断电/Ctrl+C 时不会走到清理，磁盘上留下的上一轮 pass 报告若被
+    后续 agent 误读就是「旧绿」。git index.lock 与 dpkg 的 half-configured
+    两阶段状态用的是同一解法：显式标记比靠报告时间戳猜新旧可靠。"""
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "pid": os.getpid(),
+        "profile": profile,
+        "started": _now(),
+        "git_head": _git_head(),
+        "plan": plan,
+    }
+    _atomic_write(RUNNING_MARK, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def _layer(lid: str, name: str, status: str, detail: str = "", **extra: Any) -> dict[str, Any]:
@@ -830,6 +876,183 @@ def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any
     return _layer("external_doc_line_refs", label, "pass", detail)
 
 
+
+
+# ---------------------------------------------------------------------------
+# 行号内容指纹（半漂移防线）
+# ---------------------------------------------------------------------------
+# doc_line_refs / external_doc_line_refs 只查「行号越界」，查不出行号在界内但
+# 指向内容已变的半漂移。社区共识（mdBook 官方文档与 issue #811）是行号引用
+# 无法根治此问题，正解是锚点/符号引用；在迁移锚点之前，先用「行内容指纹 +
+# 显式登记基线」把半漂移变成可判红事件。
+
+
+def _line_ref_baseline_path() -> Path:
+    return ROOT / LINE_REF_BASELINE_REL
+
+
+def _sha8(lines: list[str]) -> str:
+    return hashlib.sha256("\n".join(lines).encode("utf-8", "replace")).hexdigest()[:8]
+
+
+def _iter_doc_line_refs() -> tuple[dict[str, dict[str, str]], set[str], str | None]:
+    """枚举文档里的 `path:line` 引用并算目标行内容指纹。
+
+    返回 (current, seen, error)：
+    - current: key → {"target", "sha8"}，只含当前成功解析且行号在界内的引用
+    - seen: 文档里出现过的全部 key（含解析不到的）——判「陈旧」要用它，
+      否则外仓缺席时其基线条目会被误判成「文档已删除该引用」
+    - error: 治理文档/目标读失败时的结构化描述（此时 current/seen 不可信）
+
+    key = "<doc 相对路径> -> <ref 原文（规范化）>"；同一文档同一引用出现多次
+    只算一条——指纹校验的是「这句话指向的内容」，与出现次数无关。
+    """
+    candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
+    md_files = sorted(
+        path
+        for path in candidates
+        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
+    )
+    internal_index = _repo_file_index()
+    external_index, _present, _absent = _external_index()
+    lines_cache: dict[Path, list[str]] = {}
+    current: dict[str, dict[str, str]] = {}
+    seen: set[str] = set()
+    for md in md_files:
+        rel_md = md.relative_to(ROOT).as_posix()
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）"
+        for m in _DOC_REF_RE.finditer(text):
+            ref = m.group(1).replace("\\", "/").lstrip("./")
+            start = int(m.group(2))
+            end = int(m.group(3) or m.group(2))
+            key = f"{rel_md} -> {ref}:{m.group(2)}{'-' + m.group(3) if m.group(3) else ''}"
+            seen.add(key)
+            if key in current:
+                continue
+            target = _resolve_doc_ref(ref, internal_index)
+            rel_target: str | None = None
+            if target is not None:
+                rel_target = target.relative_to(ROOT).as_posix()
+            else:
+                cands = external_index.get(ref.rsplit("/", 1)[-1], [])
+                if "/" in ref:
+                    suffix = "/" + ref
+                    cands = [p for p in cands if p.as_posix().endswith(suffix)]
+                if len(cands) == 1:
+                    target = cands[0]
+                    rel_target = target.as_posix()
+            if target is None or rel_target is None:
+                continue
+            if target not in lines_cache:
+                try:
+                    lines_cache[target] = target.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                except OSError as exc:
+                    return {}, set(), f"无法读取引用目标 {rel_target}（{type(exc).__name__}）"
+            lines = lines_cache[target]
+            # 行号越界由 doc_line_refs / external_doc_line_refs 两层判红；
+            # 本层对越界引用不算指纹（算不出来），避免同一缺陷两层抢报。
+            if start < 1 or end > len(lines):
+                continue
+            current[key] = {"target": rel_target, "sha8": _sha8(lines[start - 1 : end])}
+    return current, seen, None
+
+
+def check_line_ref_fingerprints() -> dict[str, Any]:
+    """比对文档引用的行内容指纹与基线，抓「行号在界内但内容已变」的半漂移。
+
+    三类问题全判红：未登记（新增引用没跑 --accept-line-refs）、半漂移
+    （指纹不符）、陈旧（基线条目在文档里已不存在）。基线只能由
+    --accept-line-refs 显式重登，重新登记前必须人工核对被引用行仍是
+    当初证据所指——否则本层退化成自动追认。"""
+    label = "行号内容指纹"
+    current, seen, error = _iter_doc_line_refs()
+    if error:
+        return _layer("line_ref_fingerprints", label, "fail", error)
+    baseline_path = _line_ref_baseline_path()
+    if not baseline_path.is_file():
+        return _layer(
+            "line_ref_fingerprints",
+            label,
+            "fail",
+            f"基线 {LINE_REF_BASELINE_REL} 不存在；先跑 python scripts/agent_gate.py --accept-line-refs 登记",
+        )
+    try:
+        data = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _layer(
+            "line_ref_fingerprints",
+            label,
+            "fail",
+            f"基线 {LINE_REF_BASELINE_REL} 不可读/已损坏（{type(exc).__name__}）",
+        )
+    baseline: dict[str, Any] = data.get("refs", {}) if isinstance(data, dict) else {}
+    unregistered = sorted(k for k in current if k not in baseline)
+    drifted = sorted(
+        k for k in current if k in baseline and baseline[k].get("sha8") != current[k]["sha8"]
+    )
+    stale = sorted(k for k in baseline if k not in seen)
+    if unregistered or drifted or stale:
+        parts: list[str] = []
+        if drifted:
+            parts.append(f"半漂移 {len(drifted)} 处：" + "; ".join(drifted[:6]))
+        if unregistered:
+            parts.append(f"未登记 {len(unregistered)} 处：" + "; ".join(unregistered[:6]))
+        if stale:
+            parts.append(f"陈旧 {len(stale)} 处：" + "; ".join(stale[:6]))
+        parts.append("人工核对被引用行后跑 python scripts/agent_gate.py --accept-line-refs 重登基线")
+        return _layer("line_ref_fingerprints", label, "fail", "；".join(parts))
+    kept = sum(1 for k in baseline if k in seen and k not in current)
+    return _layer(
+        "line_ref_fingerprints",
+        label,
+        "pass",
+        f"指纹 {len(current)} 处全对；外仓缺席等未解析条目保留 {kept} 处",
+    )
+
+
+def accept_line_refs() -> int:
+    """把当前文档引用的行内容指纹重登为基线（--accept-line-refs）。
+
+    当前解析不到的基线条目（外仓缺席等）只要文档仍引用就原样保留，
+    避免在缺 fork 的机器上跑一次 accept 把外仓登记冲掉、回到有 fork
+    的机器整层假绿。"""
+    current, seen, error = _iter_doc_line_refs()
+    if error:
+        print(f"accept-line-refs 中止：{error}")
+        return 1
+    baseline_path = _line_ref_baseline_path()
+    kept: dict[str, Any] = {}
+    if baseline_path.is_file():
+        try:
+            old = json.loads(baseline_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            old = {}
+        old_refs = old.get("refs", {}) if isinstance(old, dict) else {}
+        for key, value in old_refs.items():
+            if key in seen and key not in current:
+                kept[key] = value
+    refs = {**kept, **current}  # 同 key 以当前指纹为准
+    payload = {
+        "version": 1,
+        "updated": _now(),
+        "git_head": _git_head(),
+        "refs": refs,
+    }
+    _atomic_write(
+        baseline_path,
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+    print(
+        f"已登记 {len(current)} 处指纹，保留未解析条目 {len(kept)} 处 → {baseline_path}"
+    )
+    return 0
+
+
 def _mcp_python() -> Path | None:
     win = ROOT / "mcp-server" / ".venv" / "Scripts" / "python.exe"
     unix = ROOT / "mcp-server" / ".venv" / "bin" / "python"
@@ -990,6 +1213,7 @@ def profile_layers(profile: str) -> list[tuple[str, Any]]:
         ("anti_drift", check_anti_drift_doc),
         ("constraint_matrix", check_constraint_matrix),
         ("doc_line_refs", check_doc_line_refs),
+        ("line_ref_fingerprints", check_line_ref_fingerprints),
     ]
     if profile in ("hub", "full"):
         # 外仓行号：hub 缺 fork 时如实报「无可校验」，full 缺 fork 即 fail。
@@ -1033,6 +1257,8 @@ def write_reports(report: dict[str, Any]) -> None:
         f"- profile: `{report['profile']}`",
         f"- time: {report['timestamp']}",
         f"- overall: **{report['overall_status']}** (exit={report['overall_exit']})",
+        f"- HEAD: `{report['git_head'] or '未知（非 git 环境）'}`",
+        "- 判读: 退出码是唯一真值；`.hutuji_gate_running` 在场 = 上次没跑完，本报告不可信",
         "",
         "## layers",
         "",
@@ -1078,10 +1304,24 @@ def main(argv: list[str] | None = None) -> int:
         default="hub",
         help="docs=文档层; hub=文档+外仓行号+MCP(默认); full=hub+§9源码标记",
     )
+    parser.add_argument(
+        "--accept-line-refs",
+        action="store_true",
+        help="把当前文档 path:line 引用的行内容指纹重登为基线后退出（登记前必须人工核对被引用行）",
+    )
     args = parser.parse_args(argv)
+    if args.accept_line_refs:
+        return accept_line_refs()
+
+    plan = profile_layers(args.profile)
+    if RUNNING_MARK.is_file():
+        # 上次运行没走到清理：崩溃/断电/Ctrl+C。其间写出的任何报告都不可信，
+        # 显式告知比让下一个 agent 自己发现要便宜。
+        print(f"注意：{RUNNING_MARK} 在场——上次门禁未跑完，其间报告不可信；本次将覆盖")
+    _write_running_mark(args.profile, [layer_id for layer_id, _ in plan])
 
     layers: list[dict[str, Any]] = []
-    for layer_id, run_layer in profile_layers(args.profile):
+    for layer_id, run_layer in plan:
         layer = run_layer()
         # plan 的 id 与 _layer() 落盘的 id 必须一致，否则报告里的层名会与
         # docs/agent-gate.md 的分层定义脱钩，读报告的人无法判断查了什么。
@@ -1098,6 +1338,7 @@ def main(argv: list[str] | None = None) -> int:
         "profile": args.profile,
         "timestamp": _now(),
         "root": str(ROOT),
+        "git_head": _git_head(),
         "overall_status": overall,
         "overall_exit": exit_code,
         "layers": layers,
@@ -1113,6 +1354,9 @@ def main(argv: list[str] | None = None) -> int:
         "report_md": str(REPORT_MD),
     }
     write_reports(report)
+    # 只有报告两个文件都成功落盘才清除 tombstone：任何更早的异常退出
+    # （层抛错/断电/Ctrl+C）都会把标记留在盘上，提示「上次没跑完」。
+    RUNNING_MARK.unlink(missing_ok=True)
 
     print(f"hutuji_gate profile={args.profile} overall={overall} exit={exit_code}")
     for L in layers:

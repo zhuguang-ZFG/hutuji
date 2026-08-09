@@ -102,6 +102,15 @@ def test_hub_profile_checks_external_doc_line_refs():
     assert "external_doc_line_refs" not in _layer_ids("docs"), "docs 层只校验枢纽仓"
 
 
+
+def test_line_ref_fingerprint_layer_in_all_profiles():
+    """行号内容指纹层兜「行号在界内但内容已变」的半漂移，docs 层也不能缺。
+
+    只在 hub/full 挂这层等于日常 docs 门禁不查半漂移；本仓引用不依赖外仓，
+    外仓条目在缺 fork 机器上保留不判陈旧，故三个 profile 都应挂。"""
+    for profile in ("docs", "hub", "full"):
+        assert "line_ref_fingerprints" in _layer_ids(profile), profile
+
 def test_hub_and_full_differ_on_missing_forks():
     """缺 fork 的机器上：hub 不该变红，full 必须红。"""
     plans = {p: dict(gate.profile_layers(p)) for p in ("hub", "full")}
