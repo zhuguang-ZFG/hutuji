@@ -143,6 +143,10 @@ GOVERNANCE_DOCS = [
     "docs/worktree-inventory.md",
     "docs/foundation-checklist.md",
     "docs/bringup-sop.md",
+    # runbook 决定「哪几步真机验证可以跳过」：它写「已完成/可跳过」，后续代理就
+    # 不再上真机复验。此前它不在本清单，其状态措辞完全无机器把关——与上面注释里
+    # 记的 CLAUDE.md 漏扫是同一形态。加入后禁语与复活两层同时覆盖它。
+    "docs/daytime-tuning-runbook.md",
     "docs/operations.md",
     "deploy/README.md",
     "mcp-server/README.md",

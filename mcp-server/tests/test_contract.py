@@ -2459,6 +2459,10 @@ def test_gate_governance_docs_cover_repo_governance_surface() -> None:
         "docs/agent-handoff.md",
         "docs/release-readiness.md",
         "docs/protocol.md",
+        # runbook 决定「哪几步真机验证可以跳过」，是 agent 行为的直接约束源：
+        # 它一旦写出「已完成/可跳过」，后续代理就不会再上真机复验。此前它不在
+        # GOVERNANCE_DOCS，故禁语与复活扫描都绕过它——同一形态的原始缺陷。
+        "docs/daytime-tuning-runbook.md",
     ):
         assert must in gate.GOVERNANCE_DOCS, must
 
