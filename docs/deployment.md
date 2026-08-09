@@ -5,6 +5,7 @@
 > 证据见 `release-readiness.md`。
 > **2026-08-09 layout 归一化发布（本仓 `3126a84`）**：`gcode_gen.py` scp（LF，md5 `a61be0bf1adec2076994aae495f4b615` 对账一致）→ 显式 `restart hutuji-mcp` → preflight **21/21 PASS**（含生产 venv 真实生成链）。生产真 draw「五角星」：`lines=19 bytes=364`，产物 bbox X[10.0,180.0]、Y 中心 138.5 = 画布正中——归一化在生产生效。回滚副本 `/root/hutuji-bak-20260809-182426-pre-layout/`。
 > **2026-08-09 位图路线发布（本仓 `4be934b`）**：`hutuji_draw` 切到「agnes 文生图 → sknw 中心线描摹 → 单线 SVG」。scp `bitmap_svg.py`（新）/`config.py`/`server.py`/`requirements.txt`（LF），生产 venv 经清华镜像装 `scikit-image 0.26.0`/`networkx 3.6.1`/`sknw 0.15`/`imageio 2.37.4`（**直连 PyPI 会挂起 17 分钟无子进程，镜像 75s 装完**）→ 显式 `restart hutuji-mcp` → preflight **21/21 PASS** → 生产真 draw「一朵五瓣的花」：709 行/16840B/22 抬笔/23.4s，公网 URL 200 且字节数与工具上报一致。回滚副本 `/root/hutuji-bak-20260809-184140-pre-bitmap/`。注意：`/etc/hutuji/mcp.env` 未改（`HUTUJI_IMAGE_MODEL` 默认值即生产值）。
+> **2026-08-10 位图自检封闭性收口发布（本仓 `f25d8d1`）**：`bitmap_svg.py`/`preflight.sh` 经 `git show HEAD:` 上传（md5 `cb18fb779084a7ef3d32666bf0772448`/`36e4823dedee94c564d88a3df7062acc` 逐一相符、0 个 CR、`py_compile`/`bash -n` 过）→ 显式 `restart hutuji-mcp`（01:59:14 CST，bridge 与 unit 未改不动）→ 两条 ExecStartPre 均 `status=0`（1024px ⊥ 探针在沙箱内真跑，restart 全程 ~9s，远在 `TimeoutStartSec=30` 内）→ 生产 **22/22 PASS**（改名后的第 3 项「mcp.env 无占位、LLM 完整、image_model 非空白且公网前缀为 HTTPS:443」在真实 mcp.env 下过）→ 公网 `/mcp`/`/files/nope`/`/docs`/随机路径全 404。回滚副本 `/root/hutuji-bak-20260810-015828-pre-f25d8d1/`。生产应用基线现为 `f25d8d1`。
 
 ## 目标机
 
