@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=21
+EXPECTED_CHECKS=22
 PASS=0
 FAIL=0
 
@@ -234,9 +234,10 @@ check_unit_matches_template() {
 
 # `daemon-reload` 只更新 unit 快照，不会重启已经 active 的服务；`enable --now` 对
 # 已 active 的服务同样不会重启。因此还要证明 hutuji-mcp 的本次启动确实执行了
-# 新增的沙箱内生成自检，且主进程不早于本次部署的 unit、代码和 profile。
+# 两条沙箱内自检（生成链 + 位图描摹链），且主进程不早于本次部署的 unit、代码和 profile。
 check_mcp_prestart_and_restart() {
-  local prestart started start_epoch newest path mtime
+  local prestart started start_epoch newest path mtime line
+  local saw_gcode=0 saw_bitmap=0
   local -a deployed_files=(
     /etc/systemd/system/hutuji-mcp.service
     /opt/hutuji/deploy/hutuji-mcp.service
@@ -245,9 +246,26 @@ check_mcp_prestart_and_restart() {
   )
 
   prestart="$(systemctl show hutuji-mcp -p ExecStartPre --value 2>/dev/null)" || return 1
-  [[ "$prestart" == *"hutuji_mcp.gcode_gen --self-test"* ]] || return 1
-  [[ "$prestart" == *"code=exited"* && "$prestart" == *"status=0"* ]] || {
-    echo "hutuji-mcp 的 ExecStartPre 未在本次启动成功执行，须显式 restart" >&2
+  # 逐条判，不能对整段做子串匹配：两条 ExecStartPre 会输出两条记录，整段里只要有
+  # 一个 status=0 就能被「含 status=0」蒙过——那正好是「生成链绿、位图链红」的形状。
+  # 每条都必须自己 code=exited 且 status=0；没跑过的条目没有 status 字段，同样判红。
+  while IFS= read -r line; do
+    [[ -z "${line//[[:space:]]/}" ]] && continue
+    case "$line" in
+      *"hutuji_mcp.gcode_gen --self-test"*) saw_gcode=1 ;;
+      *"hutuji_mcp.bitmap_svg --self-test"*) saw_bitmap=1 ;;
+    esac
+    [[ "$line" == *"code=exited"* && "$line" == *"status=0"* ]] || {
+      echo "hutuji-mcp 有 ExecStartPre 未在本次启动成功执行，须显式 restart：$line" >&2
+      return 1
+    }
+  done <<< "$prestart"
+  (( saw_gcode == 1 )) || {
+    echo "hutuji-mcp 缺生成链自检 ExecStartPre（gcode_gen --self-test）" >&2
+    return 1
+  }
+  (( saw_bitmap == 1 )) || {
+    echo "hutuji-mcp 缺位图描摹链自检 ExecStartPre（bitmap_svg --self-test）：缺依赖会 fail-open" >&2
     return 1
   }
 
@@ -311,6 +329,28 @@ stats = svg_to_gcode(Path(sys.argv[1]), Path(sys.argv[2]))
 # 空产物也是坏产物：行数/字节必须为正，否则「转换成功」毫无意义。
 raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
 ' "$svg" "$out" >/dev/null 2>&1
+)
+
+# 位图描摹链正例。与上面的生成链是两条独立依赖栈（vpype ≠ skimage/sknw/imageio），
+# 且描摹依赖是 trace_bitmap_to_polylines 里的**延迟 import**：缺失时 import
+# hutuji_mcp.server 成功、服务 active、生成链自检也照样绿，只有真实描摹会炸。
+# 2026-08-09 本机实测复现过这个三绿一红的组合，故必须单独真跑一次。
+#
+# 刻意走 `-m … --self-test` 而不是 import 内部函数：这正是 unit 里 ExecStartPre
+# 的 argv，连 _main 的参数解析一起覆盖，避免 preflight 验的入口与开机验的入口漂移。
+# 也刻意不复用「ExecStartPre status=0」那条判据——那只说明**本次启动时**的代码是好的，
+# scp 了坏依赖但没 restart 时它仍是绿的；这一项真跑当前落盘的代码，把那个洞堵掉。
+# 自检不碰网络（探针 PNG 由 stdlib zlib 现造），故不会因生图 API 抖动误红。
+check_bitmap_chain() (
+  local out
+  [[ -x "$VENV_PY" ]] || exit 1
+  # 用 `if !` 包住赋值，不写 `out=$(...); rc=$?`：errexit 下失败的命令替换会让子 shell
+  # 直接退出，rc 那行根本执行不到，诊断也就永远打不出来。
+  if ! out="$(PYTHONPATH=/opt/hutuji/mcp-server "$VENV_PY" -m hutuji_mcp.bitmap_svg --self-test 2>&1)"; then
+    # 只回最后一行：BitmapError 的那句话就是可行动的诊断，traceback 无用且刷屏。
+    printf '%s\n' "$out" | tail -1 >&2
+    exit 1
+  fi
 )
 
 check_download() (
@@ -540,6 +580,8 @@ check "兜底路径：隧道回源态 404、明文直连 301（无自指 301 环
 
 # 生成链正例：生产 venv 真跑 vpype + §5 校验（覆盖 profile / 依赖 / 校验器漂移）。
 check "生产 venv 真实生成链可用（vpype + profile + §5 校验）" check_generate_chain
+# 位图描摹链正例：生产 venv 真跑 skimage/sknw/imageio 描摹（缺依赖会 fail-open）。
+check "生产 venv 真实位图描摹链可用（skimage + sknw + imageio）" check_bitmap_chain
 # 真 200 正例：用真实生成链造一份合法命名产物（TTL 内自清），验完整下载契约。
 check "localhost :80 /files 真下 G-code 200" check_download
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import sys
+import zlib
 
 import httpx
 import numpy as np
@@ -70,7 +72,14 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
         from skimage.filters import gaussian, threshold_otsu
         from skimage.morphology import skeletonize
     except ImportError as exc:
-        raise BitmapError(f"位图描摹依赖缺失（{exc.name}），生产 venv 需安装 requirements.txt") from exc
+        # exc.name 只在「找不到模块」时有值；依赖自身 __init__ 里抛裸 ImportError
+        # （numpy/scipy 的 ABI 不匹配守卫正是这么写的）时它是 None，必须回落到异常
+        # 文本，否则开机失败只剩「依赖缺失（None）」，唯一的线索被丢干净。
+        text = str(exc).strip()
+        detail = exc.name or (text.splitlines()[0][:120] if text else type(exc).__name__)
+        raise BitmapError(
+            f"位图描摹依赖缺失（{detail}），生产 venv 需安装 requirements.txt"
+        ) from exc
 
     if not png_bytes.startswith(_PNG_MAGIC):
         raise BitmapError("生图 API 返回的不是 PNG")
@@ -185,3 +194,85 @@ async def generate_bitmap_svg(description: str) -> str:
         raise BitmapError("描摹 SVG 超过 256KiB 上限（图太复杂）")
     _validate_svg(svg)
     return svg
+
+
+
+# ---- ExecStartPre 沙箱内自检 ----------------------------------------------
+#
+# 为什么位图路线必须有独立自检：描摹重依赖（skimage/sknw/imageio）是
+# `trace_bitmap_to_polylines` 里的**延迟 import**，缺失时 `import
+# hutuji_mcp.server` 照样成功、systemd 照样 active、gcode_gen 的自检只碰
+# vpype 一半，于是「服务 active + preflight 全绿 + 每次 hutuji_draw 都在
+# 描摹期炸」三者可同时成立——正是 deploy/preflight.sh 开头记的那类
+# fail-open。2026-08-09 本机实测复现：拦掉 imageio 后 server 可 import、
+# `gcode_gen --self-test` 退 0，只有真实描摹抛 BitmapError。
+#
+# 自检**不碰网络**：生图是按次计费的外部依赖，开机自检不得调它。探针 PNG
+# 由下面的纯 stdlib 编码器现造，故「依赖缺失」与「探针造不出来」不会混淆。
+#
+# 放在 systemd ExecStartPre（沙箱内）而不是只放 preflight：preflight 以
+# root 在沙箱外跑，验不到 SystemCallFilter。skimage/scipy 的数值栈比 vpype
+# 更宽，2026-08-07 已被 vpype 的 mbind/SIGSYS（exit -31）咬过一次，
+# 同一类风险只有沙箱内的真实调用才能暴露。
+
+_PROBE_SIZE_PX = 64
+# 探针画 T 形：水平臂 + 垂直臂交于中部。轴对齐所以栅格化精确；T 形交叉点
+# 会逼 sknw 做分支簇聚合（选它的原因就是这个），产出 3 条边、每条都远长于
+# _MIN_POLY_PX，且 ≥_SMOOTH_WINDOW 故平滑分支也被覆盖。
+_PROBE_STROKE_PX = 3
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    body = kind + payload
+    return (
+        len(payload).to_bytes(4, "big") + body + zlib.crc32(body).to_bytes(4, "big")
+    )
+
+
+def _encode_probe_png() -> bytes:
+    """造一张 8bit 灰度 T 形线稿 PNG。只用 zlib，不依赖 imageio。"""
+    n = _PROBE_SIZE_PX
+    rows = [bytearray(b"\xff" * n) for _ in range(n)]
+    lo, hi = n // 8, n - n // 8            # 线条留白边，避免贴边被骨架化削掉
+    bar = n // 2
+    for r in range(bar, bar + _PROBE_STROKE_PX):        # 水平臂
+        for c in range(lo, hi):
+            rows[r][c] = 0
+    for r in range(lo, bar + _PROBE_STROKE_PX):         # 垂直臂（落在水平臂中部）
+        for c in range(bar, bar + _PROBE_STROKE_PX):
+            rows[r][c] = 0
+
+    raw = b"".join(b"\x00" + bytes(row) for row in rows)   # 每行前置 filter=0
+    ihdr = n.to_bytes(4, "big") + n.to_bytes(4, "big") + b"\x08\x00\x00\x00\x00"
+    return (
+        _PNG_MAGIC
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(raw))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _run_self_test() -> None:
+    """在 systemd ExecStartPre 沙箱内真跑一次描摹链：依赖 + 数值栈 + 白名单。"""
+    png = _encode_probe_png()
+    polys, w, h = trace_bitmap_to_polylines(png)
+    if w != _PROBE_SIZE_PX or h != _PROBE_SIZE_PX:
+        raise BitmapError(f"描摹自检解码尺寸异常：{w}x{h}")
+    svg = polylines_to_svg(polys, w, h)
+    # 机器产物也过同一道白名单闸（模块不变量），顺带证明 llm_svg 校验器可用。
+    _validate_svg(svg)
+    if "<polyline" not in svg:
+        raise BitmapError("描摹自检没有产出任何 polyline")
+
+
+def _main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args != ["--self-test"]:
+        print("usage: python -m hutuji_mcp.bitmap_svg --self-test", file=sys.stderr)
+        return 2
+    _run_self_test()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

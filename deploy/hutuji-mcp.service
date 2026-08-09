@@ -14,6 +14,12 @@ EnvironmentFile=/etc/hutuji/mcp.env
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn hutuji_mcp.server:app --host 127.0.0.1 --port 8300
 # 必须在与主进程相同的 systemd 沙箱里跑真实 vpype；服务外 preflight 覆盖不到 seccomp。
 ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.gcode_gen --self-test
+# 位图路线的描摹重依赖（skimage/sknw/imageio）是延迟 import：缺失时 server 照样
+# import 成功、服务照样 active、上面那条自检只覆盖 vpype 一半，于是「active + preflight
+# 全绿 + 每次 hutuji_draw 都在描摹期炸」可同时成立（2026-08-09 本机实测复现）。这条
+# 把它变成 fail-closed；且 skimage/scipy 的数值栈比 vpype 更宽，只有沙箱内真实调用
+# 才能暴露 SystemCallFilter 漏项（参见上面 mbind 的前车之鉴）。自检不碰网络。
+ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.bitmap_svg --self-test
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30

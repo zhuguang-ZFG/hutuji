@@ -2234,7 +2234,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 21
+    assert preflight.count('\ncheck "') == 22
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -2253,7 +2253,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
 
 def test_preflight_invokes_every_check_after_env_init() -> None:
     """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
-    `unbound variable` 退出，15 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    `unbound variable` 退出，22 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
     root = Path(__file__).resolve().parents[2]
     lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
 
@@ -2263,20 +2263,20 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 21
+    assert len(checks) == 22
     assert min(checks) > init_last
 
 
 def test_preflight_exercises_real_generation_chain() -> None:
-    """第 15/16 项必须真跑生成链，不能用人工拼的 G-code 文本冒充。
+    """生成链与位图描摹链都必须真跑，不能用人工拼的 G-code 文本冒充。
 
     旧版 check_download 用 `printf "G21\\nG90\\nF8000\\n"` 造产物——那份内容连
     validate_gcode 自己都不接受（实测「第 4 行缺少 §5 文件头」），所以只证明了
     nginx 能按字节发文件，完全没碰生成链。已实测复现：把 hutuji_gwrite.toml 移走后
     `import hutuji_mcp.server` 仍成功、服务保持 active、/mcp 与 /files 照常响应，
     而真实 svg_to_gcode() 报「vpype 转换失败（exit 2）: --config … does not exist」，
-    即 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 _PROFILE_PATH 只在
-    请求期由 _vpype_command() 使用，import 期不加载不校验，systemd active 抓不到。
+    即「全绿」与「一画就整单失败」可以同时成立。位图路线同理：skimage/sknw/imageio
+    是延迟 import，缺失只能在真实 trace 时暴露，故必须有独立的离线 bitmap self-test。
     """
     root = Path(__file__).resolve().parents[2]
     preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
@@ -2295,13 +2295,30 @@ def test_preflight_exercises_real_generation_chain() -> None:
     # 必须用生产 venv 的解释器：vpype/vpype-gcode 只装在 venv，且 _vpype_cmd() 按
     # sys.executable 同目录定位 vpype——换成系统 python3 就换掉了被验对象。
     assert "VENV_PY=/opt/hutuji/mcp-server/.venv/bin/python" in preflight_code
-    assert preflight_code.count('[[ -x "$VENV_PY" ]] || exit 1') == 2
+    assert preflight_code.count('[[ -x "$VENV_PY" ]] || exit 1') == 3
 
     # 下载契约必须验的是真产物：printf 拼 G-code 的老写法不得复活。
     assert 'printf "G21' not in preflight_code
     assert "G1G90" not in preflight_code
     for marker in ('"$code" == "200"', "cmp -s", "zlib.crc32"):
         assert marker in preflight, marker
+
+def test_preflight_exercises_real_bitmap_trace_chain() -> None:
+    """preflight 必须走与 unit 相同的 bitmap_svg --self-test 入口。"""
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "check_bitmap_chain()" in preflight
+    assert "check_bitmap_chain" in preflight_code
+    assert (
+        'PYTHONPATH=/opt/hutuji/mcp-server "$VENV_PY" '
+        "-m hutuji_mcp.bitmap_svg --self-test"
+    ) in preflight_code
+    assert 'if ! out="$(' in preflight_code
+    assert 'printf \'%s\\n\' "$out" | tail -1' in preflight_code
 
 
 def test_preflight_pins_running_systemd_units_to_templates() -> None:
@@ -2357,9 +2374,13 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     # ExecStartPre 结果，并用主进程启动时间覆盖本次 unit/代码/profile 的 mtime。
     assert "check_mcp_prestart_and_restart()" in preflight
     assert "systemctl show hutuji-mcp -p ExecStartPre --value" in preflight_code
-    assert '[[ "$prestart" == *"hutuji_mcp.gcode_gen --self-test"* ]] || return 1' in preflight_code
-    assert '"$prestart" == *"code=exited"*' in preflight_code
-    assert '"$prestart" == *"status=0"*' in preflight_code
+    assert 'while IFS= read -r line' in preflight_code
+    assert 'saw_gcode=0 saw_bitmap=0' in preflight_code
+    assert '*"hutuji_mcp.gcode_gen --self-test"*)' in preflight_code
+    assert '*"hutuji_mcp.bitmap_svg --self-test"*)' in preflight_code
+    assert '[[ "$line" == *"code=exited"* && "$line" == *"status=0"* ]]' in preflight_code
+    assert '(( saw_gcode == 1 ))' in preflight_code
+    assert '(( saw_bitmap == 1 ))' in preflight_code
     assert "ExecMainStartTimestamp --value" in preflight_code
     assert 'date -d "$started" +%s' in preflight_code
     assert 'stat -c %Y "$path"' in preflight_code
@@ -2434,7 +2455,11 @@ def test_mcp_unit_self_tests_vpype_inside_sandbox_and_only_allows_mbind() -> Non
     root = Path(__file__).resolve().parents[2]
     unit = (root / "deploy" / "hutuji-mcp.service").read_text(encoding="utf-8")
 
-    assert "ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.gcode_gen --self-test" in unit
+    prestarts = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
+    assert prestarts == [
+        "ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.gcode_gen --self-test",
+        "ExecStartPre=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.bitmap_svg --self-test",
+    ]
     assert "SystemCallFilter=~@privileged @resources @obsolete" not in unit
     assert "SystemCallFilter=~@privileged @obsolete" in unit
     denied_resources = next(
@@ -2453,6 +2478,48 @@ def test_gcode_module_self_test_runs_real_generation_chain() -> None:
     gcode_gen._run_self_test()
     assert gcode_gen._main(["--self-test"]) == 0
     assert gcode_gen._main([]) == 2
+def test_bitmap_module_self_test_runs_offline_trace_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """self-test 不得调用计费生图 API，且必须真走 PNG→描摹→SVG 闸门。"""
+    from hutuji_mcp import bitmap_svg
+
+    async def forbidden_network_call(*_args, **_kwargs):
+        raise AssertionError("bitmap self-test 不得调用生图 API")
+
+    monkeypatch.setattr(bitmap_svg, "_fetch_image_png", forbidden_network_call)
+    polys, width, height = bitmap_svg.trace_bitmap_to_polylines(
+        bitmap_svg._encode_probe_png()
+    )
+    assert (width, height) == (64, 64)
+    assert len(polys) == 3
+    assert all(len(poly) >= bitmap_svg._MIN_POLY_PX for poly in polys)
+    assert all(len(poly) >= bitmap_svg._SMOOTH_WINDOW for poly in polys)
+    assert bitmap_svg._main(["--self-test"]) == 0
+    assert bitmap_svg._main([]) == 2
+
+
+def test_bitmap_missing_dependency_error_keeps_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """依赖自身抛裸 ImportError 时，错误不能退化成「依赖缺失（None）」。"""
+    import builtins
+
+    from hutuji_mcp import bitmap_svg
+
+    real_import = builtins.__import__
+
+    def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name.startswith("imageio"):
+            raise ImportError("simulated imageio ABI failure")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+    with pytest.raises(bitmap_svg.BitmapError) as caught:
+        bitmap_svg.trace_bitmap_to_polylines(b"")
+    message = str(caught.value)
+    assert "simulated imageio ABI failure" in message
+    assert "依赖缺失（None）" not in message
 
 
 def test_deploy_guidance_explicitly_restarts_active_application_services() -> None:

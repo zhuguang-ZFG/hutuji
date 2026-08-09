@@ -110,7 +110,7 @@
 > TLS 已切 Cloudflare Tunnel + Let’s Encrypt（2026-07-27），ESP-IDF cert bundle 信任，S3 无需 `-k`。  
 > `install-from-repo.sh` 默认清华 HTTPS PyPI 源（京东云直连 PyPI 易卡住），不再使用 `--trusted-host` 绕过 TLS；私有 CA 场景显式传 `HUTUJI_PIP_CERT`。
 
-> **systemd 生成链边界（2026-08-07 定案，2026-08-08 已部署验真）**：preflight 的 `check_generate_chain` 在服务外验证生产 venv、profile 与 §5 校验器，但不能证明同一程序能穿过 unit 的 seccomp。生产曾出现 preflight 19/19 与真实 vpype `SIGSYS` 同时成立；内核审计定位到 `mbind`。当前 `hutuji-mcp.service` 用 `ExecStartPre=...python -m hutuji_mcp.gcode_gen --self-test` 在服务沙箱内真跑 vpype/profile/§5 自检，`SystemCallFilter` 仅从原 `@resources` 禁用组中放行 `mbind`。发布后必须 `daemon-reload` 并**显式 restart** 两个应用服务；`enable --now` 对 active 服务不会重启。当前 21 项中的 unit 检查会读取 ExecStartPre 的实际成功结果，并要求 MCP 主进程不早于已部署 unit、包内 Python 文件和 profile；只 reload 未 restart 会判 fail。此补强已随 `25ff33d` 部署，2026-08-08 生产 `pass=21 fail=0 expected=21` 时 ExecStartPre `status=0`、MCP 主进程 20:54:41 启动（晚于全部落盘文件）。
+> **systemd 生成链边界（2026-08-07 定案，2026-08-08 已部署验真；2026-08-09 扩到位图描摹链，未部署）**：preflight 的 `check_generate_chain` 在服务外验证生产 venv、profile 与 §5 校验器，但不能证明同一程序能穿过 unit 的 seccomp。生产曾出现 preflight 19/19 与真实 vpype `SIGSYS` 同时成立；内核审计定位到 `mbind`。`hutuji-mcp.service` 用 `ExecStartPre=...python -m hutuji_mcp.gcode_gen --self-test` 在服务沙箱内真跑 vpype/profile/§5 自检，`SystemCallFilter` 仅从原 `@resources` 禁用组中放行 `mbind`。**2026-08-09 仓内再加第二条 `ExecStartPre=...python -m hutuji_mcp.bitmap_svg --self-test`**：位图描摹重依赖（skimage/sknw/imageio）是延迟 import，缺失时 import/active/生成链自检全绿而真实描摹才炸（本机拦掉 imageio 实测复现）；自检用纯 stdlib zlib 合成的 T 形探针 PNG 真跑描摹全链，不碰计费生图 API，同时验证 skimage/scipy 数值栈能穿过 seccomp（vpype mbind 同款风险面）。发布后必须 `daemon-reload` 并**显式 restart** 两个应用服务；`enable --now` 对 active 服务不会重启。当前 22 项中的 unit 检查会**逐条**读取两条 ExecStartPre 的实际成功结果（整段子串匹配会让一条绿盖住另一条红），并要求 MCP 主进程不早于已部署 unit、包内 Python 文件和 profile；只 reload 未 restart 会判 fail。此补强（gcode 自检部分）已随 `25ff33d` 部署，2026-08-08 生产 `pass=21 fail=0 expected=21` 时 ExecStartPre `status=0`、MCP 主进程 20:54:41 启动（晚于全部落盘文件）；**bitmap 自检部分未部署**。
 
 ### nginx 站点收敛（2026-07-31 14:51–14:53，已执行）
 
@@ -244,7 +244,7 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 1. `systemctl stop hutuji-cloud-bridge hutuji-mcp`  
 2. 检出上一发布 commit / 恢复上一 venv  
 3. 恢复对应 EnvironmentFile 与 nginx conf；若回滚会改回 `limit_req` 的键或 zone 名，必须 `systemctl restart nginx`，`reload` 会被静默丢弃
-4. 再 `start`；跑 `preflight.sh`（须 `pass=21 fail=0 expected=21`）+ 一次 `hutuji_status`
+4. 再 `start`；跑 `preflight.sh`（须 `pass=22 fail=0 expected=22`）+ 一次 `hutuji_status`
 5. 在 `docs/templates/release-manifest.md` 记回滚原因与时间  
 
 详细命令见 `../deploy/README.md`。运维日常见 `operations.md`。

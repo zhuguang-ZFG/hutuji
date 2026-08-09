@@ -37,16 +37,16 @@
 
 本门禁跑在**开发机的仓库树**上；`preflight.sh` 跑在**生产主机的已部署树**上。两者证明的东西不重叠，任一为绿都不能替另一放行：
 
-| | 本门禁（`hub`/`full`） | `preflight.sh`（生产，21 项） |
+| | 本门禁（`hub`/`full`） | `preflight.sh`（生产，22 项） |
 |---|---|---|
 | 对象 | 仓库工作树 | `/opt/hutuji` 已部署文件 + 在跑的服务/nginx |
-| 生成链 | `e2e_local.py` 真跑一次（`hub` 起含） | `check_generate_chain` 用生产 venv 真跑 `svg_to_gcode()` |
+| 生成链 | `e2e_local.py` 真跑一次（`hub` 起含） | `check_generate_chain` 用生产 venv 真跑 `svg_to_gcode()`；`check_bitmap_chain` 用生产 venv 真跑 `bitmap_svg --self-test`（与 unit 第二条 ExecStartPre 同入口） |
 | 公网边界 | 只做静态配置断言 | 活动 curl 探针（含非 loopback） |
-| 配置/unit 是否真生效 | 只断言仓内模板文本 | nginx conf 与两个 unit 各比 md5；unit 查 `NeedDaemonReload`/`FragmentPath`/无 drop-in，MCP 另查 ExecStartPre 成功与主进程新鲜度；nginx 另查**在跑的进程是否真受理了这份配置**（带标记探针须进专用日志 + worker 不早于配置 mtime + 启动后无 `[emerg]`）——`md5` 相同只证明文件对，`reload` 被 `[emerg]` 拒绝时文件仍然是新的而服务跑的是旧配置 |
+| 配置/unit 是否真生效 | 只断言仓内模板文本 | nginx conf 与两个 unit 各比 md5；unit 查 `NeedDaemonReload`/`FragmentPath`/无 drop-in，MCP 另查两条 ExecStartPre（生成链 + 位图描摹链）各自成功与主进程新鲜度；nginx 另查**在跑的进程是否真受理了这份配置**（带标记探针须进专用日志 + worker 不早于配置 mtime + 启动后无 `[emerg]`）——`md5` 相同只证明文件对，`reload` 被 `[emerg]` 拒绝时文件仍然是新的而服务跑的是旧配置 |
 
 **「生成链」项（`check_generate_chain`）为什么必须存在**：在它之前，15 项里没有一条执行过部署的 `hutuji_mcp` 代码——下载探针用人工拼的三行 G-code 冒充产物，而 `validate_gcode` 本身就不接受那份内容。已实测复现：移走 `hutuji_mcp/hutuji_gwrite.toml` 后 `import hutuji_mcp.server` 仍成功、服务保持 active、`/mcp` 与 `/files` 照常响应，真实 `svg_to_gcode()` 却报 `vpype 转换失败（exit 2）`，于是 `pass=15 fail=0` 与「一画就整单失败」可以同时成立。根因是 `_PROFILE_PATH` 只被请求期的 `_vpype_command()` 使用、`vpype` 又是 subprocess 从不 import，两者都逃过 `import` 与 `systemctl active`。**推论**：本门禁的 pytest 全绿也证明不了生产能出图——生产的 profile、venv 依赖与代码是另一套文件，只有生产侧 `check_generate_chain` 与生产 e2e 能证明。
 
-同类盲区还有两处，一并记住形状：**`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit**（加固项可全部缺失而照样 active；`daemon-reload` 只换 unit 快照、不重启旧进程；drop-in 更能静默覆盖 ExecStart），已由 `check_units_match_templates` 的模板/加载态判据、MCP `ExecStartPre` 成功结果和“主进程不早于已部署 unit/代码/profile”共同覆盖；以及**「大小/长度」一律按设备看到的字节计**，`read_text()` 会把 CRLF 塌成 LF、每行少算 1 字节，实测让超 512KiB 的产物被放行。共同的教训是：判据必须量在**设备/运行时真正消费的那个对象**上，量仓内文本或量塌陷后的字符都会假绿。
+同类盲区还有三处，一并记住形状：**`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit**（加固项可全部缺失而照样 active；`daemon-reload` 只换 unit 快照、不重启旧进程；drop-in 更能静默覆盖 ExecStart），已由 `check_units_match_templates` 的模板/加载态判据、MCP 两条 `ExecStartPre` 成功结果和“主进程不早于已部署 unit/代码/profile”共同覆盖；**延迟 import 的重依赖缺失对 import、active 与生成链自检全隐形**（2026-08-09 本机实测：拦掉 imageio 后 server 可 import、`gcode_gen --self-test` 退 0、21/21 全绿，只有真实描摹抛 `BitmapError`），已由 unit 第二条 `ExecStartPre`（`bitmap_svg --self-test`，沙箱内 fail-closed）与 preflight `check_bitmap_chain`（真跑当前落盘代码）共同覆盖；以及**「大小/长度」一律按设备看到的字节计**，`read_text()` 会把 CRLF 塌成 LF、每行少算 1 字节，实测让超 512KiB 的产物被放行。共同的教训是：判据必须量在**设备/运行时真正消费的那个对象**上，量仓内文本或量塌陷后的字符都会假绿。
 
 `doc_line_refs` 层（三个 profile 都跑）扫 `*.md` / `docs/**/*.md` / `*/README.md` 里的
 `file.ext:12` 与 `file.ext:12-34` 引用，校验目标文件行数覆盖该行号（区间取较大端）：
