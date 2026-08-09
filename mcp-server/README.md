@@ -20,7 +20,7 @@ LLM 生成单线笔画 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验�
                       │            └─ hutuji_preview_svg(description) 只出 SVG（调试）
                       └─ /files/{name}.gcode   G-code 静态文件源（S3 板下载入口）
 
-LLM（OpenAI 兼容）→ SVG ──vpype(read→linesort→gwrite --profile hutuji)──► G-code
+LLM（OpenAI 兼容）→ SVG ──vpype(read→layout 归一化→linemerge→linesort→linesimplify→gwrite --profile hutuji)──► G-code
                                                                     └─ validate_gcode() §5 逐行断言
 
 无硬件闭环：scripts/e2e_local.py = grbl_sim(假 Grbl:2323) ← pipe_sim(模拟 S3 转发) ← 测试 SVG

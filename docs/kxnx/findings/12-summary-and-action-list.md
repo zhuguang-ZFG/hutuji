@@ -4,7 +4,7 @@
 > 并标出每条的证据强度、风险、优先级。这是 `alignment/plan.md` 的依据层。
 
 > **hutuji 状态勘误（2026-07-28）**：本文保留当时的逆向收口；当前 `linesimplify`
-> 已按实测拐点降为 0.1mm，**又于窗口化落地后回降到 0.05mm（现行锁定值，`gcode_gen.py:38` + `test_contract.py` 钉死；本行 0.1mm 为 2026-07-28 中间态，已 supersede）**。非换纸 abort 也已从固定 `! → 8s → 0x18` 改为
+> 已按实测拐点降为 0.1mm，**又于窗口化落地后回降到 0.05mm（现行锁定值，`gcode_gen.py` + `test_contract.py` 钉死；本行 0.1mm 为 2026-07-28 中间态，已 supersede）**。非换纸 abort 也已从固定 `! → 8s → 0x18` 改为
 > `!` 后轮询 `Hold/Idle`、受限 reset、reset 后显式 Z=0 并等待 fresh `Idle`。
 > 不得再依据本文旧对照实现 reset 前抬笔或固定等待。
 

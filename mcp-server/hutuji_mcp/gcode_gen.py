@@ -1,6 +1,6 @@
 """SVG → G-code 转换（vpype + vpype-gcode）与 §5 合同校验。
 
-vpype 管线：read → linemerge → linesort → linesimplify → gwrite --profile hutuji
+vpype 管线：read → layout（归一化） → linemerge → linesort → linesimplify → gwrite --profile hutuji
 （hutuji profile 见 hutuji_gwrite.toml，格式参考 vpype-gcode README）
 转换产物必须再过 validate_gcode() 逐行断言 §5 禁令才允许下发。
 """
@@ -23,6 +23,12 @@ _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 # 坐标限幅：A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
 MAX_X_MM = 190.0
 MAX_Y_MM = 277.0
+# 布局归一化边距：LLM 无视 prompt 的「居中留边」（2026-08-09 画质探针实测六组
+# 题材 bbox 占画布 1.8%~85.5% 乱飞，star 缩到角落、house 顶到硬边零边距），
+# 构图必须由确定性几何兜底：vpype layout 把内容等比缩放并居中到
+# (MAX_X-2m)×(MAX_Y-2m) 区域。归一化排在 linemerge/linesimplify 之前，
+# 两个容差才是最终毫米几何上的绝对值（排在其后会随放大倍数失真）。
+LAYOUT_MARGIN_MM = 10.0
 # 仅用于派生几何：圆弧三角函数浮点误差，以及 G0 近原点的保守换纸保护。
 # 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤190、Y≤277、Z∈{0,5} 是硬边界。
 _GEOMETRY_EPS_MM = 0.01
@@ -204,6 +210,9 @@ def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
     return _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
+        # layout：等比缩放 + 居中到边距内，兜住 LLM 构图散布（见 LAYOUT_MARGIN_MM）。
+        "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
+        f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
         "linemerge", "--tolerance", f"{LINEMERGE_TOLERANCE_MM}mm",
         "linesort",

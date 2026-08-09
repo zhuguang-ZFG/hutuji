@@ -1,5 +1,5 @@
 {
-  "git_head": "356ae3ec6c525cb21ee4180d9ada9662362a8d40",
+  "git_head": "3213bf2df1963c260e5fb2e8292c638b068f34ac",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -105,10 +105,6 @@
       "sha8": "1bdf9e2e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> gcode_gen.py:38": {
-      "sha8": "1e426302",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
     "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1319-1320": {
       "sha8": "86e6c076",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -132,10 +128,6 @@
     "docs/design/p2-windowed-flow-control.md -> inkscape-clean/tools/paixi_runtime/serial_runtime.py:130-203": {
       "sha8": "98554f91",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/tools/paixi_runtime/serial_runtime.py"
-    },
-    "docs/design/p2-windowed-flow-control.md -> mcp-server/hutuji_mcp/gcode_gen.py:38": {
-      "sha8": "1e426302",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
     },
     "docs/design/p2-windowed-flow-control.md -> simple_stream.py:5-12": {
       "sha8": "3b9d69be",
@@ -180,22 +172,6 @@
     "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:118-123": {
       "sha8": "89a03f79",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
-    },
-    "docs/kxnx/findings/12-summary-and-action-list.md -> gcode_gen.py:38": {
-      "sha8": "1e426302",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
-    "docs/kxnx/findings/13-path-params-and-quality.md -> gcode_gen.py:38": {
-      "sha8": "1e426302",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
-    "docs/kxnx/findings/13-path-params-and-quality.md -> gcode_gen.py:41": {
-      "sha8": "a23cdd7f",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
-    "docs/kxnx/findings/13-path-params-and-quality.md -> gcode_gen.py:56": {
-      "sha8": "c3b14141",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
     },
     "docs/kxnx/findings/13-path-params-and-quality.md -> test_contract.py:1174": {
       "sha8": "41c11ee2",
@@ -329,14 +305,6 @@
       "sha8": "6d782791",
       "target": "docs/kxnx/alignment/plan.md"
     },
-    "docs/kxnx/findings/22-installed-config-vs-machine.md -> gcode_gen.py:46": {
-      "sha8": "eccd22ca",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
-    "docs/kxnx/findings/22-installed-config-vs-machine.md -> gcode_gen.py:56": {
-      "sha8": "c3b14141",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> hutuji_gwrite.toml:22-25": {
       "sha8": "f6d27ec9",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
@@ -460,10 +428,6 @@
     "docs/protocol.md -> WebUI/TelnetServer.cpp:92": {
       "sha8": "25ad2ee5",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
-    },
-    "docs/protocol.md -> gcode_gen.py:239-243": {
-      "sha8": "7b8de503",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
     },
     "docs/protocol.md -> hutuji_job.cc:346-464": {
       "sha8": "089c00bf",
@@ -653,10 +617,6 @@
       "sha8": "1f337af2",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/troubleshooting.md -> mcp-server/hutuji_mcp/gcode_gen.py:174": {
-      "sha8": "b7a3f449",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
     "docs/troubleshooting.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:850-872": {
       "sha8": "c05a74c2",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
@@ -709,18 +669,6 @@
       "sha8": "5c943ad0",
       "target": "docs/troubleshooting.md"
     },
-    "docs/worktree-inventory.md -> gcode_gen.py:239-243": {
-      "sha8": "7b8de503",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
-    "docs/worktree-inventory.md -> gcode_gen.py:38": {
-      "sha8": "1e426302",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
-    "docs/worktree-inventory.md -> gcode_gen.py:46": {
-      "sha8": "eccd22ca",
-      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
-    },
     "docs/worktree-inventory.md -> hutuji_job.cc:1319": {
       "sha8": "e3b0c442",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -750,6 +698,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-09T09:12:58Z",
+  "updated": "2026-08-09T10:00:47Z",
   "version": 1
 }

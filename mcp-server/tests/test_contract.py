@@ -1366,6 +1366,115 @@ def test_tolerances_are_pinned_to_verified_values() -> None:
     assert gcode_gen.LINEMERGE_TOLERANCE_MM == 0.3
 
 
+
+def _gcode_xy_bbox(gcode_path: Path) -> tuple[float, float, float, float]:
+    """产物 G-code 里全部 X/Y 坐标的包围盒（G0 空走端点即笔画端点，同 extent）。"""
+    from hutuji_mcp import gcode_gen
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for line in gcode_path.read_text(encoding="ascii").splitlines():
+        for letter, value in gcode_gen._WORD_RE.findall(line):
+            if letter == "X":
+                xs.append(float(value))
+            elif letter == "Y":
+                ys.append(float(value))
+    assert xs and ys, "产物里一个坐标都没有"
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def test_vpype_pipeline_normalizes_layout(tmp_path: Path, monkeypatch) -> None:
+    """管线必须在 read 之后、容差步骤之前做 layout 归一化（居中 + 等比缩放到边距内）。
+
+    2026-08-09 画质探针实测：LLM 无视 prompt 的「居中留约 10 边距」，
+    六组题材 bbox 占画布 1.8%~85.5% 乱飞，还有顶到 X=190/Y=277 硬边的。
+    归一化放在 linemerge/linesimplify 之前，0.3/0.05mm 容差才是最终毫米
+    几何上的绝对值；放在其后会把容差随缩放倍数放大。
+    """
+    import subprocess as _sp
+
+    from hutuji_mcp import gcode_gen
+
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        captured["cmd"] = cmd
+        Path(cmd[-1]).write_text(_minimal_gcode(), encoding="utf-8")
+        return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
+    svg = tmp_path / "in.svg"
+    svg.write_text("<svg/>", encoding="utf-8")
+    gcode_gen.svg_to_gcode(svg, tmp_path / "out.gcode")
+
+    cmd = captured["cmd"]
+    assert "layout" in cmd, f"vpype 管线缺少 layout 归一化：{cmd}"
+    assert cmd.index("read") < cmd.index("layout") < cmd.index("linemerge"), cmd
+    assert cmd[cmd.index("layout") + 1] == "--fit-to-margins"
+    # 边距与画布必须钉死：只断言「有 layout」的话，改成 0 边距照样全绿
+    assert cmd[cmd.index("layout") + 2] == f"{gcode_gen.LAYOUT_MARGIN_MM:.0f}mm"
+    assert cmd[cmd.index("layout") + 3] == (
+        f"{gcode_gen.MAX_X_MM:.0f}x{gcode_gen.MAX_Y_MM:.0f}mm"
+    )
+
+
+def test_svg_to_gcode_upscales_and_centers_tiny_drawing(tmp_path: Path) -> None:
+    """角落小图必须被等比放大并居中：10mm 方块 → 宽 170mm、X 边距 10/180、垂直居中。"""
+    from hutuji_mcp import gcode_gen
+
+    svg = tmp_path / "tiny.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 277">'
+        '<path d="M5 5 L15 5 L15 15 L5 15 Z" fill="none" stroke="black"/></svg>',
+        encoding="utf-8",
+    )
+    gcode = tmp_path / "tiny.gcode"
+    gcode_gen.svg_to_gcode(svg, gcode)
+
+    min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
+    assert min_x == pytest.approx(gcode_gen.LAYOUT_MARGIN_MM, abs=0.5)
+    assert max_x == pytest.approx(gcode_gen.MAX_X_MM - gcode_gen.LAYOUT_MARGIN_MM, abs=0.5)
+    assert max_x - min_x == pytest.approx(170.0, abs=1.0), "小图必须被放大"
+    assert (min_y + max_y) / 2 == pytest.approx(gcode_gen.MAX_Y_MM / 2, abs=1.0)
+
+
+def test_svg_to_gcode_downscales_oversized_drawing(tmp_path: Path) -> None:
+    """超出边距的大图必须被等比缩小：200×270 矩形 → 收进 10mm 边距。"""
+    from hutuji_mcp import gcode_gen
+
+    svg = tmp_path / "big.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 270">'
+        '<path d="M0 0 L200 0 L200 270 L0 270 Z" fill="none" stroke="black"/></svg>',
+        encoding="utf-8",
+    )
+    gcode = tmp_path / "big.gcode"
+    gcode_gen.svg_to_gcode(svg, gcode)
+
+    min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
+    assert max_x <= gcode_gen.MAX_X_MM - gcode_gen.LAYOUT_MARGIN_MM + 0.5
+    assert max_y <= gcode_gen.MAX_Y_MM - gcode_gen.LAYOUT_MARGIN_MM + 0.5
+    assert min_x >= gcode_gen.LAYOUT_MARGIN_MM - 0.5
+    assert min_y >= gcode_gen.LAYOUT_MARGIN_MM - 0.5
+
+
+def test_svg_to_gcode_layout_handles_degenerate_line(tmp_path: Path) -> None:
+    """零高度图形（一条横线）不得让归一化除零崩溃，且垂直居中。"""
+    from hutuji_mcp import gcode_gen
+
+    svg = tmp_path / "hline.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 277">'
+        '<line x1="10" y1="100" x2="180" y2="100" stroke="black"/></svg>',
+        encoding="utf-8",
+    )
+    gcode = tmp_path / "hline.gcode"
+    gcode_gen.svg_to_gcode(svg, gcode)
+
+    min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
+    assert (min_y + max_y) / 2 == pytest.approx(gcode_gen.MAX_Y_MM / 2, abs=1.0)
+
+
 def test_gwrite_profile_matches_production_shape() -> None:
     """生产 profile 形状锁定（docs/protocol.md §5，逐字对齐奎享唯一产物）。
 

@@ -147,7 +147,7 @@ findings/13 §2 明说：`linesimplify`/`linemerge` 是服务端逻辑，客户�
 即高抬笔数来自「89 个各有 3–17 段的正常笔画」，**不是**碎笔病态。
 
 含义：抬笔次数的绝对值无法区分「复杂手写」与「碎笔病态」，段/笔画均值可以
-（病态趋近 1.0，本产物 7.56）。**本文不改该阈值**——`gcode_gen.py:46` 记明硬阈值须待机头实测
+（病态趋近 1.0，本产物 7.56）。**本文不改该阈值**——`gcode_gen.py` 记明硬阈值须待机头实测
 （README 组 1.3），且仅一个真实产物不足以标定新阈值或新指标。此处只留下标定用的实测基线。
 
 ## 8 `JSSParams.json` 佐证 DTR/RTS 复位坑
@@ -198,7 +198,7 @@ kdraw 整个任务期间**不关串口**，因此从不触发关闭时的跳变�
 
 | 位置 | 原文 | 实际 |
 |---|---|---|
-| `findings/13` §1 表 | 我方 `linesimplify` = 0.1mm | **0.05**（`gcode_gen.py:56`，`test_contract.py:1174` 钉死） |
+| `findings/13` §1 表 | 我方 `linesimplify` = 0.1mm | **0.05**（`gcode_gen.py`，`test_contract.py:1174` 钉死） |
 | `findings/13` §1 表 | 我方 `linemerge` = 0.05mm | **0.3**（§3 早已 supersede，但表格行未跟改） |
 | `findings/13` §6 表 | 「已做：`linesimplify` 0.2 → 0.1」 | 现值 **0.05** |
 | `findings/04` §对照表 | `feed_rate 1500` → toml `F1500`；`jog_speed 2500` → `F2500` | toml 画线/空走均 **F8000** |
