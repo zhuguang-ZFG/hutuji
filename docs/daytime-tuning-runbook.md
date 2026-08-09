@@ -8,10 +8,14 @@
 > 铁律（与 `agent-anti-drift.md` 同）：每步不过就停，**不得假装过**；证据缺一项就写「未验证」；
 > 取证镜像用完**必须回刷**默认镜像；凭据（token / MCP_ENDPOINT）只进当前终端环境变量，不入库。
 >
-> 适用基线（2026-07-31）：本仓 HEAD 含审查修复批（§9-C′ 治理、暂停 soft reset 治理、语音容错文稿、
-> review P1 脱敏修复）；**nginx `:80 /files` 反代早于本批次即在线，站点收敛已于 07-31 14:51 执行完（第 3 步已完成，可跳）**；
-> Grbl 待烧 `12f26ac`；S3 待烧 `255f133`（默认镜像）+
-> `f1cf066`（仅 8.5 取证用，用完回刷）。**烧录前板上基线见 `release-readiness.md`，以当时自证为准。**
+> 适用基线（**2026-08-09 复核；原 2026-07-31 基线已过期**）：本仓 HEAD `94004b9`，三仓工作树干净且已推送；
+> **nginx `:80 /files` 反代早于 07-31 即在线，站点收敛已于 07-31 14:51 执行完（第 3 步已完成，可跳）**；
+> **板上实跑固件 = Grbl `f5c8985` + S3 `16f2f83`**（`release-readiness.md` 第 49 / 11、68、97 条串口自证）。
+> ⚠️ 原文「Grbl 待烧 `12f26ac`；S3 待烧 `255f133`（默认镜像）+ `f1cf066`（8.5 取证用）」——
+> 经 `git merge-base --is-ancestor` 实测，**三者全是板上基线的祖先**（`12f26ac`→`f5c8985`，
+> `255f133`→`f1cf066`→`55574cb`→`16f2f83`），照原文烧即**固件回退**：Grbl 会丢 §9-A2 Telnet 序列化
+> （`fdf2ad8`）、非阻塞 write（`1b56393`）、§9-C′ 收窄（`4ddc945`/`1a4fea1`）；S3 会丢 11 个 pipe 契约加固提交。
+> 已在第 4/5/9 步就地纠正。**每次烧录前的板上基线仍以 `release-readiness.md` + 当次串口自证为准，不凭本行。**
 
 ---
 
@@ -24,9 +28,12 @@
 git -C D:\Users\hutuji        status --short      # 期望空
 git -C D:\Users\Grbl_Esp32    status --short      # 期望空
 git -C D:\Users\xiaozhi-esp32 status --short      # 期望仅 4 个 build-* 未跟踪目录（用户资产，不删）
-git -C D:\Users\hutuji        log --oneline -8    # 应见 f02f12a/8e4923f/a5d0d77/814b1c9/0cfa35d/d599b3b
-git -C D:\Users\Grbl_Esp32    log --oneline -1    # 应见 12f26ac
-git -C D:\Users\xiaozhi-esp32 log --oneline -2    # 应见 255f133 与 f1cf066
+git -C D:\Users\hutuji        log --oneline -1    # 记下 SHA，与 release-readiness.md 最新回填条目对齐
+git -C D:\Users\Grbl_Esp32    status -sb          # 期望首行 ...origin/<branch> 且无 ahead/behind
+git -C D:\Users\xiaozhi-esp32 status -sb          # 期望首行 ...origin/<branch> 且无 ahead/behind
+
+# COM 号每次上电都会变（板载 CH340K 也枚举为 CH340），先认口再烧，别照抄步骤里的口号
+[System.IO.Ports.SerialPort]::GetPortNames()
 
 # 本仓门禁
 cd D:\Users\hutuji
@@ -125,33 +132,42 @@ curl -s -o /dev/null -w "%{http_code} %{size_download}\n" https://hutuji.donglic
 
 ---
 
-## 4. 烧录 Grbl `12f26ac`（COM3，10 分钟）
+## 4. 烧录 Grbl ✅ 板上已是 `f5c8985`，正常联调日跳过
 
-目的：落地 §9-C′（underflow 恢复置 `State::Cycle`，避免恢复期误报 Idle 致 S3 提前 M30）。
+> **本步无需执行**（2026-08-09 复核）。目的（落地 §9-C′：underflow 恢复置 `State::Cycle`，避免恢复期
+> 误报 Idle 致 S3 提前 M30）**已在板上生效**：板上跑 `f5c8985`，而 `12f26ac` 是它的祖先。
+> 源码 HEAD `966723b` 相对 `f5c8985` 只差 `src/Protocol.cpp` 一处**注释**（`git diff --stat` = 1 file，
+> 2 insert / 1 delete，无非注释行变更）→ **重烧不会改变任何行为**。
+> **不要按原文烧 `12f26ac`**，那是回退（见文首基线块）。
+
+**换板 / 需要回退基线时才照此做**：
 
 ```powershell
 cd D:\Users\Grbl_Esp32
-# PlatformIO release 构建（按该仓既有流程；构建完烧录）
-# 烧录后串口核验（COM3，115200）：发 $$ 与 ?
+# PlatformIO release 构建（按该仓既有流程；构建完烧录）；COM 号先按第 0 步认口
+# 烧录后串口核验（115200）：发 $$ 与 ?
 ```
 
 **判据**（串口自证，不凭记忆）：esptool 各分区 `Hash of data verified`；`?` 回 `<Idle|...>`；
-`[ESP901]` 回 `Paper=... Changing=Off`；`$130=210`、`$131=297`；授权保留。
+`[ESP901]` 回 `Paper=... Changing=Off`；`$130=210`、`$131=297`；授权保留（`[License] Authorized`）。
 **失败回退**：烧录失败 → 看 esptool 报错（COM 口被占？换口/关占用进程）；启动 panic → 回退上一已验基线，**不带着 panic 进第 6 步**。
-**取证**：构建/烧录日志 + 串口核验截图记入 `device-test-record.md` 的 Grbl 行。
+**取证**：构建/烧录日志 + 串口核验记入 `device-test-record.md` 的 Grbl 行。
 
 ---
 
-## 5. 烧录 S3 默认镜像 `255f133`（COM6，15 分钟）
+## 5. 烧录 S3 默认镜像 ✅ 板上已是 `16f2f83`，正常联调日跳过
 
-> **2026-07-31 执行结果**：已完成，但烧的是 **HEAD `06b962c` + 第二轮审查修复未提交文件**（含 `255f133`）的默认构建，镜像 `0x2cec90`；判据里 `Hash of data verified`、七工具注册、持续 fresh `Idle`（8.5 分钟）已取，**ready/authorized 字段未查**。证据 `results/device-test-record-s3-lc-01-20260731.md`。第 4 步（烧 Grbl）因 COM3 error 31 未完成，故本步先于第 4 步落地。
+> **本步无需执行**（2026-08-09 复核）。目的（落地暂停超时 soft reset 冲 planner，避免 Grbl 锁 Hold）
+> **已在板上生效**：板上跑 `16f2f83`（2026-08-08 以 ESP-IDF v6.0.1 release 构建 app-flash COM12，
+> 板上 ELF SHA 与发布构建一致，七工具/WiFi/Telnet/授权探针均自证——`release-readiness.md` 第 11、68、97 条），
+> 而 `255f133` 是它的祖先。**不要按原文烧 `255f133`**，那会丢 11 个 pipe 契约加固提交（见文首基线块）。
 
-目的：落地暂停超时 soft reset 冲 planner（避免 Grbl 锁 Hold）。**这一步烧的是默认镜像，不含 8.5 脚手架。**
+**换板 / 需要回退基线时才照此做**（烧的是默认镜像，**不含 8.5 脚手架**）：
 
 ```powershell
 cd D:\Users\xiaozhi-esp32
-# IDF v6.0.1 构建 lichuang-dev 默认配置 → app-flash COM6
-# 烧录后看 COM9（CH340K 日志口）启动日志
+# IDF v6.0.1 构建 lichuang-dev 默认配置 → app-flash（烧录口与 CH340K 日志口都按第 0 步认口，别照抄口号）
+python3 scripts\release.py lichuang-dev
 ```
 
 **判据**：esptool `Hash of data verified`；启动日志见七工具注册、Telnet ready/authorized、持续 fresh `Idle`，
@@ -254,7 +270,7 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 
 ## 8. 暂停超时验（关联 §9-C′ + 暂停 soft reset，10 分钟 + 等待）
 
-目的：验暂停 >10 分钟后 Grbl 不锁 Hold、后续能开新画（本轮 S3 `255f133` 的修复点）。
+目的：验暂停 >10 分钟后 Grbl 不锁 Hold、后续能开新画（修复点在 `255f133`，**已含于板上 `16f2f83`**）。
 
 1. 语音/工具起一幅画，进入 streaming 后说「暂停」。
 2. 等 >10 分钟（或临时把 `kMaxPauseMs` 调小重烧以加速——**调小重烧只用于本验，验完回默认**）。
@@ -267,36 +283,52 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 
 ---
 
-## 9. 换纸中 abort（bringup §阶段 8.5，20 分钟，含回刷）
+## 9. 换纸中 abort ✅ 已于 2026-07-31 取证，正常联调日跳过
 
-目的：验换纸态里 abort 不发 reset/M30、不续跑。**需先烧取证镜像 `f1cf066`。**
+> **本步已完成，不作为默认待办重做**（AGENTS.md「默认下一刀」明令禁止）。
+> 证据：`release-readiness.md` 第 8a 条 + `agent-handoff.md` §6 第 1 项——2026-07-31 21:49–21:50，
+> 带宏镜像 `build-hutuji-8_5-abort/xiaozhi.bin`（`0x2cfc40`）app-flash 后，AutoTest 五角星画完
+> `state=paper_change` → 脚手架命中窗口调 `RequestAbort()` → 回「换纸中无法即停，完成后即停」→
+> 页尾 `M30` → `[PaperStatus] 0` → `state=aborted` 不续跑，**bringup §8.5 四判据全过**。
+>
+> ⚠️ **原文机制写错，已纠正**：原文让「先烧取证镜像 `f1cf066`」——但 `f1cf066` 是板上 `16f2f83` 的
+> **祖先**（烧它 = 回退），且取证脚手架在当前 HEAD 是**构建期开关**
+> （`main/CMakeLists.txt`：`option(HUTUJI_AUTO_TEST_ABORT_ON_PAPER ... OFF)`），不是那个 commit 的固有行为。
+> **要复测就从当前 HEAD 带开关构建**，不要 checkout 旧 commit。
 
-⚠️ 顺序铁律：**先备份第 5 步的默认镜像 `xiaozhi.bin`** → 烧 `f1cf066` → 取证 → **回刷默认镜像**。
+**需要复测时照此做**（顺序铁律：**先备份默认镜像** → 烧带宏镜像 → 取证 → **回刷默认镜像**）：
 
-1. 备份当前默认 `xiaozhi.bin`。
-2. 构建/烧 `f1cf066`（含 `HUTUJI_AUTO_TEST_ABORT_ON_PAPER`，默认关闭宏在本构建打开）。
+1. 备份当前默认 `xiaozhi.bin`（板上 `16f2f83` 的默认构建）。
+2. 从**当前 HEAD** 带开关构建：`idf.py -DHUTUJI_AUTO_TEST_ABORT_ON_PAPER=ON build` → app-flash（COM 号按第 0 步认口）。
 3. 装纸，PC 起本机静态服务托**小**测试件（件越小越快到页尾换纸窗，§8.5 用过 658B / CRC32 `2290095f`）。
 4. 复位 S3 触发出图 → 脚手架在换纸窗一开即本地调 `RequestAbort()` → 看 abort 前后 `status` 打印。
 5. **判据**（bringup §8.5 四条）：`Changing=On` 被识别；abort 不叠加 reset/M30；换纸结束后任务不续跑；诚实回报「换纸中无法即停」。
-6. **回刷第 5 步备份的默认镜像**，串口确认脚手架字符串已不在、行为回默认。
+6. **回刷第 1 步备份的默认镜像**，串口确认脚手架字符串已不在、行为回默认。
 
 **失败回退**：取证中发了 reset/M30 → 记 bug；**回刷不能忘**，否则板上留着取证宏污染后续。
 **取证**：abort 前后 status 日志 + 回刷后串口自证，记入 `device-test-record.md`。
 
 ---
 
-## 10. P2 S4 有纸出图（bringup §阶段 7.0，10 分钟）
+## 10. P2 S4 有纸出图 ✅ 链路已于 2026-08-03 取证，**只剩画质人工目视**
 
-目的：0.05mm 真实图样出图，关闭 S4 证据缺口。可与第 7/9 共用同一次装纸。
+> **出图链路本身已通过，不重做**：2026-08-03 同一 551 行 / 13,804 B / CRC32 `ae1b25b2` 玫瑰件实测——
+> 全量下发无丢行（G1 547 / G0 1 / 旁路 `G92 Z0` 与页尾 `M30` 各 1 / `ok` 559）、进度 `124→475→547/551`、
+> 页尾 `M30` 触发自动换纸八步全绿（`Paper found at step 7764`、`[PaperStatus] 0`）→ `state=done replayable=1`、
+> `pbuf_free`/`Guru Meditation`/`assert failed` 两侧 0 命中（`agent-handoff.md` §6 第 3 项、§0 2026-08-03 条）。
+>
+> **本步唯一未验证项 = 纸面实物画质人工目视**（`linesimplify 0.05mm` 在该图是否够、曲线有无棱角/停顿），
+> 这也是 AGENTS.md「默认下一刀」的第 ① 项。**目视需人在机前，无法由代理代劳。**
 
-1. 用真管线产物覆盖被服务文件（**不改文件名**，URL 是常量）：
-   `test_rose_s4.svg` → `linesimplify 0.05mm` → 551 行 / 13,804 B / CRC32 `ae1b25b2`（已过 `validate_gcode`，>512B 压满窗口）。
-2. 起静态服务（只暴露该文件，`/mcp` 404），复位 S3 触发 autodraw。
-3. 出图结束**立刻停 8300**（防空载复位压笔）。
+目视做法：可与第 6/7 步共用同一次装纸；若只为看画质，用真管线产物覆盖被服务文件（**不改文件名**，URL 是常量）：
+`test_rose_s4.svg` → `linesimplify 0.05mm` → 551 行 / 13,804 B / CRC32 `ae1b25b2`（已过 `validate_gcode`），
+起静态服务（只暴露该文件，`/mcp` 404），复位 S3 触发 autodraw；出图结束**立刻停 8300**（防空载复位压笔）。
 
-**判据**（bringup §7.0）：551 行全部出墨且曲线连续无停顿；页尾 M30 后 `[PaperStatus] 0` + `state=done`，全程无 `error:90`。
-**失败回退**：曲线有棱角/停顿 → 0.05mm 在该图仍不够或窗口反压未做（`hutuji_job.cc:1319-1320` TODO 自适应 `Bf`），记入 P2 待办，**不宣称 S4 过**。
-**取证**：出图照片 + 行/CRC/状态记入 `device-test-record.md`。
+**判据**（bringup §7.0，画质部分靠肉眼）：551 行全部出墨且**曲线连续无棱角、无停顿**；页尾 M30 后
+`[PaperStatus] 0` + `state=done`，全程无 `error:90`。
+**失败回退**：曲线有棱角/停顿 → 0.05mm 在该图仍不够或窗口反压未做（`hutuji_job.cc` 自适应 `Bf` TODO），
+记入 P2 待办，**不宣称 S4 过**。
+**取证**：出图照片（画质结论必须配照片）+ 行/CRC/状态记入 `device-test-record.md`。
 
 ---
 
@@ -304,7 +336,9 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 
 1. 填 `templates/device-test-record.md`（每台/每轮一行：固件 commit、镜像 SHA256、COM、各项判据勾选、照片/日志路径）。
 2. 填 `templates/release-manifest.md`（本批次结论）。
-3. 按实测结果勾 `release-readiness.md`：第 7 条（断连重发回归）、第 8/8a 条（换纸/换纸中 abort）、第 10 条（语音端到端）、P2 S4 行。**只勾有证据的，没过的留 🟡/。**
+3. 按实测结果勾 `release-readiness.md`。**本轮真正开放的只有**：第 10 条（App 真实语音端到端，卡用户重取 token）
+   与 P2 S4 行的**纸面画质目视**。第 7 条（断连重发）、第 8 条（自动换纸）、第 8a 条（换纸中 abort）、
+   S4 出图链路**均已有历史取证，禁止当待办重做**。**只勾有证据的，没过的留 🟡/🔴。**
 4. 更新 `docs/agent-handoff.md` §0 快照 + §6（哪些已闭、下一刀变什么）。
 5. 更新 `docs/worktree-inventory.md`（若取证产生新未提交资产/回刷记录）。
 6. 跑门禁：本仓 `python scripts\agent_gate.py --profile hub`；**本轮若动了 Grbl 源码**（第 4 步只是烧已提交 commit 则不用）另跑 fz `standard`。

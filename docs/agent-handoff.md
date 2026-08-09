@@ -8,6 +8,8 @@
 
 ## 0. 一句话现状（2026-08-08）
 
+> **2026-08-09 白天联调 runbook 基线纠偏（纯文档，无代码/固件/部署动作）**：`docs/daytime-tuning-runbook.md` 文首基线块与第 0/4/5/8/9 步此前仍钉 2026-07-31 的待烧目标（Grbl `12f26ac`、S3 `255f133` + `f1cf066`）。`git merge-base --is-ancestor` 实测**三者全是板上基线的祖先**（`12f26ac`→`f5c8985`；`255f133`→`f1cf066`→`55574cb`→`16f2f83`），**照原文执行 = 固件回退**：Grbl 会丢 §9-A2 Telnet 序列化（`fdf2ad8`）、非阻塞 write（`1b56393`）、§9-C′ 收窄（`4ddc945`/`1a4fea1`）；S3 会丢 11 个 pipe 契约加固提交。已就地纠正 8 处：文首加 2026-08-09 复核块（本仓 HEAD `94004b9`，板上 = Grbl `f5c8985` + S3 `16f2f83`）；第 0 步钉死 SHA 换成防腐断言（`log --oneline -1` 对齐 readiness、`status -sb` 无 ahead/behind、`GetPortNames()` 每次认口）；第 4/5 步标「板上已是…，正常联调日跳过」并保留换板/回退用法（Grbl 源码 HEAD `966723b` 相对 `f5c8985` 只差 `src/Protocol.cpp` 一处注释，重烧零行为差）；第 8 步注明修复点已含于 `16f2f83`；第 9 步标「已于 2026-07-31 取证」并纠正机制——§8.5 脚手架在当前 HEAD 是 `main/CMakeLists.txt` 的 `option(HUTUJI_AUTO_TEST_ABORT_ON_PAPER … OFF)` **构建期开关**，不是 `f1cf066` 的固有行为，复测须**从当前 HEAD 带 `-D…=ON` 构建**、禁 checkout 旧 commit，且备份→烧→取证→回刷顺序不变；第 10/11 步把「本轮真正开放项」收窄为 **readiness 第 10 条（App 真实语音，卡用户重取 token）+ S4 纸面画质人工目视**，第 7/8/8a 条与 S4 出图链路均已有历史取证、禁止当待办重做。本仓 `hub` `overall=pass exit=0`（pytest **414 passed** + e2e `PASS`）。注意该 runbook **不在** `agent_gate.py` 的 `GOVERNANCE_DOCS`（17 份）内，其状态措辞无机器把关，改它必须人工对账 `release-readiness.md`。当次 `[ESP901]` 回 `Paper=No MotorEn=On PanelHold=Off Changing=Off`，故第 6/7 步（有纸联调）仍卡在用户装纸。
+
 > **2026-08-08 最新 S3/发布包基线（supersede 下方旧烧录状态）**：xiaozhi HEAD `16f2f83` 已推远端、工作树无改动；host 13 tests OK。ESP-IDF v6.0.1 标准 release 已完整重建，app/merged/ZIP SHA256 分别为 `EAE65EB0...70ED8` / `6A5102D4...E3EC4` / `53BB05ED...2FF33`；最终 app 已写入 COM12 并通过 hash verify，板上 ELF SHA `62e1a12e5...` 与发布构建一致。七个 `hutuji.*`、WiFi、MQTT、Grbl Telnet、`M5`、fresh `Idle` 与行首 `G1 G53 X0.000 F1500` 授权探针均通过。当前 HEAD 的错误 CRC 路径也已用构建开关探针实测：48B 完整下载后置 error，零 `G92`/streaming/`M30`/Run，COM13 同期 174 条状态均 Idle/MPos=0；随后已回刷正式 app，板端 ELF 恢复且 `AutoTest` 0 命中。当前仍缺真实 `XIAOZHI_DEVICE_TOKEN`，所以正确 CRC、窗口应答配对、有效文件出图、纸面目视和 App 两步语音尚未复验；启动时写字机连接通知偶发早于 MQTT 的竞态也保留为观察项。详见 `release-readiness.md` 顶部与 `worktree-inventory.md` 最新条。
 
 > **2026-08-06 Grbl GitHub/社区复核结论（只读，无固件改动）**：针对「S3 修复而 Grbl 未改是否有遗漏」复核本 fork、`bdring/Grbl_Esp32` 上游与社区报告。结论是维持 Grbl `966723b`：255 字节 payload 丢行与 CRLF 双 `ok` 均来自上游接收语义，生产链已分别由 MCP 限制 254 字节和 S3 重切行封住；verbose error 与授权探针顺序同属客户端兼容责任。Telnet 社区已知的 `pbuf_free`/长任务停顿风险，本 fork 已有 §9-A/A2 的四参数 keepalive、递归锁和 `MSG_DONTWAIT` + 1s 绝对 deadline。`upstream/main...HEAD` 为 `0/101`，没有漏合并的上游提交；Grbl 与 S3 工作树均为空。重新执行 fz `standard` 得 `overall: pass exit=0`（optional Wokwi 层失败不改变该 profile；host SIL 不替代实机）。因此不扩大 §9 白名单，不改 `LINE_BUFFER_SIZE`、错误格式或 CRLF 接收逻辑。
@@ -150,7 +152,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | MK38 写字机板 | `docs/hardware/mk38-board.md` + `docs/hardware/MK38-总图.pdf` |
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
-| 白天联调 runbook | `docs/daytime-tuning-runbook.md`（单日取证编排：重取 token→sync→nginx 取证→烧录→装纸→语音/暂停/换纸abort/S4，每步带判据/回退/取证落点；判据引用 bringup-sop 不复制） |
+| 白天联调 runbook | `docs/daytime-tuning-runbook.md`（单日取证编排：重取 token→sync→nginx 取证→装纸→语音/暂停/S4，每步带判据/回退/取证落点；判据引用 bringup-sop 不复制）。**基线已按 2026-08-09 复核**：第 4/5 步（烧 Grbl/S3）与第 9 步（换纸中 abort）已标「板上已是 / 已取证，正常联调日跳过」——原文的 `12f26ac`/`255f133`/`f1cf066` 均为板上基线祖先，**照旧文执行会回退固件**；本轮真正开放项只有 readiness 第 10 条与 S4 纸面画质目视 |
 | 京东云模板 | `deploy/`（`69c2198` 已于 2026-08-06 用 scp 全量对齐部署并复验 **17/17**。更新仍须用 scp，装 unit 后**必须 `daemon-reload`**，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后当场重跑全 17 项） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
