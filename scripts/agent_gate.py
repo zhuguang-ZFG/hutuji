@@ -638,6 +638,43 @@ _REF_SKIP_DIRS = {
     "results",
 }
 
+
+def _doc_scan_files() -> list[Path]:
+    """行号三层（越界 / 外仓 / 指纹）共用的扫描源集合，是「谁写的 path:line 会被校验」的唯一真值。
+
+    抽成一处的理由同 required_file_set()：此前三层各自内联同一份 glob，新增一类
+    文档要改三处，漏改一处就是那一层静默失去覆盖。
+    纳入 `.cursor/rules/*.mdc` 与 `firmware/*.md`：两者都在
+    docs/agent-edit-allowlist.json 的 hub_safe_doc_globs 内（agent 可改），`.mdc`
+    更已在 _DOC_REF_RE 的扩展名白名单里（说明本就预期它参与行号引用），却都不在
+    扫描源中——在其中写过期行号，三层一条都查不出来。2026-08-11 实测：
+    GOVERNANCE_DOCS 18 份里 `.cursor/rules/hutuji-agent-rails.mdc` 是唯一漏网者。
+    """
+    candidates = {
+        *ROOT.glob("*.md"),
+        *ROOT.glob("docs/**/*.md"),
+        *ROOT.glob("*/README.md"),
+        *ROOT.glob(".cursor/rules/*.mdc"),
+        *ROOT.glob("firmware/*.md"),
+    }
+    return sorted(
+        path
+        for path in candidates
+        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
+    )
+
+
+def _normalize_doc_ref(raw: str) -> str:
+    """把引用原文规范化成仓相对路径写法。
+
+    必须用 removeprefix 而非 lstrip("./")：lstrip 按字符集剥离，会把
+    `.cursor/rules/x.mdc` 的前导点一起吃掉、变成 `cursor/rules/x.mdc`，于是该引用
+    永远解析不到，被计进 skipped 而不是判红——过期行号照样全绿（2026-08-11 实测）。
+    removeprefix 只剥真正的 "./" 前缀，`./docs/x.md` 的结果与旧行为一致。
+    """
+    return raw.replace("\\", "/").removeprefix("./")
+
+
 # full profile 额外解析的外仓/参考仓。本仓文档里 114 处 `path:line` 引用有 103 处是
 # 裸文件名且指向这三处（`hutuji_pipe.cc` 11 次、`Serial.cpp`/`Protocol.cpp` 各 9 次…），
 # 只在本仓解析等于放着最大的漂移面不管。路径优先取环境变量，缺省用 AGENTS.md 记载的
@@ -679,6 +716,41 @@ def _repo_file_index() -> dict[str, list[Path]]:
     return index
 
 
+def _repo_file(ref: str) -> Path | None:
+    """把引用当仓相对路径落盘，且**必须真的落在本仓内**；否则返回 None。
+
+    Windows 上 `ROOT / ref` 会被绝对路径逃逸：文档里写 `D:/Users/xiaozhi-esp32/…
+    /hutuji_pipe.cc:45`（docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md
+    就有一处），_DOC_REF_RE 的字符集不含 `:`，捕获到的是去掉盘符的
+    `/Users/xiaozhi-esp32/…`，而 pathlib 对「驱动器相对绝对路径」的语义是保留左侧
+    盘符、替换整个路径 —— `Path("D:/Users/hutuji") / "/Users/xiaozhi-esp32/x.cc"`
+    等于 `D:/Users/xiaozhi-esp32/x.cc`，该文件真实存在故 is_file() 为真，
+    _resolve_doc_ref 就把一个仓外路径当成本仓命中返回，随后
+    `target.relative_to(ROOT)` 抛 ValueError 把整个门禁打死（不是判红，是没有结论）。
+    旧代码的 `lstrip("./")` 顺手剥掉了前导 `/` 才一直没暴露——是巧合，不是防线。
+    """
+    candidate = ROOT / ref
+    try:
+        candidate.relative_to(ROOT)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+def _narrow_by_path_suffix(ref: str, cands: list[Path]) -> list[Path]:
+    """带目录的引用要求候选路径以该相对路径结尾，避免同名文件误配。
+
+    `"/" + ref` 会对**根相对**引用拼出双斜杠：文档写 `D:/Users/xiaozhi-esp32/…
+    /hutuji_pipe.cc:45` 时 _DOC_REF_RE 捕获的是去掉盘符的 `/Users/xiaozhi-esp32/…`，
+    拼成 `//Users/…` 后没有任何路径以它结尾，该引用直接失去校验（本仓实测有 2 处
+    这样的引用）。ref 已带前导 `/` 时不再补。
+    """
+    if "/" not in ref:
+        return cands
+    suffix = ref if ref.startswith("/") else "/" + ref
+    return [p for p in cands if p.as_posix().endswith(suffix)]
+
+
 def _resolve_doc_ref(ref: str, index: dict[str, list[Path]]) -> Path | None:
     """把文档里的引用落到本仓文件；无法唯一确定就返回 None（该条跳过）。
 
@@ -686,13 +758,11 @@ def _resolve_doc_ref(ref: str, index: dict[str, list[Path]]) -> Path | None:
     （`Grbl/src/Report.cpp:605`）。前者要求在本仓内唯一命中才校验；后者本仓没有
     对应文件，自然跳过——本层管「引用行号过期」，不管「路径拼错」。
     """
-    direct = ROOT / ref
-    if direct.is_file():
+    direct = _repo_file(ref)
+    if direct is not None:
         return direct
     cands = index.get(ref.rsplit("/", 1)[-1], [])
-    if "/" in ref:
-        suffix = "/" + ref
-        cands = [p for p in cands if p.as_posix().endswith(suffix)]
+    cands = _narrow_by_path_suffix(ref, cands)
     return cands[0] if len(cands) == 1 else None
 
 
@@ -704,12 +774,7 @@ def check_doc_line_refs() -> dict[str, Any]:
     产物（`machine/grbl/*.java`）本仓无对应文件，一律跳过——本层管的是「引用行号
     过期」，不是「路径拼错」。
     """
-    candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
-    md_files = sorted(
-        path
-        for path in candidates
-        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
-    )
+    md_files = _doc_scan_files()
     index = _repo_file_index()
     bad: list[str] = []
     checked = 0
@@ -726,7 +791,7 @@ def check_doc_line_refs() -> dict[str, Any]:
                 f"无法读取治理文档 {rel_md}（{type(exc).__name__}）",
             )
         for m in _DOC_REF_RE.finditer(text):
-            ref = m.group(1).replace("\\", "/").lstrip("./")
+            ref = _normalize_doc_ref(m.group(1))
             target = _resolve_doc_ref(ref, index)
             if target is None:
                 skipped += 1
@@ -819,12 +884,7 @@ def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any
             "pass",
             detail + "；本层无可校验（改 Grbl 前须跑 full）",
         )
-    candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
-    md_files = sorted(
-        path
-        for path in candidates
-        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
-    )
+    md_files = _doc_scan_files()
     bad: list[str] = []
     checked = 0
     skipped = 0
@@ -840,13 +900,14 @@ def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any
                 f"无法读取治理文档 {rel_md}（{type(exc).__name__}）",
             )
         for m in _DOC_REF_RE.finditer(text):
-            ref = m.group(1).replace("\\", "/").lstrip("./")
-            if (ROOT / ref).is_file():
+            ref = _normalize_doc_ref(m.group(1))
+            # 用 _repo_file 而非 `(ROOT / ref).is_file()`：后者会被驱动器相对绝对
+            # 路径逃逸（见 _repo_file 注释），把仓外文件误判成「本仓的，归上一层管」，
+            # 于是两层都不校验它——本该判红的外仓过期行号静默消失。
+            if _repo_file(ref) is not None:
                 continue  # 本仓的归 doc_line_refs 层管
             cands = index.get(ref.rsplit("/", 1)[-1], [])
-            if "/" in ref:
-                suffix = "/" + ref
-                cands = [p for p in cands if p.as_posix().endswith(suffix)]
+            cands = _narrow_by_path_suffix(ref, cands)
             if len(cands) != 1:
                 skipped += 1
                 continue
@@ -907,12 +968,7 @@ def _iter_doc_line_refs() -> tuple[dict[str, dict[str, str]], set[str], str | No
     key = "<doc 相对路径> -> <ref 原文（规范化）>"；同一文档同一引用出现多次
     只算一条——指纹校验的是「这句话指向的内容」，与出现次数无关。
     """
-    candidates = {*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md"), *ROOT.glob("*/README.md")}
-    md_files = sorted(
-        path
-        for path in candidates
-        if not any(part in _REF_SKIP_DIRS for part in path.relative_to(ROOT).parts)
-    )
+    md_files = _doc_scan_files()
     internal_index = _repo_file_index()
     external_index, _present, _absent = _external_index()
     lines_cache: dict[Path, list[str]] = {}
@@ -925,7 +981,7 @@ def _iter_doc_line_refs() -> tuple[dict[str, dict[str, str]], set[str], str | No
         except OSError as exc:
             return {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）"
         for m in _DOC_REF_RE.finditer(text):
-            ref = m.group(1).replace("\\", "/").lstrip("./")
+            ref = _normalize_doc_ref(m.group(1))
             start = int(m.group(2))
             end = int(m.group(3) or m.group(2))
             key = f"{rel_md} -> {ref}:{m.group(2)}{'-' + m.group(3) if m.group(3) else ''}"
@@ -938,9 +994,7 @@ def _iter_doc_line_refs() -> tuple[dict[str, dict[str, str]], set[str], str | No
                 rel_target = target.relative_to(ROOT).as_posix()
             else:
                 cands = external_index.get(ref.rsplit("/", 1)[-1], [])
-                if "/" in ref:
-                    suffix = "/" + ref
-                    cands = [p for p in cands if p.as_posix().endswith(suffix)]
+                cands = _narrow_by_path_suffix(ref, cands)
                 if len(cands) == 1:
                     target = cands[0]
                     rel_target = target.as_posix()

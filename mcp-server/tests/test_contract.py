@@ -3239,6 +3239,110 @@ def test_gate_governance_docs_cover_repo_governance_surface() -> None:
         assert must in gate.GOVERNANCE_DOCS, must
 
 
+def test_gate_doc_scan_surface_covers_every_governance_doc() -> None:
+    """治理文档必须全部落在行号三层的扫描源里，否则在其中写过期行号无人可查。
+
+    2026-08-11 实测：三层各自内联同一份 glob（`*.md` + `docs/**/*.md` +
+    `*/README.md`），GOVERNANCE_DOCS 18 份里 `.cursor/rules/hutuji-agent-rails.mdc`
+    恰好一份都不匹配——它是 Cursor 侧硬轨、且在 hub_safe_doc_globs 内可被 agent
+    改写，却是三层唯一的盲区。用派生断言而非静态清单，管住下一次新增。
+    """
+    gate = _load_agent_gate()
+    root = Path(__file__).resolve().parents[2]
+    scanned = {path.relative_to(root).as_posix() for path in gate._doc_scan_files()}
+    missing = [rel for rel in gate.GOVERNANCE_DOCS if rel not in scanned]
+    assert not missing, f"治理文档不在行号扫描源内: {missing}"
+
+
+def test_gate_doc_ref_normalize_preserves_leading_dot() -> None:
+    """`lstrip("./")` 按字符集剥离，会吃掉 `.cursor/...` 的前导点；必须用 removeprefix。
+
+    路径被改写后引用永远解析不到，只计入 skipped 而不判红——过期行号照样全绿。
+    """
+    gate = _load_agent_gate()
+    assert (
+        gate._normalize_doc_ref(".cursor/rules/hutuji-agent-rails.mdc")
+        == ".cursor/rules/hutuji-agent-rails.mdc"
+    )
+    # `./` 前缀仍要剥掉：与旧行为一致，不能因为修 bug 把已登记的 key 全改一遍
+    assert gate._normalize_doc_ref("./docs/protocol.md") == "docs/protocol.md"
+    assert gate._normalize_doc_ref("docs\\protocol.md") == "docs/protocol.md"
+
+
+def test_gate_doc_line_refs_judges_refs_written_in_cursor_rails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`.cursor/rules/*.mdc` 里写的过期行号必须判红，不能因为它不在扫描源而漏掉。
+
+    同时放一条有效引用，确保失败不是「一条都没解析到」那条兜底红。
+    """
+    gate = _load_agent_gate()
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "docs" / "refs.md").write_text("见 target.py:1\n", encoding="utf-8")
+    (tmp_path / "target.py").write_text("only\n", encoding="utf-8")
+    rails = tmp_path / ".cursor" / "rules"
+    rails.mkdir(parents=True)
+    (rails / "hutuji-agent-rails.mdc").write_text("见 target.py:99\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_doc_line_refs()
+    assert result["status"] == "fail"
+    assert "target.py:99" in result["detail"]
+    assert ".cursor/rules/hutuji-agent-rails.mdc" in result["detail"]
+
+
+def test_gate_doc_line_refs_judges_dot_prefixed_ref_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """引用目标本身以点开头（`.cursor/rules/x.mdc:99`）时必须判红而非静默跳过。"""
+    gate = _load_agent_gate()
+    (tmp_path / "docs").mkdir(parents=True)
+    rails = tmp_path / ".cursor" / "rules"
+    rails.mkdir(parents=True)
+    (rails / "rails.mdc").write_text("单行\n", encoding="utf-8")
+    (tmp_path / "target.py").write_text("only\n", encoding="utf-8")
+    (tmp_path / "docs" / "refs.md").write_text(
+        "有效: target.py:1\n过期: .cursor/rules/rails.mdc:99\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_doc_line_refs()
+    assert result["status"] == "fail"
+    assert ".cursor/rules/rails.mdc:99" in result["detail"]
+
+
+def test_gate_doc_ref_absolute_path_cannot_escape_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """文档写绝对路径引用时，解析不得逃出本仓——否则整个门禁被 ValueError 打死。
+
+    _DOC_REF_RE 的字符集不含 `:`，故 `D:/Users/xiaozhi-esp32/x.cc:45` 捕获到的是
+    `/Users/xiaozhi-esp32/x.cc`；Windows 上 `ROOT / "/Users/…"` 保留盘符替换路径，
+    该文件真实存在则被当成本仓命中，随后 relative_to(ROOT) 抛 ValueError——结果是
+    「没有结论」而不是判红，比假绿更糟。本仓 docs/kxnx/findings/ 里确有这样一处引用。
+    """
+    gate = _load_agent_gate()
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "target.py").write_text("only\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "foreign.cc").write_text("a\nb\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", repo)
+
+    # 用与 repo 同根的绝对路径（同盘符），复现驱动器相对逃逸
+    escape = "/" + outside.relative_to(outside.anchor).as_posix() + "/foreign.cc"
+    assert gate._repo_file(escape) is None, "仓外路径不得被当成本仓命中"
+
+    (repo / "docs" / "refs.md").write_text(
+        f"有效: target.py:1\n仓外: {escape}:999\n", encoding="utf-8"
+    )
+    # 不得抛异常；仓外引用归「跳过」，有效引用照常校验
+    result = gate.check_doc_line_refs()
+    assert result["status"] == "pass", result
+    assert "跳过 1 处" in result["detail"], result
+
+
 def test_gate_required_files_derives_governance_docs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

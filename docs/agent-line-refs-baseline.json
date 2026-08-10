@@ -1,5 +1,5 @@
 {
-  "git_head": "f25d8d1b9c8749de11018f40f1f2d17927caccb9",
+  "git_head": "7cee74db7628e6bc8df7ed830fe4ec72185a7153",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -249,8 +249,8 @@
       "sha8": "e3ac5d86",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
-    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:45": {
-      "sha8": "311c42b1",
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> /Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:44": {
+      "sha8": "bc7ba209",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> docs/agent-constraint-matrix.md:34": {
@@ -473,6 +473,10 @@
       "sha8": "5817611c",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
     },
+    "docs/troubleshooting.md -> /Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31": {
+      "sha8": "a2e0c3c2",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
+    },
     "docs/troubleshooting.md -> Config.h:410": {
       "sha8": "426608a8",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
@@ -548,10 +552,6 @@
     "docs/troubleshooting.md -> TelnetServer.cpp:138-252": {
       "sha8": "a8bdec10",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
-    },
-    "docs/troubleshooting.md -> Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31": {
-      "sha8": "a2e0c3c2",
-      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/troubleshooting.md -> WebServer.cpp:121": {
       "sha8": "96d4813f",
@@ -686,6 +686,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-09T18:04:00Z",
+  "updated": "2026-08-10T17:36:08Z",
   "version": 1
 }

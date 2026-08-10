@@ -231,5 +231,5 @@ if (bl2 && !this.i) {                             // :73-75 由真变假 → 完
 - 三个补全类取自 `decompiled_full/`：`machine/grbl/c.java`、`machine/ui/i.java`、`com/kvenjoy/drawsoft/lib/a.java`。混淆名与主树一致，**但行号基准不同**，不可与主树行号互引。
 - CFR 反编译噪音，别当缺陷记：`machine/grbl/a.java:101-103`、`machine/c/a.java:79-82`/`:96-99`/`:103-105`/`:109-111`/`:118-120`/`:140-142` 都是"new 两个事件对象、给第二个赋值、发第一个"的产物。
 - 尚未读：`machine/e/h.java`（HTTP 上传线程本体）、`machine/grbl/GrblSettings.java` 全貌、`machine/kat/b.java`（仅备案"禁止对齐"）、full 树 `machine/b/e.java` 忙轮询的确切行号。
-- **已知文档漂移，本轮未改**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:45` 注释写"串口侧两级静默 5s+5s"，据 §2.1 应为 **5s + 约 1s**；同处 `:44` 引的 `machine/grbl/a.java:382-404` 宜改为 `:379-408`。按 `docs/agent-constraint-matrix.md:34`，改那个仓要跟一次 IDF 构建，故留到白天与固件改动一并处理。
+- **原记「已知文档漂移，本轮未改」的两处，2026-08-11 复核已在 fork 侧修好**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:44` 现写「串口侧两级静默 5s + 约 1s」（原为 "5s+5s"，与 §2.1 一致），同行引的 `machine/grbl/a.java` 行号也已由 `:382-404` 改成 `:379-408`。此条保留作记录，不再是待办；本仓无改动，改 fork 仍须按 `docs/agent-constraint-matrix.md:34` 跟一次 IDF 构建。
 

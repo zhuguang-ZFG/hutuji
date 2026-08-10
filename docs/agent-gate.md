@@ -48,11 +48,15 @@
 
 同类盲区还有三处，一并记住形状：**`systemctl is-active` 只证明「在跑」，不证明跑的是哪一版 unit**（加固项可全部缺失而照样 active；`daemon-reload` 只换 unit 快照、不重启旧进程；drop-in 更能静默覆盖 ExecStart），已由 `check_units_match_templates` 的模板/加载态判据、MCP 两条 `ExecStartPre` 成功结果和“主进程不早于已部署 unit/代码/profile”共同覆盖；**延迟 import 的重依赖缺失对 import、active 与生成链自检全隐形**（2026-08-09 本机实测：拦掉 imageio 后 server 可 import、`gcode_gen --self-test` 退 0、21/21 全绿，只有真实描摹抛 `BitmapError`），已由 unit 第二条 `ExecStartPre`（`bitmap_svg --self-test`，沙箱内 fail-closed）与 preflight `check_bitmap_chain`（真跑当前落盘代码）共同覆盖；以及**「大小/长度」一律按设备看到的字节计**，`read_text()` 会把 CRLF 塌成 LF、每行少算 1 字节，实测让超 512KiB 的产物被放行。共同的教训是：判据必须量在**设备/运行时真正消费的那个对象**上，量仓内文本或量塌陷后的字符都会假绿。
 
-`doc_line_refs` 层（三个 profile 都跑）扫 `*.md` / `docs/**/*.md` / `*/README.md` 里的
-`file.ext:12` 与 `file.ext:12-34` 引用，校验目标文件行数覆盖该行号（区间取较大端）：
+`doc_line_refs` 层（三个 profile 都跑）扫 `*.md` / `docs/**/*.md` / `*/README.md` /
+`firmware/*.md` / `.cursor/rules/*.mdc` 里的 `file.ext:12` 与 `file.ext:12-34` 引用，
+校验目标文件行数覆盖该行号（区间取较大端）：
 
 - 只认能**唯一**落到本仓的引用：相对路径直接命中，或裸文件名在本仓内恰好 1 个同名文件命中；`.venv`/`.claude`/`results`/`output` 等副本目录不参与解析（`.claude/worktrees/*` 是整仓副本，会把唯一性打破）。
 - 落不到本仓的引用（fork 侧、逆向产物）本层一律跳过，由下面的 `external_doc_line_refs` 接管（`hub` 起就跑）。本层不管「路径拼错」。
+- **扫描面是单一真值 `_doc_scan_files()`，三层共用**（本层 / `external_doc_line_refs` / `line_ref_fingerprints`）。原先三层各自内联同一份 glob，`GOVERNANCE_DOCS` 里的 `.cursor/rules/hutuji-agent-rails.mdc` 不落在任何一条 glob 上，被三层同时漏掉（2026-08-11 code review 实测）。理由同 `required_file_set()`：清单散成三处，新增一类文档要改三处，漏改一处那层就静默失去覆盖。`test_gate_doc_scan_surface_covers_every_governance_doc` 从 `GOVERNANCE_DOCS` 派生断言而非静态清单，下次新增治理文档漏进扫描面即红。**`firmware/*.md` 与那份 `.mdc` 当前都还没有 `path:line` 引用**，这两条 glob 是先把面封住，不是修好了既有漏判。
+- **路径归一化两条硬约束**（均有回归测试，都是上述 review 里实测取到的 RED）：① 只剥真正的 `./` 前缀（`removeprefix`，不是 `lstrip("./")`）——按字符集剥离会把 `.cursor/rules/x.mdc` 吃成 `cursor/rules/x.mdc`，引用永远解析不到，且落进「跳过」而非判红。② `ROOT / ref` 之后必须 `relative_to(ROOT)` 成立才算本仓命中，否则交外仓层：`_DOC_REF_RE` 的字符集不含 `:`，故 `D:/Users/…` 的引用被截成 `/Users/…`，而 Windows 上 `Path("D:/Users/hutuji") / "/Users/xiaozhi-esp32/x.cc"` 恰好等于真实存在的 `D:/Users/xiaozhi-esp32/x.cc`，旧实现据此判为本仓命中，指纹层随后在 `relative_to` 抛 `ValueError` **让整扇门禁崩溃而非判红**。旧 `lstrip` 顺手剥掉了前导 `/` 才一直没暴露——那是巧合，不是防线。
+- 按后缀收窄候选时，`ref` 已带前导 `/` 就不再补一层（`_narrow_by_path_suffix`，三层共用）。补出来的 `//Users/…` 没有任何路径以它结尾，引用会静默失去校验：本仓实测 2 处（`hutuji_pipe.cc` 与 `TelnetServer.h` 的绝对路径引用）长期只计跳过，修好后进入校验面，其中 `TelnetServer.h` 那条重登基线时指纹 `a2e0c3c2` 逐字节未变——证明它始终指着对的行，只是从未被验过。
 - detail 同时报 `校验 N 处` 与 `跳过 M 处`；`N=0` 判 **fail**（解析规则失效的空转门禁比红更危险）。行号在范围内 ≠ 指向对的代码，语义仍须人工核对。
 - **本层查不出「指向错」，而指向错是静默的**。2026-08-09 实测：`docs/release-readiness.md` 里指向 `AGENTS.md` **第 149 行**的引用，本意指硬规则「**禁止宣称**（除非 …）」，而该条早已随多轮插行漂到 **第 153 行**；149 一直落在文件行数内，故本层历轮全绿、从未报过。同轮另有两处同源漂移：写 `agent_gate.py` **第 131 行**（指 `GOVERNANCE_DOCS` 注释「新增治理文档请加进本清单」）被 `REQUIRED_FILES` 补行推到 **137**；本文 §5 那条写的「第 137 行」被 §3/§5 插行推到 **139**。
 - **处置约定**：引用处若已逐字引了目标句（如上例已写出「**禁止宣称**（除非 …）」），**删掉行号、只留引文**——引文自带定位且不会过期，行号只是额外的过期源。确需行号时，改完插行的文件后须回扫指向它的引用（按 `<文件名>:<数字>` 检索），本层不会替你发现。
@@ -60,7 +64,7 @@
 
 `external_doc_line_refs` 层（`hub` 与 `full`）把同一套校验延伸到三个只读参考仓——本仓文档里的
 `path:line` 引用九成指向那边（`hutuji_pipe.cc`、`Serial.cpp`、`grbl_plotter.py`…），只在本仓解析
-等于放着最大的漂移面不管（本机实测：本仓层只校验 39 处、跳过 172 处，本层再校验 162 处、跳过 31 处）：
+等于放着最大的漂移面不管（2026-08-11 本机实测：本仓层只校验 20 处、跳过 171 处，本层再校验 161 处、跳过 15 处）：
 
 - 仓库路径取环境变量 `GRBL_ROOT` / `XIAOZHI_ROOT` / `INKSCAPE_PX_ROOT`，缺省用 `AGENTS.md` 记载的本机布局；单个目录不存在则该仓跳过。
 - **三仓全缺时按 profile 分岔**：`full` 判 **fail**（它的前提就是本机有 fork），`hub` 判 pass 但 detail 必须自陈「本层无可校验」——换机器做日常改动不该因为没 fork 而变红，但那次 pass 也不许被读成「查过且干净」。这条分岔由 `require_repos` 参数表达，并被 `mcp-server/tests/test_field_tools.py` 的门禁自测钉死。
