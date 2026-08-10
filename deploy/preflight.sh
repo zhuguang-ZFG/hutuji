@@ -343,12 +343,15 @@ VENV_PY=/opt/hutuji/mcp-server/.venv/bin/python
 # 这一项刻意不依赖 OUTPUT_DIR：产物落 mktemp -u，不往 /files 留文件，
 # 于是「生成链坏了」与「产物目录坏了」不会互相染色——目录本身另有判据。
 check_generate_chain() (
-  local svg out
+  local svg dst out rc=0
   [[ -x "$VENV_PY" ]] || exit 1
-  svg="$(mktemp)"; out="$(mktemp -u)"
-  trap 'rm -f -- "$svg" "$out"' EXIT
+  svg="$(mktemp)"; dst="$(mktemp -u)"
+  trap 'rm -f -- "$svg" "$dst"' EXIT
   printf '%s' "$PROBE_SVG" > "$svg"
-  "$VENV_PY" -c '
+  # timeout 60 + `|| rc=$?` 与 check_bitmap_chain 同构，完整理由见那边注释：
+  # `if ! out=$(...)` 形态下 `$?` 恒为 0，真实退出码永远回显不出。这步真跑 vpype，
+  # 挂死（被沙箱 SIGSYS 咬死是已实测出现过的形状）时没有 timeout 会让 preflight 无限等。
+  out="$(timeout 60 "$VENV_PY" -c '
 import sys
 from pathlib import Path
 
@@ -358,7 +361,13 @@ from hutuji_mcp.gcode_gen import svg_to_gcode
 stats = svg_to_gcode(Path(sys.argv[1]), Path(sys.argv[2]))
 # 空产物也是坏产物：行数/字节必须为正，否则「转换成功」毫无意义。
 raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
-' "$svg" "$out" >/dev/null 2>&1
+' "$svg" "$dst" 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    printf 'generate_chain failed: exit=%d（124=超时，128+N=被信号杀死，1=生成链判红）\n' "$rc" >&2
+    # 只回最后一行：GcodeError 那句话就是可行动的诊断，traceback 无用且刷屏。
+    printf '%s\n' "$out" | tail -1 >&2
+    exit 1
+  fi
 )
 
 # 位图描摹链正例。与上面的生成链是两条独立依赖栈（vpype ≠ skimage/sknw/imageio），
@@ -404,7 +413,7 @@ check_bitmap_chain() (
 )
 
 check_download() (
-  local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f svg headers body code expected_len actual_len expected_crc actual_crc
+  local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f svg headers body code expected_len actual_len expected_crc actual_crc out rc=0
   [[ -n "$h" && -d "$d" ]] && safe_output_dir "$d" || exit 1
   [[ -x "$VENV_PY" ]] || exit 1
   tok="$(python3 -c 'import secrets; print(secrets.token_urlsafe(16))')"
@@ -412,7 +421,9 @@ check_download() (
   trap 'rm -f -- "$d/$f" "$svg" "$headers" "$body"' EXIT
   printf '%s' "$PROBE_SVG" > "$svg"
   # 真产物：过 §5 校验才落到 OUTPUT_DIR，随后验 HTTP 字节/长度/CRC32 完整一致。
-  "$VENV_PY" -c '
+  # timeout 60 + `|| rc=$?` 与 check_generate_chain 同构（完整理由见 check_bitmap_chain
+  # 注释）：这步同样真跑 vpype，挂死时 preflight 不得无限等。
+  out="$(timeout 60 "$VENV_PY" -c '
 import sys
 from pathlib import Path
 
@@ -421,7 +432,12 @@ from hutuji_mcp.gcode_gen import svg_to_gcode
 
 stats = svg_to_gcode(Path(sys.argv[1]), Path(sys.argv[2]))
 raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
-' "$svg" "$d/$f" >/dev/null 2>&1 || exit 1
+' "$svg" "$d/$f" 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    printf 'download 产物生成 failed: exit=%d（124=超时，128+N=被信号杀死，1=生成链判红）\n' "$rc" >&2
+    printf '%s\n' "$out" | tail -1 >&2
+    exit 1
+  fi
   code="$(curl --noproxy "*" --max-time 5 -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Host: $h" "http://127.0.0.1/files/$f")" || exit 1
   expected_len="$(wc -c < "$d/$f" | tr -d " ")"
   actual_len="$(awk 'tolower($1) == "content-length:" {gsub("\r", "", $2); print $2}' "$headers" | tail -1)"

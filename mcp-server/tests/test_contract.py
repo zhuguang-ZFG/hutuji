@@ -2523,6 +2523,37 @@ def test_preflight_exercises_real_bitmap_trace_chain() -> None:
     assert "/opt/hutuji/mcp-server/*" in preflight_code
 
 
+def test_preflight_chain_subprocesses_all_run_under_timeout() -> None:
+    """三条真跑子进程的链（生成链 / 位图描摹链 / 下载探针造产物）必须同构套 timeout 60。
+
+    f25d8d1 只给 check_bitmap_chain 加了 timeout 与真实退出码回显；生成链与下载
+    探针造产物这两处同样真跑 vpype，挂死时（被沙箱 SIGSYS 咬死是已实测出现过的
+    形状）preflight 会无限等。三条链必须逐一钉死同一形态：
+    `out="$(timeout 60 …)" || rc=$?`，失败时退出码单独成行先打
+    （124=超时 / 128+N=被信号杀死）——`if ! out=$(...)` 形态下 `$?` 恒为 0，
+    退出码回显永久失真，全仓禁止该形态。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    for func in ("check_generate_chain() (", "check_bitmap_chain() (", "check_download() ("):
+        start = preflight.index(func)
+        body = preflight[start : preflight.index("\n)", start)]
+        assert "timeout 60" in body, func
+        assert "|| rc=$?" in body, func
+        assert "rc=0" in body, func
+        assert "if (( rc != 0 ))" in body, func
+        assert "124=超时" in body, func
+        assert "128+N=被信号杀死" in body, func
+        assert 'printf \'%s\\n\' "$out" | tail -1' in body, func
+
+    # 全脚本再钉一次：`if ! out=$(...)` 不得在任何一处复活（不只这三条链）。
+    assert 'if ! out="$(' not in preflight_code
+
+
 def test_preflight_mcp_env_rejects_blank_image_model() -> None:
     """HUTUJI_IMAGE_MODEL 显式置空是 fail-open：闸必须落在有 env 可读的 preflight 层。
 
