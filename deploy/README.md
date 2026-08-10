@@ -9,12 +9,24 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ 2026-08-11 已发布应用基线 `a5ae774`（第三轮评审两项 + 内存兜底，本轮 3 文件：`bitmap_svg.py`/`server.py` + `hutuji-mcp.service`；LF 归一化 scp 经 `/tmp/hutuji-deploy-a5ae774/`，四处落盘 md5 与 git blob 逐一对齐 `8c61321854f0e0c3aa7be9476fff7ec2`/`c1450bbb77f1b86c0f76a31cc6c7074e`/`ef084dc43c55544482575b2907d68805`×2，清 `__pycache__` 防旧 `.pyc` 复活，`daemon-reload` + 显式重启两服务，主进程 `02:43:45 CST`，两条 `ExecStartPre` self-test `status=0`，无 drop-in），生产 **`pass=22 fail=0 expected=22`**。本轮三项运行态判据另行实证：① `/proc/<MainPID>/cmdline` 确含 `--no-proxy-headers`（uvicorn 默认 `proxy_headers=True` 会用 `X-Forwarded-For` 改写 ASGI `scope["client"]`，而那是 `LoopbackOnlyMcpGuard` 的唯一判据；其信任面默认值取自环境变量，本 unit 带 `EnvironmentFile=`，故必须由命令行钉死）；② `systemctl show -p MemoryMax` 生效 `1073741824`（原 `infinity`；实测总内存 3911MB 无 swap、本服务 cgroup 历史峰值 174.5MB）；③ 公网伪造 `X-Forwarded-For: 127.0.0.1` 打 `/mcp` 仍 **404**，直连 `:8300` 连接被拒，而 loopback 真对端 `initialize` 回 **200**（桥接未误伤）。公网复验 `/mcp`、`/docs`、随机路径全 404。回滚副本 `/root/hutuji-bak-20260811-024307-pre-a5ae774-full/`（两份同名 service 已改名分存：`opt-deploy--`/`etc-systemd--`，md5 同为 `c60725e410af6460d29a4a4d832c0a80`）。上一基线 2026-08-11 `8c2e276`（评审修复六项，4 文件；生产 `pass=22 fail=0 expected=22`，主进程 `00:50:30 CST`，回滚副本 `/root/hutuji-bak-20260811-005007-pre-8c2e276/`）。
+| VPS 实机部署与验收 | ✅ 2026-08-11 已发布应用基线 `a5ae774`（第三轮评审两项 + 内存兜底，本轮 3 文件：`bitmap_svg.py`/`server.py` + `hutuji-mcp.service`；LF 归一化 scp 经 `/tmp/hutuji-deploy-a5ae774/`，四处落盘 md5 与 git blob 逐一对齐 `8c61321854f0e0c3aa7be9476fff7ec2`/`c1450bbb77f1b86c0f76a31cc6c7074e`/`ef084dc43c55544482575b2907d68805`×2，清 `__pycache__` 防旧 `.pyc` 复活，`daemon-reload` + 显式重启两服务，主进程 `02:43:45 CST`，两条 `ExecStartPre` self-test `status=0`，无 drop-in），生产 **`pass=22 fail=0 expected=22`**。本轮三项运行态判据另行实证：① `/proc/<MainPID>/cmdline` 确含 `--no-proxy-headers`（uvicorn 默认 `proxy_headers=True` 会用 `X-Forwarded-For` 改写 ASGI `scope["client"]`，而那是 `LoopbackOnlyMcpGuard` 的唯一判据；其信任面默认值取自环境变量，本 unit 带 `EnvironmentFile=`，故必须由命令行钉死）；② `systemctl show -p MemoryMax` 生效 `1073741824`（原 `infinity`；实测总内存 3911MB 无 swap、本服务 cgroup 历史峰值 174.5MB）；③ 公网伪造 `X-Forwarded-For: 127.0.0.1` 打 `/mcp` 仍 **404**，直连 `:8300` 连接被拒，而 loopback 真对端 `initialize` 回 **200**（桥接未误伤）。公网复验 `/mcp`、`/docs`、随机路径全 404。回滚副本 `/root/hutuji-bak-20260811-024307-pre-a5ae774-full/`（两份同名 service 已改名分存：`opt-deploy--`/`etc-systemd--`，md5 同为 `c60725e410af6460d29a4a4d832c0a80`）。同日追加 `2e63b3e`：bridge unit 加 `MemoryMax=256M`（实测峰值 59.7MB 的 4.3 倍；进程树 bridge 29.6MB + spawn 的 mcp-proxy 57.3MB 同属本 cgroup），并补上其**首个**形状测试（此前连 2026-08-11 加的 `ProcSubset=pid` 也无钉子）；落盘 md5 `175acabc98400995f3dcd5162081c702`×2，运行态 `MemoryMax` 生效 `268435456`，回滚副本 `/root/hutuji-bak-20260811-025206-pre-2e63b3e-bridge/`。**本次踩到一个坑并已写入上方注意事项**：只重启 bridge 导致 preflight `pass=21 fail=1`，因 `daemon-reload` 清空了 hutuji-mcp 的 `ExecStartPre` 记录（`code=(null)` 重置态）；补重启 hutuji-mcp 后记录恢复 `code=exited ; status=0`×2，回到 **`pass=22 fail=0 expected=22`**。上一基线 2026-08-11 `8c2e276`（评审修复六项，4 文件；生产 `pass=22 fail=0 expected=22`，主进程 `00:50:30 CST`，回滚副本 `/root/hutuji-bak-20260811-005007-pre-8c2e276/`）。
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
 > 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload（**动了 `limit_req` 的 key/zone 必须改成 `restart`**）→ 当前 22 项 preflight 活动探针。旧 PASS 不能证明新脚本/配置。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`）。
 > preflight **无 skip 状态**（曾有的 `OPTIONAL_SKIP` 与 pass 等价放行，已删）：输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；取不到非 loopback IPv4 判 fail 而非跳过。
+>
+> **`daemon-reload` 会清空所有 unit 的 `ExecStartPre` 执行记录**（2026-08-11 生产实测）。
+> 只改了 bridge unit、于是只 `systemctl restart hutuji-cloud-bridge` —— preflight 立刻
+> 从 22 掉到 **`pass=21 fail=1`**，失败项是「两个 unit 与模板一致，且已重启并通过 ExecStartPre」，
+> 理由行为 `{ … --self-test ; start_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }`：
+> 那是 systemd 的**重置态**，不是失败态。`daemon-reload` 重读全部 unit 时把
+> hutuji-mcp 的两条自检记录一并清了，而它没被重启，于是「运行中的主进程确实跑过
+> 生成链与位图链自检」这个证明在 systemd 状态里消失。判据判红是**对的**：它要的就是
+> 这个证明，而证明确已不在。故规则是——**只要跑了 `daemon-reload`，就必须重启
+> `hutuji-mcp`，哪怕本次一个 mcp 侧文件都没改**；重启后记录重新变成
+> `code=exited ; status=0` ×2，preflight 即回到 22/22。反过来说：看到该项失败时先看
+> 理由行里是 `code=(null)`（漏了重启）还是 `status=` 非 0（自检真的炸了），两者处置完全不同。
 > 下面的「首次上线」流程保留给**重建/换机**，不是待办。
 >
 > **scp `nginx-hutuji.conf` 有两个坑**（2026-07-31 实测，详见 `../docs/deployment.md`「nginx 站点收敛」）：
