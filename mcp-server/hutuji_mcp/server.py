@@ -76,37 +76,39 @@ class DrawLimiter:
         self._clock = clock
         self._starts: deque[float] = deque()
         self._active = 0
-        self._lock = asyncio.Lock()
+        # 刻意不带锁：enter/leave 的临界区内没有任何 await 点，单事件循环里
+        # 同步代码天然原子。曾用 asyncio.Lock，但 slot() 的 finally 里
+        # `await self.leave()` 要抢锁——任务被二次取消时锁等待会被再打断，
+        # `_active` 永不递减，并发名额永久漏掉一个直到进程重启。无 await 的
+        # async 方法被 await 时同步执行到底，取消只在挂起点注入，泄漏面消除。
 
     async def enter(self) -> None:
         """占用一个生成名额；超限立即报错，不排队等待。"""
-        async with self._lock:
-            now = self._clock()
-            while self._starts and now - self._starts[0] >= 60.0:
-                self._starts.popleft()
+        now = self._clock()
+        while self._starts and now - self._starts[0] >= 60.0:
+            self._starts.popleft()
 
-            if self._active >= self.max_concurrent:
-                raise DrawLimitError(
-                    f"生成任务并发已达上限 {self.max_concurrent}，请稍后重试"
-                )
-            recent_second = sum(now - started < 1.0 for started in self._starts)
-            if recent_second >= self.per_second:
-                raise DrawLimitError(
-                    f"生成请求超过每秒 {self.per_second} 次限制，请稍后重试"
-                )
-            if len(self._starts) >= self.per_minute:
-                raise DrawLimitError(
-                    f"生成请求超过每分钟 {self.per_minute} 次限制，请稍后重试"
-                )
+        if self._active >= self.max_concurrent:
+            raise DrawLimitError(
+                f"生成任务并发已达上限 {self.max_concurrent}，请稍后重试"
+            )
+        recent_second = sum(now - started < 1.0 for started in self._starts)
+        if recent_second >= self.per_second:
+            raise DrawLimitError(
+                f"生成请求超过每秒 {self.per_second} 次限制，请稍后重试"
+            )
+        if len(self._starts) >= self.per_minute:
+            raise DrawLimitError(
+                f"生成请求超过每分钟 {self.per_minute} 次限制，请稍后重试"
+            )
 
-            self._starts.append(now)
-            self._active += 1
+        self._starts.append(now)
+        self._active += 1
 
     async def leave(self) -> None:
         """释放并发名额；速率时间戳保留到滑动窗口自然过期。"""
-        async with self._lock:
-            if self._active > 0:
-                self._active -= 1
+        if self._active > 0:
+            self._active -= 1
 
     @contextlib.asynccontextmanager
     async def slot(self):
@@ -313,8 +315,10 @@ async def hutuji_status() -> str:
             return p.stat().st_mtime
         except FileNotFoundError:
             return 0.0
+    # 只统计能力命名的产物：手工放进目录的外来 .gcode 不属于本服务产出，
+    # 混入会让 gcode_files/latest 反映不出真实的生成活动。
     files = sorted(
-        [p for p in out.glob("*.gcode") if p.is_file()],
+        [p for p in out.glob("*.gcode") if p.is_file() and _DRAW_FILE_RE.fullmatch(p.name)],
         key=_safe_mtime,
     ) if out.is_dir() else []
     return json.dumps({

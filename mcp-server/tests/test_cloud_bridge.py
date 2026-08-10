@@ -120,6 +120,16 @@ def test_proxy_stderr_redacts_token_and_wss_urls() -> None:
     assert "wss://api.xiaozhi.me" not in safe
 
 
+def test_redact_cannot_be_bypassed_by_injected_allow_marker() -> None:
+    """能力 URL 的放行标记（见 _redact_secret_text）由脱敏函数内部生成；外部文本
+    若能原样携带该序列（stderr 路径不剥控制字符，NUL 可经 JSON 字符串转义进入），
+    就能复刻标记、让带凭据的 URL 绕过整段脱敏。输入侧先剥 NUL，复刻必须失效。"""
+    marker = "_" + chr(0) + "ALLOW" + chr(0) + "."
+    crafted = f"https://cdn.example/draw_20260810_010101{marker}gcode/path-secret-9"
+    safe = _safe_stderr_line(crafted)
+    assert "path-secret-9" not in safe
+
+
 def test_proxy_stderr_keeps_benign_short_lines() -> None:
     assert _safe_stderr_line("listening on stdio") == "listening on stdio"
 

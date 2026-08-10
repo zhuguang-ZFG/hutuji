@@ -773,6 +773,31 @@ def test_draw_limiter_rejects_rate_and_concurrency() -> None:
     asyncio.run(limiter.leave())
     asyncio.run(limiter.leave())
 
+def test_draw_limiter_slot_releases_under_cancellation() -> None:
+    """取消路径必须把并发名额还回来：slot 的 finally 里不许有可挂起点，
+    否则取消可能打断名额释放，让 max_concurrent 永久缩水（生成入口随之瘫痪）。"""
+
+    async def exercise() -> None:
+        limiter = server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=1)
+        entered = asyncio.Event()
+
+        async def hold() -> None:
+            async with limiter.slot():
+                entered.set()
+                await asyncio.sleep(60)
+
+        task = asyncio.create_task(hold())
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert limiter._active == 0, "名额泄漏会让后续生成全部被拒"
+        # 名额真的可用，不只是计数归零
+        await limiter.enter()
+        await limiter.leave()
+
+    asyncio.run(exercise())
+
 
 def test_draw_limit_covers_vpype_conversion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1221,6 +1246,37 @@ def test_bitmap_download_rejects_oversize_content_length(
     with pytest.raises(bitmap_svg.BitmapError, match="图片超过下载上限"):
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
 
+def test_bitmap_download_rejects_oversize_chunked_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """无 Content-Length（chunked）的超大正文必须被流式累计上限拦下。
+
+    声明级闸对缺头响应不生效，逐块累计是唯一兜底；且流式实现保证拦截发生在
+    全量进内存之前（非流式 GET 先缓冲再判长，拦不住内存暴涨）。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    import httpx as _httpx
+
+    def chunked_oversize_get(request):  # noqa: ANN001, ANN202
+        # 显式 Transfer-Encoding: chunked 让 httpx 不自动补 Content-Length，
+        # 声明级闸因此跳过，只剩流式累计上限能拦。
+        return _httpx.Response(
+            200,
+            headers={"transfer-encoding": "chunked"},
+            content=b"x" * (bitmap_svg._IMAGE_DOWNLOAD_MAX_BYTES + 1),
+        )
+
+    transport = _generations_ok_transport(chunked_oversize_get)
+    with pytest.raises(bitmap_svg.BitmapError, match="图片超过下载上限"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
 
 def test_bitmap_generate_end_to_end_mocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1325,6 +1381,19 @@ def test_status_latest_filename_is_redacted(
     assert data["latest"].startswith("draw_")
     assert data["latest"].endswith(".gcode")
     assert "*" in data["latest"]
+
+def test_status_ignores_foreign_gcode_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """output_dir 里手工放的外来 .gcode 不是本服务产物，计入 gcode_files/latest
+    会让 status 反映不出真实的生成活动（混入即失真）。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    (tmp_path / "handmade.gcode").write_text("G21\nG90\n", encoding="utf-8")
+    import json
+
+    data = json.loads(asyncio.run(server.hutuji_status()))
+    assert data["gcode_files"] == 0
+    assert data["latest"] is None
 
 
 def test_draw_limiter_rejects_minute_window() -> None:

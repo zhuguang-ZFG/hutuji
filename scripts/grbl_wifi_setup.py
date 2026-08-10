@@ -24,6 +24,11 @@ import sys
 import time
 
 
+# 串口写超时（秒）。配置命令只有十来个字节，115200bps 下写入本是毫秒级；
+# 不设上限时 ser.write 可长时间挂住（与 bringup_fault_capture.py 的
+# SERIAL_WRITE_TIMEOUT_S 同口径，那边 2.0s 是采集场景，这里交互场景取 3s）。
+SERIAL_WRITE_TIMEOUT_S = 3.0
+
 def _validate_serial_value(value: str, label: str, *, allow_empty: bool = False) -> None:
     """拒绝会把单条 ESP 配置命令拆成多条的控制字符。"""
     if not value and not allow_empty:
@@ -127,7 +132,7 @@ def main() -> int:
         return 1
 
     try:
-        s = serial.Serial(args.port, args.baud, timeout=3)
+        s = serial.Serial(args.port, args.baud, timeout=3, write_timeout=SERIAL_WRITE_TIMEOUT_S)
     except (serial.SerialException, OSError) as exc:
         # 坏端口/被占用/无权限：白话报错，退出码 1（与既有串口错误口径一致）。
         print(f"无法打开串口 {args.port}：{exc}", file=sys.stderr)

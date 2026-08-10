@@ -163,6 +163,11 @@ def _message_label(message: str | bytes) -> str:
 
 def _redact_secret_text(text: str) -> str:
     """去掉文本中的 token / Bearer / api_key / sk- 裸密钥与 URL，保留其余诊断上下文。"""
+    # 先剥 \x00：能力 URL 的放行标记是 `_\x00ALLOW\x00.`（见下），外部文本
+    # （mcp-proxy stderr 可带云端可控数据，NUL 可经 JSON 字符串转义进入）若
+    # 原样携带该序列即可复刻标记，让带凭据的 URL 绕过脱敏。正常诊断文本不含
+    # NUL，剥除无副作用；_message_label 路径另有 isprintable 清洗，不经过这里。
+    text = text.replace("\x00", "")
 
     def _sub(match: re.Match[str]) -> str:
         # 各 key 形态（token= / api_key= / "access_token": / Authorization: Bearer 等）

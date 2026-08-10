@@ -384,3 +384,69 @@ def test_main_fails_loudly_when_wifi_restore_is_unconfirmed(monkeypatch, tmp_pat
     assert "ERROR writing to" in report, "写失败也要留在报告里"
     assert "ERROR opening/reading" not in report, "端口开成功了，不该报成读故障"
     assert code == 1, "串口侧故障 → 退出码 1（AGENTS.md 钉死的退出码语义）"
+
+
+class _FakeWifiSerial:
+    """最小假串口：按序返回预置应答，记录打开参数供断言。不碰真实 COM 口。"""
+
+    def __init__(self, port, timeout, write_timeout, responses):
+        self.port = port
+        self.timeout = timeout
+        self.write_timeout = write_timeout
+        self._responses = list(responses)
+        self.written: list[bytes] = []
+        self.in_waiting = 0
+        self.closed = False
+
+    def read(self, _size):
+        return self._responses.pop(0) if self._responses else b""
+
+    def write(self, payload):
+        self.written.append(payload)
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeWifiSerialModule:
+    """冒充 pyserial 模块；SerialException 只供 except 子句求值，映射到 OSError 即可。"""
+
+    SerialException = OSError
+
+    def __init__(self, responses):
+        self._responses = responses
+        self.opened: list[_FakeWifiSerial] = []
+
+    def Serial(self, port, baud, timeout=None, write_timeout=None):
+        """名字须与 pyserial 一致，故不按本仓函数命名风格改小写。"""
+        ser = _FakeWifiSerial(port, timeout, write_timeout, self._responses)
+        self.opened.append(ser)
+        return ser
+
+
+def test_wifi_setup_serial_write_is_bounded(monkeypatch):
+    """ser.write 不设上限会无限挂住交互配网。bringup_fault_capture 已踩过同类坑并
+    钉了 SERIAL_WRITE_TIMEOUT_S；配网脚本必须同口径带 write_timeout。"""
+    fake = _FakeWifiSerialModule(
+        [
+            b"ok",  # [ESP100] SSID
+            b"ok",  # [ESP101] 密码
+            b"ok",  # [ESP110] STA
+            b"[MSG:Connected IP: 192.168.1.13]",  # 重启后的联网确认
+            b"WiFi Mode: STA",  # [ESP420] 状态
+        ]
+    )
+    monkeypatch.setitem(sys.modules, "serial", fake)
+    monkeypatch.setattr(wifi_setup.time, "sleep", lambda *_: None)
+    monkeypatch.setenv("GRBL_WIFI_PASSWORD", "pw")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["grbl_wifi_setup.py", "--port", "COM_FAKE", "--ssid", "Test", "--yes"],
+    )
+
+    assert wifi_setup.main() == 0
+    assert fake.opened[0].write_timeout == wifi_setup.SERIAL_WRITE_TIMEOUT_S, (
+        "Serial 必须带 write_timeout：无上限的阻塞写会把配网脚本挂死"
+    )
+    assert fake.opened[0].closed, "退出路径必须关串口"

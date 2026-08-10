@@ -42,8 +42,13 @@ _BITMAP_STYLE = (
 )
 
 _IMAGE_SIZE = "1024x1024"
-# 单次尝试的完整上限：agnes 实测 10~22s/张，留足余量但不许无限挂。
-_IMAGE_ATTEMPT_TIMEOUT_SECONDS = 90
+# 单次尝试的完整上限：agnes 实测 10~22s/张，45s 仍留 >2× 余量。不许无限挂，
+# 也不给 90s：占槽时长 = 3×本值 + 2×下载（DrawLimiter 并发只有 2），90s 时
+# 最坏 ~334s，两个慢请求即堵死生成入口；45s 把最坏压到 ~199s。
+_IMAGE_ATTEMPT_TIMEOUT_SECONDS = 45
+# 下载单独给更紧的上限：≤16MB 的 PNG 走 30s 已极宽裕。下载不像生图——
+# 重试不再计费，慢连接不值得占住 DrawLimiter 名额久等（并发只有 2）。
+_IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 30
 _IMAGE_DOWNLOAD_MAX_BYTES = 16 * 1024 * 1024
 # 与 LLM 路线同一口径：瞬态状态码重试两次（1s/3s），其余立即失败。
 _TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -216,30 +221,42 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
         # 下载给一次（且仅一次）重试：重新 GET 不再计费（重试 POST 才会），
         # CDN 瞬态断连值得一试；延迟沿用 _RETRY_DELAYS_SECONDS 首段，不另起常量。
         # 错误处理与生图 POST 同口径：httpx 异常只记类型名，不碰可能回显的 URL。
+        #
+        # 必须流式读：非流式 GET 返回时 body 已被 httpx 全量缓冲，事后再按
+        # len(body) 判上限拦不住内存暴涨（CDN/上游异常返超大正文即打爆 VPS
+        # 内存）。流式下 Content-Length 声明闸真正省流量，逐块累计上限兜住
+        # 缺头（chunked）或头部畸形——两道闸都在数据进内存前生效。
+        retry_download = False
         for attempt in range(2):
             try:
-                dl = await client.get(image_url)
-                if dl.status_code == 200:
-                    break
-                if dl.status_code in _TRANSIENT_HTTP_STATUSES and attempt == 0:
-                    await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
-                    continue
-                raise BitmapError(f"图片下载返回 {dl.status_code}")
+                async with asyncio.timeout(_IMAGE_DOWNLOAD_TIMEOUT_SECONDS):
+                    async with client.stream("GET", image_url) as dl:
+                        if dl.status_code == 200:
+                            declared = dl.headers.get("content-length")
+                            if (
+                                declared
+                                and declared.isdigit()
+                                and int(declared) > _IMAGE_DOWNLOAD_MAX_BYTES
+                            ):
+                                raise BitmapError("图片超过下载上限")
+                            body = bytearray()
+                            async for chunk in dl.aiter_bytes():
+                                if len(body) + len(chunk) > _IMAGE_DOWNLOAD_MAX_BYTES:
+                                    raise BitmapError("图片超过下载上限")
+                                body.extend(chunk)
+                            return bytes(body)
+                        if dl.status_code in _TRANSIENT_HTTP_STATUSES and attempt == 0:
+                            retry_download = True
+                        else:
+                            raise BitmapError(f"图片下载返回 {dl.status_code}")
             except (httpx.HTTPError, TimeoutError) as exc:
                 if attempt == 0:
-                    await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
-                    continue
-                raise BitmapError(f"图片下载网络错误（{type(exc).__name__}）") from None
-        # 有 Content-Length 先按声明值拦超大图。注意非流式 GET 返回时 body 已
-        # 缓冲完，这道是声明级闸、不省流量；缺头（chunked 编码等）或头部畸形时
-        # 回落到下面按实际长度的检查，那道才是真兜底。
-        declared = dl.headers.get("content-length")
-        if declared and declared.isdigit() and int(declared) > _IMAGE_DOWNLOAD_MAX_BYTES:
-            raise BitmapError("图片超过下载上限")
-        body = dl.content
-        if len(body) > _IMAGE_DOWNLOAD_MAX_BYTES:
-            raise BitmapError("图片超过下载上限")
-        return body
+                    retry_download = True
+                else:
+                    raise BitmapError(f"图片下载网络错误（{type(exc).__name__}）") from None
+            if retry_download:
+                retry_download = False
+                await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
 
 
 async def generate_bitmap_svg(description: str) -> str:
