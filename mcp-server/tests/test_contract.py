@@ -250,6 +250,97 @@ def test_mcp_guard_fails_closed_on_unknown_peer(client: tuple[str, int] | None) 
     assert sent[0]["status"] == 404
 
 
+def _run_guard_under_proxy_headers(
+    trusted: str, peer: tuple[str, int], xff: bytes | None
+) -> bool:
+    """把守卫压在 uvicorn 的 ProxyHeadersMiddleware 下驱动，返回是否放行。
+
+    上面那批测试直接调守卫、手搓 scope，**从不经过生产里压在它之上的这层
+    中间件**——而那层正是唯一能改写守卫判据的组件，故隔离测试对本类缺陷
+    永远绿。这里复刻真实叠放顺序：uvicorn 的 Config.load() 把
+    ProxyHeadersMiddleware 包在最外层，改写发生在守卫看到 scope 之前。
+    """
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    reached: list[bool] = []
+
+    async def _inner(scope: dict[str, object], receive: object, send: object) -> None:
+        reached.append(True)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    headers: list[tuple[bytes, bytes]] = [(b"host", b"127.0.0.1:8300")]
+    if xff is not None:
+        headers.append((b"x-forwarded-for", xff))
+    scope = {
+        "type": "http",
+        "path": "/mcp",
+        "method": "POST",
+        "client": peer,
+        "headers": headers,
+        "scheme": "http",
+    }
+
+    async def _send(message: dict[str, object]) -> None:
+        return None
+
+    async def _receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    app = ProxyHeadersMiddleware(server.LoopbackOnlyMcpGuard(_inner), trusted_hosts=trusted)
+    asyncio.run(app(scope, _receive, _send))
+    return bool(reached)
+
+
+def test_mcp_guard_bypassed_when_forwarded_headers_are_trusted_widely() -> None:
+    """钉死本类缺陷的机理：头信任面放宽后，攻击方自带的头就变成守卫的判据。
+
+    这不是「建议」而是实测（2026-08-11）：uvicorn 的 ProxyHeadersMiddleware 用
+    X-Forwarded-For 改写 ASGI scope["client"]，而守卫读的正是它。本例断言的是
+    **上游行为**，故它绿不代表我们安全——它存在的意义是：一旦哪天 uvicorn 改了
+    这个行为，下面那条真正的防线测试就该被重新审视。
+    """
+    assert _run_guard_under_proxy_headers("*", ("203.0.113.7", 51234), b"127.0.0.1") is True, (
+        "上游行为变了：trusted_hosts='*' 时 X-Forwarded-For 不再改写 scope['client']"
+    )
+    # 默认信任面下同一请求必须挡住：证明危险只来自信任面被放宽，而非头本身。
+    assert _run_guard_under_proxy_headers("127.0.0.1", ("203.0.113.7", 51234), b"127.0.0.1") is False
+
+
+def test_mcp_unit_disables_proxy_headers_so_peer_cannot_be_forged() -> None:
+    """生产 ExecStart 必须带 --no-proxy-headers：这是守卫判据不可伪造的前提。
+
+    uvicorn 的 forwarded_allow_ips 默认值读环境变量
+    （`os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1")`），而 unit 带
+    EnvironmentFile=/etc/hutuji/mcp.env——只要那个文件里出现
+    FORWARDED_ALLOW_IPS=*，头信任面就静默放宽，命令行压不住。关掉
+    proxy_headers 后 Config.load() 的 `if self.proxy_headers:` 干脆不装中间件，
+    环境变量再设也无效。unit 已为 --host 防过同一类坑（见其行内注释），本条把
+    高一层的同款坑也钉住。
+    """
+    root = Path(__file__).resolve().parents[2]
+    unit = (root / "deploy" / "hutuji-mcp.service").read_text(encoding="utf-8")
+    execstarts = [l for l in unit.splitlines() if l.startswith("ExecStart=")]
+    assert len(execstarts) == 1, f"ExecStart 必须恰好一条，当前 {len(execstarts)}"
+    line = execstarts[0]
+    assert "--no-proxy-headers" in line, (
+        "ExecStart 缺 --no-proxy-headers：uvicorn 默认信任 X-Forwarded-For 并用它"
+        "改写 scope['client']，LoopbackOnlyMcpGuard 的判据即可被伪造"
+    )
+    # --host 的既有防线一并守住，避免本次编辑把它挤掉。
+    assert "--host 127.0.0.1" in line
+
+
+def test_mcp_guard_docstring_does_not_overclaim_unforgeable_peer() -> None:
+    """守卫 docstring 声称判据「来自 socket，不可伪造」——该断言有前提，必须写明。
+
+    没有 --no-proxy-headers 时这句话是假的（见上面的机理测试）。防止后人读了
+    docstring 就以为无条件成立，从而放心去放宽 FORWARDED_ALLOW_IPS。
+    """
+    doc = server.LoopbackOnlyMcpGuard.__doc__ or ""
+    assert "no-proxy-headers" in doc, "docstring 必须点明「不可伪造」依赖关闭转发头信任"
+
+
 @pytest.mark.parametrize("path", ["/mcp", "/mcp/", "/mcp/messages"])
 def test_mcp_guard_covers_endpoint_and_subpaths(path: str) -> None:
     reached, _ = _run_guard(path, ("9.9.9.9", 1234))
@@ -1013,12 +1104,86 @@ def test_bitmap_trace_rejects_odd_channel_count() -> None:
         bitmap_svg.trace_bitmap_to_polylines(buf.getvalue())
 
 
+def _valid_ihdr_png(width: int, height: int) -> bytes:
+    """造一个 IHDR 合法（宽高可控）但正文缺 IDAT/IEND 的 PNG。
+
+    用途有二：喂过 _reject_oversized_png 这道头部闸去测更深的解码失败路径；
+    以及只用 24 字节头就能测超大图拦截，不必真造出上百 MB 的图。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    ihdr = (
+        width.to_bytes(4, "big")
+        + height.to_bytes(4, "big")
+        + bytes([8, 0, 0, 0, 0])  # 8bit 灰度，无交错
+    )
+    return bitmap_svg._PNG_MAGIC + bitmap_svg._png_chunk(b"IHDR", ihdr)
+
+
 def test_bitmap_trace_corrupt_png_raises_bitmap_error() -> None:
-    """PNG 签名完好但正文损坏时，插件异常必须包成 BitmapError（实测 OSError）。"""
+    """PNG 签名 + IHDR 完好但正文损坏时，插件异常必须包成 BitmapError（实测 OSError）。
+
+    夹具刻意带合法 IHDR：否则会被 _reject_oversized_png 的头部闸先拦掉，
+    本测试就测不到「imageio 插件异常被包窄」这个原本要守的契约了。
+    """
     from hutuji_mcp import bitmap_svg
 
     with pytest.raises(bitmap_svg.BitmapError, match="位图解码失败"):
+        bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(64, 64) + b"0" * 32)
+
+
+def test_bitmap_trace_rejects_oversized_png_before_decode() -> None:
+    """超过 _MAX_IMAGE_PIXELS 的图必须在解码前按 IHDR 拒掉。
+
+    动机是实测的内存放大：RGBA 4000²（16 Mpx）压缩仅 67.7 KiB，rgba2rgb 产
+    3 通道 float64 384 MB、峰值 1728 MB（24944×）。_IMAGE_DOWNLOAD_MAX_BYTES
+    限的是压缩字节，对像素数完全无效；Pillow 自带的炸弹闸要到 178,956,970 px
+    才报错，那之下已足够打爆小 VPS，而 unit 没有 MemoryMax= 兜底。
+    本例只给 24 字节头，正文一字节没有——能红/能绿就证明闸在解码之前生效。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    side = 4000  # 16 Mpx > 5 Mpx 上限
+    with pytest.raises(bitmap_svg.BitmapError, match="位图过大"):
+        bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(side, side))
+
+
+def test_bitmap_trace_accepts_current_generation_size() -> None:
+    """现行生图尺寸（_IMAGE_SIZE=1024x1024）必须能过头部闸。
+
+    这是上一条的反向钉子：上限收得过狠会静默废掉唯一现行生成路线。
+    只验头部闸放行（正文缺失故仍会在解码期失败），不重复描摹链的覆盖。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    side = int(bitmap_svg._IMAGE_SIZE.split("x")[0])
+    assert side * side <= bitmap_svg._MAX_IMAGE_PIXELS
+    with pytest.raises(bitmap_svg.BitmapError, match="位图解码失败"):
+        bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(side, side) + b"0" * 32)
+
+
+def test_bitmap_trace_rejects_png_without_leading_ihdr() -> None:
+    """IHDR 不在首块即判畸形：容错去扫后续块等于放弃这道闸。"""
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match="首块不是 IHDR"):
         bitmap_svg.trace_bitmap_to_polylines(bitmap_svg._PNG_MAGIC + b"0" * 32)
+
+
+def test_bitmap_trace_rejects_truncated_png_header() -> None:
+    """不足 24 字节读不到 IHDR，必须报头不完整而不是切片出空值放行。"""
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match="PNG 头不完整"):
+        bitmap_svg.trace_bitmap_to_polylines(bitmap_svg._PNG_MAGIC + b"0" * 4)
+
+
+def test_bitmap_trace_rejects_zero_dimension_png() -> None:
+    """宽或高为 0 的 PNG：w*h=0 会溜过上限比较，必须单独拦。"""
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match="宽高非法"):
+        bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(0, 1024))
 
 
 def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -359,7 +359,16 @@ class LoopbackOnlyMcpGuard:
     `/mcp` 是无鉴权控制面（能驱动写字机出图），此前防线全在应用之外：nginx 显式
     404 + 安全组不放 8300。任一层被绕（直跑 uvicorn、安全组放宽、换反代）即裸曝。
 
-    判据只用 ASGI `scope["client"]` 的对端地址：它来自 socket，不可伪造。
+    判据只用 ASGI `scope["client"]` 的对端地址。**该地址不可伪造有前提**：生产
+    unit 的 ExecStart 必须带 `--no-proxy-headers`。uvicorn 默认
+    `proxy_headers=True`，会把 `ProxyHeadersMiddleware` 包在最外层，并用
+    `X-Forwarded-For` **改写 scope["client"]**——即改写本刀的唯一判据；其信任面
+    `forwarded_allow_ips` 默认值又取自环境变量
+    （`os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1")`），而 unit 带
+    `EnvironmentFile=`，于是 env 文件里一行 `FORWARDED_ALLOW_IPS=*` 就能静默放宽。
+    2026-08-11 实测：放宽后从公网对端发 `X-Forwarded-For: 127.0.0.1` 即被本刀放行
+    （默认信任面下同一请求 404）。关掉 proxy_headers 后中间件根本不装，
+    scope["client"] 恒为真实 socket 对端，这句「不可伪造」才成立。
     SDK 自带的 DNS-rebinding 防护（FastMCP 因 host 是 loopback 而自动开启，
     `allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"]`）**不能替代本刀**：
     它校验的是 `Host` 请求头，而请求头由攻击方完全控制。2026-08-09 实测：绑

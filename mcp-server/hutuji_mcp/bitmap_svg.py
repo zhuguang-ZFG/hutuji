@@ -61,6 +61,42 @@ _MIN_POLY_PX = 12
 _SMOOTH_WINDOW = 5
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+# 解码前的像素数上限。_IMAGE_DOWNLOAD_MAX_BYTES 限的是**压缩**字节，管不住像素数：
+# 全白 PNG 压缩比实测 440~925:1，16MB 上限可携带上万 Mpx。而本模块的预处理链把
+# 像素放大到远超裸图——2026-08-11 本机实测（results 探针，用后即删）：
+#   灰度 4000² (16 Mpx)：压缩 20.6 KiB → gaussian 产 float64 128 MB → 峰值 272 MB
+#   RGBA 4000² (16 Mpx)：压缩 67.7 KiB → rgba2rgb 产 3 通道 float64 384 MB → 峰值 1728 MB
+# RGBA 是最坏路径（≈108 字节/像素峰值）。Pillow 自带的 DecompressionBomb 闸在
+# 2×MAX_IMAGE_PIXELS=178,956,970 px 才报错，那之下的 170 Mpx RGBA 按实测系数已达
+# ~18 GB，且 unit 没有 MemoryMax=，越界的是内核 OOM killer——它可能杀 nginx 或
+# sshd 而不是本服务。故必须在 iio.imread 之前按 IHDR 自行拦。
+# 取 5 Mpx：现行请求固定 1024²=1.05 Mpx，留 4.8× 余量并容纳 2048²=4.19 Mpx；
+# 5 Mpx 的 RGBA 峰值 ≈540 MB，小 VPS 可承受。换更高分辨率生图模型必须显式抬这个
+# 常量——4096² RGBA 在本链上真实要 ~1.8 GB，那是应当被迫做的决策，不该静默通过。
+_MAX_IMAGE_PIXELS = 5_000_000
+
+
+def _reject_oversized_png(png_bytes: bytes) -> None:
+    """按 PNG IHDR 的宽高在解码前拦下超大图，避免预处理链吃垮进程内存。
+
+    只读头 24 字节，不解码：PNG 规范要求 IHDR 必须是第一个块，故宽高就在
+    magic(8) + length(4) + type(4) 之后。调用方已校验过 magic。
+    """
+    if len(png_bytes) < 24:
+        raise BitmapError("PNG 头不完整（不足 24 字节，读不到 IHDR）")
+    if png_bytes[12:16] != b"IHDR":
+        # 规范要求 IHDR 排第一；不在第一位说明文件畸形或不是真 PNG。
+        # 这里 fail-closed，不去容错扫后续块——放过就等于放弃本闸。
+        raise BitmapError("PNG 首块不是 IHDR（文件畸形）")
+    width = int.from_bytes(png_bytes[16:20], "big")
+    height = int.from_bytes(png_bytes[20:24], "big")
+    if width <= 0 or height <= 0:
+        raise BitmapError(f"PNG 宽高非法（{width}x{height}）")
+    if width * height > _MAX_IMAGE_PIXELS:
+        raise BitmapError(
+            f"位图过大（{width}x{height}={width * height / 1e6:.1f} Mpx，"
+            f"上限 {_MAX_IMAGE_PIXELS / 1e6:.1f} Mpx）：预处理会吃垮内存"
+        )
 
 
 def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
@@ -97,6 +133,7 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
 
     if not png_bytes.startswith(_PNG_MAGIC):
         raise BitmapError("生图 API 返回的不是 PNG")
+    _reject_oversized_png(png_bytes)
     try:
         img = iio.imread(png_bytes)
         if img.ndim == 3 and img.shape[2] == 3:
