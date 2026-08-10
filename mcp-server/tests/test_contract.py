@@ -888,6 +888,27 @@ def _star_png_bytes() -> bytes:
     return buf.getvalue()
 
 
+def _star_rgba_png_bytes() -> bytes:
+    """五角星的 RGBA 变体：背景透明黑（RGB=0 且 alpha=0），线条不透明黑。
+
+    透明区的 RGB 刻意填 0：若实现丢 alpha 通道而不是按白底合成，整张图会被
+    看成纯黑、描不出任何线条，用本夹具的用例随之变红——借此钉死「透明即
+    无墨」的白底合成语义（imageio 会把 palette+tRNS 的 PNG 解码成 RGBA，
+    生图 API 完全可能返回这类文件）。
+    """
+    import io
+
+    import imageio.v3 as iio
+    import numpy as np
+
+    gray = iio.imread(_star_png_bytes())
+    rgba = np.zeros((*gray.shape, 4), dtype=np.uint8)
+    rgba[:, :, 3] = np.where(gray < 128, 255, 0).astype(np.uint8)
+    buf = io.BytesIO()
+    iio.imwrite(buf, rgba, extension=".png")
+    return buf.getvalue()
+
+
 def test_hutuji_draw_uses_bitmap_route(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -940,6 +961,39 @@ def test_bitmap_trace_rejects_non_png() -> None:
 
     with pytest.raises(bitmap_svg.BitmapError, match="不是 PNG"):
         bitmap_svg.trace_bitmap_to_polylines(b"definitely not a png")
+
+
+def test_bitmap_trace_rgba_png_composites_transparent_over_white() -> None:
+    """RGBA PNG 必须按白底合成后再描：透明 = 无墨，不得裸抛 ValueError。"""
+    from hutuji_mcp import bitmap_svg
+
+    polys, w, h = bitmap_svg.trace_bitmap_to_polylines(_star_rgba_png_bytes())
+    assert (w, h) == (1024, 1024)
+    # 夹具的透明区 RGB 是 0：丢 alpha 的错误实现会看到纯黑图、一条线都描不出。
+    assert sum(len(p) for p in polys) > 500
+
+
+def test_bitmap_trace_rejects_odd_channel_count() -> None:
+    """LA（2 通道）等非常规通道数必须拦成 BitmapError，不能裸抛 ValueError。"""
+    import io
+
+    import imageio.v3 as iio
+    import numpy as np
+    from hutuji_mcp import bitmap_svg
+
+    la = np.full((64, 64, 2), 255, dtype=np.uint8)
+    buf = io.BytesIO()
+    iio.imwrite(buf, la, extension=".png")
+    with pytest.raises(bitmap_svg.BitmapError, match="不支持的位图通道数"):
+        bitmap_svg.trace_bitmap_to_polylines(buf.getvalue())
+
+
+def test_bitmap_trace_corrupt_png_raises_bitmap_error() -> None:
+    """PNG 签名完好但正文损坏时，插件异常必须包成 BitmapError（实测 OSError）。"""
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match="位图解码失败"):
+        bitmap_svg.trace_bitmap_to_polylines(bitmap_svg._PNG_MAGIC + b"0" * 32)
 
 
 def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1044,6 +1098,127 @@ def test_bitmap_fetch_rejects_bad_response_shape(monkeypatch: pytest.MonkeyPatch
 
     transport = _httpx.MockTransport(lambda request: _httpx.Response(200, json={}))
     with pytest.raises(bitmap_svg.BitmapError, match="响应结构异常"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def test_bitmap_fetch_rejects_non_json_200_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """200 但正文不是 JSON（如网关 HTML 错误页）必须拦成 BitmapError。
+
+    json.JSONDecodeError 是 ValueError 而非 httpx 异常，不拦会裸穿出模块。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    import httpx as _httpx
+
+    transport = _httpx.MockTransport(
+        lambda request: _httpx.Response(200, content=b"<html>Bad Gateway</html>")
+    )
+    with pytest.raises(bitmap_svg.BitmapError, match="不是合法 JSON"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def _generations_ok_transport(get_handler):  # noqa: ANN001, ANN202
+    """生图 POST 恒 200 并返回图片 URL；图片 GET 的行为由 get_handler 注入。"""
+    import httpx as _httpx
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(
+                200, json={"data": [{"url": "https://cdn.example/ok.png"}]}
+            )
+        return get_handler(request)
+
+    return _httpx.MockTransport(handler)
+
+
+def test_bitmap_download_network_error_raises_bitmap_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """图片 GET 的 httpx 异常必须包成 BitmapError（只记类型名），不能裸穿出模块。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    def broken_get(request):  # noqa: ANN001, ANN202
+        raise _httpx.ConnectError("simulated CDN outage", request=request)
+
+    transport = _generations_ok_transport(broken_get)
+    with pytest.raises(
+        bitmap_svg.BitmapError, match="图片下载网络错误（ConnectError）"
+    ):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def test_bitmap_download_retries_once_then_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """图片 GET 首次瞬态断连必须重试一次并成功（重新 GET 不再计费）。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    get_calls = 0
+
+    def flaky_get(request):  # noqa: ANN001, ANN202
+        nonlocal get_calls
+        get_calls += 1
+        if get_calls == 1:
+            raise _httpx.ConnectError("simulated CDN blip", request=request)
+        return _httpx.Response(200, content=_png_stub())
+
+    transport = _generations_ok_transport(flaky_get)
+    body = asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+    assert body == _png_stub()
+    assert get_calls == 2, "图片下载必须重试一次"
+
+
+def test_bitmap_download_rejects_oversize_content_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Content-Length 声明超限必须在读 body 前就拒：小 body 大声明也要拒。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    import httpx as _httpx
+
+    def oversize_get(request):  # noqa: ANN001, ANN202
+        # 实际 body 很小但声明超限：只在缓冲后按 len(body) 检查的实现会漏过本用例。
+        return _httpx.Response(
+            200,
+            content=_png_stub(),
+            headers={"content-length": str(bitmap_svg._IMAGE_DOWNLOAD_MAX_BYTES + 1)},
+        )
+
+    transport = _generations_ok_transport(oversize_get)
+    with pytest.raises(bitmap_svg.BitmapError, match="图片超过下载上限"):
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
 
 
@@ -2559,6 +2734,35 @@ def test_bitmap_module_self_test_runs_offline_trace_chain(
     assert bitmap_svg._main([]) == 2
 
 
+def test_bitmap_self_test_never_reads_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """自检必须保持封闭：把 settings 换成「任何属性访问都炸」的对象仍须退 0。
+
+    回归钉（7aab460）：自检曾读 settings.llm_api_key，而 preflight 的
+    check_bitmap_chain 以 root 直跑、刻意不 source mcp.env，健康机器因此
+    过不了体检。本钉保证自检路径完全不碰配置。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    class _ExplodingSettings:
+        def __getattr__(self, name: str) -> None:
+            raise AssertionError(f"bitmap self-test 不得读 settings.{name}")
+
+    monkeypatch.setattr(bitmap_svg, "settings", _ExplodingSettings())
+    assert bitmap_svg._main(["--self-test"]) == 0
+
+
+def test_bitmap_self_test_prints_preflight_contract_line(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """成功行是生产契约：preflight 的 check_bitmap_chain 按
+    `^bitmap self-test OK module=` grep 它，格式一改生产体检必红。"""
+    from hutuji_mcp import bitmap_svg
+
+    assert bitmap_svg._main(["--self-test"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0].startswith("bitmap self-test OK module=")
+
+
 def test_bitmap_missing_dependency_error_keeps_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2580,6 +2784,37 @@ def test_bitmap_missing_dependency_error_keeps_diagnostic(
     message = str(caught.value)
     assert "simulated imageio ABI failure" in message
     assert "依赖缺失（None）" not in message
+
+
+def test_bitmap_missing_dependency_abi_value_error_keeps_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ABI 失配的经典报错是 ValueError 而非 ImportError，宽 catch 必须同样兜住。
+
+    旧代码只 catch ImportError 时，`ValueError: numpy.dtype size changed` 会
+    裸穿出模块（调用方只准备接 BitmapError，变成 500），「装 requirements.txt」
+    这句唯一可行动的诊断随之丢失。上面那条用例只抛 ImportError，旧代码也能过。
+    """
+    import builtins
+
+    from hutuji_mcp import bitmap_svg
+
+    real_import = builtins.__import__
+
+    def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name.startswith("skimage"):
+            raise ValueError(
+                "numpy.dtype size changed, may indicate binary incompatibility. "
+                "Expected 96 from C header, got 88 from PyObject"
+            )
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+    with pytest.raises(bitmap_svg.BitmapError) as caught:
+        bitmap_svg.trace_bitmap_to_polylines(b"")
+    message = str(caught.value)
+    assert "ValueError" in message
+    assert "numpy.dtype size changed" in message
 
 
 def test_deploy_guidance_explicitly_restarts_active_application_services() -> None:

@@ -16,6 +16,7 @@ vpype 管线的 SVG 都过同一道闸」是不变量，不因来源可信而豁
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import sys
@@ -68,7 +69,7 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     try:
         import imageio.v3 as iio
         import sknw
-        from skimage.color import rgb2gray
+        from skimage.color import rgb2gray, rgba2rgb
         from skimage.filters import gaussian, threshold_otsu
         from skimage.morphology import skeletonize
     except Exception as exc:  # noqa: BLE001
@@ -92,11 +93,30 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
 
     if not png_bytes.startswith(_PNG_MAGIC):
         raise BitmapError("生图 API 返回的不是 PNG")
-    img = iio.imread(png_bytes)
-    if img.ndim == 3:
-        img = (rgb2gray(img) * 255).astype(np.uint8)
-    elif img.ndim != 2:
-        raise BitmapError(f"无法解码的位图形状：{img.shape}")
+    try:
+        img = iio.imread(png_bytes)
+        if img.ndim == 3 and img.shape[2] == 3:
+            img = (rgb2gray(img) * 255).astype(np.uint8)
+        elif img.ndim == 3 and img.shape[2] == 4:
+            # RGBA 必须先按 alpha 合成再转灰，不能丢 alpha 通道：imageio 会把
+            # palette+tRNS 解码成 RGBA，而线稿语义里透明即「无墨」，透明区的
+            # 垃圾 RGB 直接当颜色用会被描成墨线。rgba2rgb 默认合成到白底，
+            # 正合这个语义。
+            img = (rgb2gray(rgba2rgb(img)) * 255).astype(np.uint8)
+        elif img.ndim == 3:
+            # LA（2 通道）等非常规通道数：rgb2gray 只接受 3 通道，会裸抛
+            # ValueError，在本地拦成可诊断的 BitmapError。
+            raise BitmapError(f"不支持的位图通道数：{img.shape}")
+        elif img.ndim != 2:
+            raise BitmapError(f"无法解码的位图形状：{img.shape}")
+    except BitmapError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # 刻意宽 catch：imageio 各后端插件的解码异常类型不统一（签名通过但正文
+        # 损坏时裸穿出插件自有异常，实测 OSError/ValueError 都有），而调用方只
+        # 准备接 BitmapError。正文来自外部 CDN，异常文本可能回显字节内容，只记
+        # 类型名。
+        raise BitmapError(f"位图解码失败（{type(exc).__name__}）") from None
     h, w = img.shape
 
     blur = gaussian(img, sigma=1.0, preserve_range=True)
@@ -164,7 +184,13 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                 async with asyncio.timeout(_IMAGE_ATTEMPT_TIMEOUT_SECONDS):
                     resp = await client.post(url, json=payload, headers=headers)
                 if resp.status_code == 200:
-                    data = resp.json()
+                    try:
+                        data = resp.json()
+                    except json.JSONDecodeError:
+                        # 200 但正文不是 JSON（如 CDN/网关的 HTML 错误页）：
+                        # json.JSONDecodeError 是 ValueError 而非 httpx 异常，
+                        # 不拦会裸穿出本模块；重试同一份垃圾正文无意义，直接失败。
+                        raise BitmapError("生图 API 响应不是合法 JSON") from None
                     break
                 # 上游错误正文可能回显凭据；不读取不记录，只记状态码。
                 if (
@@ -188,9 +214,29 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
         if not isinstance(image_url, str) or not image_url.startswith("https://"):
             raise BitmapError("生图 API 未返回有效的 https 图片地址")
 
-        dl = await client.get(image_url)
-        if dl.status_code != 200:
-            raise BitmapError(f"图片下载返回 {dl.status_code}")
+        # 下载给一次（且仅一次）重试：重新 GET 不再计费（重试 POST 才会），
+        # CDN 瞬态断连值得一试；延迟沿用 _RETRY_DELAYS_SECONDS 首段，不另起常量。
+        # 错误处理与生图 POST 同口径：httpx 异常只记类型名，不碰可能回显的 URL。
+        for attempt in range(2):
+            try:
+                dl = await client.get(image_url)
+                if dl.status_code == 200:
+                    break
+                if dl.status_code in _TRANSIENT_HTTP_STATUSES and attempt == 0:
+                    await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
+                    continue
+                raise BitmapError(f"图片下载返回 {dl.status_code}")
+            except (httpx.HTTPError, TimeoutError) as exc:
+                if attempt == 0:
+                    await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
+                    continue
+                raise BitmapError(f"图片下载网络错误（{type(exc).__name__}）") from None
+        # 有 Content-Length 先按声明值拦超大图。注意非流式 GET 返回时 body 已
+        # 缓冲完，这道是声明级闸、不省流量；缺头（chunked 编码等）或头部畸形时
+        # 回落到下面按实际长度的检查，那道才是真兜底。
+        declared = dl.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > _IMAGE_DOWNLOAD_MAX_BYTES:
+            raise BitmapError("图片超过下载上限")
         body = dl.content
         if len(body) > _IMAGE_DOWNLOAD_MAX_BYTES:
             raise BitmapError("图片超过下载上限")
