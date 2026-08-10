@@ -2995,6 +2995,47 @@ def test_mcp_unit_caps_memory_so_oom_stays_in_this_cgroup() -> None:
     assert mib <= 1946, f"MemoryMax={value} 超过整机一半，兜底失去意义"
 
 
+def test_bridge_unit_caps_memory_and_keeps_hardening() -> None:
+    """bridge unit 的内存兜底与加固键必须在场。
+
+    此前本 unit **完全没有形状测试**：2026-08-11 给它补的 ProcSubset=pid 当时
+    也没留钉子，删掉不会红。本条与 MCP 侧的 MemoryMax 判据同口径。
+
+    取值依据（生产实测 2026-08-11）：整机 3911MB 无 swap，本服务 cgroup 峰值
+    59.7MB（只中转 JSON-RPC，曲线平坦），进程树含 spawn 的 mcp-proxy。
+    要防的是 mcp-proxy 子进程僵死/堆积（0.12.0 有社区稳定性报告）在无上限时
+    挤垮整机，而内核按 oom_score 选受害者——可能是 nginx 或 sshd 而非肇事者。
+    """
+    root = Path(__file__).resolve().parents[2]
+    unit = (root / "deploy" / "hutuji-cloud-bridge.service").read_text(encoding="utf-8")
+
+    caps = [l for l in unit.splitlines() if l.startswith("MemoryMax=")]
+    assert len(caps) == 1, f"MemoryMax 必须恰好一条，当前 {len(caps)}"
+    value = caps[0].split("=", 1)[1].strip()
+    assert value != "infinity", "MemoryMax=infinity 等于没设"
+    assert value.endswith(("M", "G")), f"MemoryMax 必须带 M/G 单位，当前 {value!r}"
+    mib = int(value[:-1]) * (1024 if value.endswith("G") else 1)
+    # 下界：须显著高于实测峰值 59.7MB，并容得下重连期两个 mcp-proxy 短暂并存
+    # （约 114MB + bridge 约 30MB ≈ 144MB），否则正常重连会被 cgroup 杀掉。
+    assert mib >= 192, f"MemoryMax={value} 容不下 mcp-proxy 重连期并存，会误杀"
+    # 上界：本服务峰值仅 60MB，给太宽就抓不住泄漏——它是本条唯一要防的东西。
+    assert mib <= 512, f"MemoryMax={value} 远超本服务需要，抓不住 mcp-proxy 泄漏"
+
+    # OOM 被杀后必须能自愈，且不得无限重启刷日志（这两键分属不同段，易写错段）。
+    assert "Restart=on-failure" in unit
+    assert "StartLimitIntervalSec=300" in unit
+    assert "StartLimitBurst=5" in unit
+    # 与 MCP 侧同口径的加固键：此前无任何测试覆盖，删掉不会红。
+    for key in (
+        "ProtectProc=invisible",
+        "ProcSubset=pid",
+        "ProtectSystem=strict",
+        "CapabilityBoundingSet=",
+        "SystemCallFilter=~@privileged @resources @obsolete",
+    ):
+        assert key in unit, f"bridge unit 缺加固键 {key}"
+
+
 def test_gcode_module_self_test_runs_real_generation_chain() -> None:
     gcode_gen._run_self_test()
     assert gcode_gen._main(["--self-test"]) == 0

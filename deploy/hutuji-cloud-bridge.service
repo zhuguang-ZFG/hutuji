@@ -24,6 +24,19 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 
+# 内存兜底，与 hutuji-mcp.service 同口径：把 OOM 的作用域从「整机」收到本 cgroup。
+# 生产实测（2026-08-11）：整机 3911MB **无 swap**，本服务 cgroup 当前 59.1MB、
+# 峰值 59.7MB（曲线基本平坦——它只中转 JSON-RPC，不碰图像/几何），原为 infinity；
+# 进程树是 bridge 29.6MB + spawn 的 mcp-proxy 57.3MB，两者同属本 cgroup 一并计入。
+# 取 256M：峰值的 4.3 倍。mcp-proxy 重连时若旧代理未死净而新代理已起，短暂并存
+# 约 114MB 加 bridge 约 30MB ≈ 144MB，仍有余量；反过来给 512M 对一个峰值 60MB 的
+# 服务几乎等于不设限，抓不住泄漏。本条要防的正是 mcp-proxy 的子进程生命周期问题
+# （0.12.0 有社区稳定性报告：子进程僵死/堆积），那类泄漏在无上限时会挤垮整机，
+# 而受害者由内核按 oom_score 挑——可能是 nginx 或 sshd 而非肇事者。
+# 被 OOM 杀掉可自愈：Restart=on-failure 已在，且 [Unit] 的
+# StartLimitIntervalSec=300 / StartLimitBurst=5 兜住反复重启刷日志。
+MemoryMax=256M
+
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
