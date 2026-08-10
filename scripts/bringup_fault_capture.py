@@ -45,6 +45,26 @@ GRBL_MARKERS = [
     "error:90",
 ]
 
+# 串口写超时（秒）。注入命令只有十来个字节，115200bps 下写入本是毫秒级；2.0s 已给足
+# USB 转串口驱动重试与操作系统缓冲的余量，同时把「写阻塞」压成有界失败——不设上限时
+# ser.write 可能长时间挂住，finally 里补排的 [ESP115]ON 既发不出去也不报错。
+SERIAL_WRITE_TIMEOUT_S = 2.0
+
+# 线程回收预算（秒）。WiFi 恢复命令是在 finally 里补排的，预算必须够一次有界写走完，
+# 否则线程被丢下时 [ESP115]ON 还没写出去（旧值 1.5s 小于写超时，实测会漏掉恢复）。
+JOIN_TIMEOUT_S = SERIAL_WRITE_TIMEOUT_S + 1.0
+
+# WiFi 恢复命令。排入队列与发送确认判定共用同一常量，免得两边悄悄漂开。
+WIFI_RESTORE_COMMAND = "[ESP115]ON"
+
+# 串口侧故障标记：任一标记出现在日志任一行 → 退出码 1（AGENTS.md 钉死 1=串口报错）。
+# 集中一处是为了新增故障文案时不漏改退出码判定——旧实现只认 "ERROR opening/reading"，
+# 写失败与「恢复未确认」都以退出码 0 收场，事故对操作员完全隐形。
+SERIAL_READ_ERROR = "ERROR opening/reading"
+SERIAL_WRITE_ERROR = "ERROR writing to"
+RESTORE_UNCONFIRMED_ERROR = "ERROR wifi-restore-unconfirmed"
+SERIAL_ERROR_MARKERS = (SERIAL_READ_ERROR, SERIAL_WRITE_ERROR, RESTORE_UNCONFIRMED_ERROR)
+
 
 def _load_serial_module():
     try:
@@ -68,7 +88,7 @@ def _serial_worker(
 ) -> None:
     serial = _load_serial_module()
     try:
-        with serial.Serial(port, baud, timeout=0.2) as ser:
+        with serial.Serial(port, baud, timeout=0.2, write_timeout=SERIAL_WRITE_TIMEOUT_S) as ser:
             out.put(f"{_timestamp()} [{name}] opened {port} @ {baud}")
             pending = bytearray()
             # stop 后仍排空命令队列：Ctrl-C 若发生在 [ESP115]OFF/ON 之间，
@@ -81,8 +101,18 @@ def _serial_worker(
                         except queue.Empty:
                             break
                         payload = (command.rstrip() + "\r\n").encode("ascii")
-                        ser.write(payload)
-                        ser.flush()
+                        try:
+                            ser.write(payload)
+                            ser.flush()
+                        except Exception as exc:
+                            # 与「打开/读取」失败分开报：端口开着、读循环还活着，只是这条
+                            # 命令没出去（可能就是 WiFi 恢复），处置是人工补发而非重连串口。
+                            out.put(
+                                f"{_timestamp()} [inject] {SERIAL_WRITE_ERROR} {port}: {command}: {exc}"
+                            )
+                            continue
+                        # write 与 flush 都返回了才落这行，故它就是「命令已送出」的确认，
+                        # WiFi 恢复判定（_restore_failure_line）据此认账。
                         out.put(f"{_timestamp()} [inject] sent to {port}: {command}")
                 chunk = ser.read(256)
                 if not chunk:
@@ -96,7 +126,7 @@ def _serial_worker(
                 text = pending.decode("utf-8", errors="replace")
                 out.put(f"{_timestamp()} [{name}] {text}")
     except Exception as exc:  # pragma: no cover - hardware path
-        out.put(f"{_timestamp()} [{name}] ERROR opening/reading {port}: {exc}")
+        out.put(f"{_timestamp()} [{name}] {SERIAL_READ_ERROR} {port}: {exc}")
 
 
 def _drain_events(events: queue.Queue[str], lines: list[str]) -> None:
@@ -107,15 +137,47 @@ def _drain_events(events: queue.Queue[str], lines: list[str]) -> None:
             break
 
 
+def _split_source(line: str) -> tuple[str, str]:
+    """把一行日志拆成（来源, 正文）；识别不出来源时来源返回空串。
+
+    所有落行都是 `{时间戳} [{来源}] {正文}`：串口线程用 S3/Grbl，主线程用 capture/inject。
+    """
+    head, sep, body = line.partition("] ")
+    if not sep:
+        return "", line
+    open_at = head.rfind("[")
+    if open_at == -1:
+        return "", line
+    return head[open_at + 1:], body
+
+
+def _source_text(lines: list[str], source: str) -> str:
+    """把指定来源的行正文拼成一段（已剥掉时间戳与 `[来源] ` 前缀）。
+
+    `[capture]`（含 --note 自由文本）与 `[inject]`（注入命令回显）不是设备来源，
+    于此天然被排除：它们都是本工具自己写的字，不能当成串口实收。
+    """
+    bodies = []
+    for line in lines:
+        src, body = _split_source(line)
+        if src == source:
+            bodies.append(body)
+    return "\n".join(bodies)
+
+
 def _summarize(lines: list[str]) -> list[str]:
-    joined = "\n".join(lines)
+    # 按来源分组匹配：每行的 `[来源]` 标签是标记归属的唯一真值。旧实现把所有行合成
+    # 一段做 substring 匹配，S3 日志复述的 `M30`/`[PaperStatus]` 会在 Grbl 侧判「是」，
+    # 而 Grbl 串口一个字节都没收到——这张表是人判联调结论的依据，不能凭空报正。
+    s3_text = _source_text(lines, "S3")
+    grbl_text = _source_text(lines, "Grbl")
     summary = ["## 标记扫描", ""]
     summary.append("| 来源 | 标记 | 是否出现 |")
     summary.append("|------|------|----------|")
     for marker in S3_MARKERS:
-        summary.append(f"| S3 | `{marker}` | {'是' if marker in joined else '否'} |")
+        summary.append(f"| S3 | `{marker}` | {'是' if marker in s3_text else '否'} |")
     for marker in GRBL_MARKERS:
-        summary.append(f"| Grbl | `{marker}` | {'是' if marker in joined else '否'} |")
+        summary.append(f"| Grbl | `{marker}` | {'是' if marker in grbl_text else '否'} |")
     return summary
 
 def _positive_duration(value: str) -> int:
@@ -140,9 +202,34 @@ def _queue_wifi_restore(
 ) -> bool:
     """中断/异常退出时补排 WiFi ON；返回是否已安排恢复。"""
     if injected_off and not injected_on and commands is not None:
-        commands.put("[ESP115]ON")
+        commands.put(WIFI_RESTORE_COMMAND)
         return True
     return injected_on
+
+
+def _restore_failure_line(restore_queued: bool, lines: list[str]) -> str | None:
+    """排过 WiFi 恢复但日志里没有它的发送确认时，返回要追加的显式失败行；否则 None。
+
+    确认只认 `[inject] sent to {port}: [ESP115]ON`——该行在 ser.write 与 ser.flush()
+    双双返回后才落，写超时/写异常只会落 ERROR 行。旧实现把 ON 排进队列就算完，实测
+    写阻塞 3s 时报告无 ON 行、无 ERROR 行、退出码 0，「写字机被留在 WiFi 关态」隐形。
+    """
+    if not restore_queued:
+        return None
+    for line in lines:
+        source, body = _split_source(line)
+        if source == "inject" and body.endswith(f": {WIFI_RESTORE_COMMAND}"):
+            return None
+    return (
+        f"{_timestamp()} [capture] {RESTORE_UNCONFIRMED_ERROR} "
+        f"未见 {WIFI_RESTORE_COMMAND} 的发送确认：写字机可能仍处 WiFi 关态，"
+        f"请人工连 Grbl 串口发 {WIFI_RESTORE_COMMAND} 并确认 [MSG:Client Started] 后再继续"
+    )
+
+
+def _exit_code(lines: list[str]) -> int:
+    """按 SERIAL_ERROR_MARKERS 判退出码：任一串口侧故障标记出现即 1，否则 0。"""
+    return 1 if any(marker in line for line in lines for marker in SERIAL_ERROR_MARKERS) else 0
 
 
 def main() -> int:
@@ -227,18 +314,24 @@ def main() -> int:
             if injected_off and not injected_on and elapsed >= args.inject_grbl_wifi_cycle_at + args.wifi_off_seconds:
                 injected_on = True
                 if grbl_commands is not None:
-                    grbl_commands.put("[ESP115]ON")
+                    grbl_commands.put(WIFI_RESTORE_COMMAND)
             _drain_events(events, lines)
             time.sleep(0.1)
     except KeyboardInterrupt:
         events.put(f"{_timestamp()} [capture] interrupted by user")
     finally:
-        injected_on = _queue_wifi_restore(injected_off, injected_on, grbl_commands)
+        restore_queued = _queue_wifi_restore(injected_off, injected_on, grbl_commands)
         stop.set()
         for thread in threads:
-            thread.join(timeout=1.5)
+            # 预算必须容得下一次有界写：恢复命令可能刚在上一行才排进队列。
+            thread.join(timeout=JOIN_TIMEOUT_S)
         events.put(f"{_timestamp()} [capture] stop")
         _drain_events(events, lines)
+        failure = _restore_failure_line(restore_queued, lines)
+        if failure is not None:
+            # 恢复没确认就得在报告里显式留痕并让退出码非 0，否则「设备被留在 WiFi 关态」
+            # 这个真实事故对操作员完全隐形（报告只剩 OFF 行，看起来一切正常）。
+            lines.append(failure)
 
     header = [
         "# Bringup 8.3 故障注入采集",
@@ -254,7 +347,7 @@ def main() -> int:
     body = ["## 原始日志", "", "```text", *lines, "```", ""]
     out_path.write_text("\n".join(header + _summarize(lines) + [""] + body), encoding="utf-8")
     print(out_path)
-    return 1 if any("ERROR opening/reading" in line for line in lines) else 0
+    return _exit_code(lines)
 
 
 if __name__ == "__main__":
