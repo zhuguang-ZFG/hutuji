@@ -2971,6 +2971,30 @@ def test_mcp_unit_self_tests_vpype_inside_sandbox_and_only_allows_mbind() -> Non
     }
 
 
+def test_mcp_unit_caps_memory_so_oom_stays_in_this_cgroup() -> None:
+    """必须设 MemoryMax：无上限时内存尖峰交由内核 OOM killer 全机选受害者。
+
+    生产实测（2026-08-11）：总内存 3911MB、**无 swap**，本服务 cgroup 历史峰值
+    174.5MB，原 MemoryMax=infinity。没有本条时一次内存尖峰可能被内核以
+    oom_score 判给 nginx / cloud-bridge / sshd，把「一次生成失败」放大成
+    「机器失联」。本条只钉「有上限且量级合理」，不钉具体数值以外的策略——
+    真正的防线是 bitmap_svg._reject_oversized_png，本条是最后一道。
+    """
+    root = Path(__file__).resolve().parents[2]
+    unit = (root / "deploy" / "hutuji-mcp.service").read_text(encoding="utf-8")
+    caps = [l for l in unit.splitlines() if l.startswith("MemoryMax=")]
+    assert len(caps) == 1, f"MemoryMax 必须恰好一条，当前 {len(caps)}"
+    value = caps[0].split("=", 1)[1].strip()
+    assert value != "infinity", "MemoryMax=infinity 等于没设"
+    # 只接受带单位的显式量级；裸数字（字节）极易少写几个零而静默把服务锁死。
+    assert value.endswith(("M", "G")), f"MemoryMax 必须带 M/G 单位，当前 {value!r}"
+    mib = int(value[:-1]) * (1024 if value.endswith("G") else 1)
+    # 下界：必须显著高于实测历史峰值 174.5MB，否则正常出图会被 cgroup 杀掉。
+    assert mib >= 512, f"MemoryMax={value} 低于实测峰值的安全倍数，正常出图会被杀"
+    # 上界：超过整机 3911MB 的一半就失去「给 nginx/sshd 留余量」的意义。
+    assert mib <= 1946, f"MemoryMax={value} 超过整机一半，兜底失去意义"
+
+
 def test_gcode_module_self_test_runs_real_generation_chain() -> None:
     gcode_gen._run_self_test()
     assert gcode_gen._main(["--self-test"]) == 0

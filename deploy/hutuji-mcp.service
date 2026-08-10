@@ -39,6 +39,20 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 
+# 内存兜底：把 OOM 的作用域从「整机」收到「本服务 cgroup」。
+# 生产实测（2026-08-11）：总内存 3911MB、**无 swap**（故 OOM 立即发生，没有
+# 换页缓冲），本服务 cgroup 当前 92.6MB、历史峰值 174.5MB，MemoryMax 原为 infinity。
+# 无上限时任何内存尖峰交由内核 OOM killer 选受害者，它按 oom_score 挑，
+# 完全可能杀掉 nginx / hutuji-cloud-bridge / sshd 而不是肇事的本服务
+# ——那会把「一次生成失败」放大成「机器失联」。
+# 取 1G：历史峰值的 5.7 倍，容得下 DrawLimiter 允许的 2 路并发（含各自的 vpype
+# 子进程——MemoryMax 作用于整个 cgroup，子进程一并计入），也容得下位图路线
+# 应用层上限 _MAX_IMAGE_PIXELS=5Mpx 之内的输入；同时把本服务钉在整机 26%
+# 以内，给 nginx/cloud-bridge/sshd 留出余量。
+# 注意分工：真正的防线是 bitmap_svg._reject_oversized_png（解码前按 IHDR 拒绝），
+# 本条只是「应用层没覆盖到的尖峰」的最后一道，不可用它替代那道闸。
+MemoryMax=1G
+
 # 应用树由 root 维护；服务仅需创建和清理生成产物。
 NoNewPrivileges=true
 PrivateTmp=true
