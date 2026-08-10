@@ -266,6 +266,9 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
         retry_download = False
         for attempt in range(2):
             try:
+                # 必须把 asyncio.timeout 包在 stream 外：httpx timeout= 只管两次 chunk
+                # 间静默间隔，不管总时长；慢速攻击（1KB/s 持续流）可让下载挂 30 分钟。
+                # 总超时必须覆盖 stream 建立 + 整个 aiter_bytes 循环 + body 累加。
                 async with asyncio.timeout(_IMAGE_DOWNLOAD_TIMEOUT_SECONDS):
                     async with client.stream("GET", image_url) as dl:
                         if dl.status_code == 200:
