@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -24,6 +25,12 @@ logger = logging.getLogger("HUTUJI_MCP_BRIDGE")
 
 INITIAL_BACKOFF_SECONDS = 1
 MAX_BACKOFF_SECONDS = 60
+# 会话「算健康」的时长门槛：只有存活至少这么久的会话才复位退避。
+# 云端干净关闭（1000/1001：维护、会话被顶、空闲回收）会让 `bridge_once` 正常返回；
+# 若不看时长一律复位，握手后立刻被关就退化成 1 秒/次、无上限的重连风暴，反复冲击
+# 厂商接入点（该端点不属于我们，被限流/封禁的代价由整机承担）。实测：不看时长时
+# 6 轮重连间隔恒为 1s（累计 6s），看时长后回到 1/2/4/8/16/32（累计 63s）。
+HEALTHY_SESSION_SECONDS = 60
 
 # mcp-proxy stderr / 第三方库日志可能回显 URL 或凭据；禁止把 token / Bearer /
 # api_key / access_token / sk- 裸密钥 / wss 原文写入日志。各形态共用同一个
@@ -368,12 +375,16 @@ async def run_forever(config: BridgeConfig) -> None:
     _set_bridge_ready(False)
     backoff = INITIAL_BACKOFF_SECONDS
     while True:
+        started = time.monotonic()
         try:
             await bridge_once(config)
-            # 连接曾建立并正常结束：复位 backoff，避免长连接断开后重连延迟
-            # 从上次失败累积的高值起步（ponytail: 无 jitter，单实例无惊群风险）。
-            logger.warning("WSS 会话已结束，%d 秒后重连", INITIAL_BACKOFF_SECONDS)
-            backoff = INITIAL_BACKOFF_SECONDS
+            # 会话正常结束（云端干净关闭走这条路）。只有真正撑过
+            # HEALTHY_SESSION_SECONDS 的会话才复位退避——原意是「长连接断开后不该
+            # 从累积的高值起步」，不是「任何正常返回都从 1 秒起步」。
+            elapsed = time.monotonic() - started
+            if elapsed >= HEALTHY_SESSION_SECONDS:
+                backoff = INITIAL_BACKOFF_SECONDS
+            logger.warning("WSS 会话已结束（存活 %.1f 秒），%d 秒后重连", elapsed, backoff)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

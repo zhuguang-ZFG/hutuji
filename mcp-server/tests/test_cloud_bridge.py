@@ -525,3 +525,103 @@ def test_bridge_reaps_proxy_when_ready_marker_write_fails(
     asyncio.run(exercise())
     assert processes, "应已 spawn mcp-proxy 才能验证回收"
     assert processes[0].returncode is not None
+
+
+
+class _StopProbe(BaseException):
+    """BaseException 派生：绕过 `run_forever` 的 `except Exception`，用于终止无限循环。"""
+
+
+def _backoff_sequence(
+    monkeypatch: pytest.MonkeyPatch, *, session_seconds: float, fail: bool, rounds: int
+) -> list[float]:
+    """跑 `rounds` 轮 `run_forever`，返回每轮实际睡眠的重连间隔。
+
+    时钟与 sleep 全部替换为假实现：`fake_sleep` 推进假时钟，`fake_bridge_once`
+    按 `session_seconds` 声明本次会话存活多久，故不依赖真实时间。
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    delays: list[float] = []
+    now = {"t": 0.0}
+    calls = {"n": 0}
+
+    async def fake_bridge_once(_config) -> None:  # noqa: ANN001
+        calls["n"] += 1
+        if calls["n"] > rounds:
+            raise _StopProbe
+        now["t"] += session_seconds
+        if fail:
+            raise OSError("dial failed")
+
+    async def fake_sleep(delay: float, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        del args, kwargs
+        delays.append(delay)
+        now["t"] += delay
+
+    monkeypatch.setattr(cloud_bridge, "bridge_once", fake_bridge_once)
+    monkeypatch.setattr(cloud_bridge, "time", SimpleNamespace(monotonic=lambda: now["t"]))
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(cloud_bridge, "_set_bridge_ready", lambda ready: None)
+
+    async def exercise() -> None:
+        with pytest.raises(_StopProbe):
+            await cloud_bridge.run_forever(
+                cloud_bridge.BridgeConfig(
+                    endpoint="wss://example.invalid/mcp?token=secret",
+                    local_mcp_url="http://127.0.0.1:8300/mcp",
+                )
+            )
+
+    asyncio.run(exercise())
+    return delays
+
+
+def test_backoff_grows_when_clean_close_arrives_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """云端握手后立刻干净关闭（1000/1001）不得复位退避。
+
+    `async for message in websocket` 对 1000/1001 是**正常退出**（实测；1008 才抛
+    `ConnectionClosedError`），故 `bridge_once` 正常返回。旧实现在这条路上无条件把
+    backoff 复位成 `INITIAL_BACKOFF_SECONDS`，于是维护/会话被顶/空闲回收时退化成
+    1 秒/次、无上限的重连风暴，反复冲击不属于我们的厂商接入点。
+    """
+    from hutuji_mcp import cloud_bridge
+
+    delays = _backoff_sequence(
+        monkeypatch,
+        session_seconds=cloud_bridge.HEALTHY_SESSION_SECONDS / 60.0,
+        fail=False,
+        rounds=6,
+    )
+    assert delays == [1, 2, 4, 8, 16, 32], f"短命干净关闭必须指数退避，实际 {delays}"
+
+
+def test_backoff_resets_after_healthy_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """撑过时长门槛的会话断开后，退避复位到初值（原意保留）。"""
+    from hutuji_mcp import cloud_bridge
+
+    delays = _backoff_sequence(
+        monkeypatch,
+        session_seconds=cloud_bridge.HEALTHY_SESSION_SECONDS,
+        fail=False,
+        rounds=4,
+    )
+    assert delays == [
+        cloud_bridge.INITIAL_BACKOFF_SECONDS
+    ] * 4, f"健康会话须复位退避，实际 {delays}"
+
+
+def test_backoff_still_grows_and_caps_on_error_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """异常路径（连不上/协议错）行为不变，且封顶在 MAX_BACKOFF_SECONDS。"""
+    from hutuji_mcp import cloud_bridge
+
+    delays = _backoff_sequence(monkeypatch, session_seconds=0.0, fail=True, rounds=9)
+    assert delays == [1, 2, 4, 8, 16, 32, 60, 60, 60], f"实际 {delays}"
+    assert max(delays) == cloud_bridge.MAX_BACKOFF_SECONDS
