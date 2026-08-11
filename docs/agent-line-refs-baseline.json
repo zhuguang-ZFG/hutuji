@@ -1,5 +1,5 @@
 {
-  "git_head": "a8ad5ad8c08859378d5e3cece76875f3ce8792f6",
+  "git_head": "15e30b98a0c504962ad1ae42993b7ae87b09d512",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -28,6 +28,10 @@
     "docs/agent-handoff.md -> hutuji_job.cc:951": {
       "sha8": "ae16d174",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/agent-handoff.md -> nginx-hutuji.conf:75": {
+      "sha8": "fd837018",
+      "target": "deploy/nginx-hutuji.conf"
     },
     "docs/agent-handoff.md -> protocol.h:36": {
       "sha8": "5817611c",
@@ -320,6 +324,10 @@
     "docs/protocol.md -> GCode.cpp:1727": {
       "sha8": "f39c7221",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
+    "docs/protocol.md -> Grbl_Esp32.ino:28": {
+      "sha8": "4e3a2445",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/Grbl_Esp32.ino"
     },
     "docs/protocol.md -> PaperSystem.cpp:351": {
       "sha8": "d10bb1da",
@@ -686,6 +694,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-11T08:01:16Z",
+  "updated": "2026-08-11T13:25:30Z",
   "version": 1
 }

@@ -2721,7 +2721,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 22
+    assert preflight.count('\ncheck "') == 23
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -2740,7 +2740,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
 
 def test_preflight_invokes_every_check_after_env_init() -> None:
     """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
-    `unbound variable` 退出，22 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    `unbound variable` 退出，23 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
     root = Path(__file__).resolve().parents[2]
     lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
 
@@ -2750,7 +2750,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 22
+    assert len(checks) == 23
     assert min(checks) > init_last
 
 
@@ -2935,7 +2935,12 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     assert '(( saw_bitmap == 1 ))' in preflight_code
     assert "ExecMainStartTimestamp --value" in preflight_code
     assert 'date -d "$started" +%s' in preflight_code
-    assert 'stat -c %Y "$path"' in preflight_code
+    # PREFLIGHT-P2-01：mtime 比较必须解引用符号链接。裸 `stat -c %Y` 取到的是
+    # `ln -sfn` 的时刻而非配置/代码本体，故 `/etc/hutuji/mcp.env` 或 unit 是链接时，
+    # 轮换 LLM_API_KEY 却不 restart 也能过「主进程不早于本次部署」。同文件的 nginx
+    # 项 2026-08-08 已用 -L，本项此前没跟上。两侧都钉：新写法在、旧写法不在。
+    assert 'stat -L -c %Y "$path"' in preflight_code
+    assert 'stat -c %Y "$path"' not in preflight_code
     # deployed_files 数组结构检查：不能只判路径字符串是否出现在文件中（会被注释
     # 或其他用途骗过），必须验证数组声明的完整结构。
     import re
@@ -2951,9 +2956,14 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
         "/opt/hutuji/deploy/hutuji-mcp.service",
         "/etc/hutuji/mcp.env",
         "/opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml",
-        "/opt/hutuji/mcp-server/hutuji_mcp/*.py",
     ):
         assert deployed in array_content, f"{deployed} 不在 deployed_files 数组内"
+    # PREFLIGHT-P2-02：.py 不再写进数组字面量，改 find 递归收集。bash 的 `*.py`
+    # 只展开一层，新增子包（hutuji_mcp/routes/*.py）的 mtime 就完全不参与比较。
+    assert "/opt/hutuji/mcp-server/hutuji_mcp/*.py" not in array_content
+    assert "collect_deployed_py" in preflight_code
+    assert 'deployed_files+=("${DEPLOYED_PY[@]}")' in preflight_code
+    assert "-type f -name '*.py' -print0" in preflight_code
     assert "(( start_epoch < newest ))" in preflight_code
     assert "check_mcp_prestart_and_restart" in preflight_code
 
@@ -4167,13 +4177,21 @@ def test_gate_line_ref_fingerprint_keeps_unresolvable_external_entry(
         files={},
     )
     baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    # target 必须是**绝对路径**：_iter_doc_line_refs 对外仓命中写 `target.as_posix()`
+    # （_external_index 的候选都从绝对 repo root 拼出），只有本仓命中才写
+    # `relative_to(ROOT)`。GATE-P2-06 正是靠这个形态差把「fork 缺席，须容忍」与
+    # 「本仓文件被删/改名，须判红」分开，故本夹具必须复刻真实序列化格式——
+    # 早先这里写的是相对路径 `Grbl_Esp32/src/ghost_ext.py`，那种形态在真实基线里
+    # 从未出现过（实测 171 条 = 151 外仓绝对 + 20 本仓相对）。
+    external_target = "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ghost_ext.py"
+    assert gate._is_external_target(external_target), "夹具必须是外仓形态，否则测的是 P2-06 判红路径"
     baseline.write_text(
         json.dumps(
             {
                 "version": 1,
                 "refs": {
                     "docs/refs.md -> ghost_ext.py:1": {
-                        "target": "Grbl_Esp32/src/ghost_ext.py",
+                        "target": external_target,
                         "sha8": "11111111",
                     }
                 },
@@ -4783,3 +4801,324 @@ def test_pipe_sim_banner_eof_raises_connection_error(tmp_path: Path) -> None:
     finally:
         srv.close()
         t.join(timeout=2)
+
+
+
+def test_gate_forbidden_claims_reports_actually_scanned_count() -> None:
+    """GATE-P2-01：pass 文案里的份数必须是实测扫描数，不是清单长度。
+
+    读不到的治理文档只 `continue`，而旧文案直接打 `len(GOVERNANCE_DOCS)`：
+    2026-08-09 实测往清单塞一个不存在的路径，该层仍 pass 且印「19 份均未做出」而
+    实际只扫 18——报告数字与真实扫描面脱钩。存在性仍由 required_files 层判红
+    （那层三个 profile 都跑，且 required_file_set() 现算并集），本层只负责别撒谎。
+    """
+    gate = _load_agent_gate()
+    real = list(gate.GOVERNANCE_DOCS)
+    original = gate.check_forbidden_claims()
+    assert original["status"] == "pass", original
+    assert f"{len(real)}/{len(real)} 份" in original["detail"], original["detail"]
+
+    # 清单里多一个不存在的路径：扫描面仍是 real，文案的分子不得跟着膨胀
+    gate.GOVERNANCE_DOCS = [*real, "docs/does-not-exist-ever.md"]
+    try:
+        polluted = gate.check_forbidden_claims()
+    finally:
+        gate.GOVERNANCE_DOCS = real
+    assert polluted["status"] == "pass", polluted
+    assert f"{len(real)}/{len(real) + 1} 份" in polluted["detail"], polluted["detail"]
+    assert "required_files" in polluted["detail"]
+
+
+def test_gate_decision_anchors_reports_soft_missing_anchors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GATE-P2-02：软锚点缺失必须真的报出来。
+
+    旧文案是 `[a for a in missing if a in protocol or a in text]`，而 missing 的构造
+    条件恰是「既不在 text 也不在 protocol」——该推导式恒为空列表，缺多少条都印
+    `soft_absent_in_readme_only=[]`。不判红是刻意的（软锚点），但不说出来不是。
+    """
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    # 硬锚点齐全（否则先撞 fail 分支），软锚点故意全缺
+    (tmp_path / "README.md").write_text(
+        "双芯片 / WiFi Telnet / 117.72.118.95 / 哑管道\n", encoding="utf-8"
+    )
+    (docs / "protocol.md").write_text("## 9. Grbl 小改清单\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "DECISION_ANCHORS", ["独角兽锚点甲", "独角兽锚点乙"])
+
+    result = gate.check_decision_anchors()
+
+    assert result["status"] == "pass", result
+    assert "独角兽锚点甲" in result["detail"], result["detail"]
+    assert "独角兽锚点乙" in result["detail"], result["detail"]
+    assert "soft_absent=[]" not in result["detail"]
+
+
+@pytest.mark.parametrize(
+    ("ref", "why"),
+    [
+        ("deploy/nginx-hutuji.conf:52", "nginx 配置引用"),
+        ("deploy/hutuji-mcp.service:12", "systemd unit 引用"),
+        ("Grbl_Esp32.ino:28", "Arduino 主文件引用"),
+    ],
+)
+def test_gate_doc_ref_regex_covers_deploy_and_ino_extensions(ref: str, why: str) -> None:
+    """GATE-P2-03a：conf/service/ino 都能解析到真实文件，必须进校验面。
+
+    白名单原先只有 py/toml/c/cc/cpp/h/hpp/sh/json/mdc/md，于是
+    `docs/agent-handoff.md` 引 nginx-hutuji.conf 的行号、`docs/protocol.md` 引
+    Grbl_Esp32.ino 的行号这两条**真活指针**，从未进入三层校验中的任何一层
+    （2026-08-11 实测）。
+    """
+    gate = _load_agent_gate()
+    match = gate._DOC_REF_RE.search(f"见 {ref} 那行")
+    assert match is not None, why
+    assert match.group(0) == ref
+
+
+@pytest.mark.parametrize(
+    "ext",
+    ["txt", "log"],
+)
+def test_gate_doc_ref_regex_still_excludes_volatile_extensions(ext: str) -> None:
+    """txt/log 刻意不收：本仓这两类命中全落在 gitignore 的 results/，
+    纳入会让门禁结论随机器上有没有残留产物而变。"""
+    gate = _load_agent_gate()
+    assert gate._DOC_REF_RE.search(f"见 results/whatever.{ext}:12 那行") is None
+
+
+@pytest.mark.parametrize(
+    ("ref", "reason"),
+    [
+        ("target.py:3-2", "区间倒序"),
+        ("target.py:0", "行号从 0 起"),
+        ("target.py:0-2", "行号从 0 起"),
+    ],
+)
+def test_gate_doc_line_refs_rejects_malformed_ranges(
+    ref: str, reason: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GATE-P2-03b：区间语义错必须在越界层就判红。
+
+    旧实现只算 `max(start, end)` 再判越界，故 `:3-2` 的较大端在范围内即整条放行；
+    而指纹层用 start/end 原值切片，`start > end` 得空 body、`start < 1` 触发负索引，
+    两者都进 broken 并判红。同一条引用在越界层绿、指纹层红，读报告的人只看到
+    「越界残留」却在越界层查不出任何越界。
+    """
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": f"见 {ref}\n"},
+        files={"target.py": "a\nb\nc\n"},
+    )
+
+    result = gate.check_doc_line_refs()
+
+    assert result["status"] == "fail", result
+    assert reason in result["detail"], result["detail"]
+
+
+def test_gate_doc_line_refs_still_passes_valid_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """正序区间与单行引用不得被 P2-03b 的新判据误伤。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:1-3 与 target.py:2\n"},
+        files={"target.py": "a\nb\nc\n"},
+    )
+
+    result = gate.check_doc_line_refs()
+
+    assert result["status"] == "pass", result
+    assert "校验 2 处" in result["detail"], result["detail"]
+
+
+def test_gate_line_ref_fingerprint_flags_vanished_internal_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GATE-P2-06：基线登记过仓相对路径而现在解析不到 = 本仓文件被删/改名，判红。
+
+    此前三层对这种情况全部只表现为「计数变小」：doc_line_refs 记 skipped、外仓层
+    记 skipped、指纹层把它算进 kept。没有任何一层会红，于是一条曾经真实校验过的
+    证据引用可以静默失去全部校验。基线里 target 的形态（仓相对 vs 绝对）是唯一能
+    区分「fork 缺席，须容忍」与「本仓文件没了，须判红」的凭据。
+    """
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:1\n"},
+        files={"target.py": "only\n"},
+    )
+    assert gate.accept_line_refs() == 0
+    assert gate.check_line_ref_fingerprints()["status"] == "pass"
+
+    # 文档仍引用 target.py，但文件改名 —— 引用从此解析不到
+    (tmp_path / "target.py").rename(tmp_path / "renamed.py")
+
+    result = gate.check_line_ref_fingerprints()
+
+    assert result["status"] == "fail", result
+    assert "目标消失" in result["detail"], result["detail"]
+    # accept 不得把它洗白：基线保留该条目，故重跑仍红
+    assert gate.accept_line_refs() == 0
+    assert gate.check_line_ref_fingerprints()["status"] == "fail"
+
+
+def test_gate_line_ref_fingerprint_tolerates_absent_external_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """外仓缺席仍须容忍：GATE-P2-06 的判红只针对本仓相对路径。
+
+    fork 可能整个不在这台机器上，那时把它判红等于要求每台机器都克隆三个仓。
+    基线里外仓条目的 target 是绝对路径，据此分流。
+    """
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 Foreign.cpp:1\n"},
+        files={"target.py": "only\n"},
+    )
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "refs": {
+                    "docs/refs.md -> Foreign.cpp:1": {
+                        "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/Foreign.cpp",
+                        "sha8": "deadbeef",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gate.check_line_ref_fingerprints()
+
+    assert result["status"] == "pass", result
+    assert "保留 1 处" in result["detail"], result["detail"]
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/opt/hutuji/mcp-server/hutuji_mcp/server.py",
+        "D:/Users/Grbl_Esp32/Grbl_Esp32/Serial.cpp",
+        "d:\\Users\\Grbl_Esp32\\x.h",
+    ],
+)
+def test_gate_is_external_target_recognizes_absolute_paths(target: str) -> None:
+    """绝对路径（含 Windows 盘符与反斜杠形态）必须判为外仓。"""
+    gate = _load_agent_gate()
+    assert gate._is_external_target(target) is True
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["scripts/agent_gate.py", "docs/protocol.md", "deploy/preflight.sh"],
+)
+def test_gate_is_external_target_recognizes_repo_relative_paths(target: str) -> None:
+    """仓相对路径必须判为本仓，否则 P2-06 的判红会被整体豁免掉。"""
+    gate = _load_agent_gate()
+    assert gate._is_external_target(target) is False
+
+
+@pytest.mark.parametrize(
+    ("runner", "layer_id"),
+    [("run_pytest", "pytest"), ("run_e2e", "e2e_local")],
+)
+def test_gate_runners_turn_launch_failure_into_layer_fail(
+    runner: str, layer_id: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GATE-P2-04：subprocess 启动失败必须是本层判红，不能穿透到 main()。
+
+    `subprocess.run` 除 TimeoutExpired 还会抛 OSError（解释器被删、venv 换架构、
+    权限拒绝、ENOEXEC）。旧代码只捕 Timeout，异常一路穿过 main() 的层循环（那里
+    没有 try），于是报告两个文件都不落盘、tombstone 留在盘上、终端只剩 traceback。
+    结果是门禁「没有结论」而不是判红——读报告的人看到的是上一轮的旧报告。
+    """
+    import subprocess as sp
+
+    gate = _load_agent_gate()
+
+    def _boom(*_args, **_kwargs):
+        raise OSError(8, "Exec format error")
+
+    monkeypatch.setattr(gate.subprocess, "run", _boom)
+    # _mcp_python() 必须有返回值，否则先撞「缺少 venv」分支而测不到本条
+    monkeypatch.setattr(gate, "_mcp_python", lambda: Path(sp.__file__))
+
+    result = getattr(gate, runner)()
+
+    assert result["id"] == layer_id
+    assert result["status"] == "fail", result
+    assert "无法启动" in result["detail"], result["detail"]
+    assert "OSError" in result["detail"], result["detail"]
+
+
+def test_preflight_pins_bridge_restart_recency() -> None:
+    """PREFLIGHT-P2-03：bridge 必须有「重启晚于本次部署」判据。
+
+    此前 bridge 唯一的判据是 check_bridge_ready，而它只比对 MainPID 与 ready 文件
+    里的 PID——证明「当前主进程写过 ready 文件」，证不到它读的是本次部署的
+    endpoint。cloud_bridge.load_config() 只在启动期读一次 MCP_ENDPOINT，进程内重连
+    复用旧值；check_bridge_env 校验的却是磁盘上的 bridge.env。于是 scp 了新
+    bridge.env 却漏 restart 时全绿，跑着的仍是旧 endpoint。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+
+    assert "check_bridge_restart_recency() {" in preflight
+    assert 'check "hutuji-cloud-bridge 已重启且不早于本次 unit/bridge.env/代码"' in preflight
+    body = preflight.split("check_bridge_restart_recency() {", 1)[1].split("\n}", 1)[0]
+    # bridge.env 此前不在任何 mtime 比较集里，必须进来
+    assert "/etc/hutuji/bridge.env" in body
+    assert "/etc/systemd/system/hutuji-cloud-bridge.service" in body
+    assert "/opt/hutuji/deploy/hutuji-cloud-bridge.service" in body
+    # 代码面与 mcp 同源（cloud_bridge.py 在 hutuji_mcp 包内），且走同一个递归收集器
+    assert "collect_deployed_py" in body
+    assert 'watched+=("${DEPLOYED_PY[@]}")' in body
+    # 判据本体：主进程启动时刻不得早于比较集里最新的 mtime
+    assert "ExecMainStartTimestamp" in body
+    assert "(( start_epoch < NEWEST_MTIME ))" in body
+    # ready 判据仍在（本条是补充而非替换）
+    assert 'check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready' in preflight
+
+
+def test_preflight_generate_chain_uses_real_temp_file() -> None:
+    """PREFLIGHT-P2-04：dst 必须是真 mktemp，不能是 `mktemp -u` 的预测名。
+
+    `-u` 只预测一个尚不存在的路径名、不创建文件、不确立属主，而 EXIT trap 随后
+    无条件以 root `rm -f -- "$dst"`。脚本以 root 跑在 /tmp（sticky 对 root 无效），
+    预测名与真建名之间存在窗口：任何本机用户都能在窗口内把那个名字建成自己的文件
+    或指向别处的符号链接，trap 就替他删。同文件 check_download 用的是真 mktemp。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+
+    body = preflight.split("check_generate_chain() (", 1)[1].split("\n)", 1)[0]
+    assert 'dst="$(mktemp)"' in body
+    assert "mktemp -u" not in body
+    # trap 仍须回收两个文件，否则改成真文件反而留垃圾
+    assert 'trap \'rm -f -- "$svg" "$dst"\' EXIT' in body
+    # 全脚本范围内 `mktemp -u` 只允许出现在解释性注释里，不得再有调用
+    calls = [
+        line
+        for line in preflight.splitlines()
+        if "mktemp -u" in line and not line.lstrip().startswith("#")
+    ]
+    assert calls == [], calls

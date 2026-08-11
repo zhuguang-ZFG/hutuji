@@ -289,11 +289,15 @@ def check_decision_anchors() -> dict[str, Any]:
     if hard_missing:
         return _layer("decision_anchors", "决策锚点", "fail", f"missing={hard_missing}")
     if missing:
+        # GATE-P2-02：此前这里报的是 `[a for a in missing if a in protocol or a in text]`。
+        # missing 的构造条件恰是「既不在 text 也不在 protocol」，故该推导式恒为空列表——
+        # 软锚点缺多少条，报告里永远印 `soft_absent_in_readme_only=[]`。软锚点缺失是
+        # 「决策锚点在两份真值文档里都找不到」，只是不判红，不代表不该说出来。直接报 missing。
         return _layer(
             "decision_anchors",
             "决策锚点",
             "pass",
-            f"ok; soft_absent_in_readme_only={[a for a in missing if a in protocol or a in text]}",
+            f"ok; soft_absent={missing}（两份真值文档里都未出现，不判红但请复核）",
         )
     return _layer("decision_anchors", "决策锚点", "pass", "all present")
 
@@ -529,11 +533,18 @@ def check_forbidden_claims() -> dict[str, Any]:
     白名单 JSON 的列表、以及「本条不支持『可出货』任何一项宣称」都能正常存在。
     """
     hits: list[str] = []
+    # GATE-P2-01：读不到的文件只 continue，故必须单独数「真的扫了几份」。
+    # 此前 pass 文案直接打 len(GOVERNANCE_DOCS)——清单里塞一个不存在的路径，该层
+    # 仍 pass 且印「19 份均未做出」而实际只扫 18（2026-08-09 实测），报告数字与
+    # 真实扫描面脱钩。存在性仍交 required_files 层判红（那层三个 profile 都跑），
+    # 本层只保证印出来的份数是实测值。
+    scanned = 0
     for rel in GOVERNANCE_DOCS:
         path = ROOT / rel
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
+        scanned += 1
         for claim in CLAIMS_FORBIDDEN:
             # AG-F1: 在每个字符间插入 \s*，使模式对空白不敏感。
             # 先把 claim 本身的空白归一化删除，这样 "M2 已完成" 变成 "M2已完成"，
@@ -576,10 +587,10 @@ def check_forbidden_claims() -> dict[str, Any]:
             + "; ".join(hits[:5])
         )
         return _layer("forbidden_claims", "禁止宣称扫描", "fail", detail)
-    return _layer(
-        "forbidden_claims", "禁止宣称扫描", "pass",
-        f"治理文档 {len(GOVERNANCE_DOCS)} 份均未做出 {len(CLAIMS_FORBIDDEN)} 条禁止宣称",
-    )
+    detail = f"治理文档 {scanned}/{len(GOVERNANCE_DOCS)} 份均未做出 {len(CLAIMS_FORBIDDEN)} 条禁止宣称"
+    if scanned != len(GOVERNANCE_DOCS):
+        detail += "；未扫到的份数由 required_files 层判红"
+    return _layer("forbidden_claims", "禁止宣称扫描", "pass", detail)
 
 
 def check_edit_allowlist() -> dict[str, Any]:
@@ -643,8 +654,15 @@ def check_constraint_matrix() -> dict[str, Any]:
 
 # 文档里的 `path:line` / `path:line-line` 引用。只认带扩展名的相对路径，避免把
 # `127.0.0.1:8300` 这类端口写法当成行号引用。
+#
+# GATE-P2-03a：扩展名白名单原先漏了 `conf`/`service`/`ino`，而本仓文档里这三类
+# 引用**能解析到真实文件**：`docs/agent-handoff.md` 引 `nginx-hutuji.conf` 的行号、
+# `docs/protocol.md` 引 `Grbl_Esp32.ino` 的行号，两条都是真活指针，却因不匹配本
+# 正则而从未进入三层校验中的任何一层（2026-08-11 实测）。
+# **刻意不收 `txt`/`log`**：本仓这两类命中全部落在 gitignore 的 `results/`，纳入会让
+# 门禁结论随机器上有没有残留产物而变。
 _DOC_REF_RE = re.compile(
-    r"([A-Za-z0-9_./\\-]+\.(?:py|toml|c|cc|cpp|h|hpp|sh|json|mdc|md)):(\d+)(?:-(\d+))?"
+    r"([A-Za-z0-9_./\\-]+\.(?:py|toml|c|cc|cpp|h|hpp|sh|json|mdc|md|conf|service|ino)):(\d+)(?:-(\d+))?"
 )
 
 # basename 兜底解析时跳过的目录：虚拟环境 / 缓存 / 产物 / 代理临时 worktree
@@ -789,6 +807,25 @@ def _resolve_doc_ref(ref: str, index: dict[str, list[Path]]) -> Path | None:
     return cands[0] if len(cands) == 1 else None
 
 
+def _doc_ref_range(m: re.Match[str]) -> tuple[int, int, str | None]:
+    """引用的行号区间，附带区间本身的语义错误说明（None = 区间合法）。
+
+    GATE-P2-03b：区间写法自己可以是错的（`:207-205` 倒序、`:0-3` 从零起），而
+    `doc_line_refs` / `external_doc_line_refs` 此前只算 `max(start, end)` 再判越界——
+    倒序区间的较大端在范围内即整条放行。指纹层却用 `start`/`end` 原值切片，
+    `start > end` 得到空 body、`start < 1` 触发负索引，两者都进 `broken` 并判红。
+    同一条引用在这两层绿、在指纹层红，读报告的人只看到「越界残留」却在越界层
+    查不出任何越界。区间语义故须在这两层就判红，三层结论一致。
+    """
+    start = int(m.group(2))
+    end = int(m.group(3) or m.group(2))
+    if start < 1:
+        return start, end, "行号从 0 起（行号自 1 计）"
+    if start > end:
+        return start, end, "区间倒序（起点大于终点）"
+    return start, end, None
+
+
 def check_doc_line_refs() -> dict[str, Any]:
     """校验文档里的 `path:line` 引用没有漂移（文件存在且行号在范围内）。
 
@@ -819,9 +856,13 @@ def check_doc_line_refs() -> dict[str, Any]:
             if target is None:
                 skipped += 1
                 continue
-            # 区间引用（`:205-207`）只校验较大的端点：末行在范围内则整段在范围内
-            lineno = max(int(m.group(2)), int(m.group(3) or 0))
+            start, end, range_err = _doc_ref_range(m)
             checked += 1
+            if range_err is not None:
+                bad.append(f"{rel_md} → {ref}:{start}-{end}（{range_err}）")
+                continue
+            # 区间合法后只校验较大端点：末行在范围内则整段在范围内
+            lineno = end
             try:
                 total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
             except OSError as exc:
@@ -832,11 +873,12 @@ def check_doc_line_refs() -> dict[str, Any]:
                     "fail",
                     f"无法读取引用目标 {rel_target}（{type(exc).__name__}）",
                 )
-            if lineno < 1 or lineno > total:
+            # start < 1 已由 _doc_ref_range 判掉，故此处只剩「末行超出文件长度」
+            if lineno > total:
                 rel_target = target.relative_to(ROOT).as_posix()
                 bad.append(f"{rel_md} → {ref}:{lineno}（{rel_target} 共 {total} 行）")
     if bad:
-        detail = f"{len(bad)}/{checked} 处行号越界：" + "; ".join(bad[:10])
+        detail = f"{len(bad)}/{checked} 处行号引用不合法（越界或区间语义错）：" + "; ".join(bad[:10])
         return _layer("doc_line_refs", "文档 path:line 引用", "fail", detail)
     if checked == 0:
         # 一条都解析不到就是空转门禁；宁可红也不要假绿
@@ -935,8 +977,14 @@ def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any
                 skipped += 1
                 continue
             target = cands[0]
-            lineno = max(int(m.group(2)), int(m.group(3) or 0))
+            # 区间语义与 doc_line_refs 同一判据（GATE-P2-03b）：倒序 / 从零起在本层
+            # 也必须红，否则同一条引用本层绿、指纹层红，报告自相矛盾。
+            start, end, range_err = _doc_ref_range(m)
             checked += 1
+            if range_err is not None:
+                bad.append(f"{rel_md} → {ref}:{start}-{end}（{range_err}）")
+                continue
+            lineno = end
             try:
                 total = len(target.read_text(encoding="utf-8", errors="replace").splitlines())
             except OSError as exc:
@@ -946,11 +994,11 @@ def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any
                     "fail",
                     f"无法读取外仓引用目标 {ref}（{type(exc).__name__}）",
                 )
-            if lineno < 1 or lineno > total:
+            if lineno > total:
                 bad.append(f"{rel_md} → {ref}:{lineno}（实际 {total} 行）")
     if bad:
         tail = "；fork 工作树有未提交改动时行号会漂，先分清是文档过期还是源码已变"
-        detail = f"{len(bad)}/{checked} 处行号越界：" + "; ".join(bad[:8]) + tail
+        detail = f"{len(bad)}/{checked} 处行号引用不合法（越界或区间语义错）：" + "; ".join(bad[:8]) + tail
         return _layer("external_doc_line_refs", label, "fail", detail)
     if checked == 0:
         detail = f"一条外仓引用都没解析到（跳过 {skipped} 处）——子目录白名单或文档约定已变，先修门禁"
@@ -979,19 +1027,36 @@ def _sha8(lines: list[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8", "replace")).hexdigest()[:8]
 
 
+def _is_external_target(target: str) -> bool:
+    """基线里登记的 target 是外仓（绝对路径）还是本仓（仓相对路径）。
+
+    `_iter_doc_line_refs` 对本仓命中写 `relative_to(ROOT)`（`scripts/agent_gate.py`），
+    对外仓命中写绝对路径（`D:/Users/Grbl_Esp32/…`）。故前导 `/` 或 Windows 盘符
+    就是「外仓」的判据。GATE-P2-06 靠它把「fork 缺席（容忍）」与「本仓文件被删
+    或改名（判红）」分开。
+    """
+    return target.startswith("/") or re.match(r"^[A-Za-z]:[/\\]", target) is not None
+
+
 class DocRefScan(NamedTuple):
     """一次文档引用扫描的分类结果。
 
     - current: 解析成功、行号在界内、内容非空 → 可算指纹
     - blank:   解析成功、行号在界内，但目标行全为空白 → 指纹恒为空串哈希，
                等于「指向了什么都没有」。必须判红，不得登记（2026-08-11 review AG-F2）
-    - broken:  解析成功但行号越界 → accept 不得保留其旧指纹（AGR-003）
+    - broken:  解析成功但行号越界，或区间语义本身就错（倒序/从零起）
+               → accept 不得保留其旧指纹（AGR-003 / GATE-P2-03b）
+    - unresolved: 落不到任何仓的引用（key → ref 原文）。此前只是 `continue`，
+               于是「本仓文件被删/改名」与「外仓整个缺席」在三层里都只表现为
+               计数变小，没有任何一层会红（GATE-P2-06）。判红要靠基线区分这两者，
+               故本层只负责把它们收集出来。
     - seen:    文档里出现过的全部 key（含解析不到的）
     """
 
     current: dict[str, dict[str, str]]
     blank: dict[str, str]
     broken: dict[str, str]
+    unresolved: dict[str, str]
     seen: set[str]
     error: str | None
 
@@ -1012,20 +1077,22 @@ def _iter_doc_line_refs() -> DocRefScan:
     current: dict[str, dict[str, str]] = {}
     blank: dict[str, str] = {}
     broken: dict[str, str] = {}
+    unresolved: dict[str, str] = {}
     seen: set[str] = set()
     for md in md_files:
         rel_md = md.relative_to(ROOT).as_posix()
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            return DocRefScan({}, {}, {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）")
+            return DocRefScan(
+                {}, {}, {}, {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）"
+            )
         for m in _DOC_REF_RE.finditer(text):
             ref = _normalize_doc_ref(m.group(1))
-            start = int(m.group(2))
-            end = int(m.group(3) or m.group(2))
+            start, end, range_err = _doc_ref_range(m)
             key = f"{rel_md} -> {ref}:{m.group(2)}{'-' + m.group(3) if m.group(3) else ''}"
             seen.add(key)
-            if key in current or key in blank or key in broken:
+            if key in current or key in blank or key in broken or key in unresolved:
                 continue
             target = _resolve_doc_ref(ref, internal_index)
             rel_target: str | None = None
@@ -1038,6 +1105,7 @@ def _iter_doc_line_refs() -> DocRefScan:
                     target = cands[0]
                     rel_target = target.as_posix()
             if target is None or rel_target is None:
+                unresolved[key] = ref
                 continue
             if target not in lines_cache:
                 try:
@@ -1046,12 +1114,13 @@ def _iter_doc_line_refs() -> DocRefScan:
                     ).splitlines()
                 except OSError as exc:
                     return DocRefScan(
-                        {}, {}, {}, set(), f"无法读取引用目标 {rel_target}（{type(exc).__name__}）"
+                        {}, {}, {}, {}, set(),
+                        f"无法读取引用目标 {rel_target}（{type(exc).__name__}）",
                     )
             lines = lines_cache[target]
-            # 行号越界由 doc_line_refs / external_doc_line_refs 两层判红；本层不算
-            # 指纹（算不出来），但要记进 broken——accept 不得为它保留旧指纹。
-            if start < 1 or end > len(lines):
+            # 行号越界与区间语义错由 doc_line_refs / external_doc_line_refs 两层判红；
+            # 本层算不出指纹，但要记进 broken——accept 不得为它保留旧指纹。
+            if range_err is not None or end > len(lines):
                 broken[key] = rel_target
                 continue
             body = lines[start - 1 : end]
@@ -1063,22 +1132,24 @@ def _iter_doc_line_refs() -> DocRefScan:
                 blank[key] = rel_target
                 continue
             current[key] = {"target": rel_target, "sha8": _sha8(body)}
-    return DocRefScan(current, blank, broken, seen, None)
+    return DocRefScan(current, blank, broken, unresolved, seen, None)
 
 
 def check_line_ref_fingerprints() -> dict[str, Any]:
     """比对文档引用的行内容指纹与基线，抓「行号在界内但内容已变」的半漂移。
 
-    五类问题全判红：未登记（新增引用没跑 --accept-line-refs）、半漂移（指纹
+    六类问题全判红：未登记（新增引用没跑 --accept-line-refs）、半漂移（指纹
     不符）、陈旧（基线条目在文档里已不存在）、空锚点（引用指向空白行）、
-    越界残留（基线仍留着行号已越界的条目）。基线只能由 --accept-line-refs
-    显式重登，重新登记前必须人工核对被引用行仍是当初证据所指——否则本层
-    退化成自动追认。"""
+    越界残留（基线仍留着行号已越界的条目）、目标消失（基线登记过仓相对
+    路径而现在解析不到 —— 本仓文件被删或改名，GATE-P2-06）。基线只能由
+    --accept-line-refs 显式重登，重新登记前必须人工核对被引用行仍是当初
+    证据所指——否则本层退化成自动追认。"""
     label = "行号内容指纹"
     scan = _iter_doc_line_refs()
     if scan.error:
         return _layer("line_ref_fingerprints", label, "fail", scan.error)
     current, blank, broken, seen = scan.current, scan.blank, scan.broken, scan.seen
+    unresolved = scan.unresolved
     baseline_path = _line_ref_baseline_path()
     if not baseline_path.is_file():
         return _layer(
@@ -1108,7 +1179,21 @@ def check_line_ref_fingerprints() -> dict[str, Any]:
     blank_hits = sorted(blank)
     # 基线里仍留着越界条目 = 上一次 accept 把坏引用洗白了（AGR-003）。
     broken_kept = sorted(k for k in broken if k in baseline)
-    if unregistered or drifted or stale or blank_hits or broken_kept:
+    # GATE-P2-06：本仓文件被删/改名后，指向它的引用在三层里全部只表现为「计数变小」
+    # ——doc_line_refs 记 skipped、外仓层记 skipped、本层把它算进 kept。没有任何一层
+    # 会红，于是一条曾经真实校验过的证据引用可以静默失去全部校验。
+    #
+    # 基线是唯一能区分「本来就在外仓（fork 可能整个缺席，须容忍）」与「本仓文件没了
+    # （只有删/改名一种解释，须判红）」的凭据：_iter_doc_line_refs 对本仓命中登记
+    # 仓相对路径、对外仓命中登记绝对路径，故按基线里 target 的形态分流。
+    # 未登记过的新引用不在此列——那是「新写的引用还解析不到」，与本条缺陷无关。
+    vanished = sorted(
+        k
+        for k in unresolved
+        if isinstance(baseline.get(k), dict)
+        and not _is_external_target(str(baseline[k].get("target", "")))
+    )
+    if unregistered or drifted or stale or blank_hits or broken_kept or vanished:
         parts: list[str] = []
         if drifted:
             parts.append(f"半漂移 {len(drifted)} 处：" + "; ".join(drifted[:6]))
@@ -1125,6 +1210,11 @@ def check_line_ref_fingerprints() -> dict[str, Any]:
             parts.append(
                 f"越界残留 {len(broken_kept)} 处（基线仍登记着行号已越界的引用）："
                 + "; ".join(broken_kept[:6])
+            )
+        if vanished:
+            parts.append(
+                f"目标消失 {len(vanished)} 处（基线登记的是本仓相对路径，现已解析不到——"
+                f"文件被删或改名，该引用已静默失去三层校验）：" + "; ".join(vanished[:6])
             )
         parts.append("人工核对被引用行后跑 python scripts/agent_gate.py --accept-line-refs 重登基线")
         return _layer("line_ref_fingerprints", label, "fail", "；".join(parts))
@@ -1264,6 +1354,16 @@ def run_pytest() -> dict[str, Any]:
         )
     except subprocess.TimeoutExpired:
         return _layer("pytest", "mcp-server pytest", "fail", "pytest 超过 600s 未返回（疑似挂死）")
+    except OSError as exc:
+        # GATE-P2-04：subprocess.run 除 TimeoutExpired 还会抛 OSError——解释器被删、
+        # venv 换了架构、权限拒绝、ENOEXEC 都走这条。此前只捕 Timeout，异常会一路
+        # 穿过 main() 的层循环（那里没有 try），于是报告两个文件都不落盘、tombstone
+        # 留在盘上、终端只剩 traceback。结果是门禁「没有结论」而不是判红，正是本仓
+        # 反复禁止的形态：读报告的人看到的是上一轮的旧报告。
+        return _layer(
+            "pytest", "mcp-server pytest", "fail",
+            f"pytest 无法启动（{type(exc).__name__}: {exc}）",
+        )
     finally:
         shutil.rmtree(pytest_tmp, ignore_errors=True)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
@@ -1291,6 +1391,12 @@ def run_e2e() -> dict[str, Any]:
         )
     except subprocess.TimeoutExpired:
         return _layer("e2e_local", "e2e_local.py", "fail", "e2e_local 超过 300s 未返回（疑似挂死）")
+    except OSError as exc:
+        # 同 run_pytest（GATE-P2-04）：启动失败必须是本层判红，不能穿透到 main()。
+        return _layer(
+            "e2e_local", "e2e_local.py", "fail",
+            f"e2e_local 无法启动（{type(exc).__name__}: {exc}）",
+        )
     out = (proc.stdout + proc.stderr).strip()
     ok = proc.returncode == 0 and re.search(r"\bPASS\b", out) is not None
     detail = out.splitlines()[-1] if out else f"exit={proc.returncode}"

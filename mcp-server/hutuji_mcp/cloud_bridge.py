@@ -120,6 +120,16 @@ def load_config() -> BridgeConfig:
         # fragment（含空 query 的裸 `?`，urlparse 会解析出空字符串而漏过）会
         # 被原样传给 mcp-proxy，行为不可预期，直接拒。
         raise RuntimeError("HUTUJI_LOCAL_MCP_URL 不允许 query/fragment")
+    if parsed_local.username or parsed_local.password:
+        # CB-01：上面那条注释自称与 config.validate_public_base_url「同口径」，但只抄了
+        # 裸 ?/# 那半条——userinfo 从未校验。config.py 的两个同族谓词
+        # （validate_llm_base_url / validate_public_base_url）都显式拒 username/password。
+        # 缺这条的后果不是行为不可预期，而是泄密：hostname 取的是 `@` 之后的部分，
+        # 故 `http://user:pass@127.0.0.1:8300/mcp` 完整通过 loopback 判据，随后整串
+        # 进 proxy_command() 的 argv，本机任何用户 `ps` 即可读到明文凭据——而本仓
+        # 上方 check_bridge_env 特意让 endpoint 走 stdin 就是为了避免这件事。
+        # 报错文本不回显 URL 本身。
+        raise RuntimeError("HUTUJI_LOCAL_MCP_URL 不允许携带用户名/密码")
     if parsed_local.path.rstrip("/") != "/mcp":
         raise RuntimeError("HUTUJI_LOCAL_MCP_URL 路径必须是 /mcp")
     return BridgeConfig(endpoint=endpoint, local_mcp_url=local_url)

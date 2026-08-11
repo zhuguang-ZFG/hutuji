@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=22
+EXPECTED_CHECKS=23
 PASS=0
 FAIL=0
 
@@ -95,6 +95,49 @@ check_mcp_env() {
     [[ -n "$LLM_BASE_URL" && -n "$LLM_API_KEY" && -n "$LLM_MODEL" ]] && check_image_model_shape &&
     check_public_base_url "$PUBLIC_BASE_URL" &&
     safe_output_dir "$OUTPUT_DIR"
+}
+
+# 递归列出 hutuji_mcp 包内全部 .py，结果写入全局数组 DEPLOYED_PY。
+#
+# PREFLIGHT-P2-02：原先直接把 `/opt/hutuji/mcp-server/hutuji_mcp/*.py` 写进数组，
+# bash 通配**只展开一层**。今天 hutuji_mcp/ 是平铺的（10 个顶层 .py）故无活缺口，
+# 但判据说的是「本次部署的代码」：一旦新增子包（`hutuji_mcp/routes/*.py`），子包
+# 的 mtime 就完全不参与「主进程不早于本次代码」的比较——scp 了子包却漏 restart
+# 便能全绿。改 find 递归，且把 mcp 与 bridge 两处的展开统一到这一个入口。
+DEPLOYED_PY=()
+collect_deployed_py() {
+  local path
+  DEPLOYED_PY=()
+  while IFS= read -r -d '' path; do
+    DEPLOYED_PY+=("$path")
+  done < <(find /opt/hutuji/mcp-server/hutuji_mcp -type f -name '*.py' -print0 2>/dev/null)
+  # 进程替换会吞掉 find 的退出码，故用「一个 .py 都没找到」当 fail-closed 兜底：
+  # 目录不存在或被清空时不得静默退化成「只比 unit 与 profile」。
+  (( ${#DEPLOYED_PY[@]} > 0 )) || {
+    echo "未在 /opt/hutuji/mcp-server/hutuji_mcp 下找到任何 .py：部署目录异常" >&2
+    return 1
+  }
+}
+
+# 一组已部署文件里最新的 mtime，结果写入全局 NEWEST_MTIME（同 env_value/ENV_VALUE 的写法）。
+#
+# PREFLIGHT-P2-01：这里必须 `stat -L`。`stat -c %Y` 对符号链接取的是**链接自身**的
+# mtime，即 `ln -sfn` 的时刻——本文件下方 nginx 那项的注释里有实测数字（链接
+# 2026/08/07 17:31:15 vs 配置本体 2026/08/08 20:54:01）。`/etc/hutuji/mcp.env` 与两份
+# unit 都可能是链接，那时轮换 LLM_API_KEY 却不 restart 也能过「主进程不早于本次部署」。
+# nginx 那项 2026-08-08 已学到这一课并用了 -L，本函数的前身却一直没跟上。
+# 抽成函数而非在 mcp/bridge 两处各写一遍：两处共用同一套坑，分开写必然只修一处。
+NEWEST_MTIME=0
+newest_mtime_of() {
+  local path mtime
+  NEWEST_MTIME=0
+  for path in "$@"; do
+    [[ -f "$path" ]] || return 1
+    mtime="$(stat -L -c %Y "$path" 2>/dev/null)" || return 1
+    (( mtime > NEWEST_MTIME )) && NEWEST_MTIME="$mtime"
+  done
+  # for 循环末条 `(( )) && …` 为假时整条列表返回 1，会成为函数退出码；显式收 0。
+  return 0
 }
 
 check_bridge_ready() {
@@ -247,15 +290,16 @@ check_unit_matches_template() {
 # 已 active 的服务同样不会重启。因此还要证明 hutuji-mcp 的本次启动确实执行了
 # 两条沙箱内自检（生成链 + 位图描摹链），且主进程不早于本次部署的 unit、代码和 profile。
 check_mcp_prestart_and_restart() {
-  local prestart started start_epoch newest path mtime line
+  local prestart started start_epoch newest line
   local saw_gcode=0 saw_bitmap=0 records=0
   local -a deployed_files=(
     /etc/systemd/system/hutuji-mcp.service
     /opt/hutuji/deploy/hutuji-mcp.service
     /etc/hutuji/mcp.env
     /opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml
-    /opt/hutuji/mcp-server/hutuji_mcp/*.py
   )
+  collect_deployed_py || return 1
+  deployed_files+=("${DEPLOYED_PY[@]}")
 
   prestart="$(systemctl show hutuji-mcp -p ExecStartPre --value 2>/dev/null)" || return 1
   # 逐条判，不能对整段做子串匹配：两条 ExecStartPre 会输出两条记录，整段里只要有
@@ -304,14 +348,38 @@ check_mcp_prestart_and_restart() {
   start_epoch="$(LC_ALL=C date -d "$started" +%s 2>/dev/null)" || return 1
   [[ "$start_epoch" =~ ^[0-9]+$ ]] || return 1
 
-  newest=0
-  for path in "${deployed_files[@]}"; do
-    [[ -f "$path" ]] || return 1
-    mtime="$(stat -c %Y "$path" 2>/dev/null)" || return 1
-    (( mtime > newest )) && newest="$mtime"
-  done
+  newest_mtime_of "${deployed_files[@]}" || return 1
+  newest="$NEWEST_MTIME"
   if (( start_epoch < newest )); then
     echo "hutuji-mcp 主进程早于本次 unit/代码/profile，须显式 restart" >&2
+    return 1
+  fi
+}
+
+# bridge 侧的同一类盲区（PREFLIGHT-P2-03）。上面那项只管 hutuji-mcp；bridge 此前唯一
+# 的判据是 check_bridge_ready，而它只比对 MainPID 与 ready 文件里的 PID——那证明
+# 「当前主进程写过 ready 文件」，证不到它读的是**本次部署的** endpoint。
+# cloud_bridge.load_config() 只在启动期读一次 MCP_ENDPOINT，进程内重连复用旧值；
+# 而 check_bridge_env 校验的是**磁盘上**的 bridge.env。于是 scp 了新 bridge.env 或新
+# 代码却漏 restart 时：服务 active、ready PID 相符、endpoint 形状合法——全绿，跑着的
+# 却仍是旧 endpoint。`bridge.env` 也因此必须进比较集：它不在 mcp 的 deployed_files 里，
+# 此前没有任何判据看过它的 mtime。
+check_bridge_restart_recency() {
+  local started start_epoch
+  local -a watched=(
+    /etc/systemd/system/hutuji-cloud-bridge.service
+    /opt/hutuji/deploy/hutuji-cloud-bridge.service
+    /etc/hutuji/bridge.env
+  )
+  # bridge 与 mcp 跑的是同一个 hutuji_mcp 包（cloud_bridge.py 在其中），故代码面同源。
+  collect_deployed_py || return 1
+  watched+=("${DEPLOYED_PY[@]}")
+  started="$(LC_ALL=C systemctl show hutuji-cloud-bridge -p ExecMainStartTimestamp --value 2>/dev/null)" || return 1
+  start_epoch="$(LC_ALL=C date -d "$started" +%s 2>/dev/null)" || return 1
+  [[ "$start_epoch" =~ ^[0-9]+$ ]] || return 1
+  newest_mtime_of "${watched[@]}" || return 1
+  if (( start_epoch < NEWEST_MTIME )); then
+    echo "hutuji-cloud-bridge 主进程早于本次 unit/bridge.env/代码，须显式 restart（load_config 只在启动期读 MCP_ENDPOINT）" >&2
     return 1
   fi
 }
@@ -341,12 +409,18 @@ PROBE_SVG='<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" 
 # 且 _vpype_cmd() 按 sys.executable 同目录定位 vpype，换解释器即换掉被验对象。
 VENV_PY=/opt/hutuji/mcp-server/.venv/bin/python
 
-# 这一项刻意不依赖 OUTPUT_DIR：产物落 mktemp -u，不往 /files 留文件，
+# 这一项刻意不依赖 OUTPUT_DIR：产物落 mktemp 临时文件，不往 /files 留文件，
 # 于是「生成链坏了」与「产物目录坏了」不会互相染色——目录本身另有判据。
+#
+# PREFLIGHT-P2-04：dst 用真 `mktemp` 而非 `mktemp -u`。`-u` 只预测一个尚不存在的
+# 路径名、不创建文件、不确立属主，而 EXIT trap 随后无条件以 root 身份 `rm -f -- "$dst"`。
+# 本脚本以 root 跑在 /tmp（sticky 但对 root 无效），预测名与真建名之间存在窗口：
+# 任何本机用户都能在该窗口内把那个名字建成自己的文件或指向别处的符号链接，
+# trap 就替他删。同文件 check_download 用的是真 `mktemp`，此处是唯一的 `-u`。
 check_generate_chain() (
   local svg dst out rc=0
   [[ -x "$VENV_PY" ]] || exit 1
-  svg="$(mktemp)"; dst="$(mktemp -u)"
+  svg="$(mktemp)"; dst="$(mktemp)"
   trap 'rm -f -- "$svg" "$dst"' EXIT
   printf '%s' "$PROBE_SVG" > "$svg"
   # timeout 60 + `|| rc=$?` 与 check_bitmap_chain 同构，完整理由见那边注释：
@@ -481,6 +555,7 @@ check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
+check "hutuji-cloud-bridge 已重启且不早于本次 unit/bridge.env/代码" check_bridge_restart_recency
 # active 不证明跑的是哪一版 unit；daemon-reload 也不会重启旧进程。
 check "两个 unit 与模板一致，且已重启并通过 ExecStartPre" check_units_match_templates
 # `check … | grep` 会丢失 [pass] 行并在子 shell 中丢计数；判据必须自包含。

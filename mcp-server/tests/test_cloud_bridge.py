@@ -625,3 +625,57 @@ def test_backoff_still_grows_and_caps_on_error_path(
     delays = _backoff_sequence(monkeypatch, session_seconds=0.0, fail=True, rounds=9)
     assert delays == [1, 2, 4, 8, 16, 32, 60, 60, 60], f"实际 {delays}"
     assert max(delays) == cloud_bridge.MAX_BACKOFF_SECONDS
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://user:pass@127.0.0.1:8300/mcp",
+        "http://user@127.0.0.1:8300/mcp",
+        "http://:pass@localhost:8300/mcp",
+    ],
+)
+def test_bridge_local_mcp_url_rejects_userinfo(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CB-01：HUTUJI_LOCAL_MCP_URL 不得携带凭据。
+
+    load_config 校验了 scheme、hostname、裸 `?`/`#`、path，独缺 userinfo。
+    `hostname` 取的是 `@` 之后的部分，故 `http://user:pass@127.0.0.1:8300/mcp` 完整
+    通过 loopback 判据，随后整串进 proxy_command() 的 argv——本机任何用户 `ps` 即可
+    读到明文凭据，而 deploy/preflight.sh 的 check_bridge_env 特意让 endpoint 走 stdin
+    就是为了避免这件事。config.py 的两个同族谓词（validate_llm_base_url /
+    validate_public_base_url）都显式拒 username/password，本函数此前独缺。
+    """
+    monkeypatch.setenv("MCP_ENDPOINT", "wss://example.invalid/mcp")
+    monkeypatch.setenv("HUTUJI_LOCAL_MCP_URL", url)
+
+    with pytest.raises(RuntimeError, match="不允许携带用户名/密码"):
+        load_config()
+
+
+def test_bridge_local_mcp_url_error_does_not_echo_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """报错文本不得回显 URL 本身：异常会进日志，回显等于把凭据搬进日志。"""
+    monkeypatch.setenv("MCP_ENDPOINT", "wss://example.invalid/mcp")
+    monkeypatch.setenv("HUTUJI_LOCAL_MCP_URL", "http://alice:s3cr3t@127.0.0.1:8300/mcp")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        load_config()
+
+    message = str(excinfo.value)
+    assert "s3cr3t" not in message
+    assert "alice" not in message
+
+
+def test_bridge_local_mcp_url_still_accepts_plain_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """无凭据的 loopback URL 不得被 CB-01 误伤。"""
+    monkeypatch.setenv("MCP_ENDPOINT", "wss://example.invalid/mcp")
+    monkeypatch.setenv("HUTUJI_LOCAL_MCP_URL", "http://127.0.0.1:8300/mcp")
+
+    config = load_config()
+
+    assert config.local_mcp_url == "http://127.0.0.1:8300/mcp"
