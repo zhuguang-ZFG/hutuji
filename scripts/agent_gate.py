@@ -20,7 +20,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
@@ -956,37 +956,53 @@ def _sha8(lines: list[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8", "replace")).hexdigest()[:8]
 
 
-def _iter_doc_line_refs() -> tuple[dict[str, dict[str, str]], set[str], str | None]:
-    """枚举文档里的 `path:line` 引用并算目标行内容指纹。
+class DocRefScan(NamedTuple):
+    """一次文档引用扫描的分类结果。
 
-    返回 (current, seen, error)：
-    - current: key → {"target", "sha8"}，只含当前成功解析且行号在界内的引用
-    - seen: 文档里出现过的全部 key（含解析不到的）——判「陈旧」要用它，
-      否则外仓缺席时其基线条目会被误判成「文档已删除该引用」
-    - error: 治理文档/目标读失败时的结构化描述（此时 current/seen 不可信）
+    - current: 解析成功、行号在界内、内容非空 → 可算指纹
+    - blank:   解析成功、行号在界内，但目标行全为空白 → 指纹恒为空串哈希，
+               等于「指向了什么都没有」。必须判红，不得登记（2026-08-11 review AG-F2）
+    - broken:  解析成功但行号越界 → accept 不得保留其旧指纹（AGR-003）
+    - seen:    文档里出现过的全部 key（含解析不到的）
+    """
+
+    current: dict[str, dict[str, str]]
+    blank: dict[str, str]
+    broken: dict[str, str]
+    seen: set[str]
+    error: str | None
+
+
+def _iter_doc_line_refs() -> DocRefScan:
+    """枚举文档里的 `path:line` 引用并算目标行内容指纹。
 
     key = "<doc 相对路径> -> <ref 原文（规范化）>"；同一文档同一引用出现多次
     只算一条——指纹校验的是「这句话指向的内容」，与出现次数无关。
+
+    `seen` 要含解析不到的 key：判「陈旧」用它，否则外仓缺席时其基线条目会被
+    误判成「文档已删除该引用」。
     """
     md_files = _doc_scan_files()
     internal_index = _repo_file_index()
     external_index, _present, _absent = _external_index()
     lines_cache: dict[Path, list[str]] = {}
     current: dict[str, dict[str, str]] = {}
+    blank: dict[str, str] = {}
+    broken: dict[str, str] = {}
     seen: set[str] = set()
     for md in md_files:
         rel_md = md.relative_to(ROOT).as_posix()
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            return {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）"
+            return DocRefScan({}, {}, {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）")
         for m in _DOC_REF_RE.finditer(text):
             ref = _normalize_doc_ref(m.group(1))
             start = int(m.group(2))
             end = int(m.group(3) or m.group(2))
             key = f"{rel_md} -> {ref}:{m.group(2)}{'-' + m.group(3) if m.group(3) else ''}"
             seen.add(key)
-            if key in current:
+            if key in current or key in blank or key in broken:
                 continue
             target = _resolve_doc_ref(ref, internal_index)
             rel_target: str | None = None
@@ -1006,27 +1022,40 @@ def _iter_doc_line_refs() -> tuple[dict[str, dict[str, str]], set[str], str | No
                         encoding="utf-8", errors="replace"
                     ).splitlines()
                 except OSError as exc:
-                    return {}, set(), f"无法读取引用目标 {rel_target}（{type(exc).__name__}）"
+                    return DocRefScan(
+                        {}, {}, {}, set(), f"无法读取引用目标 {rel_target}（{type(exc).__name__}）"
+                    )
             lines = lines_cache[target]
-            # 行号越界由 doc_line_refs / external_doc_line_refs 两层判红；
-            # 本层对越界引用不算指纹（算不出来），避免同一缺陷两层抢报。
+            # 行号越界由 doc_line_refs / external_doc_line_refs 两层判红；本层不算
+            # 指纹（算不出来），但要记进 broken——accept 不得为它保留旧指纹。
             if start < 1 or end > len(lines):
+                broken[key] = rel_target
                 continue
-            current[key] = {"target": rel_target, "sha8": _sha8(lines[start - 1 : end])}
-    return current, seen, None
+            body = lines[start - 1 : end]
+            # 目标行全空白 = 这条引用指向「什么都没有」。空串的 sha256 前 8 位恒为
+            # e3b0c442，于是它永远与基线相符、永远不报漂移，却被计进「指纹 N 处全对」。
+            # 实测本仓有 5 条这样的锚点，全部是行号已漂 1–2 行的陈旧指针（内容就在
+            # 邻行），指纹层却把它们当成正确证据（2026-08-11 review AG-F2）。
+            if not any(line.strip() for line in body):
+                blank[key] = rel_target
+                continue
+            current[key] = {"target": rel_target, "sha8": _sha8(body)}
+    return DocRefScan(current, blank, broken, seen, None)
 
 
 def check_line_ref_fingerprints() -> dict[str, Any]:
     """比对文档引用的行内容指纹与基线，抓「行号在界内但内容已变」的半漂移。
 
-    三类问题全判红：未登记（新增引用没跑 --accept-line-refs）、半漂移
-    （指纹不符）、陈旧（基线条目在文档里已不存在）。基线只能由
-    --accept-line-refs 显式重登，重新登记前必须人工核对被引用行仍是
-    当初证据所指——否则本层退化成自动追认。"""
+    五类问题全判红：未登记（新增引用没跑 --accept-line-refs）、半漂移（指纹
+    不符）、陈旧（基线条目在文档里已不存在）、空锚点（引用指向空白行）、
+    越界残留（基线仍留着行号已越界的条目）。基线只能由 --accept-line-refs
+    显式重登，重新登记前必须人工核对被引用行仍是当初证据所指——否则本层
+    退化成自动追认。"""
     label = "行号内容指纹"
-    current, seen, error = _iter_doc_line_refs()
-    if error:
-        return _layer("line_ref_fingerprints", label, "fail", error)
+    scan = _iter_doc_line_refs()
+    if scan.error:
+        return _layer("line_ref_fingerprints", label, "fail", scan.error)
+    current, blank, broken, seen = scan.current, scan.blank, scan.broken, scan.seen
     baseline_path = _line_ref_baseline_path()
     if not baseline_path.is_file():
         return _layer(
@@ -1050,7 +1079,13 @@ def check_line_ref_fingerprints() -> dict[str, Any]:
         k for k in current if k in baseline and baseline[k].get("sha8") != current[k]["sha8"]
     )
     stale = sorted(k for k in baseline if k not in seen)
-    if unregistered or drifted or stale:
+    # 空锚点判红，不看基线：指向空白行的引用本身就不是证据。它的指纹恒等于空串
+    # 哈希，登记后永远相符，于是「行号漂了 1 行、正文在邻行」这种最常见的漂移被
+    # 当成正确证据计进「全对」。
+    blank_hits = sorted(blank)
+    # 基线里仍留着越界条目 = 上一次 accept 把坏引用洗白了（AGR-003）。
+    broken_kept = sorted(k for k in broken if k in baseline)
+    if unregistered or drifted or stale or blank_hits or broken_kept:
         parts: list[str] = []
         if drifted:
             parts.append(f"半漂移 {len(drifted)} 处：" + "; ".join(drifted[:6]))
@@ -1058,14 +1093,36 @@ def check_line_ref_fingerprints() -> dict[str, Any]:
             parts.append(f"未登记 {len(unregistered)} 处：" + "; ".join(unregistered[:6]))
         if stale:
             parts.append(f"陈旧 {len(stale)} 处：" + "; ".join(stale[:6]))
+        if blank_hits:
+            parts.append(
+                f"空锚点 {len(blank_hits)} 处（引用指向空白行，须改指真正的证据行）："
+                + "; ".join(blank_hits[:6])
+            )
+        if broken_kept:
+            parts.append(
+                f"越界残留 {len(broken_kept)} 处（基线仍登记着行号已越界的引用）："
+                + "; ".join(broken_kept[:6])
+            )
         parts.append("人工核对被引用行后跑 python scripts/agent_gate.py --accept-line-refs 重登基线")
         return _layer("line_ref_fingerprints", label, "fail", "；".join(parts))
     kept = sum(1 for k in baseline if k in seen and k not in current)
+    # 基线的 git_head 一直在写却从没被读过（2026-08-11 review AGR-001）。它是
+    # 「这批指纹是在哪个 HEAD 上人工核对的」的唯一凭据；不打出来，读报告的人无法
+    # 判断基线是本轮核对的还是几十个提交前的。不判红——HEAD 每次提交都变，判红
+    # 等于要求每次提交重登基线，那才是真的自动追认。
+    baseline_head = data.get("git_head") if isinstance(data, dict) else None
+    head_now = _git_head()
+    if baseline_head and head_now and baseline_head != head_now:
+        vintage = f"基线登记于 `{baseline_head[:8]}`（当前 HEAD `{head_now[:8]}`，已前进）"
+    elif baseline_head and head_now:
+        vintage = f"基线登记于当前 HEAD `{baseline_head[:8]}`"
+    else:
+        vintage = "基线未记 HEAD"
     return _layer(
         "line_ref_fingerprints",
         label,
         "pass",
-        f"指纹 {len(current)} 处全对；外仓缺席等未解析条目保留 {kept} 处",
+        f"指纹 {len(current)} 处全对；外仓缺席等未解析条目保留 {kept} 处；{vintage}",
     )
 
 
@@ -1074,11 +1131,28 @@ def accept_line_refs() -> int:
 
     当前解析不到的基线条目（外仓缺席等）只要文档仍引用就原样保留，
     避免在缺 fork 的机器上跑一次 accept 把外仓登记冲掉、回到有 fork
-    的机器整层假绿。"""
-    current, seen, error = _iter_doc_line_refs()
-    if error:
-        print(f"accept-line-refs 中止：{error}")
+    的机器整层假绿。
+
+    但**空锚点与越界引用一律拒绝登记**（2026-08-11 review AG-F2/AGR-003）：
+    这两类引用指不到任何证据，登记它们等于用 accept 把坏引用洗白成永久绿。
+    先把文档里的行号改对，再登记。
+    """
+    scan = _iter_doc_line_refs()
+    if scan.error:
+        print(f"accept-line-refs 中止：{scan.error}")
         return 1
+    bad: list[str] = []
+    for key, target in sorted(scan.blank.items()):
+        bad.append(f"  空锚点（指向空白行）：{key}  → {target}")
+    for key, target in sorted(scan.broken.items()):
+        bad.append(f"  越界（行号超出文件长度）：{key}  → {target}")
+    if bad:
+        print("accept-line-refs 中止：以下引用指不到证据，登记它们等于把坏引用洗白成永久绿。")
+        print("先把文档里的行号改成真正的证据行，再重跑本命令。")
+        for line in bad:
+            print(line)
+        return 1
+    current, seen = scan.current, scan.seen
     baseline_path = _line_ref_baseline_path()
     kept: dict[str, Any] = {}
     if baseline_path.is_file():
@@ -1313,6 +1387,15 @@ def write_reports(report: dict[str, Any]) -> None:
         f"- overall: **{report['overall_status']}** (exit={report['overall_exit']})",
         f"- HEAD: `{report['git_head'] or '未知（非 git 环境）'}`",
         "- 判读: 退出码是唯一真值；`.hutuji_gate_running` 在场 = 上次没跑完，本报告不可信",
+    ]
+    if report.get("stale_run_mark"):
+        stale = report["stale_run_mark"]
+        lines.append(
+            f"- **上一轮门禁未跑完**（tombstone 在场，profile=`{stale.get('profile')}` "
+            f"started={stale.get('started')} HEAD=`{stale.get('git_head')}`）；"
+            "本报告是本轮重跑的结果，上一份报告不可信"
+        )
+    lines += [
         "",
         "## layers",
         "",
@@ -1368,9 +1451,19 @@ def main(argv: list[str] | None = None) -> int:
         return accept_line_refs()
 
     plan = profile_layers(args.profile)
+    stale_mark: dict[str, Any] | None = None
     if RUNNING_MARK.is_file():
         # 上次运行没走到清理：崩溃/断电/Ctrl+C。其间写出的任何报告都不可信，
         # 显式告知比让下一个 agent 自己发现要便宜。
+        #
+        # 只 print 是不够的（2026-08-11 review AGR-002）：读报告的人和 agent 都
+        # 看不到上一轮的终端。tombstone 的事实必须进报告 JSON/MD，否则「上次崩过」
+        # 在报告面上完全不存在，而报告恰是下一个 agent 唯一会读的东西。本轮跑完
+        # 会覆盖报告，故不判红——但必须留痕，让读者能判断上一份报告为何不可信。
+        try:
+            stale_mark = json.loads(RUNNING_MARK.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            stale_mark = {"unreadable": type(exc).__name__}
         print(f"注意：{RUNNING_MARK} 在场——上次门禁未跑完，其间报告不可信；本次将覆盖")
     _write_running_mark(args.profile, [layer_id for layer_id, _ in plan])
 
@@ -1397,6 +1490,8 @@ def main(argv: list[str] | None = None) -> int:
         "overall_exit": exit_code,
         "layers": layers,
         "failures": failed,
+        # 上一轮门禁是否死在半路（tombstone 在场）。None = 上轮干净收尾。
+        "stale_run_mark": stale_mark,
         "claims_forbidden": CLAIMS_FORBIDDEN,
         "next_commands": {
             "docs": "python scripts/agent_gate.py --profile docs",

@@ -1,5 +1,5 @@
 {
-  "git_head": "7cee74db7628e6bc8df7ed830fe4ec72185a7153",
+  "git_head": "a8ad5ad8c08859378d5e3cece76875f3ce8792f6",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -33,8 +33,8 @@
       "sha8": "5817611c",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
     },
-    "docs/agent-handoff.md -> troubleshooting.md:280": {
-      "sha8": "e3b0c442",
+    "docs/agent-handoff.md -> troubleshooting.md:282": {
+      "sha8": "4c87dcfb",
       "target": "docs/troubleshooting.md"
     },
     "docs/bringup-sop.md -> TelnetServer.h:31": {
@@ -105,8 +105,8 @@
       "sha8": "1bdf9e2e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1319-1320": {
-      "sha8": "86e6c076",
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1524-1525": {
+      "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:573-604": {
@@ -137,8 +137,8 @@
       "sha8": "f73e8f61",
       "target": "D:/Users/Grbl_Esp32/doc/script/stream.py"
     },
-    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1319-1320": {
-      "sha8": "86e6c076",
+    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1524-1525": {
+      "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/alignment/plan.md -> docs/troubleshooting.md:26": {
@@ -269,8 +269,8 @@
       "sha8": "487c0082",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:39": {
-      "sha8": "e3b0c442",
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:38": {
+      "sha8": "8ebf7c12",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:49-55": {
@@ -317,8 +317,8 @@
       "sha8": "6da266b8",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
-    "docs/protocol.md -> GCode.cpp:1728": {
-      "sha8": "05a8475f",
+    "docs/protocol.md -> GCode.cpp:1727": {
+      "sha8": "f39c7221",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/protocol.md -> PaperSystem.cpp:351": {
@@ -657,20 +657,20 @@
       "sha8": "5c943ad0",
       "target": "docs/troubleshooting.md"
     },
-    "docs/worktree-inventory.md -> hutuji_job.cc:1319": {
-      "sha8": "e3b0c442",
-      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
-    },
     "docs/worktree-inventory.md -> hutuji_job.cc:1473": {
       "sha8": "497e05f6",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/worktree-inventory.md -> hutuji_job.cc:57-58": {
-      "sha8": "18106389",
+    "docs/worktree-inventory.md -> hutuji_job.cc:1524": {
+      "sha8": "2caa6b49",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/worktree-inventory.md -> hutuji_job.cc:58": {
-      "sha8": "e3b0c442",
+    "docs/worktree-inventory.md -> hutuji_job.cc:57": {
+      "sha8": "d1574519",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/worktree-inventory.md -> hutuji_job.cc:57-58": {
+      "sha8": "18106389",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/worktree-inventory.md -> hutuji_pipe.cc:44-45": {
@@ -681,11 +681,11 @@
       "sha8": "2fa7fa0e",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
-    "docs/worktree-inventory.md -> xiaozhi_console.py:107": {
-      "sha8": "e3b0c442",
+    "docs/worktree-inventory.md -> xiaozhi_console.py:251": {
+      "sha8": "cb55fbcd",
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-10T17:36:08Z",
+  "updated": "2026-08-11T08:01:16Z",
   "version": 1
 }

@@ -151,8 +151,15 @@ def api(method, path, body=None):
         with _URL_OPENER.open(req, timeout=15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
-        body_text = e.read().decode(errors="replace")
+        # 必须脱敏：控制台 JWT 是敏感凭据（仓规禁止入库 小智控制台token.txt）。
+        # 上游网关/WAF 的错误页常把请求头或 query 回显进正文，裸打印会把 JWT 落进
+        # 终端回滚缓冲与任何日志采集。孪生的 device_api 早已这样做，此处曾漏。
+        body_text = _redact_text(e.read().decode(errors="replace"))
         print(f"API 错误 {e.code}: {body_text}", file=sys.stderr)
+        sys.exit(1)
+    except URLError as e:
+        # 无此分支时网络错误会裸抛 traceback；只记 reason 的类型名，与 device_api 同口径。
+        print(f"API 网络错误: {type(e.reason).__name__}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -170,7 +177,7 @@ def device_api(method, path, body=None):
         with _URL_OPENER.open(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
-        body_text = _redact_device_text(exc.read().decode(errors="replace"))
+        body_text = _redact_text(exc.read().decode(errors="replace"))
         print(f"设备 API 错误 {exc.code}: {body_text}", file=sys.stderr)
         sys.exit(1)
     except URLError as exc:
@@ -178,7 +185,7 @@ def device_api(method, path, body=None):
         sys.exit(1)
 
 
-def _redact_device_text(text: str) -> str:
+def _redact_text(text: str) -> str:
     text = _CAPABILITY_URL_RE.sub(r"\g<prefix><redacted>", text)
     text = _BEARER_RE.sub("Bearer <redacted>", text)
     text = _TOKEN_FIELD_RE.sub(r'\1"<redacted>"', text)
@@ -232,8 +239,12 @@ def api_upload(path, file_path):
         with _URL_OPENER.open(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
-        body_text = e.read().decode(errors="replace")
+        # 与 api/device_api 同口径：上传错误正文可能回显 Authorization 头或能力 URL。
+        body_text = _redact_text(e.read().decode(errors="replace"))
         print(f"上传错误 {e.code}: {body_text}", file=sys.stderr)
+        sys.exit(1)
+    except URLError as e:
+        print(f"上传网络错误: {type(e.reason).__name__}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -406,7 +417,7 @@ def cmd_recall(kb_id, query):
 
 def cmd_device_tools():
     result = device_api("POST", "/messaging/device/tools/list")
-    print(_redact_device_text(json.dumps(result, ensure_ascii=False, indent=2)))
+    print(_redact_text(json.dumps(result, ensure_ascii=False, indent=2)))
 
 
 def cmd_device_call(tool_name: str, raw_arguments: str | None = None):
@@ -419,7 +430,7 @@ def cmd_device_call(tool_name: str, raw_arguments: str | None = None):
         "name": tool_name,
         "arguments": arguments,
     })
-    print(_redact_device_text(json.dumps(result, ensure_ascii=False, indent=2)))
+    print(_redact_text(json.dumps(result, ensure_ascii=False, indent=2)))
 
 
 def cmd_sync(agent_id):

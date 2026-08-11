@@ -4121,6 +4121,178 @@ def test_gate_line_ref_fingerprint_range_ref_hashes_all_lines(
     assert "半漂移" in result["detail"]
 
 
+def test_gate_line_ref_fingerprint_rejects_blank_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """引用指向空白行 = 指不到任何证据，必须判红，且不得靠登记洗成绿。
+
+    空串的 sha256 前 8 位恒为 e3b0c442：登记之后这条锚点永远与基线相符、
+    永远不报漂移，却被计进「指纹 N 处全对」。本仓实测有过 5 条这样的锚点，
+    全是行号已漂 1-2 行的陈旧指针（真证据就在邻行）——指纹层不但没抓住漂移，
+    还替它盖了章（2026-08-11 review AG-F2）。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:2\n"},
+        files={"target.py": "first\n\nthird\n"},
+    )
+    # 前提：空串指纹确实是那个恒定值，本测试的前提才成立
+    assert gate._sha8([""]) == "e3b0c442"
+
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.write_text(json.dumps({"version": 1, "refs": {}}), encoding="utf-8")
+
+    result = gate.check_line_ref_fingerprints()
+    assert result["status"] == "fail"
+    assert "空锚点" in result["detail"]
+
+
+def test_gate_accept_line_refs_refuses_blank_and_broken_anchors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """accept 必须拒绝空锚点与越界引用，且一个字节都不写基线。
+
+    否则 --accept-line-refs 就是「把坏引用洗成永久绿」的一键开关，
+    正是 AGENTS.md 警告的「无脑重登等于把指纹层退化成自动追认」
+    （2026-08-11 review AGR-003）。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "空 target.py:2\n越界 target.py:99\n好 target.py:3\n"},
+        files={"target.py": "first\n\nthird\n"},
+    )
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+
+    assert gate.accept_line_refs() == 1
+    assert not baseline.exists(), "被拒的 accept 不得留下任何基线"
+
+    # 行号改对之后同一命令必须能正常登记，证明拒绝是针对坏引用而非整条路径
+    (tmp_path / "docs" / "refs.md").write_text("好 target.py:3\n", encoding="utf-8")
+    assert gate.accept_line_refs() == 0
+    refs = json.loads(baseline.read_text(encoding="utf-8"))["refs"]
+    assert sorted(refs) == ["docs/refs.md -> target.py:3"]
+
+
+def test_gate_line_ref_fingerprint_flags_broken_ref_left_in_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """基线里残留「行号已越界」的条目 = 上一次 accept 洗白过，必须判红。
+
+    行号层会独立报越界，但基线若仍登记着它，重跑 accept 就会把它再抄一遍；
+    指纹层必须自己也认这笔账（2026-08-11 review AGR-003）。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "越界 target.py:99\n"},
+        files={"target.py": "only\n"},
+    )
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "refs": {
+                    "docs/refs.md -> target.py:99": {
+                        "target": "target.py",
+                        "sha8": "deadbeef",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gate.check_line_ref_fingerprints()
+    assert result["status"] == "fail"
+    assert "越界残留" in result["detail"]
+
+
+def test_gate_line_ref_fingerprint_pass_reports_baseline_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pass 文案必须打出基线登记时的 HEAD，并在 HEAD 已前进时明说。
+
+    基线一直写 git_head 却从没被读过：读报告的人无法判断这批指纹是本轮
+    人工核对的，还是几十个提交前登记后一路顺延的（2026-08-11 review
+    AGR-001）。不判红——HEAD 每次提交都变，判红等于要求每次提交重登基线。"""
+    gate = _load_agent_gate()
+    _finger_sandbox(
+        gate,
+        tmp_path,
+        monkeypatch,
+        docs={"refs.md": "见 target.py:1\n"},
+        files={"target.py": "only\n"},
+    )
+    monkeypatch.setattr(gate, "_git_head", lambda: "a" * 40)
+    assert gate.accept_line_refs() == 0
+
+    same = gate.check_line_ref_fingerprints()
+    assert same["status"] == "pass"
+    assert "aaaaaaaa" in same["detail"]
+    assert "已前进" not in same["detail"]
+
+    monkeypatch.setattr(gate, "_git_head", lambda: "b" * 40)
+    moved = gate.check_line_ref_fingerprints()
+    assert moved["status"] == "pass", "HEAD 前进不判红"
+    assert "已前进" in moved["detail"]
+    assert "aaaaaaaa" in moved["detail"] and "bbbbbbbb" in moved["detail"]
+
+
+def test_gate_main_records_stale_running_mark_in_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """上一轮门禁未跑完（tombstone 在场）必须进报告 JSON 与 markdown。
+
+    只 print 到终端是不够的：报告才是下一个 agent 唯一会读的东西，
+    「上次崩过」不进报告就等于在报告面上不存在（2026-08-11 review AGR-002）。
+    本轮跑完会覆盖报告，故不判红，只留痕。"""
+    gate = _load_agent_gate()
+    results = _gate_main_sandbox(gate, tmp_path, monkeypatch)
+    results.mkdir(parents=True, exist_ok=True)
+    gate.RUNNING_MARK.write_text(
+        json.dumps({"profile": "hub", "started": "2026-08-11T00:00:00Z", "git_head": "cafe" * 10}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        gate, "profile_layers", lambda profile: [("probe", lambda: gate._layer("probe", "探针", "pass"))]
+    )
+
+    assert gate.main(["--profile", "docs"]) == 0, "陈旧 mark 不判红"
+
+    report = json.loads(gate.REPORT_JSON.read_text(encoding="utf-8"))
+    assert report["stale_run_mark"]["profile"] == "hub"
+    assert report["stale_run_mark"]["git_head"] == "cafe" * 10
+    md = gate.REPORT_MD.read_text(encoding="utf-8")
+    assert "上一轮门禁未跑完" in md
+    assert "2026-08-11T00:00:00Z" in md
+    assert not gate.RUNNING_MARK.exists(), "本轮正常收尾仍须清除 mark"
+
+
+def test_gate_main_omits_stale_mark_when_previous_run_was_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """上轮干净收尾时 stale_run_mark 必须是 None，告警段不得出现。
+
+    否则告警变成每轮都印的噪音，读报告的人会学会忽略它。"""
+    gate = _load_agent_gate()
+    _gate_main_sandbox(gate, tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        gate, "profile_layers", lambda profile: [("probe", lambda: gate._layer("probe", "探针", "pass"))]
+    )
+
+    assert gate.main(["--profile", "docs"]) == 0
+
+    report = json.loads(gate.REPORT_JSON.read_text(encoding="utf-8"))
+    assert report["stale_run_mark"] is None
+    assert "上一轮门禁未跑完" not in gate.REPORT_MD.read_text(encoding="utf-8")
+
+
 def _load_cloud_bridge_smoke():
     import importlib.util
 
@@ -4310,7 +4482,7 @@ def test_console_device_draw_requires_exact_url_argument() -> None:
         console._parse_device_arguments("self.system.reboot", None)
 
 
-def test_console_device_output_redacts_capability_and_credentials() -> None:
+def test_console_output_redacts_capability_and_credentials() -> None:
     console = _load_root_script("hutuji_console_device_redact_test", "xiaozhi_console.py")
     text = (
         '{"token":"device-secret","authorization":"Bearer bearer-secret",'
@@ -4319,13 +4491,141 @@ def test_console_device_output_redacts_capability_and_credentials() -> None:
         'draw_20260807_120000_abcdefghijklmnopqrstuv.gcode"}'
     )
 
-    redacted = console._redact_device_text(text)
+    redacted = console._redact_text(text)
 
     assert "device-secret" not in redacted
     assert "bearer-secret" not in redacted
     assert "sk-examplelongsecret" not in redacted
     assert "abcdefghijklmnopqrstuv" not in redacted
     assert redacted.count("<redacted>") == 4
+
+
+def _console_with_failing_opener(tag: str, exc: BaseException):  # noqa: ANN202
+    """加载控制台脚本并把 opener 换成恒抛 exc 的假实现。"""
+    console = _load_root_script(tag, "xiaozhi_console.py")
+
+    class _FailingOpener:
+        def open(self, req, timeout=None):  # noqa: ANN001, ANN202, ARG002
+            raise exc
+
+    console._URL_OPENER = _FailingOpener()
+    return console
+
+
+def _capture_stderr(fn) -> str:  # noqa: ANN001
+    """跑 fn 并返回其 stderr；吞掉 SystemExit（这些 CLI 路径以 exit(1) 收场）。"""
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf), contextlib.suppress(SystemExit):
+        fn()
+    return buf.getvalue()
+
+
+def test_console_api_redacts_error_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """控制台 JWT 路径的 HTTP 错误正文必须脱敏后再打印。
+
+    上游网关/WAF 的错误页常把请求头或 query 回显进正文。控制台 JWT 属敏感凭据
+    （仓规禁止入库 小智控制台token.txt），裸打印会把它落进终端回滚缓冲与日志采集。
+    孪生的 device_api 一直脱敏，api() 曾漏——实测同一正文下 api() 打印明文 JWT、
+    device_api() 输出 <redacted>，故本例钉住两者同口径。
+    """
+    import io
+    from urllib.error import HTTPError
+
+    leaky = (
+        '{"error":"unauthorized","echo":{"Authorization":'
+        '"Bearer eyJhbGciOiJIUzI1NiJ9.LEAKED-CONSOLE-JWT.sig"},'
+        '"token":"LEAKED-QUERY-TOKEN"}'
+    )
+    err = HTTPError(
+        url="https://xiaozhi.me/api/agents",
+        code=401,
+        msg="Unauthorized",
+        hdrs=None,
+        fp=io.BytesIO(leaky.encode()),
+    )
+    console = _console_with_failing_opener("hutuji_console_api_redact_test", err)
+    monkeypatch.setenv("XIAOZHI_TOKEN", "probe-token")
+
+    # 只调一次：HTTPError.fp 首次 read() 即耗尽，二次调用拿到空正文会假绿。
+    captured = _capture_stderr(lambda: console.api("GET", "/agents"))
+
+    assert "LEAKED-CONSOLE-JWT" not in captured, f"JWT 泄漏进 stderr：{captured}"
+    assert "LEAKED-QUERY-TOKEN" not in captured, f"query token 泄漏：{captured}"
+    assert "<redacted>" in captured
+    assert "API 错误 401" in captured
+
+
+def test_console_api_handles_network_error_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """网络错误必须收成一行「只含 reason 类型名」的消息，不得裸抛 traceback。"""
+    from urllib.error import URLError
+
+    console = _console_with_failing_opener(
+        "hutuji_console_api_urlerror_test",
+        URLError(OSError(101, "Network is unreachable")),
+    )
+    monkeypatch.setenv("XIAOZHI_TOKEN", "probe-token")
+
+    captured = _capture_stderr(lambda: console.api("GET", "/agents"))
+
+    assert "API 网络错误: OSError" in captured
+    assert "Network is unreachable" not in captured, "不得回显 reason 正文"
+
+
+def test_console_upload_redacts_error_body_and_network_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """api_upload 的两条失败分支必须与 api/device_api 同口径。
+
+    知识库文档替换走 multipart 上传，上游 401/413 的错误页同样会回显 Authorization
+    头；该分支曾裸 print(e.read()) 且完全没有 URLError 分支——网络不通即裸抛
+    traceback。三个 HTTP 入口共用一个 _URL_OPENER，脱敏口径必须一致。
+    """
+    import io
+    from urllib.error import HTTPError, URLError
+
+    doc = tmp_path / "kb.md"
+    doc.write_text("# 知识库", encoding="utf-8")
+    monkeypatch.setenv("XIAOZHI_TOKEN", "probe-token")
+
+    leaky = (
+        '{"error":"payload too large","echo":{"Authorization":'
+        '"Bearer eyJhbGciOiJIUzI1NiJ9.LEAKED-UPLOAD-JWT.sig"}}'
+    )
+    http_console = _console_with_failing_opener(
+        "hutuji_console_upload_redact_test",
+        HTTPError(
+            url="https://xiaozhi.me/api/knowledge/upload",
+            code=413,
+            msg="Payload Too Large",
+            hdrs=None,
+            fp=io.BytesIO(leaky.encode()),
+        ),
+    )
+    # 只调一次：HTTPError.fp 首次 read() 即耗尽，二次调用拿到空正文会假绿。
+    captured = _capture_stderr(
+        lambda: http_console.api_upload("/knowledge/upload", str(doc))
+    )
+    assert "LEAKED-UPLOAD-JWT" not in captured, f"JWT 泄漏进 stderr：{captured}"
+    # _BEARER_RE 先把值收成 `Bearer <redacted>`，_TOKEN_FIELD_RE 再把整个
+    # "authorization" 的值替成 "<redacted>"——比只脱 Bearer 段更强，钉住终态。
+    assert '"<redacted>"' in captured
+    assert "Bearer eyJ" not in captured
+    assert "上传错误 413" in captured
+
+    net_console = _console_with_failing_opener(
+        "hutuji_console_upload_urlerror_test",
+        URLError(OSError(111, "Connection refused")),
+    )
+    captured = _capture_stderr(
+        lambda: net_console.api_upload("/knowledge/upload", str(doc))
+    )
+    assert "上传网络错误: OSError" in captured
+    assert "Connection refused" not in captured, "不得回显 reason 正文"
 
 
 def _load_e2e_local():

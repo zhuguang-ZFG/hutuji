@@ -70,7 +70,7 @@
 **重要认知（v0.5 更正）**：串口是最全诊断口，Telnet 只承载**一部分**输出。经源码核对：
 
 - Telnet **收得到**：`ok` / `error:NN`、`?` 触发的 `<...>` 状态行（`report_realtime_status(client)` 按 client 直接回）、`report_init_message` banner、`CLIENT_ALL` 类消息。
-- Telnet **收不到**：**全部换纸消息**——`PaperSystem.cpp` 63 处 `grbl_msg_sendf` 路由**全为 `CLIENT_SERIAL`**，`CLIENT_ALL` 出现 0 次；`GCode.cpp:1728` 的 `[MSG:PAGE_END_IMMINENT]`、`:1791` 的 `[Paper] page end` 同为 `CLIENT_SERIAL`。故 `[PaperAuto-N]` 进度、`[PaperStatus] N` 结果码在**未做 §9 改动前，S3 一个字节也收不到**。
+- Telnet **收不到**：**全部换纸消息**——`PaperSystem.cpp` 63 处 `grbl_msg_sendf` 路由**全为 `CLIENT_SERIAL`**，`CLIENT_ALL` 出现 0 次；`GCode.cpp:1727` 的 `[MSG:PAGE_END_IMMINENT]`、`:1790` 的 `[Paper] page end` 同为 `CLIENT_SERIAL`。故 `[PaperAuto-N]` 进度、`[PaperStatus] N` 结果码在**未做 §9 改动前，S3 一个字节也收不到**。
 
 **备用链路**（回退判据见 §1.2）：方案 B 拆机 TTL——写字机内 ESP32 GPIO1/3（CH340 输出侧）飞线 → 实战派多功能口 UART（IO10/IO11），3.3V、TX/RX 交叉 + GND。M1 代码的 UART 传输层实现已留档可切换。
 
