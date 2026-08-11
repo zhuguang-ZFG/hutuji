@@ -491,12 +491,26 @@ def _is_quoted_claim(text: str, match: re.Match[str]) -> bool:
                 or _CLAIM_META_RE.search(rest)
             )
     # 反引号包裹：命中左侧奇数个反引号即位于 inline code 内。
-    # 元语境判定用「行内命中之前的散文」而非 `_claim_sentence`：后者遇 `：` 即停，
+    #
+    # AG-F1 加固：计数与元语境窗口的起点从「行首」改为「段首」。模糊模式含 `\s*`，
+    # 命中可以跨行（`可\n出货`），此时 `line_start` 落在命中**末行**的行首，前面几行
+    # 的反引号全被漏掉——实测 `禁止宣称：\`可\n出货\` / \`硬件 已 验证\`。` 里第二处
+    # 命中前有 3 个反引号（奇数，确实在 inline code 内），按行计数只看到 2 个而误判红。
+    # 不改成「全文计数」：那样会丢掉元语境层（2026-08-07 加固，docstring 列的三种裸
+    # 宣称靠它拦住），且一处不配对的反引号会翻转其后整篇文档的奇偶。段落是 Markdown
+    # 里 inline code 的天然上界（反引号不跨空行配对），故按段落计数既修跨行又保住该层。
+    #
+    # 元语境判定同样取段首到命中处，而非 `_claim_sentence`：后者遇 `：` 即停，
     # 而引述句的标准写法恰是「元语境导语 + `：` + 反引号例子」（`滥用形态举例：
     # \`现已可出货，后续不升级。\``），句窗会把导语整段切掉，把作者的举例判成裸宣称
-    # （2026-08-07 实测 E5 判红）。取行首到命中处，正好覆盖「谁在说这句话」。
-    if line[:col].count("`") % 2 == 1:
-        head = line[:col] + _claim_sentence(text, match)
+    # （2026-08-07 实测 E5 判红）。
+    para_start = 0
+    for sep in ("\n\n", "\r\n\r\n"):
+        found = text.rfind(sep, 0, match.start())
+        if found >= 0:
+            para_start = max(para_start, found + len(sep))
+    if text[para_start : match.start()].count("`") % 2 == 1:
+        head = text[para_start : match.start()] + _claim_sentence(text, match)
         return bool(_CLAIM_META_RE.search(head) or _CLAIM_QUOTE_RE.search(head))
     return False
 
@@ -521,7 +535,13 @@ def check_forbidden_claims() -> dict[str, Any]:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for claim in CLAIMS_FORBIDDEN:
-            for m in re.finditer(re.escape(claim), text):
+            # AG-F1: 在每个字符间插入 \s*，使模式对空白不敏感。
+            # 先把 claim 本身的空白归一化删除，这样 "M2 已完成" 变成 "M2已完成"，
+            # 再在字符间插 \s*，得到 "M\s*2\s*已\s*完\s*成"，既匹配原样也匹配任意空白分隔版。
+            normalized_claim = re.sub(r"\s+", "", claim)
+            chars = list(normalized_claim)
+            fuzzy_pattern = r"\s*".join(re.escape(c) for c in chars)
+            for m in re.finditer(fuzzy_pattern, text):
                 if _is_quoted_claim(text, m):
                     continue
                 if _has_rejection_heading(text, m):
@@ -541,7 +561,10 @@ def check_forbidden_claims() -> dict[str, Any]:
                 # `+1` 是重叠窗口：`不可出货` 里禁语 `可出货` 与否定词 `不可` 共享
                 # 一个字，切在禁语起点会把 `不可` 拦腰截断，导致 `> **不可出货**` 误报。
                 sentence = _claim_sentence(text, m)
-                claim_at = sentence.find(claim)
+                # AG-F1: 匹配到的是带空白的版本（如 "可 出货"），但 claim 是无空白的原版。
+                # 在 sentence 里找匹配文本：用同样的模糊模式再搜一次。
+                matched_text = m.group(0)
+                claim_at = sentence.find(matched_text)
                 head = sentence[: claim_at + 1] if claim_at >= 0 else sentence
                 if _CLAIM_QUOTE_RE.search(head):
                     continue

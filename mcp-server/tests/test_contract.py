@@ -2236,6 +2236,9 @@ def test_gwrite_profile_matches_production_shape() -> None:
         ("F1E400", "无法解析"),             # Grbl 不支持指数进给
         ("G1 Z999", "生产笔位"),            # 笔轴只允许 Z0/Z5
         ("F10001", "进给范围"),             # 当前生产上限 Z 轴 F10000
+        ("F0", "进给范围"),                 # F=0 不合法，§5 要求 0<F≤10000
+        ("F-1", "进给范围"),                # 负进给不合法
+        ("G1 X10 Y10 F0", "进给范围"),      # F0 在运动指令中
         # 换纸/程序结束 M 指令必须拦截
         ("M30", "换纸/结束"),             # 程序结束触发自动换纸
         ("M2", "换纸/结束"),              # 程序结束
@@ -2933,13 +2936,24 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     assert "ExecMainStartTimestamp --value" in preflight_code
     assert 'date -d "$started" +%s' in preflight_code
     assert 'stat -c %Y "$path"' in preflight_code
+    # deployed_files 数组结构检查：不能只判路径字符串是否出现在文件中（会被注释
+    # 或其他用途骗过），必须验证数组声明的完整结构。
+    import re
+    array_match = re.search(
+        r'local -a deployed_files=\(\s*(.*?)\s*\)',
+        preflight_code,
+        re.DOTALL
+    )
+    assert array_match, "deployed_files 数组声明未找到"
+    array_content = array_match.group(1)
     for deployed in (
         "/etc/systemd/system/hutuji-mcp.service",
         "/opt/hutuji/deploy/hutuji-mcp.service",
+        "/etc/hutuji/mcp.env",
         "/opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml",
         "/opt/hutuji/mcp-server/hutuji_mcp/*.py",
     ):
-        assert deployed in preflight_code, deployed
+        assert deployed in array_content, f"{deployed} 不在 deployed_files 数组内"
     assert "(( start_epoch < newest ))" in preflight_code
     assert "check_mcp_prestart_and_restart" in preflight_code
 
@@ -3433,6 +3447,80 @@ def test_gate_forbidden_claims_rejects_trailing_disclaimer(
 
     assert gate.check_forbidden_claims()["status"] == "fail", body
 
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # AG-F1: 空格分隔
+        "本机验证通过，现已 可 出货。",
+        "§9  已  完成",
+        "硬件 已 验证",
+        # 换行分隔
+        "联调\n完成",
+        "京东云已\n上线",
+        # 制表符
+        "M2\t已\t完成",
+        # 混合空白
+        "商业  \n\t 放行",
+    ],
+)
+def test_gate_forbidden_claims_catches_whitespace_bypass(
+    body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    r"""AG-F1 收口：精确匹配可被 `可 出货` / `可\n出货` 绕过。
+
+    修复后先删掉禁语自身的空白，再在字符间插 `\s*` 构造模糊模式。
+    这样 `§9 已\n完成` 与 `§9  已  完成` 都会命中 `§9 已完成`。
+    """
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_forbidden_claims()
+
+    assert result["status"] == "fail", f"应拦截空白分隔的禁语: {body!r}"
+    assert "README.md" in result["detail"]
+
+
+def test_gate_forbidden_claims_whitespace_respects_quote_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    r"""AG-F1 模糊模式不得误判引述语境。
+
+    `禁止宣称：\`可\n出货\`` 里的命中跨行，反引号奇偶必须按段落计数才数得对；
+    按行计数会漏掉命中前几行的反引号，把这句判据表述自己判红。
+    """
+    gate = _load_agent_gate()
+    body = "禁止宣称：`可\n出货` / `硬件 已 验证`。"
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    assert gate.check_forbidden_claims()["status"] == "pass", body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "结论：`硬件已验证`，可以发货。",
+        "- 当前状态 `联调完成`",
+        "本机实测：`可出货`。",
+    ],
+)
+def test_gate_forbidden_claims_backtick_still_needs_meta_context(
+    body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """反引号本身不是豁免：裸宣称套反引号仍须判红（2026-08-07 加固）。
+
+    AG-F1 把反引号奇偶计数的起点从行首改到段首以支持跨行命中，这里钉死该改动
+    **没有**顺手把元语境要求一起去掉——反引号在本仓是「引用术语」的常规排版，
+    不含否定语义，仅靠它逃逸等于把整层还原成无条件放行。
+    """
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    assert gate.check_forbidden_claims()["status"] == "fail", body
 
 @pytest.mark.parametrize(
     ("rel", "body"),

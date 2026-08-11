@@ -252,6 +252,7 @@ check_mcp_prestart_and_restart() {
   local -a deployed_files=(
     /etc/systemd/system/hutuji-mcp.service
     /opt/hutuji/deploy/hutuji-mcp.service
+    /etc/hutuji/mcp.env
     /opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml
     /opt/hutuji/mcp-server/hutuji_mcp/*.py
   )
