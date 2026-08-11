@@ -1443,6 +1443,66 @@ def test_bitmap_download_rejects_oversize_chunked_body(
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
 
 
+def test_bitmap_download_total_timeout_covers_stream_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """慢速滴流（每块间隔短、总时长长）必须被墙钟总超时拦下。
+
+    httpx 的 `timeout=` 只管两次 chunk 之间的静默间隔，不管总时长——上游文档：
+    超时只在「对端在超时窗口内没发完整消息」时触发。故 CDN 慢速攻击（如 1KB/s
+    持续流，每块都按时到达）在 httpx 层永不超时，能把一个 worker 挂住数十分钟，
+    并发名额随之耗尽。唯一防线是把 `asyncio.timeout` 包在 `client.stream`
+    **之外**，覆盖 stream 建立 + 整个 `aiter_bytes` 循环 + body 累加。
+
+    本例把总超时压到 0.3s，滴流总需 ~2.5s（50 块 × 0.05s），每块间隔 0.05s 远
+    小于 httpx 的读超时——即「httpx 视角完全健康、只有总时长超标」。若
+    `asyncio.timeout` 退回只包 stream 建立，本例会跑满滴流全程且不抛超时。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    monkeypatch.setattr(bitmap_svg, "_IMAGE_DOWNLOAD_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    drip_chunks = 50
+    drip_gap = 0.05
+    delivered = {"n": 0}
+
+    async def slow_drip():  # noqa: ANN202
+        for _ in range(drip_chunks):
+            await asyncio.sleep(drip_gap)
+            delivered["n"] += 1
+            yield b"x"
+
+    def dripping_get(request):  # noqa: ANN001, ANN202
+        # 无 Content-Length：声明级闸跳过；每块 1 字节，累计上限也拦不到。
+        # 唯一能终止它的就是总超时。
+        return _httpx.Response(
+            200, headers={"transfer-encoding": "chunked"}, content=slow_drip()
+        )
+
+    transport = _generations_ok_transport(dripping_get)
+    started = time.monotonic()
+    with pytest.raises(bitmap_svg.BitmapError, match="图片下载网络错误（TimeoutError）"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+    elapsed = time.monotonic() - started
+
+    # 两次尝试（首次超时后重试一次）各 0.3s，故上界给 2×超时 + 余量，
+    # 且必须远小于滴流全程 drip_chunks*drip_gap = 2.5s。
+    assert elapsed < drip_chunks * drip_gap, (
+        f"总超时未生效：耗时 {elapsed:.2f}s 已跑满滴流全程"
+    )
+    assert delivered["n"] < drip_chunks, (
+        f"必须在滴流读完前中断，实际已收 {delivered['n']}/{drip_chunks} 块"
+    )
+
 def test_bitmap_generate_end_to_end_mocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
