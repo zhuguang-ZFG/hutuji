@@ -5122,3 +5122,58 @@ def test_preflight_generate_chain_uses_real_temp_file() -> None:
         if "mktemp -u" in line and not line.lstrip().startswith("#")
     ]
     assert calls == [], calls
+
+def test_preflight_permission_checks_dereference_symlinks() -> None:
+    """env 权限判定必须 `stat -L`，与 mtime 侧同口径。
+
+    2026-08-11 第三轮 review：2026-08-11 上一轮把 mtime 比较改成了 `stat -L -c %Y`
+    （只声称 mtime，逐字准确），但同一份脚本里两条 env 权限判定 `%a` 仍是裸 `stat`，
+    两类判定对 symlink 的口径由此分裂。
+
+    方向上裸 `stat` 是 fail-closed（对 symlink 取到 777 → 判红，不会假绿），
+    故这不是安全漏洞；真实危害是 env 被 symlink 化（轮换 API key 的常见做法）时
+    体检会报「权限 777、应为 600」这种误导结论，让人去改链接权限而非看目标本体。
+    """
+    preflight_code = (Path(__file__).resolve().parents[2] / "deploy" / "preflight.sh").read_text(
+        encoding="utf-8"
+    )
+    for env_path in ("/etc/hutuji/mcp.env", "/etc/hutuji/bridge.env"):
+        assert f"stat -L -c %a {env_path}" in preflight_code, env_path
+        assert f"stat -c %a {env_path}" not in preflight_code, env_path
+
+
+def test_preflight_has_no_bare_stat_format_calls() -> None:
+    """整份脚本不得再出现裸 `stat -c`：mtime 与权限两类判定都必须解引用。
+
+    用正则扫全文而非逐个路径比对——逐个比对只能防住今天已知的那几处，
+    新增一处裸 `stat -c` 仍会静默通过（`%a` 正是这样在 `%Y` 改掉后被留下的）。
+    """
+    import re
+
+    preflight_code = (Path(__file__).resolve().parents[2] / "deploy" / "preflight.sh").read_text(
+        encoding="utf-8"
+    )
+    code_lines = [
+        line
+        for line in preflight_code.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    bare = [line.strip() for line in code_lines if re.search(r"stat\s+-c\s+%", line)]
+    assert bare == [], f"发现裸 stat -c（应为 stat -L -c）：{bare}"
+
+def test_nginx_config_disables_server_tokens_in_both_blocks() -> None:
+    """两个 server 块都必须关 server_tokens。
+
+    默认 `on` 会让每个响应（含兜底 404）带 `nginx/1.x.y` 精确版本号，等于
+    给 CVE 库筛版本。公网面虽只暴露 /files/ 与兜底 404，版本号仍无条件外泄。
+    两个块各写一次而非提到 http 级：本仓只管这一份 site 配置。
+    """
+    conf = (Path(__file__).resolve().parents[2] / "deploy" / "nginx-hutuji.conf").read_text(
+        encoding="utf-8"
+    )
+    assert conf.count("server_tokens off;") == 2, conf.count("server_tokens off;")
+    # 必须落在 server 块内，不能只写在文件头部注释里
+    for listen in ("listen 443 ssl http2;", "listen 80;"):
+        idx = conf.index(listen)
+        window = conf[idx : idx + 400]
+        assert "server_tokens off;" in window, listen

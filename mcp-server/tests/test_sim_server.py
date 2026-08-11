@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -194,6 +195,27 @@ def test_local_stream_e2e_timeout_kills_whole_tree(
     assert not direct_kills, "超时路径绕过整树终止直接 kill 子进程"
 
 
+def _run_with_reaped_children(coro_factory, processes, *, timeout: float = 5.0) -> None:
+    """跑一段 async 用例，无论结果如何都杀掉测试自己 spawn 的真子进程。
+
+    这些用例故意起 `time.sleep(60)` 验证回收路径。若被测取消逻辑回归，旧写法
+    `asyncio.run(exercise())` 会从「判红」退化成「永久挂起」——无人值守时表现为
+    整轮超时而非某项失败，且 sleep(60) 子进程留在机器上。故整段套 wait_for，
+    并在 finally 无条件收尸。
+    """
+
+    async def _bounded() -> None:
+        await asyncio.wait_for(coro_factory(), timeout=timeout)
+
+    try:
+        asyncio.run(_bounded())
+    finally:
+        for child in processes[:]:
+            if child.poll() is None:
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    child.kill()
+
+
 def test_cancelled_scenario_kills_child_and_releases_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -220,13 +242,19 @@ def test_cancelled_scenario_kills_child_and_releases_thread(
 
     async def exercise() -> None:
         task = asyncio.create_task(sim_server._run_scenario_cancellable("cancel_probe"))
+        # 不能裸自旋：runner 若因回归始终不 spawn，`while not processes` 会把用例
+        # 挂死在这一行而不是判红。
+        deadline = asyncio.get_running_loop().time() + 3.0
         while not processes:
+            assert asyncio.get_running_loop().time() < deadline, "子进程未被 spawn"
             await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
 
-    asyncio.run(exercise())
+    _run_with_reaped_children(exercise, processes)
+    # 空列表时 `processes[0]` 会抛 IndexError 盖住真实失败原因，先显式断言。
+    assert processes, "未捕获到 spawn 的子进程"
     assert processes[0].returncode is not None
 
 
@@ -261,7 +289,9 @@ def test_mcp_schema_and_unknown_tools_are_rejected() -> None:
             assert rejected.structuredContent["ok"] is False
             assert "G91" in rejected.content[0].text
 
-    asyncio.run(exercise())
+    # 内存会话本不该慢，但一旦 create_connected_server_and_client_session 或某个
+    # call_tool 因回归卡住，裸 asyncio.run 会永久挂起而非判红。
+    asyncio.run(asyncio.wait_for(exercise(), timeout=15))
 
 
 def test_stdio_mcp_initialize_list_and_call() -> None:

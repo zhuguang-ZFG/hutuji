@@ -149,7 +149,10 @@ def _validate_svg(svg: str) -> None:
     stack: list[tuple[ET.Element, str | None, int]] = [(root, None, 0)]
     while stack:
         elem, inherited_fill, depth = stack.pop()
-        if depth > _MAX_DEPTH:
+        # `root` 以 depth=0 入栈，故「第 N 层」= depth N-1。契约（AGENTS.md）写
+        # 深度 ≤64，因此放行的最大 depth 是 63；用 `>=` 而非 `>`——旧式 `>` 会让
+        # depth 0…64 共 65 层通过，比契约多一层。
+        if depth >= _MAX_DEPTH:
             raise LlmError(f"SVG 嵌套深度超过 {_MAX_DEPTH} 层")
         fill = elem.attrib.get("fill", inherited_fill)
         local = _local_name(elem.tag)

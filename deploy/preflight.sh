@@ -546,8 +546,14 @@ if [[ "$PUBLIC_BASE_URL" =~ ^https://([A-Za-z0-9-]+\.)*[A-Za-z0-9-]+(:443)?/?$ ]
   TUNNEL_HOST="${TUNNEL_HOST%:443}"
 fi
 
-check "mcp.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/mcp.env 2>/dev/null || echo x)" == "600" ]]'
-check "bridge.env 权限 600" bash -c '[[ "$(stat -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
+# 权限判定同样必须 `stat -L`：裸 `stat -c %a` 对符号链接取的是**链接自身**的
+# 权限（实测 777），而非本体（600）。方向上是 fail-closed（误判红、不会假绿），
+# 但与本文件 mtime 侧的 `stat -L` 口径不一致，且 env 被 symlink 化时会给出
+# 「权限错」这一误导结论（轮换 API key 时把 env 做成链接是常见做法）。
+# 2026-08-11 第三轮 review：上一轮只改了 mtime 侧的 `%Y`，权限侧 `%a` 由本轮补齐；
+# 测试侧另加一项正则扫全文、禁止任何裸 `stat -c %`，防再次只改一类。
+check "mcp.env 权限 600" bash -c '[[ "$(stat -L -c %a /etc/hutuji/mcp.env 2>/dev/null || echo x)" == "600" ]]'
+check "bridge.env 权限 600" bash -c '[[ "$(stat -L -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
 check "mcp.env 无占位、LLM 完整、image_model 非空白且公网前缀为 HTTPS:443" check_mcp_env
 check "bridge.env 无占位且 MCP_ENDPOINT 为 wss://" check_bridge_env
 check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'

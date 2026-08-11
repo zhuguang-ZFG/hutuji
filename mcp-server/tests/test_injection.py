@@ -492,3 +492,33 @@ def test_entity_expansion_is_not_reachable_via_extract() -> None:
     )
     with pytest.raises(LlmError):
         _extract_svg(reply)
+
+# ---- SVG 嵌套深度边界（2026-08-11 第三轮 review：此前零覆盖）----
+
+
+def _nested_svg(depth: int) -> str:
+    """构造嵌套 depth 层 <g> 的合法 SVG（最内放一条 fill=none 的 path）。
+
+    「层」按元素计：depth=1 即 <svg> 内直接一个 <path>，无 <g>。
+    """
+    inner = '<path d="M0,0 L1,1" fill="none"/>'
+    body = inner
+    for _ in range(max(0, depth - 2)):
+        body = f'<g fill="none">{body}</g>'
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">{body}</svg>'
+
+
+def test_validate_svg_accepts_depth_at_contract_limit() -> None:
+    """契约（AGENTS.md）写深度 ≤64，故正好 64 层必须通过。"""
+    _validate_svg(_nested_svg(64))
+
+
+def test_validate_svg_rejects_depth_above_contract_limit() -> None:
+    """65 层必须拒。
+
+    旧实现守卫是 `depth > _MAX_DEPTH` 而 root 以 depth=0 入栈，故 depth 0…64
+    共 65 层放行，比契约多一层；改 `>=` 后对齐。深度这条安全边界此前在
+    test_injection.py 里零覆盖（grep `_MAX_DEPTH` 0 命中）。
+    """
+    with pytest.raises(LlmError, match="嵌套深度"):
+        _validate_svg(_nested_svg(65))

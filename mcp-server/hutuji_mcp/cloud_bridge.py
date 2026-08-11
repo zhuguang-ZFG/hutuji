@@ -172,7 +172,11 @@ def _message_label(message: str | bytes) -> str:
                     if isinstance(raw_id, int) and not isinstance(raw_id, bool)
                     else "response"
                 )
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        # RecursionError：云端可下发深嵌套 JSON（实测 `"["*100000` 即触发），
+        # `json.loads` 抛的不是 JSONDecodeError。本函数只为打日志算标签，
+        # 绝不能让它把整条会话掀掉——不捕会穿到 bridge_once 的 BaseException
+        # 汇总处并触发重连。仍用窄捕获元组，不退化成 except Exception。
         pass
     label = "".join(ch if ch.isprintable() else " " for ch in label)
     return _cap_log_line(_redact_secret_text(label))

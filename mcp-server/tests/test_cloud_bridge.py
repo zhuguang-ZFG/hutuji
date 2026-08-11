@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 
 import pytest
@@ -447,6 +448,28 @@ def _capture_proxy_process(monkeypatch: pytest.MonkeyPatch, code: str):
     return cloud_bridge, processes
 
 
+def _run_with_reaped_children(coro_factory, processes, *, timeout: float = 5.0) -> None:
+    """跑一段 async 用例，无论结果如何都杀掉测试自己 spawn 的真子进程。
+
+    这些用例故意起 `time.sleep(60)` 来验证回收路径。若被测取消/清理逻辑回归
+    （例如 CancelledError 在内部被吞），旧写法 `asyncio.run(exercise())` 会从
+    「判红」退化成「永久挂起」——无人值守时表现为整轮超时而非某项失败，且
+    sleep(60) 子进程留在机器上。故：①整段套 wait_for；②finally 无条件收尸。
+    """
+    import asyncio
+
+    async def _bounded() -> None:
+        await asyncio.wait_for(coro_factory(), timeout=timeout)
+
+    try:
+        asyncio.run(_bounded())
+    finally:
+        for process in processes[:]:
+            if process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+
+
 def test_bridge_reaps_proxy_when_cancelled(monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
 
@@ -459,13 +482,18 @@ def test_bridge_reaps_proxy_when_cancelled(monkeypatch: pytest.MonkeyPatch) -> N
             endpoint="wss://example.invalid/mcp?token=secret",
             local_mcp_url="http://127.0.0.1:8300/mcp",
         )))
+        # 等 spawn 完成，但不能裸自旋：spawn 若因回归始终不发生，`while not
+        # processes` 会把用例挂死在这一行。给它一个与整体超时同量级的上界。
+        deadline = asyncio.get_running_loop().time() + 3.0
         while not processes:
+            assert asyncio.get_running_loop().time() < deadline, "mcp-proxy 未被 spawn"
             await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
 
-    asyncio.run(exercise())
+    _run_with_reaped_children(exercise, processes)
+    assert processes, "未捕获到 spawn 的子进程"
     assert processes[0].returncode is not None
 
 
@@ -679,3 +707,20 @@ def test_bridge_local_mcp_url_still_accepts_plain_loopback(
     config = load_config()
 
     assert config.local_mcp_url == "http://127.0.0.1:8300/mcp"
+
+def test_message_label_survives_deeply_nested_cloud_json() -> None:
+    """云端可下发深嵌套 JSON；`json.loads` 抛的是 RecursionError 而非
+    JSONDecodeError，旧捕获元组漏了它。
+
+    可达链：云端消息 → `logger.info("云端 MCP 请求: %s", _message_label(msg))`
+    → RecursionError 穿出 → bridge_once 的 BaseException 汇总 → 重抛 → 重连。
+    一个只负责打日志的辅助函数不该有能力掀掉数据通路。
+    """
+    payload = "[" * 100_000 + "]" * 100_000
+    assert _message_label(payload) == "unknown"
+
+
+def test_message_label_still_rejects_non_json_and_bad_utf8() -> None:
+    """补 RecursionError 不能顺手放宽既有两类：仍走 unknown 而非抛错。"""
+    assert _message_label("not json at all") == "unknown"
+    assert _message_label(b"\xff\xfe not utf8") == "unknown"
