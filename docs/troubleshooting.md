@@ -224,7 +224,7 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 | 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
 | 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
-| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:1574-1579` 窗口化分支收 `error:8` 直接 fail closed（重发只在 `hutuji_job.cc:1434-1445` 换纸逐行分支，上限 8 次），run1 完整走完且日志无 error——该错序机制不成立 |
+| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:1583-1588` 窗口化分支收 `error:8` 直接 fail closed（重发只在 `hutuji_job.cc:1434-1445` 换纸逐行分支，上限 8 次），run1 完整走完且日志无 error——该错序机制不成立 |
 | 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
 
 另：**字节级「丢字节/缓冲读错位」类假设整体站不住**——丢字节只能产生原序列的子序列，解释不了 run1 的「B 完整出现在 A 之前」；A、B 相邻两行只差 `Y60.000`↔`Y200.000`，这种跨行字段互换也无法由读错位生成。

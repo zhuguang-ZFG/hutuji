@@ -47,7 +47,7 @@
 |------|------|
 | `hutuji_pipe.cc:606-617` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
 | `hutuji_job.cc:1434-1445` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`:53`） |
-| `hutuji_job.cc:1574-1579` | 窗口化普通行分支：`Deferred` **按失败处理并 fail closed**，注释写明「窗口化不应发生」 |
+| `hutuji_job.cc:1583-1588` | 窗口化普通行分支：`Deferred` **按失败处理并 fail closed**，注释写明「窗口化不应发生」 |
 
 **由此证伪一条假设**（我今晚提出后自行推翻，记在此处防止重走）：「run1 的 A/B 对调 = error:8 触发重发把 A 排到 B 之后」。窗口化分支收到 `error:8` 会直接终止任务，而 run1 是完整走完的，且日志无 error。已同步记入 `docs/troubleshooting.md` 的证伪表。
 

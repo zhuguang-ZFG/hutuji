@@ -11,8 +11,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
-from typing import Any, Sequence
 
 import mcp.server.stdio
 import mcp.types as types
@@ -25,6 +25,11 @@ TEST_SVG = ROOT / "tests" / "test_star.svg"
 SERVER_NAME = "hutuji-pc-simulation"
 SERVER_VERSION = "1.0.0"
 LOCAL_E2E_TIMEOUT_SECONDS = 120
+# 固定端口 2323 互斥：e2e_local 的端口占用检查与 grbl_sim 绑定之间非原子，
+# 并发 run_scenario("local_stream_e2e") 会撞端口产生非确定性 spurious FAIL
+# （SDK Server.run 对每条消息并发处理，两个并发工具调用可达）。用进程内
+# 非阻塞锁把并发调用收敛为确定性 busy 结果。
+_E2E_LOCK = threading.Lock()
 SIL_LIMITATIONS = [
     "PC SIL 不证明真实换纸机械行为",
     "PC SIL 不证明 App 语音、云端链路、烧录或 HIL 验收",
@@ -180,6 +185,24 @@ def _terminate_whole_tree(child: "subprocess.Popen[str]") -> None:
     _release_job(child)
 
 def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
+    if not _E2E_LOCK.acquire(blocking=False):
+        # 固定端口互斥：并发调用收敛为确定性 busy，而非撞 2323 后的非确定性失败。
+        return build_evidence(
+            ok=False,
+            scenario="local_stream_e2e",
+            observations=[{
+                "name": "error",
+                "value": "e2e 场景正被并发调用占用（固定端口 2323 互斥），请串行重试",
+            }],
+            contract_refs=["docs/protocol.md §3", "docs/protocol.md §5.1"],
+        )
+    try:
+        return _run_stream_e2e()
+    finally:
+        _E2E_LOCK.release()
+
+
+def _run_stream_e2e() -> dict[str, Any]:
     script = ROOT / "scripts" / "e2e_local.py"
     try:
         with subprocess.Popen(

@@ -3,6 +3,12 @@ Description=hutuji MCP server (localhost only)
 Documentation=file:///opt/hutuji/docs/deployment.md
 After=network-online.target
 Wants=network-online.target
+# 配置错误（mcp.env 缺 HUTUJI_PORT 或格式非法）时 uvicorn 启动即退 1，配合
+# [Service] 的 RestartSec=5 会无限每 5 秒重启刷日志：systemd 默认限流是 10 秒内
+# 5 次，5 秒间隔永远触发不到。与 hutuji-cloud-bridge.service 同款防护。
+# 注意这两个键属 [Unit] 段，写在 [Service] 里会被静默忽略。
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple

@@ -1,13 +1,24 @@
 """hutuji ③ MCP 生成服务配置（全部走环境变量，禁止 .env）。"""
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_LOOPBACK_HOST_NAMES = frozenset({"localhost"})
+
+
+def _is_loopback_host(host: str) -> bool:
+    """与 server.LoopbackOnlyMcpGuard 同口径：ipaddress 判整段 127/8 与 ::1，
+    另放行 localhost 主机名（守卫按 ASGI socket 数值地址，见不到主机名）。
+    旧实现用 3 字符串集合，对 127.0.0.2 这类 loopback 地址会误当公网。"""
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in _LOOPBACK_HOST_NAMES
 
 
 def validate_llm_base_url(value: str) -> str:
@@ -34,7 +45,7 @@ def validate_llm_base_url(value: str) -> str:
         raise ValueError("HUTUJI_LLM_BASE_URL 必须是无凭据、无查询的绝对 URL")
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("HUTUJI_LLM_BASE_URL scheme 不受支持")
-    if host not in _LOOPBACK_HOSTS and parsed.scheme != "https":
+    if not _is_loopback_host(host) and parsed.scheme != "https":
         raise ValueError("公网 HUTUJI_LLM_BASE_URL 必须使用 HTTPS")
     return value.rstrip("/")
 
@@ -61,7 +72,7 @@ def validate_public_base_url(value: str) -> str:
         or parsed.fragment
     ):
         raise ValueError("HUTUJI_PUBLIC_BASE_URL 必须是无凭据、无路径、无查询的绝对 URL")
-    if host in _LOOPBACK_HOSTS:
+    if _is_loopback_host(host):
         if parsed.scheme not in {"http", "https"}:
             raise ValueError("HUTUJI_PUBLIC_BASE_URL scheme 不受支持")
         return value.rstrip("/")
@@ -94,9 +105,9 @@ class Settings:
         # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
         # 0.0.0.0 在生产静默无效、在开发直跑 `python -m hutuji_mcp.server` 却是真裸曝。
         # 静默无效比报错危险：它让人误以为监听面已改。两条路径在此统一口径。
-        if self.host.lower() not in _LOOPBACK_HOSTS:
+        if not _is_loopback_host(self.host.lower()):
             raise ValueError(
-                f"HUTUJI_HOST 只允许 loopback（{sorted(_LOOPBACK_HOSTS)}），当前 {self.host!r}；"
+                f"HUTUJI_HOST 只允许 loopback，当前 {self.host!r}；"
                 "公网访问只经 nginx 反代 /files，绝不直曝 /mcp"
             )
         if not 1 <= self.port <= 65535:
@@ -117,6 +128,16 @@ def _env_int(name: str, default: str) -> int:
         raise ValueError(f"{name} 必须是整数，当前 {raw!r}") from exc
 
 
+def _resolve_output_dir() -> Path:
+    """HUTUJI_OUTPUT_DIR：未设置回落 ./output；显式空白 fail-closed 抛错——
+    Path("") 会静默解析为进程 CWD，产物与 /files 服务根双双偏离文档默认且难排查
+    （与 preflight 对显式空白 env 判红同口径）。"""
+    raw = os.environ.get("HUTUJI_OUTPUT_DIR", "./output")
+    if not raw.strip():
+        raise ValueError("HUTUJI_OUTPUT_DIR 不得为空白：显式空值会静默解析为进程 CWD")
+    return Path(raw).resolve()
+
+
 def load_settings() -> Settings:
     """从环境变量读取配置，缺省值面向本机开发。"""
     return Settings(
@@ -124,7 +145,7 @@ def load_settings() -> Settings:
         llm_api_key=os.environ.get("HUTUJI_LLM_API_KEY", ""),
         llm_model=os.environ.get("HUTUJI_LLM_MODEL", "auto"),
         image_model=os.environ.get("HUTUJI_IMAGE_MODEL", "agnes-image-2.1-flash"),
-        output_dir=Path(os.environ.get("HUTUJI_OUTPUT_DIR", "./output")).resolve(),
+        output_dir=_resolve_output_dir(),
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
         # 默认仅本机监听；公网只让 nginx 反代 /files，绝不直曝 /mcp。
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),

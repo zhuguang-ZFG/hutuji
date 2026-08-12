@@ -316,6 +316,22 @@ def test_exit_code_covers_every_declared_error_marker():
         assert capture._exit_code([_log("Grbl", f"{marker} COM3: boom")]) == 1, marker
 
 
+def test_exit_code_ignores_capture_note_echoing_error_markers() -> None:
+    """R9-CAP-01：`--note` 是操作员自由文本（落成 `[capture] note=...`），
+    复述历史报错文案（如「上次 ERROR opening/reading COM3 之后…」）不得误报
+    退出 1；`[capture]` 里唯一照常计入的标记是「恢复未确认」合成失败行。"""
+    note = _log("capture", "note=复述：上次 ERROR opening/reading COM3 之后重启过")
+    assert capture._exit_code([note]) == 0
+    note2 = _log("capture", "note=复述：ERROR writing to COM3 当时把命令写丢了")
+    assert capture._exit_code([note2]) == 0
+    # 设备来源照旧判红；恢复未确认的合成失败行照旧判红（既有契约不回归）
+    assert capture._exit_code([_log("Grbl", "ERROR opening/reading COM3: boom")]) == 1
+    failure = capture._restore_failure_line(
+        True, [_log("inject", "sent to COM3: [ESP115]OFF")]
+    )
+    assert capture._exit_code([failure]) == 1
+
+
 def test_exit_code_zero_on_clean_log():
     lines = [_log("Grbl", "[MSG:WiFi Off]"), _log("inject", "sent to COM3: [ESP115]ON")]
     assert capture._exit_code(lines) == 0

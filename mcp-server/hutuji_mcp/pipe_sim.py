@@ -1,19 +1,25 @@
 """PC 版 G-code 转发器：模拟 S3 固件哑管道行为（docs/protocol.md §3）。
 
 TCP 连上（假）Grbl，逐行发送并等 ok：
-- 发送前剔除空行与注释（`;` 与 `()`），与 S3 转发约定一致
+- 发送前剔除空行与注释（`;` 与 `()`，含行内注释），与 S3 转发约定一致
 - 逐行等 "ok"（默认 60s 超时，对齐换纸阻塞期下限）
-- 收到 "error:" 立即停止并记录行号
+- 收到 "error:8" 按 §7 原地重发同一行（上限 8 次），其余 "error:" 立即停止并记录行号
 - 容忍异步混入的非应答行（[MSG:...]、[PaperStatus] 等）
 """
 from __future__ import annotations
 
+import re
 import socket
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 OK_TIMEOUT_S = 60.0
+# §7 error:8 重发契约（与 S3 hutuji_job.cc 同值）：换纸期运动行被推迟且该行已被
+# empty_line() 丢弃，S3 必须原地重发同一行；其余 error 立即整单终止。
+DEFERRED_RETRY_DELAY_S = 2.0
+DEFERRED_MAX_RETRIES = 8
+_PAREN_COMMENT_RE = re.compile(r"\([^()]*\)")
 
 
 @dataclass
@@ -30,10 +36,21 @@ class PipeResult:
         return self.failed_line == 0 and self.ok_lines == self.total_lines
 
 
-def _is_gcode_line(line: str) -> bool:
-    """剔除空行与注释行（; 开头或整行 () 注释）。"""
+def _clean_gcode_line(line: str) -> str:
+    """按 §3 剔除注释：`;` 及其后内容、单层 `(...)` 注释组。返回清洗后的行；
+    空行/纯注释返回空串（由调用方过滤）。§5 校验器拒绝含 `(` 的行，合法产物
+    不会走到括号分支；此处仅为与 S3 转发行为对齐的防御建模。"""
     s = line.strip()
-    return bool(s) and not s.startswith(";") and not (s.startswith("(") and s.endswith(")"))
+    if ";" in s:
+        s = s.split(";", 1)[0]
+    s = _PAREN_COMMENT_RE.sub("", s).strip()
+    return s
+
+
+def _is_error8(resp: str) -> bool:
+    """error:8 = 换纸期运动行被推迟（§7）。两种线上形态都认（§3）：
+    数字 `error:8` 与 verbose `error: Command requires idle state`。"""
+    return resp == "error:8" or resp.startswith("error: Command requires idle state")
 
 
 def _read_response_line(f) -> str:
@@ -45,11 +62,15 @@ def _read_response_line(f) -> str:
 
 
 def stream_gcode(gcode_path: Path, host: str, port: int,
-                 ok_timeout_s: float = OK_TIMEOUT_S) -> PipeResult:
-    """把 G-code 文件逐行流式发到 Grbl（行协议：发一行等一个 ok）。"""
+                 ok_timeout_s: float = OK_TIMEOUT_S,
+                 deferred_retry_delay_s: float = DEFERRED_RETRY_DELAY_S) -> PipeResult:
+    """把 G-code 文件逐行流式发到 Grbl（行协议：发一行等一个 ok；error:8 重发）。"""
     result = PipeResult()
-    lines = [l.strip() for l in gcode_path.read_text(encoding="utf-8").splitlines()
-             if _is_gcode_line(l)]
+    lines = [
+        cleaned
+        for l in gcode_path.read_text(encoding="utf-8").splitlines()
+        if (cleaned := _clean_gcode_line(l))
+    ]
     result.total_lines = len(lines)
     started = time.monotonic()
 
@@ -77,19 +98,33 @@ def stream_gcode(gcode_path: Path, host: str, port: int,
                 break
 
         for idx, gcode in enumerate(lines, start=1):
-            sock.sendall(gcode.encode() + b"\n")
-            # 等本行 ok/error（socket 已设 ok 超时），容忍中间混入的异步信息行
-            while True:
-                resp = _read_response_line(f)
+            retries = 0
+            while True:  # error:8 原地重发同一行（§7），上限 DEFERRED_MAX_RETRIES
+                sock.sendall(gcode.encode() + b"\n")
+                resp = ""
+                # 等本行 ok/error（socket 已设 ok 超时），容忍中间混入的异步信息行
+                while True:
+                    resp = _read_response_line(f)
+                    if resp == "ok":
+                        result.ok_lines += 1
+                        break
+                    if _is_error8(resp):
+                        break
+                    if resp.startswith("error"):
+                        result.failed_line = idx
+                        result.error_response = resp
+                        result.elapsed_s = time.monotonic() - started
+                        return result
+                    result.info_lines.append(resp)  # [MSG:...] / [VER:...] 等
                 if resp == "ok":
-                    result.ok_lines += 1
                     break
-                if resp.startswith("error"):
+                retries += 1
+                if retries > DEFERRED_MAX_RETRIES:
                     result.failed_line = idx
                     result.error_response = resp
                     result.elapsed_s = time.monotonic() - started
                     return result
-                result.info_lines.append(resp)  # [MSG:...] / [VER:...] 等
+                time.sleep(deferred_retry_delay_s)
 
     result.elapsed_s = time.monotonic() - started
     return result

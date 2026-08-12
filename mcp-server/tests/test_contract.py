@@ -5432,3 +5432,151 @@ def test_nginx_config_disables_server_tokens_in_both_blocks() -> None:
         idx = conf.index(listen)
         window = conf[idx : idx + 400]
         assert "server_tokens off;" in window, listen
+
+
+# ---------- 第九轮修复：config loopback 口径统一 / 空白 OUTPUT_DIR fail-closed ----------
+
+
+def test_config_loopback_127_8_accepted_as_loopback() -> None:
+    """R9-CFG-01：loopback 判据与 LoopbackOnlyMcpGuard 同口径（整段 127/8 + ::1）。
+    旧实现用 3 字符串集合，`127.0.0.2` 被误当公网拒为「必须 HTTPS」。"""
+    import importlib
+
+    import hutuji_mcp.config as config
+
+    assert config._is_loopback_host("127.0.0.2") is True
+    assert config._is_loopback_host("127.8.8.8") is True
+    assert config._is_loopback_host("::1") is True
+    assert config._is_loopback_host("localhost") is True
+    assert config._is_loopback_host("198.18.0.1") is False
+    assert config._is_loopback_host("hutuji.donglicao.com") is False
+    # 行为面：127.0.0.2 的 loopback HTTP 配置合法（旧实现此处抛 ValueError）
+    assert config.validate_public_base_url("http://127.0.0.2:8300") == "http://127.0.0.2:8300"
+    assert config.validate_llm_base_url("http://127.8.8.8:11434") == "http://127.8.8.8:11434"
+
+
+def test_config_non_loopback_still_requires_https() -> None:
+    """口径统一不得放宽公网边界：非 loopback 的 http 仍拒。"""
+    import hutuji_mcp.config as config
+
+    for bad in ("http://198.18.0.1:8300", "http://example.com"):
+        with pytest.raises(ValueError, match="HTTPS"):
+            config.validate_public_base_url(bad)
+    with pytest.raises(ValueError, match="HTTPS"):
+        config.validate_llm_base_url("http://example.com/v1")
+
+
+def test_config_blank_output_dir_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R9-CFG-02：显式空白 HUTUJI_OUTPUT_DIR 不得静默解析为进程 CWD。"""
+    import importlib
+
+    import hutuji_mcp.config as config
+
+    importlib.reload(config)
+    monkeypatch.setenv("HUTUJI_OUTPUT_DIR", "")
+    with pytest.raises(ValueError, match="OUTPUT_DIR 不得为空白"):
+        config.load_settings()
+    monkeypatch.setenv("HUTUJI_OUTPUT_DIR", "   ")
+    with pytest.raises(ValueError, match="OUTPUT_DIR 不得为空白"):
+        config.load_settings()
+    monkeypatch.delenv("HUTUJI_OUTPUT_DIR")
+    assert config.load_settings().output_dir == config.Path("./output").resolve()
+
+
+# ---------- 第九轮修复：hutuji-mcp.service StartLimit ----------
+
+
+def test_mcp_unit_has_startlimit_matching_bridge() -> None:
+    """R9-DEP-01：坏 env 时 RestartSec=5 会每 5s 无限重启（systemd 默认限流
+    10s/5 次永远触发不到）；bridge unit 已带同款防护，mcp unit 不得不对称遗漏。"""
+    root = Path(__file__).resolve().parents[2]
+    mcp = (root / "deploy" / "hutuji-mcp.service").read_text(encoding="utf-8")
+    bridge = (root / "deploy" / "hutuji-cloud-bridge.service").read_text(encoding="utf-8")
+    for line in ("StartLimitIntervalSec=300", "StartLimitBurst=5"):
+        assert line in mcp, f"hutuji-mcp.service 缺 {line}"
+        assert line in bridge
+    # 必须位于 [Unit] 段：写在 [Service] 里会被 systemd 静默忽略。
+    # 注意注释里就出现「[Service]」字样，不能拿 split("[Service]") 切段。
+    in_unit = False
+    seen: set[str] = set()
+    for raw in mcp.splitlines():
+        stripped = raw.strip()
+        if stripped == "[Unit]":
+            in_unit = True
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_unit = False
+        if in_unit and stripped.startswith("StartLimit"):
+            seen.add(stripped)
+    assert seen == {"StartLimitIntervalSec=300", "StartLimitBurst=5"}
+
+
+# ---------- 第九轮修复：console JWT 形状脱敏 / 成功路径解析守卫 / 退出码 ----------
+
+
+def test_console_redacts_jwt_under_nonstandard_field_names() -> None:
+    """R9-CON-02：JWT 以非白名单字段名回显（"jwt"/"credential"/裸 data）时，
+    形状级兜底必须把 eyJ...x.y.z 整体涂红。"""
+    console = _load_root_script("hutuji_console_jwt_shape_test", "xiaozhi_console.py")
+    jwt = (
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+        "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    )
+    for text in (
+        f'{{"jwt":"{jwt}"}}',
+        f'{{"credential":"{jwt}"}}',
+        f'{{"data":"{jwt}"}}',
+        f"raw token: {jwt}",
+    ):
+        redacted = console._redact_text(text)
+        assert jwt not in redacted, f"JWT 泄漏：{redacted}"
+        assert "eyJ" not in redacted, f"JWT 头部残留：{redacted}"
+
+
+def test_console_api_garbage_200_body_is_handled_not_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R9-CON-01：2xx 但正文非 JSON（网关 WAF 页标 200 常见）必须收成一行
+    退出 1，不得裸抛 JSONDecodeError traceback。"""
+    import io
+
+    class _GarbageOpener:
+        def open(self, req, timeout=None):  # noqa: ANN001, ANN202, ARG002
+            return io.BytesIO(b"<html>WAF interstitial</html>")
+
+    console = _load_root_script("hutuji_console_garbage200_test", "xiaozhi_console.py")
+    console._URL_OPENER = _GarbageOpener()
+    monkeypatch.setenv("XIAOZHI_TOKEN", "probe-token")
+
+    captured = _capture_stderr(lambda: console.api("GET", "/agents"))
+
+    assert "API 响应不可解析" in captured
+    assert "Traceback" not in captured
+
+
+def test_console_recall_rejects_non_integer_kb_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R9-CON-01：int(kb_id) 对非数字参数必须收成 exit 1，不得裸抛 ValueError。"""
+    console = _load_root_script("hutuji_console_kb_int_test", "xiaozhi_console.py")
+    monkeypatch.setenv("XIAOZHI_TOKEN", "probe-token")
+
+    captured = _capture_stderr(lambda: console.cmd_recall("abc", "query"))
+
+    assert "kb_id 必须是整数" in captured
+    assert "Traceback" not in captured
+
+
+def test_console_show_not_found_exits_nonzero() -> None:
+    """R9-CON-03：未找到对象必须退出 1（与 sync/update-* 同口径），链式脚本
+    `show && sync` 不得把「不存在」当成功推进。"""
+    import io
+
+    class _EmptyAgentOpener:
+        def open(self, req, timeout=None):  # noqa: ANN001, ANN202, ARG002
+            return io.BytesIO(b'{"data":{}}')
+
+    console = _load_root_script("hutuji_console_show_404_test", "xiaozhi_console.py")
+    console._URL_OPENER = _EmptyAgentOpener()
+
+    with pytest.raises(SystemExit) as excinfo:
+        console.cmd_show("9999")
+    assert excinfo.value.code == 1

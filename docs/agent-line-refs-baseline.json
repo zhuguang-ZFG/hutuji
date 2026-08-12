@@ -1,5 +1,5 @@
 {
-  "git_head": "26d220a08799a1f4e1e1958fcf8ddbaa91f898d7",
+  "git_head": "3801bc664faefae2ff67d83aedc8c898a738129a",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -233,7 +233,7 @@
       "sha8": "6562eff4",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1574-1579": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1583-1588": {
       "sha8": "04b4d236",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -469,7 +469,7 @@
       "sha8": "7fc1e07c",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/release-readiness.md -> hutuji_job.cc:1731-1732": {
+    "docs/release-readiness.md -> hutuji_job.cc:1740-1741": {
       "sha8": "3356dd24",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -601,7 +601,7 @@
       "sha8": "497e05f6",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:1574-1579": {
+    "docs/troubleshooting.md -> hutuji_job.cc:1583-1588": {
       "sha8": "04b4d236",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -654,7 +654,7 @@
       "target": "docs/kxnx/findings/09-flow-control-deep.md"
     },
     "docs/worktree-inventory.md -> docs/release-readiness.md:3": {
-      "sha8": "2557dec0",
+      "sha8": "338f6e07",
       "target": "docs/release-readiness.md"
     },
     "docs/worktree-inventory.md -> docs/troubleshooting.md:26": {
@@ -689,11 +689,11 @@
       "sha8": "2fa7fa0e",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
-    "docs/worktree-inventory.md -> xiaozhi_console.py:251": {
-      "sha8": "cb55fbcd",
+    "docs/worktree-inventory.md -> xiaozhi_console.py:276": {
+      "sha8": "34e157ab",
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-12T16:10:56Z",
+  "updated": "2026-08-12T19:02:05Z",
   "version": 1
 }

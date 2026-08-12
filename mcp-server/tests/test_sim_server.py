@@ -321,3 +321,292 @@ def test_stdio_mcp_initialize_list_and_call() -> None:
                 assert called.structuredContent["limitations"]
 
     asyncio.run(exercise())
+
+
+# ---------- 第九轮修复：grbl_sim §5 契约边界 / error 语义 / 独占与空闲超时 ----------
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("G0 X0 Y0", "error:20"),          # 回原点触发自动换纸（§5 最高危文件缺陷）
+        ("G0 X0Y0Z0", "error:20"),
+        ("G0 X0.001Y0.001F8000", "error:20"),
+        ("G92 Z0", "error:20"),
+        ("M3", "error:20"),
+        ("M5", "error:20"),
+        ("M30", "error:20"),               # M30 须由 S3 旁路单发，不进文件
+        ("G28", "error:20"),
+        ("G30", "error:20"),
+        ("G4 P0.2", "error:20"),
+        ("G53 G1 X0", "error:20"),
+        ("G20", "error:20"),
+        ("G1 X191 Y10 F8000", "error:20"),  # 越出 §5 契约值 190
+        ("G1 X-1 Y10 F8000", "error:20"),   # 负 X：本机无限位开关，MCP 限幅唯一防线
+        ("G1 X10 Y278 F8000", "error:20"),
+        ("G1G90 Z7.0F10000", "error:20"),   # Z 只允许 0/5
+        ("G1 X1 Y1 F0", "error:20"),
+        ("G1 X1 Y1 F-1", "error:20"),
+        ("G1 X1 Y1 F10001", "error:20"),
+        ("G1 X1e400 Y1 F8000", "error:20"),  # 非有限数值
+        ("G1 X1.5.5 Y1 F8000", "error:20"),  # 畸形坐标
+        ("G1 X10 Y10 Q5 F8000", "error:20"),  # 未知字母
+    ],
+)
+def test_grbl_sim_contract_boundary_rejects_forbidden_lines(line: str, expected: str) -> None:
+    """R9-SIM-01：§5/§3 禁语与越界必须在设备边界回 error，使 e2e 能在
+    validate_gcode 回归时立即失败（协议回归网，非逐字节真机仿真）。"""
+    from hutuji_mcp import grbl_sim
+
+    refusal = grbl_sim._contract_violation(line)
+    assert refusal == expected, f"{line!r} 应回 {expected}，实际 {refusal!r}"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "G21",
+        "G90",
+        "F8000",
+        "G1G90 Z0.0F10000",
+        "G1G90 Z5.0F10000",
+        "G0 X5.5Y3.2F8000",
+        "G1 X10.0Y10.0F8000",
+        "G0 X190Y277F8000",       # 契约边界值允许
+        "G1 X0Y277F8000",
+        "G2 X10 Y10 I5 J0 F8000",  # 圆弧白名单内；包围盒不建模（validate_gcode 覆盖）
+        "G1 X10 Y10 F8000 ;move",  # 行内注释剥离
+        ";only comment",
+        "",
+    ],
+)
+def test_grbl_sim_contract_boundary_accepts_valid_lines(line: str) -> None:
+    """合法生产 profile 形状必须放行（否则 e2e 假 FAIL）。"""
+    from hutuji_mcp import grbl_sim
+
+    assert grbl_sim._contract_violation(line) is None, f"{line!r} 不应被拒"
+
+
+def test_grbl_sim_payload_length_boundary_is_254_bytes() -> None:
+    """R9-SIM-01：payload 254 字节放行、255 字节回 error:11（§3 off-by-one）。"""
+    from hutuji_mcp import grbl_sim
+
+    # 用 `;` 注释垫长：payload 按设备收到的整行字节计（§3），注释字节也算
+    prefix = "G1 X1 Y1 ;"
+    assert grbl_sim._contract_violation(prefix + "0" * (254 - len(prefix))) is None
+    assert grbl_sim._contract_violation(prefix + "0" * (255 - len(prefix))) == "error:11"
+
+
+def test_grbl_sim_non_ascii_replies_error11() -> None:
+    from hutuji_mcp import grbl_sim
+
+    assert grbl_sim._contract_violation("G1 X10 Y10 中文 F8000") == "error:11"
+
+
+async def _drive_sim(
+    payloads: list[bytes],
+    *,
+    paper_delay_s: float = 0.3,
+    idle_timeout_s: float = 5.0,
+    no_paper: bool = False,
+) -> list[str]:
+    """起内存版 handle_client，连真实 stream 对，发 payload、读到 EOF/超时。"""
+    from hutuji_mcp import grbl_sim
+
+    async def on_connect(reader, writer):
+        await grbl_sim.handle_client(
+            reader, writer,
+            paper_delay_s=paper_delay_s,
+            idle_timeout_s=idle_timeout_s,
+            no_paper=no_paper,
+        )
+
+    server = await asyncio.start_server(on_connect, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        await reader.readline()  # banner 首行（\r\n 空行）
+        banner = await reader.readline()
+        assert b"Grbl" in banner, banner
+        for payload in payloads:
+            writer.write(payload)
+        await writer.drain()
+        responses: list[str] = []
+        try:
+            while True:
+                line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+                if not line:
+                    break
+                responses.append(line.decode(errors="replace").strip())
+        except asyncio.TimeoutError:
+            responses.append("<client-timeout>")
+        return responses
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        server.close()
+        await server.wait_closed()
+
+
+def test_grbl_sim_m30_no_paper_replies_error90() -> None:
+    """R9-SIM-02：GRBL_SIM_NO_PAPER 建模缺纸——M30 回 error:90（§7 换纸失败）。"""
+    responses = asyncio.run(_drive_sim([b"M30\n"], no_paper=True))
+    assert "error:90" in responses, responses
+
+
+def test_grbl_sim_m30_normal_replies_paper_status_then_ok() -> None:
+    responses = asyncio.run(_drive_sim([b"M30\n"]))
+    assert "[MSG:[PaperStatus] 0]" in responses, responses
+    assert "ok" in responses, responses
+
+
+def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
+    """R9-SIM-02：换纸窗口内已到达的运动行回 error:8（§7：该行被丢弃，须重发）。
+
+    两行同包发送：M30 处理期间 G1 已缓冲在服务端——恰是「窗口内到达」的建模。"""
+    responses = asyncio.run(
+        _drive_sim([b"M30\nG1 X10 Y10 F8000\n"], paper_delay_s=0.3)
+    )
+    assert "error:8" in responses, responses
+
+
+def test_grbl_sim_motion_after_paper_window_is_accepted() -> None:
+    """窗口结束后到达的运动行正常 ok（对 error:8 建模的对照）。"""
+    responses = asyncio.run(_drive_sim([b"M30\n"], paper_delay_s=0.05))
+    assert "error:8" not in responses, responses
+
+
+def test_grbl_sim_idle_timeout_closes_stale_connection() -> None:
+    """R9-SIM-04：空闲超时回收（真机 keepalive ~20s；仿真参数化便于测试）。"""
+    responses = asyncio.run(_drive_sim([], idle_timeout_s=0.2))
+    assert responses == [], responses  # 对端直接 EOF，无任何应答
+
+
+def test_grbl_sim_rejects_second_client() -> None:
+    """R9-SIM-04：MAX_TLNT_CLIENTS=1 建模——第二客户端不发 banner 立即断开。"""
+    from hutuji_mcp import grbl_sim
+
+    async def exercise() -> None:
+        server = await grbl_sim.serve(0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            r1, w1 = await asyncio.open_connection("127.0.0.1", port)
+            await r1.readline()
+            banner1 = await r1.readline()
+            assert b"Grbl" in banner1
+            r2, w2 = await asyncio.open_connection("127.0.0.1", port)
+            # 第二客户端被立即断开：读不到 banner，EOF
+            got = await asyncio.wait_for(r2.readline(), timeout=3.0)
+            assert got == b"", f"第二客户端应被立即断开，实际收到 {got!r}"
+            w1.close()
+            w2.close()
+            await w1.wait_closed()
+            await w2.wait_closed()
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(exercise())
+
+
+# ---------- 第九轮修复：pipe_sim 行内注释 / error:8 重发 ----------
+
+
+def test_pipe_sim_strips_inline_comments() -> None:
+    """R9-SIM-06：`;` 行内注释必须转发前剥掉（§3）；整行注释剥成空。"""
+    from hutuji_mcp import pipe_sim
+
+    assert pipe_sim._clean_gcode_line("G1 X10 Y10 F8000 ;move") == "G1 X10 Y10 F8000"
+    assert pipe_sim._clean_gcode_line("  ;x") == ""
+    assert pipe_sim._clean_gcode_line("(full line)") == ""
+    assert pipe_sim._clean_gcode_line("G1 X1 Y1 (note) F8000") == "G1 X1 Y1  F8000"
+    assert pipe_sim._clean_gcode_line("") == ""
+
+
+class _ScriptedGrbl:
+    """按脚本回行的假对端：banner 之后每收一行按队列回一行（可为多行片段）。"""
+
+    def __init__(self, script: list[list[str]]) -> None:
+        self.script = script
+        self.seen = 0
+        self.server = None
+
+    async def handle(self, reader, writer):
+        writer.write(b"\r\nGrbl 1.3a ['$' for help]\r\n")
+        await writer.drain()
+        while True:
+            data = await reader.readline()
+            if not data:
+                break
+            if self.seen >= len(self.script):
+                writer.write(b"ok\r\n")
+            else:
+                for resp in self.script[self.seen]:
+                    writer.write((resp + "\r\n").encode())
+                self.seen += 1
+            await writer.drain()
+        writer.close()
+
+
+def _run_pipe_sim_against(script: list[list[str]], *, delay_s: float = 0.01, tmp_path: Path):
+    from hutuji_mcp import pipe_sim
+
+    fake = _ScriptedGrbl(script)
+
+    async def exercise():
+        server = await asyncio.start_server(fake.handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        gcode = tmp_path / "job.gcode"
+        gcode.write_text("G1 X10 Y10 F8000\n", encoding="utf-8")
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(
+                None,
+                lambda: pipe_sim.stream_gcode(
+                    gcode, "127.0.0.1", port,
+                    deferred_retry_delay_s=delay_s,
+                ),
+            )
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    return asyncio.run(exercise())
+
+
+def test_pipe_sim_retries_error8_then_succeeds(tmp_path: Path) -> None:
+    """R9-SIM-03：error:8 → 2s 后原地重发同一行（§7），成功即整单 ok。"""
+    result = _run_pipe_sim_against([["error:8"], ["ok"]], tmp_path=tmp_path)
+    assert result.success, (result.failed_line, result.error_response)
+    assert result.ok_lines == result.total_lines == 1
+
+
+def test_pipe_sim_error8_exhausted_fails(tmp_path: Path) -> None:
+    """error:8 重试超过上限（8 次）必须失败闭合，不得无限重发。"""
+    result = _run_pipe_sim_against([["error:8"]] * 10, tmp_path=tmp_path)
+    assert not result.success
+    assert result.failed_line == 1
+    assert result.error_response == "error:8"
+
+
+def test_pipe_sim_other_error_stops_immediately(tmp_path: Path) -> None:
+    """非 error:8 的 error 仍立即整单终止（原契约不回归）。"""
+    result = _run_pipe_sim_against([["error:20"]], tmp_path=tmp_path)
+    assert not result.success
+    assert result.failed_line == 1
+    assert result.error_response == "error:20"
+
+
+# ---------- 第九轮修复：并发 e2e 端口互斥 ----------
+
+
+def test_local_stream_e2e_busy_when_lock_held() -> None:
+    """R9-SIM-05：并发调用收敛为确定性 busy 结果，而非撞 2323 的非确定失败。"""
+    assert sim_server._E2E_LOCK.acquire(blocking=False)
+    try:
+        result = run_scenario("local_stream_e2e")
+    finally:
+        sim_server._E2E_LOCK.release()
+    assert result["ok"] is False
+    observations = {item["name"]: item["value"] for item in result["observations"]}
+    assert "占用" in observations["error"], observations

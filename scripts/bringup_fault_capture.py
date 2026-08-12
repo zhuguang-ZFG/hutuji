@@ -228,8 +228,21 @@ def _restore_failure_line(restore_queued: bool, lines: list[str]) -> str | None:
 
 
 def _exit_code(lines: list[str]) -> int:
-    """按 SERIAL_ERROR_MARKERS 判退出码：任一串口侧故障标记出现即 1，否则 0。"""
-    return 1 if any(marker in line for line in lines for marker in SERIAL_ERROR_MARKERS) else 0
+    """按 SERIAL_ERROR_MARKERS 判退出码：任一串口侧故障标记出现即 1，否则 0。
+
+    标记匹配按 `_split_source` 拆出的**正文**做，且 `[capture]` 来源（本工具自己的
+    记录，含 `--note` 自由文本）不算设备故障——但 `_restore_failure_line` 合成的
+    「恢复未确认」失败行也以 `[capture]` 落盘，它必须照常计入，故 capture 来源
+    只放行 RESTORE_UNCONFIRMED_ERROR 这一个标记。"""
+    for line in lines:
+        source, body = _split_source(line)
+        for marker in SERIAL_ERROR_MARKERS:
+            if marker not in body:
+                continue
+            if source == "capture" and marker != RESTORE_UNCONFIRMED_ERROR:
+                continue
+            return 1
+    return 0
 
 
 def main() -> int:

@@ -69,6 +69,10 @@ _TOKEN_FIELD_RE = re.compile(
 )
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _SK_KEY_RE = re.compile(r"(?i)(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{8,}")
+# 控制台 JWT 形状（header.payload.signature，base64url 三段）。字段名白名单
+# （token/api_key/authorization）不覆盖非标准回显名（如 "jwt"/"credential"/裸 data），
+# 按形状兜底：任何 eyJ...x.y.z 形态的凭据串整体涂红。
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
 
 
 def _validate_api_base(value: str) -> str:
@@ -149,7 +153,13 @@ def api(method, path, body=None):
     req = Request(url, data=data, headers=headers, method=method)
     try:
         with _URL_OPENER.open(req, timeout=15) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            try:
+                return json.loads(resp.read().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                # 2xx 但正文非 JSON/非 UTF-8（网关 WAF 页标 200 很常见）：
+                # 与错误路径同口径收成一行，不裸抛 traceback。
+                print(f"API 响应不可解析: {type(exc).__name__}", file=sys.stderr)
+                sys.exit(1)
     except HTTPError as e:
         # 必须脱敏：控制台 JWT 是敏感凭据（仓规禁止入库 小智控制台token.txt）。
         # 上游网关/WAF 的错误页常把请求头或 query 回显进正文，裸打印会把 JWT 落进
@@ -175,7 +185,11 @@ def device_api(method, path, body=None):
     req = Request(url, data=data, headers=headers, method=method)
     try:
         with _URL_OPENER.open(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            try:
+                return json.loads(resp.read().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                print(f"设备 API 响应不可解析: {type(exc).__name__}", file=sys.stderr)
+                sys.exit(1)
     except HTTPError as exc:
         body_text = _redact_text(exc.read().decode(errors="replace"))
         print(f"设备 API 错误 {exc.code}: {body_text}", file=sys.stderr)
@@ -189,6 +203,7 @@ def _redact_text(text: str) -> str:
     text = _CAPABILITY_URL_RE.sub(r"\g<prefix><redacted>", text)
     text = _BEARER_RE.sub("Bearer <redacted>", text)
     text = _TOKEN_FIELD_RE.sub(r'\1"<redacted>"', text)
+    text = _JWT_RE.sub("<redacted>", text)
     return _SK_KEY_RE.sub("<redacted>", text)
 
 
@@ -237,7 +252,11 @@ def api_upload(path, file_path):
     })
     try:
         with _URL_OPENER.open(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            try:
+                return json.loads(resp.read().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                print(f"上传响应不可解析: {type(exc).__name__}", file=sys.stderr)
+                sys.exit(1)
     except HTTPError as e:
         # 与 api/device_api 同口径：上传错误正文可能回显 Authorization 头或能力 URL。
         body_text = _redact_text(e.read().decode(errors="replace"))
@@ -259,8 +278,8 @@ def cmd_list():
     else:
         agents = data
     if not agents:
-        print("未找到智能体")
-        return
+        print("未找到智能体", file=sys.stderr)
+        sys.exit(1)
     for a in agents:
         aid = a.get("id", "?")
         name = a.get("agent_name", "未命名") or "未命名"
@@ -292,8 +311,8 @@ def cmd_show(agent_id):
     result = api("GET", f"/agents/{agent_id}")
     agent = result.get("data", {}).get("agent", {})
     if not agent:
-        print(f"未找到智能体 {agent_id}")
-        return
+        print(f"未找到智能体 {agent_id}", file=sys.stderr)
+        sys.exit(1)
     print(f"ID:       {agent.get('id')}")
     print(f"名称:     {agent.get('agent_name')}")
     print(f"模型:     {agent.get('llm_model')}")
@@ -333,13 +352,18 @@ def cmd_update_role(agent_id):
 
 
 def cmd_update_kb(kb_id):
+    try:
+        kb_id_int = int(kb_id)
+    except ValueError:
+        print(f"kb_id 必须是整数: {kb_id!r}", file=sys.stderr)
+        sys.exit(1)
     if not KNOWLEDGE_BASE_PATH.exists():
         print(f"文件不存在: {KNOWLEDGE_BASE_PATH}", file=sys.stderr)
         sys.exit(1)
 
     # 先记下现有文档，**上传 + 建档成功后才删旧**：任一步失败时远端仍保留旧知识库。
     # 旧实现是「先删全部再上传」，上传失败即把远端知识库清空，且不可逆。
-    docs_result = api("GET", f"/knowledge-bases/document?knowledgeBaseId={kb_id}&page=1&pageSize=50")
+    docs_result = api("GET", f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&page=1&pageSize=50")
     old_docs = docs_result.get("data", {}).get("list", [])
     print(f"现有文档 {len(old_docs)} 篇；先上传新文件，成功后再删旧")
 
@@ -355,7 +379,7 @@ def cmd_update_kb(kb_id):
 
     # 创建文档
     create_result = api("POST", "/knowledge-bases/document", {
-        "knowledgeBaseId": int(kb_id),
+        "knowledgeBaseId": kb_id_int,
         "fileName": file_name,
         "fileMd5": file_md5,
         "optimizeParse": False,
@@ -371,7 +395,7 @@ def cmd_update_kb(kb_id):
         doc_id = doc["id"]
         title = doc.get("title", "?")
         print(f"删除旧文档: {title} (id={doc_id})")
-        del_result = api("DELETE", f"/knowledge-bases/document?knowledgeBaseId={kb_id}&documentId={doc_id}")
+        del_result = api("DELETE", f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&documentId={doc_id}")
         # api() 对 HTTP 错误已 sys.exit；这里只拦「HTTP 200 但 success=false」
         if isinstance(del_result, dict) and del_result.get("success") is False:
             delete_failed.append(f"{title}(id={doc_id})")
@@ -385,8 +409,8 @@ def cmd_kb_list():
     result = api("GET", "/knowledge-bases?page=1&pageSize=100")
     bases = result.get("data", {}).get("list", [])
     if not bases:
-        print("未找到知识库")
-        return
+        print("未找到知识库", file=sys.stderr)
+        sys.exit(1)
     for kb in bases:
         kb_id = kb.get("id", "?")
         name = kb.get("name", "未命名")
@@ -395,13 +419,18 @@ def cmd_kb_list():
 
 
 def cmd_recall(kb_id, query):
+    try:
+        kb_id_int = int(kb_id)
+    except ValueError:
+        print(f"kb_id 必须是整数: {kb_id!r}", file=sys.stderr)
+        sys.exit(1)
     result = api("POST", "/knowledge-bases/recall-test", {
-        "knowledgeBaseId": int(kb_id),
+        "knowledgeBaseId": kb_id_int,
         "query": query,
     })
     if not result.get("success"):
         print(f"召回失败: {result.get('message', '?')}", file=sys.stderr)
-        return
+        sys.exit(1)
     data = result.get("data", [])
     chunks = data.get("chunks", data) if isinstance(data, dict) else data
     if isinstance(chunks, list):
