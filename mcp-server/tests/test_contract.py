@@ -1518,6 +1518,54 @@ def test_bitmap_generate_end_to_end_mocked(
     assert svg.startswith("<svg")
 
 
+def test_bitmap_generate_cancel_waits_for_trace_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R3 并发漂移：取消 generate_bitmap_svg 必须等描摹线程真正跑完再放行。
+
+    描摹跑在线程池，Python 线程不可强制取消。旧实现直接
+    `await asyncio.to_thread(trace_bitmap_to_polylines, png)`：请求被取消时 await
+    立刻抛 CancelledError，server.DrawLimiter.slot() 的 finally 随即 leave() 释放
+    并发名额，而描摹线程仍在后台烧 CPU——并发实数超过 max_concurrent=2（可用性
+    DoS 面）。契约：被取消的协程要到线程置位 finished 之后才结束，slot().leave()
+    因此永远晚于线程收尾。
+    """
+    import threading
+
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+
+    async def fake_fetch(_desc: str) -> bytes:
+        return b"png-bytes"
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    def slow_trace(_png: bytes):
+        started.set()
+        time.sleep(0.2)
+        finished.set()
+        return ([np.array([[0.0, 0.0], [1.0, 1.0]])], 10, 10)
+
+    monkeypatch.setattr(bitmap_svg, "_fetch_image_png", fake_fetch)
+    monkeypatch.setattr(bitmap_svg, "trace_bitmap_to_polylines", slow_trace)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(bitmap_svg.generate_bitmap_svg("x"))
+        # 等线程进场后再取消，确保取消命中 shield 的 await 点而非更早处。
+        await asyncio.to_thread(started.wait, 1.0)
+        assert started.is_set()
+        assert not finished.is_set()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # 关键断言：协程结束时线程必须已跑完。旧实现此处 finished 尚未置位。
+        assert finished.is_set()
+
+    asyncio.run(scenario())
+
+
 def test_load_settings_image_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUTUJI_IMAGE_MODEL", "img-x")
     from hutuji_mcp.config import load_settings

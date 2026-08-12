@@ -16,6 +16,7 @@ vpype 管线的 SVG 都过同一道闸」是不变量，不因来源可信而豁
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import sys
@@ -303,7 +304,22 @@ async def generate_bitmap_svg(description: str) -> str:
     """hutuji_draw 的现行生成入口：description → 单线 SVG（已过白名单校验）。"""
     safe_desc = _sanitize_description(description)
     png = await _fetch_image_png(safe_desc)
-    polys, w, h = await asyncio.to_thread(trace_bitmap_to_polylines, png)
+    # R3 并发漂移：描摹跑在线程池里，Python 线程无法被强制取消。若直接
+    # `await asyncio.to_thread(...)`，请求被取消时 await 立刻抛 CancelledError，
+    # server.DrawLimiter.slot() 的 finally 随即 leave() 释放并发名额，而描摹线程
+    # 仍在后台烧 CPU——并发实数超过 max_concurrent=2（可用性 DoS 面）。用
+    # asyncio.shield 把线程完成与外层取消解耦：取消时先等线程真正跑完再把
+    # CancelledError 上抛，于是 leave() 永远晚于线程结束，并发计数与在跑线程数
+    # 始终一致。代价：取消方最多多等一次描摹时长（本机实测 ~73ms）。
+    trace = asyncio.ensure_future(asyncio.to_thread(trace_bitmap_to_polylines, png))
+    try:
+        polys, w, h = await asyncio.shield(trace)
+    except asyncio.CancelledError:
+        # shield 只中断了本协程的等待，未取消 trace 本身；等线程自然收尾
+        # （连同它可能抛出的 BitmapError 一并吞掉），再让取消继续传播。
+        with contextlib.suppress(BaseException):
+            await trace
+        raise
     svg = polylines_to_svg(polys, w, h)
     if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:
         raise BitmapError("描摹 SVG 超过 256KiB 上限（图太复杂）")
