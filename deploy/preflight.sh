@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=23
+EXPECTED_CHECKS=25
 PASS=0
 FAIL=0
 
@@ -487,8 +487,16 @@ check_bitmap_chain() (
   fi
 )
 
+# 两种探法共用同一份真产物与同一套完整性判据，只切换**请求面**（$1）：
+#   local  —— 经 nginx :80 的 loopback 面，用 Host 头模拟隧道回源；
+#   public —— S3 真实走的 HTTPS:443 面（DNS → Cloudflare 边缘 → 隧道 → nginx）。
+# R16：旧版只有 local 面，全脚本 0 处 443 探针，于是设备唯一的真实服务路径零判据——
+# 证书过期/未续、隧道 down、边缘路由改错、公网 DNS 记录被改，全都不会让体检红，
+# 而 S3 侧必然下载失败。末行「再验 HTTPS /files」那句人工提示不是判据：没人跑它时
+# 与不存在等价，同一份脚本已有先例（旧 skip 机制让「明文 :80 /files 须 403」形同虚设）。
 check_download() (
-  local h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f svg headers body code expected_len actual_len expected_crc actual_crc out rc=0
+  local mode="$1" h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f svg headers body code expected_len actual_len expected_crc actual_crc out rc=0
+  [[ "$mode" == "local" || "$mode" == "public" ]] || exit 1
   [[ -n "$h" && -d "$d" ]] && safe_output_dir "$d" || exit 1
   [[ -x "$VENV_PY" ]] || exit 1
   tok="$(python3 -c 'import secrets; print(secrets.token_urlsafe(16))')"
@@ -513,7 +521,16 @@ raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
     printf '%s\n' "$out" | tail -1 >&2
     exit 1
   fi
-  code="$(curl --noproxy "*" --max-time 5 -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Host: $h" "http://127.0.0.1/files/$f")" || exit 1
+  if [[ "$mode" == "local" ]]; then
+    code="$(curl --noproxy "*" --max-time 5 -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Host: $h" -H "Accept-Encoding: identity" "http://127.0.0.1/files/$f")" || exit 1
+  else
+    # 公网面刻意不加 `-k` 也不加 `--resolve`：证书链与公网 DNS 都是 S3 下载的真实前提，
+    # 任一坏掉必须判红，绕过去就等于把这项探成 local 面的复读。
+    # `Accept-Encoding: identity` 是硬要求：边缘一旦 gzip 正文，Content-Length 与
+    # CRC32 比对的就不是产物字节，长度/校验判据全部失真。
+    # 超时放宽到 15s——请求要绕一圈 Cloudflare 边缘再回源，5s 对跨境回源偏紧。
+    code="$(curl --noproxy "*" --max-time 15 -sS -D "$headers" -o "$body" -w "%{http_code}" -H "Accept-Encoding: identity" "https://$h/files/$f")" || exit 1
+  fi
   expected_len="$(wc -c < "$d/$f" | tr -d " ")"
   actual_len="$(awk 'tolower($1) == "content-length:" {gsub("\r", "", $2); print $2}' "$headers" | tail -1)"
   expected_crc="$(python3 -c 'import sys, zlib; print("%08x" % (zlib.crc32(open(sys.argv[1], "rb").read()) & 0xffffffff))' "$d/$f")"
@@ -726,6 +743,18 @@ check_catchall_behavior() {
     return 1
   fi
 }
+
+# 公网 HTTPS /mcp 必须 404：判据只认 404，不认「连不上」。
+# 000（DNS/TLS/隧道任一坏）在安全面上确实也「访问不到 MCP」，但它同时意味着 /files
+# 也访问不到，把它当 pass 就是拿故障当合规——本脚本禁 skip 的同一条理由。
+check_public_mcp_blocked() {
+  local code
+  code="$(curl --noproxy "*" --max-time 15 -sS -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" "https://${TUNNEL_HOST}/mcp")" || return 1
+  if [[ "$code" != "404" ]]; then
+    echo "公网 HTTPS /mcp 返回 ${code}（期望 404）：MCP 端点已暴露到公网" >&2
+    return 1
+  fi
+}
 check "兜底路径：隧道回源态 404、明文直连 301（无自指 301 环）" check_catchall_behavior
 
 # 生成链正例：生产 venv 真跑 vpype + §5 校验（覆盖 profile / 依赖 / 校验器漂移）。
@@ -733,11 +762,17 @@ check "生产 venv 真实生成链可用（vpype + profile + §5 校验）" chec
 # 位图描摹链正例：生产 venv 真跑 skimage/sknw/imageio 描摹（缺依赖会 fail-open）。
 check "生产 venv 真实位图描摹链可用（skimage + sknw + imageio）" check_bitmap_chain
 # 真 200 正例：用真实生成链造一份合法命名产物（TTL 内自清），验完整下载契约。
-check "localhost :80 /files 真下 G-code 200" check_download
+check "localhost :80 /files 真下 G-code 200" check_download local
+# 同一套契约再走一遍设备真实路径：公网 HTTPS:443（证书链 + 公网 DNS + 边缘 + 隧道）。
+check "公网 HTTPS:443 /files 真下 G-code 200（S3 真实下载路径）" check_download public
+# 公网 /mcp 必须 404。此前只有 loopback :80 带 Host 头那一路（check_acl_response 的
+# $mcp），它证不到边缘/隧道层没有另开一条到 :8300 的入口，而这条铁律的唯一「验证」
+# 是末行给人看的提示语。
+check "公网 HTTPS:443 /mcp 返回 404（MCP 未暴露公网）" check_public_mcp_blocked
 
 echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"
 # 必须全 pass：无 skip 可抵扣，少一项都不放行（漏跑与失败同等对待）。
 if ! [[ "${PASS}" -eq "${EXPECTED_CHECKS}" && "${FAIL}" -eq 0 ]]; then
   exit 1
 fi
-echo "PASS — 再验：公网 curl /mcp 须失败；HTTPS /files 经 nginx；小智控制台 tools/list"
+echo "PASS — 再验：小智控制台 tools/list"

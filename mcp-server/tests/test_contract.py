@@ -2805,7 +2805,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 23
+    assert preflight.count('\ncheck "') == 25
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -2824,7 +2824,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
 
 def test_preflight_invokes_every_check_after_env_init() -> None:
     """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
-    `unbound variable` 退出，23 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    `unbound variable` 退出，25 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
     root = Path(__file__).resolve().parents[2]
     lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
 
@@ -2834,7 +2834,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 23
+    assert len(checks) == 25
     assert min(checks) > init_last
 
 
@@ -5206,6 +5206,58 @@ def test_preflight_generate_chain_uses_real_temp_file() -> None:
         if "mktemp -u" in line and not line.lstrip().startswith("#")
     ]
     assert calls == [], calls
+
+def test_preflight_probes_public_https_service_path() -> None:
+    """R16：S3 真实走的 HTTPS:443 路径必须有机器判据。
+
+    旧版全脚本 0 处 443 探针——`check_download` 只 curl `http://127.0.0.1/files/`
+    带 Host 头模拟隧道回源，nginx 层其余探针同样都在 :80/:8300。于是证书过期或未续、
+    隧道 down、公网 DNS 被改、边缘路由改错，全都不会让体检红，而设备侧必然下载失败：
+    「23 项全绿 + 一画就整单失败」可以同时成立，与 hutuji_gwrite.toml 漏传那次同形。
+
+    唯一的「验证」曾是末行给人看的 `再验：HTTPS /files 经 nginx`。提示语不是判据：
+    没人跑它时与不存在等价，本脚本已有先例（旧 OPTIONAL_SKIP 让「明文 :80 /files
+    须 403」从未被验证却打印全绿）。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    # 两条 check 都必须注册，且下载探针必须按请求面参数化调用（漏参数会因 mode
+    # 白名单判红，不会静默退化成 local 面）。
+    assert "check_download local" in preflight_code
+    assert "check_download public" in preflight_code
+    assert 'check "公网 HTTPS:443 /files 真下 G-code 200' in preflight
+    assert 'check "公网 HTTPS:443 /mcp 返回 404' in preflight
+
+    body = preflight.split("check_download() (", 1)[1].split("\n)", 1)[0]
+    # 旗标类断言必须只看代码行：函数内注释解释了「刻意不加 -k / --resolve」，
+    # 连注释一起扫会被自己的说明文字判红（本测试首轮实测如此）。
+    body_code = "\n".join(
+        line for line in body.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert '[[ "$mode" == "local" || "$mode" == "public" ]] || exit 1' in body_code
+    # 公网面必须真打 https://$TUNNEL_HOST，且沿用同一套 200/长度/CRC32/cmp 判据。
+    assert '"https://$h/files/$f"' in body_code
+    # 证书链与公网 DNS 都是 S3 下载的前提，绕过任一项就把本探针退化成 local 复读。
+    assert " -k " not in body_code and "--insecure" not in body_code
+    assert "--resolve" not in body_code
+    # 边缘 gzip 会让 Content-Length/CRC32 比对的不是产物字节：两面都须禁压缩。
+    assert body_code.count("Accept-Encoding: identity") == 2
+
+    # /mcp 公网判据只认 404：000（DNS/TLS/隧道坏）意味着 /files 同样不可达，
+    # 拿故障当合规就是本脚本禁 skip 的那条毛病。
+    mcp_body = preflight.split("check_public_mcp_blocked() {", 1)[1].split("\n}", 1)[0]
+    assert '"https://${TUNNEL_HOST}/mcp"' in mcp_body
+    assert '[[ "$code" != "404" ]]' in mcp_body
+    assert "|| return 1" in mcp_body
+
+    # 判据落地后，末行提示语不得再把这两项列为「待人工再验」。
+    tail = preflight.rstrip().splitlines()[-1]
+    assert "HTTPS /files" not in tail
+    assert "/mcp" not in tail
 
 def test_preflight_permission_checks_dereference_symlinks() -> None:
     """env 权限判定必须 `stat -L`，与 mtime 侧同口径。
