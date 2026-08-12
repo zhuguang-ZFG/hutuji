@@ -36,6 +36,12 @@ _GEOMETRY_EPS_MM = 0.01
 #（解出的圆心贴在弦中点旁，正 R 取 minor 一侧圆心会让包围盒退化成弦点而绕过
 # 限幅）。vpype 生产管线实测 0 条真实圆弧，这种几何没有合法来源，fail-closed。
 _ARC_MIN_CHORD_MM = 0.5
+# 整圆判定阈值 = Grbl `Config.h` 的 ARC_ANGULAR_TRAVEL_EPSILON（R10-ARC-01）。
+# `MotionControl.cpp` 对 |angular_travel| ≤ 5e-7 的 G2/G3 一律补 2π 当整圆画：
+# 校验器若用更小的阈值（旧值 1e-9），(阈值, 5e-7) 区间的弧会被当「原地微动」
+# 放行（包围盒退化成端点），固件却画出整圆——圆越大越致命，本机无限位开关，
+# 这道校验是唯一防线。阈值必须与固件逐字一致，改动要与 Grbl 侧同步评审。
+_ARC_FULL_CIRCLE_EPSILON_RAD = 5e-7
 
 # 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；恰好 512KiB 放行，再多一字节才拒）
 MAX_BYTES = 512 * 1024
@@ -181,10 +187,11 @@ def _arc_bbox(
 
     a0 = math.atan2(y0 - cy, x0 - cx)
     a1 = math.atan2(y1 - cy, x1 - cx)
-    # 扫过的角度跨度，统一折算成 CCW 正向 [0, 2π)；起终点重合 = 整圆
+    # 扫过的角度跨度，统一折算成 CCW 正向 [0, 2π)；扫角 ≤ 固件 epsilon = 整圆
+    #（阈值语义见 _ARC_FULL_CIRCLE_EPSILON_RAD 的注释，必须与 Grbl 逐字一致）。
     sweep = (a1 - a0) if not clockwise else (a0 - a1)
     sweep %= 2.0 * math.pi
-    if sweep < 1e-9:
+    if sweep < _ARC_FULL_CIRCLE_EPSILON_RAD:
         sweep = 2.0 * math.pi
 
     xs, ys = [x0, x1], [y0, y1]
@@ -207,7 +214,7 @@ class GcodeStats:
 
 
 def _vpype_cmd() -> list[str]:
-    """定位 vpype 命令：venv 内 console script → PATH → python -m vpype。"""
+    """定位 vpype 命令：venv 内 console script → PATH → python -m vpype_cli。"""
     # venv 场景：脚本与解释器同目录（Windows vpype.exe / POSIX vpype）
     for name in ("vpype.exe", "vpype"):
         candidate = Path(sys.executable).parent / name
@@ -216,7 +223,11 @@ def _vpype_cmd() -> list[str]:
     exe = shutil.which("vpype")
     if exe:
         return [exe]
-    return [sys.executable, "-m", "vpype"]
+    # 兜底必须是 vpype_cli 不是 vpype（GC-P3a）：vpype 包没有 __main__.py，
+    # `-m vpype` 是死路径，真走到时报 "No module named vpype.__main__"，把
+    # 「console script 丢失」误诊成「vpype 没装」。console script 的入口
+    # `vpype_cli:cli` 所在的 vpype_cli 包才有 __main__.py（1.15 实测）。
+    return [sys.executable, "-m", "vpype_cli"]
 
 
 def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
@@ -343,7 +354,16 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
     字符串）成立；凡是从文件来的产物都必须显式传，否则 CRLF 会被少算 1 字节/行，
     详见 `_read_generated_gcode` 的说明。
     """
-    lines = text.splitlines()
+    # 行拆分必须与设备口径一致（GC-P3c）：设备只认 \n / \r 做 EOL，而 Python
+    # splitlines() 还会按 \x0b/\x0c/\x1c-\x1e/\x85/U+2028/U+2029 切行——一条含
+    # \x0c 的 270 字节设备行会被拆成两条「合法」短行、分隔符本身消失，设备却
+    # 按原样收到超长行被 error:11 静默吃掉。故只按 \n 切；行尾单个 \r 剥掉
+    #（CRLF 产物真实存在，§3 已约定 S3 重切行），其余控制字符留在行内，交由
+    # 下面循环里的控制字符/ASCII 闸显式拒绝。
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()  # 文件末尾换行符产生的空尾段不是一行
+    lines = [l[:-1] if l.endswith("\r") else l for l in lines]
     if not lines or not any(l.strip() for l in lines):
         raise GcodeError("G-code 为空")
 
@@ -396,6 +416,10 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
     seen_g21 = False
     seen_g90 = False
     pen_lifts = 0
+    # 零运动闸（GC-P3b）：上游描摹丢线/linesimplify 滤光几何时，vpype 仍会产出
+    # 「合法头尾但一条 XY 运动都没有」的空产物——放行即浪费一张纸和一轮换纸
+    # 周期，用户拿到「成功」却是白纸。至少一条带 XY 坐标的运动行才算有内容。
+    seen_xy_motion = False
     # Grbl 复位/上电后的默认运动模式是 **G0**：`Grbl_Esp32/src/GCode.h:78`
     # `Seek = 0, // G0 (Default: Must be zero)`，modal 结构体归零即 Seek；
     # 只有 M2/M30 之后才切到 G1（`GCode.cpp:1736`）。只有本行显式给 G0~G3 才切换。
@@ -414,9 +438,15 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
         code_part = line.split(";", 1)[0].strip()
         upper = code_part.upper()
 
+        # 行内控制字符显式拒绝（GC-P3c 的另一半）：\x0c/\x0b/\t/行中 \r 等在
+        # 设备侧要么是 EOL（\r，产生行错位）、要么进 Grbl 解析器被拒——旧
+        # splitlines() 把其中一部分当分隔符吞掉，校验器与设备看到的行就不同了。
+        if any(ch < " " or ch == "\x7f" for ch in raw):
+            raise GcodeError(f"第 {idx} 行含控制字符（生产 G-code 行内禁止控制字符）")
+
         # Grbl LINE_BUFFER_SIZE 是字节数；S3 会原样转发 UTF-8，故不能只量 Python
         # 字符数。生产 G-code 只接受 ASCII，避免多字节注释撑爆设备行缓冲。
-        # `raw` 来自 splitlines()，已不含行尾换行符，故其长度就是 payload 字节数——
+        # `raw` 已剥去行尾换行符（含 CRLF 的 \r），故其长度就是 payload 字节数——
         # 与 MAX_LINE_PAYLOAD_BYTES 的口径（不含换行）一致。
         try:
             line_bytes = raw.encode("ascii")
@@ -428,9 +458,9 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
                 f"（Grbl LINE_BUFFER_SIZE 256 的可用 payload，第 255 字节起整行被 error:11 吃掉）"
             )
 
-        # 首行禁 G0 X0Y0Z0（软复位后首页触发点）
-        if idx == 1 and re.fullmatch(r"G0?0\s*X0\s*Y0\s*Z0", upper.replace(" ", "")):
-            raise GcodeError("首行是 G0 X0 Y0 Z0（会触发自动换纸，§5 禁止）")
+        # 旧「首行禁 G0 X0Y0Z0」检查已删（GC-P3d 死代码）：文件头闸在本循环之前
+        # 运行且要求首个代码块必须是精确 G21，任何首行 G0 都到不了这里；
+        # 非首行的 G0 落点 X0Y0 由下方通用禁令覆盖。
 
         # 指令识别不能依赖空格切分：`G0X0Y0`（无空格）整行只有一个 token，
         # `G90 G0 X0 Y0`（模态前缀）首个 token 是 G90，两者都能绕过下面的禁令。
@@ -555,6 +585,8 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
 
         # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。裸轴字同样是模态运动，
         # 不能因本行没有显式 G 字而跳过。
+        if has_motion and coords:
+            seen_xy_motion = True
         if has_motion:
             for axis, val in coords:
                 limit = MAX_X_MM if axis == "X" else MAX_Y_MM
@@ -600,6 +632,11 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
 
     if not (seen_g21 and seen_g90):
         raise GcodeError("文件头缺少精确 G21/G90（§5 自包含要求）")
+
+    if not seen_xy_motion:
+        raise GcodeError(
+            "G-code 无任何 XY 运动（空产物：上游几何被全部滤掉，下发只会浪费纸张）"
+        )
 
     if pen_lifts > PEN_LIFT_WARN_THRESHOLD:
         logger.warning(

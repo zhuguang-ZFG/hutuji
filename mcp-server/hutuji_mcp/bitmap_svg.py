@@ -84,6 +84,20 @@ _MAX_IMAGE_PIXELS = 5_000_000
 # 越界、不会报错，只会**静默画错**。故在解码前按 IHDR 单独拦，让它变成显式
 # BitmapError。取 32768 是 int16 的正半域边界，不是可调画质参数。
 _MAX_IMAGE_SIDE = 32768
+# 骨架总像素预算（R10-BMP-01，2026-08-13 本机崩溃复现）：sknw 的 trace() 用固定
+# `np.zeros(131072)` 缓冲存单条边的像素索引，且 @jit(nopython=True) 下 numba 默认
+# 不做边界检查——任一**无交叉的单条曲线**骨架长度超过缓冲即越界写堆内存。实测
+# 1500² 螺线（骨架 244257 px）令进程直接 0xC0000005（ACCESS_VIOLATION）退出：
+# 崩溃发生在 asyncio.to_thread 工作线程的 C 层，Python 捕获不到，整个 uvicorn
+# 进程死亡，并发请求与 /files 一起陪葬。解码后无法预知「单条边」会有多长，骨架
+# 总像素是唯一保守上界（单边长度 ≤ 总和）。1024² 正常线稿骨架实测 ~1 万 px 量级，
+# 余量充足；「画个蚊香/螺旋/漩涡」这类主题会自然产出 15 万~26 万 px 的长单线，
+# 必须显式拒绝而不是崩进程。131071 = 缓冲大小 - 1，不是可调画质参数。
+_SKNW_TRACE_BUDGET_PX = 131071
+# 生图 POST 响应读取上限（R10-BMP-03）：与 llm_svg.MAX_LLM_RESPONSE_BYTES 同口径，
+# 必须在网络读取阶段生效——非流式 post() 返回时正文已被 httpx 全量缓冲，事后
+# len() 检查拦不住内存暴涨。正常响应只含一条图片 URL 的 JSON，64KiB 已极宽裕。
+_IMAGE_API_MAX_BYTES = 64 * 1024
 
 
 def _reject_oversized_png(png_bytes: bytes) -> None:
@@ -177,10 +191,36 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
         raise BitmapError(f"位图解码失败（{type(exc).__name__}）") from None
     h, w = img.shape
 
-    blur = gaussian(img, sigma=1.0, preserve_range=True)
-    binary = blur < threshold_otsu(blur)  # 线条为 True
-    skel = skeletonize(binary)
-    graph = sknw.build_sknw(skel.astype(np.uint16))
+    try:
+        blur = gaussian(img, sigma=1.0, preserve_range=True)
+        binary = blur < threshold_otsu(blur)  # 线条为 True
+        skel = skeletonize(binary)
+        skel_px = int(skel.sum())
+        if skel_px > _SKNW_TRACE_BUDGET_PX:
+            # R10-BMP-01：必须拦在 build_sknw 之前——sknw 的越界写不是异常而是
+            # 进程级崩溃，下面的宽 catch 兜不住它。
+            raise BitmapError(
+                f"骨架过长（{skel_px} px，上限 {_SKNW_TRACE_BUDGET_PX}）："
+                "超过 sknw trace() 的固定缓冲，越界写会直接崩掉进程"
+                "（图太密，如螺旋/密集纹理主题）"
+            )
+        # R10-BMP-02：sknw 默认 multi=False 返回 nx.Graph，同一对节点间的多条弧
+        # （圆环被弦穿过 = 上弧/下弧/弦共 3 条路径）会被 add_edge 后写覆盖前写、
+        # 静默丢线（本机实测圆环+弦丢 63.1%，太阳+光芒/气球+绳/眼镜均属此形态）。
+        # MultiGraph 逐条保留平行边与同节点双自环（8 字形）。iso/ring/full 显式
+        # 写死 0.15 的默认值，把行为从「库默认」变成「本仓契约」——旧版 sknw
+        # 无这些参数、孤立闭环（纯圆/字母 O）会整体丢失，requirements.txt 已同步
+        # 抬下界到 >=0.15。
+        graph = sknw.build_sknw(
+            skel.astype(np.uint16), multi=True, iso=True, ring=True, full=True
+        )
+    except BitmapError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # 与解码段同款宽 catch：numba 运行期 TypingError、scipy/skimage 内部错误
+        # 等罕见异常不该裸穿模块契约（调用方只准备接 BitmapError）；只记类型名，
+        # 不回显可能含外部数据的异常文本。
+        raise BitmapError(f"位图描摹失败（{type(exc).__name__}）") from None
     polys: list[np.ndarray] = []
     for _u, _v, data in graph.edges(data=True):
         pts = data["pts"]  # (N, 2)，(row, col)
@@ -233,31 +273,57 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
     }
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
 
+    # 显式决策（R10 复审）：不跟随重定向（httpx 默认 follow_redirects=False），
+    # 3xx 一律按「图片下载返回 3xx」失败。盲开 follow_redirects=True 会打开
+    # https→内网/明文 的 SSRF 降级面（下面的 https 前缀闸只验首跳 URL）。agnes
+    # 当前返回 CDN 直链；若上游改成 302 签名跳转，正确改法是在下载处显式放行
+    # 「单跳且 Location 仍以 https:// 开头」，而不是在 client 上开全局跟随。
     async with httpx.AsyncClient(
         timeout=_IMAGE_ATTEMPT_TIMEOUT_SECONDS, transport=transport
     ) as client:
         data = None
         for attempt in range(len(_RETRY_DELAYS_SECONDS) + 1):
             try:
+                # R10-BMP-03：POST 与下面的图片 GET 同口径改流式——非流式 post()
+                # 返回时正文已被 httpx 全量缓冲，事后检查拦不住内存暴涨；恶意/
+                # 故障上游在超时窗口内可推送 GB 级正文。声明闸省流量，逐块累计
+                # 闸兜住 chunked/畸形头，两道闸都在数据进内存前生效。
                 async with asyncio.timeout(_IMAGE_ATTEMPT_TIMEOUT_SECONDS):
-                    resp = await client.post(url, json=payload, headers=headers)
-                if resp.status_code == 200:
+                    async with client.stream(
+                        "POST", url, json=payload, headers=headers
+                    ) as resp:
+                        status = resp.status_code
+                        raw = bytearray()
+                        if status == 200:
+                            declared = resp.headers.get("content-length")
+                            if (
+                                declared
+                                and declared.isdigit()
+                                and int(declared) > _IMAGE_API_MAX_BYTES
+                            ):
+                                raise BitmapError("生图 API 响应超过读取上限")
+                            async for chunk in resp.aiter_bytes():
+                                if len(raw) + len(chunk) > _IMAGE_API_MAX_BYTES:
+                                    raise BitmapError("生图 API 响应超过读取上限")
+                                raw.extend(chunk)
+                if status == 200:
                     try:
-                        data = resp.json()
-                    except json.JSONDecodeError:
+                        data = json.loads(bytes(raw))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
                         # 200 但正文不是 JSON（如 CDN/网关的 HTML 错误页）：
-                        # json.JSONDecodeError 是 ValueError 而非 httpx 异常，
-                        # 不拦会裸穿出本模块；重试同一份垃圾正文无意义，直接失败。
+                        # JSONDecodeError/UnicodeDecodeError 是 ValueError 而非
+                        # httpx 异常，不拦会裸穿出本模块；重试同一份垃圾正文
+                        # 无意义，直接失败。
                         raise BitmapError("生图 API 响应不是合法 JSON") from None
                     break
                 # 上游错误正文可能回显凭据；不读取不记录，只记状态码。
                 if (
-                    resp.status_code in _TRANSIENT_HTTP_STATUSES
+                    status in _TRANSIENT_HTTP_STATUSES
                     and attempt < len(_RETRY_DELAYS_SECONDS)
                 ):
                     await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
                     continue
-                raise BitmapError(f"生图 API 返回 {resp.status_code}")
+                raise BitmapError(f"生图 API 返回 {status}")
             except (httpx.HTTPError, TimeoutError) as exc:
                 if attempt < len(_RETRY_DELAYS_SECONDS):
                     await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
@@ -353,6 +419,13 @@ async def generate_bitmap_svg(description: str) -> str:
                 # 线程自身的异常（如 BitmapError）在取消路径上无消费者，
                 # 吞掉即可；trace 已 done，循环随即退出。
                 break
+        if trace.done() and not trace.cancelled():
+            # 窄竞态兜底（R10 复审）：线程若恰在「首次 CancelledError 传播」与
+            # 「上面 while 判 done」之间带异常收尾，循环体从未 await 到它，异常
+            # 就无人取回——GC 期会打「Task exception was never retrieved」并把
+            # 异常 repr（可能含外部数据）吐进日志。exception() 显式取回后丢弃；
+            # 正常完成时它返回 None，无副作用。
+            trace.exception()
         raise
     svg = polylines_to_svg(polys, w, h)
     if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:
@@ -472,6 +545,21 @@ def _run_self_test() -> None:
             raise BitmapError(
                 "描摹自检包围盒溢出探针线条范围：前景/背景极性可能反了"
             )
+    # 方向性钉子（R10 复审补）：上面的包围盒对 x/y 转置与上下翻转**不敏感**
+    # （⊥ 探针的 x、y 极值同域），行列序写反自检照样绿。⊥ 的竖臂是唯一
+    # 「y 跨度远大于 x 跨度」的成分，且必须整体落在画面上半部（y 均值 < 中线）：
+    # 转置后它变成横臂（找不到竖臂）、y 镜像后掉到下半部，两类坐标事故都判红。
+    mid = _PROBE_SIZE_PX // 2
+    vertical = [
+        poly
+        for poly in polys
+        if (poly[:, 1].max() - poly[:, 1].min())
+        > 2 * (poly[:, 0].max() - poly[:, 0].min())
+    ]
+    if not vertical:
+        raise BitmapError("描摹自检未找到竖臂：坐标轴可能被转置（行列序写反）")
+    if any(float(np.mean(poly[:, 1])) >= mid for poly in vertical):
+        raise BitmapError("描摹自检竖臂落在下半画面：y 轴可能被上下翻转")
     svg = polylines_to_svg(polys, w, h)
     # 机器产物也过同一道白名单闸（模块不变量），顺带证明 llm_svg 校验器可用。
     _validate_svg(svg)

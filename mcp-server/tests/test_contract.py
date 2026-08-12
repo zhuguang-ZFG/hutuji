@@ -250,6 +250,77 @@ def test_mcp_guard_fails_closed_on_unknown_peer(client: tuple[str, int] | None) 
     assert sent[0]["status"] == 404
 
 
+def _run_guard_ws(path: str, client: tuple[str, int] | None) -> tuple[bool, list[dict[str, object]]]:
+    """websocket scope 版驱动：返回（是否进到内层 app，发出的消息）。"""
+    reached: list[bool] = []
+
+    async def _inner(scope: dict[str, object], receive: object, send: object) -> None:
+        reached.append(True)
+
+    sent: list[dict[str, object]] = []
+
+    async def _send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    async def _receive() -> dict[str, object]:
+        return {"type": "websocket.connect"}
+
+    guard = server.LoopbackOnlyMcpGuard(_inner)
+    scope = {"type": "websocket", "path": path, "headers": [], "client": client}
+    asyncio.run(guard(scope, _receive, _send))
+    return bool(reached), sent
+
+
+@pytest.mark.parametrize("client", [("117.72.118.95", 40000), None])
+def test_mcp_guard_blocks_nonloopback_websocket_scope(
+    client: tuple[str, int] | None,
+) -> None:
+    """websocket scope 的 /mcp 同样必须拦（SRV-P3c）。
+
+    守卫旧实现只对 `type == "http"` 生效，websocket scope 直接透传——当前
+    Starlette 栈对 /mcp 没挂 ws 端点所以拿不到东西，但守卫的存在意义就是
+    「下层怎么变都兜得住」；透传等于把这层保证悄悄挖空。fail-closed：
+    非 loopback（或对端未知）一律握手前 close。
+    """
+    reached, sent = _run_guard_ws("/mcp", client)
+    assert reached is False, "非 loopback websocket 对端不得进到 MCP 应用"
+    assert sent and sent[0]["type"] == "websocket.close"
+
+
+def test_mcp_guard_allows_loopback_websocket_scope() -> None:
+    reached, _ = _run_guard_ws("/mcp", ("127.0.0.1", 50000))
+    assert reached is True
+
+
+def test_files_route_registers_head_method() -> None:
+    """`GET /files/{name}` 必须同时受理 HEAD（SRV-P3b）。
+
+    FastAPI 的 @app.get 不自动注册 HEAD；nginx 反代白名单与文档口径都写着
+    `GET/HEAD /files/`，S3 侧用 HEAD 预检 Content-Length/CRC32 时应用层却回
+    404 方法不存在。"""
+    for route in server.app.routes:
+        if getattr(route, "path", "") == "/files/{name}":
+            assert "GET" in route.methods
+            assert "HEAD" in route.methods, "/files 路由缺 HEAD"
+            break
+    else:
+        raise AssertionError("找不到 /files/{name} 路由")
+
+
+def test_mcp_session_idle_timeout_armed() -> None:
+    """streamable HTTP 会话必须配 idle 超时（R10-BRG-02）。
+
+    FastMCP 1.28.1 构造 StreamableHTTPSessionManager 时不透传
+    session_idle_timeout（恒 None）：桥接/mcp-proxy 每次重连都留下一个再也
+    无人 DELETE 的旧会话，其 run_server 任务与内存永不回收——慢泄漏直到
+    重启。构造后补设该属性即可生效（manager 在请求期读 self 属性）。
+    取 3600s：远大于看门狗 300s 与最慢合法绘图，只回收真正的孤儿会话；
+    孤儿被回收后 mcp-proxy 若还拿旧 id 来，会得到 Session terminated，
+    由桥接的判死重连自愈（见 test_cloud_bridge 第十轮）。
+    """
+    assert server.mcp.session_manager.session_idle_timeout == 3600
+
+
 def _run_guard_under_proxy_headers(
     trusted: str, peer: tuple[str, int], xff: bytes | None
 ) -> bool:
@@ -491,6 +562,7 @@ def test_gcode_accepts_spaced_production_header() -> None:
     validate_gcode(
         "G21\nG90\nF8000\n"
         "G1 G90 Z0.0 F10000\nG1 G90 Z0.0 F10000\n"
+        "G1 X10 Y10 F8000\n"
         "G1 G90 Z0.0 F10000\n"
     )
 
@@ -537,8 +609,9 @@ def _size_filler(remaining: int) -> str:
 
 def test_gcode_accepts_exactly_512_kib() -> None:
     """§5「≤ 512KB 含」：恰好 MAX_BYTES 放行，多一字节才拒。"""
-    base = _minimal_gcode()
-    text = _minimal_gcode(_size_filler(MAX_BYTES - len(base.encode("utf-8"))))
+    motion = "G1 X10 Y10 F8000\n"
+    base = _minimal_gcode(motion)
+    text = _minimal_gcode(motion + _size_filler(MAX_BYTES - len(base.encode("utf-8"))))
     assert len(text.encode("utf-8")) == MAX_BYTES
     stats = validate_gcode(text)
     assert stats.bytes == MAX_BYTES
@@ -553,8 +626,9 @@ def test_gcode_size_limit_counts_disk_bytes_not_collapsed_newlines(tmp_path) -> 
     旧算法数出 503523、判为未超并放行，且回给 S3 的 `bytes` 少报 20846。512KiB 是
     S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。
     """
-    base = _minimal_gcode()
-    text = _minimal_gcode(_size_filler(MAX_BYTES - len(base.encode("utf-8"))))
+    motion = "G1 X10 Y10 F8000\n"
+    base = _minimal_gcode(motion)
+    text = _minimal_gcode(motion + _size_filler(MAX_BYTES - len(base.encode("utf-8"))))
     # LF 形态恰好等于上限；换成 CRLF 后磁盘字节必然超限（每行 +1）。
     assert len(text.encode("utf-8")) == MAX_BYTES
 
@@ -571,7 +645,7 @@ def test_gcode_size_limit_counts_disk_bytes_not_collapsed_newlines(tmp_path) -> 
 
 def test_gcode_stats_bytes_equals_real_file_size_for_crlf(tmp_path) -> None:
     """回给 S3 的 `bytes` 必须等于磁盘真实字节，否则与 Content-Length / CRC32 不同源。"""
-    raw = _minimal_gcode().replace("\n", "\r\n").encode("ascii")
+    raw = _minimal_gcode("G1 X10 Y10 F8000\n").replace("\n", "\r\n").encode("ascii")
     p = tmp_path / "ok_crlf.gcode"
     p.write_bytes(raw)
     stats = _read_generated_gcode(p)
@@ -582,7 +656,7 @@ def test_gcode_stats_bytes_equals_real_file_size_for_crlf(tmp_path) -> None:
 
 def test_validate_gcode_accepts_explicit_total_bytes_override() -> None:
     """`total_bytes` 显式传入时优先于文本推算，且缺省行为不变（纯文本场景）。"""
-    text = _minimal_gcode()
+    text = _minimal_gcode("G1 X10 Y10 F8000\n")
     assert validate_gcode(text).bytes == len(text.encode("utf-8"))
     assert validate_gcode(text, total_bytes=12345).bytes == 12345
     with pytest.raises(GcodeError, match="总大小"):
@@ -629,13 +703,13 @@ def test_gcode_line_payload_limit_is_254_not_255() -> None:
     # 254 字节 payload：放行（含换行整行 255 字节，设备侧 len 走到 254 后收到 EOL）
     ok_line = ";" + "x" * (MAX_LINE_PAYLOAD_BYTES - 1)
     assert len(ok_line.encode("ascii")) == MAX_LINE_PAYLOAD_BYTES
-    validate_gcode(_minimal_gcode(ok_line + "\n"))
+    validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n" + ok_line + "\n"))
 
     # 255 字节 payload：必须拒。这一条是本次修复的核心——旧口径 `> 255` 会放行。
     bad_line = ";" + "x" * MAX_LINE_PAYLOAD_BYTES
     assert len(bad_line.encode("ascii")) == MAX_LINE_PAYLOAD_BYTES + 1
     with pytest.raises(GcodeError, match=r"255 字节超上限 254"):
-        validate_gcode(_minimal_gcode(bad_line + "\n"))
+        validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n" + bad_line + "\n"))
 
     # 明显超长仍拒（回归保护，旧口径也能拦住这一条）
     with pytest.raises(GcodeError, match=r"超上限 254"):
@@ -737,7 +811,9 @@ def test_gcode_rejects_paren_comment_line() -> None:
 
 def test_pen_lifts_are_reported_but_not_rejected(caplog: pytest.LogCaptureFixture) -> None:
     # 抬笔 = Z 回 0 的运动（对齐奎享 Stepper 产物，本 profile 不产 M5）
-    text = _minimal_gcode("G1G90 Z0.0F10000\n" * (PEN_LIFT_WARN_THRESHOLD + 1))
+    text = _minimal_gcode(
+        "G1 X10 Y10 F8000\n" + "G1G90 Z0.0F10000\n" * (PEN_LIFT_WARN_THRESHOLD + 1)
+    )
     with caplog.at_level(logging.WARNING):
         stats = validate_gcode(text)
     assert stats.pen_lifts == PEN_LIFT_WARN_THRESHOLD + 4
@@ -1201,6 +1277,92 @@ def test_bitmap_trace_rejects_zero_dimension_png() -> None:
         bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(0, 1024))
 
 
+def _circle_with_chord_png_bytes() -> bytes:
+    """200×200 圆环+水平弦：弦把圆切成两条平行弧。
+
+    两个交叉节点之间存在 3 条边（上弧、下弧、弦），是「同一对节点间多重边」
+    的最小构图——太阳+光芒、气球+绳、眼镜、轮子+轴线都属此形态。
+    """
+    import io
+    import math as _math
+
+    import imageio.v3 as iio
+    import numpy as np
+
+    img = np.full((200, 200), 255, dtype=np.uint8)
+    cx = cy = 100
+    radius = 70
+    for t in np.linspace(0.0, 2.0 * _math.pi, 20000):
+        xi = int(cx + radius * _math.cos(t))
+        yi = int(cy + radius * _math.sin(t))
+        img[yi, xi] = 0
+    img[cy, cx - radius : cx + radius] = 0
+    buf = io.BytesIO()
+    iio.imwrite(buf, img, extension=".png")
+    return buf.getvalue()
+
+
+def test_bitmap_trace_keeps_parallel_edges_between_same_nodes() -> None:
+    """同节点对间的平行边必须逐条保留（R10-BMP-02）。
+
+    sknw 默认 multi=False 返回 nx.Graph，同一对节点间重复 add_edge 后写覆盖
+    前写：圆环+弦的三条路径只剩一条，实测丢 63% 线条——SVG 合法、过白名单、
+    过 §5，纸面直接缺线且零告警。必须以 MultiGraph 建图。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    polys, _w, _h = bitmap_svg.trace_bitmap_to_polylines(_circle_with_chord_png_bytes())
+    assert len(polys) >= 3, f"平行边被静默覆盖（只剩 {len(polys)} 条折线）"
+
+
+def test_bitmap_trace_rejects_skeleton_over_sknw_trace_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """骨架总像素超过 sknw trace() 缓冲预算必须显式拒绝（R10-BMP-01）。
+
+    sknw 的 trace() 用固定 np.zeros(131072) 缓冲且 numba nopython 无边界检查，
+    单条长边越界写堆内存，实测 0xC0000005 直接杀死整个进程——asyncio.to_thread
+    线程里的 C 层崩溃无法被 Python 捕获。缩小预算常量证明闸在 build_sknw
+    之前、且以常量为准（真造 13 万像素骨架会太慢）。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "_SKNW_TRACE_BUDGET_PX", 10)
+    with pytest.raises(bitmap_svg.BitmapError, match="骨架过长"):
+        bitmap_svg.trace_bitmap_to_polylines(_star_png_bytes())
+
+
+def test_bitmap_sknw_trace_budget_pinned_to_buffer_size() -> None:
+    """预算钉死 131071 = sknw trace() 的 131072 缓冲 - 1。
+
+    这不是画质参数：抬它必须先证明 sknw 的缓冲同步变大（或上游加了边界检查），
+    否则「预算 > 缓冲」= 恢复进程级崩溃。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    assert bitmap_svg._SKNW_TRACE_BUDGET_PX == 131071
+
+
+def test_bitmap_trace_wraps_numeric_stack_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """描摹计算段的非预期异常必须包成 BitmapError（调用方只准备接 BitmapError）。
+
+    gaussian/otsu/skeletonize/build_sknw 此前不在任何 try 内，numba 运行期
+    TypingError 等罕见异常会裸穿模块契约变成 500。
+    """
+    import sknw as _sknw
+
+    from hutuji_mcp import bitmap_svg
+
+    def boom(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise RuntimeError("numba 内部错误")
+
+    monkeypatch.setattr(_sknw, "build_sknw", boom)
+    with pytest.raises(bitmap_svg.BitmapError, match=r"位图描摹失败.*RuntimeError"):
+        bitmap_svg.trace_bitmap_to_polylines(_star_png_bytes())
+
+
 def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from hutuji_mcp import bitmap_svg
 
@@ -1325,6 +1487,36 @@ def test_bitmap_fetch_rejects_non_json_200_body(monkeypatch: pytest.MonkeyPatch)
         lambda request: _httpx.Response(200, content=b"<html>Bad Gateway</html>")
     )
     with pytest.raises(bitmap_svg.BitmapError, match="不是合法 JSON"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def test_bitmap_generation_response_capped_at_read_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生图 POST 的 200 正文超上限必须拦成 BitmapError（R10-BMP-03）。
+
+    与 llm_svg.MAX_LLM_RESPONSE_BYTES 同口径：上限在网络读取阶段生效，不等
+    httpx 全量缓冲完再检查——恶意/故障上游在超时窗口内可推送 GB 级正文打爆
+    VPS 内存。正常响应只含一条图片 URL 的 JSON，64KiB 已极宽裕。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    import httpx as _httpx
+
+    big = (
+        b'{"data": [{"url": "https://cdn.example/'
+        + b"a" * bitmap_svg._IMAGE_API_MAX_BYTES
+        + b'.png"}]}'
+    )
+    transport = _httpx.MockTransport(lambda request: _httpx.Response(200, content=big))
+    with pytest.raises(bitmap_svg.BitmapError, match="响应超过读取上限"):
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
 
 
@@ -2134,7 +2326,7 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         captured["cmd"] = cmd
         # 伪造 vpype 成功：往输出路径写一份最小合法 G-code
-        Path(cmd[-1]).write_text(_minimal_gcode(), encoding="utf-8")
+        Path(cmd[-1]).write_text(_minimal_gcode("G1 X10 Y10 F8000\n"), encoding="utf-8")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
@@ -2200,7 +2392,7 @@ def test_vpype_pipeline_normalizes_layout(tmp_path: Path, monkeypatch) -> None:
 
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         captured["cmd"] = cmd
-        Path(cmd[-1]).write_text(_minimal_gcode(), encoding="utf-8")
+        Path(cmd[-1]).write_text(_minimal_gcode("G1 X10 Y10 F8000\n"), encoding="utf-8")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
@@ -2483,7 +2675,8 @@ def test_malformed_gcode_never_raises_non_gcode_error() -> None:
     ],
 )
 def test_gcode_accepts_legit_lines(line: str) -> None:
-    validate_gcode(_minimal_gcode(line + "\n"))
+    # 前置一条运动行满足零运动闸（纯注释参数否则过不了），不影响各参数本身的判定
+    validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n" + line + "\n"))
 
 
 @pytest.mark.parametrize(
@@ -2547,6 +2740,95 @@ def test_near_full_circle_arc_checks_all_quadrants() -> None:
     text = _minimal_gcode("G0 X100 Y5 F8000\nG2 X100.0001 Y5 I0 J95 F8000\n")
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(text)
+
+
+def test_arc_full_circle_epsilon_matches_grbl_firmware() -> None:
+    """扫角落在 (1e-9, 5e-7) 的微小弧必须按整圆算包围盒（R10-ARC-01）。
+
+    Grbl `Config.h` 的 ARC_ANGULAR_TRAVEL_EPSILON=5e-7：`MotionControl.cpp` 对
+    |angular_travel| ≤ 5e-7 的 G2/G3 一律补 2π 当整圆画。旧校验器用 1e-9 判
+    整圆，(1e-9, 5e-7) 区间的弧被当「原地微动」放行（包围盒退化成端点），
+    固件却画出整圆——圆心 (100,100) 半径 99 的整圆 X 凸到 199 > 190 限幅，
+    真实后果是撞出画幅（本机无限位开关，无第二道防线）。
+    构造：起点 (1,100)，终点沿 CW 转 1e-7 rad ≈ (1, 100.0000099)。
+    """
+    text = _minimal_gcode(
+        "G0 X1 Y100 F8000\nG2 X1 Y100.0000099 I99 J0 F8000\n"
+    )
+    with pytest.raises(GcodeError, match="越界"):
+        validate_gcode(text)
+
+
+def test_arc_full_circle_epsilon_constant_pinned_to_grbl() -> None:
+    """整圆判定阈值钉死 5e-7 = Grbl `Config.h` ARC_ANGULAR_TRAVEL_EPSILON。
+
+    这不是可调精度参数：比固件小则漏放「固件当整圆」的弧（撞机方向），
+    比固件大则误拒合法微小弧。改它必须先证明固件侧同步改了。
+    """
+    assert gcode_gen._ARC_FULL_CIRCLE_EPSILON_RAD == 5e-7
+
+
+def test_gcode_rejects_product_without_xy_motion() -> None:
+    """零 XY 运动的产物必须拒（GC-P3b）：合法头尾 + 纯注释也一样。
+
+    上游（描摹丢线/vpype linesimplify 滤光几何）产出空产物时，放行等于
+    白白消耗一张纸和一轮换纸周期，且用户拿到「成功」却是空白纸。
+    """
+    with pytest.raises(GcodeError, match="XY 运动"):
+        validate_gcode(_minimal_gcode())
+    with pytest.raises(GcodeError, match="XY 运动"):
+        validate_gcode(_minimal_gcode("; comment only\n"))
+
+
+def test_gcode_rejects_formfeed_line_splitting_bypass() -> None:
+    """行内 \\x0c 不得当行分隔符吞掉（GC-P3c）。
+
+    splitlines() 会按 \\x0c/\\x0b/\\x1c-\\x1e 等切行：一条 270 字节的设备行被
+    校验器拆成两条「合法」短行，分隔符本身消失——设备却按原样收到超长行，
+    error:11 静默吃行。控制字符必须显式拒绝。
+    """
+    long_comment = ";" + "x" * 250
+    text = _minimal_gcode(f"G1 X10 Y10 F8000\x0c{long_comment}\n")
+    with pytest.raises(GcodeError, match="控制字符"):
+        validate_gcode(text)
+
+
+def test_gcode_rejects_unicode_line_separator_bypass() -> None:
+    """U+2028/U+0085 也是 splitlines() 的分隔符（GC-P3c 非 ASCII 变体）。
+
+    旧实现里它们作为分隔符直接消失，两侧内容各自过 ASCII 检查；设备收到的
+    却是含多字节 UTF-8 的一条长行。改按 \\n 切行后它们留在行内，非 ASCII
+    闸必须拦住。
+    """
+    text = _minimal_gcode("G1 X10 Y10 F8000\u2028; hidden\n")
+    with pytest.raises(GcodeError, match="非 ASCII|控制字符"):
+        validate_gcode(text)
+
+
+def test_gcode_crlf_product_still_accepted() -> None:
+    """CRLF 产物仍必须放行：生产链在 Windows 检出下真实产出过 CRLF 文件，
+    §3 已约定 S3 重切行。控制字符闸只拦「行中」控制符，不拦行尾 \\r。"""
+    text = _minimal_gcode("G1 X10 Y10 F8000\n").replace("\n", "\r\n")
+    stats = validate_gcode(text)
+    assert stats.lines == 7
+
+
+def test_vpype_cmd_fallback_module_is_importable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """兜底命令必须指向真实可 `-m` 执行的模块（GC-P3a）。
+
+    vpype 包没有 `__main__.py`，旧兜底 `python -m vpype` 是死路径——真走到
+    时报 "No module named vpype.__main__"，诊断指向错误方向。console script
+    入口在 vpype_cli 包，它才有 `__main__.py`。
+    """
+    import importlib.util
+
+    monkeypatch.setattr(gcode_gen.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(gcode_gen.Path, "is_file", lambda _self: False)
+    cmd = gcode_gen._vpype_cmd()
+    assert cmd == [gcode_gen.sys.executable, "-m", "vpype_cli"]
+    assert importlib.util.find_spec("vpype_cli.__main__") is not None
 
 
 def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:

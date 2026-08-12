@@ -299,7 +299,12 @@ def _expect_rejected(scenario: str, text: str, contract_refs: list[str]) -> dict
 
 def _line_payload_254(_output_dir: Path) -> dict[str, Any]:
     line = ";" + "x" * (MAX_LINE_PAYLOAD_BYTES - 1)
-    return _expect_valid("line_payload_254", _minimal_gcode(line + "\n"), ["docs/protocol.md §3", "docs/protocol.md §5"])
+    # 前置一条 XY 运动行满足零运动闸（GC-P3b）：本场景验证的是行长边界，不是空产物。
+    return _expect_valid(
+        "line_payload_254",
+        _minimal_gcode("G1 X10 Y10 F8000\n" + line + "\n"),
+        ["docs/protocol.md §3", "docs/protocol.md §5"],
+    )
 
 
 def _line_payload_255(_output_dir: Path) -> dict[str, Any]:

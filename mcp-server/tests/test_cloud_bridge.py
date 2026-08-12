@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import sys
 
@@ -1198,3 +1199,171 @@ def test_session_activity_cancelled_matches_int_and_str_id() -> None:
         assert activity.stall_seconds() == 0.0, (
             f"cancel requestId={cancel_id!r} 未能结清 pending id={pending_id!r}"
         )
+
+
+# ---------- 第十轮修复：Session terminated 判死重连 / stderr 会话 id 脱敏 / EOF 残行 ----------
+
+
+_SESSION_TERMINATED = (
+    '{"jsonrpc":"2.0","id":3,"error":{"code":32600,"message":"Session terminated"}}'
+)
+
+
+def test_proxy_to_cloud_raises_on_session_terminated_response() -> None:
+    """本机 /mcp 会话被服务端终止时必须掀掉桥接会话重建 mcp-proxy（R10-BRG-01）。
+
+    hutuji-mcp 重启后 mcp-proxy 的 mcp-session-id 永久失效：MCP SDK client
+    （`mcp/client/streamable_http.py`）对 404 只合成一条
+    `{"error":{"code":32600,"message":"Session terminated"}}` 回包，**不重新
+    initialize**。回包持续流动使看门狗永不触发——桥接「在线」但每次工具调用
+    都失败，直到人工重启。判死前必须先把该错误转发给云端（让当次调用得到
+    明确失败而非超时），再抛错走 bridge_once 清理+重连。
+    """
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [_SESSION_TERMINATED.encode("utf-8") + b"\n", b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    class _Websocket:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send(self, message: str) -> None:
+            self.sent.append(message)
+
+    async def exercise() -> None:
+        websocket = _Websocket()
+        with pytest.raises(RuntimeError, match="会话已被服务端终止"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout()),
+                websocket,
+                cloud_bridge._SessionActivity(),
+            )
+        assert websocket.sent == [_SESSION_TERMINATED], "判死前必须先转发错误给云端"
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (_SESSION_TERMINATED, True),
+        # SDK 该处 code 写的是正 32600（上游笔误方向），负值形态一并覆盖。
+        (
+            '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Session terminated"}}',
+            True,
+        ),
+        # 正常成功回包 / 其它错误 / 文本相似但在 result 里 / 非 JSON：都不判死。
+        ('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}', False),
+        ('{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}', False),
+        (
+            '{"jsonrpc":"2.0","id":1,"result":{"text":"Session terminated"}}',
+            False,
+        ),
+        ("not json", False),
+        ("", False),
+    ],
+)
+def test_session_terminated_detector_is_precise(message: str, expected: bool) -> None:
+    """判死指纹只认「顶层 error.message == Session terminated」，工具结果正文
+    出现同样文案不得误杀会话（fail-open：解析不了一律不判死）。"""
+    from hutuji_mcp import cloud_bridge
+
+    assert cloud_bridge._is_session_terminated_response(message) is expected
+
+
+def test_watchdog_stall_covers_mcp_client_sse_read_timeout() -> None:
+    """看门狗判死阈值钉 300s = MCP SDK client 的 sse_read_timeout 默认值（SRV-P3a）。
+
+    mcp-proxy 内部（`mcp/client/streamable_http.py`）对慢响应自己会等到 300s；
+    桥接看门狗若早于它（旧值 120s）开火，长描摹/慢生图的合法 hutuji_draw 会被
+    桥接先掀掉会话——kill 的是自己人。判死留给「连 SDK 都放弃」之后。
+    """
+    from hutuji_mcp import cloud_bridge
+
+    assert cloud_bridge.WATCHDOG_STALL_SECONDS == 300
+
+
+def test_safe_stderr_line_redacts_mcp_session_id() -> None:
+    """mcp-proxy 0.12 的 log_request 恒打请求头且只掩 authorization/x-api-key/
+    cookie，mcp-session-id 明文进 stderr（BRG-P3a）。会话 id 可对 loopback 面
+    重放已建立会话，按凭据同等对待：保留 key 供诊断，值必须涂掉。"""
+    raw = (
+        "Request Headers: {'host': 'localhost:8300', "
+        "'mcp-session-id': 'deadbeefcafe1234', 'accept': 'text/event-stream'}"
+    )
+    safe = _safe_stderr_line(raw)
+    assert "deadbeefcafe1234" not in safe
+    assert "mcp-session-id" in safe
+
+
+def test_proxy_to_cloud_drops_partial_line_at_eof() -> None:
+    """mcp-proxy 崩溃时 stdout 的 EOF 残行（无换行符）不得转发（BRG-P3b）。
+
+    readline 在 EOF 处会把未完行原样返回——那是被截断的半条 JSON，转发给云端
+    只会让对端解析炸；丢弃并按进程退出处理。
+    """
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    partial = b'{"jsonrpc":"2.0","id":9,"resu'
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [partial, b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    class _Websocket:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send(self, message: str) -> None:
+            self.sent.append(message)
+
+    async def exercise() -> None:
+        websocket = _Websocket()
+        with pytest.raises(RuntimeError, match="mcp-proxy 已退出"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout()),
+                websocket,
+                cloud_bridge._SessionActivity(),
+            )
+        assert websocket.sent == [], "EOF 残行被转发给云端了"
+
+    asyncio.run(exercise())
+
+
+def test_bridge_unit_binds_lifecycle_to_mcp_service() -> None:
+    """bridge unit 必须 PartOf=hutuji-mcp.service：MCP 重启时 bridge 一并重启。
+
+    Requires= 只管「启动依赖」，对 restart 不传播——运维单独
+    `systemctl restart hutuji-mcp` 后，bridge 里的 mcp-proxy 拿着已终止的
+    session 继续跑（R10-BRG-01 的运维触发面）。PartOf 让 stop/restart 传播，
+    与桥接内的 Session terminated 判死互为冗余。
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    unit = (root / "deploy" / "hutuji-cloud-bridge.service").read_text(encoding="utf-8")
+    in_unit = False
+    keys: set[str] = set()
+    for raw in unit.splitlines():
+        stripped = raw.strip()
+        if stripped == "[Unit]":
+            in_unit = True
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_unit = False
+        if in_unit and "=" in stripped and not stripped.startswith("#"):
+            keys.add(stripped)
+    assert "PartOf=hutuji-mcp.service" in keys, "PartOf 必须在 [Unit] 段"
+    assert "Requires=hutuji-mcp.service" in keys

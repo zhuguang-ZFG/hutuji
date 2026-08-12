@@ -188,7 +188,7 @@ if (((String)object).startsWith("error") && this.t()) {
 即**终止当前 job**。
 
 **修正后的对照**：双方都对 error 中止。差别只在奎享有两个例外——
-`error:120`（原版 Grbl 无此码，应为其固件私有）静默忽略；
+`error:120`（`Error.h:86` `AnotherInterfaceBusy=120`，本机固件也有定义）静默忽略；
 `error:9`（locked）弹对话框，用户确认后 `$X` 解锁续打。
 我们无人值守/语音远程场景不能弹框，故保持无条件中止——
 **理由是「场景不允许交互」，不是「我们比奎享严格」**。
@@ -419,7 +419,10 @@ fresh `Idle` + 100ms，再由 S3 旁路固定 `G92 Z0`，随后窗口化连续�
 
 **保持现状**。理由不是「我们更严格」（这个说法已被推翻），而是
 **无人值守语音场景不能弹框**——`error:9` 我们没法问用户，只能失败上报。
-`error:120` 是奎享固件私有码，我们的 Grbl_Esp32 不产生它，无需特例。
+`error:120` 本机固件**也有定义并可产生**（`Error.h:86` `AnotherInterfaceBusy=120`；
+`Serial.cpp:191` SD 占用时以空格形态 `error 120` 发出、`WebSettings.cpp:167` WebCommand
+checker 拒时返回），但 hutuji 链路实际触达不到——换纸族命令挂 anyState、不启 SD——
+fail-closed 方向不变，无需特例。（2026-08-13 勘误：早前「本机不产此码」与实文不符。）
 
 ### D. 暂停机制对照（不改，但可借鉴抬笔）
 

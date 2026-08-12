@@ -42,7 +42,11 @@ HEALTHY_SESSION_SECONDS = 60
 # 请求，超过 WATCHDOG_STALL_SECONDS 仍无任何回包」才判死——idle 时 last_inbound
 # 不晚于 last_outbound，永不触发。命中即抛错，走 bridge_once 既有的清理 + 重连路径。
 WATCHDOG_POLL_SECONDS = 20
-WATCHDOG_STALL_SECONDS = 120
+# 判死阈值取 300s = MCP SDK client 的 sse_read_timeout 默认值（SRV-P3a）：
+# mcp-proxy 内部（`mcp/client/streamable_http.py:690`）对慢响应自己会等满 300s，
+# 桥接看门狗若早于它开火（旧值 120s），长描摹/慢生图的合法 hutuji_draw 会被
+# 桥接先掀掉——kill 的是自己人。判死只留给「连 SDK 都放弃了还没动静」之后。
+WATCHDOG_STALL_SECONDS = 300
 
 # mcp-proxy stderr / 第三方库日志可能回显 URL 或凭据；禁止把 token / Bearer /
 # api_key / access_token / sk- 裸密钥 / wss 原文写入日志。各形态共用同一个
@@ -55,6 +59,10 @@ _SECRETISH_RE = re.compile(
     # 冒号/等号分隔，值不限形态（含纯字母 opaque token）无条件脱敏；左边界排除
     # x-authorization 等前缀。
     r"|(?<![A-Za-z0-9-])((?:authorization|proxy-authorization)[\"']?\s*[=:]\s*[\"']?bearer[ \t]+)([^\s\"',}]+)"
+    # mcp-session-id（BRG-P3a）：mcp-proxy 0.12 的 log_request 恒打请求头且只掩
+    # authorization/x-api-key/cookie，会话 id 明文进 stderr。它可对 loopback 面
+    # 重放已建立的 /mcp 会话，按凭据同等对待（保留 key 供诊断，值涂掉）。
+    r"|(?<![A-Za-z0-9-])(mcp-session-id[\"']?\s*[=:]\s*[\"']?)([^\"'\s,&}]+)"
     # 裸 Bearer header（非 Authorization 前缀）：值必须像凭据（含数字或 -_./ 符号、
     # 至少 6 位），避免把「bearer token/authentication」这类纯字母普通句子当密钥。
     r"|(?<![A-Za-z0-9])(Bearer[ \t]+)(?![=:]|header\b)((?=[^\s\"',}]*(?:[0-9]|[-_./]))[^\s\"',}]{6,})"
@@ -292,6 +300,32 @@ def _response_ids(message: str | bytes) -> list[object] | None:
     return ids
 
 
+def _is_session_terminated_response(message: str | bytes) -> bool:
+    """判定 mcp-proxy 回包是否是「本机 /mcp 会话已被服务端终止」的合成错误。
+
+    指纹来源（R10-BRG-01）：MCP SDK client `mcp/client/streamable_http.py`
+    对 POST 404 只调 `_send_session_terminated_error()` 合成
+    `{"error":{"code":32600,"message":"Session terminated"}}`（code 是上游写的
+    正 32600，负值形态一并接受），**不重新 initialize**——hutuji-mcp 重启后
+    该错误对每条后续请求无限重复，回包持续流动使停滞看门狗永不触发。
+    只认「顶层 error.message 精确等于 Session terminated」：工具结果正文里
+    出现同样文案（result 内）不得误杀；解析不了一律 False（fail-open，与
+    _message_label 同口径——判死是重手术，宁可漏判交给看门狗兜底）。
+    """
+    objs = _iter_jsonrpc_objects(message)
+    if not objs:
+        return False
+    for obj in objs:
+        error = obj.get("error")
+        if (
+            isinstance(error, dict)
+            and error.get("message") == "Session terminated"
+            and error.get("code") in (32600, -32600)
+        ):
+            return True
+    return False
+
+
 def _redact_secret_text(text: str) -> str:
     """去掉文本中的 token / Bearer / api_key / sk- 裸密钥与 URL，保留其余诊断上下文。"""
     # 先剥 \x00：能力 URL 的放行标记是 `_\x00ALLOW\x00.`（见下），外部文本
@@ -477,12 +511,27 @@ async def _proxy_to_cloud(
 ) -> None:
     assert process.stdout is not None
     while line := await process.stdout.readline():
+        if not line.endswith(b"\n"):
+            # EOF 残行（BRG-P3b）：readline 在流结束处会把未完的半条 JSON 原样
+            # 返回，转发只会让云端解析炸。丢弃残行、按进程退出处理；只记长度
+            # 不记内容（残行可含工具结果正文）。
+            logger.warning("mcp-proxy stdout 在行中途 EOF，丢弃 %d 字节残行", len(line))
+            break
         message = line.decode("utf-8").rstrip("\r\n")
         # 任何回包都算 proxy 仍在响应：清掉在途计时。放在 send 前，避免 send
         # 慢时把健康的回包误算成停滞。
         activity.mark_outbound(message)
         logger.info("本机 MCP 响应: %s", _message_label(message))
         await websocket.send(message)
+        if _is_session_terminated_response(message):
+            # R10-BRG-01：本机 /mcp 会话已死而 mcp-proxy 不会自愈（SDK 对 404
+            # 只合成错误、不重新 initialize），后续每次工具调用都失败且回包
+            # 流动使看门狗永不触发。先把错误转发给云端（当次调用得到明确失败
+            # 而非超时），再掀掉会话走 bridge_once 清理+重连，重建 mcp-proxy
+            # 即重建会话。
+            raise RuntimeError(
+                "本机 /mcp 会话已被服务端终止（hutuji-mcp 可能已重启），重建 mcp-proxy"
+            )
     raise RuntimeError("mcp-proxy 已退出")
 
 

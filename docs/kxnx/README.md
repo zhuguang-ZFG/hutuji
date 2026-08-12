@@ -77,7 +77,7 @@ kxnx 仓 `kx/tools/dump_agent/` 下并存三棵反编译树，**引用前必须�
 
 | 文件 | 看什么 |
 |------|--------|
-| `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（行 262-284）；`a(boolean)` 在连接/首次笔控前旁路 `G92 Z0`（行 253-263）；下载产物无 G92（见 findings/02、12）|
+| `com/kenjoy/kenjoycnc/machine/grbl/a.java` | `b(boolean)` 笔控分支（`decompiled_full/` 树行 262-284，主树 265-287，见 findings/01）；`a(boolean)` 在连接/首次笔控前旁路 `G92 Z0`（full 树行 253-263）；下载产物无 G92（见 findings/02、12）|
 | `com/kenjoy/kenjoycnc/machine/grbl/GrblSettings.java` | `zOn/zOff/zSpeed/type` 字段定义（`2.0/0.0/3000` 是**出厂缺省**，不是我方取值；我方实测 `5.0/0.0/F10000`）|
 | `com/kenjoy/kenjoycnc/machine/marlin/a.java` | Stepper 笔控跨固件一致性（行 196-200）|
 | `com/kenjoy/kenjoycnc/h/d.java` | **校准测试图案**生成器（固定箭头+10×10方框+追加 test.gcode），**不是**出图拼接模板；勿据此推出图序列 |

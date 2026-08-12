@@ -346,6 +346,17 @@ async def hutuji_preview_svg(description: str) -> str:
 
 _mcp_app = mcp.streamable_http_app()
 
+# 会话 idle 回收（R10-BRG-02）：FastMCP 1.28.1 构造 StreamableHTTPSessionManager
+# 时不透传 session_idle_timeout（恒 None）——桥接/mcp-proxy 每次重连都留下一个
+# 再也无人 DELETE 的旧会话，其 run_server 任务与内存永不回收，慢泄漏直到重启。
+# manager 在会话创建/请求期读 self.session_idle_timeout（streamable_http_manager
+# 第 259/294 行），构造后补设属性即完整生效。取 3600s：远大于桥接看门狗 300s
+# 与最慢合法绘图，只回收真正的孤儿；孤儿被回收后 mcp-proxy 若还拿旧 id 来会得
+# 到 Session terminated，由桥接判死重连自愈（cloud_bridge R10-BRG-01）——代价是
+# 静默超 1 小时后的第一次调用失败一次，随后自动恢复。
+_MCP_SESSION_IDLE_TIMEOUT_SECONDS = 3600
+mcp.session_manager.session_idle_timeout = _MCP_SESSION_IDLE_TIMEOUT_SECONDS
+
 
 _MCP_PATH = mcp.settings.streamable_http_path.rstrip("/") or "/mcp"
 
@@ -395,7 +406,11 @@ class LoopbackOnlyMcpGuard:
         return ip.is_loopback
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope.get("type") != "http":
+        scope_type = scope.get("type")
+        # websocket 也必须拦（SRV-P3c）：当前 Starlette 栈对 /mcp 没挂 ws 端点，
+        # 但守卫的意义就是「下层怎么变都兜得住」——只认 http 等于把 ws 面的
+        # 这层保证悄悄挖空。lifespan 等非连接 scope 照常透传。
+        if scope_type not in ("http", "websocket"):
             await self._app(scope, receive, send)
             return
         path = scope.get("path", "")
@@ -407,6 +422,10 @@ class LoopbackOnlyMcpGuard:
         host = client[0] if client else ""
         if not host or not self._is_loopback(host):
             logger.warning("拒绝非 loopback 对端访问 MCP 控制面")
+            if scope_type == "websocket":
+                # 握手前 close：ASGI 服务器会以 403 拒绝升级，不回显端点信息。
+                await send({"type": "websocket.close", "code": 1008})
+                return
             await send(
                 {
                     "type": "http.response.start",
@@ -449,7 +468,11 @@ app.add_middleware(LoopbackOnlyMcpGuard)
 
 # 静态文件源：自定义路由（非裸 StaticFiles），以带 protocol §5.1 完整性头
 # Content-Length + X-Hutuji-CRC32。S3 侧下完先比长度再比 CRC32 才开画（见 mcp-server README 组 0.2）。
-@app.get("/files/{name}")
+# HEAD 必须显式注册（SRV-P3b）：FastAPI @app.get 不自动带 HEAD，而 nginx 反代
+# 白名单与文档口径都是 `GET/HEAD /files/`——S3 侧用 HEAD 预检长度/CRC32 时应用
+# 层不能回 405/404。uvicorn 对 HEAD 响应按 HTTP 规范只发头不发体，处理函数无需
+# 区分方法。
+@app.api_route("/files/{name}", methods=["GET", "HEAD"])
 async def _serve_file(name: str):
     # 只接受带 128-bit 随机 token 的 capability 文件名；旧时间戳名不再公开。
     if not _DRAW_FILE_RE.fullmatch(name):
