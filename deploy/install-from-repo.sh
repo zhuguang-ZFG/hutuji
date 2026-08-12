@@ -24,6 +24,40 @@ echo "==> Python venv + 生产依赖"
 # 代理使用私有 CA 时显式传 HUTUJI_PIP_CERT；禁止用 --trusted-host 绕过 TLS 校验。
 PIP_INDEX="${HUTUJI_PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 PIP_CERT="${HUTUJI_PIP_CERT:-}"
+# 两个 env 都以 root 身份直达 pip，必须先过形状白名单再用。它们不是「配置」而是
+# **提权面**：本脚本以 root 跑，pip 会执行索引端提供的构建后端代码，索引地址即
+# 代码来源。裸取值有两类真实攻击：①索引换成攻击者主机 → 依赖投毒（上面刚显式
+# 清掉 PIP_* 与代理正是为了让来源只由本脚本决定，取值不校验等于把闸门重新打开）；
+# ②值里塞空白/分号即多带一个 pip 选项（如 ` --trusted-host x` 或 ` --extra-index-url …`），
+# 因为 pip_args 是数组、单元素内含空格虽不会被 word-split，但 `--cert` 之类
+# 需要独立参数的选项一旦被拼进同一元素，pip 的解析结果与作者意图不一致，
+# 而 `--index-url=<url>` 形态又允许把整段值当选项值走。fail-closed 更省事。
+# 索引：必须 https:// 起头（不接受 http/file/git+ 等任何非 TLS 方案），
+# 且不含空白与 shell/选项元字符。
+case "${PIP_INDEX}" in
+  https://*) ;;
+  *) echo "HUTUJI_PIP_INDEX 必须以 https:// 开头（拒绝非 TLS 索引）：${PIP_INDEX}" >&2; exit 1 ;;
+esac
+if printf '%s' "${PIP_INDEX}" | grep -qE '[[:space:]<>|;&$`"'"'"'\\]'; then
+  echo "HUTUJI_PIP_INDEX 含空白或元字符，拒绝（防夹带 pip 选项）：${PIP_INDEX}" >&2
+  exit 1
+fi
+# 证书：给了就必须是已存在的绝对路径普通文件，且同样无元字符。相对路径会随 cwd
+# 漂移（本脚本在 MCP_DIR 下跑 pip），指到不存在的文件 pip 只会报晦涩的 TLS 错。
+if [[ -n "${PIP_CERT}" ]]; then
+  if printf '%s' "${PIP_CERT}" | grep -qE '[[:space:]<>|;&$`"'"'"'\\]'; then
+    echo "HUTUJI_PIP_CERT 含空白或元字符，拒绝：${PIP_CERT}" >&2
+    exit 1
+  fi
+  case "${PIP_CERT}" in
+    /*) ;;
+    *) echo "HUTUJI_PIP_CERT 必须是绝对路径：${PIP_CERT}" >&2; exit 1 ;;
+  esac
+  if [[ ! -f "${PIP_CERT}" ]]; then
+    echo "HUTUJI_PIP_CERT 指向的文件不存在：${PIP_CERT}" >&2
+    exit 1
+  fi
+fi
 # 不用 `bash -lc`：`-l` 会 source root 的登录期配置（/etc/profile、/root/.bashrc），
 # 其中导出的 PIP_TRUSTED_HOST / PIP_EXTRA_INDEX_URL / PIP_INDEX_URL 会静默生效，
 # 而本脚本只传 -i 与可选 --cert，覆盖不了它们——上面「禁止绕过 TLS 校验」的承诺
