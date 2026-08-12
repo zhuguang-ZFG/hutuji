@@ -270,8 +270,13 @@ def check_required_files() -> dict[str, Any]:
 
 
 def check_decision_anchors() -> dict[str, Any]:
-    text = (ROOT / "README.md").read_text(encoding="utf-8", errors="replace")
-    protocol = (ROOT / "docs/protocol.md").read_text(encoding="utf-8", errors="replace")
+    # R5-GATE-01：治理文档 read_text 必须守卫 OSError——治理文档被删/不可读时
+    # 裸抛会穿透 main() 层循环（旧行为），这里塌成本层结构化 fail（双保险）。
+    try:
+        text = (ROOT / "README.md").read_text(encoding="utf-8", errors="replace")
+        protocol = (ROOT / "docs/protocol.md").read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return _layer("decision_anchors", "决策锚点", "fail", f"无法读取治理文档（{type(exc).__name__}）")
     missing = [a for a in DECISION_ANCHORS if a not in text and a not in protocol]
     # §9 必须在 protocol；双芯片等必须在 README
     hard_missing = []
@@ -615,13 +620,20 @@ def check_edit_allowlist() -> dict[str, Any]:
 
 
 def check_anti_drift_doc() -> dict[str, Any]:
+    # R5-GATE-01：治理文档 read_text 守卫 OSError，塌成本层 fail 而非穿透 main()。
     path = ROOT / "docs/agent-anti-drift.md"
-    text = path.read_text(encoding="utf-8", errors="replace")
-    missing = [m for m in ANTI_DRIFT_MARKERS if m not in text]
     inv = ROOT / "docs/worktree-inventory.md"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return _layer("anti_drift", "防幻觉文档", "fail", f"无法读取治理文档（{type(exc).__name__}）")
+    missing = [m for m in ANTI_DRIFT_MARKERS if m not in text]
     if not inv.is_file():
         return _layer("anti_drift", "防幻觉文档", "fail", "missing worktree-inventory.md")
-    inv_text = inv.read_text(encoding="utf-8", errors="replace")
+    try:
+        inv_text = inv.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return _layer("anti_drift", "防幻觉文档", "fail", f"无法读取治理文档（{type(exc).__name__}）")
     if "Grbl_Esp32" not in inv_text or "不要" not in inv_text:
         return _layer("anti_drift", "防幻觉文档", "fail", "worktree-inventory 缺三仓/禁令要点")
     if missing:
@@ -630,8 +642,12 @@ def check_anti_drift_doc() -> dict[str, Any]:
 
 
 def check_constraint_matrix() -> dict[str, Any]:
+    # R5-GATE-01：治理文档 read_text 守卫 OSError，塌成本层 fail 而非穿透 main()。
     path = ROOT / "docs/agent-constraint-matrix.md"
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return _layer("constraint_matrix", "三仓约束矩阵", "fail", f"无法读取治理文档（{type(exc).__name__}）")
     missing = [m for m in CONSTRAINT_MATRIX_MARKERS if m not in text]
     # 外仓 AGENTS 入口：存在则记入 detail；缺失只 warn 不红（外仓可能未检出）
     external = {
@@ -1598,7 +1614,21 @@ def main(argv: list[str] | None = None) -> int:
 
     layers: list[dict[str, Any]] = []
     for layer_id, run_layer in plan:
-        layer = run_layer()
+        try:
+            layer = run_layer()
+        except Exception as exc:  # noqa: BLE001 - 故意的兜底 fail-closed
+            # R5-GATE-01：层内部抛出的任何未捕异常（治理文档 read_text 的 OSError、
+            # 解析崩、空指针）必须塌成「对应层判红」，而不是穿透 main() 让解释器
+            # 裸退。裸退的后果是「没有结论」：报告两个文件不落盘、tombstone 留盘
+            # 误导「上次没跑完」、读报告的人看到的仍是上一轮旧绿。与 GATE-P2-04
+            # 只补 subprocess OSError 同一类漏项，这里在层循环兜底覆盖全部层。
+            # 判红即 overall=fail、exit 1，退出码是真值的承诺不变，仍 fail-closed。
+            layer = _layer(
+                layer_id,
+                "层执行异常",
+                "fail",
+                f"层 {layer_id} 抛出未捕获异常（{type(exc).__name__}），已塌为判红",
+            )
         # plan 的 id 与 _layer() 落盘的 id 必须一致，否则报告里的层名会与
         # docs/agent-gate.md 的分层定义脱钩，读报告的人无法判断查了什么。
         assert layer["id"] == layer_id, f"层 id 不一致: plan={layer_id} actual={layer['id']}"

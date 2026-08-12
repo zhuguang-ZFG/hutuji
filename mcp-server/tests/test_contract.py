@@ -3368,6 +3368,14 @@ def test_install_script_keeps_package_index_tls_verification() -> None:
     ):
         assert f"-u {cleared}" in install_code, cleared
 
+    # R5-INST-1：`-u` 只清**环境变量**层；pip 还读**配置文件**层（/etc/pip.conf、
+    # $HOME/.pip/pip.conf、.venv/pip.conf、PIP_CONFIG_FILE 指向的任意文件），其中
+    # extra-index-url / trusted-host 不在 -u 覆盖面内。`--isolated` 让 pip 忽略一切
+    # 配置文件与环境变量，只认命令行 -i/--cert，把投毒面收进命令行参数，fail-closed。
+    assert re.search(r'pip_args=\(-i "[^"]*" --isolated\)', install_code), (
+        "pip_args 必须带 --isolated 封死配置文件层"
+    )
+
 def _load_agent_gate():
     import importlib.util
 
@@ -3971,6 +3979,42 @@ def test_gate_doc_refs_report_unreadable_governance_doc(
     assert result["status"] == "fail"
     assert "无法读取治理文档 docs/bad.md（PermissionError）" in result["detail"]
 
+@pytest.mark.parametrize(
+    "func,gov_rel",
+    [
+        ("check_decision_anchors", "README.md"),
+        ("check_anti_drift_doc", "docs/agent-anti-drift.md"),
+        ("check_constraint_matrix", "docs/agent-constraint-matrix.md"),
+    ],
+)
+def test_gate_layer_unreadable_governance_doc_returns_fail(
+    func: str, gov_rel: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R5-GATE-01：这三个层的 read_text 治理文档不可读时必须塌成本层 fail。
+
+    旧代码这三处 read_text 没有 OSError 守卫（对比 doc_line_refs /
+    forbidden_claims 均有守卫），治理文档被删/不可读时异常穿透 main() 层循环。
+    加守卫后应返回结构化 fail 而非抛 traceback——层循环的兜底即使失效，
+    本层自身的 fail-closed 也成立（双保险）。"""
+    gate = _load_agent_gate()
+    gov = tmp_path / gov_rel
+    gov.parent.mkdir(parents=True, exist_ok=True)
+    gov.write_text("x", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path: Path, *args, **kwargs):  # noqa: ANN002, ANN003
+        if path == gov:
+            raise PermissionError("denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    result = getattr(gate, func)()
+
+    assert result["status"] == "fail"
+    assert "PermissionError" in result["detail"]
+
 
 def test_gate_doc_refs_report_unreadable_reference_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -4091,13 +4135,16 @@ def test_gate_main_running_mark_lifecycle(
     assert "deadbeef" in gate.REPORT_MD.read_text(encoding="utf-8")
 
 
-def test_gate_main_crash_leaves_running_mark(
+def test_gate_main_layer_exception_collapses_to_fail_not_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """层执行中途崩溃：tombstone 必须留在盘上，且不产生新报告。
+    """R5-GATE-01：层执行抛出未捕获异常必须塌成「该层判红」并正常收尾。
 
-    这样下一个 agent 看到 `.hutuji_gate_running` 在场即知上次没跑完，
-    旁边的旧报告不得当作本轮结果。"""
+    此前（test_gate_main_crash_leaves_running_mark 钉死的旧契约）异常会穿透
+    main() 让解释器裸退：报告两个文件不落盘、tombstone 留盘误导「上次没跑完」、
+    读报告的人看到的仍是上一轮旧绿——门禁「没有结论」而不是判红。fail-closed
+    的正确形状是：异常塌成对应层 fail → overall=fail、exit 1 → 报告落盘 →
+    tombstone 正常清除。退出码是真值的承诺不变。"""
     gate = _load_agent_gate()
     _gate_main_sandbox(gate, tmp_path, monkeypatch)
 
@@ -4105,14 +4152,18 @@ def test_gate_main_crash_leaves_running_mark(
         raise RuntimeError("simulated crash")
 
     monkeypatch.setattr(gate, "profile_layers", lambda profile: [("boom", boom)])
+    monkeypatch.setattr(gate, "_git_head", lambda: "deadbeef" * 5)
 
-    with pytest.raises(RuntimeError, match="simulated crash"):
-        gate.main(["--profile", "docs"])
+    code = gate.main(["--profile", "docs"])
 
-    assert gate.RUNNING_MARK.is_file(), "崩溃后 tombstone 必须留盘"
-    mark = json.loads(gate.RUNNING_MARK.read_text(encoding="utf-8"))
-    assert mark["plan"] == ["boom"]
-    assert not gate.REPORT_JSON.exists(), "崩溃路径不得写出新报告"
+    assert code == 1, "层异常必须塌成 overall=fail / exit 1，而不是穿透裸退"
+    assert not gate.RUNNING_MARK.exists(), "异常收尾必须清除 tombstone"
+    report = json.loads(gate.REPORT_JSON.read_text(encoding="utf-8"))
+    assert report["overall_status"] == "fail"
+    boom_layer = [L for L in report["layers"] if L["id"] == "boom"][0]
+    assert boom_layer["status"] == "fail"
+    assert "未捕获异常" in boom_layer["detail"]
+    assert "RuntimeError" in boom_layer["detail"]
 
 @pytest.mark.parametrize("mode", ["no_git_binary", "not_a_repo"])
 def test_gate_git_head_degrades_gracefully(

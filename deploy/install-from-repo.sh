@@ -63,13 +63,17 @@ fi
 # 而本脚本只传 -i 与可选 --cert，覆盖不了它们——上面「禁止绕过 TLS 校验」的承诺
 # 会被环境悄悄推翻，PIP_EXTRA_INDEX_URL 更直接打开依赖投毒面。这里既不取登录
 # 环境，也显式清掉所有 PIP_* 与代理变量，让安装行为只由本脚本的参数决定。
+# `--isolated`（R5-INST-1）再封死**配置文件**层：pip 还会读 /etc/pip.conf、
+# $HOME/.pip/pip.conf、.venv/pip.conf 与 PIP_CONFIG_FILE 指向的任意文件，其中的
+# extra-index-url / trusted-host 不在上面 -u 清环境变量的覆盖面内。加了 --isolated
+# 后 pip 忽略一切配置文件与环境变量，只认命令行传进去的 -i / --cert，fail-closed。
 env -u PIP_TRUSTED_HOST -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL -u PIP_CERT \
     -u PIP_CONFIG_FILE -u PIP_NO_INDEX -u PIP_FIND_LINKS \
     -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
     MCP_DIR="${MCP_DIR}" HUTUJI_INDEX="${PIP_INDEX}" HUTUJI_CERT="${PIP_CERT}" bash -c '
   set -euo pipefail
   cd "$MCP_DIR"
-  pip_args=(-i "$HUTUJI_INDEX")
+  pip_args=(-i "$HUTUJI_INDEX" --isolated)
   if [[ -n "$HUTUJI_CERT" ]]; then
     pip_args+=(--cert "$HUTUJI_CERT")
   fi
