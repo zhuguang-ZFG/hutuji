@@ -9,11 +9,11 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ 2026-08-11 已发布应用基线 `05786ce`（第二轮 11 条 P2 + 第三轮 5 条修复 + `server_tokens off`；本轮 6 文件：`bitmap_svg.py`/`llm_svg.py`/`cloud_bridge.py`/`preflight.sh`/`nginx-hutuji.conf`/`install-from-repo.sh`，LF 归一化 scp 经 `/tmp/hutuji-deploy-05786ce/`，落盘 md5 与 git blob 逐一相符、0 CR，`py_compile`/`bash -n` 过，清 `__pycache__`，`nginx -t`+reload 后 `daemon-reload`+显式重启两服务，主进程 `23:51:12 CST`），生产 **`pass=23 fail=0 expected=23`**；生产 18 个可执行产物按 LF-md5 逐一对齐 HEAD（18/18）。回滚副本 `/root/hutuji-bak-20260811-234834-pre-05786ce/`。**前一基线 `a5ae774`（2026-08-11 早些，22 项）**：第三轮评审两项 + 内存兜底，3 文件；`/proc/<MainPID>/cmdline` 含 `--no-proxy-headers`、`MemoryMax=1073741824` 生效，主进程 `02:43:45 CST`（详见 `../docs/deployment.md`）。真实基线序列 `f25d8d1`→`0db62f5`→`1f8ec57`→`a5ae774`→`05786ce`。 |
+| VPS 实机部署与验收 | ✅ **2026-08-12 应用基线推进 `05786ce`→`e533f70`**（R3 位图取消不泄名额 / R4 桥接在途看门狗 / R15 pip 索引白名单 / R16 preflight 公网面探针 / 圆弧 R 弧 fail-closed；5 文件 `bitmap_svg.py`/`cloud_bridge.py`/`gcode_gen.py`/`preflight.sh`/`install-from-repo.sh` 经 `/tmp/hutuji-deploy-HEAD/` LF scp、落盘 md5 与 blob 逐一相符 0 CR、`bash -n`+`py_compile` 过、清 `__pycache__`、仅代码未动 unit 故只显式重启两服务，主进程 `2026-08-12 16:51:59 CST`、两条 `ExecStartPre` `status=0`），生产 preflight 升至 **`pass=25 fail=0 expected=25`**（含新增两项公网 HTTPS:443 `/files` 200 + `/mcp` 404），生产 16 个可执行/模板产物按 LF-md5 对齐 HEAD（16/16）。回滚副本 `/root/hutuji-bak-20260812-165011-pre-deploy-HEAD/`。<br>2026-08-11 已发布应用基线 `05786ce`（第二轮 11 条 P2 + 第三轮 5 条修复 + `server_tokens off`；本轮 6 文件：`bitmap_svg.py`/`llm_svg.py`/`cloud_bridge.py`/`preflight.sh`/`nginx-hutuji.conf`/`install-from-repo.sh`，LF 归一化 scp 经 `/tmp/hutuji-deploy-05786ce/`，落盘 md5 与 git blob 逐一相符、0 CR，`py_compile`/`bash -n` 过，清 `__pycache__`，`nginx -t`+reload 后 `daemon-reload`+显式重启两服务，主进程 `23:51:12 CST`），生产 **`pass=23 fail=0 expected=23`**；生产 18 个可执行产物按 LF-md5 逐一对齐 HEAD（18/18）。回滚副本 `/root/hutuji-bak-20260811-234834-pre-05786ce/`。**前一基线 `a5ae774`（2026-08-11 早些，22 项）**：第三轮评审两项 + 内存兜底，3 文件；`/proc/<MainPID>/cmdline` 含 `--no-proxy-headers`、`MemoryMax=1073741824` 生效，主进程 `02:43:45 CST`（详见 `../docs/deployment.md`）。真实基线序列 `f25d8d1`→`0db62f5`→`1f8ec57`→`a5ae774`→`05786ce`。 |
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload（**动了 `limit_req` 的 key/zone 必须改成 `restart`**）→ 当前 **23 项** preflight 活动探针。旧 PASS 不能证明新脚本/配置。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`）。
+> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload（**动了 `limit_req` 的 key/zone 必须改成 `restart`**）→ 当前 **25 项** preflight 活动探针。旧 PASS 不能证明新脚本/配置。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`）。
 > preflight **无 skip 状态**（曾有的 `OPTIONAL_SKIP` 与 pass 等价放行，已删）：输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；取不到非 loopback IPv4 判 fail 而非跳过。
 >
 > **`daemon-reload` 会清空所有 unit 的 `ExecStartPre` 执行记录**（2026-08-11 生产实测）。
@@ -79,7 +79,7 @@ bash /opt/hutuji/deploy/prepare-host.sh
 2. 放 TLS 到 `/etc/nginx/ssl/hutuji/{fullchain,privkey}.pem`（或改 nginx 路径）。  
 3. `bash /opt/hutuji/deploy/install-from-repo.sh`  
 4. `systemctl enable hutuji-mcp hutuji-cloud-bridge nginx && systemctl restart hutuji-mcp hutuji-cloud-bridge && systemctl start nginx`。必须显式 `restart`：更新时服务通常已经 active，`enable --now` 不会重启，新增的 `ExecStartPre` 也就不会执行。
-5. `nginx -t && systemctl reload nginx`（**若本次改了 `limit_req` 的 key 或 zone，这里必须 `systemctl restart nginx`**——见上方「nginx reload 陷阱」，reload 会被 `[emerg]` 静默丢弃而 `systemctl` 仍报成功），成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 23 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，「位图描摹链」项（`check_bitmap_chain`）会用生产 venv 以与 unit 相同的入口真跑一次位图描摹自检。
+5. `nginx -t && systemctl reload nginx`（**若本次改了 `limit_req` 的 key 或 zone，这里必须 `systemctl restart nginx`**——见上方「nginx reload 陷阱」，reload 会被 `[emerg]` 静默丢弃而 `systemctl` 仍报成功），成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 25 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，「位图描摹链」项（`check_bitmap_chain`）会用生产 venv 以与 unit 相同的入口真跑一次位图描摹自检。
 6. 公网：`/mcp` 须 404；**`/docs`、`/redoc`、`/openapi.json` 与任意随机路径也须 404**（历史上它们是自指 301 环，见 `../docs/deployment.md`）；直连明文 `http://117.72.118.95/files/*` 须 403 而其他路径须 301；`/files/` 只经 HTTPS。
 7. 小智控制台 `tools/list`（阶段 6）；证据写入 `docs/templates/release-manifest.md`。
 
