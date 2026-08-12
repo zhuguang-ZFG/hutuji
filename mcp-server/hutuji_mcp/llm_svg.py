@@ -46,6 +46,15 @@ _SVG_RE = re.compile(r"<svg[\s\S]*?</svg>", re.IGNORECASE)
 # 即：拦截不是靠本规则，而是靠切片的副作用。这里显式拒 DTD，把它变成写明的契约，
 # 避免日后放宽 _SVG_RE（如允许 XML 声明）时静默恢复实体展开面。
 _DOCTYPE_RE = re.compile(r"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
+# 处理指令（PI）一律拒。xml.etree 的 iter()/子迭代跳过 tag==None 的 PI/Comment
+# 节点，故白名单遍历看不到 `<?xml-stylesheet href=...?>` 这类 PI；而 _SVG_RE 从
+# `<svg` 起切片，PI 若落在根元素之内即随本体一起提取，绕过全部元素/属性校验。
+# 被服务成 image/svg+xml 经公网 /files 直开时，外部 XSLT 样式表会被应用 → 外联/XSS 面。
+# 与 _DOCTYPE_RE 同理：显式在切片后的本体上拒 `<?`，把它写成契约而非依赖切片副作用。
+_PI_RE = re.compile(r"<\?")
+# 拒 url(...) 属性值时须先归一化 `url` 与 `(` 之间的空白：`url (http://…)` 不含子串
+# `url(` 会漏过，但多数渲染器把二者视同。用 `url\s*\(` 一并覆盖空白变体。
+_URL_ATTR_RE = re.compile(r"url\s*\(", re.IGNORECASE)
 
 # 元素/属性白名单（组 1.1 + 2.1）——LLM 输出的主防线。
 # 命名空间前缀已在 _local_name 里剥掉，这里比较的是本地名。
@@ -114,6 +123,9 @@ def _validate_svg(svg: str) -> None:
     """
     if _DOCTYPE_RE.search(svg):
         raise LlmError("SVG 含 DTD/实体声明（<!DOCTYPE/<!ENTITY>），一律拒绝")
+    # PI（处理指令 <?...?>）在切片本体内即拒；白名单遍历看不到 PI 节点。
+    if _PI_RE.search(svg):
+        raise LlmError("SVG 含处理指令（<?...?>，如 xml-stylesheet），一律拒绝")
 
     try:
         root = ET.fromstring(svg)
@@ -142,7 +154,8 @@ def _validate_svg(svg: str) -> None:
             if attr_local not in _ALLOWED_ATTRS:
                 raise LlmError(f"禁用属性 {attr_local}（<{local}>，白名单：见 _ALLOWED_ATTRS）")
             # 即使属性名合法，也不能借 url(...) 引入外部资源或内部引用链。
-            if "url(" in attr_val.lower():
+            # 归一化 `url` 与 `(` 间空白，堵 `url (…)` 变体。
+            if _URL_ATTR_RE.search(attr_val):
                 raise LlmError(f"禁用 URL 属性值 {attr_local}（<{local}>）")
 
     _MAX_DEPTH = 64

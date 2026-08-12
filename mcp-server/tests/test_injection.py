@@ -36,6 +36,16 @@ from hutuji_mcp.llm_svg import (
             "<svg><path d='M0 0' fill='none' stroke='url(http://evil/x)'/></svg>",
             "URL",
         ),
+        (
+            "<svg xmlns='http://www.w3.org/2000/svg'>"
+            "<?xml-stylesheet type='text/xsl' href='http://evil/x.xsl'?>"
+            "<path d='M0 0' fill='none'/></svg>",
+            "处理指令",
+        ),
+        (
+            "<svg><path d='M0 0' fill='none' stroke='url (http://evil/x)'/></svg>",
+            "URL",
+        ),
     ],
 )
 def test_rejects_malicious_svg(svg: str, reason: str) -> None:
