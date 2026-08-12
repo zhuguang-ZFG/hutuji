@@ -1162,6 +1162,21 @@ def test_bitmap_trace_accepts_current_generation_size() -> None:
         bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(side, side) + b"0" * 32)
 
 
+def test_bitmap_trace_rejects_single_side_overflow() -> None:
+    """单边超过 _MAX_IMAGE_SIDE 即拒：sknw int16 坐标域溢出会静默回绕成负值。
+
+    3×40000 总像素仅 12 万（远低于 5 Mpx），但宽度超 32767 后 sknw idx2rc
+    的 int16 回绕产负坐标，画面静默扭曲而不报错——fit-to-margins 会把负坐标
+    归一化回页内，validate_gcode 照样绿。故单边闸必须独立于总像素闸。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match=r"单边过大.*int16"):
+        bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(3, 40000))
+    with pytest.raises(bitmap_svg.BitmapError, match=r"单边过大.*int16"):
+        bitmap_svg.trace_bitmap_to_polylines(_valid_ihdr_png(40000, 3))
+
+
 def test_bitmap_trace_rejects_png_without_leading_ihdr() -> None:
     """IHDR 不在首块即判畸形：容错去扫后续块等于放弃这道闸。"""
     from hutuji_mcp import bitmap_svg
@@ -1561,6 +1576,59 @@ def test_bitmap_generate_cancel_waits_for_trace_thread(
         with pytest.raises(asyncio.CancelledError):
             await task
         # 关键断言：协程结束时线程必须已跑完。旧实现此处 finished 尚未置位。
+        assert finished.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_bitmap_generate_survives_second_cancel_during_trace_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R7-CANCEL-01：取消恢复路径必须抗**二次**取消，仍等描摹线程跑完。
+
+    上一条只证了单次取消。asyncio.shield 只解耦第一次传播——恢复分支里若裸
+    `await trace`，第二次取消会把它打断，协程在线程收尾前就返回，
+    「DrawLimiter.leave() 永远晚于线程结束」这条不变量随即失效。
+    二次取消是可达的：客户端先发 notifications/cancelled（第一次），随后断连让
+    MCP SDK 的 tg.cancel_scope.cancel() 取消全部在途 handler（第二次）。
+    契约：无论被取消几次，出口恒为 CancelledError，且线程必须已 finished。
+    """
+    import threading
+
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+
+    async def fake_fetch(_desc: str) -> bytes:
+        return b"png-bytes"
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    def slow_trace(_png: bytes):
+        started.set()
+        time.sleep(0.3)
+        finished.set()
+        return ([np.array([[0.0, 0.0], [1.0, 1.0]])], 10, 10)
+
+    monkeypatch.setattr(bitmap_svg, "_fetch_image_png", fake_fetch)
+    monkeypatch.setattr(bitmap_svg, "trace_bitmap_to_polylines", slow_trace)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(bitmap_svg.generate_bitmap_svg("x"))
+        await asyncio.to_thread(started.wait, 1.0)
+        assert started.is_set()
+        assert not finished.is_set()
+        # 第一次取消：命中 shield 的 await 点，协程转入恢复分支继续等线程。
+        task.cancel()
+        # 让出若干次，确保恢复分支已进入并挂在第二个 await 上。
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert not finished.is_set(), "线程不应这么快跑完，用例前提失效"
+        # 第二次取消：旧实现在此被打断并提前返回。
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
         assert finished.is_set()
 
     asyncio.run(scenario())

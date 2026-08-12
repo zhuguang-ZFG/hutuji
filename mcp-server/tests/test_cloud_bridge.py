@@ -727,10 +727,10 @@ def test_message_label_still_rejects_non_json_and_bad_utf8() -> None:
 
 
 def test_session_activity_only_counts_inflight_requests() -> None:
-    """R4：stall_seconds 必须只在「有已转发、未回应的请求」时计时。
+    """R7：stall_seconds 必须只在「有已转发、未回应的请求」时计时。
 
-    纯 idle 会话（云端长时间不发消息）last_inbound<=last_outbound，返回 0——
-    这是不误杀合法空闲连接的关键，看门狗只据此判死。
+    纯 idle 会话（云端长时间不发消息）pending 为空，返回 0——这是不误杀合法
+    空闲连接的关键，看门狗只据此判死。notification 不武装、response 结清。
     """
     from hutuji_mcp.cloud_bridge import _SessionActivity
 
@@ -742,12 +742,12 @@ def test_session_activity_only_counts_inflight_requests() -> None:
     assert activity.stall_seconds() == 0.0
 
     # 一条请求转发出去、尚无回包：开始计时。
-    activity.mark_inbound()
+    activity.mark_inbound('{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
     clock["t"] = 2005.0
     assert activity.stall_seconds() == pytest.approx(5.0)
 
-    # 收到任意回包即清零，哪怕时间继续走。
-    activity.mark_outbound()
+    # 收到对应回包即清零，哪怕时间继续走。
+    activity.mark_outbound('{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}')
     clock["t"] = 9999.0
     assert activity.stall_seconds() == 0.0
 
@@ -763,10 +763,8 @@ def test_watchdog_raises_on_stalled_inflight_request(
 
     clock = {"t": 1000.0}
     activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
-    # 先推进时钟再标入站，令 last_inbound 严格晚于握手初值 last_outbound——
-    # 否则二者相等，stall_seconds 恒为 0，看门狗永不触发（会把用例挂死）。
     clock["t"] = 1001.0
-    activity.mark_inbound()  # 一条未回应的请求
+    activity.mark_inbound('{"jsonrpc":"2.0","id":99,"method":"tools/call"}')
     process = SimpleNamespace(returncode=None)
 
     async def fake_sleep(_seconds: float) -> None:
@@ -777,7 +775,7 @@ def test_watchdog_raises_on_stalled_inflight_request(
     async def run() -> None:
         with pytest.raises(RuntimeError, match="假死"):
             # 不套 wait_for：fake_sleep 不让出事件循环，超时定时器无从触发；
-            # 逻辑正确时看门狗首轮即抛错。若回归成不终止，靠 pytest 全局超时兜底。
+            # 逻辑正确时看门狗首轮即抛错。若回归成不终止,靠 pytest 全局超时兜底。
             await cloud_bridge._watchdog(process, activity)
 
     asyncio.run(run())
@@ -840,3 +838,300 @@ def test_bridge_once_watchdog_failure_reaps_proxy_and_reconnects(
     _run_with_reaped_children(exercise, processes)
     assert processes, "未捕获到 spawn 的子进程"
     assert processes[0].returncode is not None
+
+
+def test_session_activity_notification_never_arms_watchdog() -> None:
+    """R7-WD-01：无 id 的 notification 不得武装看门狗。
+
+    MCP 生命周期规定 client 在 initialize 响应后**必发**
+    `notifications/initialized`（无 id、按规范不产生响应）。旧实现对每条入站消息
+    都打时间戳，于是 last_inbound 恒晚于 last_outbound，此后任何空闲 120s 的
+    健康会话都被判死重连——正是模块开头「防重连风暴」要避免的 churn。
+    本机实证：修正假时钟后单条 notification 满 121s 即 would_trip=True。
+    """
+    from hutuji_mcp.cloud_bridge import WATCHDOG_STALL_SECONDS, _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    # 模拟「握手 → 稍后 notification」序列，否则 t=1000.0 原地 mark_inbound 会让
+    # 旧实现的 last_inbound == last_outbound → stall 恒 0，本测试就失去鉴别力。
+    clock["t"] = 1001.0
+    activity.mark_inbound('{"jsonrpc":"2.0","method":"notifications/initialized"}')
+    clock["t"] += WATCHDOG_STALL_SECONDS * 100
+    assert activity.stall_seconds() == 0.0
+
+    # notifications/cancelled 同理：它自己也是 notification。
+    clock["t"] = 2001.0
+    activity.mark_inbound(
+        '{"jsonrpc":"2.0","method":"notifications/cancelled",'
+        '"params":{"requestId":7,"reason":"user"}}'
+    )
+    clock["t"] += WATCHDOG_STALL_SECONDS * 100
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_cancelled_notification_settles_pending_request() -> None:
+    """已被 notifications/cancelled 取消的 request 必须提前结清。
+
+    按 MCP cancellation 规范，receiver 收到取消后**不应**再对该 id 发送响应。
+    若仍留在 pending 里，看门狗会为一个永远不会回来的响应计时并误判假死。
+    """
+    from hutuji_mcp.cloud_bridge import WATCHDOG_STALL_SECONDS, _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    activity.mark_inbound('{"jsonrpc":"2.0","id":7,"method":"tools/call"}')
+    clock["t"] += 5.0
+    assert activity.stall_seconds() == pytest.approx(5.0)
+
+    activity.mark_inbound(
+        '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}'
+    )
+    clock["t"] += WATCHDOG_STALL_SECONDS * 100
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_concurrent_requests_keep_own_deadlines() -> None:
+    """R7-WD-02：B 的回包不得洗掉 A 的真实停滞。
+
+    旧实现只有一对 last_inbound/last_outbound：A 挂起、B 随后到达并回包时
+    last_outbound 被推到 last_inbound 之后，A 的停滞被永久清零。本机实证：
+    A 挂起 + B 回包后即便推进到 10000 秒，stall_seconds 仍恒为 0.0。
+    并发在途是可达的——mcp 1.28.1 的 lowlevel/server.py 对每条消息
+    `tg.start_soon(self._handle_message, ...)`。
+    契约：按 id 各记转发时刻，取最久未回包的那条计时。
+    """
+    from hutuji_mcp.cloud_bridge import _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    activity.mark_inbound('{"jsonrpc":"2.0","id":"A","method":"tools/call"}')
+    clock["t"] = 1010.0
+    activity.mark_inbound('{"jsonrpc":"2.0","id":"B","method":"tools/list"}')
+    clock["t"] = 1011.0
+    # B 先回包：A 仍在途，停滞必须从 A 的 1000.0 起算，而不是被清零。
+    activity.mark_outbound('{"jsonrpc":"2.0","id":"B","result":{}}')
+    assert activity.stall_seconds() == pytest.approx(11.0)
+
+    # A 回包后才归零。
+    activity.mark_outbound('{"jsonrpc":"2.0","id":"A","result":{}}')
+    clock["t"] = 9999.0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_error_response_settles_pending() -> None:
+    """错误响应同样是回包：有 id 无 method，必须结清对应 pending。"""
+    from hutuji_mcp.cloud_bridge import _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    activity.mark_inbound('{"jsonrpc":"2.0","id":3,"method":"tools/call"}')
+    clock["t"] = 1005.0
+    activity.mark_outbound(
+        '{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"nope"}}'
+    )
+    clock["t"] = 9999.0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_batch_arms_and_settles_per_element() -> None:
+    """batch 必须逐条归属，不能压成一个时间戳。
+
+    旧实现对整条 batch 只打一次 mark_inbound：request+notification 混装时
+    notification 也被计入在途（实证 would_trip=True）。契约：只有带 id 的
+    元素武装，回包 batch 逐条结清。
+    """
+    from hutuji_mcp.cloud_bridge import WATCHDOG_STALL_SECONDS, _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    # 先推进时钟：t=1000.0 原地 mark_inbound 会让旧实现 last_inbound ==
+    # last_outbound → stall 恒 0，本断言就不再有鉴别力。
+    clock["t"] = 1001.0
+    # 只含 notification 的 batch：不武装。
+    activity.mark_inbound(
+        '[{"jsonrpc":"2.0","method":"notifications/initialized"},'
+        '{"jsonrpc":"2.0","method":"notifications/progress"}]'
+    )
+    clock["t"] += WATCHDOG_STALL_SECONDS * 100
+    assert activity.stall_seconds() == 0.0
+
+    # request + notification 混装：只有 id=1 计入在途。
+    clock["t"] = 2000.0
+    activity.mark_inbound(
+        '[{"jsonrpc":"2.0","id":1,"method":"tools/call"},'
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}]'
+    )
+    clock["t"] = 2007.0
+    assert activity.stall_seconds() == pytest.approx(7.0)
+
+    # 回包 batch 逐条结清。
+    activity.mark_outbound('[{"jsonrpc":"2.0","id":1,"result":{}}]')
+    clock["t"] = 9999.0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_unparsable_outbound_clears_pending_fail_open() -> None:
+    """解析不出 JSON-RPC 对象的回包 → 整体结清（fail-open）。
+
+    proxy 确实回了东西、只是我们读不懂（非 JSON、或 JSON 但不是 object/array）。
+    此时宁可解武装，也不能凭解析缺口把健康会话判死重连。
+    """
+    from hutuji_mcp.cloud_bridge import _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    activity.mark_inbound('{"jsonrpc":"2.0","id":1,"method":"tools/call"}')
+    clock["t"] = 1005.0
+    assert activity.stall_seconds() == pytest.approx(5.0)
+
+    activity.mark_outbound("not json at all")
+    clock["t"] = 9999.0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_unparsable_inbound_never_arms() -> None:
+    """解析不出的入站消息不得武装：读不懂就不为它计时，避免无根据判死。"""
+    from hutuji_mcp.cloud_bridge import WATCHDOG_STALL_SECONDS, _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    for junk in ("not json", "[", '"just a string"', "123", "null"):
+        activity.mark_inbound(junk)
+    clock["t"] += WATCHDOG_STALL_SECONDS * 100
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_duplicate_request_id_keeps_earliest_deadline() -> None:
+    """同 id 重发以最早时刻为准：那才是真实等待起点。"""
+    from hutuji_mcp.cloud_bridge import _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    activity.mark_inbound('{"jsonrpc":"2.0","id":1,"method":"tools/call"}')
+    clock["t"] = 1050.0
+    activity.mark_inbound('{"jsonrpc":"2.0","id":1,"method":"tools/call"}')
+    clock["t"] = 1060.0
+    # 若取最晚时刻会得 10.0，真实停滞被低估 50s。
+    assert activity.stall_seconds() == pytest.approx(60.0)
+
+
+def test_session_activity_bytes_message_parsed_same_as_str() -> None:
+    """websockets 可能给 bytes 帧：与 str 同口径解析，不得因类型漏武装。"""
+    from hutuji_mcp.cloud_bridge import _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    activity.mark_inbound(b'{"jsonrpc":"2.0","id":1,"method":"tools/call"}')
+    clock["t"] = 1004.0
+    assert activity.stall_seconds() == pytest.approx(4.0)
+    activity.mark_outbound(b'{"jsonrpc":"2.0","id":1,"result":{}}')
+    clock["t"] = 9999.0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_request_ids_and_response_ids_classify_jsonrpc_shapes() -> None:
+    """解析器分类必须严格按 JSON-RPC 形状，别的都不算。
+
+    request = method + 非 null id；notification = method 无 id；
+    response = id 无 method。id:null 按规范不是合法 request id，不武装。
+    """
+    from hutuji_mcp.cloud_bridge import _cancel_ids, _request_ids, _response_ids
+
+    assert _request_ids('{"jsonrpc":"2.0","id":1,"method":"m"}') == [1]
+    assert _request_ids('{"jsonrpc":"2.0","id":"s","method":"m"}') == ["s"]
+    assert _request_ids('{"jsonrpc":"2.0","method":"m"}') == []
+    assert _request_ids('{"jsonrpc":"2.0","id":null,"method":"m"}') == []
+    assert _request_ids('{"jsonrpc":"2.0","id":1,"result":{}}') == []
+    assert _request_ids('{"jsonrpc":"2.0","method":"notifications/cancelled",'
+                        '"params":{"requestId":9}}') == []
+
+    assert _cancel_ids('{"jsonrpc":"2.0","method":"notifications/cancelled",'
+                       '"params":{"requestId":9}}') == [9]
+    assert _cancel_ids('{"jsonrpc":"2.0","method":"notifications/cancelled"}') == []
+    assert _cancel_ids('{"jsonrpc":"2.0","id":1,"method":"tools/call"}') == []
+
+    assert _response_ids('{"jsonrpc":"2.0","id":1,"result":{}}') == [1]
+    assert _response_ids('{"jsonrpc":"2.0","id":1,"error":{"code":-1}}') == [1]
+    # 合法消息但不含 response（proxy 主动发的 notification）→ 空列表，非 None。
+    assert _response_ids('{"jsonrpc":"2.0","method":"notifications/progress"}') == []
+    # 解析不出对象 → None，调用方据此整体结清。
+    assert _response_ids("not json") is None
+    assert _response_ids('"a string"') is None
+
+
+def test_cloud_to_proxy_passes_message_to_activity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """接线钉子：两条泵必须把消息原文交给 activity，否则 id 归属无从建立。
+
+    这是 R7-WD 修复最容易悄悄退化的一环——改回无参 mark_inbound() 会让上面
+    所有 id 归属测试仍然全绿（它们直接调 _SessionActivity），只有本例能红。
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+    seen: dict[str, list[str]] = {"in": [], "out": []}
+
+    class _Recorder:
+        def mark_inbound(self, message) -> None:  # noqa: ANN001
+            seen["in"].append(message)
+
+        def mark_outbound(self, message) -> None:  # noqa: ANN001
+            seen["out"].append(message)
+
+    request = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+    response = '{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}'
+
+    class _Stdin:
+        def write(self, _data: bytes) -> None:
+            return None
+
+        async def drain(self) -> None:
+            return None
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [response.encode("utf-8") + b"\n", b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    class _Websocket:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        def __aiter__(self):
+            async def gen():
+                yield request
+
+            return gen()
+
+        async def send(self, message: str) -> None:
+            self.sent.append(message)
+
+    async def exercise() -> None:
+        activity = _Recorder()
+        websocket = _Websocket()
+        await cloud_bridge._cloud_to_proxy(
+            websocket, SimpleNamespace(stdin=_Stdin()), activity
+        )
+        with pytest.raises(RuntimeError, match="mcp-proxy 已退出"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout()), websocket, activity
+            )
+        assert websocket.sent == [response]
+
+    asyncio.run(exercise())
+    assert seen["in"] == [request]
+    assert seen["out"] == [response]

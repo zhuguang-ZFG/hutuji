@@ -16,7 +16,6 @@ vpype 管线的 SVG 都过同一道闸」是不变量，不因来源可信而豁
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import sys
@@ -75,6 +74,16 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 # 5 Mpx 的 RGBA 峰值 ≈540 MB，小 VPS 可承受。换更高分辨率生图模型必须显式抬这个
 # 常量——4096² RGBA 在本链上真实要 ~1.8 GB，那是应当被迫做的决策，不该静默通过。
 _MAX_IMAGE_PIXELS = 5_000_000
+# 单边上限，独立于总像素上限。触发链（2026-08-12 本机实测，R7-BMP-01）：
+# sknw 0.15 的 `idx2rc()` 用 `np.zeros(..., dtype=np.int16)` 存行/列坐标（GitHub
+# 上游 Image-Py/sknw 同样是 int16），任一坐标超过 32767 即静默回绕成负数。
+# 3×40000 的图总像素只有 12 万、远在 _MAX_IMAGE_PIXELS 之下，却在真实
+# `build_sknw` 后产出 7232 个负坐标（范围 -32768..32767）——描摹结果被打乱，
+# 而负坐标 SVG 既过 _validate_svg（白名单不查数值域），又被 vpype
+# --fit-to-margins 归一化回页内，validate_gcode 照样 PASS。即：坐标域溢出不会
+# 越界、不会报错，只会**静默画错**。故在解码前按 IHDR 单独拦，让它变成显式
+# BitmapError。取 32768 是 int16 的正半域边界，不是可调画质参数。
+_MAX_IMAGE_SIDE = 32768
 
 
 def _reject_oversized_png(png_bytes: bytes) -> None:
@@ -93,6 +102,13 @@ def _reject_oversized_png(png_bytes: bytes) -> None:
     height = int.from_bytes(png_bytes[20:24], "big")
     if width <= 0 or height <= 0:
         raise BitmapError(f"PNG 宽高非法（{width}x{height}）")
+    if width >= _MAX_IMAGE_SIDE or height >= _MAX_IMAGE_SIDE:
+        # 必须排在总像素闸之前：细长图（如 3x40000）总像素远未超限，只有单边
+        # 判据能拦，且诊断要指向真正的成因（坐标域）而不是内存。
+        raise BitmapError(
+            f"位图单边过大（{width}x{height}，单边上限 {_MAX_IMAGE_SIDE}）："
+            "描摹坐标会溢出 sknw 的 int16 域并静默回绕成负值"
+        )
     if width * height > _MAX_IMAGE_PIXELS:
         raise BitmapError(
             f"位图过大（{width}x{height}={width * height / 1e6:.1f} Mpx，"
@@ -317,8 +333,26 @@ async def generate_bitmap_svg(description: str) -> str:
     except asyncio.CancelledError:
         # shield 只中断了本协程的等待，未取消 trace 本身；等线程自然收尾
         # （连同它可能抛出的 BitmapError 一并吞掉），再让取消继续传播。
-        with contextlib.suppress(BaseException):
-            await trace
+        #
+        # R7-CANCEL-01：这里必须能抗**二次**取消。shield 只解耦第一次传播，
+        # 裸 `await trace` 会被第二次取消打断，于是本协程在线程收尾前就返回，
+        # 上面那句「leave() 永远晚于线程结束」不再成立。二次取消是可达的：
+        # 客户端先发 notifications/cancelled（第一次），随后断连触发 MCP SDK
+        # 的 tg.cancel_scope.cancel() 取消全部在途 handler（第二次）。
+        # 故循环等待并对每次取消调 uncancel()——不 uncancel 时 Task 的取消计数
+        # 不归零，后续 await 会被持续重抛（CPython #93453 同型）。取消语义不丢：
+        # 无论中途被取消几次，出口恒为 CancelledError。
+        current = asyncio.current_task()
+        while not trace.done():
+            try:
+                await asyncio.shield(trace)
+            except asyncio.CancelledError:
+                if current is not None:
+                    current.uncancel()
+            except BaseException:  # noqa: BLE001
+                # 线程自身的异常（如 BitmapError）在取消路径上无消费者，
+                # 吞掉即可；trace 已 done，循环随即退出。
+                break
         raise
     svg = polylines_to_svg(polys, w, h)
     if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:

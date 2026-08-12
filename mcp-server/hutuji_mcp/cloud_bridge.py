@@ -193,6 +193,76 @@ def _message_label(message: str | bytes) -> str:
     label = "".join(ch if ch.isprintable() else " " for ch in label)
     return _cap_log_line(_redact_secret_text(label))
 
+def _iter_jsonrpc_objects(message: str | bytes) -> list[dict]:
+    """把消息解析成 JSON-RPC 对象列表（单条或 batch）；失败返回空列表。
+
+    失败一律 fail-open：解析问题不得武装/解武装看门狗，更不能掀会话。
+    与 _message_label 同口径——只捕窄异常。
+    """
+    try:
+        if isinstance(message, bytes):
+            message = message.decode("utf-8")
+        payload = json.loads(message)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return []
+    if isinstance(payload, dict):
+        return [payload]
+    if isinstance(payload, list):
+        return [obj for obj in payload if isinstance(obj, dict)]
+    return []
+
+
+def _request_ids(message: str | bytes) -> list[object]:
+    """提取消息中带 id 的 JSON-RPC request 的 id 列表。
+
+    只有同时具备「method」与非 null「id」的对象才算 request，才武装看门狗。
+    notification 有 method 无 id（按规范不产生响应），response 有 id 无 method
+    ——两者都不得计入在途，否则就是 R7-WD-01 的误判。
+    notifications/cancelled 自身也是 notification，故同样不武装；它携带的
+    params.requestId 由 _cancel_ids 单独处理（结清而非新建）。
+    """
+    ids: list[object] = []
+    for obj in _iter_jsonrpc_objects(message):
+        method = obj.get("method")
+        raw_id = obj.get("id")
+        if not isinstance(method, str) or raw_id is None:
+            continue
+        ids.append(raw_id)
+    return ids
+
+
+def _cancel_ids(message: str | bytes) -> list[object]:
+    """提取 notifications/cancelled 中被取消的 requestId 列表，用于提前结清 pending。"""
+    ids: list[object] = []
+    for obj in _iter_jsonrpc_objects(message):
+        if obj.get("method") != "notifications/cancelled":
+            continue
+        params = obj.get("params")
+        if isinstance(params, dict):
+            cancel_id = params.get("requestId")
+            if cancel_id is not None:
+                ids.append(cancel_id)
+    return ids
+
+
+def _response_ids(message: str | bytes) -> list[object] | None:
+    """提取消息中 JSON-RPC response 的 id 列表。
+
+    response 有 id 但无 method（区别于 request/notification）。
+    返回 None = 「这条消息解析不出任何 JSON-RPC 对象」，调用方须整体结清 pending：
+    proxy 确实回了东西、只是我们读不懂，此时宁可解武装也不能凭解析缺口判死会话。
+    返回空列表 = 「合法消息但不含 response」（如 proxy 主动发的 notification），
+    pending 保持不变。
+    """
+    objs = _iter_jsonrpc_objects(message)
+    if not objs:
+        return None
+    ids: list[object] = []
+    for obj in objs:
+        if obj.get("method") is None and obj.get("id") is not None:
+            ids.append(obj["id"])
+    return ids
+
 
 def _redact_secret_text(text: str) -> str:
     """去掉文本中的 token / Bearer / api_key / sk- 裸密钥与 URL，保留其余诊断上下文。"""
@@ -302,29 +372,62 @@ def _set_bridge_ready(ready: bool) -> None:
 
 
 class _SessionActivity:
-    """一次会话内 cloud→proxy 与 proxy→cloud 的最近时刻，供 _watchdog 判死。
+    """按 JSON-RPC id 跟踪在途请求，供 _watchdog 判死 mcp-proxy。
 
-    刻意不带锁：两个 mark_* 都在同一事件循环的同步区里调用，无 await 点，天然原子。
-    初值取会话建立时刻，避免握手瞬间被误判为「有在途请求且久无回包」。
+    刻意不带锁：所有 mark_* 都在同一事件循环的同步区里调用，无 await 点，天然原子。
+
+    为什么必须按 id 归属（R7-WD-01/02，两处都是旧「单对时间戳」模型的产物）：
+
+    1. notification 无 response。旧实现对每条入站消息都 mark_inbound()，而 MCP
+       生命周期规定 client 在 initialize 响应后**必发** `notifications/initialized`
+       （无 id、按规范不产生响应）；`notifications/cancelled` 同理。于是
+       last_inbound 恒晚于 last_outbound，任何随后空闲 120s 的健康会话都被判死并
+       重连——正是本模块开头「防重连风暴」要避免的 churn。故只有带 id 的 request
+       才武装看门狗。
+    2. 单对时间戳无法表达多个在途请求。请求 A 挂起、随后 B 到达并回包时，
+       last_outbound 被推到 last_inbound 之后，A 的真实停滞被永久「洗掉」。
+       MCP SDK 对每条消息 `tg.start_soon(self._handle_message, ...)`（本机 mcp
+       1.28.1，lowlevel/server.py），请求确实并发在途，B 先于 A 完成是可达的。
+       故按 id 记各自的转发时刻，取**最久未回包**的那条计时。
+
+    解析失败一律 fail-open（不武装）：日志/解析问题不得升级成掀掉会话。这与
+    _message_label 同口径——宁可少判一次死，也不误杀健康会话。
     """
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
-        now = clock()
-        self.last_inbound = now
-        self.last_outbound = now
+        # id → 转发给 proxy 的时刻。JSON-RPC id 允许 str/int，用原值做键。
+        self._pending: dict[object, float] = {}
 
-    def mark_inbound(self) -> None:
-        self.last_inbound = self._clock()
+    def mark_inbound(self, message: str | bytes) -> None:
+        """记下这条入站消息里所有带 id 的 request；notification 不武装看门狗。
 
-    def mark_outbound(self) -> None:
-        self.last_outbound = self._clock()
+        notifications/cancelled 携带的 params.requestId 会被提前结清：按 MCP 规范
+        receiver 不应对已取消的 request 发送响应，该 id 可以视作「已回包」。
+        """
+        now = self._clock()
+        for request_id in _request_ids(message):
+            # 同 id 重复到达（云端重发）以最早时刻为准：那才是真实等待起点。
+            self._pending.setdefault(request_id, now)
+        for cancel_id in _cancel_ids(message):
+            self._pending.pop(cancel_id, None)
+
+    def mark_outbound(self, message: str | bytes) -> None:
+        """按 id 结清已回包的请求。"""
+        ids = _response_ids(message)
+        if ids is None:
+            # 解析不出 id 的回包（含 batch 解析失败）：无法归属，只能整体结清，
+            # 保守回落到旧语义，避免因解析缺口把健康会话判死。
+            self._pending.clear()
+            return
+        for request_id in ids:
+            self._pending.pop(request_id, None)
 
     def stall_seconds(self) -> float:
-        """有未回应的入站请求时返回它已等待的秒数；无在途请求时返回 0。"""
-        if self.last_inbound <= self.last_outbound:
+        """返回最久未回包的在途请求已等待的秒数；无在途请求时返回 0。"""
+        if not self._pending:
             return 0.0
-        return self._clock() - self.last_inbound
+        return self._clock() - min(self._pending.values())
 
 
 async def _cloud_to_proxy(
@@ -338,7 +441,7 @@ async def _cloud_to_proxy(
         process.stdin.write(message.encode("utf-8") + b"\n")
         await process.stdin.drain()
         # drain 之后才记：这一刻起 proxy 已收到请求，看门狗开始为它计等待时长。
-        activity.mark_inbound()
+        activity.mark_inbound(message)
 
 
 async def _proxy_to_cloud(
@@ -346,10 +449,10 @@ async def _proxy_to_cloud(
 ) -> None:
     assert process.stdout is not None
     while line := await process.stdout.readline():
+        message = line.decode("utf-8").rstrip("\r\n")
         # 任何回包都算 proxy 仍在响应：清掉在途计时。放在 send 前，避免 send
         # 慢时把健康的回包误算成停滞。
-        activity.mark_outbound()
-        message = line.decode("utf-8").rstrip("\r\n")
+        activity.mark_outbound(message)
         logger.info("本机 MCP 响应: %s", _message_label(message))
         await websocket.send(message)
     raise RuntimeError("mcp-proxy 已退出")
