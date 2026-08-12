@@ -2300,6 +2300,42 @@ def test_gcode_rejects_mixed_radius_and_offset_arc_words() -> None:
         validate_gcode(text)
 
 
+def test_gcode_rejects_degenerate_radius_mode_arc() -> None:
+    """正 R 近整圆弧（起终点近乎重合）必须拒：它会把包围盒退化成弦点而绕过限幅。
+
+    实证缺陷：I/J 模式下 `G2 X100.0001 Y5 I0 J95` 被包围盒判据拦住（X 凸到 195），
+    但 R 模式 `G2 X100.0001 Y5 R95` 因解出的圆心贴在弦中点旁、正 R 取 minor 一侧
+    圆心，包围盒退化成弦点 (100,5) 而被放行。vpype 生产管线实测 0 条真实圆弧，
+    这种几何歧义没有合法来源，按 fail-closed 拒收（弦长 < _ARC_MIN_CHORD_MM）。
+    """
+    text = _minimal_gcode("G0 X100 Y5 F8000\nG2 X100.0001 Y5 R95 F8000\n")
+    with pytest.raises(GcodeError, match="近乎重合|近整圆"):
+        validate_gcode(text)
+
+
+def test_gcode_accepts_legitimate_radius_mode_arc() -> None:
+    """合法 R 模式圆弧（弦长充足、在界内）必须放行：负 R 绕远路一侧也在界内。
+
+    钉死 _ARC_MIN_CHORD_MM 不误伤正常 R 弧。弦长 20mm 远大于 0.5mm 容差。
+    """
+    # 正 R minor
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R20 F8000\n"))
+    assert stats.lines == 8
+    # 负 R major（绕远路一侧），圆心仍在界内
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R-20 F8000\n"))
+    assert stats.lines == 8
+
+
+def test_gcode_rejects_radius_mode_arc_out_of_bounds() -> None:
+    """负 R 绕远路大弧凸出限幅必须拒（弦长充足、但几何凸到界外）。
+
+
+    补住 R 模式 major 弧的包围盒限幅路径——这条路径此前零测试。弦长 5mm 充足，
+    负 R=40 让圆心落到弦左侧、major 弧向右凸到 X=222.5，越过 190 限幅。
+    """
+    text = _minimal_gcode("G0 X185 Y100 F8000\nG2 X180 Y100 R-40 F8000\n")
+    with pytest.raises(GcodeError, match="包围盒"):
+        validate_gcode(text)
 
 
 def test_malformed_gcode_never_raises_non_gcode_error() -> None:

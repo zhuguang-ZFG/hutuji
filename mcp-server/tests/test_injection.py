@@ -51,6 +51,35 @@ def test_accepts_single_line_svg() -> None:
     )
 
 
+def test_validate_svg_rejects_inherited_non_none_fill() -> None:
+    """父 <g> 的非 none fill 必须沿继承链拒掉子 path/line/polyline。
+
+    继承是注入防线的旁路：元素自身不写 fill，但父组写 fill="red"，子元素的有效
+    fill 仍非 none。生产代码已正确拦截（_validate_svg 沿栈传播 inherited_fill），
+    本测试钉死该分支，防回归后静默放行填充 SVG。
+    """
+    # g fill=red → 子 path 继承非 none fill，必须拒
+    with pytest.raises(LlmError, match="fill"):
+        _validate_svg(
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<g fill="red"><path d="M0 0 L1 1" stroke="black"/></g></svg>'
+        )
+    # 嵌套 g 继承链也必须拒
+    with pytest.raises(LlmError, match="fill"):
+        _validate_svg(
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<g fill="blue"><g><polyline points="0,0 1,1"/></g></g></svg>'
+        )
+
+
+def test_validate_svg_accepts_inherited_none_fill() -> None:
+    """父 <g> fill="none" 沿继承链到子元素是合法构图，必须放行。"""
+    _validate_svg(
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<g fill="none"><path d="M0 0 L1 1" stroke="black"/></g></svg>'
+    )
+
+
 def test_description_is_bounded_and_control_chars_are_removed() -> None:
     cleaned = _sanitize_description("a\x00b\x1fc" + "图" * 300)
     assert "\x00" not in cleaned

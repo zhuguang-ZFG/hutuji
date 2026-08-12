@@ -32,6 +32,10 @@ LAYOUT_MARGIN_MM = 10.0
 # 仅用于派生几何：圆弧三角函数浮点误差，以及 G0 近原点的保守换纸保护。
 # 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤190、Y≤277、Z∈{0,5} 是硬边界。
 _GEOMETRY_EPS_MM = 0.01
+# 正 R 圆弧的最小弦长：低于此值的弧起终点近乎重合，几何上是「近整圆」歧义
+#（解出的圆心贴在弦中点旁，正 R 取 minor 一侧圆心会让包围盒退化成弦点而绕过
+# 限幅）。vpype 生产管线实测 0 条真实圆弧，这种几何没有合法来源，fail-closed。
+_ARC_MIN_CHORD_MM = 0.5
 
 # 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；恰好 512KiB 放行，再多一字节才拒）
 MAX_BYTES = 512 * 1024
@@ -125,6 +129,16 @@ def _arc_center(
         if dx == 0.0 and dy == 0.0:
             # Grbl: R 模式下起终点相同即 GcodeInvalidTarget
             raise GcodeError("G2/G3 半径模式起终点重合（Grbl 会报 invalid target）")
+        chord = math.hypot(dx, dy)
+        if chord < _ARC_MIN_CHORD_MM:
+            # 起终点近乎重合的正 R 弧是「近整圆」歧义：解出的圆心在弦中点旁，正 R
+            # 取 minor 一侧圆心，包围盒退化成弦点，会把「绕远路的大弧」误判成
+            # 「原地不动」而绕过限幅。vpype 生产管线实测 0 条真实圆弧（arc 校验纯
+            # 防御纵深），这种几何歧义没有合法来源，按 fail-closed 拒收。
+            raise GcodeError(
+                f"G2/G3 半径模式起终点近乎重合（弦长 {chord:.4f}mm < "
+                f"{_ARC_MIN_CHORD_MM}mm），近整圆几何歧义一律拒绝"
+            )
         h_x2_div_d = 4.0 * r * r - dx * dx - dy * dy
         if h_x2_div_d < 0:
             raise GcodeError(f"G2/G3 半径 {r} 不足以连接起终点（Grbl 会报 arc radius error）")
