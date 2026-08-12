@@ -1056,7 +1056,9 @@ def test_request_ids_and_response_ids_classify_jsonrpc_shapes() -> None:
                         '"params":{"requestId":9}}') == []
 
     assert _cancel_ids('{"jsonrpc":"2.0","method":"notifications/cancelled",'
-                       '"params":{"requestId":9}}') == [9]
+                       '"params":{"requestId":9}}') == [9, "9"]  # 归一化双形态（R7-WD-06）
+    assert _cancel_ids('{"jsonrpc":"2.0","method":"notifications/cancelled",'
+                       '"params":{"requestId":"9"}}') == ["9", 9]  # 归一化双形态（R7-WD-06）
     assert _cancel_ids('{"jsonrpc":"2.0","method":"notifications/cancelled"}') == []
     assert _cancel_ids('{"jsonrpc":"2.0","id":1,"method":"tools/call"}') == []
 
@@ -1135,3 +1137,64 @@ def test_cloud_to_proxy_passes_message_to_activity(
     asyncio.run(exercise())
     assert seen["in"] == [request]
     assert seen["out"] == [response]
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        '[1,2]',        # Array
+        '{"a":1}',      # Object
+        'true',         # Boolean
+        '1.5',          # 分数（规范 SHOULD NOT）
+    ],
+)
+def test_session_activity_rejects_non_scalar_id_without_arming(bad_id: str) -> None:
+    """R7-WD-03：id 为 Array/Object/Boolean/分数时不得武装看门狗，也不得抛 TypeError。
+
+    JSON-RPC 2.0 规定 id MUST 为 String/Number/NULL；json.loads 会把 Array/Object
+    解析成 list/dict，直接做 dict 键会抛 TypeError: unhashable type，把单条
+    畸形消息升级成整个会话重连——正是本提交要消灭的 churn 同族。
+    契约：非法 id 一律视为「无法归属」，不武装、不崩溃（fail-open）。
+    """
+    from hutuji_mcp.cloud_bridge import WATCHDOG_STALL_SECONDS, _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+    # 不抛 TypeError 即通过第一步
+    activity.mark_inbound(f'{{"jsonrpc":"2.0","id":{bad_id},"method":"tools/call"}}')
+    clock["t"] += WATCHDOG_STALL_SECONDS * 100
+    # 非法 id 不武装：stall 恒 0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_session_activity_cancelled_matches_int_and_str_id() -> None:
+    """R7-WD-06：cancelled 的 requestId 与 pending id 类型不一致（str vs int）也必须结清。
+
+    MCP Python SDK `mcp/shared/session.py` 的 `_normalize_request_id` 会把 str id
+    归一化为 int（"0" vs 0），本仓 pending 用原值做键，故 cancel 侧须双形态匹配。
+    契约：无论 requestId 是 str 还是 int，都能结清对应的 pending。
+    """
+    import json
+
+    from hutuji_mcp.cloud_bridge import WATCHDOG_STALL_SECONDS, _SessionActivity
+
+    for pending_id, cancel_id in ((7, "7"), ("8", 8)):
+        clock = {"t": 1000.0}
+        activity = _SessionActivity(clock=lambda: clock["t"])
+        activity.mark_inbound(
+            json.dumps({"jsonrpc": "2.0", "id": pending_id, "method": "tools/call"})
+        )
+        clock["t"] += 5.0
+        assert activity.stall_seconds() == 5.0
+
+        activity.mark_inbound(
+            json.dumps({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {"requestId": cancel_id},
+            })
+        )
+        clock["t"] += WATCHDOG_STALL_SECONDS * 100
+        assert activity.stall_seconds() == 0.0, (
+            f"cancel requestId={cancel_id!r} 未能结清 pending id={pending_id!r}"
+        )

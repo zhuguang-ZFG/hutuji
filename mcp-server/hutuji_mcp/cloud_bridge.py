@@ -220,6 +220,12 @@ def _request_ids(message: str | bytes) -> list[object]:
     ——两者都不得计入在途，否则就是 R7-WD-01 的误判。
     notifications/cancelled 自身也是 notification，故同样不武装；它携带的
     params.requestId 由 _cancel_ids 单独处理（结清而非新建）。
+
+    id 类型收窄为 str/int（排除 bool）：JSON-RPC 2.0 规定 id MUST 为
+    String/Number/NULL（"MUST contain a String, Number, or NULL"），Array/Object
+    即非法；json.loads 会把它们解析成 list/dict，直接做 dict 键会抛
+    TypeError: unhashable type，把单条畸形消息升级成整个会话重连（R7-WD-03）。
+    bool 是 int 子类（True == 1 同键），显式排除避免 bool/int 歧义。
     """
     ids: list[object] = []
     for obj in _iter_jsonrpc_objects(message):
@@ -227,12 +233,20 @@ def _request_ids(message: str | bytes) -> list[object]:
         raw_id = obj.get("id")
         if not isinstance(method, str) or raw_id is None:
             continue
+        if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+            continue  # 非法 id（Array/Object/Boolean）：不武装、不崩溃
         ids.append(raw_id)
     return ids
 
 
 def _cancel_ids(message: str | bytes) -> list[object]:
-    """提取 notifications/cancelled 中被取消的 requestId 列表，用于提前结清 pending。"""
+    """提取 notifications/cancelled 中被取消的 requestId 列表，用于提前结清 pending。
+
+    requestId 与 pending id 类型不一致（str vs int）时必须双形态匹配（R7-WD-06）：
+    MCP Python SDK `mcp/shared/session.py` 的 `_normalize_request_id` 会把 str id
+    归一化为 int（"0" vs 0），本仓 pending 用原值做键，故 cancel 侧同时产出
+    str/int 两种形态，确保任一形态都能命中。
+    """
     ids: list[object] = []
     for obj in _iter_jsonrpc_objects(message):
         if obj.get("method") != "notifications/cancelled":
@@ -240,8 +254,16 @@ def _cancel_ids(message: str | bytes) -> list[object]:
         params = obj.get("params")
         if isinstance(params, dict):
             cancel_id = params.get("requestId")
-            if cancel_id is not None:
-                ids.append(cancel_id)
+            if cancel_id is None:
+                continue
+            if isinstance(cancel_id, bool) or not isinstance(cancel_id, (str, int)):
+                continue  # 非法 id 不结清
+            ids.append(cancel_id)
+            # 归一化：str/int 双形态都尝试匹配 pending 键
+            if isinstance(cancel_id, str) and cancel_id.isdigit():
+                ids.append(int(cancel_id))
+            elif isinstance(cancel_id, int):
+                ids.append(str(cancel_id))
     return ids
 
 
@@ -253,14 +275,20 @@ def _response_ids(message: str | bytes) -> list[object] | None:
     proxy 确实回了东西、只是我们读不懂，此时宁可解武装也不能凭解析缺口判死会话。
     返回空列表 = 「合法消息但不含 response」（如 proxy 主动发的 notification），
     pending 保持不变。
+
+    id 类型收窄与 _request_ids 同口径（R7-WD-03）：Array/Object/Boolean 一律跳过，
+    不结清、不崩溃。
     """
     objs = _iter_jsonrpc_objects(message)
     if not objs:
         return None
     ids: list[object] = []
     for obj in objs:
-        if obj.get("method") is None and obj.get("id") is not None:
-            ids.append(obj["id"])
+        raw_id = obj.get("id")
+        if obj.get("method") is None and raw_id is not None:
+            if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+                continue  # 非法 id 不结清
+            ids.append(raw_id)
     return ids
 
 
