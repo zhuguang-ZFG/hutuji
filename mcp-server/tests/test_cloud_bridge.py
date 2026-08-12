@@ -724,3 +724,119 @@ def test_message_label_still_rejects_non_json_and_bad_utf8() -> None:
     """补 RecursionError 不能顺手放宽既有两类：仍走 unknown 而非抛错。"""
     assert _message_label("not json at all") == "unknown"
     assert _message_label(b"\xff\xfe not utf8") == "unknown"
+
+
+def test_session_activity_only_counts_inflight_requests() -> None:
+    """R4：stall_seconds 必须只在「有已转发、未回应的请求」时计时。
+
+    纯 idle 会话（云端长时间不发消息）last_inbound<=last_outbound，返回 0——
+    这是不误杀合法空闲连接的关键，看门狗只据此判死。
+    """
+    from hutuji_mcp.cloud_bridge import _SessionActivity
+
+    clock = {"t": 1000.0}
+    activity = _SessionActivity(clock=lambda: clock["t"])
+
+    # 握手初值：无在途请求。
+    clock["t"] = 2000.0
+    assert activity.stall_seconds() == 0.0
+
+    # 一条请求转发出去、尚无回包：开始计时。
+    activity.mark_inbound()
+    clock["t"] = 2005.0
+    assert activity.stall_seconds() == pytest.approx(5.0)
+
+    # 收到任意回包即清零，哪怕时间继续走。
+    activity.mark_outbound()
+    clock["t"] = 9999.0
+    assert activity.stall_seconds() == 0.0
+
+
+def test_watchdog_raises_on_stalled_inflight_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """有在途请求且超过 WATCHDOG_STALL_SECONDS 无回包 → 抛错触发重连。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
+    # 先推进时钟再标入站，令 last_inbound 严格晚于握手初值 last_outbound——
+    # 否则二者相等，stall_seconds 恒为 0，看门狗永不触发（会把用例挂死）。
+    clock["t"] = 1001.0
+    activity.mark_inbound()  # 一条未回应的请求
+    process = SimpleNamespace(returncode=None)
+
+    async def fake_sleep(_seconds: float) -> None:
+        clock["t"] += cloud_bridge.WATCHDOG_STALL_SECONDS
+
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="假死"):
+            # 不套 wait_for：fake_sleep 不让出事件循环，超时定时器无从触发；
+            # 逻辑正确时看门狗首轮即抛错。若回归成不终止，靠 pytest 全局超时兜底。
+            await cloud_bridge._watchdog(process, activity)
+
+    asyncio.run(run())
+
+
+def test_watchdog_never_trips_idle_session_and_exits_on_proxy_death(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """纯 idle（零入站）即便时钟狂跳也永不判死；proxy 退出后看门狗干净退场。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])  # 从不 mark_inbound
+    process = SimpleNamespace(returncode=None)
+    calls = {"n": 0}
+
+    async def fake_sleep(_seconds: float) -> None:
+        clock["t"] += cloud_bridge.WATCHDOG_STALL_SECONDS * 10
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            process.returncode = 0  # 模拟 proxy 退出，让看门狗按 returncode 分支返回
+
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+
+    async def run() -> None:
+        # 不得抛：idle 会话不判死；proxy 退出后必须返回而非空转。
+        await asyncio.wait_for(cloud_bridge._watchdog(process, activity), timeout=2)
+
+    asyncio.run(run())
+    assert calls["n"] == 3
+
+
+def test_bridge_once_watchdog_failure_reaps_proxy_and_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """看门狗必须真被 bridge_once 编入 task 集：其 RuntimeError 要作为 first_error
+    重抛（→ run_forever 重连），且刚 spawn 的 mcp-proxy 必须被回收。"""
+    import asyncio
+
+    cloud_bridge, processes = _capture_proxy_process(
+        monkeypatch, "import time; time.sleep(60)"
+    )
+
+    async def boom(process, activity):  # noqa: ANN001
+        del process, activity
+        raise RuntimeError("mcp-proxy 假死 probe")
+
+    monkeypatch.setattr(cloud_bridge, "_watchdog", boom)
+
+    async def exercise() -> None:
+        with pytest.raises(RuntimeError, match="假死 probe"):
+            await cloud_bridge.bridge_once(cloud_bridge.BridgeConfig(
+                endpoint="wss://example.invalid/mcp?token=secret",
+                local_mcp_url="http://127.0.0.1:8300/mcp",
+            ))
+
+    _run_with_reaped_children(exercise, processes)
+    assert processes, "未捕获到 spawn 的子进程"
+    assert processes[0].returncode is not None

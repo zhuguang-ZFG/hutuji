@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -31,6 +32,17 @@ MAX_BACKOFF_SECONDS = 60
 # 厂商接入点（该端点不属于我们，被限流/封禁的代价由整机承担）。实测：不看时长时
 # 6 轮重连间隔恒为 1s（累计 6s），看时长后回到 1/2/4/8/16/32（累计 63s）。
 HEALTHY_SESSION_SECONDS = 60
+
+# R4 假死看门狗：mcp-proxy 子进程死锁（例如本机 /mcp 卡住、proxy 内部阻塞）时，
+# 进程仍存活（returncode 为 None）、WSS 也健康（websockets 的 ping/pong 独立维持），
+# 于是 _proxy_to_cloud 的 readline 与 _cloud_to_proxy 的 async-for 都不返回，
+# asyncio.wait(FIRST_COMPLETED) 永不完成——桥接「在线却全哑」且不会重连（fail-open）。
+# 判据刻意只看「在途请求」而非「一段时间无输出」：纯 idle 会话（云端长时间不发消息）
+# 本就无输出，用输出静默判死会误杀合法空闲连接。改为「有一条已转发给 proxy 的入站
+# 请求，超过 WATCHDOG_STALL_SECONDS 仍无任何回包」才判死——idle 时 last_inbound
+# 不晚于 last_outbound，永不触发。命中即抛错，走 bridge_once 既有的清理 + 重连路径。
+WATCHDOG_POLL_SECONDS = 20
+WATCHDOG_STALL_SECONDS = 120
 
 # mcp-proxy stderr / 第三方库日志可能回显 URL 或凭据；禁止把 token / Bearer /
 # api_key / access_token / sk- 裸密钥 / wss 原文写入日志。各形态共用同一个
@@ -289,7 +301,35 @@ def _set_bridge_ready(ready: bool) -> None:
         path.unlink()
 
 
-async def _cloud_to_proxy(websocket, process: asyncio.subprocess.Process) -> None:
+class _SessionActivity:
+    """一次会话内 cloud→proxy 与 proxy→cloud 的最近时刻，供 _watchdog 判死。
+
+    刻意不带锁：两个 mark_* 都在同一事件循环的同步区里调用，无 await 点，天然原子。
+    初值取会话建立时刻，避免握手瞬间被误判为「有在途请求且久无回包」。
+    """
+
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        now = clock()
+        self.last_inbound = now
+        self.last_outbound = now
+
+    def mark_inbound(self) -> None:
+        self.last_inbound = self._clock()
+
+    def mark_outbound(self) -> None:
+        self.last_outbound = self._clock()
+
+    def stall_seconds(self) -> float:
+        """有未回应的入站请求时返回它已等待的秒数；无在途请求时返回 0。"""
+        if self.last_inbound <= self.last_outbound:
+            return 0.0
+        return self._clock() - self.last_inbound
+
+
+async def _cloud_to_proxy(
+    websocket, process: asyncio.subprocess.Process, activity: _SessionActivity
+) -> None:
     assert process.stdin is not None
     async for message in websocket:
         logger.info("云端 MCP 请求: %s", _message_label(message))
@@ -297,11 +337,18 @@ async def _cloud_to_proxy(websocket, process: asyncio.subprocess.Process) -> Non
             message = message.decode("utf-8")
         process.stdin.write(message.encode("utf-8") + b"\n")
         await process.stdin.drain()
+        # drain 之后才记：这一刻起 proxy 已收到请求，看门狗开始为它计等待时长。
+        activity.mark_inbound()
 
 
-async def _proxy_to_cloud(process: asyncio.subprocess.Process, websocket) -> None:
+async def _proxy_to_cloud(
+    process: asyncio.subprocess.Process, websocket, activity: _SessionActivity
+) -> None:
     assert process.stdout is not None
     while line := await process.stdout.readline():
+        # 任何回包都算 proxy 仍在响应：清掉在途计时。放在 send 前，避免 send
+        # 慢时把健康的回包误算成停滞。
+        activity.mark_outbound()
         message = line.decode("utf-8").rstrip("\r\n")
         logger.info("本机 MCP 响应: %s", _message_label(message))
         await websocket.send(message)
@@ -312,6 +359,21 @@ async def _proxy_stderr(process: asyncio.subprocess.Process) -> None:
     assert process.stderr is not None
     while line := await process.stderr.readline():
         logger.info("mcp-proxy: %s", _safe_stderr_line(line))
+
+
+async def _watchdog(
+    process: asyncio.subprocess.Process, activity: _SessionActivity
+) -> None:
+    """周期性检查 mcp-proxy 是否对在途请求假死；命中抛错触发 bridge_once 重连。"""
+    while True:
+        await asyncio.sleep(WATCHDOG_POLL_SECONDS)
+        if process.returncode is not None:
+            # 进程已退出，交给 _proxy_to_cloud 的 readline 收尾即可，看门狗退场。
+            return
+        if activity.stall_seconds() >= WATCHDOG_STALL_SECONDS:
+            raise RuntimeError(
+                f"mcp-proxy 对在途请求无响应超过 {WATCHDOG_STALL_SECONDS}s（子进程假死）"
+            )
 
 
 async def bridge_once(config: BridgeConfig) -> None:
@@ -338,10 +400,12 @@ async def bridge_once(config: BridgeConfig) -> None:
         tasks: set[asyncio.Task] = set()
         try:
             _set_bridge_ready(True)
+            activity = _SessionActivity()
             tasks = {
-                asyncio.create_task(_cloud_to_proxy(websocket, process)),
-                asyncio.create_task(_proxy_to_cloud(process, websocket)),
+                asyncio.create_task(_cloud_to_proxy(websocket, process, activity)),
+                asyncio.create_task(_proxy_to_cloud(process, websocket, activity)),
                 asyncio.create_task(_proxy_stderr(process)),
+                asyncio.create_task(_watchdog(process, activity)),
             }
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             first_error: BaseException | None = None
