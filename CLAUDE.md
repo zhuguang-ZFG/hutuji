@@ -147,7 +147,7 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 源码 HEAD `68a1eef` 已提交/推送（R9 换纸行分支加固 + R10 暂停冻结计时/授权探测有界重试）；2026-08-13 已用 ESP-IDF v6.0.1 重建标准 release 并 app-flash COM12，板上 ELF SHA `2c17f4e27...` 与发布构建一致，串口自证七工具注册、Telnet 哑管道启动、WiFi STA（写字机当天离线，授权探针/fresh-`Idle` 未复测）。2026-08-03 P2 S4 使用较早的 `ae4b524` 完成 551 行玫瑰图全量下发、自动换纸八步全绿与 `state=done`；这份历史证据不替代当前 HEAD 的下载/CRC/窗口应答配对回归。**缺**：真实设备 token、当前 HEAD 纸面回归、画质人工目视、自适应 `Bf` 反压。
+2. **② 哑管道** — 🟡 源码 HEAD `68a1eef` 已提交/推送（R9 换纸行分支加固 + R10 暂停冻结计时/授权探测有界重试）；2026-08-13 已用 ESP-IDF v6.0.1 重建标准 release 并 app-flash COM12，板上 ELF SHA `2c17f4e27...` 与发布构建一致，串口自证七工具注册、Telnet 哑管道启动、WiFi STA；写字机上电后连接/banner/授权探针全链路实测通过（含 Telnet 槽位忙退避接管），fresh-`Idle` 探活正常。2026-08-03 P2 S4 使用较早的 `ae4b524` 完成 551 行玫瑰图全量下发、自动换纸八步全绿与 `state=done`；这份历史证据不替代当前 HEAD 的下载/CRC/窗口应答配对回归。**缺**：真实设备 token、当前 HEAD 纸面回归、画质人工目视、自适应 `Bf` 反压。
 3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
 4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
 
