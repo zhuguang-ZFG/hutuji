@@ -4,7 +4,12 @@ import asyncio
 import contextlib
 import json
 import os
+import re
+import socket
 import sys
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -108,7 +113,12 @@ def test_line_payload_254_is_accepted() -> None:
     assert observations["expected"] == "accepted"
 
 
-def test_local_stream_e2e_runs_real_pipe_and_grbl_sim() -> None:
+def test_local_stream_e2e_runs_real_pipe_and_grbl_sim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 固定 2323 会被上次崩溃遗留的孤儿 grbl_sim 占用（R11-TQ-03），注入随机
+    # 空闲端口让本用例对 2323 残留免疫；e2e_local 的 _sim_port 读此环境变量。
+    monkeypatch.setenv("GRBL_SIM_PORT", str(_free_port()))
     result = run_scenario("local_stream_e2e")
     assert result["ok"] is True
     observations = {item["name"]: item["value"] for item in result["observations"]}
@@ -129,12 +139,45 @@ def test_local_stream_e2e_timeout_is_structured_failure(monkeypatch: pytest.Monk
     assert observations["error"] == "本地闭环超时"
 
 
-def test_e2e_child_job_handle_is_released_on_normal_path() -> None:
+def test_e2e_timeout_matches_gate_run_e2e_timeout() -> None:
+    """R11-SIM-02：sim_server 本地闭环超时与门禁 run_e2e 层是同一时限。
+
+    同一 e2e_local.py 有 sim_server 与门禁两个入口；时限分岔会让同一闭环
+    两入口结论不同（合法慢场景在一侧判超时、另一侧放行）。门禁是带 argparse
+    副作用的脚本，禁 import，按同仓先例读源码文本钉死（test_contract.py 的
+    preflight 形状钉法同构）。"""
+    gate_src = (
+        Path(__file__).resolve().parents[2] / "scripts" / "agent_gate.py"
+    ).read_text(encoding="utf-8")
+    # run_e2e 现以 child.communicate(timeout=…) 表达时限（R11-E2E-02 把
+    # subprocess.run 重构为 Popen + 整树杀）；钉住 run_e2e 定义后的第一处。
+    call = re.search(r"def run_e2e\(\)", gate_src)
+    assert call, "agent_gate.py 找不到 run_e2e 定义"
+    timeout_m = re.search(r"communicate\(timeout=(\d+)\)", gate_src[call.end():])
+    assert timeout_m, "run_e2e 缺 communicate(timeout=…) 调用"
+    # 双重钉死：与门禁相等（防两入口分岔），绝对值 300（防两处同步漂移）。
+    assert sim_server.LOCAL_E2E_TIMEOUT_SECONDS == int(timeout_m.group(1)) == 300
+
+
+def _free_port() -> int:
+    """找空闲端口注入 GRBL_SIM_PORT，避免固定 2323 被孤儿残留占用时非确定误红。
+
+    同 test_contract.py 的 test_e2e_rejects_occupied_simulator_port 用 setenv 注入的
+    先例；端口在 bind 后短暂释放，竞争窗口与「自选随机端口」同级。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def test_e2e_child_job_handle_is_released_on_normal_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """正常跑完也必须关 job 句柄。
 
     修前只有取消路径关句柄，实测每次运行泄漏 1 个内核句柄（3 次运行 delta=3）；
     更要紧的是 KILL_ON_JOB_CLOSE 要等句柄全关才终止残留进程，靠 GC 回收时机不可知。
     """
+    monkeypatch.setenv("GRBL_SIM_PORT", str(_free_port()))
     captured: list[object] = []
     real_popen = sim_server.subprocess.Popen
 
@@ -186,6 +229,7 @@ def test_local_stream_e2e_timeout_kills_whole_tree(
     monkeypatch.setattr(sim_server, "_terminate_whole_tree", spy_terminate)
     monkeypatch.setattr(sim_server.subprocess.Popen, "kill", spy_kill)
     monkeypatch.setattr(sim_server.subprocess.Popen, "communicate", timeout)
+    monkeypatch.setenv("GRBL_SIM_PORT", str(_free_port()))
 
     result = run_scenario("local_stream_e2e")
     observations = {item["name"]: item["value"] for item in result["observations"]}
@@ -263,6 +307,78 @@ def test_validate_gcode_tool_returns_specific_failure_as_evidence() -> None:
     assert result["ok"] is False
     assert result["status"] == "fail"
     assert "G91" in result["observations"][0]["value"]
+
+
+def test_validate_gcode_call_keeps_event_loop_responsive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R11-SIM-01：validate_gcode 工具的 CPU 绑定校验不得阻塞事件循环。
+
+    512KiB 载荷的解析在事件循环内同步跑会占死全部并发 handler（对照 run_scenario
+    走 to_thread）。用「阻塞若干毫秒」的假校验器 + 同循环空转协程测「校验期间事件
+    循环是否仍推进」：同步实现下空转零推进（RED），to_thread 实现下主循环照常
+    推进（GREEN）。校验器在另一线程阻塞，主线程据此采样，避免测试自身也卡死。
+    """
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    entered = threading.Event()
+    release = threading.Event()
+    real = sim_server.validate_gcode_tool
+
+    def blocking_validator(text: str) -> dict[str, object]:
+        entered.set()
+        assert release.wait(10.0), "阻塞校验器未被放行"
+        return real(text)
+
+    monkeypatch.setattr(sim_server, "validate_gcode_tool", blocking_validator)
+
+    ticks = {"n": 0}
+    outcome: dict[str, object] = {}
+
+    async def ticker() -> None:
+        while True:
+            ticks["n"] += 1
+            await asyncio.sleep(0)
+
+    async def exercise() -> None:
+        async with create_connected_server_and_client_session(create_server()) as session:
+            tick = asyncio.create_task(ticker())
+            try:
+                call = asyncio.create_task(
+                    session.call_tool(
+                        "validate_gcode",
+                        {"text": sim_server._minimal_gcode("G1 X10 Y10 F8000\n")},
+                    ),
+                )
+                await asyncio.to_thread(entered.wait, 10.0)
+                # 让事件循环空转一段时间：同步实现下这段时间主循环被校验器占死，
+                # 空转协程零推进；to_thread 实现下主循环持续推进。
+                await asyncio.sleep(0.2)
+                outcome["result"] = await asyncio.wait_for(call, timeout=10.0)
+                outcome["done"] = True
+            finally:
+                release.set()
+                tick.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await tick
+
+    thread = threading.Thread(target=lambda: asyncio.run(exercise()), daemon=True)
+    thread.start()
+    try:
+        assert entered.wait(10.0), "假校验器未进入阻塞点"
+        ticks_before = ticks["n"]
+        time.sleep(0.2)
+        ticks_after = ticks["n"]
+    finally:
+        release.set()
+        thread.join(timeout=15.0)
+    assert not thread.is_alive(), "exercise 未在时限内结束"
+    assert outcome.get("done"), "validate_gcode 调用未返回"
+    result = outcome["result"]
+    assert result.structuredContent["ok"] is True  # type: ignore[union-attr]
+    assert ticks_after > ticks_before, (
+        "校验期间事件循环未推进——validate_gcode 同步阻塞了事件循环"
+    )
 
 
 def test_mcp_schema_and_unknown_tools_are_rejected() -> None:
@@ -409,8 +525,14 @@ async def _drive_sim(
     paper_delay_s: float = 0.3,
     idle_timeout_s: float = 5.0,
     no_paper: bool = False,
+    read_timeout_s: float = 5.0,
+    resume: Callable[[list[str]], bytes | None] | None = None,
 ) -> list[str]:
-    """起内存版 handle_client，连真实 stream 对，发 payload、读到 EOF/超时。"""
+    """起内存版 handle_client，连真实 stream 对，发 payload、读到 EOF/超时。
+
+    resume：显式同步点钩子——读循环每轮先调用 resume(已收响应)，返回非空
+    bytes 就写入再继续读。用于「先等 M30 窗口结束应答、再发下一行」这类
+    不依赖真实睡眠时序的确定性编排（见换纸窗口两个用例）。"""
     from hutuji_mcp import grbl_sim
 
     async def on_connect(reader, writer):
@@ -434,7 +556,12 @@ async def _drive_sim(
         responses: list[str] = []
         try:
             while True:
-                line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+                if resume is not None:
+                    extra = resume(responses)
+                    if extra:
+                        writer.write(extra)
+                        await writer.drain()
+                line = await asyncio.wait_for(reader.readline(), timeout=read_timeout_s)
                 if not line:
                     break
                 responses.append(line.decode(errors="replace").strip())
@@ -463,17 +590,67 @@ def test_grbl_sim_m30_normal_replies_paper_status_then_ok() -> None:
 def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
     """R9-SIM-02：换纸窗口内已到达的运动行回 error:8（§7：该行被丢弃，须重发）。
 
-    两行同包发送：M30 处理期间 G1 已缓冲在服务端——恰是「窗口内到达」的建模。"""
+    两行同包发送：M30 处理期间 G1 已缓冲在服务端——「窗口内到达」按构造成立，
+    不依赖调度时序；窗口放宽到 2s、客户端读超时放宽到 10s，只为给慢机留足
+    读应答余量（R11-TQ-02），判据不变：窗口内运动行必须回 error:8。"""
     responses = asyncio.run(
-        _drive_sim([b"M30\nG1 X10 Y10 F8000\n"], paper_delay_s=0.3)
+        _drive_sim(
+            [b"M30\nG1 X10 Y10 F8000\n"],
+            paper_delay_s=2.0,
+            idle_timeout_s=1.0,
+            read_timeout_s=10.0,
+        )
     )
     assert "error:8" in responses, responses
 
 
 def test_grbl_sim_motion_after_paper_window_is_accepted() -> None:
-    """窗口结束后到达的运动行正常 ok（对 error:8 建模的对照）。"""
-    responses = asyncio.run(_drive_sim([b"M30\n"], paper_delay_s=0.05))
+    """窗口结束后到达的运动行正常 ok（对 error:8 建模的对照）。
+
+    R11-TQ-02：旧版只发 M30、从不发运动行，「error:8 not in responses」恒真、
+    无判别力。改为显式同步点：先等 M30 的 PaperStatus+ok（窗口已结束）再发 G1，
+    不依赖真实睡眠时序——慢机也不会把窗口后到达误判为窗口内。"""
+    sent = {"g1": False}
+
+    def resume(responses: list[str]) -> bytes | None:
+        if not sent["g1"] and "[MSG:[PaperStatus] 0]" in responses and "ok" in responses:
+            sent["g1"] = True
+            return b"G1 X10 Y10 F8000\n"
+        return None
+
+    responses = asyncio.run(
+        _drive_sim([b"M30\n"], paper_delay_s=0.3, idle_timeout_s=1.0, resume=resume)
+    )
+    assert sent["g1"], "未等到 M30 窗口结束应答，G1 未发出"
     assert "error:8" not in responses, responses
+    # M30 自己的 ok + G1 的 ok 各一条：证明 G1 确实被放行而非「压根没发」。
+    assert responses.count("ok") == 2, responses
+
+
+def test_grbl_sim_survives_m30_probe_cancel() -> None:
+    """R11-SIM-03：M30 窗口无缓冲行时 probe 取消不得弄死 handler。
+
+    CPython 的 Task.cancel 只排程取消、不立即清 reader._waiter；旧实现
+    probe.cancel() 后直接下一轮 readline 会抛 RuntimeError 使整个 handler
+    崩溃——M30 之后任何合法客户端续发都会撞 EOF。这里先等 M30 的
+    PaperStatus+ok（窗口空、必走 probe-cancel 路径）再用 `$I` 探活：
+    证明 handler 存活且能继续正确处理下一行。对 revert（去掉 await probe）
+    必须判红。"""
+    sent = {"probe": False}
+
+    def resume(responses: list[str]) -> bytes | None:
+        if not sent["probe"] and "[MSG:[PaperStatus] 0]" in responses and "ok" in responses:
+            sent["probe"] = True
+            return b"$I\n"
+        return None
+
+    responses = asyncio.run(
+        _drive_sim([b"M30\n"], paper_delay_s=0.3, idle_timeout_s=1.0, resume=resume)
+    )
+    assert sent["probe"], "未等到 M30 完成应答，$I 未发出"
+    assert "[VER:1.3a-hutuji-sim" in " ".join(responses), responses
+    # M30 的 ok + $I 的 ok 各一条：证明 $I 被正常应答而非「连接已断」。
+    assert responses.count("ok") == 2, responses
 
 
 def test_grbl_sim_idle_timeout_closes_stale_connection() -> None:

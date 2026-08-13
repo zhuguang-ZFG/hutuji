@@ -1,5 +1,5 @@
 {
-  "git_head": "50792b783426ea95ea36e945c4050c9c2f37a5d2",
+  "git_head": "4c3db95344631de00d4750a9deb255b02df9d055",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -109,7 +109,7 @@
       "sha8": "1bdf9e2e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1538-1539": {
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1549-1550": {
       "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -137,7 +137,7 @@
       "sha8": "f73e8f61",
       "target": "D:/Users/Grbl_Esp32/doc/script/stream.py"
     },
-    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1538-1539": {
+    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1549-1550": {
       "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -233,15 +233,15 @@
       "sha8": "10a98d7e",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1672-1683": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1683-1694": {
       "sha8": "b1eeb997",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1709-1710": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1720-1721": {
       "sha8": "fc6722e2",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1868-1873": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1897-1902": {
       "sha8": "1a71eb00",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -477,12 +477,12 @@
       "sha8": "3b66d88e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
-    "docs/release-readiness.md -> hutuji_job.cc:1446-1479": {
+    "docs/release-readiness.md -> hutuji_job.cc:1457-1490": {
       "sha8": "122136ae",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/release-readiness.md -> hutuji_job.cc:1729-1733": {
-      "sha8": "f8ba1ee9",
+      "sha8": "27f5fc73",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/release-readiness.md -> hutuji_pipe.h:48-50": {
@@ -605,15 +605,15 @@
       "sha8": "8bcdb34f",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:1672-1683": {
+    "docs/troubleshooting.md -> hutuji_job.cc:1683-1694": {
       "sha8": "b1eeb997",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:1709-1710": {
+    "docs/troubleshooting.md -> hutuji_job.cc:1720-1721": {
       "sha8": "fc6722e2",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:1868-1873": {
+    "docs/troubleshooting.md -> hutuji_job.cc:1897-1902": {
       "sha8": "1a71eb00",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -674,11 +674,11 @@
       "target": "docs/troubleshooting.md"
     },
     "docs/worktree-inventory.md -> hutuji_job.cc:1538": {
-      "sha8": "2caa6b49",
+      "sha8": "d191e911",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/worktree-inventory.md -> hutuji_job.cc:1709": {
-      "sha8": "7867dde0",
+      "sha8": "723681cd",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/worktree-inventory.md -> hutuji_job.cc:57": {
@@ -702,6 +702,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-12T21:14:05Z",
+  "updated": "2026-08-13T16:02:55Z",
   "version": 1
 }

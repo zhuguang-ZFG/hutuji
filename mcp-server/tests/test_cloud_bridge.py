@@ -1279,15 +1279,28 @@ def test_session_terminated_detector_is_precise(message: str, expected: bool) ->
 
 
 def test_watchdog_stall_covers_mcp_client_sse_read_timeout() -> None:
-    """看门狗判死阈值钉 300s = MCP SDK client 的 sse_read_timeout 默认值（SRV-P3a）。
+    """看门狗判死阈值钉死 = MCP SDK client 的 sse_read_timeout 默认值（SRV-P3a）。
 
-    mcp-proxy 内部（`mcp/client/streamable_http.py`）对慢响应自己会等到 300s；
-    桥接看门狗若早于它（旧值 120s）开火，长描摹/慢生图的合法 hutuji_draw 会被
-    桥接先掀掉会话——kill 的是自己人。判死留给「连 SDK 都放弃」之后。
+    mcp-proxy 内部（`mcp/client/streamable_http.py` 的 streamablehttp_client）对慢
+    响应自己会等到 sse_read_timeout；桥接看门狗若早于它（旧值 120s）开火，长描摹/
+    慢生图的合法 hutuji_draw 会被桥接先掀掉会话——kill 的是自己人。判死留给
+    「连 SDK 都放弃」之后。故本仓常量必须 ≥ SDK 默认值，且必须与 SDK 侧交叉
+    验证：SDK 升版把默认值调大而看门狗没跟上时，旧测试照绿、「看门狗不杀自己人」
+    的论证静默失效。这里直接取 SDK 签名默认值断言相等，SDK 漂移即红。
     """
-    from hutuji_mcp import cloud_bridge
+    import inspect
+    from datetime import timedelta
 
-    assert cloud_bridge.WATCHDOG_STALL_SECONDS == 300
+    from hutuji_mcp import cloud_bridge
+    from mcp.client import streamable_http
+
+    sdk_default = inspect.signature(
+        streamable_http.streamablehttp_client,
+    ).parameters["sse_read_timeout"].default
+    if isinstance(sdk_default, timedelta):
+        sdk_default = sdk_default.total_seconds()
+    # 双重钉死：与 SDK 默认值相等（防 SDK 漂移），绝对值为 300（防两处同步漂移）。
+    assert cloud_bridge.WATCHDOG_STALL_SECONDS == sdk_default == 300
 
 
 def test_safe_stderr_line_redacts_mcp_session_id() -> None:

@@ -5543,7 +5543,12 @@ def test_gate_runners_turn_launch_failure_into_layer_fail(
     def _boom(*_args, **_kwargs):
         raise OSError(8, "Exec format error")
 
-    monkeypatch.setattr(gate.subprocess, "run", _boom)
+    if runner == "run_e2e":
+        # run_e2e 已从 subprocess.run 改为 Popen+communicate（R11-E2E-02 整树杀），
+        # 启动失败点移到 Popen() 构造期，mock 目标随之切换；run_pytest 仍是 run。
+        monkeypatch.setattr(gate.subprocess, "Popen", _boom)
+    else:
+        monkeypatch.setattr(gate.subprocess, "run", _boom)
     # _mcp_python() 必须有返回值，否则先撞「缺少 venv」分支而测不到本条
     monkeypatch.setattr(gate, "_mcp_python", lambda: Path(sp.__file__))
 

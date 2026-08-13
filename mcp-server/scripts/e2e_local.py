@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import typing
 from pathlib import Path
 
 # 允许从仓库根或 mcp-server/ 直接运行：python scripts/e2e_local.py
@@ -64,13 +65,20 @@ def _probe_banner(host: str, port: int, timeout_s: float = 1.0) -> bool:
 
 
 def _wait_ready(sim: subprocess.Popen[str], host: str, port: int,
-                timeout_s: float = 10.0) -> None:
+                timeout_s: float = 10.0,
+                stderr_log: typing.TextIO | None = None) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if sim.poll() is not None:
-            _, stderr = sim.communicate()
+            if stderr_log is not None:
+                # stderr 已重定向到临时文件（见 main）：文件偏移与子进程共享，
+                # 子进程写完后 seek 回 0 读全量，早退诊断靠这条路径。
+                stderr_log.seek(0)
+                diagnostic = stderr_log.read()
+            else:
+                _, diagnostic = sim.communicate()
             raise RuntimeError(
-                f"grbl_sim 子进程提前退出 rc={sim.returncode}; stderr: {stderr.strip() or '(空)'}"
+                f"grbl_sim 子进程提前退出 rc={sim.returncode}; stderr: {diagnostic.strip() or '(空)'}"
             )
         if _probe_banner(host, port):
             time.sleep(0.05)
@@ -105,45 +113,53 @@ def main() -> int:
     child_env = os.environ.copy()
     child_env["PYTHONUTF8"] = "1"
     child_env["GRBL_SIM_PORT"] = str(port)
-    sim = subprocess.Popen(
-        [sys.executable, "-m", "hutuji_mcp.grbl_sim"],
-        cwd=ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=child_env,
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-    )
-    try:
-        _wait_ready(sim, HOST, port)
-        print(f"[1/4] grbl_sim 已启动 (127.0.0.1:{port})")
+    # grbl_sim 对每条 G-code 行 logger.info（grbl_sim.py:185）；stderr=PIPE 而成功路径
+    # 无人排空的话，夹具增至数百行即写满 Windows 4KB 匿名管道 → grbl_sim 阻塞不应答 →
+    # 真 PASS 误 FAIL（R11-E2E-01）。改重定向到临时文件：文件无背压，写多少都行；
+    # 早退诊断从该文件读（_wait_ready 是唯一需要 stderr 文本的场景）。
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as sim_log:
+        sim = subprocess.Popen(
+            [sys.executable, "-m", "hutuji_mcp.grbl_sim"],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=sim_log,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=child_env,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        try:
+            _wait_ready(sim, HOST, port, stderr_log=sim_log)
+            print(f"[1/4] grbl_sim 已启动 (127.0.0.1:{port})")
 
-        with tempfile.TemporaryDirectory() as tmp:
-            gcode_path = Path(tmp) / "star.gcode"
-            stats = svg_to_gcode(TEST_SVG, gcode_path)
-            print(f"[2/4] vpype 转换 + §5 校验通过：{stats.lines} 行 / {stats.bytes} 字节")
+            with tempfile.TemporaryDirectory() as tmp:
+                gcode_path = Path(tmp) / "star.gcode"
+                stats = svg_to_gcode(TEST_SVG, gcode_path)
+                print(f"[2/4] vpype 转换 + §5 校验通过：{stats.lines} 行 / {stats.bytes} 字节")
 
-            result = stream_gcode(gcode_path, HOST, port)
-            print(f"[3/4] pipe_sim 流式发送：{result.ok_lines}/{result.total_lines} 行 ok，"
-                  f"耗时 {result.elapsed_s:.2f}s")
+                result = stream_gcode(gcode_path, HOST, port)
+                print(f"[3/4] pipe_sim 流式发送：{result.ok_lines}/{result.total_lines} 行 ok，"
+                      f"耗时 {result.elapsed_s:.2f}s")
 
-        ok = result.success and result.total_lines > 0
-        if not ok:
-            print(f"     失败：第 {result.failed_line} 行 ← {result.error_response}")
-        print(f"[4/4] 断言：{'全部 ok' if ok else '存在失败行'}")
-        print("PASS" if ok else "FAIL")
-        return 0 if ok else 1
-    except (RuntimeError, TimeoutError, ConnectionError, socket.timeout, GcodeError) as exc:
-        # GcodeError<:RuntimeError、socket.timeout≡TimeoutError(3.10+)，显式列出防层级
-        # 漂移；ConnectionError 是真实缺口（pipe_sim 在对端关闭/EOF 时抛，见 pipe_sim.py）。
-        print(f"FAIL: {exc}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        return 130
-    finally:
-        _stop(sim)
+            ok = result.success and result.total_lines > 0
+            if not ok:
+                print(f"     失败：第 {result.failed_line} 行 ← {result.error_response}")
+            print(f"[4/4] 断言：{'全部 ok' if ok else '存在失败行'}")
+            print("PASS" if ok else "FAIL")
+            return 0 if ok else 1
+        except (RuntimeError, TimeoutError, ConnectionError, socket.timeout,
+                OSError, GcodeError) as exc:
+            # GcodeError<:RuntimeError、socket.timeout≡TimeoutError(3.10+)，显式列出防层级
+            # 漂移；ConnectionError 是真实缺口（pipe_sim 在对端关闭/EOF 时抛，见 pipe_sim.py）。
+            # 裸 OSError 必须单独列出：WinError 10038（WSAENOTSOCK）等不是 ConnectionError
+            # 子类，漏掉会打原始 traceback 而非统一 FAIL: 文案（R11-E2E-03）。
+            print(f"FAIL: {exc}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            return 130
+        finally:
+            _stop(sim)
 
 
 if __name__ == "__main__":

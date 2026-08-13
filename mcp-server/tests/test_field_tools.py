@@ -13,8 +13,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import queue
+import signal
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -28,6 +32,19 @@ def _load_script(name: str):
     """按路径加载 scripts/ 下的脚本模块（仓库无 pyproject，不可 import）。"""
     path = _REPO_ROOT / "scripts" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(f"_hutuji_script_{name}", path)
+    assert spec is not None and spec.loader is not None, f"无法加载 {path}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_mcp_script(name: str):
+    """按路径加载 mcp-server/scripts/ 下的脚本（e2e_local / cloud_bridge_smoke）。
+
+    它们不属于 hutuji_mcp 包也不在仓库根 scripts/，_load_script 够不到，
+    单独按路径加载。"""
+    path = _REPO_ROOT / "mcp-server" / "scripts" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_hutuji_mcp_script_{name}", path)
     assert spec is not None and spec.loader is not None, f"无法加载 {path}"
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -466,3 +483,327 @@ def test_wifi_setup_serial_write_is_bounded(monkeypatch):
         "Serial 必须带 write_timeout：无上限的阻塞写会把配网脚本挂死"
     )
     assert fake.opened[0].closed, "退出路径必须关串口"
+
+# ============================================================================
+# R11-E2E-01/02/03 + R11-BR-01/02：闭环工具链契约测试。
+# e2e_local / cloud_bridge_smoke 在 mcp-server/scripts/ 下，走 _load_mcp_script。
+# ============================================================================
+
+e2e = _load_mcp_script("e2e_local")
+smoke = _load_mcp_script("cloud_bridge_smoke")
+
+
+class _NS:
+    """极简属性容器：给 e2e_local 的 svg_to_gcode / stream_gcode 打桩返回值。"""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class _FakeSimPopen:
+    """e2e_local / bridge 注入用的假子进程：默认保持运行态，_stop 时可被终止。"""
+
+    def __init__(self, running: bool = True):
+        self._running = running
+        self.returncode: int | None = None if running else 1
+
+    def poll(self) -> int | None:
+        return None if self._running else self.returncode
+
+    def terminate(self) -> None:
+        self._running = False
+        self.returncode = 1
+
+    def kill(self) -> None:
+        self._running = False
+        self.returncode = 1
+
+    def wait(self, timeout: float | None = None) -> int:
+        self._running = False
+        return self.returncode
+
+    def communicate(self) -> tuple[str, str]:
+        return ("", "")
+
+
+class _FakeE2EChild:
+    """run_e2e 注入用的假 e2e_local 子进程：首次 communicate 抛 TimeoutExpired。"""
+
+    def __init__(self, raise_on_first: bool = True) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self.returncode = 1
+        self.killed = False
+        self._raise_on_first = raise_on_first
+
+    def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+        self.calls.append(("communicate", timeout))
+        if self._raise_on_first:
+            self._raise_on_first = False
+            raise subprocess.TimeoutExpired(cmd="e2e_local.py", timeout=timeout or 0)
+        return ("", "")
+
+    def kill(self) -> None:
+        self.killed = True
+        self.calls.append(("kill", None))
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.calls.append(("wait", timeout))
+        return 1
+
+
+class _OkE2EChild(_FakeE2EChild):
+    """run_e2e 注入用的正常子进程：stdout 带 PASS，exit 0。"""
+
+    def __init__(self) -> None:
+        super().__init__(raise_on_first=False)
+        self.returncode = 0
+
+    def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+        self.calls.append(("communicate", timeout))
+        return ("PASS\n", "")
+
+
+# ---- R11-E2E-02：门禁 run_e2e 超时整树杀（job object / killpg） ----
+
+def test_run_e2e_timeout_terminates_whole_tree(monkeypatch):
+    """R11-E2E-02：门禁 run_e2e 超时必须整树终止，不能只杀直接子进程。
+
+    旧的 subprocess.run(timeout=300) 超时只杀 e2e_local 本身，其 spawn 的
+    grbl_sim 孙进程成孤儿永占 2323，之后每次门禁 e2e 层都因端口占用 FAIL（已实证）。
+    """
+    child = _FakeE2EChild()
+    terminated: list[object] = []
+    monkeypatch.setattr(gate, "_mcp_python", lambda: Path("py"))
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda *a, **k: child)
+    monkeypatch.setattr(gate, "_kill_process_tree_on_close", lambda c: None)
+    monkeypatch.setattr(gate, "_terminate_whole_tree", lambda c: terminated.append(c))
+    monkeypatch.setattr(gate, "_release_job", lambda c: None)
+
+    layer = gate.run_e2e()
+
+    assert layer["status"] == "fail"
+    assert "300s" in layer["detail"], layer["detail"]
+    assert terminated == [child], "超时路径必须调用整树终止（TerminateJobObject / killpg）"
+    assert child.calls[0] == ("communicate", 300), (
+        "超时时限钉死 300s（与 sim_server.LOCAL_E2E_TIMEOUT_SECONDS 统一）"
+    )
+
+
+def test_run_e2e_spawns_isolated_process_group(monkeypatch):
+    """R11-E2E-02：spawn 必须为整树回收铺路——POSIX 走 start_new_session（setsid
+    使 e2e_local 成组长、grbl_sim 同组可 killpg），Windows 由 job object 兜底；
+    正常路径仍判 pass、超时时限仍是 300s。"""
+    child = _OkE2EChild()
+    captured: dict[str, object] = {}
+
+    def _popen(*args, **kwargs):
+        captured.update(kwargs)
+        return child
+
+    monkeypatch.setattr(gate, "_mcp_python", lambda: Path("py"))
+    monkeypatch.setattr(gate.subprocess, "Popen", _popen)
+    monkeypatch.setattr(gate, "_kill_process_tree_on_close", lambda c: None)
+    monkeypatch.setattr(gate, "_release_job", lambda c: None)
+
+    layer = gate.run_e2e()
+
+    assert layer["status"] == "pass", layer["detail"]
+    assert captured["start_new_session"] is (os.name != "nt")
+    assert child.calls[0] == ("communicate", 300)
+
+
+def test_run_e2e_spawn_failure_is_layer_fail(monkeypatch):
+    """R11-E2E-02：spawn 失败（venv 被删 / 架构不符 / ENOEXEC）必须是本层判红，
+    不能穿透到 main()——与 run_pytest 的 GATE-P2-04 同口径。"""
+
+    def _boom(*_a, **_k):
+        raise OSError("venv 解释器不可执行")
+
+    monkeypatch.setattr(gate, "_mcp_python", lambda: Path("py"))
+    monkeypatch.setattr(gate.subprocess, "Popen", _boom)
+
+    layer = gate.run_e2e()
+
+    assert layer["status"] == "fail"
+    assert "无法启动" in layer["detail"]
+
+
+def test_gate_posix_tree_kill_uses_process_group(monkeypatch):
+    """R11-E2E-02：POSIX 整树杀 = killpg 杀 e2e_local 的进程组（start_new_session
+    保证 grbl_sim 同组，组杀一并回收）。"""
+    calls: list[tuple[int, int]] = []
+    # Windows 的 os 模块没有 killpg、signal 模块没有 SIGKILL（均 POSIX 专属），
+    # monkeypatch 默认拒绝新增属性，raising=False 允许注入；getpgid 同理。
+    # 被测函数 _killpg 只在 os.name != "nt" 分支被调用，这里直接驱动它验证语义。
+    monkeypatch.setattr(gate.os, "killpg", lambda pgid, sig: calls.append((pgid, sig)), raising=False)
+    monkeypatch.setattr(gate.os, "getpgid", lambda pid: pid + 1, raising=False)
+    monkeypatch.setattr(gate.signal, "SIGKILL", 9, raising=False)
+    gate._killpg(4242)
+    assert calls == [(4243, 9)], "killpg 必须打进程组 4243 且信号是 SIGKILL（POSIX 恒为 9）"
+
+
+def test_gate_terminate_whole_tree_windows_fallback_kills_child():
+    """R11-E2E-02：Windows 上 job 挂接失败（无 _hutuji_job）时整树杀降级为
+    child.kill()——仍必须终止直接子进程，不能静默放过。"""
+    if os.name != "nt":
+        return  # POSIX 走 _killpg，见 test_gate_posix_tree_kill_uses_process_group
+    child = _FakeE2EChild()
+    gate._terminate_whole_tree(child)
+    assert child.killed
+
+
+# ---- R11-E2E-01：grbl_sim stderr 不再悬在无人排空的 PIPE 上 ----
+
+def test_e2e_local_sim_stderr_redirected_to_file_not_pipe(monkeypatch):
+    """R11-E2E-01：grbl_sim 的 stderr 必须落文件而非 PIPE。
+
+    PIPE 背压死锁链：grbl_sim 对每条 G-code 行 logger.info（grbl_sim.py:185），
+    夹具增至数百行即写满 Windows 4KB 匿名管道 → grbl_sim 阻塞不应答 → ok 超时 →
+    真 PASS 误 FAIL。文件无背压，写多少都行。
+    """
+    captured: dict[str, object] = {}
+
+    def _popen(*args, **kwargs):
+        captured["stderr"] = kwargs["stderr"]
+        return _FakeSimPopen(running=True)
+
+    monkeypatch.setattr(e2e, "_sim_port", lambda: 29998)
+    monkeypatch.setattr(e2e, "_port_in_use", lambda host, port: False)
+    monkeypatch.setattr(e2e.subprocess, "Popen", _popen)
+    monkeypatch.setattr(e2e, "_wait_ready", lambda *a, **k: None)
+    monkeypatch.setattr(
+        e2e, "svg_to_gcode",
+        lambda _svg, _path: _NS(lines=10, bytes=120),
+    )
+    monkeypatch.setattr(
+        e2e, "stream_gcode",
+        lambda _path, _host, _port: _NS(
+            success=True, ok_lines=10, total_lines=10,
+            failed_line=0, error_response="", elapsed_s=1.0,
+        ),
+    )
+
+    assert e2e.main() == 0
+    stderr = captured["stderr"]
+    assert stderr is not subprocess.PIPE, "stderr 不得再是悬空 PIPE（背压死锁源）"
+    assert hasattr(stderr, "fileno"), "stderr 必须是真实文件，早退诊断才能 seek+read"
+
+
+def test_e2e_local_early_exit_diagnostics_readable():
+    """R11-E2E-01：grbl_sim 早退时 _wait_ready 必须能从 stderr 落盘文件取出诊断文本
+    （旧实现靠 communicate()，改文件重定向后这条路径不许丢）。"""
+
+    class _DeadSim:
+        returncode = 7
+
+        def poll(self):
+            return self.returncode
+
+        def communicate(self):
+            raise AssertionError("stderr 已落文件，不得再走 communicate()")
+
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8", errors="replace") as log:
+        log.write("Traceback (most recent call last):\nboom\n")
+        log.flush()
+        with pytest.raises(RuntimeError, match="grbl_sim 子进程提前退出 rc=7") as exc:
+            e2e._wait_ready(_DeadSim(), "127.0.0.1", 29998, stderr_log=log)
+        assert "boom" in str(exc.value), "早退诊断必须包含 stderr 落盘内容"
+
+
+# ---- R11-E2E-03：裸 OSError 归一为 FAIL: 文案 ----
+
+def test_e2e_local_bare_oserror_is_fail_message(monkeypatch, capsys):
+    """R11-E2E-03：裸 OSError（WinError 10038 等，非 ConnectionError 子类）也必须
+    走统一 FAIL: 文案 + 退出码 1，不许打原始 traceback。"""
+
+    def _boom(_svg, _path):
+        raise OSError(10038, "WSAENOTSOCK")
+
+    monkeypatch.setattr(e2e, "_sim_port", lambda: 29998)
+    monkeypatch.setattr(e2e, "_port_in_use", lambda host, port: False)
+    monkeypatch.setattr(e2e.subprocess, "Popen", lambda *a, **k: _FakeSimPopen(running=True))
+    monkeypatch.setattr(e2e, "_wait_ready", lambda *a, **k: None)
+    monkeypatch.setattr(e2e, "svg_to_gcode", _boom)
+
+    code = e2e.main()
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "FAIL:" in err, f"裸 OSError 必须归一为 FAIL: 文案：{err!r}"
+    assert "WSAENOTSOCK" in err, "异常原因要留在诊断里"
+
+
+# ---- R11-BR-01：bridge 就绪轮询替代固定 sleep(12) ----
+
+def test_bridge_smoke_ready_marker_polls_early():
+    """R11-BR-01：就绪 marker 已在日志流时立即返回，不得等满固定 sleep。"""
+    q: queue.Queue[str] = queue.Queue()
+    q.put("小智 MCP WSS 已连接")
+    fake = _FakeSimPopen(running=True)
+
+    t0 = time.monotonic()
+    seen = smoke._wait_bridge_ready(fake, q, timeout_s=12.0, poll_s=0.05)
+    elapsed = time.monotonic() - t0
+
+    assert any("小智 MCP WSS 已连接" in line for line in seen)
+    assert elapsed < 5, f"marker 已在队列却等满超时：{elapsed:.2f}s"
+
+
+def test_bridge_smoke_ready_timeout_bounded():
+    """R11-BR-01：marker 迟迟不出现时轮询有上限，不会无限等。"""
+    q: queue.Queue[str] = queue.Queue()
+    fake = _FakeSimPopen(running=True)
+    t0 = time.monotonic()
+    seen = smoke._wait_bridge_ready(fake, q, timeout_s=0.5, poll_s=0.05)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 5
+    assert not any("小智 MCP WSS 已连接" in line for line in seen)
+
+
+def test_bridge_smoke_ready_breaks_on_bridge_exit():
+    """R11-BR-01：bridge 提前退出时轮询立即收场（返回已收集日志），不等到超时。"""
+    q: queue.Queue[str] = queue.Queue()
+    q.put("log line before exit")
+    fake = _FakeSimPopen(running=False)  # poll() -> 1（已退出）
+    t0 = time.monotonic()
+    seen = smoke._wait_bridge_ready(fake, q, timeout_s=12.0, poll_s=0.05)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 5
+    assert seen == ["log line before exit"]
+
+
+# ---- R11-BR-02：MCP_ENDPOINT wss 形态预校验（不回显取值） ----
+
+@pytest.mark.parametrize(
+    ("endpoint", "reason"),
+    [
+        ("http://127.0.0.1:8300/mcp", "http 而非 wss"),
+        ("ws://cloud.example.com:8300/mcp", "ws 而非 wss"),
+        ("wss://", "缺主机名"),
+        ("", "未设置"),
+    ],
+)
+def test_bridge_smoke_main_rejects_invalid_endpoint(monkeypatch, capsys, endpoint, reason):
+    """R11-BR-02：非 wss / 畸形 MCP_ENDPOINT 必须在启动任何子进程前被拒，退出码 2、
+    诊断指向环境变量本身且**不回显取值**（可能含 token，脱敏是硬约定）。"""
+    monkeypatch.setenv("MCP_ENDPOINT", endpoint)
+    monkeypatch.setattr(smoke, "_port_in_use", lambda host, port: False)
+
+    def _forbid_spawn(*_a, **_k):
+        raise AssertionError(f"非法端点不得起子进程（{reason}）")
+
+    monkeypatch.setattr(smoke.subprocess, "Popen", _forbid_spawn)
+
+    code = smoke.main()
+
+    assert code == 2, reason
+    err = capsys.readouterr().err
+    assert "FAIL:" in err, reason
+    if endpoint:
+        assert endpoint not in err, f"诊断不得回显 MCP_ENDPOINT 取值（{reason}）"
+
+
+def test_bridge_smoke_validate_endpoint_accepts_wss(monkeypatch):
+    """R11-BR-02：合法 wss 端点通过预校验（返回 None，不报错）。"""
+    monkeypatch.setenv("MCP_ENDPOINT", "wss://cloud.example.com:8300/mcp?token=SECRET")
+    assert smoke._validate_endpoint() is None

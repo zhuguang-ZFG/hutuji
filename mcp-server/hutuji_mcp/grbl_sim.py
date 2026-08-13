@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import os
@@ -205,6 +206,13 @@ async def handle_client(
                     pending = probe.result()
                 else:
                     probe.cancel()
+                    # 必须等取消真正落地：Task.cancel 只排程，取消未处理完时
+                    # reader._waiter 仍指向旧 future，下一轮 readline 会抛
+                    # RuntimeError 使整个 handler 崩溃（R11-TQ-02 换纸窗口
+                    # 「窗口后到达行被误判」的根因）。await 让取消完整走完
+                    # _wait_for_data 的 finally 清场后再回到主循环。
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await probe
                     pending = None
                 continue
             elif deferred and _looks_like_motion(line):

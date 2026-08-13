@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import sys
@@ -1388,35 +1389,173 @@ def run_pytest() -> dict[str, Any]:
     return _layer("pytest", "mcp-server pytest", status, detail, exit_code=proc.returncode)
 
 
+def _kill_process_tree_on_close(child: "subprocess.Popen[str]") -> None:
+    """Windows：把 e2e_local 挂进 kill-on-close job object，超时整树回收。
+
+    e2e_local.py 会 spawn grbl_sim 孙进程；communicate 超时只杀直接子进程
+    （TerminateProcess），grbl_sim 会成孤儿永占 2323，之后每次门禁 e2e 层都因
+    「端口已被占用」连环 FAIL（R11-E2E-02）。与 sim_server.py:85-185 同款范式
+    （门禁脚本不得 import mcp-server 包，故自带最小实现）：job 设
+    KILL_ON_JOB_CLOSE 后句柄全关时其内全部进程被 OS 终止。POSIX 非本场景目标
+    （走 start_new_session + killpg，见 _terminate_whole_tree），直接 no-op。
+    句柄存到 child 上阻止 GC 提前关闭。"""
+    if os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    # 用与 Win32 头文件一致的嵌套布局，避免手算字节偏移（此前 c_byte 数组版本
+    # 因 sizeof 与系统期望不符而 SetInformationJobObject 返回 ERROR_BAD_LENGTH）。
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [(f, ctypes.c_uint64) for f in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+        )]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    JobObjectExtendedLimitInformation = 9
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # 必须显式声明：默认 restype 是 c_int(32 位)，返回 HANDLE 的函数在 64 位下
+    # 有截断风险；实测当前句柄值小（0x1f8）未触发，但不可依赖。
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD
+    ]
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ok = kernel32.SetInformationJobObject(
+        job,
+        JobObjectExtendedLimitInformation,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    )
+    if not ok or not kernel32.AssignProcessToJobObject(job, int(child._handle)):
+        kernel32.CloseHandle(wintypes.HANDLE(job))
+        return
+    # 句柄由 `_release_job` 在 run_e2e 的 finally 里确定性关闭——不依赖 GC，
+    # 否则 KILL_ON_JOB_CLOSE 的触发时机不可知。
+    child._hutuji_job = job
+
+
+def _release_job(child: "subprocess.Popen[str]") -> None:
+    """关闭 job 句柄。这是 KILL_ON_JOB_CLOSE 真正生效的时刻：句柄全关时 OS 终止
+    job 内残留进程，故正常路径也必须调，既防句柄泄漏又兜底回收漏杀的孙进程。"""
+    job = getattr(child, "_hutuji_job", None)
+    if not job:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(wintypes.HANDLE(job))
+    child._hutuji_job = None
+
+
+def _killpg(pid: int) -> None:
+    """POSIX：杀整个进程组。start_new_session 让 e2e_local 成为新会话组长，
+    grbl_sim 同组，组杀一并回收（R11-E2E-02）。"""
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except OSError:
+        pass  # 进程组已退出（ProcessLookupError 等），无需再杀
+
+
+def _terminate_whole_tree(child: "subprocess.Popen[str]") -> None:
+    """终止子进程及其全部后代。优先 TerminateJobObject 杀 job 内整树（含 grbl_sim
+    孙进程）；无 job（POSIX 或挂接失败）时 Windows 退回 child.kill() 只杀直接
+    子进程、POSIX 走 killpg。"""
+    job = getattr(child, "_hutuji_job", None)
+    if not job:
+        if os.name == "nt":
+            child.kill()
+        else:
+            _killpg(child.pid)
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
+    _release_job(child)
+
+
 def run_e2e() -> dict[str, Any]:
     py = _mcp_python()
     if py is None:
         return _layer("e2e_local", "e2e_local.py", "fail", "缺少 mcp-server/.venv")
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"  # 同 run_pytest：防 GBK stdout 解出 \ufffd
+    # 超时口径与 sim_server.LOCAL_E2E_TIMEOUT_SECONDS 统一为 300（R11-SIM-02）：
+    # 同一 e2e_local 在两个入口被不同时限截断会分岔。门禁脚本不得 import
+    # mcp-server 包，这里只能注释交叉引用——改一侧必须同步另一侧。
     try:
-        proc = subprocess.run(
+        child = subprocess.Popen(
             [str(py), "scripts/e2e_local.py"],
             cwd=ROOT / "mcp-server",
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
             env=env,
-            timeout=300,  # 同上：e2e 会起假 Grbl socket，卡住时必须判 fail 而不是干等
+            # POSIX：e2e_local 成新会话组长、grbl_sim 同组，超时 killpg 可整树回收；
+            # Windows 由 _kill_process_tree_on_close 的 job object 兜底（R11-E2E-02）。
+            start_new_session=os.name != "nt",
         )
-    except subprocess.TimeoutExpired:
-        return _layer("e2e_local", "e2e_local.py", "fail", "e2e_local 超过 300s 未返回（疑似挂死）")
     except OSError as exc:
         # 同 run_pytest（GATE-P2-04）：启动失败必须是本层判红，不能穿透到 main()。
         return _layer(
             "e2e_local", "e2e_local.py", "fail",
             f"e2e_local 无法启动（{type(exc).__name__}: {exc}）",
         )
-    out = (proc.stdout + proc.stderr).strip()
-    ok = proc.returncode == 0 and re.search(r"\bPASS\b", out) is not None
-    detail = out.splitlines()[-1] if out else f"exit={proc.returncode}"
-    return _layer("e2e_local", "e2e_local.py", "pass" if ok else "fail", detail, exit_code=proc.returncode)
+    _kill_process_tree_on_close(child)
+    try:
+        stdout, stderr = child.communicate(timeout=300)  # 见上注释：统一 300s
+    except subprocess.TimeoutExpired:
+        # 必须整树终止：communicate 超时只杀直接子进程，grbl_sim 孙进程会成孤儿
+        # 永占 2323，之后每次门禁 e2e 层都因端口占用 FAIL（R11-E2E-02，已实证）。
+        _terminate_whole_tree(child)
+        try:
+            child.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=5)
+        return _layer("e2e_local", "e2e_local.py", "fail", "e2e_local 超过 300s 未返回（疑似挂死）")
+    finally:
+        _release_job(child)
+    out = ((stdout or "") + (stderr or "")).strip()
+    ok = child.returncode == 0 and re.search(r"\bPASS\b", out) is not None
+    detail = out.splitlines()[-1] if out else f"exit={child.returncode}"
+    return _layer("e2e_local", "e2e_local.py", "pass" if ok else "fail", detail, exit_code=child.returncode)
 
 
 def check_section9(grbl_root: Path | None) -> dict[str, Any]:

@@ -24,7 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_SVG = ROOT / "tests" / "test_star.svg"
 SERVER_NAME = "hutuji-pc-simulation"
 SERVER_VERSION = "1.0.0"
-LOCAL_E2E_TIMEOUT_SECONDS = 120
+# 本地 e2e 闭环超时：与门禁 run_e2e 层（scripts/agent_gate.py 的
+# child.communicate(timeout=300)）同一时限——同一 e2e_local.py 有 sim_server 与
+# 门禁两个入口，两处分岔会让同一闭环两入口结论不同（合法慢场景一侧判超时、
+# 另一侧放行）。必须同步改；test_sim_server 有「读门禁源码钉死相等」的对账测试。
+LOCAL_E2E_TIMEOUT_SECONDS = 300
 # 固定端口 2323 互斥：e2e_local 的端口占用检查与 grbl_sim 绑定之间非原子，
 # 并发 run_scenario("local_stream_e2e") 会撞端口产生非确定性 spurious FAIL
 # （SDK Server.run 对每条消息并发处理，两个并发工具调用可达）。用进程内
@@ -38,8 +42,9 @@ SIL_LIMITATIONS = [
 # 取消传播槽：`asyncio.to_thread` 会 copy_context，故这里放的可变 list 在工作线程内
 # 是同一对象。线程把活的 Popen 注册进来，async 侧被取消时据此 kill 子进程，
 # 让阻塞的 subprocess 立刻返回、线程归还默认执行器。
-# 不这样做的话：取消只让 await 立即返回，线程与子进程仍活到 120s 超时，
-# 反复取消可占满 min(32, cpu+4) 个默认执行器线程，阻塞同进程一切 to_thread。
+# 不这样做的话：取消只让 await 立即返回，线程与子进程仍活到
+# LOCAL_E2E_TIMEOUT_SECONDS 超时，反复取消可占满 min(32, cpu+4) 个默认执行器
+# 线程，阻塞同进程一切 to_thread。
 _ACTIVE_CHILDREN: contextvars.ContextVar[list[subprocess.Popen] | None] = (
     contextvars.ContextVar("hutuji_sim_active_children", default=None)
 )
@@ -412,8 +417,8 @@ async def _run_scenario_cancellable(scenario_id: str) -> dict[str, Any]:
     """在工作线程跑场景，但让取消能真正终止其子进程。
 
     `asyncio.to_thread` 不可中断：裸取消会立刻返回，而线程与它 spawn 的
-    e2e 子进程继续跑到 120s 超时，占着默认执行器的线程位（上限
-    `min(32, cpu+4)`），重复取消即耗尽整个进程的 to_thread 能力。
+    e2e 子进程继续跑到 LOCAL_E2E_TIMEOUT_SECONDS 超时，占着默认执行器的线程位
+    （上限 `min(32, cpu+4)`），重复取消即耗尽整个进程的 to_thread 能力。
     这里先建 kill 槽，取消时先杀子进程让线程尽快退出，再等线程收尾。
     """
     children: list[subprocess.Popen[str]] = []
@@ -517,7 +522,11 @@ def create_server() -> Server:
         elif name == "run_scenario":
             envelope = await _run_scenario_cancellable(arguments["scenario_id"])
         elif name == "validate_gcode":
-            envelope = validate_gcode_tool(arguments["text"])
+            # CPU 绑定解析（512KiB 载荷）不能占死事件循环：同步执行会拖垮全部
+            # 并发 handler（对照 run_scenario 走 to_thread）。to_thread 保持异常
+            # 语义与返回结构不变，test_validate_gcode_call_keeps_event_loop_responsive
+            # 钉死「校验期间事件循环仍推进」。
+            envelope = await asyncio.to_thread(validate_gcode_tool, arguments["text"])
         else:
             raise ValueError(f"unknown hutuji simulation tool: {name}")
         return types.CallToolResult(
