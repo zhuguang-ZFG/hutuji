@@ -47,17 +47,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **奎享工作在负 X 坐标系**（唯一缓存产物 763 个 X 值里 762 个为负），我方硬拒负坐标（无限位开关，限幅是唯一安全防线）。故**奎享产物不能直接当回归基线**，需先平移到正象限；**不得为「对齐奎享」放宽负坐标限幅**。
 
-**§5 大小/长度一律按「设备看到的字节」计，不按 Python 字符**：512KiB 上限是 S3 侧 PSRAM 缓冲的硬约束，S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**。故 `_read_generated_gcode` 必须 `read_bytes()` 并把 `len(raw)` 显式传给 `validate_gcode(text, total_bytes=…)`——**禁止改回 `read_text()`**：后者走 universal newlines 把 CRLF 塌成 LF，每行少算 1 字节。实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 少报 20846。单行 255 字节上限（Grbl `LINE_BUFFER_SIZE`）同理已按 `encode("ascii")` 计。
+**§5 大小/长度一律按「设备看到的字节」计，不按 Python 字符**：512KiB 上限是 S3 侧 PSRAM 缓冲的硬约束，S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**。故 `_read_generated_gcode` 必须 `read_bytes()` 并把 `len(raw)` 显式传给 `validate_gcode(text, total_bytes=…)`——**禁止改回 `read_text()`**：后者走 universal newlines 把 CRLF 塌成 LF，每行少算 1 字节。实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 少报 20846。单行 **254** 字节 payload 上限（Grbl `LINE_BUFFER_SIZE` 256 的换行 off-by-one，protocol §3）同理已按 `encode("ascii")` 计。
 
-**换纸消息只做定点路由（别扩大修改面）**：原固件的换纸消息均走 `CLIENT_SERIAL`；§9 `e7f373f` 只把四处 `[PaperStatus] N` 结果码改为 `CLIENT_ALL`，其余 `[PaperAuto-N]` 进度仍只走 CH340。`[ESP901]` 的 `Changing=Off` 已经 Telnet 实测，`Changing=On` 与真实 `[PaperStatus]` 到达仍待有纸换纸验证。S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing` + `?` 探活。CH340 串口仍是最全诊断口。
+**换纸消息只做定点路由（别扩大修改面）**：原固件的换纸消息均走 `CLIENT_SERIAL`；§9 `e7f373f` 只把四处 `[PaperStatus] N` 结果码改为 `CLIENT_ALL`，其余 `[PaperAuto-N]` 进度仍只走 CH340。`[ESP901]` 的 `Changing=Off/On` 均已 Telnet 实测，真实 `[PaperStatus] 0` 到达亦已有纸验证（B-13 2026-07-31 / S4 2026-08-03）。S3 判换纸靠三层：自发 `M30` 自知 + `[ESP901]` 查 `Changing` + `?` 探活。CH340 串口仍是最全诊断口。
 
-**Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**。`docs/protocol.md` §9 清单已以 `e7f373f` 提交、fz `standard` pass 并烧录；keepalive 与 `[ESP901] Paper/Changing=Off` 已实机验证，`Changing=On`/自动换纸仍未验证。后续任何 Grbl 改动仍**必跑 fz 门禁**。
+**Grbl 侧可小改（口径已变更）**：换纸机械/时序、运动、授权、U1-Grbl 协议**一律不改**（现役换纸相关：`M701`/`M704`/`M711`/`M712`/`M713`/`M721`/`M30` 等）；但**消息路由、状态字段、WebUI 网络层**等不影响商业出图行为的小加固**可接受**。`docs/protocol.md` §9 清单已以 `e7f373f` 提交、fz `standard` pass 并烧录；keepalive、`[ESP901]` Paper/`Changing=Off` 已实机验证，`Changing=On` 与有纸自动换纸亦已验证（B-13 2026-07-31 / S4 2026-08-03）。后续任何 Grbl 改动仍**必跑 fz 门禁**。
 
 **画布与行程安全**：A4 纸 210×297mm（X 短边 Y 长边）。MCP 生成端限幅 X≤190 Y≤277mm（四周 10mm 边距），Grbl 行程 `$130=210 $131=297`。**无限位开关**（引脚注释掉了），软限位/归零不可用，MCP 端校验是唯一安全防线。**坐标原点已验证**：左下角机械死点 = (0,0)，X+ 向右，Y+ 向前（远离操作者）。归零方式 = 手动推死点后上电。
 
 ## 转发状态机的关键坑
 
-详见 `docs/protocol.md`（v0.5）。摘要：逐行流控（一行一 ok，无 character-counting）、单写者（出图中只发 `?`，不发 M 命令）、Telnet 独占（`MAX_TLNT_CLIENTS=1`）、先下完再落笔（全量下载 + CRC32 + 授权门 → 才发第一字节）、abort ≠ 急停（换纸物理上打不断）。改转发逻辑前**必读原文**。
+详见 `docs/protocol.md`（v0.5）。摘要：窗口化流控（512B character-counting 在途窗口，一行一应答配对，§3）、单写者（出图中只发 `?`，不发 M 命令）、Telnet 独占（`MAX_TLNT_CLIENTS=1`）、先下完再落笔（全量下载 + CRC32 + 授权门 → 才发第一字节）、abort ≠ 急停（换纸物理上打不断）。改转发逻辑前**必读原文**。
 
 ## 硬规则
 

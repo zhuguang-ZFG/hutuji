@@ -150,7 +150,9 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ## 3. 流控（Grbl 行协议）
 
-- **逐行发送，收到 `ok\r\n` 才发下一行**；`error:NN\r\n` 按 §7 处理。**无 character-counting**，禁止预发抢跑（client_buffer 溢出会丢字节）。
+- **窗口化 character-counting 发送**（S3 `15f73c9` 起，S4 有纸实测；本节原「逐行等 ok、无 character-counting」表述 2026-08-14 起作废）：按字节计在途量，在途 ≤ `kStreamWindowBytes=512`（含每行换行符，`hutuji_recovery_core.h:15`，无行数上限），每收一个 `ok`/`error:NN` 释放一条在途行后继续灌；`error:NN` 按 §7 处理。窗口上界的依据：对端 Telnet `client_buffer` 仅 **2048 字节**（`WebUI/InputBuffer.h:55` `RXBUFFERSIZE`），且 `clientCheckTask` 写缓冲**不查可写容量**——饱和输入静默丢字节是上游已确认未修 bug（bdring/Grbl_Esp32 issue #983）；512B 占 25%，换纸阻塞期主循环停转、在途字节全数淤积也灌不满。奎享同法（窗口 100 字节，`docs/kxnx/findings/09-flow-control-deep.md`）。**禁止超窗预发**。
+  - 暂停时停灌新行但**继续收在途应答**（在途行已进 planner，丢应答会让窗口计数永久漂移）；abort 先在途排空再走 §4.1 受控 `0x18`。
+  - 窗口化普通行**不应收到 `error:8`**（换纸阻塞期 S3 自知停发 G0–G3，见下条）；防御口径是收到即整单失败（`hutuji_job.cc` 窗口化收分支），§7 的「原地重发同一行」只存在于换纸行路径（`Deferred` → 2s 后重发，上限 8 次）。
   - ⚠️ **错误码有两种线上形态，解析必须都认**：`$Errors/Verbose` 为真时 `Report.cpp:236` 把应答从 `error:11` 换成 **`error: Line too long`**（文本，取自 `Error.cpp` 的 `ErrorNames`）。出厂默认是 0（`Defaults.h:82`），但该 `$`-设置存在 NVS 里，能被任何上位机（奎享本体、ESP3D WebUI）改写并持久化。只认数字的解析器不是降级而是**行为反转**：`error:8`（换纸期推迟、需重发该行）解析成 -1 后走 `Failed` → 整单失败而非重试；`error:110`（未授权）同样落进 `Failed` 而非「已知未授权」。S3 侧解析实现见 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()`，两种形态由 host 编译单测钉住。
 - **单行仅 ASCII 且 ≤ 254 字节 payload**（不含行尾换行符），非 ASCII 或超长回 `error:11`。MCP 生成端折行负责。
   - **是 254，不是 255**：`Protocol.h:34` 定义 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能存进缓冲（`len` 变 255），紧随的换行符进来时先撞上 `len == LINE_BUFFER_SIZE - 1` → 回 `error:11`，且 `:218` 的 `empty_line()` 把整行丢掉，**该行从未进入 `execute_line()`**。即 255 字节的行不是「勉强执行」而是「整行被设备静默吃掉」。上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters plus terminator"）正是为绕开这个 off-by-one；Grbl_Esp32 未加 1，故本机可用 payload 是 254。校验器口径见 `gcode_gen.py` 的 `MAX_LINE_PAYLOAD_BYTES`。

@@ -19,7 +19,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 语音 → 小智官方云(+MCP 接入点) → 京东云 MCP 服务 hutuji_draw
      → LLM 出 SVG → 校验 → vpype 转 G-code → validate_gcode → output/ + 能力 URL
      → 云端把 URL 回给 S3 → S3 下载 + CRC32 校验（PSRAM 全量缓冲）
-     → WiFi Telnet :23 逐行发给 Grbl → 页尾 fresh `Idle` 后 S3 单独发 `M30` → 自动换纸
+     → WiFi Telnet :23 按 512B 在途窗口发给 Grbl → 页尾 fresh `Idle` 后 S3 单独发 `M30` → 自动换纸
 ```
 
 服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_cleanup_expired_outputs()`（R13-SRV-02 起移出并发名额：清理是 IO 运维动作而非受控生成工作，不占 slot）→ `_draw_limiter.slot()`（覆盖付费生成全程）→ `bitmap_svg.generate_bitmap_svg()`（位图路线，2026-08-09 起为现行：`_sanitize_description` → agnes 文生图 `/images/generations` → 下载 PNG → skimage 骨架化 + sknw 建图描摹 → 单线 SVG → `_validate_svg`）→ `gcode_gen.svg_to_gcode_async()`（可取消 vpype：`read → layout 归一化（--fit-to-margins 10mm 190x277mm，居中+等比缩放）→ linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。LLM 直写 SVG（`llm_svg.generate_svg`）只留给 `hutuji_preview_svg` 调试。

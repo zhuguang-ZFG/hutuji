@@ -1,5 +1,5 @@
 {
-  "git_head": "778493a0d980342a84edf0f356bca58b3a64d0c5",
+  "git_head": "7e1d0eccf91949d4567a1464b585eb61784e1569",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -429,6 +429,10 @@
       "sha8": "212d6e3a",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
+    "docs/protocol.md -> WebUI/InputBuffer.h:55": {
+      "sha8": "9b0732a6",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
+    },
     "docs/protocol.md -> WebUI/TelnetServer.cpp:43-74": {
       "sha8": "1670476d",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
@@ -443,6 +447,10 @@
     },
     "docs/protocol.md -> hutuji_recovery_core.h:14-45": {
       "sha8": "5866b98a",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
+    },
+    "docs/protocol.md -> hutuji_recovery_core.h:15": {
+      "sha8": "9f83aa6b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
     },
     "docs/protocol.md -> ota.cc:292-321": {
@@ -605,8 +613,8 @@
       "sha8": "72e93d43",
       "target": "docs/kxnx/findings/02-gcode-template.md"
     },
-    "docs/troubleshooting.md -> docs/protocol.md:221": {
-      "sha8": "8bcdb34f",
+    "docs/troubleshooting.md -> docs/protocol.md:239": {
+      "sha8": "745fa93e",
       "target": "docs/protocol.md"
     },
     "docs/troubleshooting.md -> hutuji_job.cc:1683-1694": {
@@ -706,6 +714,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-14T08:17:13Z",
+  "updated": "2026-08-14T10:18:04Z",
   "version": 1
 }

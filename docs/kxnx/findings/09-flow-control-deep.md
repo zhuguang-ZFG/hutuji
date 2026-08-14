@@ -353,6 +353,8 @@ if (object.b().equals("FirmwareEventStatus")) {
 
 ## 六、与 hutuji 现状的差异对照
 
+> **hutuji 列勘误（2026-08-14）**：本表「hutuji 现状」列冻结在窗口化落地前——「流控：逐行等 ok / 卡顿根源」「peek：无 peek」已被文首 2026-07-30 勘误取代（S3 `15f73c9` 起 512B 字节在途窗口、buffer 预解析具备 peek，S4 有纸实测通过）；「error:NN：直接放弃整幅」不适用于换纸行路径（`error:8` 原地重发，protocol §7）；§七-B 的窗口化「可行改进」已落地，`docs/protocol.md` §3 已于同日改写为窗口化契约。奎享列结论不变。
+
 | 维度 | 奎享 | hutuji 现状 | 影响 |
 |------|------|-------------|------|
 | **流控** | character-counting 窗口 100 字节 | 逐行等 ok | **卡顿根源**：每行付一次往返 |
