@@ -10,10 +10,17 @@ TCP 连上（假）Grbl，逐行发送并等 ok：
   ok 永不返回；pipe_sim 识别后结构化失败并携带该 ALARM 行内容，不再挂满
   60s 超时变成非结构化失败。'<...>' 状态行不是失败信号（ok 仍会返回，
   Report.cpp 状态报告与行应答并发），继续容忍吞入 info_lines。
-- error:8 行分类差异（F-SIM-03）：grbl_sim 按「行内任意 G0-G3 词」判定运动、
-  真机 protocol_line_is_motion_gcode_g0_g3 按「行首 G 字首位数 0-3」判定；
-  pipe_sim 逐行等 ok 协议下两模型等价（error:8/error:20 分类不同，但都使
-  该行失败，转发行为一致）。
+- error:8 行分类已与真机同构（R13-SIM-07 起）：grbl_sim 与真机
+  protocol_line_is_motion_gcode_g0_g3 都按「行首 G 字首位数 0-3」判定。
+
+建模边界（R14 登记，勿当缺陷重报）：
+- 不建模窗口化流控：真机 S3 最多 4 行/512B 在途，本仿真逐行等 ok——逐行是
+  窗口化的严格子集，能过逐行的文件在窗口化下行为由 S3 固件 host 测试与实机
+  取证兜底，e2e 管的是「文件能否按 §3/§7 语义流完」。
+- 不发 M30/G92 Z0 旁路行、不查 fresh Idle：那是 S3 固件职责（§4/§5），
+  本仿真只覆盖「下载文件逐行下发」这一段；grbl_sim 对 '?' 恒回 Idle 状态行
+  （无 status_report_seq 概念），S3 的 ConfirmInFlightDoneByStatus 路径不在
+  e2e 面内。
 """
 from __future__ import annotations
 

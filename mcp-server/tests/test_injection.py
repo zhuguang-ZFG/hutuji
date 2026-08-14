@@ -637,3 +637,29 @@ def test_description_strips_unicode_line_separators() -> None:
     但同为行界控制字符，可伪造换行破坏日志/协议边界，必须一并剥除。"""
     cleaned = _sanitize_description("a\u2028b\u2029c\u0085d")
     assert cleaned == "abcd"
+
+
+def test_description_strips_format_control_chars() -> None:
+    """R14-ENC-01：Cf 格式控制族（双显覆盖 U+202E、嵌入/隔离 U+202A–U+202D/
+    U+2066–U+2069、零宽 U+200B–U+200D、BOM、软连字符、C1 段、TAG 字符）在绘图
+    描述里无合法用途，却能伪造显示顺序/藏不可见内容，必须与行界符同口径剥除。"""
+    cleaned = _sanitize_description(
+        "a\u202eb\u202ac\u2067d\u200be\u200df\ufeffg\u00adh\u0096i\U000e0041j"
+    )
+    assert cleaned == "abcdefghij"
+    # 合法多字节内容（emoji/CJK/全角标点）不得误伤
+    assert _sanitize_description("画一只猫🐱！") == "画一只猫🐱！"
+
+
+def test_extract_svg_takes_first_block_only() -> None:
+    """R14-TG-05：回复含多个并列 <svg> 块时只取首个校验并返回——钉住现行
+    契约，防止日后被改成取末个/合并而静默改变注入面。"""
+    text = (
+        '前言废话<svg viewBox="0 0 190 277">'
+        '<path d="M1 1 L2 2" fill="none" stroke="black"/></svg>'
+        "中段<script>alert(1)</script><svg><script>alert(2)</script></svg>"
+    )
+    svg = _extract_svg(text)
+    assert svg.count("</svg>") == 1
+    assert "<script" not in svg
+    assert 'd="M1 1 L2 2"' in svg

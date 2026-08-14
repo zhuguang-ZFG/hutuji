@@ -961,6 +961,22 @@ def test_expired_capability_returns_404_and_deletes_pair(
     assert not svg.exists()
 
 
+def test_capability_expiring_exactly_at_ttl_is_expired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R14-TG-03：`_is_expired` 边界是 `>=`——age 恰等于 ttl 的文件必须按过期
+    处置；若退化成 `>`，边界文件会被错误续命一个判定周期。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
+    base = server._new_basename()
+    gcode = tmp_path / f"{base}.gcode"
+    gcode.write_text("G21\n", encoding="utf-8")
+    now = time.time()
+    os.utime(gcode, (now - 600, now - 600))
+    assert server._is_expired(gcode, now=now) is True
+    os.utime(gcode, (now - 599, now - 599))
+    assert server._is_expired(gcode, now=now) is False
+
+
 def test_draw_limiter_rejects_rate_and_concurrency() -> None:
     now = [0.0]
     limiter = server.DrawLimiter(clock=lambda: now[0])
@@ -2309,6 +2325,59 @@ def test_read_regular_file_rejects_rename_swap_with_nofollow_semantics(
     with pytest.raises(OSError, match="目标在读取期间被替换"):
         server._read_regular_file(real)
 
+
+def test_serve_file_read_oserror_collapses_to_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R14-TG-02：f.read() 中途抛 OSError（盘故障/权限竞态）必须塌成 404——
+    不得 500，也不得多漏一条内部细节。"""
+    import os as real_os
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    real = tmp_path / name
+    real.write_bytes(b"G21\n")
+
+    class _BoomFile:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, *args):
+            raise OSError("simulated mid-read failure")
+
+    class FakeOS:
+        O_RDONLY = real_os.O_RDONLY
+        O_BINARY = getattr(real_os, "O_BINARY", 0)
+
+        @staticmethod
+        def stat(path, follow_symlinks=True):
+            return real_os.stat(path, follow_symlinks=follow_symlinks)
+
+        @staticmethod
+        def fstat(fd):
+            return real_os.fstat(fd)
+
+        @staticmethod
+        def fdopen(fd, mode):
+            real_os.close(fd)  # 所有权名义上移交给文件对象；此处直接收掉防漏
+            return _BoomFile()
+
+        @staticmethod
+        def close(fd):
+            return real_os.close(fd)
+
+        @staticmethod
+        def open(path, flags, *args, **kwargs):
+            return real_os.open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(server, "os", FakeOS)
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+    assert caught.value.status_code == 404
+
 def test_status_does_not_leak_absolute_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2905,6 +2974,14 @@ def test_gcode_rejects_radius_mode_arc_out_of_bounds() -> None:
     """
     text = _minimal_gcode("G0 X185 Y100 F8000\nG2 X180 Y100 R-40 F8000\n")
     with pytest.raises(GcodeError, match="包围盒"):
+        validate_gcode(text)
+
+
+def test_gcode_rejects_arc_without_feed() -> None:
+    """R14-TG-01：G2/G3 有坐标有圆弧参数但缺 F 必须拒（`feed is None` 闸）——
+    既有用例只覆盖缺 X/Y 与缺 I/J/R，这条分支此前零测试。"""
+    text = _minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 I10 J0\n")
+    with pytest.raises(GcodeError, match="进给"):
         validate_gcode(text)
 
 

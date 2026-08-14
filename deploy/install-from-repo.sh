@@ -77,6 +77,10 @@ env -u PIP_TRUSTED_HOST -u PIP_INDEX_URL -u PIP_EXTRA_INDEX_URL -u PIP_CERT \
   if [[ -n "$HUTUJI_CERT" ]]; then
     pip_args+=(--cert "$HUTUJI_CERT")
   fi
+  # R14-DEP-01：venv 模块对已存在的 .venv 是 no-op（不重建不清空），pip install -r
+  # 只升级不删残留——requirements.txt 删包后重跑本脚本，旧包仍留在 venv。刻意不加
+  # --clear：修复性重跑时若索引不可达，--clear 会把在跑系统变成装不回来的空 venv。
+  # 真要清残留：手工 rm -rf .venv 后再跑本脚本。
   python3 -m venv .venv
   .venv/bin/pip install -U pip "${pip_args[@]}"
   .venv/bin/pip install -r requirements.txt "${pip_args[@]}"

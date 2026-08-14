@@ -24,11 +24,16 @@ CANVAS_X_MM = 190
 CANVAS_Y_MM = 277
 
 # description 输入侧缓解：字数上限 + 剥控制字符（辅助防线，不当主防线）。
-# 剥除范围：C0（\t\n\r 之外）与 DEL（U+007F），外加 Unicode 行分隔符 U+2028/U+2029
-# 与 NEL（U+0085）——后三者不是 C0 但同为行界控制字符，能伪造换行破坏日志/协议
-# 边界，一并剥除（F-DESC-UNICODE-SEP）。
+# 剥除范围：C0（\t\n\r 之外）与 DEL（U+007F）、Unicode 行分隔符 U+2028/U+2029
+# 与 NEL（U+0085）（F-DESC-UNICODE-SEP），以及 Cf 格式控制族（R14-ENC-01）：
+# C1 段 U+0080–U+009F、双显覆盖/嵌入 U+202A–U+202E、隔离符 U+2066–U+2069、
+# 零宽 U+200B–U+200D、BOM U+FEFF、软连字符 U+00AD、TAG 字符 U+E0000–U+E007F。
+# 这些在绘图描述里无合法用途，却能伪造显示顺序/藏不可见内容——prompt 进了
+# 日志或控制台回显时就是混淆面。
 _DESCRIPTION_MAX_CHARS = 200
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0085\u2028\u2029]")
+_CONTROL_CHAR_RE = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0080-\u009f\u00ad\u200b-\u200d\u2028-\u202e\u2066-\u2069\ufeff\U000e0000-\U000e007f]"
+)
 
 
 SYSTEM_PROMPT = f"""为写字机生成单线 SVG，只返回一个 <svg>，不要解释、Markdown 或 XML 声明。

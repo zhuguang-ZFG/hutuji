@@ -32,17 +32,19 @@
 独立运行：python -m hutuji_mcp.grbl_sim（默认端口 2323）
 
 局限（有意不做）：
-- 换纸窗口 error:8 判定按「行内任意 G0-G3 词」（F-SIM-03）；真机
-  protocol_line_is_motion_gcode_g0_g3 按「行首 G 字首位数 0-3」判定
-  （'G28'/'G20' 实机算运动回 error:8、仿真算非运动回 error:20）。
-  pipe_sim 逐行等 ok 协议下两模型等价（error:8/error:20 分类不同，但
-  都使该行失败，行为一致）。
+- 换纸窗口 error:8 判定已与真机逐字同构（R13-SIM-07 起）：行首 G 字首位数
+  0-3 即运动行（Protocol.cpp:110-126），'G21'/'G28' 窗口内同样 error:8。
 - 换纸阻塞期对窗口内每条运动行回 error:8，且可经 protocol_service_
   during_blocking 先于 M30 的 ok 发出（真机 Protocol.cpp:166-174,228-256）；
   仿真在 M30 应答后才统一处理缓冲行，应答顺序差异有意（F-SIM-03）。
 - M30 按 M 字整数值 30 精确判定（F-SIM-04，真机 GCode.cpp:486-488
-  int_value==30），不匹配 M300/M301；容忍行内空白与前导零
-  （'M 30'/'M030' 实机词法解析等价）。
+  int_value==30），不匹配 M300/M301；行内空白与前导零不影响判定
+  （'M 30'/'M030'，真机入口 collapseGCode 剥空白转大写，GCode.cpp:75-130）。
+- S3 启动/重连序列不建模（R14-G9-02/04 登记的边界）：[ESP901] 状态查询、
+  [ESP910]/M721 换纸触发、授权探针 `G1 G53 X… F1500`（error:110 未授权）
+  在仿真都会落 _contract_violation 回 error:20。e2e 的被测对象是 pipe_sim
+  逐行转发路径，不含 S3 启动序列；这些行为属 S3 固件侧（host 测试与实机
+  取证覆盖），真要演进成「S3 行为仿真」再补。
 """
 from __future__ import annotations
 
