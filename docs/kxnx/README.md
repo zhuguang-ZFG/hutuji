@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-│   ├── findings/                      ← 逆向发现（23 份，深度递进）
+│   ├── findings/                      ← 逆向发现（26 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -32,6 +32,9 @@ docs/kxnx/
 │   ├── 21-transport-watchdog-and-sd-executor.md ← 传输基类 `l`/`o` 发送侧语义勘误、三套探活互斥、缓冲 autoExpand 结案、ESP32-Grbl SD 执行器全链路
 │   ├── 22-installed-config-vs-machine.md ← **非反编译**：kdraw 3.9.9 现役安装配置 × 真机 `$$` 快照（14/16 与我方机器头逐字同）× 产物几何反推容差；负 X 成因 = 左上原点 + XY 互换
 │   ├── 23-drawsoft-gen-comm-review.md ← 全量复审收口：生成链+通信链 × GitHub 社区基线（三条 hutuji 现状勘误 + 逐条分诊总表；基准树 = windows_hutuji 第四棵树）
+│   ├── 24-network-and-account-security.md ← 网络/账号/升级面：明文 HTTP 默认 + 带内密钥「加密」+ Jetty :90/LAN 共享零认证（基准树 decompiled_full）
+│   ├── 25-batch-excel-and-programme.md ← 批量出图：本地 .gcode 直发旁路 + .pg 任意命令载体 + 批量编排四缺陷
+│   ├── 26-cloud-fonts-and-wordx.md ← 云字库零校验下载 + XTEA 硬编码密钥 + wordx 绝对路径内嵌；.gfont 无 Zip Slip（正面）
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
