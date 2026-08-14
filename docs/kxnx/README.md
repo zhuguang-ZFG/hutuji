@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-│   ├── findings/                      ← 逆向发现（26 份，深度递进）
+│   ├── findings/                      ← 逆向发现（27 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -35,6 +35,7 @@ docs/kxnx/
 │   ├── 24-network-and-account-security.md ← 网络/账号/升级面：明文 HTTP 默认 + 带内密钥「加密」+ Jetty :90/LAN 共享零认证（基准树 decompiled_full）
 │   ├── 25-batch-excel-and-programme.md ← 批量出图：本地 .gcode 直发旁路 + .pg 任意命令载体 + 批量编排四缺陷
 │   ├── 26-cloud-fonts-and-wordx.md ← 云字库零校验下载 + XTEA 硬编码密钥 + wordx 绝对路径内嵌；.gfont 无 Zip Slip（正面）
+│   ├── 27-awauto-and-processtabs.md   ← awauto 自动换纸机型控制器全量（主动换纸/续纸/恢复序列）+ processTabs 生成链全量（位图骨架化/SVG 硬化 SAX/云端生成）
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
