@@ -55,6 +55,11 @@ _IMAGE_DOWNLOAD_MAX_BYTES = 16 * 1024 * 1024
 # 与 LLM 路线同一口径：瞬态状态码重试两次（1s/3s），其余立即失败。
 _TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
 _RETRY_DELAYS_SECONDS = (1.0, 3.0)
+# 备用生图端点（imagefree，免鉴权公共服务）的画幅：1:1 = 1024x1024，与 _IMAGE_SIZE
+# 同尺寸（其文档 /v1/meta 可查）；改 _IMAGE_SIZE 宽高比时同步改这里。该端点文档
+# 典型耗时 20~45s，与 _IMAGE_ATTEMPT_TIMEOUT_SECONDS 同量级——降级链比主链更容易
+# 撞超时，属预期（降级宁慢勿错）。
+_FALLBACK_ASPECT_RATIO = "1:1"
 # 描摹 SVG 上限：与 LLM 路线的 256KiB 同口径（_validate_svg 不管大小，
 # 上限一直是本模块自己的职责；最重的自行车实测 ~200KB，离顶还有余量）。
 _SVG_MAX_BYTES = 256 * 1024
@@ -300,8 +305,118 @@ def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
     )
 
 
+def _image_fallback_url() -> str:
+    """agnes 主链失败时的免鉴权备用生图端点（imagefree）；空值禁用。
+
+    getattr 兜底兼容测试注入的窄 settings（SimpleNamespace 无此字段 = 禁用）。
+    """
+    return getattr(settings, "image_fallback_url", "").strip()
+
+
+async def _post_image_request(
+    client: httpx.AsyncClient,
+    url: str,
+    payload: dict,
+    headers: dict[str, str] | None,
+    provider: str,
+) -> dict:
+    """两个生图端点共用的 POST + 瞬态重试 + 流式上限闸；返回解析后的 JSON object。
+
+    provider 只进错误文案：agnes 侧沿用「生图 API」（既有测试钉死），备用侧
+    「备用生图端点」。两侧都不回显 URL 与上游错误正文（可能含凭据/自由文本）。
+    """
+    data = None
+    for attempt in range(len(_RETRY_DELAYS_SECONDS) + 1):
+        try:
+            # R10-BMP-03：POST 与下面的图片 GET 同口径改流式——非流式 post()
+            # 返回时正文已被 httpx 全量缓冲，事后检查拦不住内存暴涨；恶意/
+            # 故障上游在超时窗口内可推送 GB 级正文。声明闸省流量，逐块累计
+            # 闸兜住 chunked/畸形头，两道闸都在数据进内存前生效。
+            async with asyncio.timeout(_IMAGE_ATTEMPT_TIMEOUT_SECONDS):
+                async with client.stream(
+                    "POST", url, json=payload, headers=headers
+                ) as resp:
+                    status = resp.status_code
+                    raw = bytearray()
+                    if status == 200:
+                        declared = resp.headers.get("content-length")
+                        if (
+                            declared
+                            and declared.isdigit()
+                            and int(declared) > _IMAGE_API_MAX_BYTES
+                        ):
+                            raise BitmapError(f"{provider} 响应超过读取上限")
+                        async for chunk in resp.aiter_bytes():
+                            if len(raw) + len(chunk) > _IMAGE_API_MAX_BYTES:
+                                raise BitmapError(f"{provider} 响应超过读取上限")
+                            raw.extend(chunk)
+            if status == 200:
+                try:
+                    data = json.loads(bytes(raw))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    # 200 但正文不是 JSON（如 CDN/网关的 HTML 错误页）：
+                    # JSONDecodeError/UnicodeDecodeError 是 ValueError 而非
+                    # httpx 异常，不拦会裸穿出本模块；重试同一份垃圾正文
+                    # 无意义，直接失败。
+                    raise BitmapError(f"{provider} 响应不是合法 JSON") from None
+                break
+            # 上游错误正文可能回显凭据；不读取不记录，只记状态码。
+            if (
+                status in _TRANSIENT_HTTP_STATUSES
+                and attempt < len(_RETRY_DELAYS_SECONDS)
+            ):
+                await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
+                continue
+            raise BitmapError(f"{provider} 返回 {status}")
+        except (httpx.HTTPError, TimeoutError) as exc:
+            if attempt < len(_RETRY_DELAYS_SECONDS):
+                await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
+                continue
+            raise BitmapError(f"{provider} 网络错误（{type(exc).__name__}）") from None
+    if data is None:
+        raise BitmapError(f"{provider} 未返回数据")
+    if not isinstance(data, dict):
+        raise BitmapError(f"{provider} 响应结构异常（TypeError）")
+    return data
+
+
+def _extract_agnes_image_url(data: dict) -> str:
+    """OpenAI 兼容 images/generations 的取链：data[0].url。"""
+    try:
+        image_url = data["data"][0]["url"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise BitmapError(f"生图 API 响应结构异常（{type(exc).__name__}）") from exc
+    if not isinstance(image_url, str):
+        raise BitmapError("生图 API 未返回有效的 https 图片地址")
+    return image_url
+
+
+async def _request_fallback_image_url(client: httpx.AsyncClient, description: str) -> str:
+    """免鉴权备用端点（imagefree /v1/generate）：扁平 image_url，status 判成败。
+
+    其文档状态机：200+completed 出图 / 200+error 业务失败 / 202 排队超窗（含
+    Location 轮询地址）/ 429 队列满 / 422 参数错。202 不再叠轮询——降级链快进
+    快出，按「返回 202」失败；429 走共有瞬态重试。
+    """
+    payload = {
+        "prompt": _BITMAP_STYLE + description,
+        "aspect_ratio": _FALLBACK_ASPECT_RATIO,
+    }
+    data = await _post_image_request(
+        client, _image_fallback_url(), payload, None, "备用生图端点"
+    )
+    status = data.get("status")
+    if status != "completed":
+        # error 字段是上游自由文本（内容安全拦截原因等），不回显，只记状态。
+        raise BitmapError(f"备用生图端点未出图（status={status!r}）")
+    image_url = data.get("image_url")
+    if not isinstance(image_url, str):
+        raise BitmapError("备用生图端点未返回有效的 https 图片地址")
+    return image_url
+
+
 async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransport | None = None) -> bytes:
-    """调 OpenAI 兼容 images/generations 并下载 PNG。transport 仅供测试注入。"""
+    """生图并下载 PNG：agnes（OpenAI 兼容）主链 + imagefree 免鉴权备用链。transport 仅供测试注入。"""
     if not settings.llm_api_key:
         raise BitmapError(
             "未配置 LLM API key：请设置环境变量 HUTUJI_LLM_API_KEY"
@@ -328,62 +443,23 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
     async with httpx.AsyncClient(
         timeout=_IMAGE_ATTEMPT_TIMEOUT_SECONDS, transport=transport
     ) as client:
-        data = None
-        for attempt in range(len(_RETRY_DELAYS_SECONDS) + 1):
-            try:
-                # R10-BMP-03：POST 与下面的图片 GET 同口径改流式——非流式 post()
-                # 返回时正文已被 httpx 全量缓冲，事后检查拦不住内存暴涨；恶意/
-                # 故障上游在超时窗口内可推送 GB 级正文。声明闸省流量，逐块累计
-                # 闸兜住 chunked/畸形头，两道闸都在数据进内存前生效。
-                async with asyncio.timeout(_IMAGE_ATTEMPT_TIMEOUT_SECONDS):
-                    async with client.stream(
-                        "POST", url, json=payload, headers=headers
-                    ) as resp:
-                        status = resp.status_code
-                        raw = bytearray()
-                        if status == 200:
-                            declared = resp.headers.get("content-length")
-                            if (
-                                declared
-                                and declared.isdigit()
-                                and int(declared) > _IMAGE_API_MAX_BYTES
-                            ):
-                                raise BitmapError("生图 API 响应超过读取上限")
-                            async for chunk in resp.aiter_bytes():
-                                if len(raw) + len(chunk) > _IMAGE_API_MAX_BYTES:
-                                    raise BitmapError("生图 API 响应超过读取上限")
-                                raw.extend(chunk)
-                if status == 200:
-                    try:
-                        data = json.loads(bytes(raw))
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        # 200 但正文不是 JSON（如 CDN/网关的 HTML 错误页）：
-                        # JSONDecodeError/UnicodeDecodeError 是 ValueError 而非
-                        # httpx 异常，不拦会裸穿出本模块；重试同一份垃圾正文
-                        # 无意义，直接失败。
-                        raise BitmapError("生图 API 响应不是合法 JSON") from None
-                    break
-                # 上游错误正文可能回显凭据；不读取不记录，只记状态码。
-                if (
-                    status in _TRANSIENT_HTTP_STATUSES
-                    and attempt < len(_RETRY_DELAYS_SECONDS)
-                ):
-                    await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
-                    continue
-                raise BitmapError(f"生图 API 返回 {status}")
-            except (httpx.HTTPError, TimeoutError) as exc:
-                if attempt < len(_RETRY_DELAYS_SECONDS):
-                    await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
-                    continue
-                raise BitmapError(f"生图 API 网络错误（{type(exc).__name__}）") from None
-        if data is None:
-            raise BitmapError("生图 API 未返回数据")
         try:
-            image_url = data["data"][0]["url"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise BitmapError(f"生图 API 响应结构异常（{type(exc).__name__}）") from exc
-        if not isinstance(image_url, str):
-            raise BitmapError("生图 API 未返回有效的 https 图片地址")
+            image_url = _extract_agnes_image_url(
+                await _post_image_request(client, url, payload, headers, "生图 API")
+            )
+        except BitmapError as primary_exc:
+            # 主链任何失败（配额耗尽/5xx/超时/结构异常）降级到免鉴权备用端点。
+            # 本地配置闸（缺 key/空 model）在上面已抛、不进降级——用备用链掩盖
+            # 部署事故会让失效凭据长期无人发现。备用也失败时两侧原因都带上
+            # （两条消息都不含 URL/凭据，脱敏口径不变）。
+            if not _image_fallback_url():
+                raise
+            try:
+                image_url = await _request_fallback_image_url(client, description)
+            except BitmapError as fallback_exc:
+                raise BitmapError(
+                    f"{primary_exc}；备用端点同样失败：{fallback_exc}"
+                ) from None
         # 只验 https 前缀挡不住内网 https 地址（SSRF，见 IMG-URL-SSRF-GAP）。
         _validate_image_download_url(image_url)
 

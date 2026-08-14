@@ -98,9 +98,21 @@ class Settings:
     # 带默认值：既有测试构造点不必全跟着加参数。
     image_model: str = "agnes-image-2.1-flash"
 
+    # 文生图备用端点（agnes 主链失败时的降级链；imagefree 免鉴权公共服务，
+    # 置空=禁用）。默认即生产可用值，env 只用于覆盖或关闭。
+    image_fallback_url: str = "https://imagefree.tingfengai.art/v1/generate"
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
         object.__setattr__(self, "llm_base_url", validate_llm_base_url(self.llm_base_url))
+        # 备用端点只允许 https（置空=禁用）；回显的是部署方自己的配置值，非凭据。
+        fallback = self.image_fallback_url.strip()
+        if fallback and not fallback.startswith("https://"):
+            raise ValueError(
+                "HUTUJI_IMAGE_FALLBACK_URL 必须是 https:// 或置空禁用，"
+                f"当前 {self.image_fallback_url!r}"
+            )
+        object.__setattr__(self, "image_fallback_url", fallback)
         # 非 loopback 一律拒绝：锁定决策是「/mcp 只本机可达，公网由 nginx 404」。
         # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
         # 0.0.0.0 在生产静默无效、在开发直跑 `python -m hutuji_mcp.server` 却是真裸曝。
@@ -148,6 +160,9 @@ def load_settings() -> Settings:
         output_dir=_resolve_output_dir(),
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
         # 默认仅本机监听；公网只让 nginx 反代 /files，绝不直曝 /mcp。
+        image_fallback_url=os.environ.get(
+            "HUTUJI_IMAGE_FALLBACK_URL", "https://imagefree.tingfengai.art/v1/generate"
+        ),
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),

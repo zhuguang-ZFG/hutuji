@@ -1573,6 +1573,154 @@ def test_bitmap_generation_response_capped_at_read_stage(
     with pytest.raises(bitmap_svg.BitmapError, match="响应超过读取上限"):
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
 
+def _fallback_settings() -> SimpleNamespace:
+    """带备用端点的 settings：agnes 三件套 + image_fallback_url。"""
+    return SimpleNamespace(
+        llm_api_key="k",
+        llm_base_url="https://x.invalid/v1",
+        image_model="m",
+        image_fallback_url="https://fb.invalid/v1/generate",
+    )
+
+
+def test_bitmap_fetch_falls_back_to_free_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """agnes 持续 500 → 备用端点（扁平 image_url）出图；备用请求形状钉死。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    agnes_calls = 0
+    fallback_payloads: list[dict] = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        nonlocal agnes_calls
+        if request.url.path.endswith("/images/generations"):
+            agnes_calls += 1
+            return _httpx.Response(500)
+        if request.url.path.endswith("/v1/generate"):
+            fallback_payloads.append(json.loads(request.content))
+            return _httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "image_url": "https://cdn.example/fb.png",
+                    "error": None,
+                },
+            )
+        return _httpx.Response(200, content=_png_stub())
+
+    body = asyncio.run(
+        bitmap_svg._fetch_image_png("五角星", transport=_httpx.MockTransport(handler))
+    )
+    assert body == _png_stub()
+    assert agnes_calls == 3, "主链两次瞬态重试耗尽后才降级"
+    assert len(fallback_payloads) == 1
+    assert "线稿" in fallback_payloads[0]["prompt"]
+    assert "五角星" in fallback_payloads[0]["prompt"]
+    assert fallback_payloads[0]["aspect_ratio"] == "1:1"
+    assert "model" not in fallback_payloads[0], "备用端点请求不带 model 字段"
+
+
+def test_bitmap_fetch_fallback_business_error_not_echoed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """备用端点 200+status=error：error 自由文本（内容安全原因等）不得回显。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(500)
+        return _httpx.Response(
+            200,
+            json={"status": "error", "error": "内容安全拦截：血腥", "image_url": None},
+        )
+
+    with pytest.raises(bitmap_svg.BitmapError, match="备用生图端点未出图") as exc_info:
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=_httpx.MockTransport(handler)))
+    assert "血腥" not in str(exc_info.value), "上游 error 自由文本不得回显"
+
+
+def test_bitmap_fetch_fallback_completed_without_url_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """备用端点 completed 但缺 image_url = 结构异常，fail-closed。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(500)
+        return _httpx.Response(200, json={"status": "completed", "error": None})
+
+    with pytest.raises(bitmap_svg.BitmapError, match="备用生图端点未返回有效的"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=_httpx.MockTransport(handler)))
+
+
+def test_bitmap_fetch_fallback_failure_reports_both_sides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """主备都失败时错误须带两侧原因（均不含 URL/凭据）。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(500)
+        return _httpx.Response(503)
+
+    with pytest.raises(bitmap_svg.BitmapError) as exc_info:
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=_httpx.MockTransport(handler)))
+    msg = str(exc_info.value)
+    assert "生图 API 返回 500" in msg
+    assert "备用生图端点 返回 503" in msg
+
+
+def test_bitmap_fetch_config_gate_never_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """缺 key 是部署事故，不走备用链——防止失效凭据被免费端点长期掩盖。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="",
+            llm_base_url="https://x.invalid/v1",
+            image_model="m",
+            image_fallback_url="https://fb.invalid/v1/generate",
+        ),
+    )
+    with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_LLM_API_KEY"):
+        asyncio.run(bitmap_svg._fetch_image_png("x"))
+
+
+def test_settings_image_fallback_url_requires_https_or_blank(tmp_path: Path) -> None:
+    """备用端点只放行 https；空白归一为空串（= 禁用）。"""
+    base = dict(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+    )
+    with pytest.raises(ValueError, match="HUTUJI_IMAGE_FALLBACK_URL"):
+        Settings(**base, image_fallback_url="http://fb.example/v1/generate")
+    assert Settings(**base, image_fallback_url="  ").image_fallback_url == ""
+
 
 def _generations_ok_transport(get_handler):  # noqa: ANN001, ANN202
     """生图 POST 恒 200 并返回图片 URL；图片 GET 的行为由 get_handler 注入。"""
