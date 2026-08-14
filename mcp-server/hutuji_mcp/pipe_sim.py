@@ -4,7 +4,16 @@ TCP 连上（假）Grbl，逐行发送并等 ok：
 - 发送前剔除空行与注释（`;` 与 `()`，含行内注释），与 S3 转发约定一致
 - 逐行等 "ok"（默认 60s 超时，对齐换纸阻塞期下限）
 - 收到 "error:8" 按 §7 原地重发同一行（上限 8 次），其余 "error:" 立即停止并记录行号
-- 容忍异步混入的非应答行（[MSG:...]、[PaperStatus] 等）
+- 容忍异步混入的非应答行（[MSG:...]、[PaperStatus]、'<...>' 实时状态行等）
+- 'ALARM:' 前缀行是失败信号（F-SIM-10）：真机运动期间软限位触发异步发
+  'ALARM:2'（Report.cpp:205-207 report_alarm_message 发 CLIENT_ALL），此后
+  ok 永不返回；pipe_sim 识别后结构化失败并携带该 ALARM 行内容，不再挂满
+  60s 超时变成非结构化失败。'<...>' 状态行不是失败信号（ok 仍会返回，
+  Report.cpp 状态报告与行应答并发），继续容忍吞入 info_lines。
+- error:8 行分类差异（F-SIM-03）：grbl_sim 按「行内任意 G0-G3 词」判定运动、
+  真机 protocol_line_is_motion_gcode_g0_g3 按「行首 G 字首位数 0-3」判定；
+  pipe_sim 逐行等 ok 协议下两模型等价（error:8/error:20 分类不同，但都使
+  该行失败，转发行为一致）。
 """
 from __future__ import annotations
 
@@ -115,6 +124,18 @@ def stream_gcode(gcode_path: Path, host: str, port: int,
                         result.error_response = resp
                         result.elapsed_s = time.monotonic() - started
                         return result
+                    # F-SIM-10：真机运动期间软限位会异步发 'ALARM:2'
+                    # （Report.cpp:205-207 report_alarm_message 发 CLIENT_ALL），
+                    # 此后 ok 永不返回——把 ALARM 行吞进 info_lines 继续等会
+                    # 挂满 ok_timeout 变成非结构化超时。ALARM: 是失败信号，
+                    # 必须结构化终止并携带该行内容。
+                    if resp.startswith("ALARM:"):
+                        result.failed_line = idx
+                        result.error_response = resp
+                        result.elapsed_s = time.monotonic() - started
+                        return result
+                    # '<...>' 实时状态行（'?' 触发或自动报告）不是失败信号，
+                    # ok 仍会返回（F-SIM-10 注，Report.cpp 状态报告与应答并发）
                     result.info_lines.append(resp)  # [MSG:...] / [VER:...] 等
                 if resp == "ok":
                     break

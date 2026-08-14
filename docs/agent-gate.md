@@ -37,7 +37,7 @@
 
 本门禁跑在**开发机的仓库树**上；`preflight.sh` 跑在**生产主机的已部署树**上。两者证明的东西不重叠，任一为绿都不能替另一放行：
 
-| | 本门禁（`hub`/`full`） | `preflight.sh`（生产，25 项） |
+| | 本门禁（`hub`/`full`） | `preflight.sh`（生产，26 项） |
 |---|---|---|
 | 对象 | 仓库工作树 | `/opt/hutuji` 已部署文件 + 在跑的服务/nginx |
 | 生成链 | `e2e_local.py` 真跑一次（`hub` 起含） | `check_generate_chain` 用生产 venv 真跑 `svg_to_gcode()`；`check_bitmap_chain` 用生产 venv 真跑 `bitmap_svg --self-test`（与 unit 第二条 ExecStartPre 同入口） |

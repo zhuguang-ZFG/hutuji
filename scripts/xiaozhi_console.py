@@ -374,8 +374,14 @@ def cmd_update_kb(kb_id):
         print(f"✗ 上传失败: {upload_result.get('message', '?')}（旧文档保留）", file=sys.stderr)
         sys.exit(1)
 
-    file_name = upload_result["data"]["file_name"]
-    file_md5 = upload_result["data"]["file_md5"]
+    upload_data = upload_result.get("data") or {}
+    if "file_name" not in upload_data or "file_md5" not in upload_data:
+        # success=true 却缺 file_name/file_md5：应答形状不符。裸取 upload_result["data"]
+        # 会 KeyError traceback；与 api() 的单行脱敏风格同口径收成一行（F-XZ-08）。
+        print("✗ 上传应答缺少 file_name/file_md5（旧文档保留）", file=sys.stderr)
+        sys.exit(1)
+    file_name = upload_data["file_name"]
+    file_md5 = upload_data["file_md5"]
 
     # 创建文档
     create_result = api("POST", "/knowledge-bases/document", {

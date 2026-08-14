@@ -23,9 +23,12 @@ logger = logging.getLogger(__name__)
 CANVAS_X_MM = 190
 CANVAS_Y_MM = 277
 
-# description 输入侧缓解：字数上限 + 剥控制字符（辅助防线，不当主防线）
+# description 输入侧缓解：字数上限 + 剥控制字符（辅助防线，不当主防线）。
+# 剥除范围：C0（\t\n\r 之外）与 DEL（U+007F），外加 Unicode 行分隔符 U+2028/U+2029
+# 与 NEL（U+0085）——后三者不是 C0 但同为行界控制字符，能伪造换行破坏日志/协议
+# 边界，一并剥除（F-DESC-UNICODE-SEP）。
 _DESCRIPTION_MAX_CHARS = 200
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0085\u2028\u2029]")
 
 
 SYSTEM_PROMPT = f"""为写字机生成单线 SVG，只返回一个 <svg>，不要解释、Markdown 或 XML 声明。
@@ -57,9 +60,18 @@ _PI_RE = re.compile(r"<\?")
 _URL_ATTR_RE = re.compile(r"url\s*\(", re.IGNORECASE)
 
 # 元素/属性白名单（组 1.1 + 2.1）——LLM 输出的主防线。
-# 命名空间前缀已在 _local_name 里剥掉，这里比较的是本地名。
+# 匹配一律大小写敏感：XML/SVG 元素与属性名大小写敏感，`<PATH>`/`viewbox` 不是
+# `<path>`/`viewBox`，渲染器按未知元素/属性丢弃（fail-closed 成空产物，模型产出
+# 被静默判死），闸门必须同口径拒绝（F-SVG-CASE-DRIFT）。白名单元素全小写，故
+# 大写变体自然落拒；属性白名单里 viewBox 保持骆驼峰。
+# 元素另做命名空间区分（见 _split_qname/_validate_svg）：仅无命名空间或 SVG
+# 命名空间（http://www.w3.org/2000/svg）的元素过白名单，外命名空间一律拒
+# （F-SVG-NS-DRIFT）。
 _ALLOWED_TAGS = frozenset({"svg", "g", "path", "line", "polyline"})
-# 允许出现的属性（本地名，小写）。凡不在此集合内的属性一律拒。
+# 允许出现的属性（本地名，大小写敏感）。凡不在此集合内的属性一律拒。
+# `xmlns` 不在此列：xml.etree 会把 xmlns 声明从 attrib 剥离（已实测），留该条目
+# 是死条目且误导「允许 xmlns 属性」；命名空间声明本身由元素命名空间校验放行
+# （F-SVG-NS-DRIFT）。
 _ALLOWED_ATTRS = frozenset({
     # 通用
     "id", "class", "transform",
@@ -67,7 +79,7 @@ _ALLOWED_ATTRS = frozenset({
     "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
     "stroke-dasharray", "stroke-dashoffset", "fill",
     # 画布/视口（仅根元素常用）
-    "width", "height", "viewbox", "xmlns", "version",
+    "width", "height", "viewBox", "version",
     # path/line/polyline 的几何属性
     "d",                    # path
     "x1", "y1", "x2", "y2", # line
@@ -79,9 +91,30 @@ class LlmError(RuntimeError):
     """LLM 调用或 SVG 解析失败。"""
 
 
+# SVG 命名空间 URI（元素命名空间校验用，F-SVG-NS-DRIFT）。
+_SVG_NS = "http://www.w3.org/2000/svg"
+
+
 def _local_name(tag: str) -> str:
-    """剥掉命名空间前缀 `{ns}name` → `name`，小写。"""
-    return tag.rsplit("}", 1)[-1].lower()
+    """剥掉命名空间前缀 `{ns}name` → `name`，保留原始大小写。
+
+    不再统一小写：XML/SVG 元素与属性名大小写敏感，白名单必须在原始大小写上做
+    精确匹配（F-SVG-CASE-DRIFT）。`<PATH>`/`viewbox` 是未知元素/属性，渲染器会
+    丢弃它们，闸门必须同口径拒绝而不是放行后静默判死模型产物。
+    """
+    return tag.rsplit("}", 1)[-1]
+
+
+def _split_qname(tag: str) -> tuple[str | None, str]:
+    """拆 ET 的 `{ns}name` → (命名空间 URI, 本地名)；无命名空间时 URI 为 None。
+
+    元素命名空间是注入面：剥掉 `{ns}` 前缀后按本地名过白名单，`{http://evil}path`
+    会被放行而渲染器忽略。命名空间必须显式纳入校验（F-SVG-NS-DRIFT）。
+    """
+    if tag.startswith("{"):
+        ns, _, name = tag[1:].partition("}")
+        return ns, name
+    return None, tag
 
 
 MAX_SVG_BYTES = 256 * 1024
@@ -116,7 +149,9 @@ def _extract_svg(text: str) -> str:
 def _validate_svg(svg: str) -> None:
     """确定性白名单校验（LLM 输出的主防线）：
     - 合法 XML、根是 <svg>
-    - 元素只在 _ALLOWED_TAGS 内（拒 circle/rect/text/script/foreignObject 等）
+    - 元素只接受无命名空间或 SVG 命名空间（http://www.w3.org/2000/svg），且本地名
+      在 _ALLOWED_TAGS 内（拒 circle/rect/text/script/foreignObject 等，外命名空间
+      元素一律拒；元素/属性名匹配大小写敏感，`<PATH>`/`viewbox` 拒）
     - 属性在 _ALLOWED_ATTRS 内（拒 on* 事件属性、href/xlink:href 外链、style 等）
 
     违规抛 `LlmError` 带具体标签/属性名，方便追溯是哪种越权。
@@ -136,15 +171,23 @@ def _validate_svg(svg: str) -> None:
     if root_tag != "svg":
         raise LlmError(f"根标签不是 svg：{root.tag}")
 
-    # 遍历全部元素（含根），逐个查标签 + 属性名/危险属性值。
+    # 遍历全部元素（含根），逐个查命名空间 + 标签 + 属性名/危险属性值。
     for elem in root.iter():
-        local = _local_name(elem.tag)
+        ns, local = _split_qname(elem.tag)
+        # 外命名空间元素一律拒：渲染器忽略未知命名空间的元素，放行等于让模型
+        # 产出被静默判死，或引入不受白名单约束的元素（F-SVG-NS-DRIFT）。
+        if ns not in (None, _SVG_NS):
+            raise LlmError(f"禁用命名空间元素 <{elem.tag}>（仅接受无命名空间或 SVG 命名空间）")
+        # 大小写敏感的精确白名单匹配（F-SVG-CASE-DRIFT）：`<PATH>`/`<Path>`
+        # 不是白名单里的 `path`，必须拒。
         if local not in _ALLOWED_TAGS:
             raise LlmError(f"禁用元素 <{local}>（白名单：{sorted(_ALLOWED_TAGS)}）")
 
         for attr_qname, attr_val in elem.attrib.items():
             attr_local = _local_name(attr_qname)
-            # 事件属性一律拒（on 开头，如 onload/onclick）
+            # 事件属性一律拒（on 开头，如 onload/onclick）。属性名大小写敏感后，
+            # `Onload`/`ONLOAD` 不命中此前缀但同样不在 _ALLOWED_ATTRS，由下方
+            # 白名单兜底拒（XML 属性名大小写敏感，大写变体本就不是事件处理器）。
             if attr_local.startswith("on"):
                 raise LlmError(f"禁用事件属性 {attr_local}（<{local}>）")
             # href/xlink:href 外链拒
@@ -169,7 +212,11 @@ def _validate_svg(svg: str) -> None:
             raise LlmError(f"SVG 嵌套深度超过 {_MAX_DEPTH} 层")
         fill = elem.attrib.get("fill", inherited_fill)
         local = _local_name(elem.tag)
-        if local in {"path", "line", "polyline"} and (fill or "").lower() != "none":
+        # fill 关键字大小写敏感，与渲染器对齐（F-SVG-FILL-CASE）：SVG 规范里
+        # none 必须全小写，fill="None"/"NONE" 不是 none，浏览器回退默认黑色填充，
+        # 公网 /files 直开的 .svg 会显示黑块。继承链路径同口径（inherited_fill
+        # 原样下传，不归一化大小写）。
+        if local in {"path", "line", "polyline"} and (fill or "") != "none":
             raise LlmError(f"<{local}> 的有效 fill 必须为 none")
         for child in elem:
             stack.append((child, fill, depth + 1))
@@ -177,7 +224,12 @@ def _validate_svg(svg: str) -> None:
 
 def _sanitize_description(description: str) -> str:
     """description 输入侧缓解（辅助防线）：限长 + 剥控制字符。
-    真正的注入防御在 `_validate_svg`（输出侧确定性白名单）。"""
+
+    剥除范围如实描述：C0 控制字符（\t\n\r 之外）与 DEL（U+007F），外加 Unicode
+    行分隔符 U+2028/U+2029 与 NEL（U+0085）——后三者不是 C0 但同为行界控制字符，
+    可伪造换行破坏日志/协议边界（F-DESC-UNICODE-SEP）。
+    真正的注入防御在 `_validate_svg`（输出侧确定性白名单）。
+    """
     if not isinstance(description, str):
         raise LlmError(f"description 类型错误：{type(description).__name__}")
     cleaned = _CONTROL_CHAR_RE.sub("", description)

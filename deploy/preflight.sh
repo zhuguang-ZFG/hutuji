@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=25
+EXPECTED_CHECKS=26
 PASS=0
 FAIL=0
 
@@ -289,6 +289,10 @@ check_unit_matches_template() {
 # `daemon-reload` 只更新 unit 快照，不会重启已经 active 的服务；`enable --now` 对
 # 已 active 的服务同样不会重启。因此还要证明 hutuji-mcp 的本次启动确实执行了
 # 两条沙箱内自检（生成链 + 位图描摹链），且主进程不早于本次部署的 unit、代码和 profile。
+# DEP-06：mtime 比较隐含「部署传输不保留旧时间戳」的假设——`scp -p`/`rsync -t`/`cp -p`
+# 会把旧 mtime 一起带上，漏 restart 时 start_epoch 仍 ≥ newest，判据假绿。当前部署
+# 流程用 `install -m 644` / `git show` 管道（新 mtime），该假设成立；传输规范已禁用
+# 保留 mtime 的选项（见 deploy/README.md），改用 `rsync -a` 等工具须同步解禁。
 check_mcp_prestart_and_restart() {
   local prestart started start_epoch newest line
   local saw_gcode=0 saw_bitmap=0 records=0
@@ -297,6 +301,10 @@ check_mcp_prestart_and_restart() {
     /opt/hutuji/deploy/hutuji-mcp.service
     /etc/hutuji/mcp.env
     /opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml
+    # 依赖约束也必须在比较集内（DEP-01）：requirements 全是范围钉（>=x,<y、无
+    # lockfile），重装即可能升级依赖树。改了它却漏 restart 时进程内仍是旧树，
+    # 而生成链/位图链探针用磁盘上的新 venv 真跑反而绿——「文件对但跑的不对」。
+    /opt/hutuji/mcp-server/requirements.txt
   )
   collect_deployed_py || return 1
   deployed_files+=("${DEPLOYED_PY[@]}")
@@ -370,6 +378,9 @@ check_bridge_restart_recency() {
     /etc/systemd/system/hutuji-cloud-bridge.service
     /opt/hutuji/deploy/hutuji-cloud-bridge.service
     /etc/hutuji/bridge.env
+    # 与 mcp 同一个 venv（DEP-01）：requirements 变更漏 restart 时桥接进程内仍是
+    # 旧依赖树（websockets/mcp/mcp-proxy 都在其内），必须同样触发「须重启」判红。
+    /opt/hutuji/mcp-server/requirements.txt
   )
   # bridge 与 mcp 跑的是同一个 hutuji_mcp 包（cloud_bridge.py 在其中），故代码面同源。
   collect_deployed_py || return 1
@@ -417,6 +428,9 @@ VENV_PY=/opt/hutuji/mcp-server/.venv/bin/python
 # 本脚本以 root 跑在 /tmp（sticky 但对 root 无效），预测名与真建名之间存在窗口：
 # 任何本机用户都能在该窗口内把那个名字建成自己的文件或指向别处的符号链接，
 # trap 就替他删。同文件 check_download 用的是真 `mktemp`，此处是唯一的 `-u`。
+# DEP-07 已知盲区：本探针以 root 直跑 $VENV_PY，与 unit 的 `User=hutuji` 运行身份
+# 不同（HOME/XDG 环境变量、沙箱上下文差异，与上面 seccomp SIGSYS 盲区同类）。刻意
+# 不做 runuser 切换：引入 HOME/XDG 变量集差异的风险大于收益，故只登记不绕过。
 check_generate_chain() (
   local svg dst out rc=0
   [[ -x "$VENV_PY" ]] || exit 1
@@ -455,6 +469,9 @@ raise SystemExit(0 if stats.lines > 0 and stats.bytes > 0 else 1)
 # 也刻意不复用「ExecStartPre status=0」那条判据——那只说明**本次启动时**的代码是好的，
 # scp 了坏依赖但没 restart 时它仍是绿的；这一项真跑当前落盘的代码，把那个洞堵掉。
 # 自检不碰网络（探针 PNG 由 stdlib zlib 现造），故不会因生图 API 抖动误红。
+# DEP-07 已知盲区：与 check_generate_chain 相同，以 root 直跑 $VENV_PY，与 unit 的
+# `User=hutuji` 身份不同（与 seccomp SIGSYS 盲区并列）；刻意不做 runuser 切换，
+# 引入 HOME/XDG 变量集差异的风险大于收益，故只登记不绕过。
 check_bitmap_chain() (
   local out rc=0 modpath
   [[ -x "$VENV_PY" ]] || exit 1
@@ -494,6 +511,9 @@ check_bitmap_chain() (
 # 证书过期/未续、隧道 down、边缘路由改错、公网 DNS 记录被改，全都不会让体检红，
 # 而 S3 侧必然下载失败。末行「再验 HTTPS /files」那句人工提示不是判据：没人跑它时
 # 与不存在等价，同一份脚本已有先例（旧 skip 机制让「明文 :80 /files 须 403」形同虚设）。
+# DEP-07 已知盲区：与 check_generate_chain 相同，产物生成以 root 直跑 $VENV_PY，
+# 与 unit 的 `User=hutuji` 身份不同（与 seccomp SIGSYS 盲区并列）；刻意不做 runuser
+# 切换，引入 HOME/XDG 变量集差异的风险大于收益，故只登记不绕过。
 check_download() (
   local mode="$1" h="$TUNNEL_HOST" d="$OUTPUT_DIR" tok f svg headers body code expected_len actual_len expected_crc actual_crc out rc=0
   [[ "$mode" == "local" || "$mode" == "public" ]] || exit 1
@@ -573,11 +593,39 @@ check "mcp.env 权限 600" bash -c '[[ "$(stat -L -c %a /etc/hutuji/mcp.env 2>/d
 check "bridge.env 权限 600" bash -c '[[ "$(stat -L -c %a /etc/hutuji/bridge.env 2>/dev/null || echo x)" == "600" ]]'
 check "mcp.env 无占位、LLM 完整、image_model 非空白且公网前缀为 HTTPS:443" check_mcp_env
 check "bridge.env 无占位且 MCP_ENDPOINT 为 wss://" check_bridge_env
-check "8300 仅本机监听" bash -c 'ss -lnt | grep -q "127.0.0.1:8300" || ss -lnt | grep -q "\[::1\]:8300"'
+# 「8300 有监听」证不到「监听者是本次部署的 uvicorn」（DEP-03）：SO_REUSEADDR
+# 允许残留的旧 Python 进程与新 uvicorn 并存监听同一 127.0.0.1:8300，内核把新
+# 连接分给哪个监听者不保证——2026-07-29 本机实测过「两个 Python 进程与 :8300
+# 关联，连接实际收到旧进程内存中的旧内容」（docs/troubleshooting.md）。此时
+# 下面的 :8300 探针（/mcp、/files、docs 端点）都可能命中旧进程而假绿。故必须
+# 验监听者身份：loopback:8300 的每个监听者都必须归属 hutuji-mcp 的 MainPID；
+# ss 缺位、无监听、非 MainPID 监听者，一律判红（fail-closed）。
+check_8300_listener_owned_by_mcp() {
+  command -v ss >/dev/null || return 1
+  local main_pid line found=0
+  main_pid="$(systemctl show hutuji-mcp -p MainPID --value 2>/dev/null)"
+  [[ "$main_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  # -p 需要 root（preflight 以 root 跑）；只数 loopback:8300 的监听者，
+  # 地址列后随空白避免误配远端地址列。
+  while IFS= read -r line; do
+    found=1
+    [[ "$line" == *"pid=$main_pid,"* ]] || {
+      echo "loopback:8300 存在非 hutuji-mcp（MainPID=$main_pid）的监听者：$line" >&2
+      return 1
+    }
+  done < <(ss -lntp 2>/dev/null | grep -E '(127\.0\.0\.1|\[::1\]):8300[[:space:]]')
+  (( found == 1 )) || return 1
+}
+check "8300 仅本机监听且监听者是 hutuji-mcp 主进程" check_8300_listener_owned_by_mcp
 # `ss` 不在时 `! ss | grep` 会因无输出而假绿（第 5 项那条 fail-closed，这条不是），先探二进制。
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
+# DEP-05：active 只证「在跑」，证不到「重启后还会回来」。install-from-repo.sh
+# 刻意不自动 enable（首次上线流程第 4 步才手动 enable，避免 env 还是 REPLACE_ME 时
+# 服务开机自启），于是运维漏 enable 时：重启前 preflight 全绿、重启后服务永久丢失。
+# 三条服务必须都在 enabled 状态，任一缺失即判红。
+check "hutuji-mcp / hutuji-cloud-bridge / nginx 开机自启（is-enabled）" bash -c 'systemctl is-enabled --quiet hutuji-mcp && systemctl is-enabled --quiet hutuji-cloud-bridge && systemctl is-enabled --quiet nginx'
 check "hutuji-cloud-bridge 已重启且不早于本次 unit/bridge.env/代码" check_bridge_restart_recency
 # active 不证明跑的是哪一版 unit；daemon-reload 也不会重启旧进程。
 check "两个 unit 与模板一致，且已重启并通过 ExecStartPre" check_units_match_templates
@@ -704,6 +752,13 @@ check_nginx_workers_fresh() {
     return 1
   fi
 
+  # DEP-04：error.log 缺失/不可读/路径被改时 awk 会静默扫空，[emerg] 判据假绿。
+  # error_log 指令在 nginx.conf（http 级），模板 md5 判据只覆盖 sites-enabled/hutuji、
+  # 覆盖不到它——路径被改到别处时本扫描落在旧文件上，等于没验。读不到必须显式判红。
+  [[ -r /var/log/nginx/error.log ]] || {
+    echo "error.log 不可读或路径被改：无法扫描 [emerg]，判 fail" >&2
+    return 1
+  }
   # error.log 的时间戳形如 `2026/08/08 20:54:44`，定宽故可与同格式基准做字典序比较。
   since="$(date -d "@$oldest" '+%Y/%m/%d %H:%M:%S' 2>/dev/null)" || return 1
   emerg="$(awk -v s="$since" '/\[emerg\]/ {ts = $1 " " $2; if (ts >= s) print}' \

@@ -54,8 +54,11 @@ def _load_mcp_script(name: str):
 wifi_setup = _load_script("grbl_wifi_setup")
 
 
-# 固件真值（Grbl_Esp32/src/Report.cpp:210/213 成功、:237/239 失败；
-# :506 的 `>{line}:` 回显与状态同行）。
+# 固件真值（Grbl_Esp32/src/Report.cpp:210/213 成功、:237/239 失败）。
+# F-TEST-09：`>{line}:` 形态是防御性兼容——实机 ESP 配置命令（[ESP100/101/110]）
+# 走 system_execute_line 无命令回显，`>{line}:` 仅由 report_execute_startup_message
+# 用于 $N0/$N1 启动行（Report.cpp:505-507，仅被 ProcessSettings.cpp:625/630 调用），
+# 且 ESPResponseStream 的 byid 是假参数（(void)byid）。断言无害、保留。
 @pytest.mark.parametrize(
     ("resp", "reason"),
     [
@@ -420,22 +423,35 @@ def test_main_fails_loudly_when_wifi_restore_is_unconfirmed(monkeypatch, tmp_pat
 
 
 class _FakeWifiSerial:
-    """最小假串口：按序返回预置应答，记录打开参数供断言。不碰真实 COM 口。"""
+    """最小假串口：每次 write 触发下一条预置应答进入缓冲区，read 按 pyserial 语义
+    只吐当前可用字节（可少于请求数，fragment_size 可强制分片）。记录打开参数供断言。"""
 
-    def __init__(self, port, timeout, write_timeout, responses):
+    def __init__(self, port, timeout, write_timeout, responses, fragment_size=None):
         self.port = port
         self.timeout = timeout
         self.write_timeout = write_timeout
         self._responses = list(responses)
+        self._buffer = b""
+        # 模拟 TCP/USB 分片：单次 read 最多吐这么多字节（None = 一次全给）。
+        self._fragment_size = fragment_size
         self.written: list[bytes] = []
-        self.in_waiting = 0
         self.closed = False
 
-    def read(self, _size):
-        return self._responses.pop(0) if self._responses else b""
+    @property
+    def in_waiting(self) -> int:
+        return len(self._buffer)
+
+    def read(self, size):
+        n = min(size, self._fragment_size or size, len(self._buffer))
+        chunk = self._buffer[:n]
+        self._buffer = self._buffer[n:]
+        return chunk
 
     def write(self, payload):
         self.written.append(payload)
+        # 写命令 → 设备应答 的因果关系：每条命令触发下一条预置应答入缓冲。
+        if self._responses:
+            self._buffer += self._responses.pop(0)
 
     def close(self):
         self.closed = True
@@ -446,13 +462,14 @@ class _FakeWifiSerialModule:
 
     SerialException = OSError
 
-    def __init__(self, responses):
+    def __init__(self, responses, fragment_size=None):
         self._responses = responses
+        self._fragment_size = fragment_size
         self.opened: list[_FakeWifiSerial] = []
 
     def Serial(self, port, baud, timeout=None, write_timeout=None):
         """名字须与 pyserial 一致，故不按本仓函数命名风格改小写。"""
-        ser = _FakeWifiSerial(port, timeout, write_timeout, self._responses)
+        ser = _FakeWifiSerial(port, timeout, write_timeout, self._responses, self._fragment_size)
         self.opened.append(ser)
         return ser
 
@@ -483,6 +500,113 @@ def test_wifi_setup_serial_write_is_bounded(monkeypatch):
         "Serial 必须带 write_timeout：无上限的阻塞写会把配网脚本挂死"
     )
     assert fake.opened[0].closed, "退出路径必须关串口"
+
+
+def test_wifi_setup_read_assembles_fragmented_response(monkeypatch, capsys):
+    """F-TOOL-06：应答跨 TCP/USB 分片到达时（单次 read 只能取到部分字节，如
+    'o'+'k' 或 'erro'+'r:3'），必须循环拼出完整行再判定——旧实现单次 read 截断
+    会把合法应答判失败、中止配置。这里 fragment_size=1 强制每条应答逐字节到达，
+    且断言四步命令全部发出（分片截断会在 [ESP110] 就中止，发不到 RESTART）。"""
+    fake = _FakeWifiSerialModule(
+        [
+            b"ok",  # [ESP100] SSID
+            b"ok",  # [ESP101] 密码
+            b"ok",  # [ESP110] STA
+            b"[MSG:Connected IP: 192.168.1.13]",  # 重启后的联网确认
+            b"WiFi Mode: STA",  # [ESP420] 状态
+        ],
+        fragment_size=1,
+    )
+    monkeypatch.setitem(sys.modules, "serial", fake)
+    monkeypatch.setattr(wifi_setup.time, "sleep", lambda *_: None)
+    monkeypatch.setenv("GRBL_WIFI_PASSWORD", "pw")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["grbl_wifi_setup.py", "--port", "COM_FAKE", "--ssid", "Test", "--yes"],
+    )
+
+    assert wifi_setup.main() == 0, "逐字节分片到达也必须拼出完整应答行，不能截断误判"
+    written = b"".join(fake.opened[0].written)
+    assert b"[ESP100]Test\r\n" in written, "SSID 命令必须发出"
+    assert b"[ESP101]pw\r\n" in written, "密码命令必须发出"
+    assert b"[ESP110]STA\r\n" in written, "STA 命令必须发出"
+    assert b"[ESP444]RESTART\r\n" in written, "四步命令都发完才叫没被分片截断中止"
+
+
+def test_wifi_setup_connected_judged_after_esp420_status(monkeypatch, capsys):
+    """F-TOOL-07：STA 恰在重启后读取之后、[ESP420] 之前连上时，connected 必须以
+    [ESP420] 状态行的设备自报为准——旧实现按前两次读取判「未连上」却打出 Connected
+    状态行，exit 1 与展示自相矛盾。"""
+    fake = _FakeWifiSerialModule(
+        [
+            b"ok",  # [ESP100] SSID
+            b"ok",  # [ESP101] 密码
+            b"ok",  # [ESP110] STA
+            b"[MSG:Wifi connecting...]",  # 重启后读取时 STA 还没连上
+            b"WiFi Mode: STA\nConnected to: 192.168.1.13\nSignal: 80%",  # [ESP420] 已连上
+        ]
+    )
+    monkeypatch.setitem(sys.modules, "serial", fake)
+    monkeypatch.setattr(wifi_setup.time, "sleep", lambda *_: None)
+    monkeypatch.setenv("GRBL_WIFI_PASSWORD", "pw")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["grbl_wifi_setup.py", "--port", "COM_FAKE", "--ssid", "Test", "--yes"],
+    )
+
+    assert wifi_setup.main() == 0, "ESP420 自报已连上必须判成功，不得 exit 1"
+    out = capsys.readouterr().out
+    assert "Connected to: 192.168.1.13" in out, "设备自报的 Connected 状态行必须展示"
+
+
+def test_wifi_setup_not_connected_still_fails_closed(monkeypatch, capsys):
+    """F-TOOL-07 负向：boot 与 [ESP420] 状态都没有 Connected/IP 时仍 fail-closed
+    exit 1——联网确认判定只换位置，不许放宽。"""
+    fake = _FakeWifiSerialModule(
+        [
+            b"ok",  # [ESP100] SSID
+            b"ok",  # [ESP101] 密码
+            b"ok",  # [ESP110] STA
+            b"[MSG:Wifi connecting...]",  # 重启后读取时还没连上
+            b"WiFi Mode: STA\nSignal: 0%",  # [ESP420] 状态也没有 Connected/IP
+        ]
+    )
+    monkeypatch.setitem(sys.modules, "serial", fake)
+    monkeypatch.setattr(wifi_setup.time, "sleep", lambda *_: None)
+    monkeypatch.setenv("GRBL_WIFI_PASSWORD", "pw")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["grbl_wifi_setup.py", "--port", "COM_FAKE", "--ssid", "Test", "--yes"],
+    )
+
+    assert wifi_setup.main() == 1, "任何一处都没有 Connected/IP 时必须判失败"
+    err = capsys.readouterr().err
+    assert "WiFi 未确认连上" in err, "失败原因必须单行点明"
+
+
+# ---- F-XZ-08：小智控制台上传应答缺 data 字段 ----
+
+console = _load_script("xiaozhi_console")
+
+
+def test_update_kb_missing_upload_data_fails_single_line(monkeypatch, tmp_path, capsys):
+    """F-XZ-08：上传应答 success=true 却缺 data.file_name/file_md5 时必须按
+    「上传应答缺少 file_name/file_md5」单行报错 exit 1，不能裸 KeyError traceback
+    （应答形状不符是常态，不是异常）。"""
+    monkeypatch.setattr(console, "KNOWLEDGE_BASE_PATH", tmp_path / "knowledge-base.md")
+    (tmp_path / "knowledge-base.md").write_text("内容", encoding="utf-8")
+    monkeypatch.setattr(console, "api", lambda method, path, body=None: {"data": {"list": []}})
+    monkeypatch.setattr(console, "api_upload", lambda path, file_path: {"success": True, "data": {}})
+
+    with pytest.raises(SystemExit) as exc:
+        console.cmd_update_kb("42")
+    assert exc.value.code == 1, "应答形状不符按失败收场，退出码 1"
+    err = capsys.readouterr().err
+    assert "缺少 file_name/file_md5" in err, "必须单行点明缺的是哪两个字段"
+    assert "Traceback" not in err, "不许裸 traceback"
 
 # ============================================================================
 # R11-E2E-01/02/03 + R11-BR-01/02：闭环工具链契约测试。

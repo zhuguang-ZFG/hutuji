@@ -16,10 +16,12 @@ vpype 管线的 SVG 都过同一道闸」是不变量，不因来源可信而豁
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import sys
 import zlib
+from urllib.parse import urlsplit
 
 import httpx
 import numpy as np
@@ -61,6 +63,51 @@ _MIN_POLY_PX = 12
 _SMOOTH_WINDOW = 5
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _validate_image_download_url(url: str) -> None:
+    """生图 API 返回的下载地址必须指向公网 https（IMG-URL-SSRF-GAP）。
+
+    上游 images API 的响应受 prompt 影响，可能返回内网 https 地址；服务器直接
+    GET 该地址等于把内网当代理（SSRF）。判定：
+    - scheme 必须 https；
+    - hostname 是 IP 字面量时用 ipaddress 拒一切非 global 地址（is_global False
+      即拒，覆盖 loopback/private/link-local/reserved/shared 全段）；
+    - hostname 为 'localhost'（大小写不敏感）或以 '.localhost'/'.local'/'.internal'
+      结尾同样拒绝；
+    - 主机名先剥结尾点：DNS 绝对名形态（`127.0.0.1.`、`localhost.`）与裸名等价，
+      不剥会被当成普通域名放行。
+    DNS-rebinding 不在本层防御面：域名先解析到内网再变公网，也无法把内网内容
+    带出——响应还须过 PNG magic，且本模块从不把下载内容回显给调用方。
+    """
+    try:
+        parts = urlsplit(url)
+        # urlsplit 不校验端口：非数字端口要访问 .port 才抛 ValueError。httpx
+        # 构造请求时对这类 URL 抛 InvalidURL（不是 HTTPError 子类，下载循环的
+        # except 捕不到），不在这里拦会裸穿成 500。
+        parts.port
+    except ValueError:
+        # 非法端口等 urlsplit 拒绝的形态按无效地址处理，fail-closed。
+        raise BitmapError("生图 API 未返回有效的 https 图片地址") from None
+    if parts.scheme != "https":
+        raise BitmapError("生图 API 未返回有效的 https 图片地址")
+    host = (parts.hostname or "").rstrip(".")
+    if not host:
+        raise BitmapError("生图 API 未返回有效的 https 图片地址")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        if ":" in host:
+            # 含 ':' 又不是 IP 字面量 = 未加方括号的 IPv6 / 畸形主机名；urlsplit
+            # 与 httpx 对端口的切分不一致，httpx 会抛 InvalidURL 裸穿成 500。
+            raise BitmapError("生图 API 未返回有效的 https 图片地址") from None
+    else:
+        if not ip.is_global:
+            raise BitmapError("生图 API 返回的图片地址指向内网/保留地址段")
+        return
+    lowered = host.lower()
+    if lowered == "localhost" or lowered.endswith((".localhost", ".local", ".internal")):
+        raise BitmapError("生图 API 返回的图片地址指向本地主机名")
 # 解码前的像素数上限。_IMAGE_DOWNLOAD_MAX_BYTES 限的是**压缩**字节，管不住像素数：
 # 全白 PNG 压缩比实测 440~925:1，16MB 上限可携带上万 Mpx。而本模块的预处理链把
 # 像素放大到远超裸图——2026-08-11 本机实测（results 探针，用后即删）：
@@ -335,8 +382,10 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
             image_url = data["data"][0]["url"]
         except (KeyError, IndexError, TypeError) as exc:
             raise BitmapError(f"生图 API 响应结构异常（{type(exc).__name__}）") from exc
-        if not isinstance(image_url, str) or not image_url.startswith("https://"):
+        if not isinstance(image_url, str):
             raise BitmapError("生图 API 未返回有效的 https 图片地址")
+        # 只验 https 前缀挡不住内网 https 地址（SSRF，见 IMG-URL-SSRF-GAP）。
+        _validate_image_download_url(image_url)
 
         # 下载给一次（且仅一次）重试：重新 GET 不再计费（重试 POST 才会），
         # CDN 瞬态断连值得一试；延迟沿用 _RETRY_DELAYS_SECONDS 首段，不另起常量。

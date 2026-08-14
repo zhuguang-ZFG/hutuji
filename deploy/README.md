@@ -13,7 +13,7 @@
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload（**动了 `limit_req` 的 key/zone 必须改成 `restart`**）→ 当前 **25 项** preflight 活动探针。旧 PASS 不能证明新脚本/配置。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`）。
+> 更新顺序固定为：同步模板 → 重建 enabled 精确链接 → `nginx -t` → reload（**动了 `limit_req` 的 key/zone 必须改成 `restart`**）→ 当前 **26 项** preflight 活动探针。旧 PASS 不能证明新脚本/配置。**scp 前必须 LF 归一化**（本地是 CRLF 检出，直传 `preflight.sh` 上机即 `set: pipefail: invalid option name`）。**传输禁用保留 mtime 的选项**（`scp -p` / `rsync -t` / `cp -p`，DEP-06）：preflight 的「主进程不早于本次部署」判据依赖 mtime 比较，保留旧时间戳会让漏 restart 也全绿。
 > preflight **无 skip 状态**（曾有的 `OPTIONAL_SKIP` 与 pass 等价放行，已删）：输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；取不到非 loopback IPv4 判 fail 而非跳过。
 >
 > **`daemon-reload` 会清空所有 unit 的 `ExecStartPre` 执行记录**（2026-08-11 生产实测）。
@@ -79,7 +79,7 @@ bash /opt/hutuji/deploy/prepare-host.sh
 2. 放 TLS 到 `/etc/nginx/ssl/hutuji/{fullchain,privkey}.pem`（或改 nginx 路径）。  
 3. `bash /opt/hutuji/deploy/install-from-repo.sh`  
 4. `systemctl enable hutuji-mcp hutuji-cloud-bridge nginx && systemctl restart hutuji-mcp hutuji-cloud-bridge && systemctl start nginx`。必须显式 `restart`：更新时服务通常已经 active，`enable --now` 不会重启，新增的 `ExecStartPre` 也就不会执行。
-5. `nginx -t && systemctl reload nginx`（**若本次改了 `limit_req` 的 key 或 zone，这里必须 `systemctl restart nginx`**——见上方「nginx reload 陷阱」，reload 会被 `[emerg]` 静默丢弃而 `systemctl` 仍报成功），成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 25 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，「位图描摹链」项（`check_bitmap_chain`）会用生产 venv 以与 unit 相同的入口真跑一次位图描摹自检。
+5. `nginx -t && systemctl reload nginx`（**若本次改了 `limit_req` 的 key 或 zone，这里必须 `systemctl restart nginx`**——见上方「nginx reload 陷阱」，reload 会被 `[emerg]` 静默丢弃而 `systemctl` 仍报成功），成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 26 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，「位图描摹链」项（`check_bitmap_chain`）会用生产 venv 以与 unit 相同的入口真跑一次位图描摹自检。
 6. 公网：`/mcp` 须 404；**`/docs`、`/redoc`、`/openapi.json` 与任意随机路径也须 404**（历史上它们是自指 301 环，见 `../docs/deployment.md`）；直连明文 `http://117.72.118.95/files/*` 须 403 而其他路径须 301；`/files/` 只经 HTTPS。
 7. 小智控制台 `tools/list`（阶段 6）；证据写入 `docs/templates/release-manifest.md`。
 

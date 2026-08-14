@@ -727,6 +727,40 @@ def test_message_label_still_rejects_non_json_and_bad_utf8() -> None:
     assert _message_label(b"\xff\xfe not utf8") == "unknown"
 
 
+def test_message_label_survives_oversized_int_id() -> None:
+    """云端可下发超过 CPython int↔str 位数上限（默认 4300 位）的整数 id：
+    `json.loads` 抛 ValueError 而非 JSONDecodeError（BRG-11-01，与深嵌套
+    RecursionError 同族的云端可控解析边界，旧捕获元组只漏了这一形态）。
+
+    fail-open 铁律同深嵌套用例：解析/日志问题不得升级成掀掉会话。
+    """
+    from hutuji_mcp import cloud_bridge
+
+    big = "9" * 5000
+    assert (
+        _message_label('{"jsonrpc":"2.0","id":' + big + ',"method":"tools/call"}')
+        == "unknown"
+    )
+    # 解析面同口径：不武装、不结清（None = 读不懂则整体结清的既有语义）、不抛错。
+    assert cloud_bridge._request_ids('{"id":' + big + ',"method":"tools/call"}') == []
+    assert cloud_bridge._response_ids('{"id":' + big + "}") is None
+
+
+def test_cancel_ids_survives_oversized_digit_string() -> None:
+    """requestId 为超位数数字**字符串**时 json.loads 不炸，炸的是归一化的
+    `int(cancel_id)`（BRG-11-01）。必须 fail-open：保留原 str 形态结清，
+    不追加 int 形态、不抛错掀会话。"""
+    from hutuji_mcp import cloud_bridge
+
+    big = "9" * 5000
+    msg = '{"method":"notifications/cancelled","params":{"requestId":"' + big + '"}}'
+    assert cloud_bridge._cancel_ids(msg) == [big]
+    # 位数上限内的数字串仍须产出 str/int 双形态（R7-WD-06 语义不回归）。
+    assert cloud_bridge._cancel_ids(
+        '{"method":"notifications/cancelled","params":{"requestId":"42"}}'
+    ) == ["42", 42]
+
+
 def test_session_activity_only_counts_inflight_requests() -> None:
     """R7：stall_seconds 必须只在「有已转发、未回应的请求」时计时。
 
@@ -1303,6 +1337,46 @@ def test_watchdog_stall_covers_mcp_client_sse_read_timeout() -> None:
     assert cloud_bridge.WATCHDOG_STALL_SECONDS == sdk_default == 300
 
 
+def test_sdk_404_synthesizes_session_terminated_without_reinit() -> None:
+    """BRG-11-04：判死指纹依赖的 SDK 内部行为交叉钉死（404 → 合成 32600，不重 initialize）。
+
+    与 test_watchdog_stall_covers_mcp_client_sse_read_timeout 同属「签名级交叉
+    钉死」：本仓 `cloud_bridge._is_session_terminated_response`（及 R10-BRG-01
+    判死路径）依赖 mcp SDK client（mcp/client/streamable_http.py 的
+    StreamableHTTPTransport）的一个**内部行为**——POST 收到 404 时只对当次请求
+    合成一条 `Session terminated` 错误回包并立即返回，**不重新 initialize、不重建
+    会话**（mcp 1.28.1 源码实测存在）。若 SDK 升版改为「404 后自动重发 initialize
+    或自愈会话」，本仓判死路径会静默变成死代码，而既有 95+3 项测试无一变红——
+    sse_read_timeout 那处签名钉死照旧通过。这里用 inspect.getsource 把该行为钉死：
+    路径存在、合成形状正确、404 分支内无重初始化，SDK 升版改行为即红。
+    """
+    import inspect
+
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    handle_post = inspect.getsource(StreamableHTTPTransport._handle_post_request)
+    send_error = inspect.getsource(
+        StreamableHTTPTransport._send_session_terminated_error
+    )
+
+    # 1) 404 → 合成错误的路径必须仍在（路径没了，判死指纹就失去触发源）。
+    assert "response.status_code == 404" in handle_post
+    assert "_send_session_terminated_error" in handle_post
+
+    # 2) 合成形状必须是 32600 + "Session terminated"（判死指纹按它匹配；
+    #    code 正负号差异桥接侧已兼容，这里钉 SDK 侧写的正 32600）。
+    assert "code=32600" in send_error
+    assert '"Session terminated"' in send_error
+
+    # 3) 404 分支体（从 404 判断到下一个平级语句）必须「合成后立即 return」且不含
+    #    initialize：SDK 若在该分支内插入重初始化/重发，判死指纹将失联成死代码。
+    branch = handle_post.split("response.status_code == 404", 1)[1]
+    branch = branch.split("response.raise_for_status()", 1)[0]
+    assert "_send_session_terminated_error" in branch
+    assert "return" in branch
+    assert "initialize" not in branch
+
+
 def test_safe_stderr_line_redacts_mcp_session_id() -> None:
     """mcp-proxy 0.12 的 log_request 恒打请求头且只掩 authorization/x-api-key/
     cookie，mcp-session-id 明文进 stderr（BRG-P3a）。会话 id 可对 loopback 面
@@ -1314,6 +1388,21 @@ def test_safe_stderr_line_redacts_mcp_session_id() -> None:
     safe = _safe_stderr_line(raw)
     assert "deadbeefcafe1234" not in safe
     assert "mcp-session-id" in safe
+
+
+def test_safe_stderr_line_redacts_received_session_id_narrative() -> None:
+    """MCP SDK client 每次会话建立打叙述形态日志 `Received session ID: <32hex>`
+    （mcp/client/streamable_http.py，uuid4().hex），经 mcp-proxy 默认 INFO
+    basicConfig 直落 stderr——header 形态的 mcp-session-id 规则匹配不到它
+    （BRG-11-02 端到端实测复现）。该值可对 loopback 面重放已建立的 /mcp 会话，
+    与 header 形态同口径：保留 key 供诊断，值必须涂掉。"""
+    raw = (
+        "[I mcp.client.streamable_http] "
+        "Received session ID: 51822e63b8b04bde987e8a60f90f7bec"
+    )
+    safe = _safe_stderr_line(raw)
+    assert "51822e63b8b04bde987e8a60f90f7bec" not in safe
+    assert "session ID:" in safe
 
 
 def test_proxy_to_cloud_drops_partial_line_at_eof() -> None:

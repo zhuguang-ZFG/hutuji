@@ -286,7 +286,7 @@ output/      生成产物（运行时创建）
 > **执行顺序与每阶段通过判据**，见 `../docs/bringup-sop.md`（9 阶段 SOP）。
 > 本清单的组 3/4 对应 SOP 的**阶段 3–4**（③ 本地跑通 + 契约合规），组 0–2 是其前置。
 
-**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，`7aab460`（含 `/mcp` loopback 守卫与位图描摹链自检）生产 preflight **25/25 PASS**（含生成链项、位图描摹链项与两项 nginx 运行态判据），公网 `/mcp` 404、8300 不可达、非 loopback 对端 `/mcp` 404（在同代码临时实例 `0.0.0.0:8399` 上取证；生产 unit 只绑 loopback，非 loopback 连不上回 `000`），官方云路径已触发 `draw/status/abort`。
+**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，`7aab460`（含 `/mcp` loopback 守卫与位图描摹链自检）生产 preflight **26/26 PASS**（含生成链项、位图描摹链项、两项 nginx 运行态判据与开机自启 is-enabled 判据），公网 `/mcp` 404、8300 不可达、非 loopback 对端 `/mcp` 404（在同代码临时实例 `0.0.0.0:8399` 上取证；生产 unit 只绑 loopback，非 loopback 连不上回 `000`），官方云路径已触发 `draw/status/abort`。
 
 历史实施顺序（均已完成，勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → 组 4。
 

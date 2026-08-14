@@ -236,6 +236,10 @@ def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
         # layout：等比缩放 + 居中到边距内，兜住 LLM 构图散布（见 LAYOUT_MARGIN_MM）。
+        # GC-02：零宽/零高几何（纯竖直线等）的归一化依赖 vpype layout 内部对
+        # 零跨度缩放比的 numpy inf/NaN 语义兜底——上游 read 已丢弃零长段，生产
+        # 链不可达该分支，此处只登记依赖关系、不另做防御；改 layout 调用方式前
+        # 必须先证明零跨度几何仍被 vpype 正确处理，不能靠「没炸过」当依据。
         "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
         f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
@@ -585,8 +589,22 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
 
         # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。裸轴字同样是模态运动，
         # 不能因本行没有显式 G 字而跳过。
-        if has_motion and coords:
-            seen_xy_motion = True
+        # 零运动闸要求实际位移（GC-01）：目标点 != 当前坐标才算有内容（含 G2/G3
+        # 终点）；零行程（终点 == 起点，如定位同点后的 G2 X100 Y100 I0 J0 /
+        # G1 X100 Y100）不再计入——否则「定位 + 零行程」文件仍能骗过闸，放行
+        # 即画白纸。当前坐标未知（首个定位前）时带坐标即视为位移：从未知位置
+        # 到目标必然是移动。G0 是抬笔态空走（hutuji_gwrite.toml「G0 X..Y.. ←
+        # 抬笔态空走到起点」，空走不落墨），不计入运动闸——空走 + 零行程同样
+        # 画不出任何东西；生产产物的落墨行全是 G1。
+        if has_motion and coords and active_motion != "G0":
+            displaced = False
+            for axis, target in coords:
+                cur = cur_x if axis == "X" else cur_y
+                if cur is None or target != cur:
+                    displaced = True
+                    break
+            if displaced:
+                seen_xy_motion = True
         if has_motion:
             for axis, val in coords:
                 limit = MAX_X_MM if axis == "X" else MAX_Y_MM

@@ -29,7 +29,8 @@ from hutuji_mcp.llm_svg import (
         (
             "<svg><foreignObject><body xmlns='http://www.w3.org/1999/xhtml'>"
             "x</body></foreignObject></svg>",
-            "foreignobject",
+            # 白名单匹配大小写敏感后，错误消息带原始标签大小写（F-SVG-CASE-DRIFT）
+            "foreignObject",
         ),
         ("<svg><path d='M0 0' fill='red'/></svg>", "fill"),
         (
@@ -561,3 +562,78 @@ def test_validate_svg_rejects_depth_above_contract_limit() -> None:
     """
     with pytest.raises(LlmError, match="嵌套深度"):
         _validate_svg(_nested_svg(65))
+
+
+# ---- SVG 大小写漂移（F-SVG-CASE-DRIFT）与命名空间漂移（F-SVG-NS-DRIFT）----
+# XML/SVG 元素与属性名大小写敏感。旧实现 _local_name 统一小写后过白名单，
+# `<PATH>`/`viewbox` 被放行，但渲染器按未知元素/属性丢弃（fail-closed 成空产物，
+# 模型产出被静默判死）；剥命名空间前缀后按本地名过白名单，`{http://evil}path`
+# 也被放行而渲染器忽略。以下矩阵钉死：大小写变体与外来命名空间一律拒，规范写法
+# （`<path>`/`viewBox`/`fill="none"`/SVG 命名空间前缀）必须仍放行。
+
+
+@pytest.mark.parametrize(
+    ("svg", "reason"),
+    [
+        # 元素标签大小写漂移：白名单元素全小写，大写/首字母大写变体必须拒
+        ("<svg><PATH d='M0 0' fill='none'/></svg>", "PATH"),
+        ("<svg><Path d='M0 0' fill='none'/></svg>", "Path"),
+        # 属性名大小写漂移：viewBox 是骆驼峰，全小写/全大写变体必须拒
+        ("<svg viewbox='0 0 10 10'><path d='M0 0' fill='none'/></svg>", "viewbox"),
+        ("<svg VIEWBOX='0 0 10 10'><path d='M0 0' fill='none'/></svg>", "VIEWBOX"),
+        # 命名空间漂移：外命名空间 + 白名单本地名（`{http://evil}path`）必须拒
+        (
+            "<svg xmlns='http://www.w3.org/2000/svg'>"
+            "<g xmlns='http://evil'><path d='M0 0' fill='none'/></g></svg>",
+            "命名空间",
+        ),
+    ],
+)
+def test_rejects_case_and_namespace_drift(svg: str, reason: str) -> None:
+    with pytest.raises(LlmError, match=reason):
+        _validate_svg(svg)
+
+
+@pytest.mark.parametrize(
+    "svg",
+    [
+        # 合法对照：规范写法必须仍放行（大小写敏感白名单的正面用例）
+        "<svg viewBox='0 0 190 190'><path d='M0 0' fill='none'/></svg>",
+        # xmlns 默认声明：ET 解析后元素带 `{http://www.w3.org/2000/svg}` 前缀，
+        # 属 SVG 命名空间，必须放行（F-SVG-NS-DRIFT 的正面用例）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'>"
+        "<path d='M0 0 L1 1' fill='none'/></svg>",
+        # 显式前缀绑定 SVG 命名空间：`<s:path>` 经 ET 解析同样属 SVG 命名空间
+        "<svg xmlns:s='http://www.w3.org/2000/svg' viewBox='0 0 10 10'>"
+        "<s:path d='M0 0 L1 1' fill='none'/></svg>",
+    ],
+)
+def test_accepts_case_and_namespace_drift_controls(svg: str) -> None:
+    _validate_svg(svg)
+
+
+# ---- fill 关键字大小写（F-SVG-FILL-CASE）----
+# SVG 规范 none 关键字大小写敏感：fill="None"/"NONE" 不是 none，浏览器回退默认
+# 黑色填充，公网 /files 直开的 .svg 会显示黑块。旧实现 .lower() 比较把大写变体
+# 放行了，改为精确 == "none"（继承链同口径）。
+@pytest.mark.parametrize("fill", ["None", "NONE", "NoNe"])
+def test_validate_svg_rejects_non_exact_none_fill(fill: str) -> None:
+    with pytest.raises(LlmError, match="fill"):
+        _validate_svg(f"<svg><path d='M0 0' fill='{fill}'/></svg>")
+
+
+def test_validate_svg_rejects_inherited_uppercase_none_fill() -> None:
+    """继承链上的 fill="None" 同样按非 none 拒（与直接书写同一口径）。"""
+    with pytest.raises(LlmError, match="fill"):
+        _validate_svg(
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<g fill="None"><path d="M0 0 L1 1" stroke="black"/></g></svg>'
+        )
+
+
+# ---- description 剥 Unicode 行分隔符（F-DESC-UNICODE-SEP）----
+def test_description_strips_unicode_line_separators() -> None:
+    """U+2028/U+2029（Unicode 行/段分隔符）与 U+0085（NEL）不是 C0 控制字符，
+    但同为行界控制字符，可伪造换行破坏日志/协议边界，必须一并剥除。"""
+    cleaned = _sanitize_description("a\u2028b\u2029c\u0085d")
+    assert cleaned == "abcd"

@@ -311,9 +311,12 @@ async def hutuji_status() -> str:
     await asyncio.to_thread(_cleanup_expired_outputs)
     out = settings.output_dir
     def _safe_mtime(p: Path) -> float:
+        # 与 _cleanup_expired_outputs（捕 OSError 记 warning）和 _serve_file（塌 404）
+        # 同口径（SC-01）：stat 的任意 OSError（权限/竞态/目录消失）都按 0.0 处理，
+        # 不让健康查询因单个文件读不到 stat 而变 500。
         try:
             return p.stat().st_mtime
-        except FileNotFoundError:
+        except OSError:
             return 0.0
     # 只统计能力命名的产物：手工放进目录的外来 .gcode 不属于本服务产出，
     # 混入会让 gcode_files/latest 反映不出真实的生成活动。
@@ -414,6 +417,19 @@ class LoopbackOnlyMcpGuard:
             await self._app(scope, receive, send)
             return
         path = scope.get("path", "")
+        # root_path 归一（SC-02）：uvicorn --root-path /x 下 scope["path"] 是完整
+        # 路径（带 /x 前缀）、scope["root_path"]="/x"，Starlette 剥掉 root_path
+        # 后才路由到 /mcp 子应用。守卫若按裸 path 前缀匹配，`/x/mcp` 会透传守卫
+        # 再被 Starlette 剥前缀命中控制面。当前生产 unit 钉死 --host 127.0.0.1
+        # 且无 --root-path，今天不可达；这是守卫承诺的纵深缺口，按 root_path 剥
+        # 前缀再比对。剥法按路径段："/x" 只剥自身与 "/x/..."，不误伤 "/xmcpx"。
+        root_path = scope.get("root_path") or ""
+        if root_path:
+            root = root_path.rstrip("/")
+            if path == root:
+                path = "/"
+            elif path.startswith(root + "/"):
+                path = path[len(root):]
         # 按路径段匹配：`/mcpx` 不是 MCP 端点，不能连带拦掉。
         if path != _MCP_PATH and not path.startswith(f"{_MCP_PATH}/"):
             await self._app(scope, receive, send)

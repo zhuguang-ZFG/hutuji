@@ -29,6 +29,41 @@ import time
 # SERIAL_WRITE_TIMEOUT_S 同口径，那边 2.0s 是采集场景，这里交互场景取 3s）。
 SERIAL_WRITE_TIMEOUT_S = 3.0
 
+# 应答读取的静默窗口与总截止时间（秒）。pyserial 的 read(N) 只返回**当前可用**
+# 字节（可小于 N），in_waiting 是瞬时值：应答跨 TCP/USB 分片时单次 read 会截断
+# （如只读到 'erro'）被 classify_response 判失败，合法配置被中止（F-TOOL-06）。
+# 配置命令的应答是几行文本，115200bps 下毫秒级到齐，静默窗口不必大；截止时间
+# 兜底慢设备——宁可多等，也不许把合法配置误判失败。
+READ_QUIET_S = 0.2
+READ_DEADLINE_S = 3.0
+
+
+def _read_response(s, *, quiet_s: float = READ_QUIET_S, deadline_s: float = READ_DEADLINE_S) -> str:
+    """循环拼读一条命令的完整应答（F-TOOL-06），返回解码后的文本。
+
+    pyserial 经典坑：`s.read(N)` 返回当前可用字节（可小于 N），应答跨 TCP/USB
+    分片时单次读会截断（如只读到 'erro'）；固定 `sleep(1)` 再单次读既等不齐分片、
+    也等不了慢设备。这里轮询 `in_waiting` 拼字节，直到「静默 quiet_s 无新数据」
+    （应答行以 CRLF 结束，静默即行已完整）或截止时间。返回空串 = 设备无应答，
+    由调用方按 fail-closed 处置。
+    """
+    deadline = time.monotonic() + deadline_s
+    buf = bytearray()
+    last_data_at = time.monotonic()
+    while time.monotonic() - last_data_at < quiet_s:
+        if time.monotonic() >= deadline:
+            break
+        n = s.in_waiting
+        if n:
+            chunk = s.read(n)
+            if chunk:
+                buf += chunk
+                last_data_at = time.monotonic()
+                continue
+        time.sleep(0.02)
+    return buf.decode("ascii", errors="replace").strip()
+
+
 def _validate_serial_value(value: str, label: str, *, allow_empty: bool = False) -> None:
     """拒绝会把单条 ESP 配置命令拆成多条的控制字符。"""
     if not value and not allow_empty:
@@ -58,15 +93,14 @@ def _mask_secret(text: str, secret: str) -> str:
 def classify_response(resp: str) -> tuple[bool, str]:
     """判定一条 ESP 配置命令的应答，返回 (是否成功, 用于展示的关键行)。
 
-    不能用 `"ok" in resp` 子串判定：固件在 verbose 回显下把原命令和状态拼在
-    同一行（`Report.cpp:506` 的 `>{line}:` 紧接 `report_status_message`），
-    而 SSID/密码本身可能含 "ok"（BookCafe、Tokyo5G），于是失败应答
-    `>[ESP100]Tokyo5G:error:3` 会被读成成功，脚本继续发 `[ESP444]RESTART`，
-    击穿「任一命令失败即中止、不重启」的约定。
+    不能用 `"ok" in resp` 子串判定：SSID/密码本身可能含 "ok"（BookCafe、
+    Tokyo5G），应答里只要带状态文本就可能被读成成功，脚本继续发
+    `[ESP444]RESTART`，击穿「任一命令失败即中止、不重启」的约定。
 
-    固件真值（`Report.cpp:210/213/237/239`）：
-    成功 = 独立一行 `ok`；失败 = `error:<N>` 或 `error: <文本>`。
-    回显形态下二者分别以 `:ok` 结尾、含 `:error:`。
+    固件真值（`Report.cpp:210/213/237/239`）：成功 = 独立一行 `ok`；
+    失败 = `error:<N>` 或 `error: <文本>`。行尾的 `:ok`/`:error:` 形态是防御性
+    兼容、保留（F-TEST-09：实机 ESP 配置命令走 system_execute_line 无
+    `>{line}:` 命令回显，该形态仅 $N0/$N1 启动行产生）。
     """
     lines = [line.strip() for line in resp.splitlines() if line.strip()]
     # error 优先：固件可能先 webPrint 若干信息行再给状态，且失败必须压过任何
@@ -143,10 +177,9 @@ def main() -> int:
         failures: list[str] = []
 
         def send_cmd(cmd: str, desc: str) -> bool:
-            """发一条 ESP 命令并判定应答；返回是否 ok。失败由调用方决定是否中止。"""
+            """发一条 ESP 配置命令并判定应答；返回是否 ok。失败由调用方决定是否中止。"""
             s.write(f"{cmd}\r\n".encode())
-            time.sleep(1)
-            resp = s.read(s.in_waiting or 512).decode("ascii", errors="replace").strip()
+            resp = _read_response(s)
             ok, key_line = classify_response(resp)
             # 展示 error 行而非首行：固件可能先回显命令再给状态，只印首行会把
             # 真实失败原因藏掉。设置密码的应答会回显完整命令（含密码），必须脱敏。
@@ -171,21 +204,23 @@ def main() -> int:
         print("重启写字机...")
         s.write(b"[ESP444]RESTART\r\n")
         time.sleep(5)
-
-        data = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
-        if not ("Connected" in data or "IP:" in data):
-            print("等待 WiFi 连接...")
-            time.sleep(5)
-            data = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
-        connected = "Connected" in data or "IP:" in data
+        boot = _read_response(s)
 
         s.write(b"[ESP420]\r\n")
         time.sleep(2)
-        status = s.read(s.in_waiting or 2048).decode("ascii", errors="replace")
-        for line in status.splitlines():
+        status = _read_response(s)
+
+        report = f"{boot}\n{status}"
+        for line in report.splitlines():
             if any(k in line for k in ["WiFi Mode", "Connected", "IP:", "Signal"]):
                 print(f"  {line.strip()}")
 
+        # F-TOOL-07：联网确认以 [ESP420] 状态行读完后**设备自报**为准，不再按重启
+        # 后前两次读取判定——STA 恰在旧判读之后、[ESP420] 之前连上时，旧实现会打出
+        # Connected 状态行却 exit 1，自相矛盾。实机依据：WifiConfig.cpp:213 的
+        # `[MSG:Connected with <IP>]` 与 WebSettings.cpp:438-440 [ESP420] 的
+        # 'Connected to: ' 都由设备侧发出，后到者同样算数。
+        connected = "Connected" in report or "IP:" in report
         if not connected:
             failures.append("WiFi 未确认连上（未见 Connected/IP:）")
         if failures:

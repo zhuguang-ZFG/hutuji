@@ -514,6 +514,10 @@ def test_grbl_sim_payload_length_boundary_is_254_bytes() -> None:
 
 
 def test_grbl_sim_non_ascii_replies_error11() -> None:
+    """F-SIM-02：≥0x80 多字节序列（如中文）仍按 §5/§3 契约回 error:11——
+    真机把它们当实时字符提取（Serial.cpp:240）不产生 error:11，仿真差异有意
+    （回归网钉文件契约）。单字节实时字符 0x85 走实时旁路静默（F-SIM-01，
+    见 test_grbl_sim_realtime_characters_are_silent 对照）。"""
     from hutuji_mcp import grbl_sim
 
     assert grbl_sim._contract_violation("G1 X10 Y10 中文 F8000") == "error:11"
@@ -575,10 +579,63 @@ async def _drive_sim(
         await server.wait_closed()
 
 
+def test_grbl_sim_question_mark_replies_idle_status() -> None:
+    """F-SIM-01：'?' 实时状态查询走旁路立即回 Idle 状态行（真机 Serial.cpp:239-
+    263 is_realtime_command；protocol.md §3：应答只回发送 client），且不吃 ok——
+    修前 '?' 落进 _contract_violation 被回伪造 ok。"""
+    responses = asyncio.run(_drive_sim([b"?\n"], read_timeout_s=0.3))
+    assert responses[0] == "<Idle|MPos:0.000,0.000,0.000|Bf:249,1200|FS:0,0>", responses
+    assert "ok" not in responses, responses
+
+
+@pytest.mark.parametrize("char", [b"!", b"~", b"\x18", b"\x85"])
+def test_grbl_sim_realtime_characters_are_silent(char: bytes) -> None:
+    """F-SIM-01：'!' 急停复位 / '~' 门控暂停 / 0x18 CAN / 0x85 保留实时字节
+    静默吸收不产生应答（修前都落契约判定被回伪造 ok）。0x85 是 ≥0x80 单字节
+    实时字符，必须在 UTF-8 解码前按字节判定（F-SIM-02 对照：多字节中文仍回
+    error:11）。"""
+    responses = asyncio.run(_drive_sim([char + b"\n"], read_timeout_s=0.3))
+    assert responses == ["<client-timeout>"], responses  # 唯一应答是客户端读超时标记
+
+
+def test_grbl_sim_realtime_bypasses_contract() -> None:
+    """F-SIM-01：实时旁路先于契约判定——'?' 行首即使带越界内容也只回状态行，
+    不产生 error:20/error:11。"""
+    responses = asyncio.run(_drive_sim([b"?G1 X191 Y10 F8000\n"], read_timeout_s=0.3))
+    assert responses[0] == "<Idle|MPos:0.000,0.000,0.000|Bf:249,1200|FS:0,0>", responses
+    assert "error:20" not in responses, responses
+
+
+def test_grbl_sim_m300_is_not_paper_change() -> None:
+    """F-SIM-04：M30 判定按 M 字整数值精确匹配（真机 GCode.cpp:486-488
+    int_value==30）——startswith("M30") 会把 M300/M301 误判为换纸命令。
+    M300 是非法词法，应走契约判定回 error:20，而非触发换纸窗口。"""
+    responses = asyncio.run(_drive_sim([b"M300\n"], paper_delay_s=0.3, read_timeout_s=1.0))
+    assert "error:20" in responses, responses
+    assert "[MSG:[PaperStatus]" not in " ".join(responses), responses
+    assert "error:90" not in responses, responses
+
+
+@pytest.mark.parametrize("line", [b"M030\n", b"  M30 \n"])
+def test_grbl_sim_m30_with_padding_triggers_paper_change(line: bytes) -> None:
+    """F-SIM-04：容忍行内空白与前导零——'M 30'/'M030' 真机词法解析为同一
+    整数值 30，仍触发换纸建模。"""
+    responses = asyncio.run(_drive_sim([line]))
+    assert "[MSG:[PaperStatus] 0]" in responses, responses
+    assert "ok" in responses, responses
+
+
 def test_grbl_sim_m30_no_paper_replies_error90() -> None:
-    """R9-SIM-02：GRBL_SIM_NO_PAPER 建模缺纸——M30 回 error:90（§7 换纸失败）。"""
+    """R9-SIM-02 / F-SIM-05：GRBL_SIM_NO_PAPER 建模缺纸——M30 先发
+    [PaperStatus] 5（OUT_OF_PAPER，真机 PaperSystem.cpp:804/811 发 CLIENT_ALL）
+    再回 error:90（§7 换纸失败，protocol.md §7:243 按该码区分失败原因）。
+    修前只回裸 error:90，缺纸与其它失败无法按码区分。"""
     responses = asyncio.run(_drive_sim([b"M30\n"], no_paper=True))
+    assert responses[0] == "[MSG:[PaperStatus] 5]", responses
     assert "error:90" in responses, responses
+    assert (
+        responses.index("[MSG:[PaperStatus] 5]") < responses.index("error:90")
+    ), responses
 
 
 def test_grbl_sim_m30_normal_replies_paper_status_then_ok() -> None:
@@ -592,7 +649,14 @@ def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
 
     两行同包发送：M30 处理期间 G1 已缓冲在服务端——「窗口内到达」按构造成立，
     不依赖调度时序；窗口放宽到 2s、客户端读超时放宽到 10s，只为给慢机留足
-    读应答余量（R11-TQ-02），判据不变：窗口内运动行必须回 error:8。"""
+    读应答余量（R11-TQ-02），判据不变：窗口内运动行必须回 error:8。
+
+    F-SIM-03 差异注：真机对窗口内每条运动行回 error:8，且可经 protocol_
+    service_during_blocking 先于 M30 的 ok 发出（Protocol.cpp:166-174,228-256）；
+    仿真在 M30 应答后才统一处置缓冲行，应答顺序差异有意。行分类口径：
+    仿真按「行内任意 G0-G3 词」、真机按「行首 G 字首位数 0-3」（'G28'/'G20'
+    实机算运动 error:8、仿真算非运动 error:20），pipe_sim 逐行等 ok 协议下
+    两模型等价。"""
     responses = asyncio.run(
         _drive_sim(
             [b"M30\nG1 X10 Y10 F8000\n"],
@@ -772,6 +836,30 @@ def test_pipe_sim_other_error_stops_immediately(tmp_path: Path) -> None:
     assert not result.success
     assert result.failed_line == 1
     assert result.error_response == "error:20"
+
+
+def test_pipe_sim_alarm_is_structured_failure(tmp_path: Path) -> None:
+    """F-SIM-10：真机运动期间软限位触发异步 'ALARM:2'（Report.cpp:205-207
+    report_alarm_message 发 CLIENT_ALL），此后 ok 永不返回——修前把 ALARM 行
+    吞进 info_lines 继续等 ok，挂满 60s 超时变成非结构化失败。ALARM: 前缀行
+    必须结构化终止，且失败信息携带该行内容。"""
+    result = _run_pipe_sim_against([["ALARM:2"]], tmp_path=tmp_path)
+    assert not result.success
+    assert result.failed_line == 1
+    assert result.error_response == "ALARM:2"
+
+
+def test_pipe_sim_status_lines_are_tolerated(tmp_path: Path) -> None:
+    """F-SIM-10：'<...>' 实时状态行不是失败信号（Report.cpp 状态报告与行应答
+    并发，ok 仍会返回），继续容忍吞入 info_lines——与 ALARM: 的差异有意：
+    ALARM 后 ok 永不返回，状态行后 ok 照常。"""
+    result = _run_pipe_sim_against(
+        [["<Idle|MPos:0.000,0.000,0.000|Bf:249,1200|FS:0,0>", "ok"]],
+        tmp_path=tmp_path,
+    )
+    assert result.success, (result.failed_line, result.error_response)
+    assert result.ok_lines == result.total_lines == 1
+    assert any("<Idle|MPos:0.000" in line for line in result.info_lines), result.info_lines
 
 
 # ---------- 第九轮修复：并发 e2e 端口互斥 ----------

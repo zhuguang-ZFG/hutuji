@@ -183,11 +183,26 @@ def test_load_settings_rejects_non_loopback_host(monkeypatch: pytest.MonkeyPatch
 # SDK 自带的 DNS-rebinding 防护挡不住：它校验 `Host` 请求头，而请求头由攻击方
 # 控制。2026-08-09 实测（绑 0.0.0.0，从非 loopback 对端裸 socket）：`Host:
 # 127.0.0.1:<port>` 被 SDK 放行，`initialize` 回 200 与真实 result。
-def _asgi_scope(path: str, client: tuple[str, int] | None) -> dict[str, object]:
-    return {"type": "http", "path": path, "method": "POST", "headers": [], "client": client}
+def _asgi_scope(
+    path: str,
+    client: tuple[str, int] | None,
+    *,
+    root_path: str = "",
+) -> dict[str, object]:
+    scope: dict[str, object] = {
+        "type": "http", "path": path, "method": "POST", "headers": [], "client": client,
+    }
+    if root_path:
+        scope["root_path"] = root_path
+    return scope
 
 
-def _run_guard(path: str, client: tuple[str, int] | None) -> tuple[bool, list[dict[str, object]]]:
+def _run_guard(
+    path: str,
+    client: tuple[str, int] | None,
+    *,
+    root_path: str = "",
+) -> tuple[bool, list[dict[str, object]]]:
     """用裸 ASGI scope 驱动守卫，返回（是否进到内层 app，发出的消息）。
 
     不用 TestClient：本仓测试一律直调被测对象 + monkeypatch 模块全局。
@@ -208,7 +223,7 @@ def _run_guard(path: str, client: tuple[str, int] | None) -> tuple[bool, list[di
         return {"type": "http.request", "body": b"", "more_body": False}
 
     guard = server.LoopbackOnlyMcpGuard(_inner)
-    asyncio.run(guard(_asgi_scope(path, client), _receive, _send))
+    asyncio.run(guard(_asgi_scope(path, client, root_path=root_path), _receive, _send))
     return bool(reached), sent
 
 
@@ -439,6 +454,29 @@ def test_guard_passes_through_non_http_scopes() -> None:
     guard = server.LoopbackOnlyMcpGuard(_inner)
     asyncio.run(guard({"type": "lifespan"}, _noop, _noop))
     assert reached == [True]
+
+
+def test_mcp_guard_respects_root_path_prefix() -> None:
+    """uvicorn --root-path /x 下守卫必须剥 root_path 再比对 /mcp（SC-02）。
+
+    ASGI 规范里 scope["path"] 是含 root_path 的完整路径（uvicorn --root-path
+    时 path=/x/mcp、root_path=/x），Starlette 剥掉 root_path 后才路由到 /mcp
+    子应用。守卫若按裸 path 前缀匹配，`/x/mcp` 会透传守卫再被剥前缀命中控制
+    面——当前生产 unit 钉死 --host 127.0.0.1 且无 --root-path，今天不可达，
+    属守卫承诺的纵深缺口。非 loopback 的 /x/mcp 必须拦，loopback 必须放行；
+    相邻路径（/xmcpx、/x/mcpx）不得被误剥误拦。
+    """
+    reached, sent = _run_guard("/x/mcp", ("9.9.9.9", 1234), root_path="/x")
+    assert reached is False, "root_path 前缀下的 /mcp 同样只接受 loopback 对端"
+    assert sent[0]["status"] == 404
+    reached, _ = _run_guard("/x/mcp", ("127.0.0.1", 50000), root_path="/x")
+    assert reached is True, "root_path 前缀下 loopback 对端必须放行，否则桥接器打不通"
+    # 剥 root_path 必须按路径段：/xmcpx 不是 /x 的子路径，/x/mcpx 剥后也不是
+    # /mcp 端点，都不能被误拦。
+    reached, _ = _run_guard("/xmcpx", ("9.9.9.9", 1234), root_path="/x")
+    assert reached is True
+    reached, _ = _run_guard("/x/mcpx", ("9.9.9.9", 1234), root_path="/x")
+    assert reached is True
 
 
 def test_app_registers_loopback_guard() -> None:
@@ -1710,6 +1748,116 @@ def test_bitmap_download_total_timeout_covers_stream_loop(
         f"必须在滴流读完前中断，实际已收 {delivered['n']}/{drip_chunks} 块"
     )
 
+
+@pytest.mark.parametrize(
+    ("url", "reason"),
+    [
+        # 非 https：沿用原有「有效的 https 图片地址」口径
+        ("http://cdn.example/ok.png", r"有效的 https"),
+        ("https:///ok.png", r"有效的 https"),
+        ("https://cdn.example:abc/ok.png", r"有效的 https"),  # 非数字端口
+        ("https://2001:4860:4860::8888/ok.png", r"有效的 https"),  # 未加方括号 IPv6
+        # IP 字面量非 global（is_global False 即拒）：loopback/private/link-local/
+        # reserved/shared 全覆盖，含 IPv4-mapped 与结尾点（DNS 绝对名）形态
+        ("https://127.0.0.1/ok.png", r"内网|保留"),
+        ("https://127.0.0.1./ok.png", r"内网|保留"),
+        ("https://[::1]/ok.png", r"内网|保留"),
+        ("https://[::ffff:127.0.0.1]/ok.png", r"内网|保留"),
+        ("https://10.0.0.8/ok.png", r"内网|保留"),
+        ("https://192.168.1.13/ok.png", r"内网|保留"),
+        ("https://172.16.5.5/ok.png", r"内网|保留"),
+        ("https://100.64.0.1/ok.png", r"内网|保留"),  # CGNAT shared 段
+        ("https://169.254.169.254/latest/meta-data", r"内网|保留"),
+        ("https://0.0.0.0/ok.png", r"内网|保留"),
+        ("https://[fe80::1]/ok.png", r"内网|保留"),
+        # 本地主机名：localhost 大小写不敏感、剥结尾点，及保留本地 TLD
+        ("https://localhost/ok.png", r"本地主机名"),
+        ("https://LOCALHOST/ok.png", r"本地主机名"),
+        ("https://localhost./ok.png", r"本地主机名"),
+        ("https://x.localhost/ok.png", r"本地主机名"),
+        ("https://x.local/ok.png", r"本地主机名"),
+        ("https://x.internal/ok.png", r"本地主机名"),
+        # userinfo 里的主机名不算数：判据取 hostname
+        ("https://cdn.example@127.0.0.1/ok.png", r"内网|保留"),
+    ],
+)
+def test_bitmap_fetch_rejects_non_public_image_urls(
+    url: str, reason: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生图 API 返回的图片地址必须指向公网 https（IMG-URL-SSRF-GAP）。
+
+    上游 images API 的响应受 prompt 影响，可能返回内网 https 地址；服务器直接
+    GET 该地址等于把内网当代理（SSRF）。拒收必须发生在下载**之前**（不发内网
+    GET）；DNS-rebinding 形态（域名解析到内网）不在本层防御面——响应还须过
+    PNG magic，且本模块从不回显下载内容，见放行对照测试。
+    """
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    get_calls: list[str] = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(200, json={"data": [{"url": url}]})
+        get_calls.append(str(request.url))
+        return _httpx.Response(200, content=_png_stub())
+
+    transport = _httpx.MockTransport(handler)
+    with pytest.raises(bitmap_svg.BitmapError, match=reason):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+    assert not get_calls, f"拒收必须发生在下载之前，不得发起 GET：{url}"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://cdn.example/ok.png",
+        "https://example.com./ok.png",  # 公网域名的结尾点绝对名形态
+        "https://8.8.8.8/ok.png",  # 公网 IP 字面量
+        "https://[2001:4860:4860::8888]/ok.png",  # 公网 IPv6 字面量
+        # DNS-rebinding 形态（域名可先解析到内网）：不在本层防御面——
+        # 响应还须过 PNG magic，且无外带通道，域名形态必须放行。
+        "https://dns-rebinding.example/ok.png",
+    ],
+)
+def test_bitmap_fetch_allows_public_image_urls(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """合法公网地址必须照常下载（IMG-URL-SSRF-GAP 的放行对照）。
+
+    防止 SSRF 闸收得过狠废掉唯一现行生成路线；同时钉死本层防御边界：
+    域名形态一律放行（含可解析到内网的 DNS-rebinding 域名），纵深由
+    PNG magic + 无回显通道承担。
+    """
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(200, json={"data": [{"url": url}]})
+        return _httpx.Response(200, content=_png_stub())
+
+    transport = _httpx.MockTransport(handler)
+    body = asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+    assert body == _png_stub()
+
 def test_bitmap_generate_end_to_end_mocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1927,6 +2075,49 @@ def test_status_ignores_foreign_gcode_files(
     data = json.loads(asyncio.run(server.hutuji_status()))
     assert data["gcode_files"] == 0
     assert data["latest"] is None
+
+
+def test_status_survives_stat_permission_error_on_sort_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_safe_mtime 遇任意 OSError（如 PermissionError）不得让 status 变 500（SC-01）。
+
+    与同文件 _cleanup_expired_outputs（捕 OSError 记 warning）和 _serve_file
+    （塌 404）口径一致：status 是健康查询，单个文件在排序取 mtime 时 stat 失败
+    应按 mtime=0.0 处理、继续返回 JSON。断言用排序可观察行为验证 0.0 生效：
+    被拒 stat 的文件 mtime 归零后排在更老文件之前，latest 指向另一份。
+    """
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    older = f"{server._new_basename()}.gcode"
+    denied = f"{server._new_basename()}.gcode"
+    (tmp_path / older).write_text("G21\nG90\n", encoding="utf-8")
+    (tmp_path / denied).write_text("G21\nG90\n", encoding="utf-8")
+    now = time.time()
+    # older 早 10s；denied 若 stat 正常会是较新者（latest 应为它），
+    # 归零后反而排最前，latest 应落到 older。
+    os.utime(tmp_path / older, (now - 10, now - 10))
+
+    # 只让 denied 在「排序取 mtime」那次 stat 失败，其余 stat（清理 is_file、
+    # _is_expired、status 列表 is_file）照常：stat 调用序列按文件统计为
+    # 1 cleanup is_file → 2 cleanup _is_expired → 3 status is_file → 4 排序 key。
+    stat_calls: dict[str, int] = {}
+    real_stat = Path.stat
+
+    def denied_stat(self: Path, *_args: object, **_kwargs: object) -> object:
+        key = str(self)
+        stat_calls[key] = stat_calls.get(key, 0) + 1
+        if key == str(tmp_path / denied) and stat_calls[key] >= 4:
+            raise PermissionError("stat denied")
+        return real_stat(self)
+
+    monkeypatch.setattr(Path, "stat", denied_stat)
+    import json
+
+    data = json.loads(asyncio.run(server.hutuji_status()))
+    assert data["gcode_files"] == 2, "stat 失败的文件仍应被计入产物数"
+    assert data["latest"] == server._redact_capability_name(older), (
+        "denied 文件 mtime 归零后应排最前，latest 指向较老文件"
+    )
 
 
 def test_draw_limiter_rejects_minute_window() -> None:
@@ -2780,6 +2971,51 @@ def test_gcode_rejects_product_without_xy_motion() -> None:
         validate_gcode(_minimal_gcode("; comment only\n"))
 
 
+def test_gcode_rejects_zero_travel_ij_arc() -> None:
+    """零行程 IJ 弧不得满足运动闸（GC-01）：终点 == 起点，画不出任何东西。
+
+    旧闸「本行带坐标即算运动」把 `G2 X100 Y100 I0 J0`（定位到同点后的原地
+    圆弧）也计入，放行即画白纸。G0 定位是抬笔态空走（hutuji_gwrite.toml 的
+    segment_first 语义，空走不落墨），同样不计入——整份文件只剩空走 + 零行程
+    时按空产物拒收。仅外部 G-code 可达该路径（vpype 不产 G2/G3、read 丢零长段）。
+    """
+    text = _minimal_gcode("G0 X100 Y100 F8000\nG2 X100 Y100 I0 J0 F8000\n")
+    with pytest.raises(GcodeError, match="XY 运动"):
+        validate_gcode(text)
+
+
+def test_gcode_rejects_zero_displacement_g1() -> None:
+    """先定位到同点后的 G1 同点必须不计入运动闸（GC-01）。
+
+    与零行程 IJ 弧同理：G0 空走到 (100,100)（不落墨）+ G1 原地不动，整份文件
+    实际位移为零，放行即画白纸。G1 若真的从当前位置移开（哪怕只移一个轴），
+    仍算运动——见放行对照测试。
+    """
+    text = _minimal_gcode("G0 X100 Y100 F8000\nG1 X100 Y100 F8000\n")
+    with pytest.raises(GcodeError, match="XY 运动"):
+        validate_gcode(text)
+
+
+def test_gcode_motion_gate_still_passes_real_drawings() -> None:
+    """运动闸收紧后合法图必须照常放行（GC-01 放行对照）。
+
+    三种真实形态：单个 G1 画线（首个定位前 cur 未知也视为位移）、G0 空走 +
+    G1 落笔画线（生产 profile 的 segment_first/segment 形态）、以及真位移的
+    G2/G3 圆弧。它们都有实际位移，不能被零行程闸误伤。
+    """
+    stats = validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n"))
+    assert stats.lines == 7
+    stats = validate_gcode(
+        _minimal_gcode(
+            "G0 X100 Y100 F8000\nG1G90 Z5.0F10000\n"
+            "G1 X110 Y100 F8000\nG1G90 Z0.0F10000\n"
+        )
+    )
+    assert stats.lines == 10
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R20 F8000\n"))
+    assert stats.lines == 8
+
+
 def test_gcode_rejects_formfeed_line_splitting_bypass() -> None:
     """行内 \\x0c 不得当行分隔符吞掉（GC-P3c）。
 
@@ -3098,6 +3334,12 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert "parsed.username is None" in preflight
     assert "parsed.password is None" in preflight
     assert "systemctl is-active --quiet hutuji-cloud-bridge" in preflight
+    # DEP-05：is-active 只证「在跑」，证不到「重启后还会回来」。install-from-repo.sh
+    # 刻意不自动 enable（首次上线流程第 4 步才手动 enable），漏 enable 时重启后服务
+    # 永久丢失而 preflight 全绿，故三条服务必须显式验 is-enabled。
+    assert "systemctl is-enabled --quiet hutuji-mcp" in preflight
+    assert "systemctl is-enabled --quiet hutuji-cloud-bridge" in preflight
+    assert "systemctl is-enabled --quiet nginx" in preflight
     # 部署模板必须来自固定安装目录；从任意位置调用 preflight 都应比较同一份模板。
     assert "SCRIPT_DIR" not in preflight
     assert "/opt/hutuji/deploy/nginx-hutuji.conf" in preflight
@@ -3155,7 +3397,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 25
+    assert preflight.count('\ncheck "') == 26
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -3174,7 +3416,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
 
 def test_preflight_invokes_every_check_after_env_init() -> None:
     """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
-    `unbound variable` 退出，25 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    `unbound variable` 退出，26 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
     root = Path(__file__).resolve().parents[2]
     lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
 
@@ -3184,8 +3426,97 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 25
+    assert len(checks) == 26
     assert min(checks) > init_last
+
+
+def test_preflight_check_callsites_are_real_checks() -> None:
+    """DEP-02：条数与函数定义的钉死防不住「死函数定义 + 恒真补位」。
+
+    实测复现：把某条真实检查的调用行换成 `check "生成链可用" true`（函数定义
+    保留、条数不变），旧的全部形状断言仍绿——preflight 打全绿但该判据从未执行。
+    故必须把调用点本身钉死：每条 check 的命令不得是恒真命令；`check_*` 裸函数
+    调用必须有同名的真实函数定义；三条链式正例检查逐字钉调用点。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    callsites = [
+        line for line in preflight_code.splitlines() if line.startswith('check "')
+    ]
+    expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
+    assert expected is not None
+    assert len(callsites) == int(expected.group(1))
+    for line in callsites:
+        m = re.match(r'check "([^"]+)" (.*)$', line)
+        assert m is not None, line
+        cmd = m.group(2).strip()
+        # 恒真补位（含带参数的变体）一律判红。
+        assert not re.fullmatch(r"(true|:|/bin/true)( .*)?", cmd), line
+        fname = cmd.split()[0]
+        if re.fullmatch(r"check_[a-z_0-9]+", fname):
+            # 裸函数调用必须存在真实定义（`fname() {` 或子壳形态 `fname() (`），
+            # 防「调用指向不存在/残留定义」与「定义在但调用被换」两个方向。
+            assert re.search(
+                rf"^{re.escape(fname)}\(\) [({{]", preflight_code, re.MULTILINE
+            ), line
+
+    # 三条链式正例（生成链/位图链/下载契约）逐字钉调用点：名字像不算，
+    # 必须确实把流量打进真实函数。
+    assert (
+        'check "生产 venv 真实生成链可用（vpype + profile + §5 校验）" check_generate_chain'
+        in preflight_code
+    )
+    assert (
+        'check "生产 venv 真实位图描摹链可用（skimage + sknw + imageio）" check_bitmap_chain'
+        in preflight_code
+    )
+    assert (
+        'check "localhost :80 /files 真下 G-code 200" check_download local'
+        in preflight_code
+    )
+    # DEP-05：开机自启判据必须逐字钉调用点——install-from-repo.sh 刻意不自动 enable，
+    # 漏 enable 时重启后服务永久丢失而 preflight 全绿，故 is-enabled 三连必须存在。
+    assert (
+        'check "hutuji-mcp / hutuji-cloud-bridge / nginx 开机自启（is-enabled）" bash -c '
+        "'systemctl is-enabled --quiet hutuji-mcp && systemctl is-enabled --quiet "
+        "hutuji-cloud-bridge && systemctl is-enabled --quiet nginx'"
+        in preflight_code
+    )
+
+
+def test_preflight_verifies_8300_listener_identity() -> None:
+    """DEP-03：「8300 有监听」证不到「监听者是本次部署的 uvicorn」。
+
+    SO_REUSEADDR 允许残留旧进程与新 uvicorn 并存监听同一 loopback:8300，探针
+    可能命中旧进程内存中的旧代码而假绿（2026-07-29 本机实测，docs/troubleshooting.md
+    「本地临时测试服务（8300）」）。必须 ss -lntp 验监听者归属 hutuji-mcp 的
+    MainPID，且旧的「只认监听存在」弱形式不得复活。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "check_8300_listener_owned_by_mcp() {" in preflight_code
+    assert (
+        'check "8300 仅本机监听且监听者是 hutuji-mcp 主进程" check_8300_listener_owned_by_mcp'
+        in preflight_code
+    )
+    body = preflight_code.split("check_8300_listener_owned_by_mcp() {", 1)[1].split(
+        "\n}", 1
+    )[0]
+    # 必须读进程身份（-p）并比对 MainPID；ss 缺位与「无监听」都是 fail-closed。
+    assert "ss -lntp" in body
+    assert "systemctl show hutuji-mcp -p MainPID --value" in body
+    assert 'pid=$main_pid,' in body
+    assert "command -v ss >/dev/null || return 1" in body
+    # 旧的弱形式（只验监听存在、不验身份）不得复活。
+    assert 'ss -lnt | grep -q "127.0.0.1:8300"' not in preflight_code
 
 
 def test_preflight_exercises_real_generation_chain() -> None:
@@ -3390,6 +3721,9 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
         "/opt/hutuji/deploy/hutuji-mcp.service",
         "/etc/hutuji/mcp.env",
         "/opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml",
+        # DEP-01：依赖约束（范围钉、无 lockfile）变更漏 restart 时，进程内旧树与
+        # 磁盘新 venv 分叉而探针全绿；requirements.txt 必须在比较集内。
+        "/opt/hutuji/mcp-server/requirements.txt",
     ):
         assert deployed in array_content, f"{deployed} 不在 deployed_files 数组内"
     # PREFLIGHT-P2-02：.py 不再写进数组字面量，改 find 递归收集。bash 的 `*.py`
@@ -3463,6 +3797,9 @@ def test_preflight_pins_running_nginx_to_deployed_config() -> None:
     assert 'since="$(date -d "@$oldest"' in preflight_code
     assert '/\\[emerg\\]/ {ts = $1 " " $2; if (ts >= s) print}' in preflight_code
     assert "/var/log/nginx/error.log" in preflight_code
+    # DEP-04：error.log 缺失/不可读/路径被改时 awk 会静默扫空，[emerg] 判据假绿；
+    # error_log 指令在 nginx.conf（模板 md5 判据覆盖不到），故读不到必须显式判红。
+    assert "[[ -r /var/log/nginx/error.log ]]" in preflight_code
 
 
 def test_mcp_unit_self_tests_vpype_inside_sandbox_and_only_allows_mbind() -> None:
@@ -5577,6 +5914,8 @@ def test_preflight_pins_bridge_restart_recency() -> None:
     body = preflight.split("check_bridge_restart_recency() {", 1)[1].split("\n}", 1)[0]
     # bridge.env 此前不在任何 mtime 比较集里，必须进来
     assert "/etc/hutuji/bridge.env" in body
+    # DEP-01：bridge 与 mcp 共用同一 venv，requirements 变更漏 restart 同样判红
+    assert "/opt/hutuji/mcp-server/requirements.txt" in body
     assert "/etc/systemd/system/hutuji-cloud-bridge.service" in body
     assert "/opt/hutuji/deploy/hutuji-cloud-bridge.service" in body
     # 代码面与 mcp 同源（cloud_bridge.py 在 hutuji_mcp 包内），且走同一个递归收集器

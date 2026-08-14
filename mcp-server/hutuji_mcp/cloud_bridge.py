@@ -63,6 +63,11 @@ _SECRETISH_RE = re.compile(
     # authorization/x-api-key/cookie，会话 id 明文进 stderr。它可对 loopback 面
     # 重放已建立的 /mcp 会话，按凭据同等对待（保留 key 供诊断，值涂掉）。
     r"|(?<![A-Za-z0-9-])(mcp-session-id[\"']?\s*[=:]\s*[\"']?)([^\"'\s,&}]+)"
+    # 同一会话 id 的叙述形态（BRG-11-02）：MCP SDK client 每次会话建立打
+    # "Received session ID: <32hex>"（mcp/client/streamable_http.py，uuid4().hex），
+    # 经 mcp-proxy 默认 INFO 配置直落 stderr——上面的 header 形态规则匹配不到它，
+    # 而它就是可对 loopback 面重放 /mcp 会话的同一个值，按同口径涂掉、保留 key 侧。
+    r"|(?<![A-Za-z0-9-])((?:received\s+)?session\s+id[\"']?\s*[:=]\s*[\"']?)([^\"'\s,&}]+)"
     # 裸 Bearer header（非 Authorization 前缀）：值必须像凭据（含数字或 -_./ 符号、
     # 至少 6 位），避免把「bearer token/authentication」这类纯字母普通句子当密钥。
     r"|(?<![A-Za-z0-9])(Bearer[ \t]+)(?![=:]|header\b)((?=[^\s\"',}]*(?:[0-9]|[-_./]))[^\s\"',}]{6,})"
@@ -192,7 +197,11 @@ def _message_label(message: str | bytes) -> str:
                     if isinstance(raw_id, int) and not isinstance(raw_id, bool)
                     else "response"
                 )
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (ValueError, RecursionError):
+        # ValueError 一族（JSONDecodeError、UnicodeDecodeError 均是其子类）：
+        # 除畸形 JSON/UTF-8 外，云端还可下发超过 CPython int↔str 位数上限
+        # （默认 4300 位）的整数 id，`json.loads` 抛 ValueError 而非
+        # JSONDecodeError（BRG-11-01 实测：`{"id": "9"*5000 …}` 即触发）。
         # RecursionError：云端可下发深嵌套 JSON（实测 `"["*100000` 即触发），
         # `json.loads` 抛的不是 JSONDecodeError。本函数只为打日志算标签，
         # 绝不能让它把整条会话掀掉——不捕会穿到 bridge_once 的 BaseException
@@ -211,7 +220,7 @@ def _iter_jsonrpc_objects(message: str | bytes) -> list[dict]:
         if isinstance(message, bytes):
             message = message.decode("utf-8")
         payload = json.loads(message)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (ValueError, RecursionError):
         return []
     if isinstance(payload, dict):
         return [payload]
@@ -269,7 +278,12 @@ def _cancel_ids(message: str | bytes) -> list[object]:
             ids.append(cancel_id)
             # 归一化：str/int 双形态都尝试匹配 pending 键
             if isinstance(cancel_id, str) and cancel_id.isdigit():
-                ids.append(int(cancel_id))
+                # 超过 int↔str 位数上限（默认 4300 位）的数字串 int() 抛 ValueError；
+                # requestId 云端可控，此处掀会话违反 fail-open——保留原 str 形态即可。
+                try:
+                    ids.append(int(cancel_id))
+                except ValueError:
+                    pass
             elif isinstance(cancel_id, int):
                 ids.append(str(cancel_id))
     return ids

@@ -1,7 +1,7 @@
 # 京东云部署
 
 > ③ MCP 服务**唯一**生产落点：京东云 VPS。模板在 `../deploy/`。真实凭据不入库。  
-> **当前**：生产服务已常驻并实机验收；生产应用基线 **`e533f70`**（2026-08-12），生产 preflight **25 项**，
+> **当前**：生产服务已常驻并实机验收；生产应用基线 **`e533f70`**（2026-08-12），生产 preflight **26 项**，
 > 证据见 `release-readiness.md`。
 > **2026-08-09 layout 归一化发布（本仓 `3126a84`）**：`gcode_gen.py` scp（LF，md5 `a61be0bf1adec2076994aae495f4b615` 对账一致）→ 显式 `restart hutuji-mcp` → preflight **21/21 PASS**（含生产 venv 真实生成链）。生产真 draw「五角星」：`lines=19 bytes=364`，产物 bbox X[10.0,180.0]、Y 中心 138.5 = 画布正中——归一化在生产生效。回滚副本 `/root/hutuji-bak-20260809-182426-pre-layout/`。
 > **2026-08-09 位图路线发布（本仓 `4be934b`）**：`hutuji_draw` 切到「agnes 文生图 → sknw 中心线描摹 → 单线 SVG」。scp `bitmap_svg.py`（新）/`config.py`/`server.py`/`requirements.txt`（LF），生产 venv 经清华镜像装 `scikit-image 0.26.0`/`networkx 3.6.1`/`sknw 0.15`/`imageio 2.37.4`（**直连 PyPI 会挂起 17 分钟无子进程，镜像 75s 装完**）→ 显式 `restart hutuji-mcp` → preflight **21/21 PASS** → 生产真 draw「一朵五瓣的花」：709 行/16840B/22 抬笔/23.4s，公网 URL 200 且字节数与工具上报一致。回滚副本 `/root/hutuji-bak-20260809-184140-pre-bitmap/`。注意：`/etc/hutuji/mcp.env` 未改（`HUTUJI_IMAGE_MODEL` 默认值即生产值）。
