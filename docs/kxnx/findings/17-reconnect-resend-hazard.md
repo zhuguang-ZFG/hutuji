@@ -18,6 +18,15 @@
 - `machine/f/b.java:149-153` `FirmwareEventResend` → `c.clear()` + `d.clear()` + `e = 0`
 - `FirmwareEventError` → `this.f()`，同样是两队列清空 + `e` 归零
 
+## 1A 跨版本观察（2026-08-14 R19 补，主代理亲读双树同一方法全文）
+
+副树 `windows_reverse/decompiled_java/`（B 体系，**另一版本**，见 §6 树表）的 CommandSender（`machine/g/b.java`）与主树有两处真实差异：
+
+1. **`FirmwareEventResend` 不是双队列全清**：副树取事件携带的行号 N，把在途队列中自 N 起的命令**重排回待发队列**（B 树 `machine/g/b.java:141-154`），即标准的 resend-from-N 语义；主树 `:149-153` 是 `c.clear()` + `d.clear()` + `e = 0` 全清。
+2. **泵循环 flush 粒度不同**：副树逐行 flush（B 树 `g()` 内 `b.a(..., true)`，无批量后的 `s().h()`）；主树是批量泵完一次 flush（`machine/f/b.java:73`），即 §5 对照表「合批写」行的出处。
+
+而本文承重结论 `d()`（`pollLast()` 只救最后一行、挪待发队尾、不回退 `e`）**双树逐字一致**（B 树 `machine/g/b.java:75-80` 对应主树 `:83-88`）。解读：厂商在另一版本改掉了 Resend 语义与批量 flush，却**原样保留**了重连恢复路径——§1–§2 的缺陷剖析在主树（现役安装版）依然成立，副树差异反而构成「厂商自己部分承认过该风险」的外部印证。另经 R19 亲验：双树 `machine/grbl/a.java` 的窗口常量均为 `return 100;`（副树在 `:313`，与主树 `:315-317` 同方法），§2 的 100 字节窗口基线不受树间差异影响。
+
 ## 2 三条后果（读码推断，未在奎享上实测）
 
 1. **更早的在途行被静默丢弃**。窗口 100 字节（`machine/grbl/a.java:315-317` `g()` 返回 `100`）下在途通常是 4–5 行，`pollLast()` 只救回 1 行，其余直接消失，且不报错。
