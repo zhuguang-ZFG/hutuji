@@ -263,10 +263,12 @@ async def hutuji_draw(description: str) -> str:
     svg_path: Path | None = None
     gcode_path: Path | None = None
     try:
-        # 名额必须覆盖付费 LLM 与 CPU 密集的 vpype，不能在 SVG 返回后放任转换堆积。
+        # R13-SRV-02：清理是 IO 运维动作、不是受控的付费生成工作，不占并发名额
+        # （hutuji_status 同样在 slot 外跑同一清理，并发重复执行幂等无害）。
+        # 名额只覆盖付费 LLM 与 CPU 密集的 vpype，不能在 SVG 返回后放任转换堆积。
+        settings.output_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(_cleanup_expired_outputs)
         async with _draw_limiter.slot():
-            settings.output_dir.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(_cleanup_expired_outputs)
             # 位图路线（2026-08-09 起为现行路线）：agnes 文生图 → 中心线描摹 →
             # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
             # 两条路线的实测对比见 docs/worktree-inventory.md 当日探针行。
@@ -318,14 +320,20 @@ async def hutuji_status() -> str:
             return p.stat().st_mtime
         except OSError:
             return 0.0
-    # 只统计能力命名的产物：手工放进目录的外来 .gcode 不属于本服务产出，
-    # 混入会让 gcode_files/latest 反映不出真实的生成活动。
-    files = sorted(
-        [p for p in out.glob("*.gcode") if p.is_file() and _DRAW_FILE_RE.fullmatch(p.name)],
-        key=_safe_mtime,
-    ) if out.is_dir() else []
+    # R13-SRV-01：glob + 逐文件 stat 是 IO，与同函数上一行的 cleanup 同口径
+    # 卸载到线程，避免目录大/慢存储时状态查询卡住事件循环。
+    def _collect() -> tuple[bool, list[Path]]:
+        exists = out.is_dir()
+        # 只统计能力命名的产物：手工放进目录的外来 .gcode 不属于本服务产出，
+        # 混入会让 gcode_files/latest 反映不出真实的生成活动。
+        files = sorted(
+            [p for p in out.glob("*.gcode") if p.is_file() and _DRAW_FILE_RE.fullmatch(p.name)],
+            key=_safe_mtime,
+        ) if exists else []
+        return exists, files
+    dir_exists, files = await asyncio.to_thread(_collect)
     return json.dumps({
-        "output_dir_exists": out.is_dir(),
+        "output_dir_exists": dir_exists,
         "image_model": settings.image_model,
         "public_base_url": settings.public_base_url,
         "llm_configured": settings.llm_configured,

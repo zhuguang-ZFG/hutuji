@@ -1,5 +1,5 @@
 {
-  "git_head": "4c3db95344631de00d4750a9deb255b02df9d055",
+  "git_head": "778493a0d980342a84edf0f356bca58b3a64d0c5",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -461,6 +461,10 @@
       "sha8": "721be54f",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
     },
+    "docs/release-readiness.md -> GCode.cpp:75-130": {
+      "sha8": "1273233a",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
     "docs/release-readiness.md -> PaperSystem.cpp:887-1002": {
       "sha8": "2d1d8ad6",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
@@ -702,6 +706,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-13T16:02:55Z",
+  "updated": "2026-08-14T08:17:13Z",
   "version": 1
 }

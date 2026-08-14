@@ -89,22 +89,28 @@ _WORD_RE = re.compile(r"([A-Za-z]-?\d*\.?\d+(?:[eE][+-]?\d+)?)")
 
 def _parse_words(line: str) -> list[tuple[str, str]]:
     """拆出 (字母大写, 数值字串) 序列；畸形数值（如 `X1.5.5`）会被正则切碎，
-    后续按实际匹配值处理——校验口径以 validate_gcode 为准，这里只是回归网。"""
-    return [(word[0].upper(), word[1:]) for word in _WORD_RE.findall(line)]
+    后续按实际匹配值处理——校验口径以 validate_gcode 为准，这里只是回归网。
+
+    先压掉全部行内空白再拆词（R13-SIM-06）：真机 `gc_execute_line` 入口
+    `collapseGCode`（GCode.cpp:75-130）剥掉所有空白并转大写，`'M 30'` 与
+    `'M30'`、`'X 10'` 与 `'X10'` 真机同词；不压会把真机的换纸行漏成 ok。"""
+    compact = re.sub(r"\s+", "", line)
+    return [(word[0].upper(), word[1:]) for word in _WORD_RE.findall(compact)]
 
 
 def _looks_like_motion(line: str) -> bool:
-    """G0–G3 运动行判定（error:8 建模用）。
+    """G0–G3 运动行判定（error:8 建模用），与真机逐字对齐
+    （Protocol.cpp:110-126 `protocol_line_is_motion_gcode_g0_g3`）：
+    跳过前导空白后行首必须是 G/g，再跳过 G 后空白，首位数字 0–3 即运动行。
 
-    F-SIM-03 差异注：本函数按「行内任意 G 字值为 0-3」判定；真机
-    protocol_line_is_motion_gcode_g0_g3 按「行首 G 字首位数 0-3」判定
-    （'G28'/'G20' 实机算运动回 error:8、仿真算非运动回 error:20）。
-    pipe_sim 逐行等 ok 协议下两模型等价（分类不同，但都使该行失败）。
-    """
-    return any(
-        letter == "G" and value in ("0", "1", "2", "3")
-        for letter, value in _parse_words(line)
-    )
+    R13-SIM-07：旧实现按「行内任意 G 字值为 0-3」判定，换纸窗口内 'G21'
+    仿真回 ok 而真机回 error:8（首位数 '2' ∈ 0-3）；'G28'/'G20' 窗口内
+    真机同样是 error:8（旧仿真回 error:20，靠「都失败」侥幸等价）。"""
+    s = line.lstrip(" \t")
+    if not s or s[0] not in ("G", "g"):
+        return False
+    s = s[1:].lstrip(" \t")
+    return bool(s) and "0" <= s[0] <= "3"
 
 
 def _realtime_response(data: bytes) -> bytes | None:
@@ -134,9 +140,11 @@ def _is_m30(line: str) -> bool:
     """M30 换纸命令判定（F-SIM-04）。
 
     startswith("M30") 会把 M300/M301 误判为换纸命令（旧实现过宽）；真机
-    GCode.cpp:486-488 按 M 字整数值精确匹配（int_value==30）。容忍行内空白
-    与前导零（'M 30'/'M030'，真机词法解析为同一整数值）；非整数值（如
-    'M30.5'）不触发——真机 M 字按整数解析，小数词法不在换纸路径内。"""
+    GCode.cpp:486-488 按 M 字整数值精确匹配（int_value==30）。行内空白
+    与前导零不影响判定（'M 30'/'M030'）——真机入口 `collapseGCode`
+    （GCode.cpp:75-130）先剥空白转大写，`_parse_words` 同款压空白；
+    非整数值（如 'M30.5'）不触发——真机 M 字按整数解析，小数词法不在
+    换纸路径内。"""
     for letter, value in _parse_words(line):
         if letter != "M":
             continue
@@ -183,7 +191,9 @@ def _contract_violation(line: str) -> str | None:
         return None  # 纯注释或无可识别词法：与调用方过滤口径一致
     # 词法收口：已匹配词从正文剥掉后剩余必须全空白——`X1.5.5` 的尾巴 `.5`、
     # `XNAN` 这类畸形片段会残留。与 validate_gcode「畸形坐标不得静默跳过」同向。
-    residue = _WORD_RE.sub(" ", body).strip()
+    # 与 _parse_words 同口径先压行内空白（collapseGCode 建模）：'X 10' 真机
+    # 按 X10 解析，不压会让残留检查把合法词法误判成 error:20。
+    residue = _WORD_RE.sub(" ", re.sub(r"\s+", "", body)).strip()
     if residue:
         return "error:20"
     g0 = False

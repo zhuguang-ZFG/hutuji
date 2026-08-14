@@ -188,10 +188,12 @@ def _arc_bbox(
     a0 = math.atan2(y0 - cy, x0 - cx)
     a1 = math.atan2(y1 - cy, x1 - cx)
     # 扫过的角度跨度，统一折算成 CCW 正向 [0, 2π)；扫角 ≤ 固件 epsilon = 整圆
-    #（阈值语义见 _ARC_FULL_CIRCLE_EPSILON_RAD 的注释，必须与 Grbl 逐字一致）。
+    #（阈值语义见 _ARC_FULL_CIRCLE_EPSILON_RAD 的注释，必须与 Grbl 逐字一致——
+    # 含比较符：MotionControl.cpp 是 `<= eps`（CCW）/ `>= -eps`（CW），R13-GC-02
+    # 前此处是严格 `<`，|sweep| 恰等于 5e-7 时固件画整圆而校验器按近零弧放行）。
     sweep = (a1 - a0) if not clockwise else (a0 - a1)
     sweep %= 2.0 * math.pi
-    if sweep < _ARC_FULL_CIRCLE_EPSILON_RAD:
+    if sweep <= _ARC_FULL_CIRCLE_EPSILON_RAD:
         sweep = 2.0 * math.pi
 
     xs, ys = [x0, x1], [y0, y1]
@@ -236,10 +238,13 @@ def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
         # layout：等比缩放 + 居中到边距内，兜住 LLM 构图散布（见 LAYOUT_MARGIN_MM）。
-        # GC-02：零宽/零高几何（纯竖直线等）的归一化依赖 vpype layout 内部对
-        # 零跨度缩放比的 numpy inf/NaN 语义兜底——上游 read 已丢弃零长段，生产
-        # 链不可达该分支，此处只登记依赖关系、不另做防御；改 layout 调用方式前
-        # 必须先证明零跨度几何仍被 vpype 正确处理，不能靠「没炸过」当依据。
+        # GC-02：零跨度几何（纯竖直/水平线）生产链**可达**——vpype read 只丢单点
+        # 段，两点竖/横线存活进 layout，零跨度缩放比按 numpy 语义 min(inf, 有限)
+        # =有限正常归一化（R13-GC-01 前此处误记「生产链不可达」；回归钉：
+        # test_svg_to_gcode_layout_handles_degenerate_line 横线 + 竖线两例）。
+        # 真正危险的只剩两点重合（宽=高=0 → scale=inf → 坐标 inf，由
+        # validate_gcode「无法解析」闸 fail-closed）。改 layout 调用方式或升级
+        # numpy/vpype 前必须先证明零跨度几何仍被正确处理。
         "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
         f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数

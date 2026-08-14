@@ -514,6 +514,10 @@ async def _cloud_to_proxy(
         logger.info("云端 MCP 请求: %s", _message_label(message))
         if isinstance(message, bytes):
             message = message.decode("utf-8")
+        # R13-BRG-F2：JSON 文本里的原始 \r/\n 只可能是 token 间的无意义空白
+        # （字符串内的换行必须转义），但 stdio 是行帧——原样写入会把一帧拆成
+        # 多行，子进程逐行 model_validate_json 即炸。换成空格对合法 JSON 零影响。
+        message = message.replace("\r", " ").replace("\n", " ")
         process.stdin.write(message.encode("utf-8") + b"\n")
         await process.stdin.drain()
         # drain 之后才记：这一刻起 proxy 已收到请求，看门狗开始为它计等待时长。
@@ -532,8 +536,10 @@ async def _proxy_to_cloud(
             logger.warning("mcp-proxy stdout 在行中途 EOF，丢弃 %d 字节残行", len(line))
             break
         message = line.decode("utf-8").rstrip("\r\n")
-        # 任何回包都算 proxy 仍在响应：清掉在途计时。放在 send 前，避免 send
-        # 慢时把健康的回包误算成停滞。
+        # 按 id 结清已回包的请求（R7-WD-01/02）；notification（如 progress）不结清
+        # ——本机 /mcp 不产生进度通知，该形态今日不可达；若未来引入长任务进度流，
+        # 须按 progressToken 归属刷新在途计时，否则 >300s 的慢请求会被看门狗误杀
+        # （R13-BRG-F1）。放在 send 前，避免 send 慢时把健康的回包误算成停滞。
         activity.mark_outbound(message)
         logger.info("本机 MCP 响应: %s", _message_label(message))
         await websocket.send(message)

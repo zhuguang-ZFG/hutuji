@@ -634,8 +634,9 @@ check "两个 unit 与模板一致，且已重启并通过 ExecStartPre" check_u
 # 裸 POST /mcp 由 FastAPI 返回 404，落在 ^[234] 内会把「端点已不存在」报成 pass。
 # 合法响应是 2xx/3xx，或 FastMCP 对不合规 body 的 400/406/415；5xx 与 404 都不算。
 check "本机 /mcp 可达" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{}" http://127.0.0.1:8300/mcp); [[ "$code" =~ ^[23] || "$code" == "400" || "$code" == "406" || "$code" == "415" ]]'
-# /files 无具体 token 时允许 404（4xx 在列）；连接失败（000）与 5xx 都不得报 pass。
-check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[234] ]]'
+# /files 无具体 token 时允许 404（4xx 在列）；连接失败（000）、5xx 与 3xx 都不得报
+# pass（R13-SIM-08：3xx 意味着端点被重定向，真实下载路径已坏）。
+check "本机 /files 路径有响应" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8300/files/); [[ "$code" =~ ^[24] ]]'
 
 # FastAPI 默认自动挂 /docs、/redoc、/openapi.json、/docs/oauth2-redirect，实测四条原本
 # 全回 200。公网访问不到，但那份安全**完全来自 nginx 兜底**（443 的 `location /` 返回

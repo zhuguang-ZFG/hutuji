@@ -2659,6 +2659,26 @@ def test_svg_to_gcode_layout_handles_degenerate_line(tmp_path: Path) -> None:
     assert (min_y + max_y) / 2 == pytest.approx(gcode_gen.MAX_Y_MM / 2, abs=1.0)
 
 
+
+def test_svg_to_gcode_layout_handles_vertical_line(tmp_path: Path) -> None:
+    """R13-GC-01：零宽度图形（一条竖线）生产链可达，不得让归一化除零崩溃，
+    且水平居中——零跨度缩放比依赖 numpy min(inf, 有限)=有限 语义，必须有钉。"""
+    from hutuji_mcp import gcode_gen
+
+    svg = tmp_path / "vline.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 277">'
+        '<line x1="100" y1="10" x2="100" y2="267" stroke="black"/></svg>',
+        encoding="utf-8",
+    )
+    gcode = tmp_path / "vline.gcode"
+    gcode_gen.svg_to_gcode(svg, gcode)
+
+    min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
+    assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
+    assert max_y - min_y == pytest.approx(257.0, abs=2.0), "竖线必须被拉满到边距内"
+
+
 def test_gwrite_profile_matches_production_shape() -> None:
     """生产 profile 形状锁定（docs/protocol.md §5，逐字对齐奎享唯一产物）。
 
@@ -2689,6 +2709,57 @@ def test_gwrite_profile_matches_production_shape() -> None:
         assert "G92" not in profile[key], f"{key} 不得含 G92（校验器会拒）"
         assert "M" not in profile[key], f"{key} 不得含 M 码（笔控纯 Z 运动）"
         assert "X0Y0" not in profile[key].replace(" ", ""), f"{key} 不得回原点"
+
+
+def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:
+    """R13-GC-03：toml 与校验器必须互为事实源——只改 toml 的 F 值（不碰
+    gcode_gen.py）时，真实产物会在 draw 时整单自拒且 preflight 全绿（与
+    hutuji_gwrite.toml 漏传同形）。用 toml 自己的模板拼最小产物喂校验器，
+    任一侧漂移都在这里红。"""
+    import tomllib
+
+    from hutuji_mcp import gcode_gen
+
+    toml_path = Path(gcode_gen.__file__).parent / "hutuji_gwrite.toml"
+    profile = tomllib.loads(toml_path.read_text(encoding="utf-8"))["gwrite"]["hutuji"]
+
+    text = (
+        profile["document_start"]
+        + profile["segment_first"].format(x=95.0, y=175.0)
+        + profile["segment"].format(x=100.0, y=100.0)
+        + profile["line_end"]
+        + profile["document_end"]
+    )
+    stats = gcode_gen.validate_gcode(text)
+    assert stats.lines >= 5
+    assert stats.pen_lifts >= 1
+
+
+def test_arc_full_circle_epsilon_boundary_is_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R13-GC-02：整圆判定阈值含等号，与固件逐字一致（MotionControl.cpp
+    CCW `<= eps` / CW `>= -eps`）。sweep 恰等于 eps 时必须按整圆取包围盒；
+    严格 `<` 口径下同一输入包围盒退化成两端点。"""
+    import math
+
+    from hutuji_mcp import gcode_gen
+
+    # 圆心原点、半径 1：起点 (1,0)，终点取一个可复算角度；两侧用同一组
+    # atan2 计算 sweep，monkeypatch 把阈值钉到恰等于它——等号归属立判。
+    a1 = 0.37
+    x0, y0 = 1.0, 0.0
+    x1, y1 = math.cos(a1), math.sin(a1)
+    sweep = (math.atan2(y1, x1) - math.atan2(y0, x0)) % (2.0 * math.pi)
+    monkeypatch.setattr(gcode_gen, "_ARC_FULL_CIRCLE_EPSILON_RAD", sweep)
+
+    min_x, min_y, max_x, max_y = gcode_gen._arc_bbox(
+        x0, y0, x1, y1, -1.0, 0.0, None, False
+    )
+    assert min_x == pytest.approx(-1.0)
+    assert max_x == pytest.approx(1.0)
+    assert min_y == pytest.approx(-1.0)
+    assert max_y == pytest.approx(1.0)
 
 
 # ---- §5 校验器绕过回归（2026-07-26 深度评审）----
@@ -4164,6 +4235,63 @@ def test_gate_forbidden_claims_scans_every_governance_doc(
 
     assert result["status"] == "fail", result
     assert rel in result["detail"]
+
+
+def test_gate_forbidden_claims_catches_zero_width_joined_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R13-SIM-01：零宽字符（U+200B 等）曾切断模糊匹配让禁语逃逸——渲染不可见、
+    正则不可见。扫描前剥离零宽字符后必须照常判红（剥离不动行号，方向 fail-closed）。"""
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(
+        "本轮验收完毕，可\u200b出\u200b货。", encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_forbidden_claims()
+
+    assert result["status"] == "fail", result
+    assert "README.md" in result["detail"]
+
+
+def test_gate_doc_line_refs_flags_fullwidth_colon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R13-SIM-02：全角冒号的 path：line 引用不进任何校验层（越界/外仓/指纹
+    全跳过），必须判红而非静默漏网。"""
+    gate = _load_agent_gate()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "x.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
+    (tmp_path / "docs" / "agent-handoff.md").write_text(
+        "证据见 scripts/x.py：1\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_doc_line_refs()
+
+    assert result["status"] == "fail", result
+    assert "全角冒号" in result["detail"]
+
+
+def test_gate_doc_line_refs_zero_width_inside_ref_stays_checkable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R13-SIM-01：行号里塞零宽字符（行号里夹 U+200B 零宽空格）曾让整条引用不匹配、三层
+    全跳过；剥离后按 235 校验，越界即红。"""
+    gate = _load_agent_gate()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "x.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
+    (tmp_path / "docs" / "agent-handoff.md").write_text(
+        "证据见 scripts/x.py:2\u200b35\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_doc_line_refs()
+
+    assert result["status"] == "fail", result
+    assert "235" in result["detail"]
 
 
 @pytest.mark.parametrize(

@@ -616,10 +616,10 @@ def test_grbl_sim_m300_is_not_paper_change() -> None:
     assert "error:90" not in responses, responses
 
 
-@pytest.mark.parametrize("line", [b"M030\n", b"  M30 \n"])
+@pytest.mark.parametrize("line", [b"M030\n", b"  M30 \n", b"M 30\n"])
 def test_grbl_sim_m30_with_padding_triggers_paper_change(line: bytes) -> None:
-    """F-SIM-04：容忍行内空白与前导零——'M 30'/'M030' 真机词法解析为同一
-    整数值 30，仍触发换纸建模。"""
+    """F-SIM-04：行内空白与前导零不影响判定——真机入口 collapseGCode
+    （GCode.cpp:75-130）剥空白转大写后 'M 30'/'M030' 同为整数值 30，仍触发换纸建模。"""
     responses = asyncio.run(_drive_sim([line]))
     assert "[MSG:[PaperStatus] 0]" in responses, responses
     assert "ok" in responses, responses
@@ -651,12 +651,10 @@ def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
     不依赖调度时序；窗口放宽到 2s、客户端读超时放宽到 10s，只为给慢机留足
     读应答余量（R11-TQ-02），判据不变：窗口内运动行必须回 error:8。
 
-    F-SIM-03 差异注：真机对窗口内每条运动行回 error:8，且可经 protocol_
+    真机对窗口内每条运动行回 error:8，且可经 protocol_
     service_during_blocking 先于 M30 的 ok 发出（Protocol.cpp:166-174,228-256）；
-    仿真在 M30 应答后才统一处置缓冲行，应答顺序差异有意。行分类口径：
-    仿真按「行内任意 G0-G3 词」、真机按「行首 G 字首位数 0-3」（'G28'/'G20'
-    实机算运动 error:8、仿真算非运动 error:20），pipe_sim 逐行等 ok 协议下
-    两模型等价。"""
+    仿真在 M30 应答后才统一处置缓冲行，应答顺序差异有意。行分类口径已与真机
+    逐字对齐（R13-SIM-07）：行首 G 字首位数 0-3 即运动行。"""
     responses = asyncio.run(
         _drive_sim(
             [b"M30\nG1 X10 Y10 F8000\n"],
@@ -664,6 +662,16 @@ def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
             idle_timeout_s=1.0,
             read_timeout_s=10.0,
         )
+    )
+    assert "error:8" in responses, responses
+
+
+
+def test_grbl_sim_g21_buffered_during_paper_window_replies_error8() -> None:
+    """R13-SIM-07：换纸窗口内的 'G21' 真机按运动行回 error:8（行首 G 字首位数
+    '2' ∈ 0-3，Protocol.cpp:110-126）；旧仿真按整值 0-3 判定会漏成 ok。"""
+    responses = asyncio.run(
+        _drive_sim([b"M30\nG21\n"], paper_delay_s=2.0, read_timeout_s=10.0)
     )
     assert "error:8" in responses, responses
 

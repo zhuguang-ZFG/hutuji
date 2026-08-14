@@ -1174,6 +1174,48 @@ def test_cloud_to_proxy_passes_message_to_activity(
     assert seen["out"] == [response]
 
 
+def test_cloud_to_proxy_flattens_embedded_newlines_to_single_frame() -> None:
+    """R13-BRG-F2：云端帧内嵌的原始换行必须规整成单行再写 stdio——行帧协议下
+    原样写入会把一帧拆成多行，子进程逐行 model_validate_json 即炸。JSON 字符串
+    内的换行必须转义，故原始 \\r/\\n 只可能是 token 间空白，换成空格零语义影响。"""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    written: list[bytes] = []
+
+    class _Stdin:
+        def write(self, data: bytes) -> None:
+            written.append(data)
+
+        async def drain(self) -> None:
+            return None
+
+    frame = '{\n  "jsonrpc": "2.0",\r\n  "id": 1,\n  "method": "tools/list"\n}'
+
+    class _Websocket:
+        def __aiter__(self):
+            async def gen():
+                yield frame
+
+            return gen()
+
+    class _Activity:
+        def mark_inbound(self, message) -> None:  # noqa: ANN001
+            return None
+
+    asyncio.run(
+        cloud_bridge._cloud_to_proxy(
+            _Websocket(), SimpleNamespace(stdin=_Stdin()), _Activity()
+        )
+    )
+    assert len(written) == 1, written
+    assert written[0].endswith(b"\n") and written[0].count(b"\n") == 1, written
+    assert json.loads(written[0].decode("utf-8"))["method"] == "tools/list"
+
+
 @pytest.mark.parametrize(
     "bad_id",
     [

@@ -397,7 +397,7 @@ def check_revived_decisions() -> dict[str, Any]:
             path = ROOT / rel
             if not path.is_file():
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = _strip_invisible(path.read_text(encoding="utf-8", errors="replace"))
             for m in pattern.finditer(text):
                 clause = _rejection_clause(text, m)
                 if _has_rejection_heading(text, m) or re.search(
@@ -549,7 +549,7 @@ def check_forbidden_claims() -> dict[str, Any]:
         path = ROOT / rel
         if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = _strip_invisible(path.read_text(encoding="utf-8", errors="replace"))
         scanned += 1
         for claim in CLAIMS_FORBIDDEN:
             # AG-F1: 在每个字符间插入 \s*，使模式对空白不敏感。
@@ -680,6 +680,24 @@ def check_constraint_matrix() -> dict[str, Any]:
 # 门禁结论随机器上有没有残留产物而变。
 _DOC_REF_RE = re.compile(
     r"([A-Za-z0-9_./\\-]+\.(?:py|toml|c|cc|cpp|h|hpp|sh|json|mdc|md|conf|service|ino)):(\d+)(?:-(\d+))?"
+)
+
+# 零宽/不可见字符（零宽空格、ZWNJ/ZWJ、词连接符、BOM、软连字符）。Markdown 渲染
+# 不可见，却能切断三层正则的匹配面：禁语「可出货」写成「可\u200b出货」逃过
+# forbidden_claims，`x.cc:2\u200b35` 逃过行号引用三层（R13-SIM-01）。扫描前统一
+# 剥掉——剥了行号不变（零宽字符不是换行），且剥离方向是 fail-closed（藏了零宽的
+# 引用反而变得可解析、可校验）。
+_INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u00ad]")
+
+def _strip_invisible(text: str) -> str:
+    return _INVISIBLE_RE.sub("", text)
+
+
+# 全角冒号的 path：line 引用（R13-SIM-02）：_DOC_REF_RE 只认 ASCII ':'，全角形态
+# 不进任何一层（越界/外仓/指纹全跳过，基线也无 key），过期行号借此永久假绿。
+# 这类形态没有合法用途（行号引用约定就是 ASCII），见到即判红。
+_DOC_REF_FULLWIDTH_RE = re.compile(
+    r"([A-Za-z0-9_./\\-]+\.(?:py|toml|c|cc|cpp|h|hpp|sh|json|mdc|md|conf|service|ino))：(\d+)"
 )
 
 # basename 兜底解析时跳过的目录：虚拟环境 / 缓存 / 产物 / 代理临时 worktree
@@ -859,13 +877,20 @@ def check_doc_line_refs() -> dict[str, Any]:
     for md in md_files:
         rel_md = md.relative_to(ROOT).as_posix()
         try:
-            text = md.read_text(encoding="utf-8", errors="replace")
+            text = _strip_invisible(md.read_text(encoding="utf-8", errors="replace"))
         except OSError as exc:
             return _layer(
                 "doc_line_refs",
                 "文档 path:line 引用",
                 "fail",
                 f"无法读取治理文档 {rel_md}（{type(exc).__name__}）",
+            )
+        # R13-SIM-02：全角冒号形态不是合法引用写法，却长得足以以假乱真——
+        # 它不进 _DOC_REF_RE，三层校验全跳过，见到即判红。
+        for fw in _DOC_REF_FULLWIDTH_RE.finditer(text):
+            bad.append(
+                f"{rel_md} → {fw.group(1)}：{fw.group(2)}"
+                "（全角冒号不会被解析为行号引用，请改用 ASCII ':'）"
             )
         for m in _DOC_REF_RE.finditer(text):
             ref = _normalize_doc_ref(m.group(1))
@@ -895,7 +920,7 @@ def check_doc_line_refs() -> dict[str, Any]:
                 rel_target = target.relative_to(ROOT).as_posix()
                 bad.append(f"{rel_md} → {ref}:{lineno}（{rel_target} 共 {total} 行）")
     if bad:
-        detail = f"{len(bad)}/{checked} 处行号引用不合法（越界或区间语义错）：" + "; ".join(bad[:10])
+        detail = f"{len(bad)}/{checked} 处行号引用不合法（越界/区间语义错/全角冒号）：" + "; ".join(bad[:10])
         return _layer("doc_line_refs", "文档 path:line 引用", "fail", detail)
     if checked == 0:
         # 一条都解析不到就是空转门禁；宁可红也不要假绿
@@ -973,7 +998,7 @@ def check_external_doc_line_refs(*, require_repos: bool = True) -> dict[str, Any
     for md in md_files:
         rel_md = md.relative_to(ROOT).as_posix()
         try:
-            text = md.read_text(encoding="utf-8", errors="replace")
+            text = _strip_invisible(md.read_text(encoding="utf-8", errors="replace"))
         except OSError as exc:
             return _layer(
                 "external_doc_line_refs",
@@ -1099,7 +1124,7 @@ def _iter_doc_line_refs() -> DocRefScan:
     for md in md_files:
         rel_md = md.relative_to(ROOT).as_posix()
         try:
-            text = md.read_text(encoding="utf-8", errors="replace")
+            text = _strip_invisible(md.read_text(encoding="utf-8", errors="replace"))
         except OSError as exc:
             return DocRefScan(
                 {}, {}, {}, {}, set(), f"无法读取治理文档 {rel_md}（{type(exc).__name__}）"
@@ -1285,6 +1310,7 @@ def accept_line_refs() -> int:
     current, seen = scan.current, scan.seen
     baseline_path = _line_ref_baseline_path()
     kept: dict[str, Any] = {}
+    old_refs: dict[str, Any] = {}
     if baseline_path.is_file():
         try:
             old = json.loads(baseline_path.read_text(encoding="utf-8"))
@@ -1294,6 +1320,24 @@ def accept_line_refs() -> int:
         for key, value in old_refs.items():
             if key in seen and key not in current:
                 kept[key] = value
+    # R13-SIM-03：accept 会把漂移指纹静默洗成新基线——落盘前必须把「这次到底
+    # 改了多少条」摆到台面上，逐条人工核对的责任才有落点（AGENTS.md：新增或
+    # 改动 path:line 引用后必须先人工核对再登记，无脑重登等于退化成自动追认）。
+    added = sorted(k for k in current if k not in old_refs)
+    changed = sorted(
+        k for k in current
+        if k in old_refs and old_refs[k].get("sha8") != current[k]["sha8"]
+    )
+    if added or changed:
+        print(
+            f"重登明细：新增 {len(added)} 处、指纹变更 {len(changed)} 处"
+            "——应全部对应本次有意编辑，否则立即 git checkout 基线并排查"
+        )
+        for key in (added + changed)[:20]:
+            tag = "新增" if key in added else "变更"
+            print(f"  [{tag}] {key}")
+        if len(added) + len(changed) > 20:
+            print(f"  … 其余 {len(added) + len(changed) - 20} 处从略")
     refs = {**kept, **current}  # 同 key 以当前指纹为准
     payload = {
         "version": 1,
