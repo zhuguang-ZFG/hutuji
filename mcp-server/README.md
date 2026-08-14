@@ -8,7 +8,7 @@ LLM 生成单线笔画 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验�
 
 契约见 `../docs/protocol.md` **v0.5** §3/§4/§5/§5.1。生产已部署到**京东云 VPS 单点**（2核4G / 5Mbps / 公网 `117.72.118.95`，专机只跑 ③），经 nginx + Cloudflare Tunnel 提供 HTTPS。
 
-> ✅ **服务基础与生产边界已有证据**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流和 localhost 监听均已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，`7aab460`（含 `19d1df1` 的 `/mcp` loopback 守卫 + 位图描摹链 fail-open 收口）已于 2026-08-09 部署并取得生产 preflight **25/25 PASS**（`pass=25 fail=0 expected=25`；含用生产 venv 真跑 `svg_to_gcode()` 的生成链项与真跑 `bitmap_svg --self-test` 的位图描摹链项、unit 与模板一致 + 两条 ExecStartPre 各自成功 + 主进程新鲜度，以及「在跑的 nginx 确实是本次配置」与「worker 新鲜度且启动后无 `[emerg]`」两项运行态判据）。守卫在生产逐项实测：loopback `initialize` **200** 且 `tools/list` 返回三个工具，同机非 loopback 对端伪造 `Host` 打 `/mcp` 得 **404（正文恰 9 字节 `not found`）**（此向量打的是**同一份已部署代码的临时实例** `--host 0.0.0.0 --port 8399`、探完即杀；生产 unit 只绑 `127.0.0.1:8300`，非 loopback 根本连不上、`curl` 回 `000`），同对端打 `/files/nope.gcode` 仍是应用层 404（`{"detail":"not found"}`），公网 HTTPS `/mcp` **404**。同批公网复验 `/files` 限速身份改用 `$hutuji_client_ip` 后确实取到真实客户端 IP（真产物 CRC `775b4f31`/243B，HTTPS 200 与服务器文件逐字节相符）。历史 17/17（`69c2198`）、19/19（2026-08-07）与 `25ff33d`/`8184860` 的 21/21（2026-08-08/09）均已 supersede，不得复用为放行依据。官方云路径已实际触发设备侧 `draw/status/abort`，但 **App 真实语音仍未验收**。
+> ✅ **服务基础与生产边界已有证据**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流和 localhost 监听均已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，当前生产应用基线 `1082400` 已于 2026-08-14 部署并取得生产 preflight **26/26 PASS**（`pass=26 fail=0 expected=26`（新增第 26 项 is-enabled 开机自启判据 + 8300 监听者身份核验 + `requirements.txt` mtime 比较）；含用生产 venv 真跑 `svg_to_gcode()` 的生成链项与真跑 `bitmap_svg --self-test` 的位图描摹链项、unit 与模板一致 + 两条 ExecStartPre 各自成功 + 主进程新鲜度，以及「在跑的 nginx 确实是本次配置」与「worker 新鲜度且启动后无 `[emerg]`」两项运行态判据）。守卫在生产逐项实测：loopback `initialize` **200** 且 `tools/list` 返回三个工具，同机非 loopback 对端伪造 `Host` 打 `/mcp` 得 **404（正文恰 9 字节 `not found`）**（此向量打的是**同一份已部署代码的临时实例** `--host 0.0.0.0 --port 8399`、探完即杀；生产 unit 只绑 `127.0.0.1:8300`，非 loopback 根本连不上、`curl` 回 `000`），同对端打 `/files/nope.gcode` 仍是应用层 404（`{"detail":"not found"}`），公网 HTTPS `/mcp` **404**。同批公网复验 `/files` 限速身份改用 `$hutuji_client_ip` 后确实取到真实客户端 IP（真产物 CRC `775b4f31`/243B，HTTPS 200 与服务器文件逐字节相符）。历史 17/17（`69c2198`）、19/19（2026-08-07）、`25ff33d`/`8184860` 的 21/21（2026-08-08/09）与 22–25 项各轮（`f25d8d1`→`05786ce`→`e533f70`→`5104b93`）均已 supersede，不得复用为放行依据。官方云路径已实际触发设备侧 `draw/status/abort`，但 **App 真实语音仍未验收**。
 
 ## 架构
 
@@ -286,7 +286,7 @@ output/      生成产物（运行时创建）
 > **执行顺序与每阶段通过判据**，见 `../docs/bringup-sop.md`（9 阶段 SOP）。
 > 本清单的组 3/4 对应 SOP 的**阶段 3–4**（③ 本地跑通 + 契约合规），组 0–2 是其前置。
 
-**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，`7aab460`（含 `/mcp` loopback 守卫与位图描摹链自检）生产 preflight **26/26 PASS**（含生成链项、位图描摹链项、两项 nginx 运行态判据与开机自启 is-enabled 判据），公网 `/mcp` 404、8300 不可达、非 loopback 对端 `/mcp` 404（在同代码临时实例 `0.0.0.0:8399` 上取证；生产 unit 只绑 loopback，非 loopback 连不上回 `000`），官方云路径已触发 `draw/status/abort`。
+**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，当前生产应用基线 `1082400`（2026-08-14 部署）生产 preflight **26/26 PASS**（含生成链项、位图描摹链项、两项 nginx 运行态判据与开机自启 is-enabled 判据），公网 `/mcp` 404、8300 不可达、非 loopback 对端 `/mcp` 404（在同代码临时实例 `0.0.0.0:8399` 上取证；生产 unit 只绑 loopback，非 loopback 连不上回 `000`），官方云路径已触发 `draw/status/abort`。
 
 历史实施顺序（均已完成，勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → 组 4。
 
