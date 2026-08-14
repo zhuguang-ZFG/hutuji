@@ -1721,6 +1721,57 @@ def test_settings_image_fallback_url_requires_https_or_blank(tmp_path: Path) -> 
         Settings(**base, image_fallback_url="http://fb.example/v1/generate")
     assert Settings(**base, image_fallback_url="  ").image_fallback_url == ""
 
+def test_bitmap_fetch_fallback_single_attempt_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """备用链单次尝试（retry_delays=()）：429 也不重试——桥接看门狗 300s 内
+    必须出结果（主链最坏 135s + 备用 45s + 下载 60s ≈ 240s），备用重试三轮会
+    越界被撞死，响应丢在重连里。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    fallback_calls = 0
+
+    def handler(request):  # noqa: ANN001, ANN202
+        nonlocal fallback_calls
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(500)
+        fallback_calls += 1
+        return _httpx.Response(429)  # 瞬态码，但备用链不许重试
+
+    with pytest.raises(bitmap_svg.BitmapError) as exc_info:
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=_httpx.MockTransport(handler)))
+    assert fallback_calls == 1, "备用链只允许单次尝试"
+    assert "备用生图端点 返回 429" in str(exc_info.value)
+
+
+def test_bitmap_download_failure_does_not_fall_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """主链出图成功、CDN 下载失败时不降级：「主链好+CDN 挂」与「主链挂」
+    是两类故障；降级等于免费端点再赌一次画风不同的图。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    import httpx as _httpx
+
+    fallback_calls = 0
+
+    def handler(request):  # noqa: ANN001, ANN202
+        nonlocal fallback_calls
+        if request.url.path.endswith("/images/generations"):
+            return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/x.png"}]})
+        if request.url.path.endswith("/v1/generate"):
+            fallback_calls += 1
+            return _httpx.Response(200, json={"status": "completed", "image_url": "https://cdn.example/fb.png"})
+        return _httpx.Response(500)  # CDN 持续 500
+
+    with pytest.raises(bitmap_svg.BitmapError, match="图片下载返回 500"):
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=_httpx.MockTransport(handler)))
+    assert fallback_calls == 0, "下载阶段失败不得触发降级"
+
 
 def _generations_ok_transport(get_handler):  # noqa: ANN001, ANN202
     """生图 POST 恒 200 并返回图片 URL；图片 GET 的行为由 get_handler 注入。"""

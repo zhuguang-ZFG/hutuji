@@ -1,5 +1,5 @@
 {
-  "git_head": "7e1d0eccf91949d4567a1464b585eb61784e1569",
+  "git_head": "235e4a5644e62a83e11291b114e2e5deee175ad1",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -481,6 +481,10 @@
       "sha8": "9b1d68b6",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
+    "docs/release-readiness.md -> Protocol.cpp:84-86": {
+      "sha8": "11ae578c",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
+    },
     "docs/release-readiness.md -> Protocol.h:34": {
       "sha8": "74915816",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
@@ -714,6 +718,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-14T10:18:04Z",
+  "updated": "2026-08-14T12:38:02Z",
   "version": 1
 }

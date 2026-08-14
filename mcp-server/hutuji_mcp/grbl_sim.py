@@ -279,6 +279,10 @@ async def handle_client(
                 continue
             line = data.decode(errors="replace").strip()
             if not line:
+                # 真机 execute_line() 对空行直接回 ok（Protocol.cpp:84-86，§3 CRLF
+                # 双 ok 同因）；此前静默丢弃，手工 Telnet 敲回车会无任何应答。
+                writer.write(b"ok\r\n")
+                await writer.drain()
                 continue
             logger.info("<- %s", line)
             if "BADLINE" in line:

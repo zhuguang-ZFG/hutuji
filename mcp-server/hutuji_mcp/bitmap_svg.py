@@ -45,8 +45,8 @@ _BITMAP_STYLE = (
 
 _IMAGE_SIZE = "1024x1024"
 # 单次尝试的完整上限：agnes 实测 10~22s/张，45s 仍留 >2× 余量。不许无限挂，
-# 也不给 90s：占槽时长 = 3×本值 + 2×下载（DrawLimiter 并发只有 2），90s 时
-# 最坏 ~334s，两个慢请求即堵死生成入口；45s 把最坏压到 ~199s。
+# 也不给 90s：主链最坏 3×45+2×30 下载 ≈ 195s；含备用单次尝试 ≈ 240s，仍低于
+# 桥接看门狗 300s（WATCHDOG_STALL_SECONDS，超时判死重连会丢掉在途 draw 应答）。
 _IMAGE_ATTEMPT_TIMEOUT_SECONDS = 45
 # 下载单独给更紧的上限：≤16MB 的 PNG 走 30s 已极宽裕。下载不像生图——
 # 重试不再计费，慢连接不值得占住 DrawLimiter 名额久等（并发只有 2）。
@@ -319,14 +319,20 @@ async def _post_image_request(
     payload: dict,
     headers: dict[str, str] | None,
     provider: str,
+    retry_delays: tuple[float, ...] | None = None,
 ) -> dict:
     """两个生图端点共用的 POST + 瞬态重试 + 流式上限闸；返回解析后的 JSON object。
 
     provider 只进错误文案：agnes 侧沿用「生图 API」（既有测试钉死），备用侧
     「备用生图端点」。两侧都不回显 URL 与上游错误正文（可能含凭据/自由文本）。
+    retry_delays=None 用全局 _RETRY_DELAYS_SECONDS；备用链传 () 做单次尝试——
+    桥接看门狗 WATCHDOG_STALL_SECONDS=300 内必须出结果：主链最坏 3×45=135s +
+    备用 45s + 下载 60s ≈ 240s；备用若也重试三轮，最坏 ~334s 会撞上看门狗被判死、
+    响应丢在重连里。备用是锦上添花，不为它赌上整单。
     """
+    delays = _RETRY_DELAYS_SECONDS if retry_delays is None else retry_delays
     data = None
-    for attempt in range(len(_RETRY_DELAYS_SECONDS) + 1):
+    for attempt in range(len(delays) + 1):
         try:
             # R10-BMP-03：POST 与下面的图片 GET 同口径改流式——非流式 post()
             # 返回时正文已被 httpx 全量缓冲，事后检查拦不住内存暴涨；恶意/
@@ -361,16 +367,13 @@ async def _post_image_request(
                     raise BitmapError(f"{provider} 响应不是合法 JSON") from None
                 break
             # 上游错误正文可能回显凭据；不读取不记录，只记状态码。
-            if (
-                status in _TRANSIENT_HTTP_STATUSES
-                and attempt < len(_RETRY_DELAYS_SECONDS)
-            ):
-                await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
+            if status in _TRANSIENT_HTTP_STATUSES and attempt < len(delays):
+                await asyncio.sleep(delays[attempt])
                 continue
             raise BitmapError(f"{provider} 返回 {status}")
         except (httpx.HTTPError, TimeoutError) as exc:
-            if attempt < len(_RETRY_DELAYS_SECONDS):
-                await asyncio.sleep(_RETRY_DELAYS_SECONDS[attempt])
+            if attempt < len(delays):
+                await asyncio.sleep(delays[attempt])
                 continue
             raise BitmapError(f"{provider} 网络错误（{type(exc).__name__}）") from None
     if data is None:
@@ -403,7 +406,7 @@ async def _request_fallback_image_url(client: httpx.AsyncClient, description: st
         "aspect_ratio": _FALLBACK_ASPECT_RATIO,
     }
     data = await _post_image_request(
-        client, _image_fallback_url(), payload, None, "备用生图端点"
+        client, _image_fallback_url(), payload, None, "备用生图端点", retry_delays=()
     )
     status = data.get("status")
     if status != "completed":
@@ -462,6 +465,10 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                 ) from None
         # 只验 https 前缀挡不住内网 https 地址（SSRF，见 IMG-URL-SSRF-GAP）。
         _validate_image_download_url(image_url)
+
+        # 下载阶段失败**不降级**（R16 登记，测试钉死）：此刻主链已计费出图成功，
+        # 只是 CDN 取图失败——降级等于免费端点再赌一次画风不同的图，且
+        # 「主链好+CDN 挂」与「主链挂」是不可同药的两类故障。
 
         # 下载给一次（且仅一次）重试：重新 GET 不再计费（重试 POST 才会），
         # CDN 瞬态断连值得一试；延迟沿用 _RETRY_DELAYS_SECONDS 首段，不另起常量。

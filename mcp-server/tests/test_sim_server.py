@@ -643,6 +643,15 @@ def test_grbl_sim_m30_normal_replies_paper_status_then_ok() -> None:
     assert "[MSG:[PaperStatus] 0]" in responses, responses
     assert "ok" in responses, responses
 
+def test_grbl_sim_empty_line_replies_ok() -> None:
+    """空行回 ok：真机 execute_line() 对 line[0]==0 直接 Error::Ok
+    （Protocol.cpp:84-86，§3 CRLF 双 ok 同因）；此前仿真静默丢弃，
+    手工 Telnet 敲回车会无任何应答。"""
+    responses = asyncio.run(_drive_sim([b"\nG0 X10 Y10 F8000\n\n"], read_timeout_s=0.3))
+    assert responses[0] == "ok", responses  # 首个空行
+    assert responses[1] == "ok", responses  # G0 行
+    assert responses[2] == "ok", responses  # 第二个空行
+
 
 def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
     """R9-SIM-02：换纸窗口内已到达的运动行回 error:8（§7：该行被丢弃，须重发）。
