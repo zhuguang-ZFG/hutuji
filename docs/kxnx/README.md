@@ -9,7 +9,7 @@
 ```
 docs/kxnx/
 ├── README.md                      ← 本文件：索引 + 指向 kxnx 仓
-├── findings/                      ← 逆向发现（22 份，深度递进）
+│   ├── findings/                      ← 逆向发现（23 份，深度递进）
 │   ├── 01-pen-control.md          ← 笔控核心（Stepper vs Servo vs Laser）速查
 │   ├── 02-gcode-template.md       ← 出图 G-code 完整模板
 │   ├── 03-init-sequence.md        ← 连接/校准/原点序列
@@ -31,25 +31,27 @@ docs/kxnx/
 │   ├── 20-ui-job-lifecycle-and-reconnect.md ← UI→JobManager→Executor 生命周期、FileStatus、串口重连弱判据与 pollLast 缺陷闭环
 │   ├── 21-transport-watchdog-and-sd-executor.md ← 传输基类 `l`/`o` 发送侧语义勘误、三套探活互斥、缓冲 autoExpand 结案、ESP32-Grbl SD 执行器全链路
 │   ├── 22-installed-config-vs-machine.md ← **非反编译**：kdraw 3.9.9 现役安装配置 × 真机 `$$` 快照（14/16 与我方机器头逐字同）× 产物几何反推容差；负 X 成因 = 左上原点 + XY 互换
+│   ├── 23-drawsoft-gen-comm-review.md ← 全量复审收口：生成链+通信链 × GitHub 社区基线（三条 hutuji 现状勘误 + 逐条分诊总表；基准树 = windows_hutuji 第四棵树）
 │   └── 12-summary-and-action-list.md ← 总结 + hutuji 落地清单（P0/P1/P2/P3）
 └── alignment/
     └── plan.md                    ← hutuji 对齐奎享的实施计划
 ```
 
-## 反编译源码树（三棵，混淆名与行号互不通用）
+## 反编译源码树（四棵，混淆名与行号互不通用）
 
-kxnx 仓 `kx/tools/dump_agent/` 下并存三棵反编译树，**引用前必须确认用的是哪棵**：
+kxnx 仓 `kx/tools/dump_agent/` 下并存三棵，另有第四棵在 `kx/windows_hutuji/decompiled/`（2026-08-14 登记），**引用前必须确认用的是哪棵**：
 
 | 树 | .java 数 | 混淆命名体系 | 判据：CommandSender 所在 |
 |----|---------|------------|------------------------|
 | `decompiled_java/` ← 本目录 findings 05 / 17 的基准 | 446 | A | `machine/f/b.java` |
 | `decompiled_full/` ← findings 16 的基准；A 体系超集，多含 `com/kvenjoy/drawsoft/lib/remote/` | 920 | A | `machine/f/b.java` |
 | `windows_reverse/decompiled_java/` | 958 | B（字母整体位移）| `machine/g/b.java` |
+| `kx/windows_hutuji/decompiled/` ← findings 23 的基准（Windows 版 kdraw.jar 反编译、清理后子集；**不在** `kx/tools/dump_agent/` 下） | 291 | A | `machine/f/b.java` |
 
 - 判定方法：`grep -rl BlockingDeque <树>`，命中 `machine/f/b.java` 是 A 体系，命中 `machine/g/b.java` 是 B 体系。
 - A 体系两棵树的同名文件内容基本相同，但 `decompiled_java/` 少数文件头多 3 行 CFR `Could not load the following classes` 注释，**行号比 `decompiled_full/` 大 3**。实测：`machine/grbl/a.java` 的 `G90G0 X0Y0` 在 `decompiled_java/` 是 `:300`、在 `decompiled_full/` 是 `:297`；而 `machine/f/b.java` 两树均 159 行、逐字节相同。
 - 因此**行号只在声明了基准树时才有意义**，各 findings 头部均已注明。
-- 旧路径 `kx/windows_hutuji/decompiled/` **不存在**（历史文档遗留写法，见到即为过时）。
+- `kx/windows_hutuji/decompiled/` 于 2026-08-14 实测**存在**（291 文件，A 体系；行号与 `decompiled_full/` 同口径、比主树小 3——实测 `machine/grbl/a.java` 的 `g()=100` 在该树为 312-314、主树为 315-317）。本行此前写「不存在」是该树创建前的过时陈述，已修正；四棵树行号仍互不通用，引用前必须确认基准树。
 
 ## 三句话结论
 
