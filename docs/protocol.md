@@ -144,7 +144,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_started_` CAS 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:351-469`）；窗口模式的在途应答由
+   在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:352-470`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -171,14 +171,15 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 工具 | 参数 | 行为 |
 |------|------|------|
-| `hutuji.draw` | `url` | 回调仅校验参数+幂等检查 → 立即返回 `"started"`（任务进行中则返回 `"busy"` **直接拒绝**，不排队不抢占）；独立任务执行：**① 全量下载**（`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:292-322`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 单独发送 `M30`**并等换纸最终应答与 fresh `Idle`。**不边下边转；`M30` 不在下载文件内** |
+| `hutuji.draw` | `url` | 回调仅校验参数+幂等检查 → 立即返回 `"started"`（任务进行中则返回 `"busy"` **直接拒绝**，不排队不抢占）；独立任务执行：**① 全量下载**（`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:292-322`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内** |
 | `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者） |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
 
 - 任务完成/失败经 `Application::SendMcpMessage` **设备侧主动推送**；同步查询走 `hutuji.status`。
 - 状态机：`idle → downloading → verifying → streaming → (paper_change) → done | error | aborted`；TCP 断开/banner 重放 → `error`（按 §2 走物理复位分流）。
 - **完成判据**：最后一行的 `ok` 只表示该行进入 planner。S3 必须先等到一份 fresh `Idle`，
-  再单独发送 `M30`；`M30` 返回 `ok` 后还要再次取得 fresh `Idle`，此时才能置 `done`。
+  再依次旁路单发 `G1G90 X0Y0F8000`（归位，G1 不触发换纸，ok 后等 fresh `Idle` 确认归位走完）
+  与 `M30`（换纸）；`M30` 返回 `ok` 后还要再次取得 fresh `Idle`，此时才能置 `done`。
   不得用旧缓存 `Idle` 或固定 sleep 判完成。该路径已编码，尚未完成有纸实机验收。
 - **同一时刻只允许一个任务**；任务期间 PSRAM 缓存（§5.1）持有至任务终结。成功且换纸完成后
   保留一份供 `repeat` 复用，error/aborted 释放。
@@ -220,8 +221,12 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - `G28` / `G30`，以及执行后工件坐标 XY≈0 的 `G0`（回原点触发，含 `G0 X0 Y0` 收尾！）。
     若 G0 的模态 XY 实际终点无法完整解析，也从严拒绝，因为不能证明不会落到 `(0,0)`。
   - **结论：分页节奏必须显式控制**——MCP 产出的文件以抬笔结束并停在当前位置，**不含**
-    `M30`/`M721`；S3 确认绘图 fresh `Idle` 后，再以任务编排命令单独发送 `M30`。
-    收尾**不要**用 `G0 X0 Y0`。
+    `M30`/`M721`，也**不含归位行**；收尾**不要**用 `G0 X0 Y0`。页尾编排由 S3 在确认绘图
+    fresh `Idle` 后依次旁路单发（2026-08-14 归位决策）：先 `G1G90 X0Y0F8000` 归位——
+    **必须用 G1**，固件「回原点后换纸」触发仅认本行实际执行的 `G0`/`G28`/`G30` 且落点
+    XY≈0（GCode.cpp 页尾分支），`G1` 落 `(0,0)` 不触发，归位因此留在可即停的常规行里，
+    不进 90s 不可即停的换纸窗口——归位行 ok 后再单发 `M30` 换纸。断连恢复的废纸换纸
+    **不归位**（受限恢复序列固定，见 §4.1）。
 - **生产文件抬/落笔 = 纯 Z 运动**：`G0 X...Y...F8000` 空走到笔画起点，
   `G1G90 Z5.0F10000` 落笔，`G1 X...Y...F8000` 画线，`G1G90 Z0.0F10000` 抬笔；
   文件内不含 `G92`、`M3/M5`、`G4`。Grbl 的 `USE_M3_M5_AS_PEN_UP_DOWN` 仍保留，
@@ -238,7 +243,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **IJ 模式整圆判定 epsilon 对齐固件（2026-08-13，R10-ARC-01 收口）**：`validate_gcode()` 的 IJ 模式整圆判定阈值 = 本仓 `gcode_gen.py` 常量 `_ARC_FULL_CIRCLE_EPSILON_RAD = 5e-7`，逐字对齐 Grbl `Config.h` 的 `ARC_ANGULAR_TRAVEL_EPSILON`。语义：扫过角度 `sweep`（mod 2π 折算 CCW 后）`< 5e-7` 判整圆、按 2π 全周扫角算包围盒。为什么是这个数：固件 `MotionControl.cpp` 对 `|angular_travel| ≤ 5e-7` 的 G2/G3 一律补 2π 当整圆画，校验器旧值 `1e-9` 会让 `(1e-9, 5e-7]` 区间的弧被当「原地微动」放行（包围盒退化成端点）、固件却画出整圆——圆越大越致命，本机无限位开关，这道限幅是唯一防线；两侧同阈值才能保证校验器与执行端对整圆/近整圆分类不分岔。该阈值不是可调精度参数，改动须与 Grbl 侧同步评审。回归见 `test_arc_full_circle_epsilon_matches_grbl_firmware` / `test_arc_full_circle_epsilon_constant_pinned_to_grbl`。
   - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。
   - **指令识别不得依赖空格切分或本行显式 G 字**：`G0X0Y0`（无空格）、`G90 G0 X0 Y0`（模态前缀）都能绕过按首 token 判断的禁令；裸 `X500 Y500` 会继承 Grbl 当前运动模式，分轴 `G1 X50 Y0` → `G0 X0` 的实际 G0 落点也是 `(0,0)`。Grbl 复位默认运动模式是 G0；校验器同样从 G0 开始，并由生产文件头的两次 `G1G90 Z0.0F10000` 切到 G1，再逐行做模态继承、限幅、实际落点与位置跟踪。坐标正则也须接受 `X.5` / `X1e3`（否则 `1e3` 被截成 `1`，1000mm 越界漏放）。回归见 `test_gcode_rejects_bypass_variants` / `test_*modal*`。
-  - **生产指令允许列表（2026-07-29）**：下载文件只允许整数码 `G0/G1/G2/G3/G21/G90` 与 `F/X/Y/Z/I/J/R` 数值字；任意 M 码、`G20/G4/G53/G92`、非整数或其他未知 G/字母均拒绝。其中 G2/G3 仅为外部 G-code 圆弧限幅兼容保留，当前 profile 只产 G0/G1/G21/G90。页结束的 `M30` 由 S3 在文件执行完并确认 fresh `Idle` 后单独发送，不属于下载文件。
+  - **生产指令允许列表（2026-07-29）**：下载文件只允许整数码 `G0/G1/G2/G3/G21/G90` 与 `F/X/Y/Z/I/J/R` 数值字；任意 M 码、`G20/G4/G53/G92`、非整数或其他未知 G/字母均拒绝。其中 G2/G3 仅为外部 G-code 圆弧限幅兼容保留，当前 profile 只产 G0/G1/G21/G90。页结束的归位行 `G1G90 X0Y0F8000` 与 `M30` 由 S3 在文件执行完并确认 fresh `Idle` 后依次旁路单发（先归位、后换纸），均不属于下载文件。
   - **注释口径**：校验器会剥 `;` 及其后的行注释，避免注释中的 X/Y/G/M 字样误触发；暂不解析 `(...)` 括号注释，**含 `(` 的行一律整行拒绝**（`gcode_gen.py`，不区分括号内容），故括号注释里的 `G28`/`G0 X0 Y0` 与纯合法的括号注释都会被拒。当前 profile 不产注释行（实测产物中 `;` 与 `(` 均为 0）；接受外部 G-code 前若要兼容括号注释，须先实现确定性剥除并补回归。
   - **非有限数值必须拒成 `GcodeError`**：`G1E400` 之类会 `float()` 成 `inf`，`int(inf)` 抛 `OverflowError`——非 `GcodeError` 异常会穿透闸门变成 500，违背「越界即整单拒绝 + 明确告知」。故字号解析后须 `math.isfinite` 检查。回归见 `test_gcode_rejects_nonfinite_and_malformed`。
   - **畸形坐标不得静默跳过**：`X` 后跟 `NAN`/`INF`/空/`1.5.5` 时，取数正则匹配不上，坐标会被**静默丢弃**——等于把未知坐标当「本行无此轴」放行，限幅形同虚设。故须独立校验「轴字 + 其后连续数值样字符」整体是否为合法有限数，畸形即拒。**静默漏放比误拒危险**。

@@ -39,6 +39,8 @@ document_start = "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
 segment_first = "G0 X{x:.3f}Y{y:.3f}F8000\nG1G90 Z5.0F10000\n"
 segment = "G1 X{x:.3f}Y{y:.3f}F8000\n"
 line_end = "G1G90 Z0.0F10000\n"
-# 收尾只抬笔：奎享的 G90G0 X0Y0 在本机固件会被判为换纸触发，禁止照抄。
+# 收尾只抬笔：奎享的 G90G0 X0Y0 在本机固件会被判为换纸触发，禁止进文件。
+# 归位由 S3 在页尾以旁路 `G1G90 X0Y0F8000` 完成（G1 不触发换纸，2026-08-14
+# 归位决策，docs/protocol.md §5），与本文件契约无关。
 document_end = "G1G90 Z0.0F10000\n"
 info = "hutuji 写字机：Z5 落笔/Z0 抬笔，Z/XY 均对齐奎享 F10000/F8000；S3 以 512 字节窗口保持连续执行；文件无 G92/M 码，A4 限幅 190x277mm"

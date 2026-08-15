@@ -55,8 +55,8 @@
 | 位置 | 行为 |
 |------|------|
 | `hutuji_pipe.cc:708-719` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
-| `hutuji_job.cc:1683-1694` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`:52`） |
-| `hutuji_job.cc:1897-1902` | 窗口化普通行分支：`Deferred` **按失败处理并 fail closed**，注释写明「窗口化不应发生」 |
+| `hutuji_job.cc:1733-1744` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`:52`） |
+| `hutuji_job.cc:1947-1952` | 窗口化普通行分支：`Deferred` **按失败处理并 fail closed**，注释写明「窗口化不应发生」 |
 
 **由此证伪一条假设**（我今晚提出后自行推翻，记在此处防止重走）：「run1 的 A/B 对调 = error:8 触发重发把 A 排到 B 之后」。窗口化分支收到 `error:8` 会直接终止任务，而 run1 是完整走完的，且日志无 error。已同步记入 `docs/troubleshooting.md` 的证伪表。
 
@@ -65,8 +65,8 @@
 | 项 | 奎享 | 我方 | 取舍理由 |
 |----|------|------|----------|
 | 断线恢复 | `pollLast()` 挪到队尾（缺陷） | 断连后从第 1 行整体重画 | 正确性优先；重画代价是废一张纸，错序代价是废一张纸**且不自知** |
-| 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:1720-1721`） |
-| 出图收尾 | `machine/grbl/a.java:298-301` `b()` = `G90G0 X0Y0` 回原点（字面量在 `:300`） | 文件只抬笔，S3 在 fresh `Idle` 后单发 `M30` | 本机固件把 `G0 X0Y0` 判为换纸触发，见 `docs/protocol.md` §5 |
+| 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:1770-1771`） |
+| 出图收尾 | `machine/grbl/a.java:298-301` `b()` = `G90G0 X0Y0` 回原点（字面量在 `:300`） | 文件只抬笔；S3 页尾旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，2026-08-14 归位决策）+ `M30` 换纸 | 本机固件把 `G0 X0Y0` 判为换纸触发，见 `docs/protocol.md` §5 |
 | stop/reset | 普通 stop 队尾追加抬笔+回原点；独立 reset2 才由 `machine/grbl/a.java:365-373` 发 `0x18` | 发 `!` 后按 Hold/Idle/任务状态处理 | 奎享 stop 非实时，reset2 又无安全 Hold；均不对齐（findings/20） |
 | 笔控落点 | `GrblSettings.java` 默认 `zOn=2.0 / zOff=0.0 / zSpeed=3000` | 实测 `zOn=5.0 / zOff=0.0 / F10000` | **结构对齐、数值按本机实测**；奎享默认值是出厂缺省，不是本机可用值 |
 | **坐标系**（2026-08-06 补，2026-08-07 补成因） | **负 X 工件坐标系**：唯一缓存产物 `2.gcode` 包络 X ∈ [-8.126, 0.000]、Y ∈ [0.000, 117.670]，763 个 X 值里 **762 个为负**。**成因**：`AxesData.json` 为 `pos="LeftUp"`（原点左上）+ `revxy=true`（XY 互换），左上原点下纸面向下为正、经互换后落到机床 X 负向（findings/22 §5） | **硬拒负坐标**（`gcode_gen.py` 中 `val < -_EPS` 即 `GcodeError`），限幅 0~190 / 0~277；我方原点为左下角死点、`X+` 右 / `Y+` 前 | 本机**无限位开关**，MCP 端限幅是唯一安全防线，负向越界会直接撞机；派曦是软警告缩放、我们是硬限（`findings/18` §3）。**不得为「对齐奎享」放宽此项**。复用奎享产物当回归基线需**原点变换**，不是随手平移 |

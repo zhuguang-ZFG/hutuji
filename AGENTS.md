@@ -19,7 +19,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 语音 → 小智官方云(+MCP 接入点) → 京东云 MCP 服务 hutuji_draw
      → LLM 出 SVG → 校验 → vpype 转 G-code → validate_gcode → output/ + 能力 URL
      → 云端把 URL 回给 S3 → S3 下载 + CRC32 校验（PSRAM 全量缓冲）
-     → WiFi Telnet :23 按 512B 在途窗口发给 Grbl → 页尾 fresh `Idle` 后 S3 单独发 `M30` → 自动换纸
+     → WiFi Telnet :23 按 512B 在途窗口发给 Grbl → 页尾 fresh `Idle` 后 S3 旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸）再发 `M30` → 自动换纸
 ```
 
 服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_cleanup_expired_outputs()`（R13-SRV-02 起移出并发名额：清理是 IO 运维动作而非受控生成工作，不占 slot）→ `_draw_limiter.slot()`（覆盖付费生成全程）→ `bitmap_svg.generate_bitmap_svg()`（位图路线，2026-08-09 起为现行：`_sanitize_description` → agnes 文生图 `/images/generations`（失败降级 `HUTUJI_IMAGE_FALLBACK_URL` 免鉴权备用端点）→ 下载 PNG → skimage 骨架化 + sknw 建图描摹 → 单线 SVG → `_validate_svg`）→ `gcode_gen.svg_to_gcode_async()`（可取消 vpype：`read → layout 归一化（--fit-to-margins 10mm 190x277mm，居中+等比缩放）→ linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。LLM 直写 SVG（`llm_svg.generate_svg`）只留给 `hutuji_preview_svg` 调试。
@@ -97,8 +97,8 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **async/sync 分工**：MCP 工具是 `async`；TTL 清理走 `asyncio.to_thread`，vpype 用 `asyncio.create_subprocess_exec` 并在取消时回收子进程；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
 - **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。第三方 logging 必须在 handler filter 中先 `record.getMessage()` 再脱敏最终文本，并单独脱敏 `exc_info`/`exc_text`/`stack_info`；只扫字符串 `msg/args` 会漏异常对象和 traceback。
 - **产物与 TTL**：只有匹配 `draw_YYYYMMDD_HHMMSS_<22 位 urlsafe token>.{gcode,svg}` 的名字可下载；TTL 600s，过期即删并返 404；清理是访问时顺带做的，**没有后台扫描线程**。
-- **G-code 契约**（`docs/protocol.md` §5，`validate_gcode()` 是活闸门）：头 `G21/G90/F8000` + 两次幂等 `G1G90 Z0.0F10000`（**不建立 Z 基准**）；`G0 ... F8000` 空走、`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件里禁 `G92`/`M3`/`M5`/`M30`/`G4`/`G28`/`G30`，禁 `G0` 落点 X0Y0，Z 只能 0 或 5，`0<F≤10000`，X≤190mm、Y≤277mm、单文件 ≤512KiB。落笔前的 `G92 Z0` 与页尾 `M30` 由 S3 旁路单发，不进文件。
-- **profile 陷阱**：`hutuji_gwrite.toml` **故意不以 `G90G0 X0Y0` 收尾**——回原点会触发本机换纸行为。
+- **G-code 契约**（`docs/protocol.md` §5，`validate_gcode()` 是活闸门）：头 `G21/G90/F8000` + 两次幂等 `G1G90 Z0.0F10000`（**不建立 Z 基准**）；`G0 ... F8000` 空走、`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件里禁 `G92`/`M3`/`M5`/`M30`/`G4`/`G28`/`G30`，禁 `G0` 落点 X0Y0，Z 只能 0 或 5，`0<F≤10000`，X≤190mm、Y≤277mm、单文件 ≤512KiB。落笔前的 `G92 Z0`、页尾归位行 `G1G90 X0Y0F8000` 与 `M30` 由 S3 旁路单发（先归位、ok+fresh Idle 后再换纸），不进文件。
+- **profile 陷阱**：`hutuji_gwrite.toml` **故意不以 `G90G0 X0Y0` 收尾**——文件内回原点会触发本机换纸行为；归位由 S3 在页尾以 `G1` 旁路完成（2026-08-14 归位决策），文件契约不变。
 - **SVG 注入防御**：元素白名单 `{svg,g,path,line,polyline}` + 属性白名单，拒 DTD/实体/事件属性/`href`/`url(...)`/非 `none` 填充，深度 ≤64，SVG ≤256KiB，`description` ≤200 字符并剔除控制字符。改校验必须先过 `tests/test_injection.py`。
 - **容差是显式决策**：`LINESIMPLIFY_TOLERANCE_MM = 0.05`、`LINEMERGE_TOLERANCE_MM = 0.3`，有专测钉死，不许顺手调参。
 - **脚本退出码有语义**：门禁 pass=0 / 任一层 fail=1；`grbl_wifi_setup.py` 2=缺密码、130=用户取消；`bringup_fault_capture.py` 2=缺端口或缺 pyserial、1=串口报错（打开/读取失败、注入写失败，以及**排过 `[ESP115]ON` 却在日志里找不到发送确认**——这一路会往报告追加显式失败行，不再以 0 收场）。

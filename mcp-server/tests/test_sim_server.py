@@ -625,6 +625,16 @@ def test_grbl_sim_m30_with_padding_triggers_paper_change(line: bytes) -> None:
     assert "ok" in responses, responses
 
 
+def test_grbl_sim_g1_origin_return_is_not_paper_change() -> None:
+    """页尾归位行契约钉死（2026-08-14 归位决策）：S3 旁路 `G1G90 X0Y0F8000`
+    归位必须回普通 ok、不触发换纸建模——与真机「回原点后换纸」触发的 G1 豁免
+    一致（GCode.cpp 页尾分支仅认实际执行的 G0/G28/G30 落点 XY≈0）。若本用例
+    变红，说明仿真的换纸触发面与真机的 G1 豁免漂移，S3 归位行会意外换纸。"""
+    responses = asyncio.run(_drive_sim([b"G1G90 X0Y0F8000\n"], read_timeout_s=1.0))
+    assert "ok" in responses, responses
+    assert "[MSG:[PaperStatus]" not in " ".join(responses), responses
+
+
 def test_grbl_sim_m30_no_paper_replies_error90() -> None:
     """R9-SIM-02 / F-SIM-05：GRBL_SIM_NO_PAPER 建模缺纸——M30 先发
     [PaperStatus] 5（OUT_OF_PAPER，真机 PaperSystem.cpp:804/811 发 CLIENT_ALL）

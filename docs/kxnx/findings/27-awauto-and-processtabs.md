@@ -38,7 +38,7 @@ $X → $21=1 → G91 G0 X-30 Y30 [首进纸追加 Z-<zHeight>] → G91 G0 Y350
 
 | 维度 | 奎享 awauto | hutuji |
 |------|------------|--------|
-| 发起方 | **上位机任务流水线主动**：换页处 `machine/f/l.java:201-204` `instanceof e` → `D().e(true)`；取消路径 `:141-142` `D().D()`【亲读】 | 页尾 S3 旁路单发 `M30`，固件被动触发（`docs/protocol.md` §5） |
+| 发起方 | **上位机任务流水线主动**：换页处 `machine/f/l.java:201-204` `instanceof e` → `D().e(true)`；取消路径 `:141-142` `D().D()`【亲读】 | 页尾 S3 旁路 `G1G90 X0Y0F8000` 归位 + `M30` 单发（2026-08-14 归位决策；此前仅 M30），固件被动触发（`docs/protocol.md` §5） |
 | 完成判据 | 进纸批 Complete 后**固定 sleep 6s** 发 `aw_paper_ready`（`h.java:22-23`）——**是定时器不是纸到位传感确认** | `[ESP901]` `Changing` 字段 + `[PaperStatus]` 定点消息 |
 | 失败恢复 | 有界重进纸（n=2）→ GUI 对话框人工决策 | §4.1 abort 分流 + 云端状态 |
 

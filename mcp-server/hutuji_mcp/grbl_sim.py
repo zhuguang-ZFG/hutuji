@@ -45,6 +45,10 @@
   在仿真都会落 _contract_violation 回 error:20。e2e 的被测对象是 pipe_sim
   逐行转发路径，不含 S3 启动序列；这些行为属 S3 固件侧（host 测试与实机
   取证覆盖），真要演进成「S3 行为仿真」再补。
+- 页尾归位行（2026-08-14 归位决策）：S3 旁路 `G1G90 X0Y0F8000` 在仿真回
+  普通 ok、不触发换纸——与真机 trigger 的 G1 豁免一致（真机仅 G0/G28/G30
+  落点 XY≈0 触发，GCode.cpp）；真机该触发本身不建模（§5 禁此类行进文件，
+  S3 编排也不发 G0 归位），G0 落点 XY≈0 仍按契约边界回 error:20。
 """
 from __future__ import annotations
 
