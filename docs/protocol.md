@@ -116,8 +116,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | **换纸窗口内断连** | `[ESP901]` 查 `Changing=On`，或本次断连前最后发出的是 M30/M721/[ESP910] | **不发 `0x18`、不发 `M30`**（`0x18` 会被 8s 窗吞、`M30` 会叠成二次换纸）；抬笔停机 + 推送提示用户，由人决定重画 |
 
 - **`[ESP901]` 可达性已源码验证**（非推断，v0.5 勘察）：① `anyState()` 恒返回 `false`（`Settings.cpp:6-8`，守卫语义是「是否拒绝」）→ 任何 `sys.state` 下都不拒；② 换纸阻塞期 `protocol_poll_client()` 的换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`；③ 响应经 `ESPResponseStream(client)` → `grbl_send(CLIENT_TELNET)` 回给发命令的 client（`ESPResponse.cpp:46,99`，且 `:55` 专为 Telnet 用 `\r\n`）。**故换纸期间 S3 发 `[ESP901]` 收得到含 `Changing` 的响应。**
-- 🔬 **仍待验证**：有纸时页尾自动换纸成功并最终 `done/Idle`、`Changing=On` 分流、
-  换纸物理耗时与半成品纸处置。非换纸 abort 自恢复通过不覆盖这些项。
+- ✅ 已验证（2026-08-15 收口）：有纸时页尾自动换纸成功并最终 `done/Idle`（S4 2026-08-03 + 归位版 `4c60ca8`）、`Changing=On` 分流（B-13 2026-07-30 + §8.5 2026-07-31）、换纸物理耗时（多次实测，含归位版 M30→ok 16.5s）。🔬 仍缺：断连恢复 `paper_active` 窗口的 abort 复测、缺纸 error:90 路径（归位版）。
+  半成品纸处置 2026-07-29 已实测主路径。非换纸 abort 自恢复通过不覆盖上述仍缺项。
 - **v1 再做**：自动穿越换纸续接（在未完成的换纸上安全接续），v0 不赌机械安全。
 
 #### 2.1.1 活跃任务重连恢复实现契约（S3 `05f4563` 起，`3ca9d31` 复测）
@@ -144,7 +144,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_started_` CAS 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:352-470`）；窗口模式的在途应答由
+   在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:357-475`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -180,7 +180,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - **完成判据**：最后一行的 `ok` 只表示该行进入 planner。S3 必须先等到一份 fresh `Idle`，
   再依次旁路单发 `G1G90 X0Y0F8000`（归位，G1 不触发换纸，ok 后等 fresh `Idle` 确认归位走完）
   与 `M30`（换纸）；`M30` 返回 `ok` 后还要再次取得 fresh `Idle`，此时才能置 `done`。
-  不得用旧缓存 `Idle` 或固定 sleep 判完成。该路径已编码，尚未完成有纸实机验收。
+  不得用旧缓存 `Idle` 或固定 sleep 判完成。~~该路径已编码，尚未完成有纸实机验收~~ **【supersede 2026-08-15】** 有纸全链已实测通过（S4 玫瑰图 2026-08-03 + 归位版 `4c60ca8` 2026-08-15，见 release-readiness.md）。
 - **同一时刻只允许一个任务**；任务期间 PSRAM 缓存（§5.1）持有至任务终结。成功且换纸完成后
   保留一份供 `repeat` 复用，error/aborted 释放。
 - 代码挂点：`lichuang-dev` 板级 `InitializeTools()`；**板级行为不进核心模块**。
@@ -328,7 +328,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 **B2′ 的可行性已逐环核验（不再是推断）**：
 1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1008`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
-2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1121`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
+2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1131`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
 3. **换纸阻塞期可分发**：换纸中 `protocol_service_during_blocking()` 遍历全部 client 调 `protocol_poll_client()`；其换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`。
 4. **响应回得到 S3**：`ESPResponseStream stream(client, true)`（`ProcessSettings.cpp:615`）用**发命令进来的 client** 构造 → `_client = CLIENT_TELNET`（`ESPResponse.cpp:46`）→ `grbl_send(_client, data)`（`:99`）；`println` 还专为 `CLIENT_TELNET` 用 `\r\n` 行尾（`:55`）。
 5. **调用时机安全**：`[ESP901]` 是普通命令会吃 `ok`（§3 单写者），但 Q5/Q8 需要它的时刻正是**重连后、尚未开始发 G-code** 的流控空闲期——恰好契合。

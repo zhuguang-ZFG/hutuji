@@ -111,7 +111,7 @@ G1 Z0.0 F10000     ← 抬笔
 定量对照（机制推演，**已被本地实测限定适用范围**，见下一节）：
 
 - planner 块深 `BLOCK_BUFFER_SIZE 250`（`Config.h:469`）够深，不是瓶颈。
-- 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:58-59`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:1770-1771`，商业固件会少应答、窗口计数永久漂移）。
+- 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:60-61`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:1799-1800`，商业固件会少应答、窗口计数永久漂移）。
 - 失能门槛可解析求出：planner 空窗 = `RTT − 21 × 段长 ÷ 133.33mm/s`，空窗 > `$1`=25ms 才失能 → **只有段长 < (RTT−25) × 6.349 µm/ms 时才可能断粮**。RTT=40ms → 0.095mm；RTT=30ms → 0.032mm；RTT ≤ 25ms → 恒不失能。**注意这里代入的 20–40ms 已被实测证否**，实测值与重算后的门槛见下面「实测 `$110/$111/$112` 与链路 RTT」一节。
 - 奎享为什么不受这条约束：它 0.044mm 段长下 21 段仅 6.93ms 在途。奎享支持三条通道——USB 串口（我们 COM3 实测往返 ~6ms）、WiFi TCP（port 23，与 hutuji 同构）、**蓝牙 SPP**（商业上位机无线主路径，`PAPER_AUTO_CHANGE_ON_BT_CONNECT` 量产验证，RTT 未知）。下方 6ms 是串口实测基线；同一份文件搬到 WiFi 40ms+ 往返就必失能——**奎享 `simplePaths=0.02mm` 不可照搬到 Telnet 路径**，hutuji 的 `linesimplify 0.05mm` 反倒是 WiFi 路径的必要保护。
 - 交叉印证：`hutuji_pipe.cc:434-436` 关 Nagle 的注释已独立记过同一物理机制（Z5 执行后 `$1` 到点失能、下一条 XY 因等 ACK 滞留 → 轨迹在走但笔已回弹）。
@@ -217,14 +217,14 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 
 | 假设 | 证伪依据 |
 |------|----------|
-| Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:138-252` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
+| Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:132-256` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
 | 跨连接残留 1073 字节污染 run1 | run1 全程 `Bf:24x,1200`，Telnet RX 全空（`Bf:249,127` 是 S4 断连那次的另一会话，别往 run1 身上套） |
 | `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-63`/`:99-111`）自身无锁但受外层保护：实测 `Serial.cpp:185-187`（write）与 `:232-234`（read）**都在** `vTaskEnterCritical(&myMutex)` 临界区内 |
 | 重入 `protocol_poll_client` 导致行乱序 | 全项目 6 个调用点都在 `Protocol.cpp`；`protocol_service_during_blocking` 只被 `PaperSystem.cpp:147`（换纸）调用，画线期不进 |
 | 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
 | 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
-| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:1947-1952` 窗口化分支收 `error:8` 直接 fail closed（重发只在 `hutuji_job.cc:1733-1744` 换纸逐行分支，上限 8 次），run1 完整走完且日志无 error——该错序机制不成立 |
+| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:1976-1981` 窗口化分支收 `error:8` 直接 fail closed（重发只在 `hutuji_job.cc:1762-1773` 换纸逐行分支，上限 8 次），run1 完整走完且日志无 error——该错序机制不成立 |
 | 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
 
 另：**字节级「丢字节/缓冲读错位」类假设整体站不住**——丢字节只能产生原序列的子序列，解释不了 run1 的「B 完整出现在 A 之前」；A、B 相邻两行只差 `Y60.000`↔`Y200.000`，这种跨行字段互换也无法由读错位生成。
@@ -388,7 +388,7 @@ G1 Z0.0 F10000
   实测 `G91` 独立行、`g91` 小写、`G1G91` 同行混排、`G92 X0` 全部按
   「第 N 行含 G91（生产文件允许 …）」拒绝——注意**必须用带合法尾行的样本复测**，
   否则文件末尾契约会先触发，掩盖白名单是否真的拦住了 `G91`。
-- S3 旁路指令全是绝对或非运动：`G1G90 Z…`、`G92 Z0`（只动 Z 不动 XY）、`M5`、`M30`、
+- S3 旁路指令：绝对 Z 运动 `G1G90 Z…`、`G92 Z0`（只动 Z 不动 XY）、`M5`、`M30`，以及 2026-08-14 起的页尾归位行 `G1G90 X0Y0F8000`（XY 运动、G1 不触发换纸）、
   `$I`、`$X`、`?`、`!`、`0x18`；授权探针 `BuildLicenseProbeLine(x)` 用当前 MPos 构造
   **零位移** `G1 G53`。全仓检索 `main/boards/lichuang-dev/` 无任何 `G91`。
 

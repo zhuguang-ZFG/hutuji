@@ -19,7 +19,7 @@
 | 三仓版本 | 与本批 manifest 一致 | commit / 固件 SHA256 |
 | 写字机授权 | `[License] Authorized` | ChipID（按隐私政策处理） |
 | Telnet | S3 `connected/ready/authorized` | IP、设备号 |
-| 语音出图 | 至少 1 次完整出纸 + `M30` 换纸 | 照片/日志路径 |
+| 语音出图 | 至少 1 次完整出纸 + 归位（MPos 回原点）+ `M30` 换纸 | 照片/日志路径 |
 | 京东云 | 本批指向的 `HUTUJI_PUBLIC_BASE_URL` 可达 | HEAD + CRC 头 |
 
 首件不过 → 停线，不进入批量。
