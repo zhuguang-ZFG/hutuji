@@ -98,6 +98,29 @@ def test_description_is_bounded_and_control_chars_are_removed() -> None:
     assert len(cleaned) == 200
 
 
+def test_description_empty_or_whitespace_is_rejected() -> None:
+    """空/纯空白主题必须本地拒绝（MCPDetail-F2）：空白过闸会让生图端点
+    自由发挥，付费出无关图/白纸。控制字符剥除后为空同样拒绝。"""
+    for bad in ("", "   ", "\u00a0" * 3, "\u2028\u2029", "\x00\x1f"):
+        with pytest.raises(LlmError, match="描述为空"):
+            _sanitize_description(bad)
+
+
+def test_generate_svg_rejects_blank_description(monkeypatch) -> None:  # noqa: ANN001
+    """空白主题在进入计费请求前必须被拒（MCPDetail-F2，LLM 直写路线）。"""
+    monkeypatch.setattr(
+        llm_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="test-key",
+            llm_base_url="https://example.invalid/v1",
+            llm_model="test-model",
+        ),
+    )
+    with pytest.raises(LlmError, match="描述为空"):
+        asyncio.run(llm_svg.generate_svg("   "))
+
+
 class _FakeResponse:
     def __init__(self, status_code: int, chunks: list[bytes]) -> None:
         self.status_code = status_code

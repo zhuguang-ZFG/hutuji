@@ -116,6 +116,23 @@ def test_settings_normalizes_public_origin(tmp_path: Path) -> None:
     assert configured.public_base_url == "https://draw.example:443"
 
 
+def test_settings_strips_whitespace_llm_api_key(tmp_path: Path) -> None:
+    """纯空白 API key 视同未配置（fail-closed）：不 strip 会让空白 key 过
+    llm_configured 的非空闸，全部请求以 401 假性可用、掩盖部署事故。"""
+    configured = Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key=" \t ",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+    )
+    assert configured.llm_api_key == ""
+    assert configured.llm_configured is False
+
+
 def test_settings_rejects_insecure_public_origin(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         Settings(
@@ -559,6 +576,38 @@ def test_draw_uses_normalized_injected_public_origin(
     assert result["url"] == (
         "https://draw.example:443/files/draw_20260731_120000_abcdefghijklmnopqrstuv.gcode"
     )
+
+
+def test_draw_result_includes_ttl_seconds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CloudUX-F1：返回 JSON 必须带 ttl_seconds，调用方才能预告链接有效期。"""
+    import json
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
+
+    async def fake_bitmap(_desc: str) -> str:
+        return "<svg/>"
+
+    async def fake_convert(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
+
+    monkeypatch.setattr(server, "generate_bitmap_svg", fake_bitmap)
+    monkeypatch.setattr(
+        server,
+        "_new_basename",
+        lambda: "draw_20260731_120000_abcdefghijklmnopqrstuv",
+    )
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
+
+    result = json.loads(asyncio.run(server.hutuji_draw("test")))
+    assert result["ttl_seconds"] == 600
 
 
 def _minimal_gcode(extra: str = "") -> str:
@@ -1427,6 +1476,27 @@ def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> No
     )
     with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_LLM_API_KEY"):
         asyncio.run(bitmap_svg.generate_bitmap_svg("test"))
+
+
+def test_bitmap_generate_rejects_blank_description(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """空白主题在进入计费请求前必须被拒（MCPDetail-F2，位图路线）。
+
+    两条生成路线共用 _sanitize_description，这里钉位图路线的行为；LlmError
+    从位图路径冒出可接受（文案用户向）。"""
+    from hutuji_mcp import bitmap_svg
+    from hutuji_mcp.llm_svg import LlmError
+
+    monkeypatch.setattr(
+        bitmap_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="m"
+        ),
+    )
+    with pytest.raises(LlmError, match="描述为空"):
+        asyncio.run(bitmap_svg.generate_bitmap_svg(" \u3000 "))
 
 
 def test_bitmap_fetch_rejects_blank_image_model(monkeypatch: pytest.MonkeyPatch) -> None:

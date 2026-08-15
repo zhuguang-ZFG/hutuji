@@ -240,6 +240,11 @@ def _sanitize_description(description: str) -> str:
     cleaned = _CONTROL_CHAR_RE.sub("", description)
     if len(cleaned) > _DESCRIPTION_MAX_CHARS:
         cleaned = cleaned[:_DESCRIPTION_MAX_CHARS]
+    if not cleaned.strip():
+        # 空/纯空白主题会让生图端点自由发挥（付费出无关图/白纸）；在进入
+        # 计费请求前拦下。两条生成路线共用本函数，一处拒绝两边都覆盖
+        # （MCPDetail-F2）。文案用户向，不带内部细节。
+        raise LlmError("描述为空，请告诉我要画的具体主题")
     return cleaned
 
 

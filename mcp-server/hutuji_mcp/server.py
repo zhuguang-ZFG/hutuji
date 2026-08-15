@@ -252,11 +252,13 @@ async def _generate_svg_limited(description: str) -> str:
 async def hutuji_draw(description: str) -> str:
     """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
 
-    参数 description：简短中文主题，建议 10～40 字。
+    生成耗时约 15～45 秒，调用前请先告知用户需要等待。
+    参数 description：简短中文主题，建议 10～40 字；最长 200 字，超出会被截断。
     好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」。
     坏例子：长篇故事、要求填色/照片写实、无主题的空话。
 
-    返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址）、lines/bytes/pen_lifts。
+    返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址，有有效期，以返回的
+    ttl_seconds 秒数为准，拿到后请立即开始绘图，过期需重新生成）、lines/bytes/pen_lifts/ttl_seconds。
     不要编造 url；失败时根据错误白话说明。"""
     # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
     public_base_url = validate_public_base_url(settings.public_base_url)
@@ -301,6 +303,9 @@ async def hutuji_draw(description: str) -> str:
         "lines": stats.lines,
         "bytes": stats.bytes,
         "pen_lifts": stats.pen_lifts,
+        # 让调用方（云端 LLM）能把「约 10 分钟有效」转述给用户，而非等到 404
+        # 才由设备侧猜测原因（CloudUX-F1）。
+        "ttl_seconds": settings.output_ttl_seconds,
     }, ensure_ascii=False)
 
 

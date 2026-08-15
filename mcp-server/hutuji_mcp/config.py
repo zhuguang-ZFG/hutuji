@@ -105,6 +105,10 @@ class Settings:
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
         object.__setattr__(self, "llm_base_url", validate_llm_base_url(self.llm_base_url))
+        # 纯空白 key 视同未配置（fail-closed）：不 strip 会让空白 key 过
+        # llm_configured 的非空闸，全部请求以 401 假性可用、掩盖部署事故。
+        # 与下方 image_fallback_url 的 strip 同口径（MCPDetail-F1）。
+        object.__setattr__(self, "llm_api_key", self.llm_api_key.strip())
         # 备用端点只允许 https（置空=禁用）；回显的是部署方自己的配置值，非凭据。
         fallback = self.image_fallback_url.strip()
         if fallback and not fallback.startswith("https://"):
