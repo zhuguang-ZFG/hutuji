@@ -196,6 +196,21 @@ def _read_regular_file(path: Path) -> tuple[bytes, float]:
             os.close(fd)
         raise
 
+def _is_regular_capability_file(path: Path) -> bool:
+    """lstat 判普通文件 + 能力命名，与 `_read_regular_file` 拒 symlink 同口径。
+
+    `Path.is_file()` 会跟随链接：output_dir 里的 symlink 指向普通文件时会被它当成
+    产物（实测 is_file()=True 而 lstat S_ISREG=False），而下载侧 O_NOFOLLOW 拒之。
+    清理/统计若跟随，两处口径就不一致。恒不跟随：链接（含 Windows junction）
+    一律不算本服务产物。
+    """
+    try:
+        st = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and _DRAW_FILE_RE.fullmatch(path.name)
+
+
 def _cleanup_expired_outputs(*, now: float | None = None) -> int:
     """清除超过 TTL 的 draw_*.svg/gcode，返回删除的文件数。
 
@@ -213,7 +228,7 @@ def _cleanup_expired_outputs(*, now: float | None = None) -> int:
         logger.warning("清理输出目录失败（iterdir）：%s", exc)
         return 0
     for path in entries:
-        if path.is_file() and _DRAW_FILE_RE.fullmatch(path.name):
+        if _is_regular_capability_file(path):
             try:
                 if _is_expired(path, now=now):
                     expired_stems.add(path.stem)
@@ -330,7 +345,7 @@ async def hutuji_status() -> str:
         # 只统计能力命名的产物：手工放进目录的外来 .gcode 不属于本服务产出，
         # 混入会让 gcode_files/latest 反映不出真实的生成活动。
         files = sorted(
-            [p for p in out.glob("*.gcode") if p.is_file() and _DRAW_FILE_RE.fullmatch(p.name)],
+            [p for p in out.glob("*.gcode") if _is_regular_capability_file(p)],
             key=_safe_mtime,
         ) if exists else []
         return exists, files

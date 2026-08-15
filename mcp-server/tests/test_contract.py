@@ -2453,6 +2453,50 @@ def test_status_ignores_foreign_gcode_files(
     assert data["latest"] is None
 
 
+def test_cleanup_skips_symlink_capability_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """清理路径与下载路径同口径：命名合法的 symlink 不算产物，不得被删除。
+
+    `Path.is_file()` 跟随链接会把指向普通文件的 symlink 当成产物，而下载侧
+    `_read_regular_file`（O_NOFOLLOW + lstat）拒之——两处口径必须一致。
+    """
+    name = f"{server._new_basename()}.gcode"
+    target = tmp_path / "keep.bin"
+    target.write_bytes(b"keep")
+    link = tmp_path / name
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError) as exc:
+        # Windows 上建 symlink 需管理员/开发者模式，无权限时跳过并说明原因。
+        pytest.skip(f"当前平台无权限创建 symlink：{exc}")
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+
+    # now 远超前强制「已过期」：旧实现（is_file 跟随）会把链接当产物删掉
+    assert server._cleanup_expired_outputs(now=time.time() + 1000) == 0
+    assert link.exists(), "symlink 不是本服务产物，不得被清理删除"
+
+
+def test_status_ignores_symlink_capability_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """状态统计与下载路径同口径：命名合法的 symlink 不计入产物。"""
+    name = f"{server._new_basename()}.gcode"
+    target = tmp_path / "keep.bin"
+    target.write_bytes(b"keep")
+    link = tmp_path / name
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"当前平台无权限创建 symlink：{exc}")
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+
+    data = json.loads(asyncio.run(server.hutuji_status()))
+    assert data["gcode_files"] == 0
+    assert data["latest"] is None
+    assert link.exists(), "status 清理不得误删 symlink"
+
+
 def test_status_survives_stat_permission_error_on_sort_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
