@@ -251,10 +251,13 @@ def _sanitize_description(description: str) -> str:
 async def generate_svg(description: str) -> str:
     """调 chat completions 生成 SVG 文本。未配置 API key 时抛清晰错误。"""
     if not settings.llm_api_key:
-        raise LlmError(
-            "未配置 LLM API key：请设置环境变量 HUTUJI_LLM_API_KEY"
+        # CloudUX-F5：配置类错误（环境变量指引）不得直达用户耳朵——事故期用户
+        # 听到「请设置环境变量」没有可行动性；技术原因进日志，用户面统一白话。
+        logger.warning(
+            "LLM 未配置：请设置环境变量 HUTUJI_LLM_API_KEY"
             "（另见 HUTUJI_LLM_BASE_URL / HUTUJI_LLM_MODEL）"
         )
+        raise LlmError("绘图服务未就绪，请稍后再试")
 
     safe_desc = _sanitize_description(description)
 

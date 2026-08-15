@@ -288,6 +288,16 @@ def test_summary_table_shape_unchanged():
     ]
 
 
+def test_error90_belongs_to_s3_not_grbl():
+    """TOOL-MARK-01：error:90 只出现在 Telnet/S3 日志（hutuji 侧缺纸/换纸相关），
+    Grbl 串口只见 [PaperStatus]。它曾是 GRBL_MARKERS，报告表格 Grbl 列恒「否」——
+    人判联调结论时会把「否」误读成取证缺陷。归到 S3 侧后：S3 日志出现即判正，
+    Grbl 列不再出现该标记（没有可误读的「否」）。"""
+    rows = _summary_rows([_log("S3", "hutuji: error:90 纸张用完或未放好")])
+    assert rows[("S3", "error:90")] == "是", "S3/Telnet 日志出现 error:90 必须判正"
+    assert ("Grbl", "error:90") not in rows, "error:90 已移出 GRBL_MARKERS，Grbl 列不得再出现误导性的「否」"
+
+
 # WiFi 恢复组：`[inject] sent to {port}: {cmd}` 只在 ser.write 与 ser.flush() 都返回后才落，
 # 故它是「命令已送出」的唯一确认。旧实现把 [ESP115]ON 排进队列就 stop.set() + join(1.5s)
 # 走人，且 Serial 无 write_timeout：实测让含 ON 的 write 阻塞 3s，main 3.52s 返回，报告只有
@@ -537,14 +547,16 @@ def test_wifi_setup_read_assembles_fragmented_response(monkeypatch, capsys):
 def test_wifi_setup_connected_judged_after_esp420_status(monkeypatch, capsys):
     """F-TOOL-07：STA 恰在重启后读取之后、[ESP420] 之前连上时，connected 必须以
     [ESP420] 状态行的设备自报为准——旧实现按前两次读取判「未连上」却打出 Connected
-    状态行，exit 1 与展示自相矛盾。"""
+    状态行，exit 1 与展示自相矛盾。F-TOOL-08 收紧后：连上判据与展示都只认 `IP:`（
+    固件 WebSettings.cpp:460 无条件先印 `Connected to: `，只有 :491 的 `IP: ` 在
+    isConnected() 分支内）。"""
     fake = _FakeWifiSerialModule(
         [
             b"ok",  # [ESP100] SSID
             b"ok",  # [ESP101] 密码
             b"ok",  # [ESP110] STA
             b"[MSG:Wifi connecting...]",  # 重启后读取时 STA 还没连上
-            b"WiFi Mode: STA\nConnected to: 192.168.1.13\nSignal: 80%",  # [ESP420] 已连上
+            b"WiFi Mode: STA\nConnected to: Test\nSignal: 80%\nIP: 192.168.1.13",  # [ESP420] 已连上
         ]
     )
     monkeypatch.setitem(sys.modules, "serial", fake)
@@ -558,7 +570,37 @@ def test_wifi_setup_connected_judged_after_esp420_status(monkeypatch, capsys):
 
     assert wifi_setup.main() == 0, "ESP420 自报已连上必须判成功，不得 exit 1"
     out = capsys.readouterr().out
-    assert "Connected to: 192.168.1.13" in out, "设备自报的 Connected 状态行必须展示"
+    assert "IP: 192.168.1.13" in out, "设备自报的 IP 状态行必须展示"
+    assert "Connected to:" not in out, "F-TOOL-08：无条件前缀行不再展示（未连上时同样出现）"
+
+
+def test_wifi_setup_bare_connected_to_is_not_connection(monkeypatch, capsys):
+    """F-TOOL-08 回归：固件在 STA 模式下**无条件**先印 `Connected to: `（WebSettings.cpp:460，
+    未连上时拼接成 'Connected to: Disabled Mode: …'），裸 `Connected to: ` 子串命中即
+    判连上是「STA 未连接却 exit 0」的假阳性。收紧后只认 `IP:`，本形状必须 fail-closed。"""
+    fake = _FakeWifiSerialModule(
+        [
+            b"ok",  # [ESP100] SSID
+            b"ok",  # [ESP101] 密码
+            b"ok",  # [ESP110] STA
+            b"[MSG:Wifi connecting...]",  # 重启后读取时 STA 还没连上
+            b"WiFi Mode: STA\nConnected to: Disabled Mode: AA:BB:CC:DD:EE:FF",  # [ESP420] 未连上
+        ]
+    )
+    monkeypatch.setitem(sys.modules, "serial", fake)
+    monkeypatch.setattr(wifi_setup.time, "sleep", lambda *_: None)
+    monkeypatch.setenv("GRBL_WIFI_PASSWORD", "pw")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["grbl_wifi_setup.py", "--port", "COM_FAKE", "--ssid", "Test", "--yes"],
+    )
+
+    assert wifi_setup.main() == 1, "只有无条件前缀 Connected to: 没有 IP: 时必须判失败"
+    err = capsys.readouterr().err
+    assert "WiFi 未确认连上" in err, "失败原因必须单行点明"
+    out = capsys.readouterr().out
+    assert "Connected to:" not in out, "未连上时的无条件前缀行不得展示成已连上"
 
 
 def test_wifi_setup_not_connected_still_fails_closed(monkeypatch, capsys):
@@ -607,6 +649,83 @@ def test_update_kb_missing_upload_data_fails_single_line(monkeypatch, tmp_path, 
     err = capsys.readouterr().err
     assert "缺少 file_name/file_md5" in err, "必须单行点明缺的是哪两个字段"
     assert "Traceback" not in err, "不许裸 traceback"
+
+
+# ---- TOOL-UX-03：退出码统一（usage/参数错=2，运行错=1）----
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],  # 无命令 = 用法错误（旧实现 exit 0）
+        ["show"],  # 缺子命令参数
+        ["update-role"],
+        ["update-kb"],
+        ["recall", "42"],  # 缺 query
+        ["device-call", "hutuji.status", "{}", "extra"],  # 参数个数错
+        ["sync"],
+        ["unknown-cmd"],  # 未知命令（旧实现 exit 1）
+    ],
+)
+def test_console_usage_errors_exit_2(monkeypatch, argv, capsys):
+    """TOOL-UX-03：用法/参数错误统一退出码 2——旧实现混用 0/1/2（无命令 exit 0、
+    缺参数与未知命令 exit 1、仅 device-call 参数错 exit 2），脚本化调用方无法区分
+    「用错了」与「跑挂了」。"""
+    monkeypatch.setattr(sys, "argv", ["xiaozhi_console.py", *argv])
+    with pytest.raises(SystemExit) as exc:
+        console.main()
+    assert exc.value.code == 2, argv
+
+
+def test_console_update_kb_non_integer_id_is_usage_error(monkeypatch, capsys):
+    """TOOL-UX-03：kb_id 非整数是参数错误 → 退出码 2（旧实现 exit 1）。"""
+    monkeypatch.setattr(sys, "argv", ["xiaozhi_console.py", "update-kb", "abc"])
+    with pytest.raises(SystemExit) as exc:
+        console.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "kb_id 必须是整数" in err
+
+
+def test_console_recall_non_integer_id_is_usage_error(monkeypatch, capsys):
+    """TOOL-UX-03：recall 的 kb_id 非整数同样归参数错误 → 退出码 2。"""
+    monkeypatch.setattr(sys, "argv", ["xiaozhi_console.py", "recall", "abc", "画一只猫"])
+    with pytest.raises(SystemExit) as exc:
+        console.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "kb_id 必须是整数" in err
+
+
+def test_update_kb_delete_failure_summarizes_parallel_versions(monkeypatch, tmp_path, capsys):
+    """TOOL-UX-03：update-kb 的 DELETE 循环收集到失败后必须汇总提示「新旧并存需人工
+    清理」再非零退出——新文档已建档、旧文档没删干净时远端是新旧并存状态，半清理
+    静默成功会让操作员误以为替换已完成。"""
+    monkeypatch.setattr(console, "KNOWLEDGE_BASE_PATH", tmp_path / "knowledge-base.md")
+    (tmp_path / "knowledge-base.md").write_text("内容", encoding="utf-8")
+
+    def fake_api(method, path, body=None):
+        if method == "GET":
+            return {"data": {"list": [{"id": 7, "title": "旧文档"}]}}
+        if method == "DELETE":
+            return {"success": False}
+        return {"success": True}
+
+    monkeypatch.setattr(console, "api", fake_api)
+    monkeypatch.setattr(
+        console,
+        "api_upload",
+        lambda path, file_path: {
+            "success": True,
+            "data": {"file_name": "kb.md", "file_md5": "d41d8cd98f00b204e9800998ecf8427e"},
+        },
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        console.cmd_update_kb("42")
+    assert exc.value.code == 1, "删除失败属运行期错误 → 退出码 1（不是用法错误 2）"
+    err = capsys.readouterr().err
+    assert "新旧并存" in err and "需人工清理" in err, f"必须点明新旧并存需人工清理：{err}"
+    assert "旧文档" in err, "汇总要列出删失败的具体文档，操作员才知道清哪些"
 
 # ============================================================================
 # R11-E2E-01/02/03 + R11-BR-01/02：闭环工具链契约测试。

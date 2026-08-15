@@ -148,7 +148,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **无证据不宣称 / 无清单不改代码 / 不覆盖用户工作树 / 不为门禁绿去改产品行为。** 未跑的测试、未见的 commit、未实测的硬件现象一律写「未验证」。
 - **不准简化设计 / 全称必证**：禁止照文档「可选 / 可去掉 / 可简化 / 待做」措辞删除或弱化任何负载（vpype 管线步骤、校验、安全边界、画质容差 `linesimplify`/`linemerge`、流控、每行带 F 等）——这类许可默认是**假的**，先与 `protocol.md` §5 / `hutuji_gwrite.toml` / `gcode_gen.py` 常量 / `test_contract.py` 钉死值对账，冲突以定案为准并盖章 `supersede`。说「唯一 / 全部 / 已清 / 干净 / 没有第二处」前必须先全仓检索取证。详见 `docs/agent-anti-drift.md` §0 铁律 7–8（已被门禁 `anti_drift` 层机器钉死，删铁律即红）。
 - 改代码前必须能指出「白名单路径 + 契约段落或用户原话」；指不出就只读或问用户。机读白名单：`docs/agent-edit-allowlist.json`。
-- Grbl 侧只可碰 §9 清单内文件意图（`src/WebUI/TelnetServer.cpp`、`src/PaperSystem.cpp`、`src/Protocol.cpp`、§9-C′ 判定谓词所在的 `src/ProtocolDecisionCore.h`）与其余 `*Core.h` 的 header-only 恢复；**禁止**碰 `report_realtime_status` / `report_state_text`、禁止全量 `CLIENT_ALL` 广播、禁止为仿真绿改换纸机械常量、禁止顺手重构。
+- Grbl 侧只可碰 §9 清单内文件意图（`src/WebUI/TelnetServer.cpp`、`src/PaperSystem.cpp`、`src/Protocol.cpp`、§9-C′ 判定谓词所在的 `src/ProtocolDecisionCore.h`、§9-D′ 蓝牙功率所在的 `src/WebUI/BTConfig.cpp`）与其余 `*Core.h` 的 header-only 恢复；**禁止**碰 `report_realtime_status` / `report_state_text`、禁止全量 `CLIENT_ALL` 广播、禁止为仿真绿改换纸机械常量、禁止顺手重构。
 - **禁止重开**：合并固件 / USB Host / CH9350 / 阿里云部署 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。
 - **禁止宣称**（除非 `docs/release-readiness.md` 对应行已 ✅）：可出货、商业放行、§9 已完成、§9 已修好、硬件已验证、联调完成、京东云已上线、M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
 - **凭据禁入库**：`D:/Downloads/VPS.txt`（VPS 明文密码 + API key）、真实小智 MCP 接入点、`小智控制台token.txt`，一律不复制、不引用、不提交。

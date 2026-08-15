@@ -1797,6 +1797,10 @@ def main(argv: list[str] | None = None) -> int:
 
     layers: list[dict[str, Any]] = []
     for layer_id, run_layer in plan:
+        # TOOL-UX-02：每层开始打一行进度（hub/full 最长 15 分钟黑屏的 UX 修复）。
+        # 只加 stdout 进度输出，不进报告 JSON/MD（write_reports 只从 layers 拼）——
+        # 不改变任何判据与报告形状，报告格式钉死测试不受影响。
+        print(f"[running] {layer_id}")
         try:
             layer = run_layer()
         except Exception as exc:  # noqa: BLE001 - 故意的兜底 fail-closed

@@ -523,6 +523,23 @@ def test_grbl_sim_non_ascii_replies_error11() -> None:
     assert grbl_sim._contract_violation("G1 X10 Y10 中文 F8000") == "error:11"
 
 
+def test_env_float_rejects_nan_and_inf(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCPDetail-F9：_env_float 拒 nan/inf 回落默认——sleep(inf) 会永久挂起
+    M30 应答（换纸阻塞期永远不回 ok），nan/inf 必须与非法字符串同路径回落。"""
+    from hutuji_mcp import grbl_sim
+
+    monkeypatch.setenv("GRBL_SIM_TEST_FLOAT", "nan")
+    assert grbl_sim._env_float("GRBL_SIM_TEST_FLOAT", 1.5) == 1.5
+    monkeypatch.setenv("GRBL_SIM_TEST_FLOAT", "inf")
+    assert grbl_sim._env_float("GRBL_SIM_TEST_FLOAT", 1.5) == 1.5
+    monkeypatch.setenv("GRBL_SIM_TEST_FLOAT", "-inf")
+    assert grbl_sim._env_float("GRBL_SIM_TEST_FLOAT", 1.5) == 1.5
+    monkeypatch.setenv("GRBL_SIM_TEST_FLOAT", "2.5")
+    assert grbl_sim._env_float("GRBL_SIM_TEST_FLOAT", 1.5) == 2.5
+    monkeypatch.delenv("GRBL_SIM_TEST_FLOAT")
+    assert grbl_sim._env_float("GRBL_SIM_TEST_FLOAT", 1.5) == 1.5
+
+
 async def _drive_sim(
     payloads: list[bytes],
     *,

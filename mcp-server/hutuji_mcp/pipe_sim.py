@@ -94,7 +94,11 @@ def stream_gcode(gcode_path: Path, host: str, port: int,
     with socket.create_connection((host, port), timeout=10) as sock:
         sock.settimeout(ok_timeout_s)
         f = sock.makefile("rb")
-        f._sock = sock  # type: ignore[attr-defined]  # 供 _read_response_line 重算超时
+        # 读行超时由 socket 决定（上一行 settimeout 已设），makefile 底层即同一
+        # socket：_read_response_line 的 f.readline() 直接沿用，超时抛
+        # socket.timeout。下面的重绑只是防御性冗余，并非「供 _read_response_line
+        # 重算超时」——它从不重算（MCPDetail-F11）。
+        f._sock = sock  # type: ignore[attr-defined]
 
         # 读 banner（"Grbl ... ['$' for help]" 行）
         while True:

@@ -49,6 +49,9 @@
   普通 ok、不触发换纸——与真机 trigger 的 G1 豁免一致（真机仅 G0/G28/G30
   落点 XY≈0 触发，GCode.cpp）；真机该触发本身不建模（§5 禁此类行进文件，
   S3 编排也不发 G0 归位），G0 落点 XY≈0 仍按契约边界回 error:20。
+- `$` 系行（`$$`/`$x=…`/`$H` 等，`$I` 除外）回普通 ok——仿真只建模探活用
+  的 `$I`，其余 `$` 命令（设置/系统命令）不执行、按无 G-code 词法放行；
+  真机对它们执行系统命令（MCPDetail-F3）。
 """
 from __future__ import annotations
 
@@ -79,10 +82,15 @@ def _env_float(name: str, default: float) -> float:
     if not raw:
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         logger.warning("%s 非数值 %r，回落默认 %s", name, raw, default)
         return default
+    if not math.isfinite(value):
+        # MCPDetail-F9：nan/inf 会让 sleep(inf) 永久挂起 M30 应答，按非法回落。
+        logger.warning("%s 非有限值 %r，回落默认 %s", name, raw, default)
+        return default
+    return value
 
 
 PAPER_CHANGE_DELAY_S = _env_float("GRBL_SIM_PAPER_DELAY_S", 0.5)

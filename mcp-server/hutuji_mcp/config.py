@@ -109,13 +109,17 @@ class Settings:
         # llm_configured 的非空闸，全部请求以 401 假性可用、掩盖部署事故。
         # 与下方 image_fallback_url 的 strip 同口径（MCPDetail-F1）。
         object.__setattr__(self, "llm_api_key", self.llm_api_key.strip())
-        # 备用端点只允许 https（置空=禁用）；回显的是部署方自己的配置值，非凭据。
+        # 备用端点只允许 https 且必须带主机名（置空=禁用）；旧 startswith 前缀
+        # 校验会放过裸 `https://`（无 hostname），与 validate_llm_base_url 的
+        # urlsplit 口径对齐（MCPDetail-F8）。回显的是部署方自己的配置值，非凭据。
         fallback = self.image_fallback_url.strip()
-        if fallback and not fallback.startswith("https://"):
-            raise ValueError(
-                "HUTUJI_IMAGE_FALLBACK_URL 必须是 https:// 或置空禁用，"
-                f"当前 {self.image_fallback_url!r}"
-            )
+        if fallback:
+            parsed = urlsplit(fallback)
+            if parsed.scheme != "https" or not parsed.hostname:
+                raise ValueError(
+                    "HUTUJI_IMAGE_FALLBACK_URL 必须是 https:// 且带主机名，或置空禁用，"
+                    f"当前 {self.image_fallback_url!r}"
+                )
         object.__setattr__(self, "image_fallback_url", fallback)
         # 非 loopback 一律拒绝：锁定决策是「/mcp 只本机可达，公网由 nginx 404」。
         # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
@@ -149,7 +153,11 @@ def _resolve_output_dir() -> Path:
     Path("") 会静默解析为进程 CWD，产物与 /files 服务根双双偏离文档默认且难排查
     （与 preflight 对显式空白 env 判红同口径）。"""
     raw = os.environ.get("HUTUJI_OUTPUT_DIR", "./output")
-    if not raw.strip():
+    # 先 strip 再判空/建 Path（MCPDetail-F15）：首尾空白会在文件系统里造出
+    # 带空格的目录名，产物与 /files 服务根双双偏离预期且难排查；与
+    # llm_api_key / image_fallback_url 的 strip 同口径。
+    raw = raw.strip()
+    if not raw:
         raise ValueError("HUTUJI_OUTPUT_DIR 不得为空白：显式空值会静默解析为进程 CWD")
     return Path(raw).resolve()
 

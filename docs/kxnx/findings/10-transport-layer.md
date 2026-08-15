@@ -294,7 +294,7 @@ public final class f extends a implements SerialPortEventListener {
 > WiFi 那圈循环是请求-响应节奏，失联后只空转计数、**不再重发** `?`。行号也已按主树校正。
 > 我方每 3s 重发 `?` 与之策略相反，属**有意不对齐**（findings/21 §6）。
 
-**已实机抽验确认的固件缺陷**（修复前原码如下；P1 判死逻辑现在 `hutuji_pipe.cc:179-211`）：
+**已实机抽验确认的固件缺陷**（修复前原码如下；P1 判死逻辑现在 `hutuji_pipe.cc:180-212`）：
 
 ```cpp
 if (errno == EAGAIN || errno == EWOULDBLOCK) {

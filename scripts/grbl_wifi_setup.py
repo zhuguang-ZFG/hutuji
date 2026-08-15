@@ -212,7 +212,11 @@ def main() -> int:
 
         report = f"{boot}\n{status}"
         for line in report.splitlines():
-            if any(k in line for k in ["WiFi Mode", "Connected", "IP:", "Signal"]):
+            # 展示与联网判据同口径（F-TOOL-08）：不展示 `Connected to: ` 行——固件
+            # 在 STA 模式下无条件先印它，未连上时同样出现（拼接成 'Connected to:
+            # Disabled Mode: …'），展示它会与「判失败却像已连上」自相矛盾；IP: 只在
+            # isConnected() 分支内打印，是唯一可信的「已连上」证据行。
+            if any(k in line for k in ["WiFi Mode", "IP:", "Signal"]):
                 print(f"  {line.strip()}")
 
         # F-TOOL-07：联网确认以 [ESP420] 状态行读完后**设备自报**为准，不再按重启
@@ -220,7 +224,11 @@ def main() -> int:
         # Connected 状态行却 exit 1，自相矛盾。实机依据：WifiConfig.cpp:213 的
         # `[MSG:Connected with <IP>]` 与 WebSettings.cpp:438-440 [ESP420] 的
         # 'Connected to: ' 都由设备侧发出，后到者同样算数。
-        connected = "Connected" in report or "IP:" in report
+        # F-TOOL-08：只认 `IP:` 子串——WebSettings.cpp:460 在 STA 模式下**无条件**
+        # 先印 `Connected to: `（未连上时该行拼接成 'Connected to: Disabled Mode: …'），
+        # 裸 `Connected to: ` 命中会让「STA 未连接」假阳性 exit 0；而 `IP: ` 只在
+        # WebSettings.cpp:491 的 `if (WiFi.isConnected())` 分支内打印，出现即连上。
+        connected = "IP:" in report
         if not connected:
             failures.append("WiFi 未确认连上（未见 Connected/IP:）")
         if failures:

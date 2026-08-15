@@ -15,7 +15,12 @@ if [[ ! -f "${MCP_DIR}/requirements.txt" ]]; then
   echo "未找到 ${MCP_DIR}/requirements.txt — 先把本仓同步到 ${APP_ROOT}" >&2
   exit 1
 fi
-if grep -q 'REPLACE_ME' /etc/hutuji/mcp.env /etc/hutuji/bridge.env 2>/dev/null; then
+if [[ ! -f /etc/hutuji/mcp.env && ! -f /etc/hutuji/bridge.env ]]; then
+  # DEP-UX-02：旧版 grep 带 2>/dev/null 把「文件不存在」静默吞掉，首次安装（没跑过
+  # prepare-host.sh）时脚本从头到尾没有任何提示，装完 enable 才发现服务起不来。
+  # 两个 env 全缺必须先点明：跑 prepare-host.sh 生成后再装。
+  echo "警告: 未找到 /etc/hutuji/mcp.env 与 /etc/hutuji/bridge.env — 请先运行 deploy/prepare-host.sh 生成，否则服务将因缺 EnvironmentFile 无法启动" >&2
+elif grep -q 'REPLACE_ME' /etc/hutuji/mcp.env /etc/hutuji/bridge.env 2>/dev/null; then
   echo "警告: EnvironmentFile 仍含 REPLACE_ME — 服务可装但勿 enable 生产流量" >&2
 fi
 
@@ -105,7 +110,12 @@ echo "==> nginx 站点（未自动签发证书）"
 if [[ -d /etc/nginx/sites-available ]]; then
   cp "${APP_ROOT}/deploy/nginx-hutuji.conf" /etc/nginx/sites-available/hutuji
   ln -sfn /etc/nginx/sites-available/hutuji /etc/nginx/sites-enabled/hutuji
-  nginx -t
+  if ! nginx -t; then
+    # DEP-UX-02：set -e 下裸 `nginx -t` 失败即静默退出，operator 不知道 systemd unit
+    # 已装好、只是 nginx 配置没修——修好后直接重跑本脚本即可（幂等）。
+    echo "nginx -t 失败：unit 已安装未启动，修复 nginx 配置后可重跑本脚本" >&2
+    exit 1
+  fi
 else
   echo "    未检测到 sites-available；请手工 include ${APP_ROOT}/deploy/nginx-hutuji.conf"
 fi

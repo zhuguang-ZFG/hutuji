@@ -37,6 +37,8 @@ _E2E_LOCK = threading.Lock()
 SIL_LIMITATIONS = [
     "PC SIL 不证明真实换纸机械行为",
     "PC SIL 不证明 App 语音、云端链路、烧录或 HIL 验收",
+    # MCPDetail-F5：与 fz-sim 声明面拉齐——主机仿真证明不了这三类设备面。
+    "PC SIL 不证明蓝牙、OTA 或设备扬声器真实音频",
 ]
 
 # 取消传播槽：`asyncio.to_thread` 会 copy_context，故这里放的可变 list 在工作线程内

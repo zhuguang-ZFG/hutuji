@@ -34,6 +34,10 @@ S3_MARKERS = [
     "写字机已恢复，正在从头重画",
     "断连废纸处理失败",
     "断连发生在换纸窗口",
+    # TOOL-MARK-01：error:90 只出现在 Telnet/S3 日志（hutuji 侧缺纸/换纸相关），
+    # Grbl 串口只见 [PaperStatus]。它曾是 GRBL_MARKERS，报告表格 Grbl 列恒「否」，
+    # 会误导人判联调结论，故归到 S3 侧（与 S3UX-F07 的 error:90 映射同源）。
+    "error:90",
 ]
 
 GRBL_MARKERS = [
@@ -42,7 +46,6 @@ GRBL_MARKERS = [
     "[MSG:Connected",
     "M30",
     "[PaperStatus]",
-    "error:90",
 ]
 
 # 串口写超时（秒）。注入命令只有十来个字节，115200bps 下写入本是毫秒级；2.0s 已给足
@@ -129,12 +132,30 @@ def _serial_worker(
         out.put(f"{_timestamp()} [{name}] {SERIAL_READ_ERROR} {port}: {exc}")
 
 
-def _drain_events(events: queue.Queue[str], lines: list[str]) -> None:
+def _drain_events(events: queue.Queue[str], lines: list[str]) -> list[str]:
+    """把队列里的事件落进 lines，并返回本次新增的行（供实时回显判断）。"""
+    new_lines: list[str] = []
     while True:
         try:
-            lines.append(events.get_nowait())
+            line = events.get_nowait()
         except queue.Empty:
             break
+        lines.append(line)
+        new_lines.append(line)
+    return new_lines
+
+
+def _echo_notable_events(new_lines: list[str]) -> None:
+    """把串口 opened / 故障事件实时回显到 stderr（TOOL-UX-01）。
+
+    旧版采集期 180-240s 全程零输出，串口打开失败也只落最终文件——操作员无法判断
+    工具是否还活着、串口是否真的开了。`opened {port} @ {baud}` 与
+    SERIAL_ERROR_MARKERS 三类故障行是判断「打开成功/失败」的唯一实时线索；
+    其余行（设备日志）量太大，仍只落最终文件。回显只读不改，采集逻辑零影响。
+    """
+    for line in new_lines:
+        if " opened " in line or any(marker in line for marker in SERIAL_ERROR_MARKERS):
+            print(line, file=sys.stderr)
 
 
 def _split_source(line: str) -> tuple[str, str]:
@@ -317,6 +338,7 @@ def main() -> int:
 
     injected_off = False
     injected_on = False
+    last_heartbeat = -1
     try:
         while (dt.datetime.now() - started).total_seconds() < args.duration:
             elapsed = int((dt.datetime.now() - started).total_seconds())
@@ -328,10 +350,18 @@ def main() -> int:
                 injected_on = True
                 if grbl_commands is not None:
                     grbl_commands.put(WIFI_RESTORE_COMMAND)
-            _drain_events(events, lines)
+            # TOOL-UX-01：opened/故障事件实时回显 + 每 30s 心跳，采集期不再黑屏。
+            _echo_notable_events(_drain_events(events, lines))
+            if elapsed // 30 > last_heartbeat:
+                last_heartbeat = elapsed // 30
+                print(
+                    f"{_timestamp()} [capture] 已采集 {elapsed}s/{args.duration}s，日志 {len(lines)} 行",
+                    file=sys.stderr,
+                )
             time.sleep(0.1)
     except KeyboardInterrupt:
         events.put(f"{_timestamp()} [capture] interrupted by user")
+        print(f"[capture] Ctrl-C：已采 {len(lines)} 行", file=sys.stderr)
     finally:
         restore_queued = _queue_wifi_restore(injected_off, injected_on, grbl_commands)
         stop.set()
@@ -339,7 +369,7 @@ def main() -> int:
             # 预算必须容得下一次有界写：恢复命令可能刚在上一行才排进队列。
             thread.join(timeout=JOIN_TIMEOUT_S)
         events.put(f"{_timestamp()} [capture] stop")
-        _drain_events(events, lines)
+        _echo_notable_events(_drain_events(events, lines))
         failure = _restore_failure_line(restore_queued, lines)
         if failure is not None:
             # 恢复没确认就得在报告里显式留痕并让退出码非 0，否则「设备被留在 WiFi 关态」

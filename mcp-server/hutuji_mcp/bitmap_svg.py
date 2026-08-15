@@ -272,6 +272,7 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
         # 与解码段同款宽 catch：numba 运行期 TypingError、scipy/skimage 内部错误
         # 等罕见异常不该裸穿模块契约（调用方只准备接 BitmapError）；只记类型名，
         # 不回显可能含外部数据的异常文本。
+        logger.warning("位图描摹失败（%s）", type(exc).__name__)
         raise BitmapError(f"位图描摹失败（{type(exc).__name__}）") from None
     polys: list[np.ndarray] = []
     for _u, _v, data in graph.edges(data=True):
@@ -280,6 +281,7 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
             continue
         polys.append(np.array([(x, y) for y, x in pts], dtype=float))
     if not polys:
+        logger.warning("位图描摹没有得到任何线条（生图可能不是线稿）")
         raise BitmapError("位图描摹没有得到任何线条（生图可能不是线稿）")
     return polys, w, h
 
@@ -370,11 +372,13 @@ async def _post_image_request(
             if status in _TRANSIENT_HTTP_STATUSES and attempt < len(delays):
                 await asyncio.sleep(delays[attempt])
                 continue
+            logger.warning("%s 返回 %d", provider, status)
             raise BitmapError(f"{provider} 返回 {status}")
         except (httpx.HTTPError, TimeoutError) as exc:
             if attempt < len(delays):
                 await asyncio.sleep(delays[attempt])
                 continue
+            logger.warning("%s 网络错误（%s）", provider, type(exc).__name__)
             raise BitmapError(f"{provider} 网络错误（{type(exc).__name__}）") from None
     if data is None:
         raise BitmapError(f"{provider} 未返回数据")
@@ -411,6 +415,7 @@ async def _request_fallback_image_url(client: httpx.AsyncClient, description: st
     status = data.get("status")
     if status != "completed":
         # error 字段是上游自由文本（内容安全拦截原因等），不回显，只记状态。
+        logger.warning("备用生图端点未出图（status=%r）", status)
         raise BitmapError(f"备用生图端点未出图（status={status!r}）")
     image_url = data.get("image_url")
     if not isinstance(image_url, str):
@@ -421,14 +426,17 @@ async def _request_fallback_image_url(client: httpx.AsyncClient, description: st
 async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransport | None = None) -> bytes:
     """生图并下载 PNG：agnes（OpenAI 兼容）主链 + imagefree 免鉴权备用链。transport 仅供测试注入。"""
     if not settings.llm_api_key:
-        raise BitmapError(
-            "未配置 LLM API key：请设置环境变量 HUTUJI_LLM_API_KEY"
+        # CloudUX-F5：配置类错误用户向，技术原因（缺哪个环境变量）进日志。
+        logger.warning(
+            "位图路线未配置：请设置环境变量 HUTUJI_LLM_API_KEY"
             "（位图路线与生图共用同一端点凭据）"
         )
+        raise BitmapError("绘图服务未就绪，请稍后再试")
     if not settings.image_model.strip():
         # 与上面的 api_key 闸同理：空 model 名会原样发进 payload 被端点拒绝，
         # 错误要等一次计费请求才暴露；在本地拦下，诊断才指向环境变量本身。
-        raise BitmapError("HUTUJI_IMAGE_MODEL 为空：生图请求会被端点拒绝")
+        logger.warning("HUTUJI_IMAGE_MODEL 为空：生图请求会被端点拒绝")
+        raise BitmapError("绘图服务未就绪，请稍后再试")
     url = f"{settings.llm_base_url.rstrip('/')}/images/generations"
     payload = {
         "model": settings.image_model,
@@ -503,11 +511,13 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                         if dl.status_code in _TRANSIENT_HTTP_STATUSES and attempt == 0:
                             retry_download = True
                         else:
+                            logger.warning("图片下载返回 %d", dl.status_code)
                             raise BitmapError(f"图片下载返回 {dl.status_code}")
             except (httpx.HTTPError, TimeoutError) as exc:
                 if attempt == 0:
                     retry_download = True
                 else:
+                    logger.warning("图片下载网络错误（%s）", type(exc).__name__)
                     raise BitmapError(f"图片下载网络错误（{type(exc).__name__}）") from None
             if retry_download:
                 retry_download = False

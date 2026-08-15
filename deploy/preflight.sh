@@ -14,12 +14,24 @@ FAIL=0
 # 由人确认，不得由脚本自行豁免。请勿重新引入 skip 状态。
 check() {
   local name="$1"; shift
-  if "$@"; then
+  local out rc=0
+  # DEP-UX-01：把判据的 stdout+stderr 收进 $out，失败时回显末尾行——约半数判据
+  # （裸 `bash -c '[[ … ]]'`、systemctl 探活、curl 状态码比对等）失败时本身零输出，
+  # 26 项里多几项红时操作员只能看到 [fail] 名字，定位不到是哪一步、为什么红
+  # （download 失败连 code/len/crc 都看不到）。用 `|| rc=$?` 保住真实退出码
+  # （`if ! out=$(...)` 形态下 `$?` 恒为 0，见 check_bitmap_chain 注释）；成功时
+  # 丢弃 $out，[pass]/[fail] 行与末尾 pass=N fail=N expected=N 汇总行保持原样。
+  out=$("$@" 2>&1) || rc=$?
+  if (( rc == 0 )); then
     echo "[pass] ${name}"
     PASS=$((PASS + 1))
   else
     echo "[fail] ${name}"
     FAIL=$((FAIL + 1))
+    if [[ -n "$out" ]]; then
+      # 只回显末尾两行：判据输出可能很长（curl -v 类），尾部就是最接近证据的那几行。
+      printf '%s\n' "$out" | tail -2 >&2
+    fi
   fi
 }
 

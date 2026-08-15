@@ -1031,17 +1031,33 @@ def test_draw_limiter_rejects_rate_and_concurrency() -> None:
     limiter = server.DrawLimiter(clock=lambda: now[0])
 
     asyncio.run(limiter.enter())
-    with pytest.raises(server.DrawLimitError, match="每秒"):
+    with pytest.raises(server.DrawLimitError, match="绘图服务正忙"):
         asyncio.run(limiter.enter())
 
     now[0] = 1.1
     asyncio.run(limiter.enter())
     now[0] = 2.2
-    with pytest.raises(server.DrawLimitError, match="并发"):
+    with pytest.raises(server.DrawLimitError, match="绘图服务正忙"):
         asyncio.run(limiter.enter())
 
     asyncio.run(limiter.leave())
     asyncio.run(limiter.leave())
+
+def test_draw_limiter_message_is_user_facing_and_logs_counts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """CloudUX-F4：限流文案用户向（无技术数字、无 每秒/并发/每分钟 字样），
+    技术计数进日志——不因文案去技术化而丢失运维定位信息。"""
+    limiter = server.DrawLimiter(per_second=1, per_minute=100, max_concurrent=2)
+    asyncio.run(limiter.enter())
+    with caplog.at_level(logging.INFO, logger="hutuji_mcp.server"):
+        with pytest.raises(server.DrawLimitError) as exc_info:
+            asyncio.run(limiter.enter())
+    msg = str(exc_info.value)
+    assert msg == "绘图服务正忙，请稍候再试"
+    assert not any(ch.isdigit() for ch in msg), "文案不得带技术数字"
+    assert all(word not in msg for word in ("每秒", "并发", "每分钟"))
+    assert any("每秒请求数达上限 1" in record.getMessage() for record in caplog.records)
 
 def test_draw_limiter_slot_releases_under_cancellation() -> None:
     """取消路径必须把并发名额还回来：slot 的 finally 里不许有可挂起点，
@@ -1106,7 +1122,7 @@ def test_draw_limit_covers_vpype_conversion(
         ]
         await asyncio.wait_for(both_started.wait(), timeout=1)
         try:
-            with pytest.raises(server.DrawLimitError, match="并发"):
+            with pytest.raises(server.DrawLimitError, match="绘图服务正忙"):
                 await server.hutuji_draw("third")
             assert started == 2
         finally:
@@ -1474,7 +1490,7 @@ def test_bitmap_generate_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> No
         "settings",
         SimpleNamespace(llm_api_key="", llm_base_url="https://x.invalid/v1", image_model="m"),
     )
-    with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_LLM_API_KEY"):
+    with pytest.raises(bitmap_svg.BitmapError, match="绘图服务未就绪"):
         asyncio.run(bitmap_svg.generate_bitmap_svg("test"))
 
 
@@ -1500,7 +1516,8 @@ def test_bitmap_generate_rejects_blank_description(
 
 
 def test_bitmap_fetch_rejects_blank_image_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    """HUTUJI_IMAGE_MODEL 空白必须在本地拦下：空 model 名不该发进计费请求。"""
+    """HUTUJI_IMAGE_MODEL 空白必须在本地拦下：空 model 名不该发进计费请求。
+    R21 起用户面消息统一「绘图服务未就绪」，环境变量名挪进 warning 日志。"""
     from hutuji_mcp import bitmap_svg
 
     monkeypatch.setattr(
@@ -1510,7 +1527,7 @@ def test_bitmap_fetch_rejects_blank_image_model(monkeypatch: pytest.MonkeyPatch)
             llm_api_key="k", llm_base_url="https://x.invalid/v1", image_model="  "
         ),
     )
-    with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_IMAGE_MODEL"):
+    with pytest.raises(bitmap_svg.BitmapError, match="绘图服务未就绪"):
         asyncio.run(bitmap_svg._fetch_image_png("x"))
 
 
@@ -1771,8 +1788,43 @@ def test_bitmap_fetch_config_gate_never_falls_back(monkeypatch: pytest.MonkeyPat
             image_fallback_url="https://fb.invalid/v1/generate",
         ),
     )
-    with pytest.raises(bitmap_svg.BitmapError, match="HUTUJI_LLM_API_KEY"):
+    with pytest.raises(bitmap_svg.BitmapError, match="绘图服务未就绪"):
         asyncio.run(bitmap_svg._fetch_image_png("x"))
+
+
+def test_bitmap_config_gate_messages_are_user_facing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """CloudUX-F5：位图路线配置类错误（缺 key / 空 model）文案用户向，
+    环境变量名只进日志，不直达用户耳朵。"""
+    from hutuji_mcp import bitmap_svg
+
+    def settings_with(**overrides: str) -> SimpleNamespace:
+        base = dict(
+            llm_api_key="",
+            llm_base_url="https://x.invalid/v1",
+            image_model="m",
+            image_fallback_url="https://fb.invalid/v1/generate",
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    monkeypatch.setattr(bitmap_svg, "settings", settings_with(llm_api_key=""))
+    with caplog.at_level(logging.WARNING, logger="hutuji_mcp.bitmap_svg"):
+        with pytest.raises(bitmap_svg.BitmapError) as exc_info:
+            asyncio.run(bitmap_svg._fetch_image_png("x"))
+    assert str(exc_info.value) == "绘图服务未就绪，请稍后再试"
+    assert any("HUTUJI_LLM_API_KEY" in record.getMessage() for record in caplog.records)
+
+    caplog.clear()
+    monkeypatch.setattr(
+        bitmap_svg, "settings", settings_with(llm_api_key="k", image_model="  ")
+    )
+    with caplog.at_level(logging.WARNING, logger="hutuji_mcp.bitmap_svg"):
+        with pytest.raises(bitmap_svg.BitmapError) as exc_info:
+            asyncio.run(bitmap_svg._fetch_image_png("x"))
+    assert str(exc_info.value) == "绘图服务未就绪，请稍后再试"
+    assert any("HUTUJI_IMAGE_MODEL" in record.getMessage() for record in caplog.records)
 
 
 def test_settings_image_fallback_url_requires_https_or_blank(tmp_path: Path) -> None:
@@ -1790,6 +1842,28 @@ def test_settings_image_fallback_url_requires_https_or_blank(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="HUTUJI_IMAGE_FALLBACK_URL"):
         Settings(**base, image_fallback_url="http://fb.example/v1/generate")
     assert Settings(**base, image_fallback_url="  ").image_fallback_url == ""
+
+
+def test_settings_image_fallback_url_rejects_bare_https(tmp_path: Path) -> None:
+    """MCPDetail-F8：裸 `https://`（无主机名）必须被拒——旧 startswith 前缀
+    校验会放过它；与 validate_llm_base_url 的 urlsplit 口径对齐。"""
+    base = dict(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+    )
+    with pytest.raises(ValueError, match="HUTUJI_IMAGE_FALLBACK_URL"):
+        Settings(**base, image_fallback_url="https://")
+    # 带主机名的 https（含路径，生产默认值形状）仍放行。
+    assert (
+        Settings(**base, image_fallback_url="https://fb.example/v1/generate").image_fallback_url
+        == "https://fb.example/v1/generate"
+    )
 
 def test_bitmap_fetch_fallback_single_attempt_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """备用链单次尝试（retry_delays=()）：429 也不重试——桥接看门狗 300s 内
@@ -2348,6 +2422,23 @@ def test_status_latest_filename_is_redacted(
     assert data["latest"].endswith(".gcode")
     assert "*" in data["latest"]
 
+def test_status_latest_ts_reflects_latest_file_mtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CloudUX-F6：latest_ts 是 latest 文件的 mtime（float epoch）；无文件为 None。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    import json
+
+    data = json.loads(asyncio.run(server.hutuji_status()))
+    assert data["latest_ts"] is None
+
+    base = server._new_basename()
+    name = f"{base}.gcode"
+    (tmp_path / name).write_text("G21\nG90\n", encoding="utf-8")
+    mtime = (tmp_path / name).stat().st_mtime
+    data = json.loads(asyncio.run(server.hutuji_status()))
+    assert data["latest_ts"] == mtime
+
 def test_status_ignores_foreign_gcode_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2415,7 +2506,7 @@ def test_draw_limiter_rejects_minute_window() -> None:
     )
     asyncio.run(limiter.enter())
     asyncio.run(limiter.enter())
-    with pytest.raises(server.DrawLimitError, match="每分钟"):
+    with pytest.raises(server.DrawLimitError, match="绘图服务正忙"):
         asyncio.run(limiter.enter())
 
 
@@ -3903,6 +3994,45 @@ def test_preflight_check_callsites_are_real_checks() -> None:
         "hutuji-cloud-bridge && systemctl is-enabled --quiet nginx'"
         in preflight_code
     )
+
+
+def test_preflight_check_echoes_failure_criteria_tail() -> None:
+    """DEP-UX-01：check() 必须捕获判据输出、失败时回显末尾行。
+
+    约半数判据（裸 `bash -c '[[ … ]]'`、systemctl 探活、curl 状态码比对等）失败时
+    本身零输出，不捕获则 26 项里多几项红时操作员定位不到是哪一步、为什么红
+    （download 失败连 code/len/crc 都看不到）。形态必须是 `out=$(...) || rc=$?`——
+    `if ! out=$(...)` 下 `$?` 恒为 0（见 check_bitmap_chain 注释），全仓禁止。
+    成功时丢弃输出，[pass]/[fail] 行与 PASS/FAIL 计数语义不得改变。
+    """
+    root = Path(__file__).resolve().parents[2]
+    preflight = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8")
+    preflight_code = "\n".join(
+        line for line in preflight.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    body = preflight_code.split("check() {", 1)[1].split("\n}", 1)[0]
+    assert 'out=$("$@" 2>&1) || rc=$?' in body, "判据输出必须被捕获且保住真实退出码"
+    assert "tail -2" in body, "失败时必须回显判据输出的末尾行（供操作员定位）"
+    assert 'if ! out="$(' not in body, "`if ! out=$(...)` 形态下 $? 恒为 0，不得复活"
+    assert 'echo "[pass] ${name}"' in body, "[pass] 输出行不许改版"
+    assert 'echo "[fail] ${name}"' in body, "[fail] 输出行不许改版"
+    assert "PASS=$((PASS + 1))" in body, "PASS 计数语义不许改"
+    assert "FAIL=$((FAIL + 1))" in body, "FAIL 计数语义不许改"
+
+
+def test_install_warns_missing_env_and_nginx_fail_guidance() -> None:
+    """DEP-UX-02：两个 env 全缺必须显式警告先跑 prepare-host.sh（旧版 grep 带
+    2>/dev/null 把「文件不存在」静默吞掉）；nginx -t 失败必须提示 unit 已装未启、
+    修复配置后可重跑（set -e 下裸 `nginx -t` 失败即静默退出）。"""
+    root = Path(__file__).resolve().parents[2]
+    install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
+
+    assert "[[ ! -f /etc/hutuji/mcp.env && ! -f /etc/hutuji/bridge.env ]]" in install
+    assert "prepare-host.sh" in install
+    assert "nginx -t" in install
+    assert "已安装未启动" in install
+    assert "重跑本脚本" in install
 
 
 def test_preflight_verifies_8300_listener_identity() -> None:
@@ -6581,6 +6711,21 @@ def test_config_blank_output_dir_fails_closed(monkeypatch: pytest.MonkeyPatch) -
         config.load_settings()
     monkeypatch.delenv("HUTUJI_OUTPUT_DIR")
     assert config.load_settings().output_dir == config.Path("./output").resolve()
+
+
+def test_config_output_dir_strips_surrounding_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCPDetail-F15：HUTUJI_OUTPUT_DIR 首尾空白先 strip 再建 Path——
+    不得在文件系统里造出带空格的目录名。"""
+    import importlib
+
+    import hutuji_mcp.config as config
+
+    importlib.reload(config)
+    target = config.Path("sub").resolve()
+    monkeypatch.setenv("HUTUJI_OUTPUT_DIR", f"  {target}  ")
+    assert config.load_settings().output_dir == target
 
 
 # ---------- 第九轮修复：hutuji-mcp.service StartLimit ----------

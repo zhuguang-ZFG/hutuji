@@ -36,6 +36,13 @@
     XIAOZHI_TOKEN  — Bearer token（必须；浏览器控制台 localStorage.getItem('token')）
     XIAOZHI_DEVICE_TOKEN — 设备消息 Bearer token（自定义主题 URL 的 token 参数）
     XIAOZHI_API    — API 基址（默认 https://xiaozhi.me/api）
+
+退出码（TOOL-UX-03 统一口径）:
+    0 — 成功
+    1 — 运行期错误（缺 token / 网络 / API 错误 / 文件不存在 / 应答形状不符 /
+        知识库删除失败等）
+    2 — 用法或参数错误（无命令、未知命令、子命令缺参数、kb_id 非整数、
+        device-call 参数非法）
 """
 
 import json
@@ -355,8 +362,9 @@ def cmd_update_kb(kb_id):
     try:
         kb_id_int = int(kb_id)
     except ValueError:
+        # kb_id 非整数是参数错误，不是运行期故障：退出码 2（TOOL-UX-03 统一口径）。
         print(f"kb_id 必须是整数: {kb_id!r}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
     if not KNOWLEDGE_BASE_PATH.exists():
         print(f"文件不存在: {KNOWLEDGE_BASE_PATH}", file=sys.stderr)
         sys.exit(1)
@@ -406,7 +414,9 @@ def cmd_update_kb(kb_id):
         if isinstance(del_result, dict) and del_result.get("success") is False:
             delete_failed.append(f"{title}(id={doc_id})")
     if delete_failed:
-        print(f"✗ 旧文档删除失败，需人工清理: {delete_failed}", file=sys.stderr)
+        # 汇总提示「新旧并存需人工清理」：新文档已建档、部分旧文档没删掉，远端是
+        # 新旧两版并存的状态——不点明并存，操作员会以为只是「有一条没删干净」。
+        print(f"✗ 旧文档删除失败，新旧并存需人工清理: {delete_failed}", file=sys.stderr)
         sys.exit(1)
     print("✓ 知识库文档替换成功")
 
@@ -428,8 +438,9 @@ def cmd_recall(kb_id, query):
     try:
         kb_id_int = int(kb_id)
     except ValueError:
+        # 参数错误退出码 2（TOOL-UX-03 统一口径）。
         print(f"kb_id 必须是整数: {kb_id!r}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
     result = api("POST", "/knowledge-bases/recall-test", {
         "knowledgeBaseId": kb_id_int,
         "query": query,
@@ -503,8 +514,9 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     if len(sys.argv) < 2:
+        # 无命令 = 用法错误：退出码 2（TOOL-UX-03 统一口径，与未知命令/缺参数一致）。
         print(__doc__)
-        sys.exit(0)
+        sys.exit(2)
 
     cmd = sys.argv[1]
 
@@ -513,42 +525,42 @@ def main():
     elif cmd == "show":
         if len(sys.argv) < 3:
             print("用法: show <agent_id>", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         cmd_show(sys.argv[2])
     elif cmd == "update-role":
         if len(sys.argv) < 3:
             print("用法: update-role <agent_id>", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         cmd_update_role(sys.argv[2])
     elif cmd == "update-kb":
         if len(sys.argv) < 3:
             print("用法: update-kb <kb_id>", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         cmd_update_kb(sys.argv[2])
     elif cmd == "kb-list":
         cmd_kb_list()
     elif cmd == "recall":
         if len(sys.argv) < 4:
             print("用法: recall <kb_id> <query>", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         cmd_recall(sys.argv[2], sys.argv[3])
     elif cmd == "device-tools":
         cmd_device_tools()
     elif cmd == "device-call":
         if len(sys.argv) not in {3, 4}:
             print("用法: device-call <tool_name> [arguments_json]", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         raw_arguments = sys.argv[3] if len(sys.argv) == 4 else None
         cmd_device_call(sys.argv[2], raw_arguments)
     elif cmd == "sync":
         if len(sys.argv) < 3:
             print("用法: sync <agent_id>", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         cmd_sync(sys.argv[2])
     else:
         print(f"未知命令: {cmd}", file=sys.stderr)
         print(__doc__)
-        sys.exit(1)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

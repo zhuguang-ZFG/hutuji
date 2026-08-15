@@ -1,5 +1,5 @@
 {
-  "git_head": "cc95bc9989dbdbd09f70fbfcc2cad73d75ef0ae7",
+  "git_head": "f802ee217b25082a78a4850883697976db2e38bc",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -25,7 +25,7 @@
       "sha8": "9209b4cf",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
-    "docs/agent-handoff.md -> hutuji_job.cc:946": {
+    "docs/agent-handoff.md -> hutuji_job.cc:953": {
       "sha8": "8dfb671d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -49,7 +49,7 @@
       "sha8": "eceef844",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1014": {
+    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1021": {
       "sha8": "9ba3260d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -109,7 +109,7 @@
       "sha8": "1bdf9e2e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1654-1655": {
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:1679-1680": {
       "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -117,8 +117,8 @@
       "sha8": "ebb163d4",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:696-719": {
-      "sha8": "53987c3e",
+    "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:690-714": {
+      "sha8": "eebe2011",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> inkscape-clean/share/extensions/paixi_runtime/grbl_serial_ops.py:128-157": {
@@ -137,7 +137,7 @@
       "sha8": "f73e8f61",
       "target": "D:/Users/Grbl_Esp32/doc/script/stream.py"
     },
-    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1654-1655": {
+    "docs/design/p2-windowed-flow-control.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1679-1680": {
       "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -177,12 +177,12 @@
       "sha8": "18106389",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:179-211": {
+    "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:180-212": {
       "sha8": "67a72777",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:194-211": {
-      "sha8": "796e4436",
+      "sha8": "8948eb0d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> Config.h:118-123": {
@@ -233,20 +233,20 @@
       "sha8": "10a98d7e",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1797-1808": {
-      "sha8": "b1eeb997",
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1822-1836": {
+      "sha8": "0432a2e4",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1834-1835": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:1862-1863": {
       "sha8": "fc6722e2",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2011-2016": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2038-2043": {
       "sha8": "dfc70d2a",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_pipe.cc:708-719": {
-      "sha8": "d13f9ad6",
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_pipe.cc:703-715": {
+      "sha8": "02482394",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> writing_console.py:358-359": {
@@ -277,7 +277,7 @@
       "sha8": "6ed2242a",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:174-211": {
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:175-212": {
       "sha8": "252fb038",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
@@ -493,11 +493,11 @@
       "sha8": "3b66d88e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
-    "docs/release-readiness.md -> hutuji_job.cc:1562-1595": {
+    "docs/release-readiness.md -> hutuji_job.cc:1587-1620": {
       "sha8": "122136ae",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/release-readiness.md -> hutuji_job.cc:1854-1858": {
+    "docs/release-readiness.md -> hutuji_job.cc:1882-1886": {
       "sha8": "f8ba1ee9",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -621,15 +621,15 @@
       "sha8": "f50cae65",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:1797-1808": {
-      "sha8": "b1eeb997",
+    "docs/troubleshooting.md -> hutuji_job.cc:1822-1836": {
+      "sha8": "0432a2e4",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:1834-1835": {
+    "docs/troubleshooting.md -> hutuji_job.cc:1862-1863": {
       "sha8": "fc6722e2",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2011-2016": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2038-2043": {
       "sha8": "dfc70d2a",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -637,11 +637,11 @@
       "sha8": "18106389",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_pipe.cc:434-436": {
-      "sha8": "fd8e0514",
+    "docs/troubleshooting.md -> hutuji_pipe.cc:435-436": {
+      "sha8": "a2ed49fe",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/troubleshooting.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:969-989": {
+    "docs/troubleshooting.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:963-983": {
       "sha8": "2386e4c0",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
@@ -689,11 +689,11 @@
       "sha8": "5c943ad0",
       "target": "docs/troubleshooting.md"
     },
-    "docs/worktree-inventory.md -> hutuji_job.cc:1654": {
+    "docs/worktree-inventory.md -> hutuji_job.cc:1679": {
       "sha8": "2caa6b49",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/worktree-inventory.md -> hutuji_job.cc:1834": {
+    "docs/worktree-inventory.md -> hutuji_job.cc:1862": {
       "sha8": "7867dde0",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -713,11 +713,11 @@
       "sha8": "2fa7fa0e",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
-    "docs/worktree-inventory.md -> xiaozhi_console.py:276": {
-      "sha8": "34e157ab",
+    "docs/worktree-inventory.md -> xiaozhi_console.py:277": {
+      "sha8": "cb55fbcd",
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-15T10:05:01Z",
+  "updated": "2026-08-15T12:48:55Z",
   "version": 1
 }

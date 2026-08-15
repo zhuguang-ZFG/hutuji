@@ -121,6 +121,29 @@ def test_generate_svg_rejects_blank_description(monkeypatch) -> None:  # noqa: A
         asyncio.run(llm_svg.generate_svg("   "))
 
 
+def test_generate_svg_missing_key_message_is_user_facing(
+    monkeypatch, caplog
+) -> None:  # noqa: ANN001
+    """CloudUX-F5：LLM 直写路线缺 key 的配置类错误用户向（不泄漏环境变量
+    指引/名称），技术原因进日志。"""
+    import logging
+
+    monkeypatch.setattr(
+        llm_svg,
+        "settings",
+        SimpleNamespace(
+            llm_api_key="",
+            llm_base_url="https://example.invalid/v1",
+            llm_model="test-model",
+        ),
+    )
+    with caplog.at_level(logging.WARNING, logger="hutuji_mcp.llm_svg"):
+        with pytest.raises(LlmError) as caught:
+            asyncio.run(llm_svg.generate_svg("测试"))
+    assert str(caught.value) == "绘图服务未就绪，请稍后再试"
+    assert any("HUTUJI_LLM_API_KEY" in record.getMessage() for record in caplog.records)
+
+
 class _FakeResponse:
     def __init__(self, status_code: int, chunks: list[bytes]) -> None:
         self.status_code = status_code

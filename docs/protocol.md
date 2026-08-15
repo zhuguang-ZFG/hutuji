@@ -325,6 +325,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | B1′ | `PaperSystem.cpp:802,807,929,1006` | `[PaperStatus] %d` 的 `CLIENT_SERIAL` → `CLIENT_ALL` | §7 换纸失败码（0/2/3/4/5）的唯一来源；不改则 S3 永远收不到，§7 表空转 |
 | B2′ | `PaperSystem.cpp:351` | `paper_get_status_str()` 的 `snprintf` 增 `Changing=%s` 字段，取现成 `paper_auto_change_is_running()`（`PaperSystem.cpp:50`，现成 `volatile bool`） | §2.1/§4.1 abort 分流的**唯一跨 session 地基** |
 | C′ | `Protocol.cpp:639-672`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
+| D′ | `WebUI/BTConfig.cpp`（`begin()`） | 经典蓝牙启动成功后 `esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9)`（GRBL_PAPER_SYSTEM 守卫内，失败只记消息不阻断） | 2026-08-15 用户决策：IDF 默认发射功率上限仅 P3=+3dBm（`esp_bt.h:331`），拉满 +9dBm 改善 BT 链路质量。纯射频参数，不碰数据面/换纸/运动/授权；§8「不用蓝牙走正式数据链路」不变 |
 
 **B2′ 的可行性已逐环核验（不再是推断）**：
 1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1008`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。

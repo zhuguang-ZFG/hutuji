@@ -687,7 +687,8 @@ def main() -> int:
         logger.info("收到退出信号")
         return 0
     except Exception as exc:
-        logger.error("桥接启动失败: %s", exc)
+        # MCPDetail-F7：启动失败带 traceback，运维才能定位配置/网络根因。
+        logger.error("桥接启动失败: %s", exc, exc_info=True)
         return 1
     return 0
 

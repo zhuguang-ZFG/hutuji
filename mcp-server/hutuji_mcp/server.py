@@ -89,18 +89,16 @@ class DrawLimiter:
             self._starts.popleft()
 
         if self._active >= self.max_concurrent:
-            raise DrawLimitError(
-                f"生成任务并发已达上限 {self.max_concurrent}，请稍后重试"
-            )
+            # CloudUX-F4：文案用户向（不带技术数字）；计数进日志供运维定位。
+            logger.info("绘图服务忙：并发已达上限 %d", self.max_concurrent)
+            raise DrawLimitError("绘图服务正忙，请稍候再试")
         recent_second = sum(now - started < 1.0 for started in self._starts)
         if recent_second >= self.per_second:
-            raise DrawLimitError(
-                f"生成请求超过每秒 {self.per_second} 次限制，请稍后重试"
-            )
+            logger.info("绘图服务忙：每秒请求数达上限 %d", self.per_second)
+            raise DrawLimitError("绘图服务正忙，请稍候再试")
         if len(self._starts) >= self.per_minute:
-            raise DrawLimitError(
-                f"生成请求超过每分钟 {self.per_minute} 次限制，请稍后重试"
-            )
+            logger.info("绘图服务忙：每分钟请求数达上限 %d", self.per_minute)
+            raise DrawLimitError("绘图服务正忙，请稍候再试")
 
         self._starts.append(now)
         self._active += 1
@@ -345,6 +343,8 @@ async def hutuji_status() -> str:
         "llm_model": settings.llm_model,
         "gcode_files": len(files),
         "latest": _redact_capability_name(files[-1].name) if files else None,
+        # CloudUX-F6：显式 mtime 时间戳，让「刚才生成成功没」不必靠 LLM 解析文件名。
+        "latest_ts": _safe_mtime(files[-1]) if files else None,
     }, ensure_ascii=False)
 
 
@@ -450,7 +450,8 @@ class LoopbackOnlyMcpGuard:
         client = scope.get("client")
         host = client[0] if client else ""
         if not host or not self._is_loopback(host):
-            logger.warning("拒绝非 loopback 对端访问 MCP 控制面")
+            # MCPDetail-F6：带对端数值 IP，区分「外部攻击源」与「代理头配置错误」。
+            logger.warning("拒绝非 loopback 对端访问 MCP 控制面（对端 %s）", host or "无 client 信息")
             if scope_type == "websocket":
                 # 握手前 close：ASGI 服务器会以 403 拒绝升级，不回显端点信息。
                 await send({"type": "websocket.close", "code": 1008})
