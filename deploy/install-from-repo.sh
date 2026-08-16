@@ -15,12 +15,13 @@ if [[ ! -f "${MCP_DIR}/requirements.txt" ]]; then
   echo "未找到 ${MCP_DIR}/requirements.txt — 先把本仓同步到 ${APP_ROOT}" >&2
   exit 1
 fi
-if [[ ! -f /etc/hutuji/mcp.env && ! -f /etc/hutuji/bridge.env ]]; then
-  # DEP-UX-02：旧版 grep 带 2>/dev/null 把「文件不存在」静默吞掉，首次安装（没跑过
-  # prepare-host.sh）时脚本从头到尾没有任何提示，装完 enable 才发现服务起不来。
-  # 两个 env 全缺必须先点明：跑 prepare-host.sh 生成后再装。
-  echo "警告: 未找到 /etc/hutuji/mcp.env 与 /etc/hutuji/bridge.env — 请先运行 deploy/prepare-host.sh 生成，否则服务将因缺 EnvironmentFile 无法启动" >&2
-elif grep -q 'REPLACE_ME' /etc/hutuji/mcp.env /etc/hutuji/bridge.env 2>/dev/null; then
+if [[ ! -f /etc/hutuji/mcp.env || ! -f /etc/hutuji/bridge.env ]]; then
+  # 任一 EnvironmentFile 缺失都会让对应 unit 启动失败；逐项报告，不让另一份存在
+  # 掩盖缺件。生成模板后仍由下面的 REPLACE_ME 检查阻止误以为可承载生产流量。
+  [[ -f /etc/hutuji/mcp.env ]] || echo "警告: 未找到 /etc/hutuji/mcp.env — 请先运行 deploy/prepare-host.sh" >&2
+  [[ -f /etc/hutuji/bridge.env ]] || echo "警告: 未找到 /etc/hutuji/bridge.env — 请先运行 deploy/prepare-host.sh" >&2
+fi
+if grep -q 'REPLACE_ME' /etc/hutuji/mcp.env /etc/hutuji/bridge.env 2>/dev/null; then
   echo "警告: EnvironmentFile 仍含 REPLACE_ME — 服务可装但勿 enable 生产流量" >&2
 fi
 

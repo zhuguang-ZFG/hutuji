@@ -727,6 +727,63 @@ def test_update_kb_delete_failure_summarizes_parallel_versions(monkeypatch, tmp_
     assert "新旧并存" in err and "需人工清理" in err, f"必须点明新旧并存需人工清理：{err}"
     assert "旧文档" in err, "汇总要列出删失败的具体文档，操作员才知道清哪些"
 
+
+def test_console_logical_failure_message_is_redacted(monkeypatch, tmp_path, capsys):
+    """HTTP 200 + success=false 的自由文本也可能回显凭据，必须与 HTTPError 同口径脱敏。"""
+    role = tmp_path / "role-prompt.md"
+    role.write_text("# 角色\n内容", encoding="utf-8")
+    monkeypatch.setattr(console, "ROLE_PROMPT_PATH", role)
+    monkeypatch.setattr(
+        console,
+        "api",
+        lambda *args, **kwargs: {
+            "success": False,
+            "message": "echo Bearer top.secret.token and sk-examplelongsecret",
+        },
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        console.cmd_update_role("42")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "top.secret.token" not in err
+    assert "sk-examplelongsecret" not in err
+    assert "<redacted>" in err
+
+
+def test_update_kb_paginates_all_old_documents(monkeypatch, tmp_path, capsys):
+    """旧文档超过 50 篇时必须拉完全部分页，不能清首页后误报替换成功。"""
+    kb = tmp_path / "knowledge-base.md"
+    kb.write_text("内容", encoding="utf-8")
+    monkeypatch.setattr(console, "KNOWLEDGE_BASE_PATH", kb)
+    deleted: list[int] = []
+
+    def fake_api(method, path, body=None):
+        if method == "GET":
+            if "page=1" in path:
+                return {"data": {"list": [{"id": i, "title": f"旧-{i}"} for i in range(50)]}}
+            if "page=2" in path:
+                return {"data": {"list": [{"id": 50, "title": "旧-50"}]}}
+            raise AssertionError(path)
+        if method == "DELETE":
+            deleted.append(int(path.rsplit("documentId=", 1)[1]))
+            return {"success": True}
+        return {"success": True}
+
+    monkeypatch.setattr(console, "api", fake_api)
+    monkeypatch.setattr(
+        console,
+        "api_upload",
+        lambda path, file_path: {
+            "success": True,
+            "data": {"file_name": "kb.md", "file_md5": "d41d8cd98f00b204e9800998ecf8427e"},
+        },
+    )
+
+    console.cmd_update_kb("42")
+    assert deleted == list(range(51))
+    assert "现有文档 51 篇" in capsys.readouterr().out
+
 # ============================================================================
 # R11-E2E-01/02/03 + R11-BR-01/02：闭环工具链契约测试。
 # e2e_local / cloud_bridge_smoke 在 mcp-server/scripts/ 下，走 _load_mcp_script。

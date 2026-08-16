@@ -210,3 +210,5 @@
 - 不要为了「工作区干净」丢弃上表未提交资产。  
 - 不要把 `Branch_736afa70` 整支合并进商业分支「图省事」。  
 - 约束矩阵闭环 ≠ §9 已烧录 ≠ M2 完成 ≠ 可出货。
+
+> **2026-08-16 门禁/工具链全量 review 修复（本仓工作树未提交；用户已批准修复，未部署/未做硬件验证）**：`scripts/agent_gate.py` 收紧禁语/复活扫描、精确校验机读白名单、原子互斥 tombstone、层结果 fail-closed、仓根路径 resolve；`scripts/xiaozhi_console.py` 逻辑错误脱敏 + 知识库分页；`sim_server.py` 取消竞态回收；`deploy/install-from-repo.sh` 任一 env 缺失告警。回归测试与验证结果以本轮终端证据为准，提交前不得把当前工作树当作已发布基线。

@@ -73,11 +73,59 @@ REQUIRED_FILES = [
 
 ALLOWLIST_REQUIRED_KEYS = [
     "version",
+    "description",
+    "decision_count",
     "grbl_section9_only",
     "grbl_core_headers_restore_only",
     "grbl_forbidden_symbols",
+    "grbl_forbidden_intents",
+    "hub_safe_doc_globs",
     "claims_forbidden",
+    "rejected_current_link",
 ]
+
+ALLOWLIST_EXACT = {
+    "version": 1,
+    "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
+    "decision_count": 7,
+    "grbl_section9_only": [
+        "Grbl_Esp32/src/WebUI/TelnetServer.cpp",
+        "Grbl_Esp32/src/PaperSystem.cpp",
+        "Grbl_Esp32/src/Protocol.cpp",
+        "Grbl_Esp32/src/ProtocolDecisionCore.h",
+        "Grbl_Esp32/src/WebUI/BTConfig.cpp",
+    ],
+    "grbl_core_headers_restore_only": [
+        "Grbl_Esp32/src/LicenseCore.h",
+        "Grbl_Esp32/src/PaperBtAckCore.h",
+        "Grbl_Esp32/src/PaperSearchCore.h",
+        "Grbl_Esp32/src/PaperSystemCore.h",
+        "Grbl_Esp32/src/WebUI/BTStateCore.h",
+    ],
+    "grbl_forbidden_symbols": ["report_realtime_status", "report_state_text"],
+    "grbl_forbidden_intents": [
+        "change_paper_mechanics_or_timing",
+        "change_motion_planner",
+        "change_license_algorithm_behavior",
+        "change_u1_grbl_protocol",
+        "broadcast_all_paper_auto_messages_client_all",
+    ],
+    "hub_safe_doc_globs": [
+        "docs/**",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md",
+        ".cursor/rules/**",
+        "scripts/agent_gate.py",
+        "deploy/**",
+        "firmware/*.md",
+    ],
+    "rejected_current_link": [
+        "USB Host as current board link",
+        "CH9350 as current board link",
+        "Aliyun as production VPS",
+    ],
+}
 
 ANTI_DRIFT_MARKERS = [
     "无证据不宣称",
@@ -115,18 +163,24 @@ REVIVED_PATTERNS = [
         re.compile(
             r"(板间|链路|通讯).{0,24}(USB\s*Host|原生\s*USB)|"
             r"(现行|当前|改用|采用).{0,16}USB\s*Host",
-            re.I,
+            re.I | re.S,
         ),
         None,
     ),
     (
         "ch9350_as_current",
-        re.compile(r"(现行|当前|改用|采用).{0,16}CH9350|(板间|链路).{0,16}CH9350", re.I),
+        re.compile(
+            r"(现行|当前|改用|采用).{0,16}CH9350|(板间|链路).{0,16}CH9350",
+            re.I | re.S,
+        ),
         None,
     ),
     (
         "aliyun_as_prod",
-        re.compile(r"(部署|生产|落点|VPS).{0,16}阿里云|阿里云.{0,16}(部署|生产|VPS)", re.I),
+        re.compile(
+            r"(部署|生产|落点|VPS).{0,16}阿里云|阿里云.{0,16}(部署|生产|VPS)",
+            re.I | re.S,
+        ),
         None,
     ),
 ]
@@ -217,22 +271,47 @@ def _git_head() -> str | None:
         return None
     return out.stdout.strip() or None
 
+def _pid_is_alive(pid: object) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        # 无权探测也不能覆盖可能仍在运行的其他门禁。
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return False
+    return True
 
-def _write_running_mark(profile: str, plan: list[str]) -> None:
-    """开工 tombstone：在场即「本次没跑完」，旁边的报告不得当作本轮结果。
 
-    门禁崩溃/断电/Ctrl+C 时不会走到清理，磁盘上留下的上一轮 pass 报告若被
-    后续 agent 误读就是「旧绿」。git index.lock 与 dpkg 的 half-configured
-    两阶段状态用的是同一解法：显式标记比靠报告时间戳猜新旧可靠。"""
+def _write_running_mark(profile: str, plan: list[str]) -> str:
+    """以 O_EXCL 原子占有门禁；返回本轮 owner token，防并发进程互删标记。"""
     RESULTS.mkdir(parents=True, exist_ok=True)
+    owner = uuid.uuid4().hex
     payload = {
         "pid": os.getpid(),
+        "owner": owner,
         "profile": profile,
         "started": _now(),
         "git_head": _git_head(),
         "plan": plan,
     }
-    _atomic_write(RUNNING_MARK, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    fd = os.open(RUNNING_MARK, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    return owner
+
+
+def _release_running_mark(owner: str) -> None:
+    try:
+        payload = json.loads(RUNNING_MARK.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if payload.get("owner") == owner:
+        RUNNING_MARK.unlink(missing_ok=True)
 
 
 def _layer(lid: str, name: str, status: str, detail: str = "", **extra: Any) -> dict[str, Any]:
@@ -390,6 +469,35 @@ def _has_rejection_heading(text: str, match: re.Match[str]) -> bool:
 
 
 
+def _strip_markdown_noise(text: str) -> str:
+    """去掉可切断治理短语的零语义装饰；保留换行，避免改变句窗边界。"""
+    text = re.sub(
+        r"<!--[\s\S]*?-->",
+        lambda match: "\n" * match.group(0).count("\n"),
+        text,
+    )
+    return re.sub(r"(?<!\\)(?:\*\*|__)", "", text)
+
+
+def _revival_clause_is_rejected(text: str, match: re.Match[str]) -> bool:
+    """只认可直接否定命中方案的短语；采纳句不能借后半句无关禁令脱身。"""
+    clause = _rejection_clause(text, match).strip()
+    matched = match.group(0)
+    # 方案短语可能从「通讯」起匹配，故否定词不一定在 clause 前缀；只接受
+    # 否定词紧贴同一方案名，且不能把「当前采用 X（不是 X）」误判成否决。
+    target_denial = re.search(
+        r"(?:不是|并非|不使用|未采用)\s*(?:USB\s*Host|原生\s*USB|CH9350|阿里云)",
+        matched,
+        re.I,
+    )
+    if target_denial and not _ADOPTION_RE.search(matched[: target_denial.start()]):
+        return True
+    # `当前禁止采用 X` 的「采用」是被禁止的宾语，不是采纳断言；直接否定优先。
+    if re.search(r"^(?:当前)?(?:已否决|否决|不要|禁止|别再|推翻|过时|不可行)", clause):
+        return True
+    return False
+
+
 def check_revived_decisions() -> dict[str, Any]:
     hits: list[str] = []
     for kid, pattern, files in REVIVED_PATTERNS:
@@ -397,12 +505,11 @@ def check_revived_decisions() -> dict[str, Any]:
             path = ROOT / rel
             if not path.is_file():
                 continue
-            text = _strip_invisible(path.read_text(encoding="utf-8", errors="replace"))
+            text = _strip_markdown_noise(
+                _strip_invisible(path.read_text(encoding="utf-8", errors="replace"))
+            )
             for m in pattern.finditer(text):
-                clause = _rejection_clause(text, m)
-                if _has_rejection_heading(text, m) or re.search(
-                    r"已否决|否决|不要|禁止|别再|推翻|过时|不可行", clause
-                ):
+                if _has_rejection_heading(text, m) or _revival_clause_is_rejected(text, m):
                     continue
                 snippet = text[max(0, m.start() - 40) : m.end() + 40].replace("\n", " ")
                 hits.append(f"{kid}:{rel}:{snippet.strip()[:120]}")
@@ -525,66 +632,64 @@ def _is_quoted_claim(text: str, match: re.Match[str]) -> bool:
     return False
 
 
+def _claim_has_rejection_prefix(text: str, match: re.Match[str]) -> bool:
+    """只认可直接约束禁语的否定前缀，拒绝借用同句无关否定词或等号。"""
+    sentence = _claim_sentence(text, match)
+    claim_at = sentence.find(match.group(0))
+    if claim_at < 0:
+        return False
+    before = sentence[:claim_at]
+    compact_before = re.sub(r"[\s`*_「」『』（）()]", "", before)
+    compact_before = re.sub(r"^>+", "", compact_before)
+    if re.search(r"(?:≠|!=|<>)$", compact_before):
+        return True
+    compact_overlap = re.sub(r"[\s`*_「」『』（）()]", "", sentence[: claim_at + 1])
+    compact_overlap = re.sub(r"^>+", "", compact_overlap)
+    if re.search(r"(?:不支持|不提升|不升级|不证明|不得宣称|不得把.{0,32}说成|禁止宣称|无权宣称).{0,32}$", compact_before):
+        return True
+    return bool(re.search(r"(?:不可|禁止)$", compact_overlap))
+
+def _has_claim_rejection_heading(text: str, match: re.Match[str]) -> bool:
+    """只接受专门讨论禁语的标题，不让「禁止删除日志」豁免状态断言。"""
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    prefix = text[line_start : match.start()]
+    if re.search(r"(?:禁止宣称|claims_forbidden|禁语|不证明)\s*[：:]?", prefix):
+        return True
+    in_list = bool(re.match(r"\s*[-*+]\s|\s*\d+[.)]\s", text[line_start : match.start()] or " "))
+    for previous in reversed(text[:line_start].splitlines()):
+        if not previous.strip():
+            continue
+        if previous.lstrip().startswith("#"):
+            return bool(re.search(r"禁止宣称|claims_forbidden|禁语", previous))
+        if in_list and re.match(r"\s*[-*+]\s|\s*\d+[.)]\s", previous):
+            continue
+        break
+    return False
+
+
 def check_forbidden_claims() -> dict[str, Any]:
-    """扫描治理文档正文里是否**做出**了 claims_forbidden 里的宣称。
-
-    此前 CLAIMS_FORBIDDEN 只用于两件事：与白名单列表比对是否漂移，以及打印到报告
-    末尾那句「仍受 claims_forbidden 约束」。**没有任何一层真的检查过文档里有没有
-    使用这些禁语**——实测在 README.md 追加「硬件已验证，联调完成，现已可出货」，
-    docs 层七项全绿并照常打印那句约束提示。门禁列出禁语却不执行，等于把最后一道
-    「无证据不宣称」的闸门交给自觉。
-
-    判据按短语切分（复用 _rejection_clause 的边界），短语内出现否定/引述词即视为
-    在讲规则而非做宣称，予以放行；否则判红。这样 `agent-gate.md` §5 的表格、
-    白名单 JSON 的列表、以及「本条不支持『可出货』任何一项宣称」都能正常存在。
-    """
+    """扫描治理文档正文里是否做出了 claims_forbidden 中的宣称。"""
     hits: list[str] = []
-    # GATE-P2-01：读不到的文件只 continue，故必须单独数「真的扫了几份」。
-    # 此前 pass 文案直接打 len(GOVERNANCE_DOCS)——清单里塞一个不存在的路径，该层
-    # 仍 pass 且印「19 份均未做出」而实际只扫 18（2026-08-09 实测），报告数字与
-    # 真实扫描面脱钩。存在性仍交 required_files 层判红（那层三个 profile 都跑），
-    # 本层只保证印出来的份数是实测值。
     scanned = 0
     for rel in GOVERNANCE_DOCS:
         path = ROOT / rel
         if not path.is_file():
             continue
-        text = _strip_invisible(path.read_text(encoding="utf-8", errors="replace"))
+        text = _strip_markdown_noise(
+            _strip_invisible(path.read_text(encoding="utf-8", errors="replace"))
+        )
         scanned += 1
         for claim in CLAIMS_FORBIDDEN:
-            # AG-F1: 在每个字符间插入 \s*，使模式对空白不敏感。
-            # 先把 claim 本身的空白归一化删除，这样 "M2 已完成" 变成 "M2已完成"，
-            # 再在字符间插 \s*，得到 "M\s*2\s*已\s*完\s*成"，既匹配原样也匹配任意空白分隔版。
             normalized_claim = re.sub(r"\s+", "", claim)
-            chars = list(normalized_claim)
-            fuzzy_pattern = r"\s*".join(re.escape(c) for c in chars)
-            for m in re.finditer(fuzzy_pattern, text):
-                if _is_quoted_claim(text, m):
+            fuzzy_pattern = r"\s*".join(re.escape(char) for char in normalized_claim)
+            for match in re.finditer(fuzzy_pattern, text):
+                if _is_quoted_claim(text, match):
                     continue
-                if _has_rejection_heading(text, m):
+                if _has_claim_rejection_heading(text, match):
                     continue
-                # 语境窗口取「整句」而非最小短语：否定词常与禁语隔着顿号/斜杠/≠
-                # （「写了说明 ≠ 代码已改 ≠ 硬件已验 ≠ 可出货」「不证明：…、可出货」
-                # 「本条**不支持**「联调完成」「可出货」…任何一项宣称」）。按短语切分
-                # 会把否定词切走，使这些免责句全部误报。句子边界只认换行与句号类。
-                #
-                # **但只认禁语之前的那半句**（2026-08-07 加固）。整句放行会让否定词
-                # 反过来给裸宣称当挡箭牌：`现已可出货，后续不支持。` 与
-                # `硬件已验证、可出货，本条不构成 M2 结论。` 在整句口径下双双放行——
-                # 免责词落在禁语**后面**，改不了前半句已经把话说出去的事实。
-                # 真实免责句式（`不得宣称可出货`、`≠ 可出货`、`本条不提升 … 可出货状态`）
-                # 的否定词一律在禁语之前，故收紧后 17 份治理文档零新误报
-                # （2026-08-09 扫描面扩到 18 份后复跑 docs 层，仍零误报）。
-                # `+1` 是重叠窗口：`不可出货` 里禁语 `可出货` 与否定词 `不可` 共享
-                # 一个字，切在禁语起点会把 `不可` 拦腰截断，导致 `> **不可出货**` 误报。
-                sentence = _claim_sentence(text, m)
-                # AG-F1: 匹配到的是带空白的版本（如 "可 出货"），但 claim 是无空白的原版。
-                # 在 sentence 里找匹配文本：用同样的模糊模式再搜一次。
-                matched_text = m.group(0)
-                claim_at = sentence.find(matched_text)
-                head = sentence[: claim_at + 1] if claim_at >= 0 else sentence
-                if _CLAIM_QUOTE_RE.search(head):
+                if _claim_has_rejection_prefix(text, match):
                     continue
+                sentence = _claim_sentence(text, match)
                 snippet = sentence.strip().replace("\n", " ")[:100]
                 hits.append(f"{rel}: 「{claim}」于「{snippet}」")
     if hits:
@@ -608,18 +713,21 @@ def check_edit_allowlist() -> dict[str, Any]:
     missing = [key for key in ALLOWLIST_REQUIRED_KEYS if key not in data]
     if missing:
         return _layer("edit_allowlist", "改码白名单 JSON", "fail", f"missing_keys={missing}")
-    if not isinstance(data.get("grbl_section9_only"), list) or not data["grbl_section9_only"]:
-        return _layer("edit_allowlist", "改码白名单 JSON", "fail", "grbl_section9_only empty")
-    if "report_realtime_status" not in data.get("grbl_forbidden_symbols", []):
-        return _layer("edit_allowlist", "改码白名单 JSON", "fail", "forbidden symbols incomplete")
+    mismatches = [
+        key
+        for key, expected in ALLOWLIST_EXACT.items()
+        if data.get(key) != expected
+    ]
     if data.get("claims_forbidden") != CLAIMS_FORBIDDEN:
+        mismatches.append("claims_forbidden")
+    if mismatches:
         return _layer(
-            "edit_allowlist", "改码白名单 JSON", "fail",
-            "claims_forbidden 与 agent_gate.py 不一致",
+            "edit_allowlist",
+            "改码白名单 JSON",
+            "fail",
+            f"白名单精确契约不一致={sorted(set(mismatches))}",
         )
     return _layer("edit_allowlist", "改码白名单 JSON", "pass", f"keys={len(data)}")
-
-
 def check_anti_drift_doc() -> dict[str, Any]:
     # R5-GATE-01：治理文档 read_text 守卫 OSError，塌成本层 fail 而非穿透 main()。
     path = ROOT / "docs/agent-anti-drift.md"
@@ -805,10 +913,11 @@ def _repo_file(ref: str) -> Path | None:
     `target.relative_to(ROOT)` 抛 ValueError 把整个门禁打死（不是判红，是没有结论）。
     旧代码的 `lstrip("./")` 顺手剥掉了前导 `/` 才一直没暴露——是巧合，不是防线。
     """
-    candidate = ROOT / ref
     try:
-        candidate.relative_to(ROOT)
-    except ValueError:
+        root = ROOT.resolve(strict=True)
+        candidate = (root / ref).resolve(strict=True)
+        candidate.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
         return None
     return candidate if candidate.is_file() else None
 
@@ -1781,19 +1890,25 @@ def main(argv: list[str] | None = None) -> int:
     plan = profile_layers(args.profile)
     stale_mark: dict[str, Any] | None = None
     if RUNNING_MARK.is_file():
-        # 上次运行没走到清理：崩溃/断电/Ctrl+C。其间写出的任何报告都不可信，
-        # 显式告知比让下一个 agent 自己发现要便宜。
-        #
-        # 只 print 是不够的（2026-08-11 review AGR-002）：读报告的人和 agent 都
-        # 看不到上一轮的终端。tombstone 的事实必须进报告 JSON/MD，否则「上次崩过」
-        # 在报告面上完全不存在，而报告恰是下一个 agent 唯一会读的东西。本轮跑完
-        # 会覆盖报告，故不判红——但必须留痕，让读者能判断上一份报告为何不可信。
         try:
-            stale_mark = json.loads(RUNNING_MARK.read_text(encoding="utf-8"))
+            existing_mark = json.loads(RUNNING_MARK.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            stale_mark = {"unreadable": type(exc).__name__}
-        print(f"注意：{RUNNING_MARK} 在场——上次门禁未跑完，其间报告不可信；本次将覆盖")
-    _write_running_mark(args.profile, [layer_id for layer_id, _ in plan])
+            existing_mark = {"unreadable": type(exc).__name__}
+        if _pid_is_alive(existing_mark.get("pid")):
+            print(
+                f"FAIL：{RUNNING_MARK} 已由 pid={existing_mark.get('pid')} 的门禁占用；"
+                "本轮未覆盖报告或 tombstone",
+                file=sys.stderr,
+            )
+            return 1
+        stale_mark = existing_mark
+        RUNNING_MARK.unlink(missing_ok=True)
+        print(f"注意：{RUNNING_MARK} 是陈旧崩溃标记；本次将覆盖并在报告中留痕")
+    try:
+        run_owner = _write_running_mark(args.profile, [layer_id for layer_id, _ in plan])
+    except FileExistsError:
+        print(f"FAIL：{RUNNING_MARK} 被并发门禁原子占有；本轮未覆盖报告", file=sys.stderr)
+        return 1
 
     layers: list[dict[str, Any]] = []
     for layer_id, run_layer in plan:
@@ -1816,9 +1931,21 @@ def main(argv: list[str] | None = None) -> int:
                 "fail",
                 f"层 {layer_id} 抛出未捕获异常（{type(exc).__name__}），已塌为判红",
             )
-        # plan 的 id 与 _layer() 落盘的 id 必须一致，否则报告里的层名会与
-        # docs/agent-gate.md 的分层定义脱钩，读报告的人无法判断查了什么。
-        assert layer["id"] == layer_id, f"层 id 不一致: plan={layer_id} actual={layer['id']}"
+        required_keys = {"id", "name", "status", "detail"}
+        if not isinstance(layer, dict) or not required_keys.issubset(layer):
+            layer = _layer(
+                layer_id,
+                "层返回结构不合法",
+                "fail",
+                f"层 {layer_id} 返回结构不合法，已塌为判红",
+            )
+        elif layer["id"] != layer_id or layer["status"] not in {"pass", "fail"}:
+            layer = _layer(
+                layer_id,
+                "层返回结构不合法",
+                "fail",
+                f"层 {layer_id} 返回 id/status 不合法，已塌为判红",
+            )
         layers.append(layer)
 
     failed = [L for L in layers if L["status"] == "fail"]
@@ -1849,9 +1976,8 @@ def main(argv: list[str] | None = None) -> int:
         "report_md": str(REPORT_MD),
     }
     write_reports(report)
-    # 只有报告两个文件都成功落盘才清除 tombstone：任何更早的异常退出
-    # （层抛错/断电/Ctrl+C）都会把标记留在盘上，提示「上次没跑完」。
-    RUNNING_MARK.unlink(missing_ok=True)
+    # 仅本轮 owner 可清自己的标记；并发失败者不得删除正在运行者的 tombstone。
+    _release_running_mark(run_owner)
 
     print(f"hutuji_gate profile={args.profile} overall={overall} exit={exit_code}")
     for L in layers:

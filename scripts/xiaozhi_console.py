@@ -353,7 +353,7 @@ def cmd_update_role(agent_id):
 
     result = api("POST", f"/agents/{agent_id}/config", {"character": role_text})
     if not result.get("success"):
-        print(f"✗ 更新失败: {result.get('message', '?')}", file=sys.stderr)
+        print(f"✗ 更新失败: {_redact_text(str(result.get('message', '?')))}", file=sys.stderr)
         sys.exit(1)
     print("✓ 角色提示更新成功")
 
@@ -369,17 +369,31 @@ def cmd_update_kb(kb_id):
         print(f"文件不存在: {KNOWLEDGE_BASE_PATH}", file=sys.stderr)
         sys.exit(1)
 
-    # 先记下现有文档，**上传 + 建档成功后才删旧**：任一步失败时远端仍保留旧知识库。
-    # 旧实现是「先删全部再上传」，上传失败即把远端知识库清空，且不可逆。
-    docs_result = api("GET", f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&page=1&pageSize=50")
-    old_docs = docs_result.get("data", {}).get("list", [])
+    # 先拉完全部旧文档；只取 page=1 会在第 51 篇起静默残留旧版本却仍报替换成功。
+    old_docs = []
+    page = 1
+    page_size = 50
+    while True:
+        docs_result = api(
+            "GET",
+            f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&page={page}&pageSize={page_size}",
+        )
+        batch = docs_result.get("data", {}).get("list", [])
+        if not isinstance(batch, list):
+            print("✗ 文档列表应答形状不符（旧文档保留）", file=sys.stderr)
+            sys.exit(1)
+        old_docs.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
     print(f"现有文档 {len(old_docs)} 篇；先上传新文件，成功后再删旧")
 
     # 上传新文件
     print(f"上传 {KNOWLEDGE_BASE_PATH.name}...")
     upload_result = api_upload("/knowledge-bases/upload-file", str(KNOWLEDGE_BASE_PATH))
     if not upload_result.get("success"):
-        print(f"✗ 上传失败: {upload_result.get('message', '?')}（旧文档保留）", file=sys.stderr)
+        message = _redact_text(str(upload_result.get("message", "?")))
+        print(f"✗ 上传失败: {message}（旧文档保留）", file=sys.stderr)
         sys.exit(1)
 
     upload_data = upload_result.get("data") or {}
@@ -399,7 +413,8 @@ def cmd_update_kb(kb_id):
         "optimizeParse": False,
     })
     if not create_result.get("success"):
-        print(f"✗ 创建文档失败: {create_result.get('message', '?')}（旧文档保留）", file=sys.stderr)
+        message = _redact_text(str(create_result.get("message", "?")))
+        print(f"✗ 创建文档失败: {message}（旧文档保留）", file=sys.stderr)
         sys.exit(1)
     print(f"✓ 新文档已建立 (md5={file_md5[:12]}...)")
 
@@ -446,7 +461,7 @@ def cmd_recall(kb_id, query):
         "query": query,
     })
     if not result.get("success"):
-        print(f"召回失败: {result.get('message', '?')}", file=sys.stderr)
+        print(f"召回失败: {_redact_text(str(result.get('message', '?')))}", file=sys.stderr)
         sys.exit(1)
     data = result.get("data", [])
     chunks = data.get("chunks", data) if isinstance(data, dict) else data

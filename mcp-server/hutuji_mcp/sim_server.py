@@ -191,6 +191,14 @@ def _terminate_whole_tree(child: "subprocess.Popen[str]") -> None:
     kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
     _release_job(child)
 
+def _register_active_child(child: "subprocess.Popen[str]") -> None:
+    """Popen 返回后立即进取消槽；Job Object 挂接不得挡在可见性之前。"""
+    sink = _ACTIVE_CHILDREN.get()
+    if sink is not None:
+        sink.append(child)
+    _kill_process_tree_on_close(child)
+
+
 def _local_stream_e2e(_output_dir: Path) -> dict[str, Any]:
     if not _E2E_LOCK.acquire(blocking=False):
         # 固定端口互斥：并发调用收敛为确定性 busy，而非撞 2323 后的非确定性失败。
@@ -222,11 +230,7 @@ def _run_stream_e2e() -> dict[str, Any]:
             errors="replace",
             env={**os.environ, "PYTHONUTF8": "1"},
         ) as child:
-            _kill_process_tree_on_close(child)
-            # 注册后 async 侧才能在取消时 kill；with 块保证任何出口都关句柄。
-            sink = _ACTIVE_CHILDREN.get()
-            if sink is not None:
-                sink.append(child)
+            _register_active_child(child)
             try:
                 stdout, stderr = child.communicate(timeout=LOCAL_E2E_TIMEOUT_SECONDS)
             except (subprocess.TimeoutExpired, TimeoutError):
@@ -430,6 +434,10 @@ async def _run_scenario_cancellable(scenario_id: str) -> dict[str, Any]:
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
+            # 取消可恰落在 Popen 返回与 `_register_active_child` 之间。只快照一次仍会
+            # 看见空列表后永久 await 工作线程；等到 child 可见或无 child 的场景自然结束。
+            while not children and not task.done():
+                await asyncio.sleep(0.001)
             for child in list(children):
                 if child.poll() is None:
                     with contextlib.suppress(OSError):

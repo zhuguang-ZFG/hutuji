@@ -4066,18 +4066,25 @@ def test_preflight_check_echoes_failure_criteria_tail() -> None:
 
 
 def test_install_warns_missing_env_and_nginx_fail_guidance() -> None:
-    """DEP-UX-02：两个 env 全缺必须显式警告先跑 prepare-host.sh（旧版 grep 带
-    2>/dev/null 把「文件不存在」静默吞掉）；nginx -t 失败必须提示 unit 已装未启、
-    修复配置后可重跑（set -e 下裸 `nginx -t` 失败即静默退出）。"""
+    """DEP-UX-02：任一 env 缺失必须显式警告先跑 prepare-host.sh；nginx -t
+    失败必须提示 unit 已装未启、修复配置后可重跑。"""
     root = Path(__file__).resolve().parents[2]
     install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
 
-    assert "[[ ! -f /etc/hutuji/mcp.env && ! -f /etc/hutuji/bridge.env ]]" in install
+    assert "[[ ! -f /etc/hutuji/mcp.env || ! -f /etc/hutuji/bridge.env ]]" in install
     assert "prepare-host.sh" in install
     assert "nginx -t" in install
     assert "已安装未启动" in install
     assert "重跑本脚本" in install
 
+
+
+def test_install_warns_when_either_environment_file_is_missing() -> None:
+    """只缺一个 EnvironmentFile 也必须提示，否则安装后服务会缺配置且无诊断。"""
+    root = Path(__file__).resolve().parents[2]
+    install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
+    code = "\n".join(line for line in install.splitlines() if not line.lstrip().startswith("#"))
+    assert "||" in code.split("if [[ ! -f /etc/hutuji/mcp.env", 1)[1].split("; then", 1)[0]
 
 def test_preflight_verifies_8300_listener_identity() -> None:
     """DEP-03：「8300 有监听」证不到「监听者是本次部署的 uvicorn」。
@@ -4714,6 +4721,21 @@ def test_gate_accepts_same_clause_rejection(
 
     assert gate.check_revived_decisions()["status"] == "pass"
 
+
+
+def test_gate_accepts_explicit_non_adoption_denial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """「不是 USB Host」是明确否定，不应与「当前采用 USB Host」混淆。"""
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "agent-handoff.md").write_text(
+        "板间通讯 = WiFi Telnet（不是 USB Host，不是 CH9350）。", encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    assert gate.check_revived_decisions()["status"] == "pass"
 def test_gate_accepts_forbidden_list_heading(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4883,6 +4905,49 @@ def test_gate_forbidden_claims_rejects_trailing_disclaimer(
     monkeypatch.setattr(gate, "ROOT", tmp_path)
 
     assert gate.check_forbidden_claims()["status"] == "fail", body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "本机不可断电，但硬件已验证。",
+        "version=1，本机硬件已验证。",
+        "本机现已可<!-- -->出货。",
+        "本机现已可**出**货。",
+        "## 禁止删除日志\n\n- 硬件已验证",
+    ],
+)
+def test_gate_forbidden_claims_rejects_unrelated_exemptions_and_markup(
+    body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """否定词/等号只约束自身短语；Markdown 排版不得切断禁止宣称。"""
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "GOVERNANCE_DOCS", ["README.md"])
+
+    assert gate.check_forbidden_claims()["status"] == "fail", body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "当前采用 USB Host 并禁止串口旁路。",
+        "板间链路当前采用\nUSB Host。",
+        "板间链路采用 USB **Host**。",
+        "生产部署落点为阿里<!-- -->云。",
+    ],
+)
+def test_gate_revived_decisions_rejects_unrelated_rejection_and_markup(
+    body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """命中短语自身在采纳否决项时，不得借无关禁令或 Markdown 排版逃逸。"""
+    gate = _load_agent_gate()
+    (tmp_path / "README.md").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "GOVERNANCE_DOCS", ["README.md"])
+
+    assert gate.check_revived_decisions()["status"] == "fail", body
 
 
 
@@ -5158,6 +5223,117 @@ def test_gate_doc_ref_absolute_path_cannot_escape_repo(
     assert "跳过 1 处" in result["detail"], result
 
 
+def test_gate_doc_ref_parent_segments_cannot_escape_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`../` 必须按规范化后的真实路径判仓界，不能把仓外文件登记成本仓证据。"""
+    gate = _load_agent_gate()
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "target.py").write_text("inside\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "foreign.cc").write_text("outside\n", encoding="utf-8")
+    (repo / "docs" / "refs.md").write_text(
+        "有效: target.py:1\n仓外: ../outside/foreign.cc:1\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", repo)
+
+    assert gate._repo_file("../outside/foreign.cc") is None
+    result = gate.check_doc_line_refs()
+    assert result["status"] == "pass", result
+    assert "跳过 1 处" in result["detail"], result
+
+
+
+def test_gate_rejects_weakened_edit_allowlist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """白名单是精确安全契约；通配路径、空恢复清单、漏禁符号均须判红。"""
+    gate = _load_agent_gate()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    weakened = {
+        "version": 999,
+        "description": "test",
+        "decision_count": 7,
+        "grbl_section9_only": ["**/*"],
+        "grbl_core_headers_restore_only": [],
+        "grbl_forbidden_symbols": ["report_realtime_status"],
+        "grbl_forbidden_intents": [],
+        "hub_safe_doc_globs": ["**/*"],
+        "claims_forbidden": gate.CLAIMS_FORBIDDEN,
+        "rejected_current_link": gate.ALLOWLIST_EXACT["rejected_current_link"],
+    }
+    (docs / "agent-edit-allowlist.json").write_text(
+        json.dumps(weakened), encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    result = gate.check_edit_allowlist()
+    assert result["status"] == "fail", result
+    assert "不一致" in result["detail"]
+
+
+
+def test_gate_main_malformed_layer_result_collapses_to_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """层返回坏结构与层抛异常同属执行失败：必须落红报告并清 tombstone。"""
+    gate = _load_agent_gate()
+    _gate_main_sandbox(gate, tmp_path, monkeypatch)
+    monkeypatch.setattr(gate, "profile_layers", lambda profile: [("probe", lambda: {})])
+    monkeypatch.setattr(gate, "_git_head", lambda: "deadbeef" * 5)
+
+    assert gate.main(["--profile", "docs"]) == 1
+    assert not gate.RUNNING_MARK.exists()
+    report = json.loads(gate.REPORT_JSON.read_text(encoding="utf-8"))
+    layer = report["layers"][0]
+    assert layer["id"] == "probe"
+    assert layer["status"] == "fail"
+    assert "返回结构不合法" in layer["detail"]
+
+
+def test_gate_main_rejects_concurrent_run_without_clearing_owner_mark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同一结果目录只允许一个门禁；二次启动不得覆盖报告或删除首轮 tombstone。"""
+    gate = _load_agent_gate()
+    _gate_main_sandbox(gate, tmp_path, monkeypatch)
+    observed: dict[str, object] = {}
+
+    def probe() -> dict:
+        owner_mark = gate.RUNNING_MARK.read_text(encoding="utf-8")
+        observed["nested_exit"] = gate.main(["--profile", "docs"])
+        observed["mark_unchanged"] = gate.RUNNING_MARK.read_text(encoding="utf-8") == owner_mark
+        return gate._layer("probe", "探针", "pass")
+
+    calls = {"n": 0}
+
+    def layers(_profile: str):
+        calls["n"] += 1
+        return [("probe", probe)] if calls["n"] == 1 else [("nested", lambda: gate._layer("nested", "嵌套", "pass"))]
+
+    monkeypatch.setattr(gate, "profile_layers", layers)
+    monkeypatch.setattr(gate, "_git_head", lambda: "deadbeef" * 5)
+
+    assert gate.main(["--profile", "docs"]) == 0
+    assert observed == {"nested_exit": 1, "mark_unchanged": True}
+    report = json.loads(gate.REPORT_JSON.read_text(encoding="utf-8"))
+    assert [layer["id"] for layer in report["layers"]] == ["probe"]
+
+
+def test_gate_pid_permission_error_is_treated_as_alive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """无权探测 PID 时必须保守认为仍存活，禁止覆盖其他运行者的 tombstone。"""
+    gate = _load_agent_gate()
+
+    def deny(_pid, _sig):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(gate.os, "kill", deny)
+    assert gate._pid_is_alive(12345) is True
+
+
 def test_gate_required_files_derives_governance_docs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5201,11 +5377,16 @@ def test_gate_rejects_claims_list_drift(
     docs = tmp_path / "docs"
     docs.mkdir()
     allowlist = {
-        "version": 1,
-        "grbl_section9_only": ["x"],
-        "grbl_core_headers_restore_only": ["x"],
-        "grbl_forbidden_symbols": ["report_realtime_status"],
+        "version": gate.ALLOWLIST_EXACT["version"],
+        "description": "test",
+        "decision_count": gate.ALLOWLIST_EXACT["decision_count"],
+        "grbl_section9_only": gate.ALLOWLIST_EXACT["grbl_section9_only"],
+        "grbl_core_headers_restore_only": gate.ALLOWLIST_EXACT["grbl_core_headers_restore_only"],
+        "grbl_forbidden_symbols": gate.ALLOWLIST_EXACT["grbl_forbidden_symbols"],
+        "grbl_forbidden_intents": gate.ALLOWLIST_EXACT["grbl_forbidden_intents"],
+        "hub_safe_doc_globs": gate.ALLOWLIST_EXACT["hub_safe_doc_globs"],
         "claims_forbidden": ["stale"],
+        "rejected_current_link": gate.ALLOWLIST_EXACT["rejected_current_link"],
     }
     (docs / "agent-edit-allowlist.json").write_text(
         __import__("json").dumps(allowlist), encoding="utf-8"

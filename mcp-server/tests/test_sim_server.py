@@ -302,6 +302,50 @@ def test_cancelled_scenario_kills_child_and_releases_thread(
     assert processes[0].returncode is not None
 
 
+
+def test_cancelled_scenario_kills_child_before_registration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Popen 后注册取消槽前若取消，也必须回收 child，不能留下长睡眠进程。"""
+    processes = []
+    entered = threading.Event()
+    release = threading.Event()
+    def blocking_attach(_child):
+        entered.set()
+        release.wait(3)
+
+    def blocking_runner(_output_dir: Path):
+        child = sim_server.subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"]
+        )
+        processes.append(child)
+        sim_server._register_active_child(child)
+        child.wait()
+        return build_evidence(
+            ok=False,
+            scenario="cancel_race",
+            observations=[],
+            contract_refs=[],
+        )
+
+    monkeypatch.setattr(sim_server, "_kill_process_tree_on_close", blocking_attach)
+    monkeypatch.setitem(sim_server.SCENARIOS, "cancel_race", {"runner": blocking_runner})
+
+    async def exercise() -> None:
+        task = asyncio.create_task(sim_server._run_scenario_cancellable("cancel_race"))
+        deadline = asyncio.get_running_loop().time() + 3
+        while not entered.is_set():
+            assert asyncio.get_running_loop().time() < deadline, "未到达 Job 挂接窗口"
+            await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+
+    _run_with_reaped_children(exercise, processes)
+    assert processes
+    assert processes[0].returncode is not None
+
 def test_validate_gcode_tool_returns_specific_failure_as_evidence() -> None:
     result = validate_gcode_tool(sim_server._minimal_gcode("G91\n"))
     assert result["ok"] is False
