@@ -212,3 +212,5 @@
 - 约束矩阵闭环 ≠ §9 已烧录 ≠ M2 完成 ≠ 可出货。
 
 > **2026-08-16 门禁/工具链全量 review 修复（supersede 本条原「工作树未提交/未部署/未做硬件验证」）**：本仓 `a7697b9` 已提交并推 `origin/main`，工作树提交后干净；pytest 831、hub/full 门禁通过。fz standard 已跑但失败（fz 自有 native/Wokwi/product-scenario 层；本批未改 Grbl）。生产仅同步适用产物 `deploy/install-from-repo.sh`（LF SHA-256 `d8eec725…75936` 对账），未重启未变的 MCP/bridge，随后 preflight 26/26。只读硬件证据 `results/bringup-readonly-20260816.md`：COM12/COM13 打开，Grbl banner/授权/WiFi/Telnet 启动正常；无命令注入，不证明绘图、换纸或本批工具行为。
+
+> **2026-08-16 奎享/社区交叉 review 修复（S3 工作树未提交，已用 ESP-IDF v6.0.1 构建，未烧录/未实机验证）**：`D:/Users/xiaozhi-esp32` 修改 `hutuji_{job,pipe}.{cc,h}`、`hutuji_recovery_core.h` 与 `scripts/tests/test_hutuji_recovery_core.py`。窗口 error 新增 `!`→清窗→Quiesced→同步受控 reset，MPos 新增有限值解析与独立 fresh generation；修复 Windows host 测试 MinGW DLL PATH。验证：recovery 27/27、全 host 35/35、LLVM clang-format 22.1.8、ESP-IDF v6.0.1 `idf.py build` 通过，生成 `build/xiaozhi.bin`。待烧录与实机注入。`D:/Users/kxnx` 仍保留用户原改动 `kx/windows_hutuji/README.md` 与未跟踪 `findings/05-deep-review-gen-comm.md`；Java 状态解析线程 P1 仅登记 remediation——该目录只有 CFR 反编译输出，无可维护源码工程，未修改。

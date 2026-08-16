@@ -70,6 +70,8 @@ kxnx 仓 `kx/tools/dump_agent/` 下并存三棵，另有第四棵在 `kx/windows
 `findings/*.md` 保留逆向过程，正文中的早期 hutuji 建议可能已被后续证据推翻；当前落地结果见
 `findings/02-gcode-template.md`、`findings/12-summary-and-action-list.md` 与 `alignment/plan.md`。
 
+> **2026-08-16 Java 状态解析 remediation（只读登记）**：第四棵 CFR 反编译树 `machine/grbl/a.java:190-207` 对状态字段直接 `split/substr/Float.parseFloat/valueOf`，行分发线程 `machine/b/c.java:17-26` 只捕 `InterruptedException`；一帧畸形 `<...>` 可杀分发线程而 socket/连接标志仍存活。现代 UGS 的 `GrblController.runResponseHandler()` 在整帧分派外 catch `Exception`，正确口径是「丢坏帧、记诊断、接收泵继续」。本仓只有反编译素材，无可维护 Java 源码/构建系统，故不直接改 `.java`；若取得厂商源码，修复应落在行分发边界并补畸形状态矩阵。对应 hutuji S3 不抛 Java 异常，但已把有限 MPos 与 fresh generation 作为状态证据闸。
+
 ## 笔控核心速查
 
 | 类型（`grbl_type`）| 落笔 | 抬笔 |
