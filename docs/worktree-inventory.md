@@ -211,4 +211,4 @@
 - 不要把 `Branch_736afa70` 整支合并进商业分支「图省事」。  
 - 约束矩阵闭环 ≠ §9 已烧录 ≠ M2 完成 ≠ 可出货。
 
-> **2026-08-16 门禁/工具链全量 review 修复（本仓工作树未提交；用户已批准修复，未部署/未做硬件验证）**：`scripts/agent_gate.py` 收紧禁语/复活扫描、精确校验机读白名单、原子互斥 tombstone、层结果 fail-closed、仓根路径 resolve；`scripts/xiaozhi_console.py` 逻辑错误脱敏 + 知识库分页；`sim_server.py` 取消竞态回收；`deploy/install-from-repo.sh` 任一 env 缺失告警。回归测试与验证结果以本轮终端证据为准，提交前不得把当前工作树当作已发布基线。
+> **2026-08-16 门禁/工具链全量 review 修复（supersede 本条原「工作树未提交/未部署/未做硬件验证」）**：本仓 `a7697b9` 已提交并推 `origin/main`，工作树提交后干净；pytest 831、hub/full 门禁通过。fz standard 已跑但失败（fz 自有 native/Wokwi/product-scenario 层；本批未改 Grbl）。生产仅同步适用产物 `deploy/install-from-repo.sh`（LF SHA-256 `d8eec725…75936` 对账），未重启未变的 MCP/bridge，随后 preflight 26/26。只读硬件证据 `results/bringup-readonly-20260816.md`：COM12/COM13 打开，Grbl banner/授权/WiFi/Telnet 启动正常；无命令注入，不证明绘图、换纸或本批工具行为。
