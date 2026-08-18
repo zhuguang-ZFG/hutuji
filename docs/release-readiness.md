@@ -24,6 +24,9 @@
 | 5 | MCP / 京东云运行态 | ✅ SPEED-01/设备 PNG 预览窄部署，preflight 26/26；仓库实现已提交 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
+| 8 | BLE 只读辅助面 | 🟡 仅完成协议边界与 A/B/C 规划；当前 S3 `CONFIG_BT_ENABLED` 未开启，广播、GATT 诊断、RSSI 提示及 WiFi/Telnet 共存 HIL 均未验证 |
+
+> **BLE 规划边界（2026-08-18）**：只读状态广播 → GATT 只读诊断 → 可选 RSSI 近距提示，默认关闭；不替代 WiFi Telnet、不承载 G-code、不直接控制电机/笔/换纸/授权/abort/job，也不宣称 UWB/AoA/Apple Precision Finding。阶段证据按 `docs/protocol.md` §1.4 逐项补齐后，才能改变本行状态。
 
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口 abort 复测；④ 生产与合规签核。
 

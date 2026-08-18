@@ -138,6 +138,18 @@ cd D:\Users\hutuji\mcp-server
 
 > fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
+## 6.1 BLE 辅助面实施顺序（默认关闭）
+
+BLE 只作为 S3 本地诊断/救援辅助面推进，不改变 WiFi Telnet :23 正式板间链路。Grbl 侧经典蓝牙 SPP 与 S3 BLE 分属不同器件和职责；不得把两者合并描述。
+
+| 阶段 | 交付 | 必须证据 | 明确不做 |
+|---|---|---|---|
+| A | 只读状态广播骨架，默认关闭 | host 构建；广播字段解码；无 GATT 写路径；真实设备 WiFi/Telnet RTT、重连、功耗、堆内存和看门狗对照 | 不发 G-code，不控制电机/笔/换纸/job；不广播 URL、token、密钥或用户内容 |
+| B | GATT 只读诊断快照 | 读取字段契约；未定义写入明确拒绝；重启/断连后 `reset_reason`、`boot_count` 与上次 job 状态可解释 | 不做任务提交、授权、abort 或任意命令通道 |
+| C | 可选 RSSI 近距提示 UI | 多位置/姿态/设备实测；UI 只称近距提示；正式链路无 RTT、吞吐、断连、功耗回归 | 不宣称距离、方向、房间定位、UWB、AoA 或 Apple Precision Finding |
+
+进入下一阶段前，必须把构建、烧录、启动身份、共存实测和 HIL 结果写入 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`。当前 S3 `CONFIG_BT_ENABLED` 未开启，A/B/C 均为规划；不得把设计文档当作设备能力证据。
+
 ## 7. 改完必须同步的文件
 
 | 你改了什么 | 必须更新 |

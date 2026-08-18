@@ -105,6 +105,10 @@ python -m venv .venv
 | `hub`（默认） | `docs` + 外仓文档 `path:line` 校验 + pytest + e2e（缺 fork 时该层 pass 但 detail 自陈「无可校验」） |
 | `full` | `hub` + 外仓引用要求三仓至少一个在位（全缺即 fail） + Grbl §9 源码标记（**必须设 `GRBL_ROOT`，未设时该层直接 fail、不再 skip**）；且仍须自己另跑 fz |
 
+## 外部参考证据纪律
+
+涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方文档/官方仓库，再查高质量社区；对影响设计或结论的依据记录 URL、版本或 commit、访问日期、适用范围和本地复核结果。区分上游与本地 fork、源码与板上/生产运行态；外部资料仅作证据或参照，不能覆盖本仓 `README.md`、`docs/protocol.md`、`docs/release-readiness.md` 真值。网络不可用时使用本地镜像或仓内 findings 必须标来源层级、限制和未验证项，不得把社区共识写成实机证据。
+
 ### 环境变量
 
 关键变量（全表见 `mcp-server/README.md`）：`HUTUJI_LLM_API_KEY`（未配置时 `hutuji_draw` 报错）、`HUTUJI_LLM_BASE_URL`/`_MODEL`、`HUTUJI_PUBLIC_BASE_URL`（返回给 S3 的下载前缀）、`HUTUJI_OUTPUT_TTL_SECONDS`（默认 600）。配置全走环境变量，**无 `.env` 文件**。

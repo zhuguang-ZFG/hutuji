@@ -5,9 +5,9 @@
 ## 1. hutuji（枢纽仓）
 
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
-- **当前提交链**：`d98f960` 已包含 `155dbff` 的服务实现与本次文档治理；实时 HEAD：`git rev-parse --short HEAD`。
+- **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
 - **生产运行态**：提交基线仍为 `1082400`；2026-08-17 窄部署的 `bitmap_svg.py` / `server.py` 以 SHA-256 `949d2da7…fff8` / `ac06ee82…e9e` 绑定，preflight 26/26。GitHub 源码已由 `155dbff` 追上该运行态及其配置/测试，但未在本轮重新部署。
-- **本次治理后工作树**：原 12 个会话记忆、临时脚本和串口转储均已移入 `results/local-only/2026-08-18/`，保留在本机、未删除、未上传；该目录属于本地证据区，不纳入 Git 提交。归档文件：`pi-hermes-memory-consolidation.md`、`COM13-COM14_Terminal.txt`、`memory-consolidation-ws35-pmic.md`、`memory-consolidation-ws36.md`、`tmp-audit-summary.md`、`tmp-excel-read.py`、`tmp-excel-read2.py`、`tmp-memory-consolidation-plan.md`、`memory-consolidated-v1.md`、`memory-consolidation-plan-v2.md`、`memory-consolidation-plan.md`、`memory_add`。
+- **本地保留资产**：原 12 个会话记忆、临时脚本和串口转储已移入 `results/local-only/2026-08-18/`，保留在本机、未删除、未上传；当前仓库根另有用户/工具生成的未跟踪 `.pi-memory-consolidated.md`，同样保留、不删除、不纳入本次提交。归档文件清单：`pi-hermes-memory-consolidation.md`、`COM13-COM14_Terminal.txt`、`memory-consolidation-ws35-pmic.md`、`memory-consolidation-ws36.md`、`tmp-audit-summary.md`、`tmp-excel-read.py`、`tmp-excel-read2.py`、`tmp-memory-consolidation-plan.md`、`memory-consolidated-v1.md`、`memory-consolidation-plan-v2.md`、`memory-consolidation-plan.md`、`memory_add`。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
 ## 2. Grbl_Esp32（运动控制）

@@ -63,6 +63,14 @@
 - `firmware/` — S3 板固件补丁说明（②，补丁本体在 xiaozhi-esp32 fork）
 - `deploy/` — 京东云 systemd/nginx/环境变量模板（真实凭据不入库）
 
+### BLE 辅助面（规划，默认关闭）
+
+BLE 仅用于 S3 的只读状态广播、GATT 只读诊断和可选 RSSI 近距提示；WiFi Telnet :23 仍是唯一正式板间链路。BLE 不承载 G-code，不直接控制电机、笔、换纸、授权、abort 或 job 生命周期；不以 RSSI 冒充距离/方向/UWB/AoA/Apple Precision Finding。当前 S3 `CONFIG_BT_ENABLED` 未开启，阶段 A/B/C 的实现与共存 HIL 均未验证，详见 `docs/protocol.md` §1.4。
+
+### 外部参考证据纪律
+
+涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方来源，再查高质量社区；记录 URL、版本或 commit、访问日期、适用范围和本地复核结果。外部资料不能覆盖本仓契约/状态真值，且必须区分上游、本地 fork、源码、生产和板上运行态；网络不可用时使用本地留档须标明限制，不能把社区共识写成实机证据。
+
 ## 路线图
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、本仓门禁/硬轨 — ✅ 见 `docs/foundation-checklist.md`

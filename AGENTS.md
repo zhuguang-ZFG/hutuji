@@ -103,6 +103,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **容差是显式决策**：`LINESIMPLIFY_TOLERANCE_MM = 0.05`、`LINEMERGE_TOLERANCE_MM = 0.3`，有专测钉死，不许顺手调参。
 - **脚本退出码有语义**：门禁 pass=0 / 任一层 fail=1；`grbl_wifi_setup.py` 2=缺密码、130=用户取消；`bringup_fault_capture.py` 2=缺端口或缺 pyserial、1=串口报错（打开/读取失败、注入写失败，以及**排过 `[ESP115]ON` 却在日志里找不到发送确认**——这一路会往报告追加显式失败行，不再以 0 收场）。
 - **状态标记**：✅ 有命令/commit/设备/日志证据；🟡 代码或设计在但缺生产/硬件证据；🔴 未实现或阻塞。
+- **外部参考证据纪律**：涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方文档/官方仓库，再查高质量社区；每条会影响设计或结论的外部依据都记录来源 URL、版本或 commit、访问日期、适用范围与本地复核结果。必须区分上游与本地 fork、源码与板上/生产运行态；外部资料只作证据或参照，不能覆盖本仓 `README.md`、`docs/protocol.md` 与 `docs/release-readiness.md` 的真值。网络不可用时可用已留存的本地镜像或仓内 findings，但须明确标注来源层级、未验证项和限制，不得把社区共识写成硬件实测。
 
 ## Important Files｜关键文件
 
