@@ -217,12 +217,12 @@ python D:\Users\zhugu\fz\scripts\agent_gate.py --profile standard
 
 ## 7. 默认工程序（与 handoff 一致，禁止跳）
 
-1. 纸面实物画质人工目视（出墨连续性、曲线完整、断线）
-2. 完成 App 真实语音端到端及七工具逐项云端行为回归
+1. 完成 Waveshare 当前镜像的预览确认/取消与暂停/继续/停止/重画/试笔屏幕 HIL
+2. 纸面实物画质人工目视（出墨连续性、曲线完整、断线）
 3. 复测断连恢复 `paper_active` 窗口的 abort：不得 reset/M30
 4. 完成生产与合规签核
 
-页尾 `M30`、`Changing=On`、换纸中 abort 与 P2 S4 已有历史实测，具体证据和未验证边界以 `release-readiness.md` 为准，不得作为默认待办重做。
+真实语音出图、页尾 `M30` 前归位、自动换纸、换纸中 abort 与 P2 S4 链路已有历史实测，具体证据和未验证边界以 `release-readiness.md` 为准，不得作为默认待办重做。
 
 用户明确指定任务时可偏离；**不得**在未指定时重写文档地图或重开否决项。
 

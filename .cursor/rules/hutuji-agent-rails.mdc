@@ -60,12 +60,12 @@ python scripts\agent_gate.py --profile hub
 
 ## 默认下一刀（用户未指定时）
 
-1. 纸面实物画质人工目视
-2. 完成 App 真实语音端到端和七工具逐项云端回归
+1. 完成 Waveshare 当前镜像的预览确认/取消与暂停/继续/停止/重画/试笔屏幕 HIL
+2. 纸面实物画质人工目视
 3. 复测断连恢复 `paper_active` 窗口的 abort（不得 reset/M30）
 4. 完成生产与合规签核
 
-页尾 `M30`、`Changing=On`、换纸中 abort 与 P2 S4 已有历史取证，不作为默认待办重做；状态边界以 `docs/release-readiness.md` 为准。
+真实语音出图、页尾归位、自动换纸、换纸中 abort 与 P2 S4 链路已有历史取证，不作为默认待办重做；状态边界以 `docs/release-readiness.md` 为准。
 
 禁止：重写文档地图当进度、跳阶段、把 MCP 组 0–4 当待办重做、凭据入库、为门禁绿改产品行为。
 

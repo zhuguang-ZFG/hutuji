@@ -152,5 +152,5 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **禁止重开**：合并固件 / USB Host / CH9350 / 阿里云部署 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。
 - **禁止宣称**（除非 `docs/release-readiness.md` 对应行已 ✅）：可出货、商业放行、§9 已完成、§9 已修好、硬件已验证、联调完成、京东云已上线、M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
 - **凭据禁入库**：`D:/Downloads/VPS.txt`（VPS 明文密码 + API key）、真实小智 MCP 接入点、`小智控制台token.txt`，一律不复制、不引用、不提交。
-- **默认下一刀**（用户未指定时）：① 纸面实物画质人工目视；② App 真实语音端到端验收；③ 断连恢复 `paper_active` 窗口的 `abort` 复测；④ 生产签核。S4 有纸出图与换纸中 `abort` 已有历史取证，禁止作为默认待办重做。
+- **默认下一刀**（用户未指定时）：① 完成 Waveshare 当前 `dcbec6f` 的预览确认/取消与暂停/继续/停止/重画/试笔屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口的 `abort` 复测；④ 生产与合规签核。真实语音出图、页尾归位、自动换纸、换纸中 `abort` 与 P2 S4 链路已有历史取证，禁止作为默认待办重做。
 - **改完必同步**：契约 → `docs/protocol.md`；进度 → `docs/release-readiness.md`；脏树 → `docs/worktree-inventory.md`；结构与约定 → 本文件 + `README.md` + `CLAUDE.md`；门禁口径 → `docs/agent-gate.md` + `.cursor/rules/hutuji-agent-rails.mdc`。

@@ -1,9 +1,10 @@
 # P2 设计：窗口化流控（character-counting）
 
-> 状态（2026-07-30 复核代码）：**S1/S2/S3 已实施并烧录；S4 的容差回调已在代码里生效**
-> （`mcp-server/hutuji_mcp/gcode_gen.py` `LINESIMPLIFY_TOLERANCE_MM = 0.05`），
-> 尚缺的是 S4 的**验收证据**（0.05mm 真实图样有纸出图，曲线细节改善且无停顿）与
-**自适应 `Bf` 反压**（明确缓办，TODO 在 `xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc:1708-1709`）。
+> 状态（2026-08-18 治理复核）：**S1/S2/S3 已实施并烧录；S4 的容差回调已在代码里生效**
+> （`mcp-server/hutuji_mcp/gcode_gen.py` `LINESIMPLIFY_TOLERANCE_MM = 0.05`）。本文设计的窗口化
+> character-counting 方案已落地；当前仍缺 S4 纸面画质照片证据与**自适应 `Bf` 反压**（明确缓办，TODO
+> 在当前已推的 xiaozhi `dcbec6f` 对应 `hutuji_job.cc`）。本文不把设计已落地写成 S4 验收通过。
+> 自适应 `Bf` 反压仍明确缓办；当前源码以 `dcbec6f` 的 `hutuji_job.cc` 符号和 TODO 为准，不在本设计文档钉外仓行号。
 > 目标是把 Telnet 往返延迟藏在电机运动时间之后，从而允许把 `linesimplify` 容差降回 0.02–0.05mm 而不回到「笔走停停」。
 >
 > 前置阅读：`docs/protocol.md` §3（现行逐行契约）、`docs/kxnx/findings/09-flow-control-deep.md`（奎享逆向）。
@@ -358,7 +359,7 @@ while (lines_sent_ < lines_.size() && !c_line.empty()) {
 | **S1** | ✅ Pipe 侧应答队列 + 兼容包装 | 已编译、烧录 COM9、Telnet 连通（§5.1） |
 | **S2** | ✅ Job 侧预解析成零拷贝行索引，窗口=1 | 旧/新解析对真实产物与边界集逐字一致；IDF 构建、烧录、45s 启动观察通过（§5.2） |
 | **S3** | ✅ 窗口=512（`kStreamWindowBytes` / `kWindow`），应答队列按最短非空行最坏在途数推导为 255，换纸行前排空 `c_line`（`paper_pending`） | 历史镜像已烧录并通过 B-12 409 行连续出图；2026-08-06 容量修复 host 回归和 ESP-IDF v6.0.1 构建通过，**新镜像未烧录** |
-| **S4** | 🟡 容差已回调 0.05mm（`gcode_gen.py`）；自适应 `Bf` 反压**未做**（`hutuji_job.cc:1708-1709` TODO） | 缺 0.05mm 真实图样的**有纸**出图证据：曲线细节改善且无停顿 |
+| **S4** | 🟡 容差已回调 0.05mm（`gcode_gen.py`）；自适应 `Bf` 反压**未做**（`hutuji_job.cc:2043-2044` TODO） | 缺 0.05mm 真实图样的**有纸**出图证据：曲线细节改善且无停顿 |
 
 S2 是**关键安全阀**：窗口=1 时行为必须与现状完全一致，S3 出问题一个常量回退。
 

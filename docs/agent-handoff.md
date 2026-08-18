@@ -5,6 +5,8 @@
 > **完成定义 / 可跑门禁**：`agent-gate.md` + `python scripts/agent_gate.py`。  
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
+> **2026-08-18 当前 S3 候选（已推 `dcbec6f`，COM14）**：Waveshare 3.5 已加入安全控制抽屉、预览确认链、音频调度让行和「小派」用户面；FT6336 rotation 90 映射为 `swap_xy=1/mirror_x=0/mirror_y=1`。host **67/67**；当前板上启动横幅 ELF `031cafd51...` 与构建 ELF `031cafd5…aada` 对齐，触摸、七工具、Telnet、授权、Idle 均到达；控制抽屉已实测 `jog_y+`×2、`jog_x-`、`pen_down` 并各自回 `ok`/Idle。**仍缺**预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作；不得把部分 HIL 写成整套控制面通过。证据与哈希见 readiness 文首。
+
 
 ## 0. 一句话现状（2026-08-14）
 
@@ -35,7 +37,8 @@
 > **2026-08-06 S3 实机复核（COM6，源码 `16f2f83`，镜像 SHA-256 `AE634CD7FE7A6CB45A1F744799C6FB94C693C0FD83DE0E49DD8FC07EC024C132`）**：ESP-IDF v6.0.1 `app-flash` 成功，写入 `xiaozhi.bin=0x2cfdb0` 并报告 `Hash of data verified`；启动日志确认 ESP32-S3、8MB PSRAM、SKU `lichuang-dev`、七个 `hutuji.*` 工具、WiFi 获取 `192.168.1.12`、MQTT 激活成功，无 panic/assert/backtrace。S3 随后按 1s/2s/4s/8s 退避连接写字机并扫描 `/24`，但当前 `192.168.1.13` ping 不通，PC 对 `192.168.1.13:23` 的 `connect_ex` 为 `10035`；因此未到 Grbl banner，`ready/authorized`、`G1 G53` 授权探针、verbose error、CRC/逐行流控及实机出图均未验证。S3 端口为 COM6，Grbl 串口为 COM12（CH340K）；下一步先恢复写字机供电/WiFi/Telnet，再继续协议实测。
 
 
-> **2026-08-06 逆向/社区参照深度审查 + 服务出口审查（仓内，未部署；preflight 17→18 项）**：分两轮。**第一轮**（参照 GitHub 上游、社区、逆向文件）四条发现全部实证复现：①**Grbl 行长上限是 254 字节 payload、不是 255**——`Protocol.h:34` 是 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**，第 255 个 payload 字节能进缓冲，紧随的换行符先撞 `len == 255` 回 `error:11`，`:218` 的 `empty_line()` 把**整行丢掉、从未进 `execute_line()`**；旧校验器 `> 255` 会放行这种「设备静默吃行」的产物。上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters plus terminator"）正是为绕开这个 off-by-one。已改 `MAX_LINE_PAYLOAD_BYTES = 254` 并补两条测试（含一条逐字转写固件收行逻辑的独立复现）。②**CRLF 会让设备每行回两个 `ok`**（`\r`、`\n` 各触发一次 EOL，空行也回 ok）——奎享真实产物就是 CRLF（946 CRLF / 0 裸 LF），Windows 上 vpype gwrite 同样产 CRLF。当前 S3 安全靠 `ParseLines()` 自己重切行，但该不变量此前只存在于实现里；已写进 `protocol.md` §3：**S3 必须重切行、禁止原样透传下载字节**，否则在途窗口计数正向漂移。③**`$Errors/Verbose=1` 时错误码变文本形态**（`Report.cpp:236` 回 `error: Line too long` 而非 `error:11`），只认数字不是降级而是**行为反转**：`error:8`（换纸推迟需重发）解析成 -1 → 整单失败；`error:110`（未授权）落进未知故障。该 `$`-设置存在 NVS、可被任何上位机改写。已把 `ParseErrorCode` 提成 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()` 并补五条文本映射（字面量逐字对齐 `Error.cpp`），由 host 编译单测钉住。④**奎享工作在负 X 坐标系**（763 个 X 值里 762 个为负），我方硬拒负坐标——这是无限位开关下正确的 fail-safe，但「有意差异只有收尾」的记述漏了这一项，已补进 `findings/17` §5 与 `alignment/plan.md`；**奎享产物不能直接当回归基线**。**第二轮**（MCP 服务 HTTP 出口）：**FastAPI 自动文档端点未关**——`/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect` 实测全回 200，公网访问不到但那份安全**完全来自 nginx 兜底**、应用层零防御，且 preflight 与 pytest 都无判据会红（对比 `/mcp` 有三层保护）。已传三个 `None` 关掉，并新增 preflight 第 18 项**直连 `:8300`** 验它们必须 404（经 nginx 探证不到应用层）。另两条查实为非缺陷、已记文档：`HEAD /files/` 回 404 而非 405（S3 只用 GET，`hutuji_job.cc:965`）、`/docs` 经隧道的 301 自指环（`nginx-hutuji.conf:79` 与 `troubleshooting.md:282` 已知，是为「`:80` 必须能服务 `/files/`」刻意保留）。`hub overall=pass`（pytest **296 passed**、e2e `PASS`）；变异验证：行长口径回退 2/2、verbose 文本表删除 1/1、docs 开关删除 1/1、新 preflight 项三种假绿形态 3/3。收敛中修掉三处自己的重构债（helper 依赖隐式 `self.compiler`、无用默认参数、空值路径靠巧合）。**未部署、未烧录、未做硬件验证**；第 18 项与 S3 侧改动都未在生产/实机验过。
+> **历史快照（2026-08-06；已被后续部署/烧录记录 supersede，仅保留审计过程）**：以下两条中的「未部署/未烧录/未验证」只描述当日状态，不是当前状态；当前生产、固件与 HIL 真值以本页顶部、`release-readiness.md`、`worktree-inventory.md` 为准。
+> **2026-08-06 逆向/社区参照深度审查 + 服务出口审查（仓内，未部署；preflight 17→18 项）**：分两轮。**第一轮**（参照 GitHub 上游、社区、逆向文件）四条发现全部实证复现：①**Grbl 行长上限是 254 字节 payload、不是 255**——`Protocol.h:34` 是 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**，第 255 个 payload 字节能进缓冲，紧随的换行符先撞 `len == 255` 回 `error:11`，`:218` 的 `empty_line()` 把**整行丢掉、从未进 `execute_line()`**；旧校验器 `> 255` 会放行这种「设备静默吃行」的产物。上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters plus terminator"）正是为绕开这个 off-by-one。已改 `MAX_LINE_PAYLOAD_BYTES = 254` 并补两条测试（含一条逐字转写固件收行逻辑的独立复现）。②**CRLF 会让设备每行回两个 `ok`**（`\r`、`\n` 各触发一次 EOL，空行也回 ok）——奎享真实产物就是 CRLF（946 CRLF / 0 裸 LF），Windows 上 vpype gwrite 同样产 CRLF。当前 S3 安全靠 `ParseLines()` 自己重切行，但该不变量此前只存在于实现里；已写进 `protocol.md` §3：**S3 必须重切行、禁止原样透传下载字节**，否则在途窗口计数正向漂移。③**`$Errors/Verbose=1` 时错误码变文本形态**（`Report.cpp:236` 回 `error: Line too long` 而非 `error:11`），只认数字不是降级而是**行为反转**：`error:8`（换纸推迟需重发）解析成 -1 → 整单失败；`error:110`（未授权）落进未知故障。该 `$`-设置存在 NVS、可被任何上位机改写。已把 `ParseErrorCode` 提成 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()` 并补五条文本映射（字面量逐字对齐 `Error.cpp`），由 host 编译单测钉住。④**奎享工作在负 X 坐标系**（763 个 X 值里 762 个为负），我方硬拒负坐标——这是无限位开关下正确的 fail-safe，但「有意差异只有收尾」的记述漏了这一项，已补进 `findings/17` §5 与 `alignment/plan.md`；**奎享产物不能直接当回归基线**。**第二轮**（MCP 服务 HTTP 出口）：**FastAPI 自动文档端点未关**——`/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect` 实测全回 200，公网访问不到但那份安全**完全来自 nginx 兜底**、应用层零防御，且 preflight 与 pytest 都无判据会红（对比 `/mcp` 有三层保护）。已传三个 `None` 关掉，并新增 preflight 第 18 项**直连 `:8300`** 验它们必须 404（经 nginx 探证不到应用层）。另两条查实为非缺陷、已记文档：`HEAD /files/` 回 404 而非 405（S3 只用 GET，`hutuji_job.cc:1311`）、`/docs` 经隧道的 301 自指环（`nginx-hutuji.conf:79` 与 `troubleshooting.md:266` 已知，是为「`:80` 必须能服务 `/files/`」刻意保留）。`hub overall=pass`（pytest **296 passed**、e2e `PASS`）；变异验证：行长口径回退 2/2、verbose 文本表删除 1/1、docs 开关删除 1/1、新 preflight 项三种假绿形态 3/3。收敛中修掉三处自己的重构债（helper 依赖隐式 `self.compiler`、无用默认参数、空值路径靠巧合）。**未部署、未烧录、未做硬件验证**；第 18 项与 S3 侧改动都未在生产/实机验过。
 > **2026-08-06 S3 复审收敛（已构建，后续刷写/启动见上方最新条）**：在上述服务审查后继续核对真实授权/下载/流控链，修复 `G53 G1` 绕过 Grbl 行首授权门、CRC 头宽松解析及遗留双状态、生产 capability URL 接受 HTTP/非 443/authority 混淆、512B 窗口配 32 深应答队列会丢 error、verbose error 数字分支溢出/尾缀误判。当前生产 origin 仅接受 HTTPS 默认 443 或显式 `:443`，HTTP 仅留 RFC1918 联调；队列由窗口常量推导为 255。证据：非 443 用例修复前 RED、修复后 GREEN；xiaozhi host **13 passed**；C++ formatter check 通过；ESP-IDF v6.0.1 全量构建成功（`xiaozhi.bin=0x2cfdb0`，app 分区余 29%）；本仓 full overall=pass（pytest **296 passed** + e2e `PASS`）；fz standard overall=pass。该镜像后续已刷写并完成 S3 自身启动验证，但因 Grbl 网络不可达，协议与出图实测仍阻塞，见上方最新条。
 
 
@@ -128,10 +131,10 @@ cd D:\Users\hutuji\mcp-server
 
 若用户未指定别的任务，按此序，**禁止跳阶段**：
 
-1. ~~**换纸中 `abort` 分流**~~：✅ **2026-07-31 21:49 已取证**。带宏镜像 `build-hutuji-8_5-abort/xiaozhi.bin`（`0x2cfc40`，SHA256 `e2ae19e0…`）app-flash COM6，AutoTest 触发五角星 → 画完 `state=paper_change` → 脚手架命中窗口调 `RequestAbort()` → 返回「换纸中无法即停，完成后即停」→ 页尾 `M30` → `[PaperStatus] 0` → `state=aborted` 不续跑。**四判据全过**（abort 分流语、无 `0x18`/无 reset/无第二条 `M30`、换纸成功、aborted 不续跑）；abort 前 status `state=paper_change` 证明命中 8.5 非 8.4。取证后已回刷默认镜像。证据 `results/s3-8_5-abort-on-paper-evidence-20260731.md`。**仍缺**断连恢复 `paper_active` 窗口的 abort 单独复测。
-2. **App 真实语音端到端（需用户重取 token）**：App 语音 → 小智云 → MCP → S3 → Grbl 全链验收，并补七工具逐项云端行为回归。**当前阻塞**：控制台 JWT 被服务端作废（`/api/agents` 返回 401 `Invalid token`，JWT 自带 `exp` 仍在），需用户在控制台重取 `localStorage.getItem('token')`；同一 token 也是拿 `/files/` 200 正例的前提。
-3. ~~**P2 S4 有纸出图**~~：✅ **2026-08-03 已实测通过**。烧 Grbl `1b56393`（COM11）+ S3 `ae4b524`（COM6）后跑同一 551 行 / 13,804 B / CRC32 `ae1b25b2` 待打样件：全量下发无丢行（G1 547 / G0 1 / 旁路 `G92 Z0` 与页尾 `M30` 各 1、`ok` 559）、进度 `124→475→547/551`、页尾 `M30` 触发自动换纸八步全绿（`Paper found at step 7764`、`All steps completed successfully!`、`[PaperStatus] 0`）→ `state=done err= replayable=1`；**`pbuf_free`/`Guru Meditation`/`assert failed` 两侧日志 0 命中**。证据 `results/s4-rose-20260803-evidence.md`。**仍缺**：纸面实物画质人工目视（出墨连续性/曲线完整/断线）；自适应 `Bf` 反压仍未做，且本轮实测 Telnet RTT（p50 52.7ms）比 B-10 旁路推算乐观一倍多，断粮门槛需按新数重算。
-4. **生产签核**：`bringup-sop.md` 与生产/合规签核按证据补齐。京东云已常驻，勿再「从零部署」。
+1. **Waveshare 当前镜像 UI HIL**：在实际屏幕完成预览确认/取消，以及 streaming/paused/idle 状态下的暂停、继续、停止、重画、试笔；直接调用 `Job::Request*` 会绕过触摸映射、置灰门控和回调接线，不能替代。
+2. **纸面实物画质人工目视**：历史 P2 S4 链路已通过；只补出墨连续性、曲线完整和断线的照片证据，不重跑已闭链路充数。
+3. **断连恢复 `paper_active` 窗口 abort 复测**：不得追加 reset/M30；与 2026-07-31 已通过的正常换纸中 abort 分流不同。
+4. **生产与合规签核**：京东云已常驻，勿从零部署；按 `bringup-sop.md` 与批次模板补剩余证据。
 
 > fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
@@ -167,8 +170,8 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | MK38 写字机板 | `docs/hardware/mk38-board.md` + `docs/hardware/MK38-总图.pdf` |
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
-| 白天联调 runbook | `docs/daytime-tuning-runbook.md`（单日取证编排：重取 token→sync→nginx 取证→装纸→语音/暂停/S4，每步带判据/回退/取证落点；判据引用 bringup-sop 不复制）。**基线已按 2026-08-09 复核**：第 4/5 步（烧 Grbl/S3）与第 9 步（换纸中 abort）已标「板上已是 / 已取证，正常联调日跳过」——原文的 `12f26ac`/`255f133`/`f1cf066` 均为板上基线祖先，**照旧文执行会回退固件**；本轮真正开放项只有 readiness 第 10 条与 S4 纸面画质目视 |
-| 京东云模板 | `deploy/`（`69c2198` 已于 2026-08-06 用 scp 全量对齐部署并复验 **17/17**。更新仍须用 scp，装 unit 后**必须 `daemon-reload`**，重启 `hutuji-mcp` 与 `hutuji-cloud-bridge` 后当场重跑全 17 项） |
+| 白天联调 runbook | `docs/daytime-tuning-runbook.md`（现取三仓 HEAD 与板上启动身份，不再把历史 SHA 当当前；真实语音、归位、自动换纸和换纸中 abort 有历史证据，当前开放项以 readiness 为准） |
+| 京东云模板 | `deploy/`（当前 preflight **26** 项；更新仍须用 scp，装 unit 后先 `daemon-reload`，再显式重启适用服务并跑全 26 项） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |

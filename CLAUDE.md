@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 代码去哪找 | 本地路径 | 角色 |
 |-----------|----------|------|
-| 运动控制 / 换纸固件 | `D:/Users/Grbl_Esp32` | Grbl_Esp32（成熟商业现役固件，分支 `fix/panel-hold-after-align-116687e`，源码 HEAD `966723b`；板上行为基线 `f5c8985`，后续只改注释、未重烧） |
+| 运动控制 / 换纸固件 | `D:/Users/Grbl_Esp32` | Grbl_Esp32（成熟商业现役固件；实时分支/HEAD 与板上证据看 `docs/worktree-inventory.md`，不得复制静态 SHA 当当前真值） |
 | AI 交互 / 语音固件 | `D:/Users/xiaozhi-esp32` | xiaozhi-esp32（板型 `lichuang-dev` 立创实战派 ESP32-S3） |
 
 不要假设任何固件源码在本仓库——运动控制去 Grbl_Esp32 查，AI 交互去 xiaozhi-esp32 查。
@@ -148,11 +148,11 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 源码 HEAD `68a1eef` 已提交/推送（R9 换纸行分支加固 + R10 暂停冻结计时/授权探测有界重试）；2026-08-13 已用 ESP-IDF v6.0.1 重建标准 release 并 app-flash COM12，板上 ELF SHA `2c17f4e27...` 与发布构建一致，串口自证七工具注册、Telnet 哑管道启动、WiFi STA；写字机上电后连接/banner/授权探针全链路实测通过（含 Telnet 槽位忙退避接管），fresh-`Idle` 探活正常。2026-08-03 P2 S4 使用较早的 `ae4b524` 完成 551 行玫瑰图全量下发、自动换纸八步全绿与 `state=done`；这份历史证据不替代当前 HEAD 的下载/CRC/窗口应答配对回归。**缺**：真实设备 token、当前 HEAD 纸面回归、画质人工目视、自适应 `Bf` 反压。
-3. **③ 智能端** — 🟡 HTTPS 已通（Cloudflare Tunnel + Let's Encrypt），京东云 MCP+桥接已常驻；官方云路径已触发 `draw/status/abort`。缺 App 真实语音出图验收。
-4. **④ 出货** — 🔴 bringup 证据 + 合规签核未做。
+2. **② 哑管道** — 🟡 xiaozhi `dcbec6f` 已推；当前 Waveshare 镜像已绑定 ELF `031cafd5…`，触摸、七工具、Telnet、授权、Idle 与控制抽屉低层动作有部分 HIL。缺预览确认/取消、暂停/继续/停止/重画/试笔五个屏幕动作、纸面画质目视与断连恢复 `paper_active` 窗口 abort 复测。
+3. **③ 智能端** — 🟡 HTTPS、京东云 MCP+桥接常驻和真实语音出图已有证据；SPEED-01/设备 PNG 预览运行态已部署，仓库实现见当前 HEAD。剩余设备预览/控制人机验收与生产签核。
+4. **④ 出货** — 🔴 剩余 HIL、生产与合规签核未闭合。
 
-> **不可出货**。默认下一刀见 `docs/agent-handoff.md` §6：纸面实物画质人工目视 → App 真实语音端到端 → 断连恢复 `paper_active` 窗口 abort 复测 → 生产签核。
+> **不可出货**。默认下一刀见 `docs/agent-handoff.md` §6：当前 Waveshare UI HIL → 纸面画质人工目视 → 断连恢复 `paper_active` 窗口 abort 复测 → 生产与合规签核。
 
 ## 约定
 

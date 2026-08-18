@@ -6,7 +6,7 @@
 
 CH340 串口（最全）→ S3 `ESP_LOG` → Telnet 字节流 → 京东云 MCP / 桥接日志。
 
-PC 观测一律走 CH340；Telnet 槽位 `MAX_TLNT_CLIENTS=1` 留给 S3。
+PC 观测一律走 CH340；Telnet 槽位 `MAX_TLNT_CLIENTS=1` 留给 S3。烧录 hash 通过只证明写入；必须再匹配启动 ELF。COM14 单独掉线先查端口重枚举与网络，不能直接定性整机掉电或固件崩溃。
 
 ## 链路 / 写字机
 
@@ -16,12 +16,20 @@ PC 观测一律走 CH340；Telnet 槽位 `MAX_TLNT_CLIENTS=1` 留给 S3。
 | connected 但 ready=false | 候选未通过 Grbl banner 或 fresh-`Idle` 探活 | 查写字机是否复位/忙；确认 `$I`/banner 与 `?` 状态，不要把仅端口连通当 ready |
 | G0–G3 全 `error:110` | 未授权 | 人工 `M800`；S3 **永不**自动授权 |
 | 运动行 `error:8` | 换纸期发了 G0–G3 | 等换纸行 ok（≥60s）后**重发该行** |
-| 换纸后无 `[PaperStatus]` | 未触发真实结果码；或 §9 定点路由回归 | 同时看 CH340 与 Telnet；核对 Grbl 源码 HEAD `8d13b5c`（含 §9 `e7f373f`），不要把其他 `[PaperAuto-N]` 进度也期待为 Telnet 广播 |
-| `[ESP901]` 无 `Changing=` | 烧录的不是含 §9 的 Grbl 镜像 | 核对 Grbl 源码 HEAD `8d13b5c`（含 §9 `e7f373f`）和串口 banner；重新按 bringup 阶段 2 验证 |
+| 换纸后无 `[PaperStatus]` | 未触发真实结果码；或 §9 定点路由回归 | 同时看 CH340 与 Telnet；现取 Grbl HEAD 并核对 `PaperSystem.cpp` 的 §9-B1′ 定点路由，不能拿历史 SHA 替代源码；不要把其他 `[PaperAuto-N]` 进度也期待为 Telnet 广播 |
+| `[ESP901]` 无 `Changing=` | 板上镜像缺 §9-B2′ 或烧录身份未绑定 | 现取 Grbl HEAD，核对 `paper_get_status_str()` 字段与串口 banner/烧录记录；重新按 bringup 阶段 2 验证，不凭“源码已有”推断板上已刷 |
 | 出图中 `ok` 配对错乱 | 违反单写者：status 发了 `M704`/`[ESP901]` | 出图中 status **只发 `?`** |
 | 画到一半停住 | TCP 断连；或换纸行正常阻塞 | 看 S3 日志；换纸可阻塞 ≥60s |
 | 撞机 / 越界 | 无限位开关，Grbl 侧无保护 | 查 ③ 侧 `X≤190`、`Y≤277` 限幅是否生效 |
 | banner `Grbl 1.3a…` 中途出现 | 写字机复位 | 复位状态机、任务 error、重新探活 |
+
+## Waveshare COM14 / HIL 取证判读（2026-08-18）
+
+- app-flash 的 `Hash of data verified` 只证明镜像写入，不能证明应用已启动。
+- COM14 在触摸初始化后短暂消失，若稍后重枚举且启动横幅 ELF 与构建对齐、工具/Pipe/Idle 到达，就不能再写成“触摸后崩溃”。
+- COM14 消失但 WiFi 仍通是 USB/串口层现象；只有 COM14、WiFi、屏幕等共同证据才能支持整机掉电判断。
+- `_final_hil_capture.py` 摘要里的 `MISSING` 表示该动作未在采集窗内发生，不等于 PASS，也不单独证明固件失败。
+- UI HIL 必须触摸真实控件；直接调用 `Job::Request*` 会绕过坐标映射、置灰门控与回调接线，不能替代。
 
 ## CH340 `COM3` 打开即 Windows error 31：已定位到 `SetCommState`（2026-07-31 实测）
 
@@ -111,7 +119,7 @@ G1 Z0.0 F10000     ← 抬笔
 定量对照（机制推演，**已被本地实测限定适用范围**，见下一节）：
 
 - planner 块深 `BLOCK_BUFFER_SIZE 250`（`Config.h:469`）够深，不是瓶颈。
-- 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:60-61`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:1930-1938`，商业固件会少应答、窗口计数永久漂移）。
+- 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:66-67`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:2265-2273`，商业固件会少应答、窗口计数永久漂移）。
 - 失能门槛可解析求出：planner 空窗 = `RTT − 21 × 段长 ÷ 133.33mm/s`，空窗 > `$1`=25ms 才失能 → **只有段长 < (RTT−25) × 6.349 µm/ms 时才可能断粮**。RTT=40ms → 0.095mm；RTT=30ms → 0.032mm；RTT ≤ 25ms → 恒不失能。**注意这里代入的 20–40ms 已被实测证否**，实测值与重算后的门槛见下面「实测 `$110/$111/$112` 与链路 RTT」一节。
 - 奎享为什么不受这条约束：它 0.044mm 段长下 21 段仅 6.93ms 在途。奎享支持三条通道——USB 串口（我们 COM3 实测往返 ~6ms）、WiFi TCP（port 23，与 hutuji 同构）、**蓝牙 SPP**（商业上位机无线主路径，`PAPER_AUTO_CHANGE_ON_BT_CONNECT` 量产验证，RTT 未知）。下方 6ms 是串口实测基线；同一份文件搬到 WiFi 40ms+ 往返就必失能——**奎享 `simplePaths=0.02mm` 不可照搬到 Telnet 路径**，hutuji 的 `linesimplify 0.05mm` 反倒是 WiFi 路径的必要保护。
 - 交叉印证：`hutuji_pipe.cc:435-436` 关 Nagle 的注释已独立记过同一物理机制（Z5 执行后 `$1` 到点失能、下一条 XY 因等 ACK 滞留 → 轨迹在走但笔已回弹）。
@@ -224,7 +232,7 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 | 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
 | 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
-| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:2077-2082` 窗口化分支收 `error:8` 先发 `!`、清窗、受控 reset（重发只在 `hutuji_job.cc:1851-1864` 换纸逐行分支），run1 完整走完且日志无 error——该错序机制不成立 |
+| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:2412-2417` 窗口化分支收 `error:8` 先发 `!`、清窗、受控 reset（重发只在 `hutuji_job.cc:2186-2199` 换纸逐行分支），run1 完整走完且日志无 error——该错序机制不成立 |
 | 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
 
 另：**字节级「丢字节/缓冲读错位」类假设整体站不住**——丢字节只能产生原序列的子序列，解释不了 run1 的「B 完整出现在 A 之前」；A、B 相邻两行只差 `Y60.000`↔`Y200.000`，这种跨行字段互换也无法由读错位生成。

@@ -38,8 +38,8 @@
 | 仓库 | 路径 | 角色 |
 |------|------|------|
 | hutuji（本仓库） | `D:/Users/hutuji` | MCP 服务、协议文档、部署脚本、联调 SOP |
-| [Grbl_Esp32](https://github.com/zhuguang-ZFG/Grbl_Esp32) | `D:/Users/Grbl_Esp32` | 运动控制固件（现役分支 `fix/panel-hold-after-align-116687e`，源码 HEAD `966723b`；当前板上行为基线 `f5c8985`，`966723b` 仅修注释、未重烧） |
-| [xiaozhi-esp32](https://github.com/zhuguang-ZFG/xiaozhi-esp32) | `D:/Users/xiaozhi-esp32` | AI 交互固件（板型 `lichuang-dev` S3） |
+| [Grbl_Esp32](https://github.com/zhuguang-ZFG/Grbl_Esp32) | `D:/Users/Grbl_Esp32` | 运动控制固件（现役分支 `fix/panel-hold-after-align-116687e`；实时 HEAD 与板上证据看 `docs/worktree-inventory.md`，不得复制静态 SHA 当当前真值） |
+| [xiaozhi-esp32](https://github.com/zhuguang-ZFG/xiaozhi-esp32) | `D:/Users/xiaozhi-esp32` | AI 交互固件（板型 `lichuang-dev` / Waveshare 3.5；实时 HEAD 与板上镜像证据看 `docs/worktree-inventory.md`） |
 
 ## 目录
 
@@ -59,14 +59,15 @@
 - `docs/bringup-sop.md` — 阶段 0–9 联调与小批量出货门禁
 - `docs/deployment.md` / `docs/operations.md` — 京东云部署与值守
 - `docs/templates/` — 逐台测试记录、批次发布清单模板
-- `mcp-server/` — MCP 生成服务（③，契约/安全回归、京东云 HTTPS 常驻与官方云实际调用均已有证据；App 真实语音仍待验，见 `mcp-server/README.md`）
+- `mcp-server/` — MCP 生成服务（③，契约/安全回归、京东云 HTTPS 常驻与真实语音出图均已有证据；当前未闭项见 `docs/release-readiness.md`）
 - `firmware/` — S3 板固件补丁说明（②，补丁本体在 xiaozhi-esp32 fork）
 - `deploy/` — 京东云 systemd/nginx/环境变量模板（真实凭据不入库）
 
 ## 路线图
 
-2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 源码 HEAD `dcbec6f`（R9/R10 S3 修复的当前收口提交）已提交/推送，并于 2026-08-18 完成手动控制抽屉部分 HIL；预览/五动作仍需验。
-3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻及官方云历史 `draw/status/abort` 调用已有证据；**2026-08-14 生产应用基线推进到 `1082400`**（第十二轮 R12 修复 13:57–13:59 CST 部署，8 个产物 LF-md5 对齐上机，含桥接超大整数 id fail-open 收口 + SVG 白名单大小写敏感化 + preflight 第 26 项；前一日第九+十轮 R9/R10 已随 `5104b93` 上机），生产 preflight **26 项全绿**（`pass=26 fail=0 expected=26`，AGENTS.md「当前 26 项」口径；含生成链与位图描摹链双自检、unit 一致性与两条 ExecStartPre/主进程新鲜度、应用文档端点关闭、隧道兜底 404、「在跑的 nginx 确实是本次配置」+「worker 新鲜度且无 `[emerg]`」、公网 HTTPS:443 `/files` 真产物 200 + `/mcp` 404、is-enabled 开机自启与 8300 监听者身份核验），公网 `/mcp` 404、直连 `:80 /files` 403、8300 不可达，真实产物经 HTTPS 200/243B/CRC `775b4f31` 且访问日志已记录真实公网客户 IP。2026-08-08 同轮修掉一次 nginx **reload 静默失败**（限速 key 不能热改共享内存区，`restart` 才生效；此前 19 项全绿而服务跑着旧配置）。按 ASGI socket 对端判定的 `/mcp` loopback 应用层守卫已随 `8184860` 部署上线并在生产逐项实测：loopback `initialize` 200 且 `tools/list` 三工具齐全，同机非 loopback 对端伪造 `Host` 打 `/mcp` 得 **404（正文恰 9 字节 `not found`，即守卫路径）**（此向量打的是**同一份已部署代码的临时实例** `--host 0.0.0.0 --port 8399`、探完即杀；生产 unit 只绑 `127.0.0.1:8300`，非 loopback 根本连不上、`curl` 回 `000`），同对端打 `/files/nope.gcode` 仍是应用 404（`{"detail":"not found"}`），公网 HTTPS `/mcp` 404；守卫只兜控制面，不替代 unit `--host 127.0.0.1`、安全组与 nginx 三层。Agnes 生成链已恢复；官方设备消息 API 客户端已落地但缺真实设备 token 验证，App 两步语音仍待复验
+1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、本仓门禁/硬轨 — ✅ 见 `docs/foundation-checklist.md`
+2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 xiaozhi `dcbec6f` 已提交并推送；当前 Waveshare 镜像 ELF `031cafd5…` 已完成触摸、七工具、Telnet、授权、fresh-`Idle` 与控制抽屉低层动作的部分 HIL。**仍缺**：预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作、纸面画质目视、断连恢复 `paper_active` 窗口 abort 复测。
+3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻、真实语音出图和 SPEED-01/设备 PNG 预览运行态已有证据；生产 preflight 26/26。仓库实现已提交，剩余设备预览/控制人机验收与生产签核。
 
 > **生图后端边界（2026-08-17）**：正式 `hutuji_draw` 始终保持「PNG → 中心线描摹 → SVG → G-code」。可选商汤 `sensenova-u1-fast` 只作为 PNG 主后端，失败回退 Agnes，再失败才走 imagefree；禁止为追求速度切成模型直写 SVG。商汤真实 A/B 只在轮换后的新 key 注入生产 600 权限 env 后执行，聊天中出现过的 key 视为泄露，不得使用。
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行

@@ -8,16 +8,13 @@
 > 铁律（与 `agent-anti-drift.md` 同）：每步不过就停，**不得假装过**；证据缺一项就写「未验证」；
 > 取证镜像用完**必须回刷**默认镜像；凭据（token / MCP_ENDPOINT）只进当前终端环境变量，不入库。
 >
-> 适用基线（**2026-08-09 复核；原 2026-07-31 基线已过期**）：本仓 HEAD **不在此钉死**——用
-> `git log --oneline -1` 现取，并与 `release-readiness.md` 文首最新条对齐（钉 SHA 正是上一轮让本文过期 9 天的原因；
-> 2026-08-09 复核当时是 `1a6e567`，此后每个纯文档提交都会让它过期，**别照抄**）。三仓工作树须干净且已推送；
-> **nginx `:80 /files` 反代早于 07-31 即在线，站点收敛已于 07-31 14:51 执行完（第 3 步已完成，可跳）**；
-> **板上实跑固件 = Grbl `f5c8985` + S3 `16f2f83`**（`release-readiness.md` 第 49 / 11、68、97 条串口自证）。
-> ⚠️ 原文「Grbl 待烧 `12f26ac`；S3 待烧 `255f133`（默认镜像）+ `f1cf066`（8.5 取证用）」——
-> 经 `git merge-base --is-ancestor` 实测，**三者全是板上基线的祖先**（`12f26ac`→`f5c8985`，
-> `255f133`→`f1cf066`→`55574cb`→`16f2f83`），照原文烧即**固件回退**：Grbl 会丢 §9-A2 Telnet 序列化
-> （`fdf2ad8`）、非阻塞 write（`1b56393`）、§9-C′ 收窄（`4ddc945`/`1a4fea1`）；S3 会丢 11 个 pipe 契约加固提交。
-> 已在第 4/5/9 步就地纠正。**每次烧录前的板上基线仍以 `release-readiness.md` + 当次串口自证为准，不凭本行。**
+> 适用基线（**2026-08-18 治理复核**）：本仓与三仓 HEAD 均不在此钉死——开工用 `git log --oneline -1`
+> / `git -C <repo> rev-parse --short HEAD` 现取，并与 `release-readiness.md`、`worktree-inventory.md` 对齐。
+> 当前有证据的板上身份：Grbl 至少为 `e3b1cad` 烧录版；S3 启动 ELF `031cafd51...` 对齐已推源码
+> `dcbec6f` 的本轮构建。Grbl 源码 `847b564` 含后续蓝牙功率改动，不能反推板上已刷；以串口/烧录证据为准。
+> 历史待烧目标 `12f26ac` / `255f133` / `f1cf066` 均是当前分支祖先，禁止照旧文回退烧录。
+> nginx `:80 /files` 站点收敛已有历史证据；正常联调日不从零重做部署。每次烧录前仍须重新核对
+> 当前源码、目标镜像 SHA 与板上启动横幅，不凭本段静态文字。
 
 ---
 
@@ -42,8 +39,8 @@ cd D:\Users\hutuji
 python scripts\agent_gate.py --profile hub        # 期望 overall=pass、pytest 全绿、e2e PASS
 ```
 
-**判据**：三仓无未提交源码改动；hub `overall=pass`。
-**失败回退**：有未提交改动 → 先确认是不是用户资产（对照 `worktree-inventory.md`），是则保留、不是则提交或丢弃；门禁红 → 先修红，**不带着红上真机**。
+**判据**：hutuji 本仓允许保留本次文档治理改动；Grbl_Esp32、xiaozhi-esp32、fz 三个外仓工作树无未提交源码改动；hub `overall=pass`。
+**失败回退**：外仓有未提交改动 → 先确认是不是用户资产（对照 `worktree-inventory.md`），是则保留并登记；门禁红 → 先修红，**不带着红上真机**。
 
 ---
 
@@ -149,13 +146,11 @@ curl -s -o /dev/null -w "%{http_code} %{size_download}\n" https://hutuji.donglic
 
 ---
 
-## 4. 烧录 Grbl ✅ 板上已是 `f5c8985`，正常联调日跳过
+## 4. 烧录 Grbl：正常联调日默认跳过，换板/明确升级才执行
 
-> **本步无需执行**（2026-08-09 复核）。目的（落地 §9-C′：underflow 恢复置 `State::Cycle`，避免恢复期
-> 误报 Idle 致 S3 提前 M30）**已在板上生效**：板上跑 `f5c8985`，而 `12f26ac` 是它的祖先。
-> 源码 HEAD `966723b` 相对 `f5c8985` 只差 `src/Protocol.cpp` 一处**注释**（`git diff --stat` = 1 file，
-> 2 insert / 1 delete，无非注释行变更）→ **重烧不会改变任何行为**。
-> **不要按原文烧 `12f26ac`**，那是回退（见文首基线块）。
+> 有烧录证据的板上基线至少为 `e3b1cad`；实时源码 HEAD 当前为 `847b564`，后者含 §9-D′ 蓝牙功率改动，
+> **不得**由源码 HEAD 反推板上已刷。正常联调只需现状探活，不为追 HEAD 重烧；确需升级时先跑 fz 门禁、
+> 记录产物 SHA，再以启动/串口证据提升板上基线。`12f26ac` 是历史祖先，禁止按旧文回退。
 
 **换板 / 需要回退基线时才照此做**：
 
@@ -172,12 +167,11 @@ cd D:\Users\Grbl_Esp32
 
 ---
 
-## 5. 烧录 S3 默认镜像 ✅ 板上已是 `16f2f83`，正常联调日跳过
+## 5. 烧录 S3 默认镜像：当前 `dcbec6f` 已推且板上身份已绑定，正常联调日跳过
 
-> **本步无需执行**（2026-08-09 复核）。目的（落地暂停超时 soft reset 冲 planner，避免 Grbl 锁 Hold）
-> **已在板上生效**：板上跑 `16f2f83`（2026-08-08 以 ESP-IDF v6.0.1 release 构建 app-flash COM12，
-> 板上 ELF SHA 与发布构建一致，七工具/WiFi/Telnet/授权探针均自证——`release-readiness.md` 第 11、68、97 条），
-> 而 `255f133` 是它的祖先。**不要按原文烧 `255f133`**，那会丢 11 个 pipe 契约加固提交（见文首基线块）。
+> 当前板上启动横幅 ELF `031cafd51...` 与本轮构建 ELF `031cafd5…aada` 对齐，触摸、七工具、Telnet、
+> 授权和 Idle 已自证；源码已固定并推送为 `dcbec6f`。正常联调不重刷。换板或生成新镜像时，必须重新记录
+> bin/ELF SHA、app-flash hash 校验与启动横幅；`255f133` 是历史祖先，禁止按旧文回退。
 
 **换板 / 需要回退基线时才照此做**（烧的是默认镜像，**不含 8.5 脚手架**）：
 
@@ -242,7 +236,7 @@ python3 scripts\release.py lichuang-dev
 ### 7.1 两步衔接观测：真实信号表 + 可观测性缺口
 
 ⚠️ **诚实前提**：当前固件/服务**没有为「两步衔接」留直接观测点**——云端 `hutuji_draw` 返回的 url
-只存在于源 B，而 S3 的 `DownloadToPsram` **不把下载的 url 打进日志**（`hutuji_job.cc:1047` 只打字节数+crc）。
+只存在于源 B，而 S3 的 `DownloadToPsram` **不把下载的 url 打进日志**（`hutuji_job.cc:1379` 只打字节数+crc）。
 所以「LLM 调云端 draw 拿到的 url == 设备 draw 下载的 url」**无法用一行日志直接串起来**，只能间接证。
 白天取证按间接法；要直接证需「观测性增强」（见下表末，**非本 runbook 强制，记待办**）。
 
@@ -287,7 +281,7 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 
 ## 8. 暂停超时验（关联 §9-C′ + 暂停 soft reset，10 分钟 + 等待）
 
-目的：验暂停 >10 分钟后 Grbl 不锁 Hold、后续能开新画（修复点在 `255f133`，**已含于板上 `16f2f83`**）。
+目的：验暂停 >10 分钟后 Grbl 不锁 Hold、后续能开新画（修复已包含于当前 `dcbec6f` 源码；是否通过仍看本轮实机日志）。
 
 1. 语音/工具起一幅画，进入 streaming 后说「暂停」。
 2. 等 >10 分钟（或临时把 `kMaxPauseMs` 调小重烧以加速——**调小重烧只用于本验，验完回默认**）。
@@ -308,14 +302,13 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 > `state=paper_change` → 脚手架命中窗口调 `RequestAbort()` → 回「换纸中无法即停，完成后即停」→
 > 页尾 `M30` → `[PaperStatus] 0` → `state=aborted` 不续跑，**bringup §8.5 四判据全过**。
 >
-> ⚠️ **原文机制写错，已纠正**：原文让「先烧取证镜像 `f1cf066`」——但 `f1cf066` 是板上 `16f2f83` 的
-> **祖先**（烧它 = 回退），且取证脚手架在当前 HEAD 是**构建期开关**
-> （`main/CMakeLists.txt`：`option(HUTUJI_AUTO_TEST_ABORT_ON_PAPER ... OFF)`），不是那个 commit 的固有行为。
-> **要复测就从当前 HEAD 带开关构建**，不要 checkout 旧 commit。
+> ⚠️ 历史 `f1cf066` 是当前 `dcbec6f` 的祖先，烧它会回退；取证脚手架是 `main/CMakeLists.txt`
+> 的构建期开关 `HUTUJI_AUTO_TEST_ABORT_ON_PAPER`，不是某个旧 commit 的固有行为。
+> 要复测就从当前 HEAD 带开关构建，不要 checkout 旧 commit。
 
 **需要复测时照此做**（顺序铁律：**先备份默认镜像** → 烧带宏镜像 → 取证 → **回刷默认镜像**）：
 
-1. 备份当前默认 `xiaozhi.bin`（板上 `16f2f83` 的默认构建）。
+1. 备份当前默认 `build-waveshare-35/xiaozhi.bin`，记录 SHA256 与板上启动 ELF。
 2. 从**当前 HEAD** 带开关构建：`idf.py -DHUTUJI_AUTO_TEST_ABORT_ON_PAPER=ON build` → app-flash（COM 号按第 0 步认口）。
 3. 装纸，PC 起本机静态服务托**小**测试件（件越小越快到页尾换纸窗，§8.5 用过 658B / CRC32 `2290095f`）。
 4. 复位 S3 触发出图 → 脚手架在换纸窗一开即本地调 `RequestAbort()` → 看 abort 前后 `status` 打印。
@@ -353,9 +346,9 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 
 1. 填 `templates/device-test-record.md`（每台/每轮一行：固件 commit、镜像 SHA256、COM、各项判据勾选、照片/日志路径）。
 2. 填 `templates/release-manifest.md`（本批次结论）。
-3. 按实测结果勾 `release-readiness.md`。**本轮真正开放的只有**：第 10 条（App 真实语音端到端，卡用户重取 token）
-   与 P2 S4 行的**纸面画质目视**。第 7 条（断连重发）、第 8 条（自动换纸）、第 8a 条（换纸中 abort）、
-   S4 出图链路**均已有历史取证，禁止当待办重做**。**只勾有证据的，没过的留 🟡/🔴。**
+3. 按实测结果勾 `release-readiness.md`。当前开放项：Waveshare 预览确认/取消与五个屏幕动作、纸面画质目视、
+   断连恢复 `paper_active` 窗口 abort、生产/合规签核。真实语音出图、归位、自动换纸、正常换纸中 abort
+   与 S4 出图链路已有历史取证，禁止当默认待办重做。只勾有证据的，没过的留 🟡/🔴。
 4. 更新 `docs/agent-handoff.md` §0 快照 + §6（哪些已闭、下一刀变什么）。
 5. 更新 `docs/worktree-inventory.md`（若取证产生新未提交资产/回刷记录）。
 6. 跑门禁：本仓 `python scripts\agent_gate.py --profile hub`；**本轮若动了 Grbl 源码**（第 4 步只是烧已提交 commit 则不用）另跑 fz `standard`。

@@ -159,7 +159,7 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 **通过判据**：小智云侧能看到并成功调用 `hutuji_status`。
 
-**当前记录（2026-07-31）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻，preflight 全 PASS（**14 项**，14:53 先以旧 9 项 `pass=9 fail=0` 复跑，随后扩到 14 项并 `pass=14 fail=0`）；官方小智消息 API 已发现七个设备侧 `hutuji.*` 工具，并经云端路径实际触发 `draw/status/abort`。**下载面（14:52 新增取证）**：合法命名产物经**公网 Cloudflare Tunnel** 与 `:80` 回源路径均 `HTTP=200`、字节数一致、正文逐字回读，`/mcp` 两路均 404，`POST /files/` 403（`limit_except` 生效）——即 S3 的下载链路本身已可用（证据 `results/nginx-80-files-deploy-evidence-20260731.md`）。阶段 6 的云端调用子项已过，但 **App 真实语音不属于这项证据，阶段 7 仍未通过**；此处 200 是人工造件取证，**不等于**语音出图闭环。
+> **历史记录（2026-07-31；已被后续生产记录 supersede）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻；当时 preflight 为 14 项且全 PASS，合法命名产物经公网 Tunnel 与 `:80` 回源均 HTTP=200，`/mcp` 404、`POST /files/` 403。官方小智消息 API 已发现七个设备侧工具并触发 `draw/status/abort`。阶段 6 云端调用子项已过，但 App 真实语音不属于该证据，阶段 7 另行验收。**当前生产真值**：SPEED-01/PNG 预览运行态已部署，preflight **26/26 PASS**；真实语音出图、归位、自动换纸已有 2026-08-17 历史证据，当前未闭项看 `release-readiness.md`。
 
 ---
 
