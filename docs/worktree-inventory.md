@@ -5,9 +5,9 @@
 ## 1. hutuji（枢纽仓）
 
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
-- **当前提交链**：`155dbff` 已固定设备 PNG 预览、SenseNova 图片链与 stale MCP session 判死修复；本次文档治理提交位于其后。实时 HEAD：`git rev-parse --short HEAD`。
+- **当前提交链**：`d98f960` 已包含 `155dbff` 的服务实现与本次文档治理；实时 HEAD：`git rev-parse --short HEAD`。
 - **生产运行态**：提交基线仍为 `1082400`；2026-08-17 窄部署的 `bitmap_svg.py` / `server.py` 以 SHA-256 `949d2da7…fff8` / `ac06ee82…e9e` 绑定，preflight 26/26。GitHub 源码已由 `155dbff` 追上该运行态及其配置/测试，但未在本轮重新部署。
-- **本次治理前工作树**：19 个 tracked 文档改动 + 12 个 local-only untracked 文件；tracked 改动随本文提交收口。以下 untracked 文件是会话记忆、临时脚本或串口转储，**不上传、不删除**：`.pi-hermes-memory-consolidation.md`、`COM13;COM14_Terminal.txt`、`_memory_consolidation_ws35_pmic.md`、`_memory_consolidation_ws36_20260818.md`、`_tmp_audit_summary.md`、`_tmp_excel_read.py`、`_tmp_excel_read2.py`、`_tmp_memory_consolidation_plan.md`、`docs/memory-consolidated-v1.md`、`docs/memory-consolidation-plan-v2.md`、`docs/memory-consolidation-plan.md`、`memory_add`。
+- **本次治理后工作树**：原 12 个会话记忆、临时脚本和串口转储均已移入 `results/local-only/2026-08-18/`，保留在本机、未删除、未上传；该目录属于本地证据区，不纳入 Git 提交。归档文件：`pi-hermes-memory-consolidation.md`、`COM13-COM14_Terminal.txt`、`memory-consolidation-ws35-pmic.md`、`memory-consolidation-ws36.md`、`tmp-audit-summary.md`、`tmp-excel-read.py`、`tmp-excel-read2.py`、`tmp-memory-consolidation-plan.md`、`memory-consolidated-v1.md`、`memory-consolidation-plan-v2.md`、`memory-consolidation-plan.md`、`memory_add`。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
 ## 2. Grbl_Esp32（运动控制）
