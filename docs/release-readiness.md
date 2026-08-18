@@ -8,7 +8,7 @@
 
 > **2026-08-16 全脸字幕遮挡已修复（S3 `df5c440` 已推并刷 COM12）**：根因是 `LcdDisplay::SetChatMessage()` 两套编译分支都会显示底部聊天栏，而全脸画布已扩展到 `280x190`，字幕栏从底部向上覆盖嘴部/下半脸。修复在 WeChat 与普通样式两条实现的统一入口增加 `CONFIG_BOARD_TYPE_LICHUANG_DEV_S3 + grobot_eyes_` 守卫：清空 chat label、隐藏 `bottom_bar_`、立即返回；状态栏、情绪、说话/聆听动画不受影响，其它板型继续显示聊天正文。验证：受影响模块 **32/32**、全 host **40/40**；ESP-IDF v6.0.1 build 通过（bin `0x2d4bf0`，app 余 28%）；COM12 app-flash `Hash of data verified`；启动 `unknown→starting→activating→idle`，无 panic/assert，最低 SRAM `41111B`，证据 `results/bringup-grobot-subtitle-suppression-20260816.md`，ELF `e5544a990…`。**边界**：当前固件已刷入，但未在本次串口取证中自动触发完整对话；行为由两分支 host 契约钉死，需用户正常说话目视确认「文字不再覆盖面部」。
 
-> 状态日期：2026-08-18
+> 状态日期：2026-08-19
 
 ---
 ## 状态总览
@@ -24,7 +24,9 @@
 | 5 | MCP / 京东云运行态 | ✅ SPEED-01/设备 PNG 预览窄部署，preflight 26/26；仓库实现已提交 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
-| 8 | BLE 只读诊断辅助面 | 🟡 设计评审 P1/P2 已收口到 `BLE-DIAG schema v1`：A=6B 公开广播、B=本地确认+SC/MITM bonding 的 22B 只读 GATT、C=手机/PC RSSI `near/unknown`；当前 S3 `CONFIG_BT_ENABLED` 未开启，实现、构建、刷写及 WiFi/Telnet 共存 HIL 均未验证 |
+| 8 | BLE 只读诊断辅助面 | 🟡 设计评审已收口；`xiaozhi-esp32` `b78a3b7` 已实现并推送 BLE-DIAG Phase A，host 13/13 与全 host 88/88 通过，ESP-IDF v6.0.1 Waveshare 3.5 默认关闭构建和 NimBLE+BLE-DIAG 启用构建均通过。启用 `xiaozhi.bin` 3,169,104B / SHA-256 `c3e4cedd…64d`，默认构建 2,971,248B / SHA-256 `895b0c68…690`；启用产物含 `ble_surface=advertising_only`、`connectable=no`、`scannable=no`、`gatt=no`、`addr=nrpa`。尚未刷写、扫描器验空中包或做 WiFi/Telnet 共存 HIL，故不得改为 ✅ |
+
+> **BLE 本轮证据边界（2026-08-19）**：`python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 13/13，`python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v` 为 88/88；ESP-IDF v6.0.1 `idf.py ... build` 的 default/off 与 enabled/on 均通过。两套 build 使用 `D:/Users/xiaozhi-esp32` 提交 `b78a3b7` 的源码和临时 SDK defaults overlay；overlay 未入库。固件分支已推送且工作树干净；未刷写、未扫描空中包、未做 WiFi/Telnet 共存 HIL。
 
 > **BLE 规划边界（2026-08-18）**：默认关闭；公开/认证字段分级、UUID/线序/枚举、快照 stale/unknown、NVS 双槽记录、运行时 fail-closed、量化共存门槛和外部资料证据表均见 `docs/protocol.md` §1.4。BLE 不替代 WiFi Telnet、不承载 G-code、不直接控制电机/笔/换纸/授权/abort/job，也不宣称 UWB/AoA/Apple Precision Finding。只有完成对应阶段的 host 测试、构建、刷写身份、隐私/认证负向测试和共存 HIL 后，才能改变本行状态。
 

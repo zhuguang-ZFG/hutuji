@@ -18,10 +18,10 @@
 
 ## 3. xiaozhi-esp32（S3 AI 交互）
 
-- **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `dcbec6f`；已推 `origin/feat/hutuji-usb-pipe`，工作树干净。
-- **板上源码身份**：COM14 启动横幅 ELF `031cafd51...` 与提交前同一工作树构建的 ELF `031cafd5…aada` 对齐；该工作树已原样提交为 `dcbec6f`。
-- **部分 HIL**：触摸、七工具、`HutujiPipe`、WiFi、Grbl 授权、Idle，以及控制抽屉 `jog_y+`×2 / `jog_x-` / `pen_down` 已有证据；预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作仍未验证。
-- **验证**：host 67/67；固件构建和 app-flash hash 证据见 `release-readiness.md` 文首。真实语音出图/归位/自动换纸是 2026-08-17 历史证据，不替代当前新增 UI HIL。
+- **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `b78a3b7`；已推 `origin/feat/hutuji-usb-pipe`，工作树干净。
+- **板上源码身份**：COM14 启动横幅 ELF `031cafd51...` 与提交前同一工作树构建的 ELF `031cafd5…aada` 对齐；该身份属于此前 `dcbec6f` 板上镜像，不是本轮 BLE 构建。
+- **本轮 BLE 验证**：host `python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 13/13，全 host suite 为 88/88；ESP-IDF v6.0.1 Waveshare 3.5 默认关闭构建与 NimBLE+BLE-DIAG 启用构建均通过。默认 `xiaozhi.bin` 2,971,248B，SHA-256 `895b0c68…690`；启用 `xiaozhi.bin` 3,169,104B，SHA-256 `c3e4cedd…64d`。启用产物含 `ble_surface=advertising_only`、`connectable=no`、`scannable=no`、`gatt=no`、`addr=nrpa`；对应源码已提交并推送为 `b78a3b7`。
+- **验证边界**：本轮尚未刷写、扫描器验空中包或做 WiFi/Telnet 共存 HIL；readiness 保持 🟡。预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作仍未验证。
 
 ## 4. fz（Grbl 门禁）
 

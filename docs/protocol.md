@@ -165,8 +165,8 @@ BLE 诊断持久化是**只读观测的证据面**，不是 job 执行前置条�
 
 #### 1.4.5 编译开关、运行时开关与回滚
 
-- `CONFIG_HUTUJI_BLE_DIAGNOSTICS` 默认 `n`；只有该开关和底层 `CONFIG_BT_ENABLED` 同时开启时才编译 BLE 诊断实现。当前 S3 镜像保持 `CONFIG_BT_ENABLED` 未开启。
-- 即使编译启用，运行时 `ble_diag_enabled` 缺失、非法或为 false 时也不得启动 BLE controller、广播或 GATT；NVS 读取失败按 false 处理。
+- `CONFIG_HUTUJI_BLE_DIAGNOSTICS` 默认 `n`；只有该开关和底层 `CONFIG_BT_ENABLED` 同时开启时才编译 BLE 诊断实现。当前默认关闭 S3 镜像保持 `CONFIG_BT_ENABLED` 未开启；本轮另以临时 overlay 构建了启用 NimBLE 的验证镜像。
+- 即使编译启用，运行时 NVS 命名空间 `ble_diag` 的 `enabled` 键缺失、非法或为 false 时也不得启动 BLE controller、广播或 GATT；读取失败按 false 处理。由于 NVS 键名上限 15 字符，`ble_diag/enabled` 承载设计中的 `ble_diag_enabled` 语义。
 - BLE controller/host 初始化失败、内存不足、配对栈异常或诊断任务退出时，必须 fail-closed 关闭 BLE 并记录脱敏分类；WiFi、Telnet、job 主任务继续按原路径运行，不得等待 BLE、不改 Telnet 超时/窗口、不自动重启整机。
 - 现场回滚只能通过本地维护面/重新刷写默认关闭的构建完成；BLE 不得提供自我关闭或控制设备的写命令。回滚验收须证明无 BLE task/controller、WiFi/Telnet 仍可探活，且没有改变 job 状态。
 
