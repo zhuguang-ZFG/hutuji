@@ -1335,11 +1335,35 @@ def test_proxy_to_cloud_raises_on_session_terminated_response() -> None:
             '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Session terminated"}}',
             True,
         ),
-        # 正常成功回包 / 其它错误 / 文本相似但在 result 里 / 非 JSON：都不判死。
+        # mcp-proxy（proxy_server.py call_tool 的 except Exception）把 SDK 的
+        # McpError(32600) 包装成 CallToolResult 正常回包——2026-08-18 本机复现
+        # （server 重启后 tools/call）实测形态如下，必须判死：
+        (
+            '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text",'
+            '"text":"Session terminated"}],"isError":true}}',
+            True,
+        ),
+        # 正常成功回包 / 其它错误 / 文本相似但缺 isError / isError=false /
+        # 非精确文案 / 非 JSON：都不判死。
         ('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}', False),
         ('{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}', False),
         (
             '{"jsonrpc":"2.0","id":1,"result":{"text":"Session terminated"}}',
+            False,
+        ),
+        (
+            '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text",'
+            '"text":"Session terminated"}],"isError":false}}',
+            False,
+        ),
+        (
+            '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text",'
+            '"text":"Session terminated: reconnect"}],"isError":true}}',
+            False,
+        ),
+        (
+            '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text",'
+            '"text":"\u7b14\u8bef"}],"isError":true}}',
             False,
         ),
         ("not json", False),

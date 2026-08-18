@@ -522,6 +522,23 @@ def test_load_settings_rejects_noninteger_numbers(
         load_settings()
 
 
+def test_settings_rejects_incomplete_sensenova_image_config(tmp_path: Path) -> None:
+    """商汤 key 一旦启用，模型名不得留空；部分配置不能等到计费请求才报错。"""
+    with pytest.raises(ValueError, match="HUTUJI_SENSENOVA_IMAGE_MODEL"):
+        Settings(
+            llm_base_url="https://example.invalid/v1",
+            llm_api_key="agnes-key",
+            llm_model="test",
+            output_dir=tmp_path,
+            public_base_url="https://draw.example",
+            host="127.0.0.1",
+            port=8300,
+            output_ttl_seconds=600,
+            sensenova_api_key="sense-key",
+            sensenova_image_model="  ",
+        )
+
+
 
 def test_draw_rejects_injected_insecure_settings_before_capability_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -557,13 +574,13 @@ def test_draw_uses_normalized_injected_public_origin(
         ),
     )
 
-    async def fake_generate_svg(_description: str) -> str:
-        return "<svg/>"
+    async def fake_generate_svg(_description: str) -> SimpleNamespace:
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def fake_svg_to_gcode(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
         return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-    monkeypatch.setattr(server, "generate_bitmap_svg", fake_generate_svg)
+    monkeypatch.setattr(server, "generate_bitmap", fake_generate_svg)
     monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260731_120000_abcdefghijklmnopqrstuv")
     monkeypatch.setattr(server, "svg_to_gcode_async", fake_svg_to_gcode)
     monkeypatch.setattr(
@@ -587,13 +604,13 @@ def test_draw_result_includes_ttl_seconds(
 
     monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
 
-    async def fake_bitmap(_desc: str) -> str:
-        return "<svg/>"
+    async def fake_bitmap(_desc: str) -> SimpleNamespace:
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def fake_convert(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
         return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-    monkeypatch.setattr(server, "generate_bitmap_svg", fake_bitmap)
+    monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
     monkeypatch.setattr(
         server,
         "_new_basename",
@@ -608,6 +625,52 @@ def test_draw_result_includes_ttl_seconds(
 
     result = json.loads(asyncio.run(server.hutuji_draw("test")))
     assert result["ttl_seconds"] == 600
+
+def test_draw_returns_matching_png_preview_capability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同一次描摹必须产出可显示的 PNG 预览，并与 G-code 共用 capability stem。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
+
+    async def fake_bitmap(_desc: str) -> bitmap_svg.BitmapResult:
+        return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
+
+    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+        gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
+        return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
+
+    stem = "draw_20260731_120000_abcdefghijklmnopqrstuv"
+    monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
+    monkeypatch.setattr(server, "_new_basename", lambda: stem)
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
+
+    result = json.loads(asyncio.run(server.hutuji_draw("五角星")))
+
+    assert result["url"] == f"https://draw.example/files/{stem}.gcode"
+    assert result["preview_url"] == f"https://draw.example/files/{stem}.png"
+    assert (tmp_path / f"{stem}.png").read_bytes() == b"\x89PNG\r\n\x1a\npreview"
+
+
+def test_serve_png_preview_with_image_media_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = "draw_20260731_120000_abcdefghijklmnopqrstuv.png"
+    data = b"\x89PNG\r\n\x1a\npreview"
+    (tmp_path / name).write_bytes(data)
+
+    response = asyncio.run(server._serve_file(name))
+
+    assert response.media_type == "image/png"
+    assert response.body == data
+    assert response.headers["x-hutuji-crc32"] == f"{zlib.crc32(data) & 0xFFFFFFFF:08x}"
 
 
 def _minimal_gcode(extra: str = "") -> str:
@@ -1098,8 +1161,8 @@ def test_draw_limit_covers_vpype_conversion(
         server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
     )
 
-    async def fake_generate_svg(_description: str) -> str:
-        return "<svg/>"
+    async def fake_generate_svg(_description: str) -> SimpleNamespace:
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def exercise() -> None:
         started = 0
@@ -1114,7 +1177,7 @@ def test_draw_limit_covers_vpype_conversion(
             await release.wait()
             return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-        monkeypatch.setattr(server, "generate_bitmap_svg", fake_generate_svg)
+        monkeypatch.setattr(server, "generate_bitmap", fake_generate_svg)
         monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
         tasks = [
             asyncio.create_task(server.hutuji_draw("first")),
@@ -1142,8 +1205,8 @@ def test_draw_cancellation_removes_partial_outputs(
         server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
     )
 
-    async def fake_generate_svg(_description: str) -> str:
-        return "<svg/>"
+    async def fake_generate_svg(_description: str) -> SimpleNamespace:
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def exercise() -> None:
         started = asyncio.Event()
@@ -1153,7 +1216,7 @@ def test_draw_cancellation_removes_partial_outputs(
             started.set()
             await asyncio.Event().wait()
 
-        monkeypatch.setattr(server, "generate_bitmap_svg", fake_generate_svg)
+        monkeypatch.setattr(server, "generate_bitmap", fake_generate_svg)
         monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
         task = asyncio.create_task(server.hutuji_draw("cancel"))
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -1232,9 +1295,9 @@ def test_hutuji_draw_uses_bitmap_route(
     )
     called: list[str] = []
 
-    async def fake_bitmap(_desc: str) -> str:
+    async def fake_bitmap(_desc: str) -> SimpleNamespace:
         called.append("bitmap")
-        return "<svg/>"
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def fake_llm(_desc: str) -> str:
         raise AssertionError("draw 不得走 LLM 直写路线")
@@ -1242,7 +1305,7 @@ def test_hutuji_draw_uses_bitmap_route(
     async def fake_convert(_svg_path: Path, _gcode_path: Path) -> SimpleNamespace:
         return SimpleNamespace(lines=1, bytes=1, pen_lifts=0)
 
-    monkeypatch.setattr(server, "generate_bitmap_svg", fake_bitmap)
+    monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
     monkeypatch.setattr(server, "generate_svg", fake_llm)
     monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
 
@@ -1574,6 +1637,104 @@ def test_bitmap_fetch_retries_transient_then_success(
 
 
 
+def _sensenova_settings() -> SimpleNamespace:
+    return SimpleNamespace(
+        llm_api_key="agnes-key",
+        llm_base_url="https://agnes.invalid/v1",
+        image_model="agnes-image",
+        image_fallback_url="",
+        sensenova_api_key="sense-key",
+        sensenova_base_url="https://token.sensenova.invalid/v1",
+        sensenova_image_model="sensenova-u1-fast",
+    )
+
+
+def test_bitmap_fetch_uses_sensenova_official_image_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """商汤主链必须保持 PNG 生图架构，并逐字钉官方 U1 Fast 请求字段。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_settings())
+    calls: list[dict] = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.host == "token.sensenova.invalid":
+            calls.append(json.loads(request.content))
+            assert request.headers["authorization"] == "Bearer sense-key"
+            return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/u1.png"}]})
+        if request.url.host == "agnes.invalid":
+            pytest.fail("商汤成功后不得再调用 Agnes")
+        return _httpx.Response(200, content=_png_stub())
+
+    body = asyncio.run(
+        bitmap_svg._fetch_image_png("五角星", transport=_httpx.MockTransport(handler))
+    )
+    assert body == _png_stub()
+    assert calls == [
+        {
+            "model": "sensenova-u1-fast",
+            "prompt": bitmap_svg._BITMAP_STYLE + "五角星",
+            "size": "1760x2368",
+            "n": 1,
+            "watermark": False,
+        }
+    ]
+
+
+def test_bitmap_fetch_sensenova_failure_falls_back_to_agnes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """商汤单次失败必须立即回退 Agnes，不能用重试把低延迟优势耗掉。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    calls = {"sense": 0, "agnes": 0}
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.host == "token.sensenova.invalid":
+            calls["sense"] += 1
+            return _httpx.Response(500)
+        if request.url.host == "agnes.invalid":
+            calls["agnes"] += 1
+            return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/a.png"}]})
+        return _httpx.Response(200, content=_png_stub())
+
+    body = asyncio.run(
+        bitmap_svg._fetch_image_png("城堡", transport=_httpx.MockTransport(handler))
+    )
+    assert body == _png_stub()
+    assert calls == {"sense": 1, "agnes": 1}
+
+
+def test_bitmap_fetch_sensenova_download_failure_does_not_regenerate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """商汤已生成 URL 后 CDN 失败只重试 GET；不得再计费生成或偷偷换 Agnes。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    calls = {"sense": 0, "agnes": 0}
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.host == "token.sensenova.invalid":
+            calls["sense"] += 1
+            return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/bad.png"}]})
+        if request.url.host == "agnes.invalid":
+            calls["agnes"] += 1
+            return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/a.png"}]})
+        return _httpx.Response(500)
+
+    with pytest.raises(bitmap_svg.BitmapError, match="图片下载返回 500"):
+        asyncio.run(bitmap_svg._fetch_image_png("小猫", transport=_httpx.MockTransport(handler)))
+    assert calls == {"sense": 1, "agnes": 0}
+
+
 def test_bitmap_fetch_persistent_500_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     from hutuji_mcp import bitmap_svg
 
@@ -1590,6 +1751,41 @@ def test_bitmap_fetch_persistent_500_raises(monkeypatch: pytest.MonkeyPatch) -> 
     transport = _httpx.MockTransport(lambda request: _httpx.Response(500))
     with pytest.raises(bitmap_svg.BitmapError, match="生图 API 返回 500"):
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
+
+
+def test_sensenova_image_attempt_has_twenty_second_tail_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """U1 Fast 成功轮约 12s，但曾 >45s；20s 后必须回 Agnes，不能拖慢整单。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_settings())
+    seen: list[float] = []
+
+    class _Timeout:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001, ANN202
+            return False
+
+    def fake_timeout(seconds: float):
+        seen.append(seconds)
+        return _Timeout()
+
+    monkeypatch.setattr(bitmap_svg.asyncio, "timeout", fake_timeout)
+
+    def handler(request):  # noqa: ANN001, ANN202
+        return _httpx.Response(500)
+
+    async def run() -> None:
+        async with _httpx.AsyncClient(transport=_httpx.MockTransport(handler)) as client:
+            with pytest.raises(bitmap_svg.BitmapError, match="返回 500"):
+                await bitmap_svg._request_sensenova_image_url(client, "五角星")
+
+    asyncio.run(run())
+    assert seen == [20.0]
 
 
 def test_bitmap_fetch_rejects_bad_response_shape(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4598,6 +4794,93 @@ def test_bitmap_missing_dependency_abi_value_error_keeps_diagnostic(
     message = str(caught.value)
     assert "ValueError" in message
     assert "numpy.dtype size changed" in message
+
+
+def test_bitmap_warm_trace_deps_preloads_heavy_modules() -> None:
+    """SPEED-01：重依赖必须能被显式预热，且预热的正是描摹真正用到的那几个模块。
+
+    冷启 import（skimage/sknw/imageio/scipy）本机实测 ~3.0s，而它写在
+    `trace_bitmap_to_polylines` 内部——`ExecStartPre` 自检是**独立进程**，预热不到
+    服务进程，于是这 3s 每次重启后都落在**第一次真实出图**上（生产日志
+    14:04:59 下完 PNG → 14:05:04 才出应答）。
+    """
+    import sys
+
+    from hutuji_mcp import bitmap_svg
+
+    bitmap_svg.warm_trace_deps()
+    # 钉住「预热的是描摹真正用到的模块」，而不是随便 import 点什么充数
+    for module in ("imageio.v3", "sknw", "skimage.color", "skimage.filters", "skimage.morphology"):
+        assert module in sys.modules, f"{module} 未被预热"
+    # 幂等：第二次调用不得抛
+    bitmap_svg.warm_trace_deps()
+
+
+def test_bitmap_warm_trace_deps_reports_same_actionable_diagnosis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """预热失败必须复用描摹那条唯一可行动的诊断，而不是自造一句新错。
+
+    预热与描摹分成两份 import 块时会漂移（一边升了依赖名、另一边没跟），
+    「预热成功但真实描摹炸」正是本仓已被咬过一次的 fail-open 形状。
+    """
+    import builtins
+
+    from hutuji_mcp import bitmap_svg
+
+    real_import = builtins.__import__
+
+    def blocked_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name.startswith("sknw"):
+            raise ImportError("simulated sknw missing")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+    with pytest.raises(bitmap_svg.BitmapError) as caught:
+        bitmap_svg.warm_trace_deps()
+    message = str(caught.value)
+    assert "simulated sknw missing" in message
+    assert "requirements.txt" in message
+
+
+def test_lifespan_warms_generation_deps_without_blocking_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SPEED-01：`lifespan` 必须真的触发预热，且预热不得阻塞/拖垮启动。
+
+    预热只有挂在服务进程的启动路径上才有意义；同时依赖坏掉是 ExecStartPre 与
+    preflight 的职责，这里必须 fail-open（记日志、照常起服务）。
+    """
+    import contextlib as _contextlib
+
+    from hutuji_mcp import server as srv
+
+    calls: list[str] = []
+
+    @_contextlib.asynccontextmanager
+    async def fake_run():
+        calls.append("session_manager")
+        yield
+
+    monkeypatch.setattr(
+        srv, "mcp", SimpleNamespace(session_manager=SimpleNamespace(run=fake_run))
+    )
+
+    def boom() -> None:
+        calls.append("warm")
+        raise srv.BitmapError("simulated broken deps")
+
+    monkeypatch.setattr(srv, "warm_trace_deps", boom)
+
+    async def drive() -> None:
+        async with srv.lifespan(None):
+            calls.append("serving")
+
+    asyncio.run(drive())
+    assert "warm" in calls, "lifespan 未触发重依赖预热"
+    assert "serving" in calls, "预热失败把启动拖垮了（必须 fail-open）"
+    # 预热在后台线程跑，不得排在 session manager 之前把启动卡住
+    assert calls.index("session_manager") < calls.index("serving")
 
 
 def test_deploy_guidance_explicitly_restarts_active_application_services() -> None:

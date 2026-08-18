@@ -22,7 +22,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
      → WiFi Telnet :23 按 512B 在途窗口发给 Grbl → 页尾 fresh `Idle` 后 S3 旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸）再发 `M30` → 自动换纸
 ```
 
-服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_cleanup_expired_outputs()`（R13-SRV-02 起移出并发名额：清理是 IO 运维动作而非受控生成工作，不占 slot）→ `_draw_limiter.slot()`（覆盖付费生成全程）→ `bitmap_svg.generate_bitmap_svg()`（位图路线，2026-08-09 起为现行：`_sanitize_description` → agnes 文生图 `/images/generations`（失败降级 `HUTUJI_IMAGE_FALLBACK_URL` 免鉴权备用端点）→ 下载 PNG → skimage 骨架化 + sknw 建图描摹 → 单线 SVG → `_validate_svg`）→ `gcode_gen.svg_to_gcode_async()`（可取消 vpype：`read → layout 归一化（--fit-to-margins 10mm 190x277mm，居中+等比缩放）→ linemerge → linesort → linesimplify → gwrite --profile hutuji`）→ `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode}` → 返回 `{url, lines, bytes, pen_lifts}`。LLM 直写 SVG（`llm_svg.generate_svg`）只留给 `hutuji_preview_svg` 调试。
+服务内部链路（代码实测顺序）：`server.hutuji_draw()` → `_cleanup_expired_outputs()`（R13-SRV-02 起移出并发名额）→ `_draw_limiter.slot()`（覆盖付费生成全程）→ `bitmap_svg.generate_bitmap_svg()`（位图路线，2026-08-09 起现行：可选商汤 `sensenova-u1-fast` PNG 主后端，单次失败回退 Agnes `agnes-image-2.1-flash`，再失败才走 `HUTUJI_IMAGE_FALLBACK_URL`；三条都只产图片，随后统一下载 PNG → skimage 骨架化 + sknw 建图描摹 → 单线 SVG → `_validate_svg`。**禁止为了速度改成模型直写 SVG**，画质/语义稳定性无同等保证）→ `gcode_gen.svg_to_gcode_async()` → `validate_gcode()` → 写 `output/draw_YYYYMMDD_HHMMSS_<22 位 token>.{svg,gcode,png}` → 返回 `{url, preview_url, lines, bytes, pen_lifts}`。LLM 直写 SVG 只留给 `hutuji_preview_svg` 调试。
 
 **锁定决策（编号同根 `README.md`，禁止重开）**
 
@@ -91,7 +91,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 ## Code Conventions & Common Patterns｜代码约定与常用模式
 
 - **语言**：文档与注释一律中文，标识符英文。注释解释「为什么这个数」，不复述代码。
-- **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_IMAGE_MODEL`（位图路线生图模型，默认 `agnes-image-2.1-flash`）、`HUTUJI_IMAGE_FALLBACK_URL`（agnes 失败时降级的免鉴权备用生图端点，默认 imagefree，置空禁用；请求/响应形状由 `bitmap_svg` 内部适配）、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（默认 `127.0.0.1`，**只允许 loopback**，非 loopback 直接抛错；监听面真值是 unit 的 `--host`）、`HUTUJI_PORT`（`8300`）、`HUTUJI_OUTPUT_TTL_SECONDS`（`600`）；桥接侧 `MCP_ENDPOINT`（必须 `wss://`）、`HUTUJI_LOCAL_MCP_URL`（必须 loopback 且路径 `/mcp`）。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
+- **配置**：只走环境变量，**禁止 `.env` 文件**。服务侧 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`、`HUTUJI_IMAGE_MODEL`（Agnes 回退模型）、可选 `HUTUJI_SENSENOVA_BASE_URL/_API_KEY/_IMAGE_MODEL`（三项全空=禁用；任一设置则必须齐全；官方模型 `sensenova-u1-fast`）、`HUTUJI_IMAGE_FALLBACK_URL`（商汤/Agnes 都失败后的 imagefree 第三层，置空禁用）、`HUTUJI_OUTPUT_DIR`、`HUTUJI_PUBLIC_BASE_URL`、`HUTUJI_HOST`（只允许 loopback）、`HUTUJI_PORT`、`HUTUJI_OUTPUT_TTL_SECONDS`。生产凭据只落 `/etc/hutuji/{mcp,bridge}.env`（`chmod 600`）。
 - **状态与注入**：模块级单例代替 DI 容器——`config.settings` 在 import 时构造，`server._draw_limiter` 是模块全局；测试用 `monkeypatch.setattr(module, "settings", ...)` 或改环境变量覆盖，没有 FastAPI 依赖注入。
 - **错误处理**：窄类型异常 `GcodeError` / `LlmError` / `BitmapError` / `DrawLimitError`；`/files` 的一切失败（名字不合法、缺文件、过期、读取竞态）统一塌成 `HTTPException(404)`，不回显内部细节；vpype 失败只报 exit code，不带 stderr。`generate_svg` 用 `finish_reason` **只解释**「一段 SVG 都提取不到」（`length` → 报 `max_tokens` 预算耗尽），**不得**据它拒掉已闭合的 SVG，也**不得**盖住 `_validate_svg` 的白名单拒绝（那是注入事件，处置完全不同）。
 - **async/sync 分工**：MCP 工具是 `async`；TTL 清理走 `asyncio.to_thread`，vpype 用 `asyncio.create_subprocess_exec` 并在取消时回收子进程；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。

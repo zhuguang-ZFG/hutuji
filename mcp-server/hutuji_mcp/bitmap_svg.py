@@ -21,6 +21,8 @@ import json
 import logging
 import sys
 import zlib
+from dataclasses import dataclass
+from io import BytesIO
 from urllib.parse import urlsplit
 
 import httpx
@@ -36,6 +38,18 @@ class BitmapError(RuntimeError):
     """位图路线生成失败（生图 API、下载、描摹任一环节）。"""
 
 
+@dataclass(frozen=True)
+class BitmapResult:
+    """同一次中心线描摹的机械 SVG 与设备屏幕 PNG 预览。"""
+
+    svg: str
+    preview_png: bytes
+
+
+_PREVIEW_MAX_WIDTH = 320
+_PREVIEW_MAX_HEIGHT = 220
+_PREVIEW_PADDING = 6
+
 # 生图 prompt 前缀：把用户主题约束成可描摹的线稿。2026-08-09 探针实测
 # 这套措辞在 agnes-image-2.1-flash 上 6/6 出干净 coloring-book 线稿。
 _BITMAP_STYLE = (
@@ -44,6 +58,9 @@ _BITMAP_STYLE = (
 )
 
 _IMAGE_SIZE = "1024x1024"
+_SENSENOVA_IMAGE_SIZE = "1760x2368"
+_SENSENOVA_ATTEMPT_TIMEOUT_SECONDS = 20.0
+
 # 单次尝试的完整上限：agnes 实测 10~22s/张，45s 仍留 >2× 余量。不许无限挂，
 # 也不给 90s：主链最坏 3×45+2×30 下载 ≈ 195s；含备用单次尝试 ≈ 240s，仍低于
 # 桥接看门狗 300s（WATCHDOG_STALL_SECONDS，超时判死重连会丢掉在途 draw 应答）。
@@ -182,8 +199,8 @@ def _reject_oversized_png(png_bytes: bytes) -> None:
         )
 
 
-def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
-    """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。
+def _import_trace_deps() -> tuple:
+    """一次性取齐描摹链的重依赖；单一出处，供描摹与预热共用。
 
     延迟 import 重依赖（skimage/sknw）：模块被 import 的场合（如只跑
     LLM 路线的测试/生产旧调用面）不为用不到的功能付加载成本，缺失时报
@@ -213,6 +230,26 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
             f"位图描摹依赖不可用（{type(exc).__name__}: {detail}）："
             "生产 venv 需安装 requirements.txt，若为 ABI 失配需重装 numpy/scipy 系依赖"
         ) from exc
+    return iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize
+
+
+def warm_trace_deps() -> None:
+    """把描摹链的重依赖预先装进 sys.modules（幂等，纯 import，不碰网络/磁盘）。
+
+    冷启 import 本机实测 ~3.0s（skimage/sknw/imageio 连带 scipy/numba），而
+    `_import_trace_deps` 是**函数内**延迟 import，systemd 的 `ExecStartPre` 自检又跑在
+    **独立进程**里——预热不到服务进程。于是每次重启后这 3s 都落在第一次真实出图上
+    （2026-08-17 生产日志：14:04:59 PNG 下完 → 14:05:04 才出应答）。服务启动时调它，
+    把这笔一次性开销从用户等待里挪走；依赖是否可用仍由 ExecStartPre / preflight 判红。
+    """
+    _import_trace_deps()
+
+
+def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
+    """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。"""
+    iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize = (
+        _import_trace_deps()
+    )
 
     if not png_bytes.startswith(_PNG_MAGIC):
         raise BitmapError("生图 API 返回的不是 PNG")
@@ -286,18 +323,23 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     return polys, w, h
 
 
+def _smooth_polyline(pts: np.ndarray) -> np.ndarray:
+    if len(pts) < _SMOOTH_WINDOW:
+        return pts
+    kernel = np.ones(_SMOOTH_WINDOW) / _SMOOTH_WINDOW
+    xs = np.convolve(pts[:, 0], kernel, mode="same")
+    ys = np.convolve(pts[:, 1], kernel, mode="same")
+    xs[:2], ys[:2] = pts[:2, 0], pts[:2, 1]
+    xs[-2:], ys[-2:] = pts[-2:, 0], pts[-2:, 1]
+    return np.stack([xs, ys], axis=1)
+
+
 def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
-    """折线列表 → 单线 SVG 文本（元素只含 svg/polyline，过 _validate_svg）。"""
+    """折线列表 → 单线 SVG 文本（元素只含 svg/polyline，过 `_validate_svg`）。"""
     parts = []
     for pts in polys:
-        if len(pts) >= _SMOOTH_WINDOW:
-            kernel = np.ones(_SMOOTH_WINDOW) / _SMOOTH_WINDOW
-            xs = np.convolve(pts[:, 0], kernel, mode="same")
-            ys = np.convolve(pts[:, 1], kernel, mode="same")
-            xs[:2], ys[:2] = pts[:2, 0], pts[:2, 1]
-            xs[-2:], ys[-2:] = pts[-2:, 0], pts[-2:, 1]
-            pts = np.stack([xs, ys], axis=1)
-        str_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        smoothed = _smooth_polyline(pts)
+        str_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in smoothed)
         parts.append(f'<polyline points="{str_pts}"/>')
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" '
@@ -305,6 +347,36 @@ def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
         + "".join(parts)
         + "</svg>"
     )
+
+
+def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -> bytes:
+    """把同一组中心线栅格成适合 480×320 设备屏幕的紧凑 PNG。"""
+    try:
+        import imageio.v3 as iio
+        from skimage.draw import line
+    except Exception as exc:  # noqa: BLE001
+        raise BitmapError(f"预览图依赖不可用（{type(exc).__name__}）") from None
+
+    usable_w = _PREVIEW_MAX_WIDTH - 2 * _PREVIEW_PADDING
+    usable_h = _PREVIEW_MAX_HEIGHT - 2 * _PREVIEW_PADDING
+    scale = min(usable_w / width, usable_h / height)
+    out_w = max(1, int(round(width * scale)) + 2 * _PREVIEW_PADDING)
+    out_h = max(1, int(round(height * scale)) + 2 * _PREVIEW_PADDING)
+    canvas = np.full((out_h, out_w), 255, dtype=np.uint8)
+    for pts in polys:
+        scaled = _smooth_polyline(pts) * scale + _PREVIEW_PADDING
+        for start, end in zip(scaled[:-1], scaled[1:]):
+            x0, y0 = np.rint(start).astype(int)
+            x1, y1 = np.rint(end).astype(int)
+            rr, cc = line(y0, x0, y1, x1)
+            valid = (rr >= 0) & (rr < out_h) & (cc >= 0) & (cc < out_w)
+            rr, cc = rr[valid], cc[valid]
+            canvas[rr, cc] = 0
+            canvas[np.minimum(rr + 1, out_h - 1), cc] = 0
+            canvas[rr, np.minimum(cc + 1, out_w - 1)] = 0
+    output = BytesIO()
+    iio.imwrite(output, canvas, extension=".png")
+    return output.getvalue()
 
 
 def _image_fallback_url() -> str:
@@ -322,6 +394,7 @@ async def _post_image_request(
     headers: dict[str, str] | None,
     provider: str,
     retry_delays: tuple[float, ...] | None = None,
+    attempt_timeout_seconds: float = _IMAGE_ATTEMPT_TIMEOUT_SECONDS,
 ) -> dict:
     """两个生图端点共用的 POST + 瞬态重试 + 流式上限闸；返回解析后的 JSON object。
 
@@ -340,7 +413,7 @@ async def _post_image_request(
             # 返回时正文已被 httpx 全量缓冲，事后检查拦不住内存暴涨；恶意/
             # 故障上游在超时窗口内可推送 GB 级正文。声明闸省流量，逐块累计
             # 闸兜住 chunked/畸形头，两道闸都在数据进内存前生效。
-            async with asyncio.timeout(_IMAGE_ATTEMPT_TIMEOUT_SECONDS):
+            async with asyncio.timeout(attempt_timeout_seconds):
                 async with client.stream(
                     "POST", url, json=payload, headers=headers
                 ) as resp:
@@ -397,6 +470,45 @@ def _extract_agnes_image_url(data: dict) -> str:
         raise BitmapError("生图 API 未返回有效的 https 图片地址")
     return image_url
 
+async def _request_agnes_image_url(
+    client: httpx.AsyncClient, description: str
+) -> str:
+    url = f"{settings.llm_base_url.rstrip('/')}/images/generations"
+    payload = {
+        "model": settings.image_model,
+        "prompt": _BITMAP_STYLE + description,
+        "size": _IMAGE_SIZE,
+        "n": 1,
+    }
+    headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
+    data = await _post_image_request(client, url, payload, headers, "生图 API")
+    return _extract_agnes_image_url(data)
+
+
+async def _request_sensenova_image_url(
+    client: httpx.AsyncClient, description: str
+) -> str:
+    """调用商汤 U1 Fast 的官方 PNG 接口；单次失败立即回退 Agnes。"""
+    url = f"{settings.sensenova_base_url.rstrip('/')}/images/generations"
+    payload = {
+        "model": settings.sensenova_image_model,
+        "prompt": _BITMAP_STYLE + description,
+        "size": _SENSENOVA_IMAGE_SIZE,
+        "n": 1,
+        "watermark": False,
+    }
+    headers = {"Authorization": f"Bearer {settings.sensenova_api_key}"}
+    data = await _post_image_request(
+        client,
+        url,
+        payload,
+        headers,
+        "商汤生图 API",
+        retry_delays=(),
+        attempt_timeout_seconds=_SENSENOVA_ATTEMPT_TIMEOUT_SECONDS,
+    )
+    return _extract_agnes_image_url(data)
+
 
 async def _request_fallback_image_url(client: httpx.AsyncClient, description: str) -> str:
     """免鉴权备用端点（imagefree /v1/generate）：扁平 image_url，status 判成败。
@@ -424,52 +536,55 @@ async def _request_fallback_image_url(client: httpx.AsyncClient, description: st
 
 
 async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransport | None = None) -> bytes:
-    """生图并下载 PNG：agnes（OpenAI 兼容）主链 + imagefree 免鉴权备用链。transport 仅供测试注入。"""
+    """生图并下载 PNG：可选商汤主链 → Agnes → imagefree；描摹链不变。"""
     if not settings.llm_api_key:
-        # CloudUX-F5：配置类错误用户向，技术原因（缺哪个环境变量）进日志。
+        # CloudUX-F5：Agnes 仍是商汤失败时的受控回退，故凭据必须始终可用。
         logger.warning(
             "位图路线未配置：请设置环境变量 HUTUJI_LLM_API_KEY"
-            "（位图路线与生图共用同一端点凭据）"
+            "（位图路线与 Agnes 回退共用同一端点凭据）"
         )
         raise BitmapError("绘图服务未就绪，请稍后再试")
     if not settings.image_model.strip():
-        # 与上面的 api_key 闸同理：空 model 名会原样发进 payload 被端点拒绝，
-        # 错误要等一次计费请求才暴露；在本地拦下，诊断才指向环境变量本身。
         logger.warning("HUTUJI_IMAGE_MODEL 为空：生图请求会被端点拒绝")
         raise BitmapError("绘图服务未就绪，请稍后再试")
-    url = f"{settings.llm_base_url.rstrip('/')}/images/generations"
-    payload = {
-        "model": settings.image_model,
-        "prompt": _BITMAP_STYLE + description,
-        "size": _IMAGE_SIZE,
-        "n": 1,
-    }
-    headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
 
     # 显式决策（R10 复审）：不跟随重定向（httpx 默认 follow_redirects=False），
     # 3xx 一律按「图片下载返回 3xx」失败。盲开 follow_redirects=True 会打开
-    # https→内网/明文 的 SSRF 降级面（下面的 https 前缀闸只验首跳 URL）。agnes
-    # 当前返回 CDN 直链；若上游改成 302 签名跳转，正确改法是在下载处显式放行
-    # 「单跳且 Location 仍以 https:// 开头」，而不是在 client 上开全局跟随。
+    # https→内网/明文 的 SSRF 降级面（下面的 https 前缀闸只验首跳 URL）。
     async with httpx.AsyncClient(
         timeout=_IMAGE_ATTEMPT_TIMEOUT_SECONDS, transport=transport
     ) as client:
-        try:
-            image_url = _extract_agnes_image_url(
-                await _post_image_request(client, url, payload, headers, "生图 API")
-            )
-        except BitmapError as primary_exc:
-            # 主链任何失败（配额耗尽/5xx/超时/结构异常）降级到免鉴权备用端点。
-            # 本地配置闸（缺 key/空 model）在上面已抛、不进降级——用备用链掩盖
-            # 部署事故会让失效凭据长期无人发现。备用也失败时两侧原因都带上
-            # （两条消息都不含 URL/凭据，脱敏口径不变）。
+        generation_error: BitmapError | None = None
+        sensenova_enabled = bool(
+            getattr(settings, "sensenova_api_key", "").strip()
+        )
+        if sensenova_enabled:
+            try:
+                image_url = await _request_sensenova_image_url(client, description)
+            except BitmapError as sensenova_exc:
+                logger.warning("商汤生图失败，回退 Agnes：%s", sensenova_exc)
+                try:
+                    image_url = await _request_agnes_image_url(client, description)
+                except BitmapError as agnes_exc:
+                    generation_error = BitmapError(
+                        f"商汤生图失败：{sensenova_exc}；Agnes 同样失败：{agnes_exc}"
+                    )
+        else:
+            try:
+                image_url = await _request_agnes_image_url(client, description)
+            except BitmapError as agnes_exc:
+                generation_error = agnes_exc
+
+        if generation_error is not None:
+            # 两个鉴权主后端均失败后才走免鉴权备用。生成成功后的 CDN 下载失败
+            # 不进此分支，避免重复计费或画风漂移。
             if not _image_fallback_url():
-                raise
+                raise generation_error
             try:
                 image_url = await _request_fallback_image_url(client, description)
             except BitmapError as fallback_exc:
                 raise BitmapError(
-                    f"{primary_exc}；备用端点同样失败：{fallback_exc}"
+                    f"{generation_error}；备用端点同样失败：{fallback_exc}"
                 ) from None
         # 只验 https 前缀挡不住内网 https 地址（SSRF，见 IMG-URL-SSRF-GAP）。
         _validate_image_download_url(image_url)
@@ -524,56 +639,41 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                 await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
 
 
-async def generate_bitmap_svg(description: str) -> str:
-    """hutuji_draw 的现行生成入口：description → 单线 SVG（已过白名单校验）。"""
+async def generate_bitmap(description: str) -> BitmapResult:
+    """description → 同源单线 SVG + 设备屏幕 PNG 预览。"""
     safe_desc = _sanitize_description(description)
     png = await _fetch_image_png(safe_desc)
-    # R3 并发漂移：描摹跑在线程池里，Python 线程无法被强制取消。若直接
-    # `await asyncio.to_thread(...)`，请求被取消时 await 立刻抛 CancelledError，
-    # server.DrawLimiter.slot() 的 finally 随即 leave() 释放并发名额，而描摹线程
-    # 仍在后台烧 CPU——并发实数超过 max_concurrent=2（可用性 DoS 面）。用
-    # asyncio.shield 把线程完成与外层取消解耦：取消时先等线程真正跑完再把
-    # CancelledError 上抛，于是 leave() 永远晚于线程结束，并发计数与在跑线程数
-    # 始终一致。代价：取消方最多多等一次描摹时长（本机实测 ~73ms）。
-    trace = asyncio.ensure_future(asyncio.to_thread(trace_bitmap_to_polylines, png))
+
+    def build() -> BitmapResult:
+        polys, w, h = trace_bitmap_to_polylines(png)
+        svg = polylines_to_svg(polys, w, h)
+        if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:
+            raise BitmapError("描摹 SVG 超过 256KiB 上限（图太复杂）")
+        _validate_svg(svg)
+        return BitmapResult(svg=svg, preview_png=polylines_to_preview_png(polys, w, h))
+
+    # Python 线程无法强制取消。取消时等描摹+预览真正收尾，才释放 DrawLimiter。
+    work = asyncio.ensure_future(asyncio.to_thread(build))
     try:
-        polys, w, h = await asyncio.shield(trace)
+        return await asyncio.shield(work)
     except asyncio.CancelledError:
-        # shield 只中断了本协程的等待，未取消 trace 本身；等线程自然收尾
-        # （连同它可能抛出的 BitmapError 一并吞掉），再让取消继续传播。
-        #
-        # R7-CANCEL-01：这里必须能抗**二次**取消。shield 只解耦第一次传播，
-        # 裸 `await trace` 会被第二次取消打断，于是本协程在线程收尾前就返回，
-        # 上面那句「leave() 永远晚于线程结束」不再成立。二次取消是可达的：
-        # 客户端先发 notifications/cancelled（第一次），随后断连触发 MCP SDK
-        # 的 tg.cancel_scope.cancel() 取消全部在途 handler（第二次）。
-        # 故循环等待并对每次取消调 uncancel()——不 uncancel 时 Task 的取消计数
-        # 不归零，后续 await 会被持续重抛（CPython #93453 同型）。取消语义不丢：
-        # 无论中途被取消几次，出口恒为 CancelledError。
         current = asyncio.current_task()
-        while not trace.done():
+        while not work.done():
             try:
-                await asyncio.shield(trace)
+                await asyncio.shield(work)
             except asyncio.CancelledError:
                 if current is not None:
                     current.uncancel()
             except BaseException:  # noqa: BLE001
-                # 线程自身的异常（如 BitmapError）在取消路径上无消费者，
-                # 吞掉即可；trace 已 done，循环随即退出。
                 break
-        if trace.done() and not trace.cancelled():
-            # 窄竞态兜底（R10 复审）：线程若恰在「首次 CancelledError 传播」与
-            # 「上面 while 判 done」之间带异常收尾，循环体从未 await 到它，异常
-            # 就无人取回——GC 期会打「Task exception was never retrieved」并把
-            # 异常 repr（可能含外部数据）吐进日志。exception() 显式取回后丢弃；
-            # 正常完成时它返回 None，无副作用。
-            trace.exception()
+        if work.done() and not work.cancelled():
+            work.exception()
         raise
-    svg = polylines_to_svg(polys, w, h)
-    if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:
-        raise BitmapError("描摹 SVG 超过 256KiB 上限（图太复杂）")
-    _validate_svg(svg)
-    return svg
+
+
+async def generate_bitmap_svg(description: str) -> str:
+    """兼容调试/自检入口；生产 draw 使用 generate_bitmap 同时取得预览。"""
+    return (await generate_bitmap(description)).svg
 
 
 # ---- ExecStartPre 沙箱内自检 ----------------------------------------------

@@ -320,11 +320,20 @@ def _is_session_terminated_response(message: str | bytes) -> bool:
     指纹来源（R10-BRG-01）：MCP SDK client `mcp/client/streamable_http.py`
     对 POST 404 只调 `_send_session_terminated_error()` 合成
     `{"error":{"code":32600,"message":"Session terminated"}}`（code 是上游写的
-    正 32600，负值形态一并接受），**不重新 initialize**——hutuji-mcp 重启后
-    该错误对每条后续请求无限重复，回包持续流动使停滞看门狗永不触发。
-    只认「顶层 error.message 精确等于 Session terminated」：工具结果正文里
-    出现同样文案（result 内）不得误杀；解析不了一律 False（fail-open，与
-    _message_label 同口径——判死是重手术，宁可漏判交给看门狗兜底）。
+    正 32600，负值形态一并接受），**不重新 initialize**——hutuji-mcp 重启或
+    会话 idle 回收（session_idle_timeout=3600）后，该错误对每条后续请求无限
+    重复，回包持续流动使停滞看门狗永不触发。
+
+    两种形态都判死：
+    1. 顶层 error.message 精确等于 Session terminated（SDK 原生合成形态）；
+    2. mcp-proxy 0.12 的 CallToolResult 包装形态（`proxy_server.py` call_tool
+       的 `except Exception` 把 McpError 包成正常 result）：
+       `{"result":{"isError":true,"content":[{"type":"text","text":"Session
+       terminated"}]}}`——2026-08-18 本机复现（server 重启后 tools/call）实测，
+       生产 14 小时 idle 会话回收后三次 tools/call 均此形态，判死曾因此失联。
+    形态 2 必须 isError 显式 true 且文本精确匹配，普通工具错误（中文文案、
+    isError 缺省/false、相似但非精确文本）不误杀；解析不了一律 False
+    （fail-open，与 _message_label 同口径——判死是重手术，宁可漏判交给看门狗）。
     """
     objs = _iter_jsonrpc_objects(message)
     if not objs:
@@ -337,6 +346,15 @@ def _is_session_terminated_response(message: str | bytes) -> bool:
             and error.get("code") in (32600, -32600)
         ):
             return True
+        result = obj.get("result")
+        if isinstance(result, dict) and result.get("isError") is True:
+            for item in result.get("content") or []:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "text"
+                    and item.get("text") == "Session terminated"
+                ):
+                    return True
     return False
 
 

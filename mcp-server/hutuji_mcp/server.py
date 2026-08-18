@@ -34,7 +34,7 @@ from mcp.server.fastmcp import FastMCP
 from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import svg_to_gcode_async
-from .bitmap_svg import generate_bitmap_svg
+from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
 from .llm_svg import generate_svg
 
 # 保持默认 streamable_http_path="/mcp"，子应用挂到根（/files 先注册优先匹配），
@@ -42,14 +42,14 @@ from .llm_svg import generate_svg
 mcp = FastMCP("hutuji")
 
 _DRAW_FILE_RE = re.compile(
-    r"^draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(?:gcode|svg)$"
+    r"^draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(?:gcode|svg|png)$"
 )
 
 # 同一个式子按结构分组，供脱敏使用：token 用的是 URL-safe base64 字母表，
 # **本身可能含 `_`**，所以绝不能靠「最后一个下划线」切分（会把 token 前缀
 # 当成时间戳留在输出里；实测约 29% 的 token 会这样泄露）。
 _DRAW_FILE_PARTS_RE = re.compile(
-    r"^(draw_\d{8}_\d{6})_(?P<token>[A-Za-z0-9_-]{22})\.(?P<ext>gcode|svg)$"
+    r"^(draw_\d{8}_\d{6})_(?P<token>[A-Za-z0-9_-]{22})\.(?P<ext>gcode|svg|png)$"
 )
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ def _delete_output_pair(stem: str) -> None:
     删除失败（权限/占用）只记录 warning：过期 URL 无论如何统一 404，
     删除是尽力而为的清理，不能反过来把下载路径变成 500。
     """
-    for suffix in (".svg", ".gcode"):
+    for suffix in (".svg", ".gcode", ".png"):
         try:
             (settings.output_dir / f"{stem}{suffix}").unlink(missing_ok=True)
         except OSError as exc:
@@ -212,7 +212,7 @@ def _is_regular_capability_file(path: Path) -> bool:
 
 
 def _cleanup_expired_outputs(*, now: float | None = None) -> int:
-    """清除超过 TTL 的 draw_*.svg/gcode，返回删除的文件数。
+    """清除超过 TTL 的 draw_*.svg/gcode/png，返回删除的文件数。
 
     清理是尽力而为的运维动作：目录不可读、mtime 拿不到、删除被拒
     （权限/占用/竞态）都只记录 warning 并跳过该项，绝不让 status/draw
@@ -239,7 +239,7 @@ def _cleanup_expired_outputs(*, now: float | None = None) -> int:
 
     deleted = 0
     for stem in expired_stems:
-        for suffix in (".svg", ".gcode"):
+        for suffix in (".svg", ".gcode", ".png"):
             path = settings.output_dir / f"{stem}{suffix}"
             try:
                 path.unlink()
@@ -277,6 +277,7 @@ async def hutuji_draw(description: str) -> str:
     public_base_url = validate_public_base_url(settings.public_base_url)
     svg_path: Path | None = None
     gcode_path: Path | None = None
+    preview_path: Path | None = None
     try:
         # R13-SRV-02：清理是 IO 运维动作、不是受控的付费生成工作，不占并发名额
         # （hutuji_status 同样在 slot 外跑同一清理，并发重复执行幂等无害）。
@@ -287,17 +288,20 @@ async def hutuji_draw(description: str) -> str:
             # 位图路线（2026-08-09 起为现行路线）：agnes 文生图 → 中心线描摹 →
             # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
             # 两条路线的实测对比见 docs/worktree-inventory.md 当日探针行。
-            svg = await generate_bitmap_svg(description)
+            bitmap = await generate_bitmap(description)
+            svg = bitmap.svg
 
             base = _new_basename()
             svg_path = settings.output_dir / f"{base}.svg"
             gcode_path = settings.output_dir / f"{base}.gcode"
+            preview_path = settings.output_dir / f"{base}.png"
             # SVG 已被限制到 256KiB；同步落盘很短，并避免取消 to_thread 后后台迟写残留文件。
             svg_path.write_text(svg, encoding="utf-8")
+            preview_path.write_bytes(bitmap.preview_png)
             stats = await svg_to_gcode_async(svg_path, gcode_path)
     except BaseException:
         # 取消也必须清理 capability 产物；清理失败只能记日志，不能覆盖原异常。
-        for path in (svg_path, gcode_path):
+        for path in (svg_path, gcode_path, preview_path):
             if path is not None:
                 try:
                     path.unlink(missing_ok=True)
@@ -310,9 +314,12 @@ async def hutuji_draw(description: str) -> str:
         raise
 
     assert gcode_path is not None
+    assert preview_path is not None
     url = f"{public_base_url}/files/{gcode_path.name}"
+    preview_url = f"{public_base_url}/files/{preview_path.name}"
     return json.dumps({
         "url": url,
+        "preview_url": preview_url,
         "lines": stats.lines,
         "bytes": stats.bytes,
         "pen_lifts": stats.pen_lifts,
@@ -486,12 +493,31 @@ class LoopbackOnlyMcpGuard:
         await self._app(scope, receive, send)
 
 
+async def _warm_generation_deps() -> None:
+    """后台预热位图描摹的重依赖；失败只记日志，绝不拖垮启动。
+
+    依赖是否可用由 unit 的 ExecStartPre（沙箱内 fail-closed）与 preflight 判红——
+    那两处才是判据。这里唯一的职责是把 ~3s 冷启 import 从「第一次真实出图」的
+    用户等待里挪到启动阶段，所以必须 fail-open。
+    """
+    try:
+        await asyncio.to_thread(warm_trace_deps)
+    except BitmapError as exc:
+        logger.warning("位图描摹依赖预热失败（服务照常启动）：%s", exc)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     # 挂载的子应用 lifespan 不会自动运行，必须显式拉起 MCP session manager
     settings.output_dir.mkdir(parents=True, exist_ok=True)
-    async with mcp.session_manager.run():
-        yield
+    warm = asyncio.create_task(_warm_generation_deps())
+    try:
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        # `asyncio.to_thread` 起的线程本就取消不掉（cancel 只是不再等它、让异常
+        # 无人接管），await 才是诚实收尾。预热 ~3s，只有「刚启动就停机」会等到它。
+        await warm
 
 
 # 三个 URL 必须显式关成 None：FastAPI 默认自动挂 `/docs`、`/redoc`、
@@ -547,7 +573,11 @@ async def _serve_file(name: str):
             _delete_output_pair(path.stem)
         raise HTTPException(status_code=404, detail="not found")
     crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")  # zlib/IEEE 变体，须与 S3 侧一致
-    media = "image/svg+xml" if name.endswith(".svg") else "application/octet-stream"
+    media = (
+        "image/svg+xml" if name.endswith(".svg")
+        else "image/png" if name.endswith(".png")
+        else "application/octet-stream"
+    )
     return Response(
         content=data,
         media_type=media,

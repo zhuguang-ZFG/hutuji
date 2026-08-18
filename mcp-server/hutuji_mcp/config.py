@@ -101,6 +101,11 @@ class Settings:
     # 文生图备用端点（agnes 主链失败时的降级链；imagefree 免鉴权公共服务，
     # 置空=禁用）。默认即生产可用值，env 只用于覆盖或关闭。
     image_fallback_url: str = "https://imagefree.tingfengai.art/v1/generate"
+    # 可选商汤 U1 Fast PNG 主后端；三项全空=保持 Agnes，任一配置则必须三项齐全。
+    sensenova_base_url: str = ""
+    sensenova_api_key: str = ""
+    sensenova_image_model: str = ""
+
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
@@ -121,6 +126,24 @@ class Settings:
                     f"当前 {self.image_fallback_url!r}"
                 )
         object.__setattr__(self, "image_fallback_url", fallback)
+        sensenova_base_url = self.sensenova_base_url.strip()
+        sensenova_api_key = self.sensenova_api_key.strip()
+        sensenova_image_model = self.sensenova_image_model.strip()
+        sensenova_values = (sensenova_base_url, sensenova_api_key, sensenova_image_model)
+        if any(sensenova_values) and not all(sensenova_values):
+            missing = []
+            if not sensenova_base_url:
+                missing.append("HUTUJI_SENSENOVA_BASE_URL")
+            if not sensenova_api_key:
+                missing.append("HUTUJI_SENSENOVA_API_KEY")
+            if not sensenova_image_model:
+                missing.append("HUTUJI_SENSENOVA_IMAGE_MODEL")
+            raise ValueError("商汤生图配置必须三项齐全，缺少 " + ", ".join(missing))
+        if sensenova_base_url:
+            sensenova_base_url = validate_llm_base_url(sensenova_base_url)
+        object.__setattr__(self, "sensenova_base_url", sensenova_base_url)
+        object.__setattr__(self, "sensenova_api_key", sensenova_api_key)
+        object.__setattr__(self, "sensenova_image_model", sensenova_image_model)
         # 非 loopback 一律拒绝：锁定决策是「/mcp 只本机可达，公网由 nginx 404」。
         # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
         # 0.0.0.0 在生产静默无效、在开发直跑 `python -m hutuji_mcp.server` 却是真裸曝。
@@ -175,6 +198,9 @@ def load_settings() -> Settings:
         image_fallback_url=os.environ.get(
             "HUTUJI_IMAGE_FALLBACK_URL", "https://imagefree.tingfengai.art/v1/generate"
         ),
+        sensenova_base_url=os.environ.get("HUTUJI_SENSENOVA_BASE_URL", ""),
+        sensenova_api_key=os.environ.get("HUTUJI_SENSENOVA_API_KEY", ""),
+        sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
