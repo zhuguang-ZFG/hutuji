@@ -107,7 +107,11 @@ python -m venv .venv
 
 ## 外部参考证据纪律
 
-涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方文档/官方仓库，再查高质量社区；对影响设计或结论的依据记录 URL、版本或 commit、访问日期、适用范围和本地复核结果。区分上游与本地 fork、源码与板上/生产运行态；外部资料仅作证据或参照，不能覆盖本仓 `README.md`、`docs/protocol.md`、`docs/release-readiness.md` 真值。网络不可用时使用本地镜像或仓内 findings 必须标来源层级、限制和未验证项，不得把社区共识写成实机证据。
+涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方文档/官方仓库，再查高质量社区；对影响设计或结论的依据记录 URL、版本或 commit、访问日期、适用板型与范围、本地复核命令/结果、限制和未验证项，落在相关设计段落或明确链接的 findings。区分上游与本地 fork、源码与板上/生产运行态；外部资料仅作证据或参照，不能覆盖本仓 `README.md`、`docs/protocol.md`、`docs/release-readiness.md` 真值。网络不可用时使用本地镜像或仓内 findings 必须标来源层级和快照日期，不得把社区共识写成实机证据。
+
+## BLE 只读诊断辅助面
+
+正式 Telnet/G-code 契约仍为 v0.5，BLE 独立使用 `BLE-DIAG schema v1`。阶段 A 仅公开 6 字节粗粒度广播且不注册 GATT；阶段 B 才启用本地维护确认、LE Secure Connections + MITM bonding、22 字节 `READ` 快照；阶段 C 由手机/PC 消费 RSSI 显示 `near/unknown`，S3 不持续扫描。默认关闭、不替代 Telnet、不承载 G-code/控制命令；字段、NVS 双槽、回滚和共存门槛见 `docs/protocol.md` §1.4。当前未实现、未构建、未做 HIL。
 
 ### 环境变量
 

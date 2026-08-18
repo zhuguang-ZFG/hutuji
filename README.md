@@ -63,13 +63,13 @@
 - `firmware/` — S3 板固件补丁说明（②，补丁本体在 xiaozhi-esp32 fork）
 - `deploy/` — 京东云 systemd/nginx/环境变量模板（真实凭据不入库）
 
-### BLE 辅助面（规划，默认关闭）
+### BLE 只读诊断辅助面（规划，默认关闭）
 
-BLE 仅用于 S3 的只读状态广播、GATT 只读诊断和可选 RSSI 近距提示；WiFi Telnet :23 仍是唯一正式板间链路。BLE 不承载 G-code，不直接控制电机、笔、换纸、授权、abort 或 job 生命周期；不以 RSSI 冒充距离/方向/UWB/AoA/Apple Precision Finding。当前 S3 `CONFIG_BT_ENABLED` 未开启，阶段 A/B/C 的实现与共存 HIL 均未验证，详见 `docs/protocol.md` §1.4。
+正式 Telnet/G-code 契约仍为 v0.5；BLE 使用独立 `BLE-DIAG schema v1`。阶段 A 仅提供 6 字节公开粗粒度广播，不注册 GATT；阶段 B 才提供需本地确认配对、LE Secure Connections + MITM、单 peer、每秒一次读取上限的 22 字节只读诊断快照；阶段 C 由手机/PC 消费广播并显示 `near/unknown` RSSI 近距提示，S3 不做持续扫描。WiFi Telnet :23 仍是唯一正式板间链路。BLE 不承载 G-code，不直接控制电机、笔、换纸、授权、abort 或 job 生命周期；不以 RSSI 冒充距离/方向/UWB/AoA/Apple Precision Finding。当前 S3 `CONFIG_BT_ENABLED` 未开启，A/B/C 实现与共存 HIL 均未验证，量化门槛见 `docs/protocol.md` §1.4.6。
 
 ### 外部参考证据纪律
 
-涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方来源，再查高质量社区；记录 URL、版本或 commit、访问日期、适用范围和本地复核结果。外部资料不能覆盖本仓契约/状态真值，且必须区分上游、本地 fork、源码、生产和板上运行态；网络不可用时使用本地留档须标明限制，不能把社区共识写成实机证据。
+涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方来源，再查高质量社区；影响设计的资料登记 URL、版本/commit、访问日期、适用板型与范围、本地复核命令/结果、限制和未验证项，落在相关设计段落或明确链接的 findings。外部资料不能覆盖本仓契约/状态真值，且必须区分上游、本地 fork、源码、构建物、板上固件和实机行为；网络不可用时使用本地留档须标明来源层级与快照日期，不能把社区共识写成实机证据。
 
 ## 路线图
 

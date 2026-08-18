@@ -103,7 +103,8 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **容差是显式决策**：`LINESIMPLIFY_TOLERANCE_MM = 0.05`、`LINEMERGE_TOLERANCE_MM = 0.3`，有专测钉死，不许顺手调参。
 - **脚本退出码有语义**：门禁 pass=0 / 任一层 fail=1；`grbl_wifi_setup.py` 2=缺密码、130=用户取消；`bringup_fault_capture.py` 2=缺端口或缺 pyserial、1=串口报错（打开/读取失败、注入写失败，以及**排过 `[ESP115]ON` 却在日志里找不到发送确认**——这一路会往报告追加显式失败行，不再以 0 收场）。
 - **状态标记**：✅ 有命令/commit/设备/日志证据；🟡 代码或设计在但缺生产/硬件证据；🔴 未实现或阻塞。
-- **外部参考证据纪律**：涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方文档/官方仓库，再查高质量社区；每条会影响设计或结论的外部依据都记录来源 URL、版本或 commit、访问日期、适用范围与本地复核结果。必须区分上游与本地 fork、源码与板上/生产运行态；外部资料只作证据或参照，不能覆盖本仓 `README.md`、`docs/protocol.md` 与 `docs/release-readiness.md` 的真值。网络不可用时可用已留存的本地镜像或仓内 findings，但须明确标注来源层级、未验证项和限制，不得把社区共识写成硬件实测。
+- **BLE 只读诊断辅助面**：正式 Telnet/G-code 契约仍为 v0.5，BLE 独立使用 `BLE-DIAG schema v1`。阶段 A 仅公开 6 字节粗粒度广播且不注册 GATT；阶段 B 才启用本地触摸维护确认后的 LE Secure Connections + MITM bonding、22 字节 `READ` 快照；阶段 C 由手机/PC 消费 RSSI 并显示 `near/unknown`，S3 不持续扫描。默认关闭；不替代 Telnet、不承载 G-code/控制命令。字段、NVS 双槽记录、回滚和共存硬门槛见 `docs/protocol.md` §1.4；当前未实现、未构建、未做 HIL。
+- **外部参考证据纪律**：涉及社区、GitHub、上游文档、SDK 或硬件资料时，先查官方文档/官方仓库，再查高质量社区；每条会影响设计或结论的外部依据都记录来源 URL、版本或 commit、访问日期、适用板型与范围、本地复核命令/结果、限制和未验证项，落在相关设计段落或明确链接的 findings。必须区分上游与本地 fork、源码与板上/生产运行态；外部资料只作证据或参照，不能覆盖本仓 `README.md`、`docs/protocol.md` 与 `docs/release-readiness.md` 的真值。网络不可用时可用已留存的本地镜像或仓内 findings，但须明确标注来源层级和快照日期，不得把社区共识写成硬件实测。
 
 ## Important Files｜关键文件
 

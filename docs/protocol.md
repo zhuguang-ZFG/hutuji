@@ -87,33 +87,129 @@
 2. PC 上 `telnet <写字机IP> 23`，发 `?` 应回 `<Idle|…>`，发 `$I` 应回 `[VER:…]`——链路通。
 3. S3 侧联调时 `hutuji.status` 应显示 connected/ready。
 
-### 1.4 BLE 只读辅助面（规划，默认关闭）
+### 1.4 BLE 只读诊断辅助面（规划，默认关闭）
 
-BLE 是 S3 的**本地诊断辅助面**，不是板间正式协议。它只有在后续阶段明确启用并完成共存实测后才可进入构建；当前 `CONFIG_BT_ENABLED` 未开启的 S3 镜像不因本节而改变。Grbl 写字机侧已有的经典蓝牙 SPP 与本节是不同器件、不同职责，不能混称为 S3 的 BLE 能力。
+BLE 是 S3 的**本地只读诊断辅助面**，不是板间正式协议。正式 WiFi Telnet/G-code 契约仍为 v0.5；BLE 使用独立的 `BLE-DIAG schema v1`，不因 BLE 设计增补而升级 Telnet 或 G-code 版本。当前 S3 `CONFIG_BT_ENABLED` 未开启，本节不改变现有镜像行为。Grbl 写字机侧已有的经典蓝牙 SPP 与本节是不同器件、不同职责，不能混称为 S3 BLE。
 
-允许的三类能力：
+#### 1.4.1 暴露面、隐私与授权
 
-1. **只读状态广播**：广播经版本化的短状态快照，例如设备健康、WiFi/Telnet 连接态、当前 job 状态、故障分类、`boot_count` 与 `reset_reason`（这些字段须先有本地持久化和启动日志证据）。广播不得包含能力 URL、token、密钥、完整 prompt、G-code 或可还原用户内容。
-2. **GATT 只读诊断**：只定义读取状态/诊断快照的特征；不定义电机、笔控、换纸、授权、任务提交或任意命令写入特征。未定义的写入必须拒绝，不能被解释成控制接口。
-3. **可选 RSSI 近距提示**：只能显示“信号较近/较远”等本地提示，不能把 RSSI 换算成距离、方向、房间位置或安全边界，也不能命名为 UWB、AoA 或 Apple Precision Finding。
+BLE 分为**公开广播面**和**认证 GATT 诊断面**，两者字段严格分级：
 
-硬约束：
+| 面 | 允许字段 | 禁止字段 | 读取条件 |
+|---|---|---|---|
+| 公开广播 | `schema_version`、粗粒度 `health`、粗粒度 `link_flags`、本次启动内的 `snapshot_seq`、`stale` | job 状态/名称/ID、故障细节、`boot_count`、`reset_reason`、能力 URL、token、密钥、文件名、prompt、G-code、用户内容、自由文本 | 附近设备可扫描；因此只放低敏字段 |
+| GATT 诊断 | 固定二进制快照中的链路、job 枚举、故障分类、`boot_count`、`reset_reason`、上次 job 记录 | 同上所有秘密、用户内容、原始异常/堆栈、可重放命令 | 仅加密且认证的 LE Secure Connections + bonding；未认证读取返回 `insufficient authentication`，不得降级为明文或 Just Works 读取 |
 
-- **正式数据面不变**：WiFi Telnet :23 仍是 S3 与 Grbl 的唯一正式板间链路；BLE 不替代、不旁路、不代理 Telnet。
-- **禁止承载 G-code 和运动控制**：BLE 不发送、缓存、确认或重放 G-code，不直接控制电机、笔、换纸、`abort`、授权或 job 生命周期。
-- **默认关闭且最小权限**：未完成阶段验收前保持关闭；启用后也只开放广播和已列明的只读 GATT。不得为了调试偷偷增加写命令、自动配对授权或后台扫描。
-- **平台能力如实表述**：ESP32-S3 方案不提供本项目所需的 UWB/高精度寻向能力；外接 UWB 也不等于 Apple Precision Finding 兼容。任何 UI、日志和文档都必须称为 BLE 诊断或 RSSI 近距提示。
-- **共存先验收再放开**：每一阶段都要在真实 S3、WiFi Telnet 和 Grbl 同时运行时记录 Telnet RTT、断连/重连、窗口应答、任务错误、功耗、堆内存和看门狗/温升；出现正式链路回归即关闭 BLE，不得用“只是辅助面”豁免。
+实现必须使用可轮换的 BLE 地址：阶段 A 使用定时轮换的 NRPA；阶段 B 仅在已有 bond 的诊断窗口内使用 RPA。地址轮换失败时 fail-closed 停止对应广播，不得回退到公开 MAC 或稳定 ID。payload 不得携带 MAC、WiFi SSID、IP 或可长期关联用户的标识。v1 不启用 GATT notify/indicate，只提供明确列出的 `READ` 特征；不设置 `WRITE`/`WRITE_NR`，不设控制特征。所有写请求返回 ATT `write not permitted (0x03)`；未认证读返回 `insufficient authentication (0x05)`，授权窗口外返回 `insufficient authorization (0x08)`；非法 handle/长度分别返回 `invalid handle (0x01)`/`invalid attribute value length (0x0d)`。每个已认证 peer 的诊断读取限速为不超过 1 次/秒，最大同时诊断连接数为 1；超限返回 `insufficient resources (0x11)`，不改变设备状态。敏感字段审查必须同时覆盖广播、GATT 返回值、日志和错误路径。
 
-实施顺序与门槛：
+配对只能通过本地维护动作发起：设备进入维护确认页后，用户必须在设备本地完成明确的触摸/按键确认。未绑定 peer 的配对准入窗口最多保持 60s；已绑定 peer 的诊断授权窗口最多保持 5min，连续 5min 无诊断活动或设备重启即关闭授权窗口，但不自动删除 bond。具体 UI 映射由 S3 实现文档落实，不得由 BLE 写特征、未认证 GATT 或远程 job 工具触发。B 阶段使用具备 MITM 保护的 LE Secure Connections 配对（Numeric Comparison 或 Passkey Entry），明确禁止 Just Works；若目标板型/IDF 无法提供该能力，B 阶段不得启用。只保留 1 个诊断 peer 的 bonding 记录。重新绑定前必须通过本地维护动作撤销旧 peer；撤销、配对失败、密钥丢失和未配对读取都只影响诊断面，不得重启、改变 job 或触碰 WiFi/Telnet。
 
-| 阶段 | 内容 | 进入下一阶段的证据 |
+阶段 A 使用 non-connectable、non-scannable legacy advertising，只启用公开广播，不提供 local name/scan response，不注册 GATT service，不启动 BLE 连接/配对路径。阶段 B 仅在本地维护授权窗口内暂停 A 面广播，开放 connectable advertising 和认证 GATT service；窗口超时、读取空闲超时或重启时必须终止现有诊断连接、停止 connectable advertising、清易失授权并恢复 A 面广播（若运行时总开关仍为 true）。A/B 的编译物和启动日志必须明确报告 `ble_surface=advertising_only` 或 `ble_surface=authenticated_read`，禁止用“BLE 已启用”这一模糊词掩盖实际暴露面。
+
+#### 1.4.2 BLE-DIAG schema v1 与 UUID
+
+下列 UUID 是本项目保留的 128-bit UUID，不是 Bluetooth SIG adopted service；正式实现必须逐字保持：
+
+| 项 | UUID/编码 |
+|---|---|
+| Service `HUTUJI_BLE_DIAG` | `d3e6a7b0-7c22-4f61-9b18-2e4d5f6a7001` |
+| Characteristic `DIAG_SNAPSHOT` | `d3e6a7b0-7c22-4f61-9b18-2e4d5f6a7002`，仅 `READ` |
+| 广播承载 | Legacy Advertising 的 Service Data - 128-bit UUID（AD type `0x21`），使用上方 Service UUID；不启用持续扫描 |
+| 数值编码 | little-endian；固定长度；无 UTF-8/JSON/自由文本 |
+| 版本 | 第一个字节为 `0x10`（major=1、minor=0；高 4 bit=major、低 4 bit=minor）；major 变化必须使用新 UUID 或拒绝旧客户端；v1.0 payload 长度严格固定，收到其他长度须拒绝。未来 minor 只能在另行定义长度协商后追加字段，不能把长 payload 静默交给 v1.0 客户端 |
+
+多字节字段的**线序**为 little-endian；128-bit UUID 在 Service Data AD structure 中按 Bluetooth 线序发送，消费者不得把文档字符串的字符顺序直接 memcpy 成空中 UUID。Service Data 的 AD value 由 16 字节 UUID + 上述 6 字节 payload 组成；加 length/type 共 24 字节，落在 legacy advertising 31 字节上限内。阶段 A 不附 flags、local name、TX power 或 scan response；任何新增 AD structure 都必须重新计算 31 字节预算并升级/复核 schema。
+
+公开广播 Service Data 的 **v1.0 payload** 固定为 6 字节：
+
+```text
+schema_version:u8 | health:u8 | link_flags:u8 | snapshot_seq:u16 | stale:u8
+```
+
+`health`：`0=unknown`、`1=nominal`（快照新鲜、owner 正常且无当前故障）、`2=degraded`（诊断仍活跃但 WiFi/Telnet 不可用或存在可恢复异常）、`3=fault`（存在当前不可恢复或需人工处置的故障）。`link_flags`：bit0=`wifi_up`、bit1=`telnet_ready`，其余位必须为 0；不得借 bit 位暴露 SSID、IP、job 或错误细节。公开 `snapshot_seq` 为 GATT 32 位序列的低 16 位；两者均在完整快照发布时更新并分别回绕。`stale=1` 时消费者必须把 `health` 当作 `unknown` 处理。
+
+认证 GATT `DIAG_SNAPSHOT` 的 **v1.0 value** 固定为 22 字节：
+
+```text
+schema_version:u8 | snapshot_seq:u32 | snapshot_age_s:u16 |
+health:u8 | link_flags:u8 | job_state:u8 | fault_class:u8 |
+reset_reason:u8 | boot_count:u32 | last_job_state:u8 |
+last_job_result:u8 | record_flags:u8 | snapshot_flags:u8 | reserved[2]
+```
+`snapshot_age_s` 饱和为 `65535`；超过该值必须设置 `snapshot_flags` bit0=`stale`。`snapshot_flags` 其余位必须为 0。`reset_reason` 数值固定为 `0=unknown`、`1=power_on`、`2=software`、`3=panic`、`4=watchdog`、`5=brownout`、`6=external`、`7=other`；`boot_count=0` 只有在 `boot_record_valid=0` 时表示未知，不表示真实启动次数为零。
+
+枚举必须固定：`job_state`=`0 unknown`、`1 idle`、`2 downloading`、`3 streaming`、`4 paused`、`5 paper_change`、`6 done`、`7 error`、`8 interrupted`、`9 aborted`；`last_job_state` 使用相同枚举；`fault_class`=`0 none`、`1 unknown`、`2 wifi`、`3 telnet`、`4 download`、`5 crc`、`6 grbl`、`7 paper`、`8 storage`、`9 reset`；`last_job_result`=`0 unknown`、`1 none`、`2 done`、`3 error`、`4 aborted`、`5 interrupted`。`reset_reason` 使用上一段固定编号并由 ESP-IDF `esp_reset_reason()` 映射，禁止直接传 SDK 自由文本。`record_flags` bit0=`boot_record_valid`、bit1=`job_record_valid`、bit2=`last_job_terminal`，未定义位必须为 0。`last_job_terminal=1` 只允许与 `last_job_result ∈ {done,error,aborted,interrupted}` 同时出现；任一记录无效时其对应值必须清为 `unknown`，不能保留旧值配无效 flag。
+
+#### 1.4.3 快照一致性、新鲜度与未知值
+
+- S3 在单一 owner 任务中组装快照，再以一次原子复制发布给广播和 GATT；不得跨任务分别读取 WiFi、Telnet、job、reset 字段后拼出混合时刻的数据。
+- 快照刷新周期目标为 1s；`snapshot_age_s > 5` 或任一必需来源失效时，公开广播置 `stale=1`，GATT 置 `snapshot_flags.stale=1`，相关枚举置 `unknown`，不得用 `idle`、`false`、`0` 猜测；`snapshot_age_s` 按单调时钟计算，无法取得时钟只返回饱和值并置 stale。
+- `snapshot_seq` 在每次完整快照发布后递增；GATT 读取返回同一份快照，不能触发 Telnet 命令、job 操作、重连、reset 或任何运动。
+- 设备重启后，旧 RAM 状态立即失效；只有通过持久化记录恢复的字段才可填充，记录无效时返回 `unknown` 并设置对应 `record_flags` 为 0。
+- v1 不提供通知；客户端必须按读取限速主动读取，并根据 `snapshot_seq`/`snapshot_age_s` 判断是否有新数据。
+
+#### 1.4.4 `boot_count`、复位原因与上次 job 的持久化契约
+
+诊断记录不得写入秘密。NVS 两个槽各保存完整记录：`schema_version`、`length`、64 位 `generation`、32 位 `boot_count`、固定枚举 `reset_reason/last_job_state/last_job_result`、flags 和末尾 CRC-32/IEEE（反射实现、poly=`0xedb88320`、init/xorout 均为 `0xffffffff`）。启动时分别校验 schema、length、枚举、flags 和 CRC，选择 generation 较大的有效槽；两个槽 generation 相等但正文不同视为冲突，整条记录无效。写入时写非当前槽、读回逐字校验成功后才成为新当前槽，掉电中断保留上一有效槽。只在启动和 job 状态边界写入，不按 G-code 行写入；generation 达 `UINT64_MAX` 后拒绝写新记录并标 unknown，不回绕复用旧记录。
+
+固定观测时序：
+
+1. 启动最早阶段读取 `esp_reset_reason()`，再尝试递增 `boot_count`；有效 boot record 提交成功后才允许把新计数对外提供。无有效槽或提交失败时 `boot_count=0` 且 `boot_record_valid=0`，不得猜测。
+2. 观察到 job 接受时记录 `downloading`；在发送第一条 G-code 前先尝试记录 `streaming`；观察到暂停、换纸和最终 `done/error/aborted` 边界时分别记录对应状态。记录动作不得持有 Telnet 单写者锁，不得阻塞、取消、重试或改变正式 job 状态机。
+3. 新启动发现上一条有效记录处于非终态时，将其解释为 `interrupted`/`reset`，把 `last_job_state=interrupted`、`last_job_result=interrupted` 写入新的有效记录；不得自动续画、自动重发、自动授权或自动换纸。若这次写入失败，只返回 `job_record_valid=0`，不改变启动路径。
+4. NVS 记录损坏、schema 不支持、CRC 不符或 generation 冲突时，整条记录视为无效并返回 `unknown`；不得拼接两个槽的字段。
+
+BLE 诊断持久化是**只读观测的证据面**，不是 job 执行前置条件。任何记录提交失败都只将 `fault_class=storage`、相应 `record_flags=0` 并写脱敏日志；正式下载、流控、暂停、abort、换纸和终态仍按既有 §2–§7 执行。终态记录失败后重启可能把上一份非终态保守解释为 `interrupted`，必须以 `job_record_valid=0`/storage 故障诚实暴露，不能据此自动处置机械。
+
+持久化的 `last_job` 只描述最近一次已观测到状态边界的 job，不保存 URL、文件名、G-code、prompt 或 token。正常完成、下载失败、CRC 失败、流控失败、abort、换纸中断电、写入中断电和记录损坏都必须有固定枚举结果；未覆盖情况返回 `unknown`。
+
+#### 1.4.5 编译开关、运行时开关与回滚
+
+- `CONFIG_HUTUJI_BLE_DIAGNOSTICS` 默认 `n`；只有该开关和底层 `CONFIG_BT_ENABLED` 同时开启时才编译 BLE 诊断实现。当前 S3 镜像保持 `CONFIG_BT_ENABLED` 未开启。
+- 即使编译启用，运行时 `ble_diag_enabled` 缺失、非法或为 false 时也不得启动 BLE controller、广播或 GATT；NVS 读取失败按 false 处理。
+- BLE controller/host 初始化失败、内存不足、配对栈异常或诊断任务退出时，必须 fail-closed 关闭 BLE 并记录脱敏分类；WiFi、Telnet、job 主任务继续按原路径运行，不得等待 BLE、不改 Telnet 超时/窗口、不自动重启整机。
+- 现场回滚只能通过本地维护面/重新刷写默认关闭的构建完成；BLE 不得提供自我关闭或控制设备的写命令。回滚验收须证明无 BLE task/controller、WiFi/Telnet 仍可探活，且没有改变 job 状态。
+
+#### 1.4.6 WiFi/Telnet 共存验收门槛
+
+每个阶段都用同一块真实 S3、同一写字机、同一路由器和同一构建，仅切换 BLE 编译/运行开关；关闭 BLE 为基线，开启 BLE 为对照。每种模式至少 3 次、每次 30 分钟，包含 20 个确定性 job 闭环和 10 次受控 WiFi/Telnet 断连注入。以下是进入下一阶段的硬门槛，均为设计阈值而非当前实测结果：
+RTT 必须使用同一类应用层探针、同一发送/接收路径和单调时钟；不得用 ICMP ping、BLE 往返或一次偶然样本替代 Telnet RTT。窗口应答和 job 终态须从带序号的 S3/Grbl 原始日志逐条核对，不能只看最终 `done`。每次运行必须保存 BLE off/on 构建身份、测试轮次、路由器/写字机/S3 标识、原始日志和统计脚本版本。
+
+| 指标 | 允许范围 | 失败处理 |
 |---|---|---|
-| A | 默认关闭的只读状态广播；先覆盖稳定链路态，`reset_reason`/`boot_count` 只有在启动诊断持久化完成后才加入 | host 构建、广播字段解码、无写入路径；真实设备共存前后 Telnet/WiFi/功耗对照 |
-| B | GATT 只读诊断快照 | 读路径、未定义写入拒绝、敏感字段不出界；真实设备断连/重启后诊断仍可解释 |
-| C | 可选 RSSI 近距提示 UI | 多位置、多姿态、多设备实测；UI 明确“提示”而非距离/定位；正式链路无回归 |
+| Telnet RTT | 开启 BLE 的 p95 ≤ `max(基线 p95+10ms, 基线 p95×1.25)`；p99 ≤ `max(基线 p99+20ms, 基线 p99×1.25)` | 关闭 BLE，禁止进入下一阶段 |
+| 窗口应答 | `ok/error` 缺失、重复、错配、乱序均为 0 | 立即判失败，不调大超时掩盖 |
+| job 闭环 | 20/20 终态正确；非预期 error、planner 继续执行、纸状态错判均为 0 | 回滚 BLE |
+| 断连恢复 | 10/10 按既有 §2 状态机收敛；恢复时间不超过基线 p95+5s | 回滚 BLE，不改 Telnet 状态机 |
+| 最低堆 | 开启 BLE 不低于基线最低值减 32KiB，且绝不低于 24KiB | 禁止放开 BLE |
+| 功耗/温升 | 平均功耗增量 ≤10%，峰值增量 ≤15%，温升增量 ≤5°C | 关闭 BLE并登记原因 |
+| panic/assert/watchdog/brownout | 0 次非预期事件 | 立即关闭 BLE，保留串口证据 |
 
-本节是设计约束，不是实现完成或硬件证据。阶段 A/B/C 的构建、烧录、启动身份、共存和 HIL 记录须分别登记到 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`；在此之前不得把 BLE 写成当前可用能力。
+基线不满足既有契约时，先修复基线，不得用 BLE 对照掩盖原有失败。任一指标失败都不得写入“共存通过”。
+
+#### 1.4.7 RSSI 近距提示的范围
+
+RSSI C 阶段的接收端默认为手机或 PC 诊断工具，不是 S3 扫描器；本仓和两个固件仓在 C 阶段前不实现持续扫描。S3 只发送上述广播，外部客户端负责采样和 UI。客户端使用至少 5 个有效样本的中位数和 5s 窗口；进入/退出阈值必须按具体接收器校准并保留迟滞，连续 3s 无样本显示 `unknown`，不得显示为“远”。
+
+RSSI 只能输出 `near/unknown` 等相对提示，不得换算距离、方向、房间位置、安全边界或 UWB/AoA/Apple Precision Finding。阶段 A 使用轮换地址且不广播稳定身份，因此未绑定客户端只能把 RSSI 视为单次可见会话，不能跨地址轮换认定同一设备；阶段 B 的已绑定 peer 可在认证后关联设备，但仍不能把 RSSI 当定位。C 阶段验收至少覆盖多位置、多姿态、人体遮挡、多设备、地址轮换和无目标场景；多设备无法由认证身份消歧时显示 `unknown`，不得挑最强 RSSI 猜设备。正式链路回归时优先关闭持续扫描/提示，不修改 Telnet 流控迁就 RSSI。
+
+#### 1.4.8 证据与外部参考登记
+
+BLE 实现证据按阶段登记：实现仓的 host 测试、构建、刷写和启动身份留在 `D:/Users/xiaozhi-esp32` 及其 `AGENTS.md` 约定；本仓 `docs/release-readiness.md` 只登记状态，`docs/worktree-inventory.md` 登记跨仓工作树和本地证据路径；共存/HIL 记录必须包含测试矩阵、原始日志和关闭 BLE 基线。
+
+外部参考与本地复核（访问日期均为 2026-08-18）：
+
+| 来源 | 版本/范围 | 支撑结论 | 本地复核与限制 |
+|---|---|---|---|
+| [ESP32-S3 Datasheet](https://www.espressif.com/documentation/esp32-s3_datasheet_en.pdf) | v2.2，ESP32-S3 | 芯片提供 Bluetooth LE 5、LE Advertising Extensions 和 WiFi/BLE 内部共存；不列 UWB/AoA/CTE | 只证明芯片能力，不证明本固件启用；本地 `build-waveshare-35/sdkconfig` 与仓根 `sdkconfig` 均为 `CONFIG_BT_ENABLED is not set` |
+| [ESP-IDF ESP32-S3 BLE Overview](https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32s3/api-guides/ble/overview.html) | release-v6.0，ESP32-S3 | ESP32-S3 支持 Bluedroid/NimBLE；NimBLE 为 LE-only 且较省 heap/flash | 本项目目标工具链 v6.0.1；文档 URL 为 release-v6.0，具体实现仍须以本地 SDK commit 为准 |
+| [ESP-IDF ESP32-S3 RF Coexistence](https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32s3/api-guides/coexist.html) | release-v6.0，WiFi STA + BLE advertising/connected | 单一 2.4GHz RF 以时分复用；advertising 可抢占 WiFi 时隙；需软件共存开关与真实性能测试 | 这是设置 §1.4.6 RTT/功耗/HIL 硬门槛的依据，不代表门槛已通过 |
+| [Bluetooth SIG Assigned Numbers](https://www.bluetooth.com/specifications/assigned-numbers/) | 在线 Assigned Numbers，访问 2026-08-18 | AD type `0x21` 为 128-bit Service Data；自定义 128-bit UUID 不冒充 adopted service | 本地 SDK `ble_hs_adv.h` 逐字核得 `BLE_HS_ADV_TYPE_SVC_DATA_UUID128=0x21` |
+| 本地 ESP-IDF 源码 | v6.0.1 commit `8c19b156084a0753687347cca1f5355782893533` | `BLE_GAP_CONN_MODE_NON`/`DISC_MODE_NON`、SC/MITM、`INSUFFICIENT_AUTHEN/AUTHOR`、RPA 与 128-bit Service Data 均有实现入口 | 复核命中 `ble_gap.h`、`ble_sm.h`、`ble_att.h`、`ble_hs_adv.h`、NimBLE Kconfig；只是实现地基，尚未在 xiaozhi 构建/板上运行 |
+
+任何后续社区、GitHub、官方文档、SDK 或硬件资料若影响本节设计，必须追加到本表或明确链接的 `docs/kxnx/` findings，记录来源 URL、版本/commit、访问日期、适用板型与范围、本地复核命令/结果、限制和未验证项。当前 BLE 仍为规划，以上资料没有被当作板上能力证据。
+
+本节是设计约束，不是实现完成或硬件证据；阶段 A/B/C 均须完成上述契约、共存门槛和 HIL 记录后才能改变 readiness 状态。
 
 ## 2. 就绪检测与会话重建
 

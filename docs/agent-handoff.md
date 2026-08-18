@@ -138,18 +138,19 @@ cd D:\Users\hutuji\mcp-server
 
 > fz 绿 ≠ 已烧录 ≠ 阶段 2 通过。
 
-## 6.1 BLE 辅助面实施顺序（默认关闭）
+## 6.1 BLE 只读诊断辅助面实施顺序（默认关闭）
 
-BLE 只作为 S3 本地诊断/救援辅助面推进，不改变 WiFi Telnet :23 正式板间链路。Grbl 侧经典蓝牙 SPP 与 S3 BLE 分属不同器件和职责；不得把两者合并描述。
+BLE 只作为 S3 本地**只读诊断辅助面**推进，不改变 WiFi Telnet :23 正式板间链路。Grbl 侧经典蓝牙 SPP 与 S3 BLE 分属不同器件和职责；不得把两者合并描述。正式 Telnet/G-code 契约仍为 v0.5，BLE 使用独立 `BLE-DIAG schema v1`。
 
 | 阶段 | 交付 | 必须证据 | 明确不做 |
 |---|---|---|---|
-| A | 只读状态广播骨架，默认关闭 | host 构建；广播字段解码；无 GATT 写路径；真实设备 WiFi/Telnet RTT、重连、功耗、堆内存和看门狗对照 | 不发 G-code，不控制电机/笔/换纸/job；不广播 URL、token、密钥或用户内容 |
-| B | GATT 只读诊断快照 | 读取字段契约；未定义写入明确拒绝；重启/断连后 `reset_reason`、`boot_count` 与上次 job 状态可解释 | 不做任务提交、授权、abort 或任意命令通道 |
-| C | 可选 RSSI 近距提示 UI | 多位置/姿态/设备实测；UI 只称近距提示；正式链路无 RTT、吞吐、断连、功耗回归 | 不宣称距离、方向、房间定位、UWB、AoA 或 Apple Precision Finding |
+| A | 默认关闭的 6 字节公开粗粒度状态广播；公开面不放 job/fault/reset 细节 | host 构建；广播字段解码；无 GATT 写路径；真实设备关闭/开启 BLE 的 RTT、重连、20 个 job、功耗、堆内存、温升和看门狗对照 | 不发 G-code，不控制电机/笔/换纸/job；不广播 URL、token、密钥或用户内容 |
+| B | 需 LE Secure Connections + bonding 的 22 字节 GATT `READ` 诊断快照；每 peer ≤1 次/s、最多 1 个连接 | schema/UUID/枚举契约；未认证读取被拒、所有写入被拒；NVS 双槽 CRC 记录；重启/断连后 `reset_reason`、`boot_count` 与上次 job 状态可解释 | 不做任务提交、授权、abort、notify/indicate 或任意命令通道 |
+| C | 手机或 PC 诊断工具消费广播，显示 `near/unknown` RSSI 近距提示；S3 不做持续扫描 | 多位置/姿态/遮挡/设备/无目标实测；5 样本中位数、5s 窗口、3s 无样本为 unknown；正式链路无 RTT、吞吐、断连、功耗回归 | 不宣称距离、方向、房间定位、UWB、AoA 或 Apple Precision Finding |
 
-进入下一阶段前，必须把构建、烧录、启动身份、共存实测和 HIL 结果写入 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`。当前 S3 `CONFIG_BT_ENABLED` 未开启，A/B/C 均为规划；不得把设计文档当作设备能力证据。
+实施共存门槛：每阶段使用同一 S3、写字机、路由器和构建，关闭 BLE 为基线，开启 BLE 至少 3 次、每次 30 分钟；包含 20 个确定性 job 闭环和 10 次受控断连。Telnet RTT、应答错配、job 终态、恢复时间、堆内存、功耗、温升和 panic/watchdog 的具体硬门槛以 `docs/protocol.md` §1.4.6 为准；任一失败即关闭 BLE，不得调 Telnet 超时或窗口掩盖回归。
 
+进入下一阶段前，必须把构建、烧录、启动身份、schema 解码、共存实测和 HIL 原始证据写入 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`。外部资料必须按 `docs/protocol.md` §1.4.8 登记。当前 S3 `CONFIG_BT_ENABLED` 未开启，A/B/C 均为规划；不得把设计文档当作设备能力证据。
 ## 7. 改完必须同步的文件
 
 | 你改了什么 | 必须更新 |
