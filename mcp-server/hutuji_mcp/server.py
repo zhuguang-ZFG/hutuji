@@ -21,8 +21,10 @@ import re
 import secrets
 import stat
 import time
+import hashlib
 import zlib
 from collections import deque
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -261,6 +263,36 @@ async def _generate_svg_limited(description: str) -> str:
         return await generate_svg(description)
 
 
+# G-code 内容缓存：同一 SVG 的 vpype 输出是确定内容，重复主题只需把上次
+# 字节写进新的随机 capability 文件，跳过 ~0.7s 子进程。键是 SVG 内容哈希，
+# 与 _new_basename 解耦；TTL/容量与位图结果缓存同口径。只缓存校验通过
+# 后的字节，失败不落表。
+_GCODE_CACHE_TTL_SECONDS = 600.0
+_GCODE_CACHE_MAX_ENTRIES = 16
+_gcode_cache: OrderedDict[str, tuple[float, bytes, object]] = OrderedDict()
+_gcode_cache_clock = time.monotonic
+
+
+async def _svg_to_gcode_cached(svg: str, svg_path: Path, gcode_path: Path):
+    key = hashlib.sha256(svg.encode("utf-8")).hexdigest()
+    now = _gcode_cache_clock()
+    hit = _gcode_cache.get(key)
+    if hit is not None:
+        created, payload, stats = hit
+        if now - created < _GCODE_CACHE_TTL_SECONDS:
+            _gcode_cache.move_to_end(key)
+            logger.info("G-code 内容缓存命中")
+            gcode_path.write_bytes(payload)
+            return stats
+        del _gcode_cache[key]
+    stats = await svg_to_gcode_async(svg_path, gcode_path)
+    _gcode_cache[key] = (_gcode_cache_clock(), gcode_path.read_bytes(), stats)
+    _gcode_cache.move_to_end(key)
+    while len(_gcode_cache) > _GCODE_CACHE_MAX_ENTRIES:
+        _gcode_cache.popitem(last=False)
+    return stats
+
+
 @mcp.tool()
 async def hutuji_draw(description: str) -> str:
     """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
@@ -269,10 +301,11 @@ async def hutuji_draw(description: str) -> str:
     参数 description：简短中文主题，建议 10～40 字；最长 200 字，超出会被截断。
     好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」。
     坏例子：长篇故事、要求填色/照片写实、无主题的空话。
-
     返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址，有有效期，以返回的
     ttl_seconds 秒数为准，拿到后请立即开始绘图，过期需重新生成）、lines/bytes/pen_lifts/ttl_seconds。
     不要编造 url；失败时根据错误白话说明。"""
+
+
     # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
     public_base_url = validate_public_base_url(settings.public_base_url)
     svg_path: Path | None = None
@@ -298,7 +331,8 @@ async def hutuji_draw(description: str) -> str:
             # SVG 已被限制到 256KiB；同步落盘很短，并避免取消 to_thread 后后台迟写残留文件。
             svg_path.write_text(svg, encoding="utf-8")
             preview_path.write_bytes(bitmap.preview_png)
-            stats = await svg_to_gcode_async(svg_path, gcode_path)
+            stats = await _svg_to_gcode_cached(svg, svg_path, gcode_path)
+
     except BaseException:
         # 取消也必须清理 capability 产物；清理失败只能记日志，不能覆盖原异常。
         for path in (svg_path, gcode_path, preview_path):

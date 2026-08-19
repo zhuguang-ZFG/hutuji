@@ -77,7 +77,7 @@
 2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 xiaozhi `dcbec6f` 已提交并推送；当前 Waveshare 镜像 ELF `031cafd5…` 已完成触摸、七工具、Telnet、授权、fresh-`Idle` 与控制抽屉低层动作的部分 HIL。**仍缺**：预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作、纸面画质目视、断连恢复 `paper_active` 窗口 abort 复测。
 3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 HTTPS、MCP+桥接常驻、真实语音出图和 SPEED-01/设备 PNG 预览运行态已有证据；生产 preflight 26/26。仓库实现已提交，剩余设备预览/控制人机验收与生产签核。
 
-> **生图后端边界（2026-08-17）**：正式 `hutuji_draw` 始终保持「PNG → 中心线描摹 → SVG → G-code」。可选商汤 `sensenova-u1-fast` 只作为 PNG 主后端，失败回退 Agnes，再失败才走 imagefree；禁止为追求速度切成模型直写 SVG。商汤真实 A/B 只在轮换后的新 key 注入生产 600 权限 env 后执行，聊天中出现过的 key 视为泄露，不得使用。
+> **生图后端边界（2026-08-19）**：正式 `hutuji_draw` 始终保持「PNG → 中心线描摹 → SVG → G-code」。先查 10 分钟/16 项进程内同题中心线缓存；同题在途生成合并（single-flight）；未命中时商汤 `sensenova-u1-fast`、Agnes 与 imagefree 三路并发对冲、谁先出图用谁，商汤瞬态 500 快速重试一次，三路全失败才报错；同一 SVG 的 G-code 内容缓存命中时跳过 vpype 子进程；禁止为追求速度切成模型直写 SVG。Pollinations 经 6 个冷 seed + 真实描摹否决（5 次 44–46s，含照片/3D 阴影与纹理，描摹 300s 未收敛），不得加入正式 racer。商汤真实 A/B 只在轮换后的新 key 注入生产 600 权限 env 后执行，聊天中出现过的 key 视为泄露，不得使用。
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
 实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。

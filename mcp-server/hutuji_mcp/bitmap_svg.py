@@ -15,10 +15,13 @@ vpype 管线的 SVG 都过同一道闸」是不变量，不因来源可信而豁
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
+from collections import OrderedDict
 import asyncio
 import ipaddress
 import json
 import logging
+import time
 import sys
 import zlib
 from dataclasses import dataclass
@@ -60,6 +63,19 @@ _BITMAP_STYLE = (
 _IMAGE_SIZE = "1024x1024"
 _SENSENOVA_IMAGE_SIZE = "1760x2368"
 _SENSENOVA_ATTEMPT_TIMEOUT_SECONDS = 20.0
+# 商汤 500 实测偶发、同 payload 紧接着可 200；只快速重试一次，避免单次波动
+# 把本来 12s 的快路径让给更慢 racer。仍受单次 20s attempt timeout 约束。
+_SENSENOVA_RETRY_DELAYS_SECONDS = (0.5,)
+# 相同规范化主题的完整中心线结果缓存：设备/用户常重复「五角星」「小猫」，命中
+# 后只需 vpype（生产实测 ~0.7s），不重复付费生图、下载和描摹。TTL 与能力 URL
+# 同为 600s；缓存仅存内存中的 SVG/预览，不延长任何落盘 capability 的有效期。
+_BITMAP_CACHE_TTL_SECONDS = 600.0
+_BITMAP_CACHE_MAX_ENTRIES = 16
+_bitmap_cache: OrderedDict[str, tuple[float, BitmapResult]] = OrderedDict()
+# 同题在途合并的状态表；合并函数紧邻 generate_bitmap。缓存只在生成完成后
+# 命中，语音端重试/双击并发仍会重复发起付费请求，故需任务表搭车。
+_bitmap_fetch_inflight: dict[str, asyncio.Task[bytes]] = {}
+_bitmap_cache_clock = time.monotonic
 
 # 单次尝试的完整上限：agnes 实测 10~22s/张，45s 仍留 >2× 余量。不许无限挂，
 # 也不给 90s：主链最坏 3×45+2×30 下载 ≈ 195s；含备用单次尝试 ≈ 240s，仍低于
@@ -234,15 +250,20 @@ def _import_trace_deps() -> tuple:
 
 
 def warm_trace_deps() -> None:
-    """把描摹链的重依赖预先装进 sys.modules（幂等，纯 import，不碰网络/磁盘）。
+    """预热描摹链：装重依赖 + 用探针 PNG 真描一次（幂等，不碰网络/磁盘）。
 
     冷启 import 本机实测 ~3.0s（skimage/sknw/imageio 连带 scipy/numba），而
     `_import_trace_deps` 是**函数内**延迟 import，systemd 的 `ExecStartPre` 自检又跑在
     **独立进程**里——预热不到服务进程。于是每次重启后这 3s 都落在第一次真实出图上
     （2026-08-17 生产日志：14:04:59 PNG 下完 → 14:05:04 才出应答）。服务启动时调它，
     把这笔一次性开销从用户等待里挪走；依赖是否可用仍由 ExecStartPre / preflight 判红。
+
+    只 import 还不够：skimage 过滤器/骨架化首调另有 ~2.4s 一次性初始化（2026-08-19
+    本机实测：import 后首次 trace 2.4s、第二次 0.0s）。用自检测绘同款的探针 PNG
+    真描一遍，首单才能稳态速度。
     """
     _import_trace_deps()
+    trace_bitmap_to_polylines(_encode_probe_png())
 
 
 def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
@@ -387,6 +408,8 @@ def _image_fallback_url() -> str:
     return getattr(settings, "image_fallback_url", "").strip()
 
 
+
+
 async def _post_image_request(
     client: httpx.AsyncClient,
     url: str,
@@ -488,7 +511,7 @@ async def _request_agnes_image_url(
 async def _request_sensenova_image_url(
     client: httpx.AsyncClient, description: str
 ) -> str:
-    """调用商汤 U1 Fast 的官方 PNG 接口；单次失败立即回退 Agnes。"""
+    """调用商汤 U1 Fast 的官方 PNG 接口；单次尝试 20s 尾延闸，供对冲赛跑。"""
     url = f"{settings.sensenova_base_url.rstrip('/')}/images/generations"
     payload = {
         "model": settings.sensenova_image_model,
@@ -504,7 +527,7 @@ async def _request_sensenova_image_url(
         payload,
         headers,
         "商汤生图 API",
-        retry_delays=(),
+        retry_delays=_SENSENOVA_RETRY_DELAYS_SECONDS,
         attempt_timeout_seconds=_SENSENOVA_ATTEMPT_TIMEOUT_SECONDS,
     )
     return _extract_agnes_image_url(data)
@@ -535,8 +558,71 @@ async def _request_fallback_image_url(client: httpx.AsyncClient, description: st
     return image_url
 
 
+async def _race_image_backends(
+    client: httpx.AsyncClient, description: str
+) -> str:
+    """商汤 / Agnes / imagefree 并发对冲：谁先出 URL 用谁，输家取消并回收。
+
+    2026-08-19 决策（用户拍板，接受付费端点双倍调用费 + imagefree 免费渠道
+    进赛跑）：商汤 U1 Fast 实测延迟 10~37s 方差极大，串行回退最坏 64s，
+    超过小智云 MCP 调用 ~30s 预算。并发后单张图耗时 ≈ min(三侧)。免 key
+    渠道赢的场次会在日志留名；缺 key 的配置闸在赛跑前触发，仍 fail-closed。
+    """
+    racers: list[
+        tuple[str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
+    ] = [
+        ("商汤生图", _request_sensenova_image_url),
+        ("Agnes", _request_agnes_image_url),
+    ]
+    if _image_fallback_url():
+        racers.append(("备用端点", _request_fallback_image_url))
+    tasks = {
+        asyncio.create_task(fn(client, description)): name
+        for name, fn in racers
+    }
+    errors: dict[str, BitmapError] = {}
+    pending: set[asyncio.Task] = set(tasks)
+    winner: str | None = None
+    try:
+        while winner is None and pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                try:
+                    image_url = task.result()
+                except BitmapError as exc:
+                    # 对冲期单侧失败属正常波动，记 info；全灭才升级。
+                    logger.info("生图对冲：%s 失败：%s", tasks[task], exc)
+                    errors[tasks[task]] = exc
+                    continue
+                winner = image_url
+                logger.info("生图对冲：%s 先出图", tasks[task])
+                # 同批醒来的其余已完成任务若带异常，标记已取——否则 asyncio
+                # 在 GC 时打 "Task exception was never retrieved" 噪音。
+                for other in done:
+                    if other is not task and other.done() and not other.cancelled():
+                        other.exception()
+                break
+    finally:
+        rest = [t for t in tasks if not t.done()]
+        for task in rest:
+            task.cancel()
+        if rest:
+            await asyncio.gather(*rest, return_exceptions=True)
+    if winner is None:
+        parts = [
+            f"商汤生图失败：{errors['商汤生图']}",
+            f"Agnes 同样失败：{errors['Agnes']}",
+        ]
+        if "备用端点" in errors:
+            parts.append(f"备用端点同样失败：{errors['备用端点']}")
+        raise BitmapError("；".join(parts))
+    return winner
+
+
 async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransport | None = None) -> bytes:
-    """生图并下载 PNG：可选商汤主链 → Agnes → imagefree；描摹链不变。"""
+    """生图并下载 PNG：商汤 / Agnes / imagefree 三路并发对冲 → 描摹链不变。"""
     if not settings.llm_api_key:
         # CloudUX-F5：Agnes 仍是商汤失败时的受控回退，故凭据必须始终可用。
         logger.warning(
@@ -559,16 +645,11 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
             getattr(settings, "sensenova_api_key", "").strip()
         )
         if sensenova_enabled:
+            # 三路对冲内已含 imagefree，失败后无第二层可退。
             try:
-                image_url = await _request_sensenova_image_url(client, description)
-            except BitmapError as sensenova_exc:
-                logger.warning("商汤生图失败，回退 Agnes：%s", sensenova_exc)
-                try:
-                    image_url = await _request_agnes_image_url(client, description)
-                except BitmapError as agnes_exc:
-                    generation_error = BitmapError(
-                        f"商汤生图失败：{sensenova_exc}；Agnes 同样失败：{agnes_exc}"
-                    )
+                image_url = await _race_image_backends(client, description)
+            except BitmapError as hedge_exc:
+                generation_error = hedge_exc
         else:
             try:
                 image_url = await _request_agnes_image_url(client, description)
@@ -576,9 +657,10 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                 generation_error = agnes_exc
 
         if generation_error is not None:
-            # 两个鉴权主后端均失败后才走免鉴权备用。生成成功后的 CDN 下载失败
+            # 商汤启用时 imagefree 已在对冲里赛跑过，直接抛出；未启用时
+            # 鉴权主后端失败后才走免鉴权备用。生成成功后的 CDN 下载失败
             # 不进此分支，避免重复计费或画风漂移。
-            if not _image_fallback_url():
+            if sensenova_enabled or not _image_fallback_url():
                 raise generation_error
             try:
                 image_url = await _request_fallback_image_url(client, description)
@@ -639,10 +721,52 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                 await asyncio.sleep(_RETRY_DELAYS_SECONDS[0])
 
 
+def _get_cached_bitmap(description: str) -> BitmapResult | None:
+    now = _bitmap_cache_clock()
+    cached = _bitmap_cache.get(description)
+    if cached is None:
+        return None
+    created_at, result = cached
+    if now - created_at >= _BITMAP_CACHE_TTL_SECONDS:
+        del _bitmap_cache[description]
+        return None
+    _bitmap_cache.move_to_end(description)
+    return result
+
+
+def _cache_bitmap(description: str, result: BitmapResult) -> None:
+    _bitmap_cache[description] = (_bitmap_cache_clock(), result)
+    _bitmap_cache.move_to_end(description)
+    while len(_bitmap_cache) > _BITMAP_CACHE_MAX_ENTRIES:
+        _bitmap_cache.popitem(last=False)
+
+
+async def _fetch_image_png_coalesced(description: str) -> bytes:
+    """同题在途合并：第二个相同规范化主题挂到同一个生图任务上。
+
+    shield 使单个调用方取消不杀死共享任务（其余调用方还在等）；取消方随后
+    仍走 generate_bitmap 自己的描摹收尾契约。任务结束（成功/失败/取消）由
+    done_callback 清表，失败不进结果缓存，下一次同题调用真实重试。
+    """
+    task = _bitmap_fetch_inflight.get(description)
+    if task is None:
+        task = asyncio.create_task(_fetch_image_png(description))
+        _bitmap_fetch_inflight[description] = task
+        task.add_done_callback(
+            lambda _done, key=description: _bitmap_fetch_inflight.pop(key, None)
+        )
+    return await asyncio.shield(task)
+
+
 async def generate_bitmap(description: str) -> BitmapResult:
     """description → 同源单线 SVG + 设备屏幕 PNG 预览。"""
     safe_desc = _sanitize_description(description)
-    png = await _fetch_image_png(safe_desc)
+    cache_key = safe_desc.strip()
+    cached = _get_cached_bitmap(cache_key)
+    if cached is not None:
+        logger.info("位图结果缓存命中")
+        return cached
+    png = await _fetch_image_png_coalesced(safe_desc)
 
     def build() -> BitmapResult:
         polys, w, h = trace_bitmap_to_polylines(png)
@@ -655,7 +779,9 @@ async def generate_bitmap(description: str) -> BitmapResult:
     # Python 线程无法强制取消。取消时等描摹+预览真正收尾，才释放 DrawLimiter。
     work = asyncio.ensure_future(asyncio.to_thread(build))
     try:
-        return await asyncio.shield(work)
+        result = await asyncio.shield(work)
+        _cache_bitmap(cache_key, result)
+        return result
     except asyncio.CancelledError:
         current = asyncio.current_task()
         while not work.done():

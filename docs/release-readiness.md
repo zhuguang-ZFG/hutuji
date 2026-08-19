@@ -2,6 +2,8 @@
 
 > **2026-08-19 Waveshare UI 与 BLE Phase A 取证（最终加固源码 `f1aa0e7`）**：COM14 当前运行默认 UI 镜像 `58defc01…63b2`（2,974,336B，最终源码重建）；启动后 WiFi/Telnet/fresh `Idle` 正常，最低 SRAM 27,739B，无 panic/assert/reboot。BLE 启用镜像 `5a68fafe…80d6`（3,172,544B）已刷入 COM14：4 分钟稳定性抓取 1,683 行，无 `BLE_ERR_MEM_CAPACITY`、panic、assert、reboot，free SRAM 稳定约 22.1KiB；Bleak 30s/15s 两轮均收到目标 UUID 广播，payload 全 6B、seq 10→140 递增、`stale=0`、无 local name/scan response。回滚：NVS 分区 byte-identical 恢复（读回 cmp 相等，`ble_diag/enabled=0`），默认镜像 `58defc01…63b2` 重刷并自证，10s 目标 UUID 扫描 `matches=[]`。证据 `results/local-only/2026-08-19/ble-current-f1aa0e7-240s.log`、`ble-current-f1aa0e7-scan-30s.json`、`ble-current-f1aa0e7-scan-15s.json`、`default-f1aa0e7-rollback-boot.log`、`ble-current-f1aa0e7-rollback-scan-10s.json`、`com14-nvs-*.bin`（本机，不入库）。**未闭合**：4 分钟抓取期间 log 的 `minimal sram: 1647` 低于 §1.4.6 的 24KiB 最低堆门槛，但缺 BLE-off 同构基线，不能判定回归或宣称共存通过；共存量化、功耗/温升、阶段 B/C、UI 画面目视与五触控动作 HIL 均未完成。
 
+> **2026-08-19 生图低延迟对冲、合并与双缓存（生产验证）**：生产运行商汤 `sensenova-u1-fast`、Agnes 与 imagefree 三路并发对冲；商汤瞬态 500 快速重试一次；同题在途生成合并（single-flight，语音重试不重复计费）；600s/16 项进程内同题中心线缓存；同一 SVG 的 G-code 内容缓存命中时跳过 vpype 子进程。最终 `bitmap_svg.py` / `server.py` LF scp 后本地/生产 md5 同为 `6ce75648d2eedccfd0e1131f89c49e5b` / `65adea296c38f4ab07788bdd1edf7ca0`，双服务 active，MCP MainPID `2922922`，preflight **26/26 PASS**。真实同题小松鼠两次：首轮 imagefree 胜出 22.278s，第二轮双缓存命中 **0.002s**，两次均 941 行/22,159B/50 次抬笔，G-code 契约一致。此前分段实测：FETCH 13.168s / TRACE 0.131s / SVG+PREVIEW 0.173s / G-code 0.708s，生成下载占 93%；商汤同 payload 实测 200/12.37s，先前 500 属间歇性故障。preview-first 协议拆分仅省 0.71s 且引入确认过快时 G-code 404 风险，不采用；高频主题预热属主动付费新行为，未经用户明确批准不启用。Pollinations 候选否决：6 个冷 seed 仅 1 次 3.1s、5 次 44–46s，真实图含照片/3D 阴影纹理，描摹闭环 300s 未收敛；imagefree 3:4 画幅同题 10.9s vs 1:1 204.1s 为单对样本，近 50 条 gallery 统计显示两画幅 p50 相当（8.7s/7.9s），不构成切换依据。AI Horde 官方异步契约允许无 worker 等待 10 分钟，不满足设备预算。新增 racer 必须先过真实图片→描摹→G-code→目视可写闭环。
+
 > **2026-08-17 SPEED-01 + 中心线预览云端生产部署（运行态窄覆盖）**：LF scp `bitmap_svg.py` / `server.py`，生产 SHA-256 `949d2da7…fff8` / `ac06ee82…e9e` 与本机 staged 文件一致；备份 `/root/hutuji-bak-20260817-speed01/`。仅重启 `hutuji-mcp`，新 MainPID `2559546`，ExecStartPre、应用启动与 fresh MCP 200/202 均通过；进程 maps 实查 `numpy/scipy/skimage` 均已加载，确认重依赖预热落在真实服务进程；生产 preflight **26/26 PASS**。**未验证**：未追加付费首图计时，不能把约 3 秒冷 import 的移出直接写成实测提速；设备预览确认/取消仍缺最终人机验收。bridge/nginx/cloudflared/env/unit 未改，生产提交基线仍为 `1082400`，两文件运行态按上述 SHA 绑定。
 
 > **2026-08-17 Waveshare 控制面与真实语音历史证据（superseded by `dcbec6f` current source）**：`178f75f` 阶段完成儿童友好 UI、FT6336 映射、二维码触摸隔离、5 分钟待机、真实语音五角星出图、页尾归位与自动换纸；生产 bridge stale session 经重启恢复并通过 preflight 26/26。该证据证明真实语音主链与历史硬件行为，不替代当前 `dcbec6f` 新增预览/五按钮的人机验收。详细日志路径与观察边界保留在 git 历史及 `worktree-inventory.md`。
@@ -36,7 +38,7 @@
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-08-19**，pytest **845 passed**、e2e `PASS`；docs 指纹 151 处全对，外仓文档引用 152 处全在范围；本轮治理与外仓约束均通过
+- 本仓 `hub` 最近通过：**2026-08-19**，pytest **852 passed**、e2e `PASS`；docs 指纹 151 处全对，外仓文档引用 152 处全在范围；本轮治理与外仓约束均通过
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）
