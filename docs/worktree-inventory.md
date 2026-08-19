@@ -6,8 +6,8 @@
 
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
-- **生产运行态**：提交基线仍为 `1082400`；2026-08-19 最终三路对冲 + 商汤快速重试 + 同题 single-flight 合并 + 中心线/G-code 双缓存版 `bitmap_svg.py` / `config.py`（`server.py` 同批 md5 `65adea296c38f4ab07788bdd1edf7ca0`）LF scp 后本地/生产 md5 `d6f064ccbc1d51474a2c93e4d595e9b3` / `183aa425da1c603bf80e4e00386254f2`，双服务 active，preflight 26/26；真实同题小松鼠首轮 22.278s、双缓存命中第二轮 0.002s，两次 G-code 均为 941 行/22,159B/50 次抬笔。硅流双 racer 代码保留但生产 key 已注释停用（用户决定不充值；停用后真实出图无硅流请求）。bridge/nginx/cloudflared/env 结构未改。
-- **本地保留资产**：原 12 个会话记忆、临时脚本和串口转储在 `results/local-only/2026-08-18/`；`.pi-memory-consolidated.md`、两份临时记忆整理计划及 Pollinations 六张候选图/冷 seed 延迟证据在 `results/local-only/2026-08-19/`；Waveshare 触摸修复的 `drag-scroll-visible-boot.log` 与 `drag-responsive-boot.log` 在 `results/local-only/2026-08-20/`。三处均只在本机、未删除、未上传，也不纳入产品提交。
+- **生产运行态**：应用基线 `7eac656`。2026-08-20 LF blob `bitmap_svg.py` / `server.py` / `requirements.txt` 生产 SHA-256 `765cc091…1fa` / `ddf2b5c0…f26` / `4200aed6…deb`，双服务 MainPID `2966745/2966746`，两条 ExecStartPre 成功，preflight 26/26。标准 MCP cancel 冷题探针前两次各 2 秒取消、第三次 8.504 秒接管成功；同窗 3 次 `CallToolRequest`、2 次取消、仅 1 轮生图对冲/1 次 Agnes POST。现行链仍含 2026-08-19 三路对冲、商汤快速重试、中心线/G-code 双缓存；硅流 key 按用户决定保持停用。bridge/nginx/cloudflared/env 结构未改。
+- **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/` 与 `2026-08-20/` 均保留且被 gitignore；08-20 新增生产 draw/cancel 探针、精确 LF 部署候选与初次 CRLF 候选失败证据。根目录未跟踪 `memory_remove` / `memory_replace` 为用户资产，未读、未改、未提交。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
 ## 2. Grbl_Esp32（运动控制）
@@ -33,7 +33,7 @@
 
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
-| hutuji | `git rev-parse --short HEAD` | 本次 tracked 文档随提交收口；12 个 local-only untracked 保留 |
+| hutuji | `git rev-parse --short HEAD` | 服务修复提交 `7eac656` 已部署；生产证据与取消所有权契约已同步，ignored local-only 证据与 2 个用户未跟踪文件保留 |
 | Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | `847b564`，干净；板上证据止于 `e3b1cad` |
 | xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `211d75a`，已推且干净；默认镜像已刷 COM14并通过窄启动检查，绝对锚定拖动手感待现场复核 |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留 |

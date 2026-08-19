@@ -5,6 +5,7 @@
 > **完成定义 / 可跑门禁**：`agent-gate.md` + `python scripts/agent_gate.py`。  
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
+> **2026-08-20 MCP 取消重试修复（生产基线 `7eac656`）**：完整 `hutuji_draw` 事务改由独立任务持有，云端取消只结清 waiter，同题重试复用同一个限流名额与付费生成；位图 single-flight 扩到 PNG→描摹→缓存。仓内 863 项 + e2e PASS；生产三文件 LF/hash 对账、双服务重启、两条 ExecStartPre 与 preflight 26/26 均通过。标准 MCP cancel 两次后第三次接管成功，三次 call 仅一轮生图对冲。设备协议/固件未改，当前 UI/HIL 缺口不变。
 > **2026-08-19 当前 S3 候选（HEAD `f1aa0e7`）**：Waveshare 3.5 UI 已以 `2dc2769` 重构为 Grobot 创作工作台，BLE 生命周期加固以 `f1aa0e7` 提交；全 host **93/93**、BLE 专测 **18/18**，默认/启用 BLE 两套 ESP-IDF v6.0.1 构建通过且均已刷 COM14。当前板上默认镜像 `58defc01…63b2` 自证 WiFi/Telnet/fresh Idle（最低 SRAM 27,739B）；实际画面目视、预览确认/取消与暂停/继续/停止/重画/试笔五个触控动作仍未验证。BLE-DIAG 阶段 A 当前源码已完成 COM14 复验：4 分钟 1,683 行无内存错误/重启、两轮 6 字节空中包（seq 10→140）、NVS byte-identical 回滚、回滚后 10s 扫描为空；但 `minimal sram: 1647` 低于 24KiB 门槛且缺 BLE-off 基线对照，共存量化矩阵、功耗/温升、阶段 B/C 未完成。证据见 readiness 文首与 `worktree-inventory.md`。
 
 
