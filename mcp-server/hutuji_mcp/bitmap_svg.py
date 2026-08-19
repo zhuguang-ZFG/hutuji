@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from urllib.parse import urlsplit
 
+import anyio
 import httpx
 import numpy as np
 
@@ -82,9 +83,9 @@ _SILICONFLOW_ATTEMPT_TIMEOUT_SECONDS = 20.0
 _BITMAP_CACHE_TTL_SECONDS = 600.0
 _BITMAP_CACHE_MAX_ENTRIES = 16
 _bitmap_cache: OrderedDict[str, tuple[float, BitmapResult]] = OrderedDict()
-# 同题在途合并的状态表；合并函数紧邻 generate_bitmap。缓存只在生成完成后
-# 命中，语音端重试/双击并发仍会重复发起付费请求，故需任务表搭车。
-_bitmap_fetch_inflight: dict[str, asyncio.Task[bytes]] = {}
+# 同题在途合并覆盖完整 BitmapResult，而非只覆盖付费 PNG 请求。客户端取消后，
+# 生成、描摹与缓存仍由这张任务负责收尾；随后重试直接搭车或命中缓存。
+_bitmap_inflight: dict[str, asyncio.Task[BitmapResult]] = {}
 _bitmap_cache_clock = time.monotonic
 
 # 单次尝试的完整上限：agnes 实测 10~22s/张，45s 仍留 >2× 余量。不许无限挂，
@@ -818,21 +819,27 @@ def _cache_bitmap(description: str, result: BitmapResult) -> None:
         _bitmap_cache.popitem(last=False)
 
 
-async def _fetch_image_png_coalesced(description: str) -> bytes:
-    """同题在途合并：第二个相同规范化主题挂到同一个生图任务上。
+def _forget_bitmap_inflight(key: str, done: asyncio.Task[BitmapResult]) -> None:
+    """只清掉自己登记的任务，避免完成回调误删同键后继任务。"""
+    if _bitmap_inflight.get(key) is done:
+        del _bitmap_inflight[key]
 
-    shield 使单个调用方取消不杀死共享任务（其余调用方还在等）；取消方随后
-    仍走 generate_bitmap 自己的描摹收尾契约。任务结束（成功/失败/取消）由
-    done_callback 清表，失败不进结果缓存，下一次同题调用真实重试。
-    """
-    task = _bitmap_fetch_inflight.get(description)
-    if task is None:
-        task = asyncio.create_task(_fetch_image_png(description))
-        _bitmap_fetch_inflight[description] = task
-        task.add_done_callback(
-            lambda _done, key=description: _bitmap_fetch_inflight.pop(key, None)
-        )
-    return await asyncio.shield(task)
+
+async def _generate_bitmap_uncached(description: str, cache_key: str) -> BitmapResult:
+    """跑完整付费生成链并在任务结束前写入结果缓存。"""
+    png = await _fetch_image_png(description)
+
+    def build() -> BitmapResult:
+        polys, w, h = trace_bitmap_to_polylines(png)
+        svg = polylines_to_svg(polys, w, h)
+        if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:
+            raise BitmapError("描摹 SVG 超过 256KiB 上限（图太复杂）")
+        _validate_svg(svg)
+        return BitmapResult(svg=svg, preview_png=polylines_to_preview_png(polys, w, h))
+
+    result = await asyncio.to_thread(build)
+    _cache_bitmap(cache_key, result)
+    return result
 
 
 async def generate_bitmap(description: str) -> BitmapResult:
@@ -843,32 +850,43 @@ async def generate_bitmap(description: str) -> BitmapResult:
     if cached is not None:
         logger.info("位图结果缓存命中")
         return cached
-    png = await _fetch_image_png_coalesced(safe_desc)
 
-    def build() -> BitmapResult:
-        polys, w, h = trace_bitmap_to_polylines(png)
-        svg = polylines_to_svg(polys, w, h)
-        if len(svg.encode("utf-8")) > _SVG_MAX_BYTES:
-            raise BitmapError("描摹 SVG 超过 256KiB 上限（图太复杂）")
-        _validate_svg(svg)
-        return BitmapResult(svg=svg, preview_png=polylines_to_preview_png(polys, w, h))
+    work = _bitmap_inflight.get(cache_key)
+    if work is not None and work.get_loop() is not asyncio.get_running_loop():
+        # 测试/嵌入调用可能轮换事件循环；生产单 loop 不会走此分支。旧 loop 的
+        # 任务不能跨 loop await，且若已完成只需取其异常避免未取异常噪音。
+        if work.done() and not work.cancelled():
+            work.exception()
+        _bitmap_inflight.pop(cache_key, None)
+        work = None
+    if work is None:
+        work = asyncio.create_task(_generate_bitmap_uncached(safe_desc, cache_key))
+        _bitmap_inflight[cache_key] = work
+        work.add_done_callback(
+            lambda done, key=cache_key: _forget_bitmap_inflight(key, done)
+        )
 
-    # Python 线程无法强制取消。取消时等描摹+预览真正收尾，才释放 DrawLimiter。
-    work = asyncio.ensure_future(asyncio.to_thread(build))
+    # 同题完整任务由所有调用方共享。shield 防止单个云端取消杀掉付费生成；取消方
+    # 仍须等任务真正结束才退出，保证 DrawLimiter 不会在后台网络/CPU 工作仍活着时
+    # 提前释放名额。任务先写缓存、后标 done，重试不会落入「PNG 已付费却被丢弃」窗口。
     try:
-        result = await asyncio.shield(work)
-        _cache_bitmap(cache_key, result)
-        return result
+        return await asyncio.shield(work)
     except asyncio.CancelledError:
         current = asyncio.current_task()
-        while not work.done():
-            try:
-                await asyncio.shield(work)
-            except asyncio.CancelledError:
-                if current is not None:
-                    current.uncancel()
-            except BaseException:  # noqa: BLE001
-                break
+        # FastMCP wraps each request in anyio.CancelScope. Once that scope is
+        # cancelled, every checkpoint in the same scope is cancelled again;
+        # asyncio.shield alone protects the child task, not this waiter.
+        # A nested AnyIO shield lets the shared job finish without spinning the
+        # event loop, while the original CancelledError is re-raised below.
+        with anyio.CancelScope(shield=True):
+            while not work.done():
+                try:
+                    await asyncio.shield(work)
+                except asyncio.CancelledError:
+                    if current is not None:
+                        current.uncancel()
+                except BaseException:  # noqa: BLE001 -- observe shared failure, preserve cancellation
+                    break
         if work.done() and not work.cancelled():
             work.exception()
         raise

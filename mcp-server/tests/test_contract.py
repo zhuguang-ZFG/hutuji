@@ -1281,6 +1281,103 @@ def test_draw_limit_covers_vpype_conversion(
     asyncio.run(exercise())
 
 
+def test_draw_cancelled_retries_share_one_job_and_limiter_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """云端约 35s 取消并重试时，同题三次调用只能拥有一个后台生成作业。
+
+    取消的是等待该结果的 JSON-RPC 调用，不是已计费的生成事务。事务必须独立持有
+    DrawLimiter 名额；重试只搭车，不能另占名额、另调生图或另起 vpype。
+    """
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=1),
+    )
+    getattr(server, "_draw_inflight", {}).clear()
+    server._gcode_cache.clear()
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    bitmap_calls = 0
+    convert_calls = 0
+
+    async def fake_bitmap(description: str) -> SimpleNamespace:
+        nonlocal bitmap_calls
+        bitmap_calls += 1
+        assert description.strip() == "重试猫"
+        started.set()
+        await release.wait()
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
+
+    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+        nonlocal convert_calls
+        convert_calls += 1
+        gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
+        return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
+
+    monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+    monkeypatch.setattr(
+        server,
+        "_new_basename",
+        lambda: "draw_20260820_120000_abcdefghijklmnopqrstuv",
+    )
+
+    async def exercise() -> None:
+        callers: list[asyncio.Task] = []
+        try:
+            first = asyncio.create_task(server.hutuji_draw("  重试猫  "))
+            callers.append(first)
+            await asyncio.wait_for(started.wait(), timeout=1)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(first, timeout=1)
+
+            assert server._draw_limiter._active == 1, "生成事务而非已取消 waiter 持有名额"
+
+            second = asyncio.create_task(server.hutuji_draw("重试猫"))
+            callers.append(second)
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert bitmap_calls == 1
+            assert server._draw_limiter._active == 1
+            second.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(second, timeout=1)
+
+            third = asyncio.create_task(server.hutuji_draw("重试猫"))
+            callers.append(third)
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert bitmap_calls == 1
+            assert server._draw_limiter._active == 1
+
+            release.set()
+            result = json.loads(await asyncio.wait_for(third, timeout=1))
+            assert result["lines"] == 6
+            assert bitmap_calls == 1
+            assert convert_calls == 1
+            assert server._draw_limiter._active == 0
+            assert not server._draw_inflight
+        finally:
+            release.set()
+            for caller in callers:
+                if not caller.done():
+                    caller.cancel()
+            await asyncio.gather(*callers, return_exceptions=True)
+            jobs = list(getattr(server, "_draw_inflight", {}).values())
+            for job in jobs:
+                if not job.done():
+                    job.cancel()
+            await asyncio.gather(*jobs, return_exceptions=True)
+            getattr(server, "_draw_inflight", {}).clear()
+
+    asyncio.run(exercise())
+    server._gcode_cache.clear()
+
+
 def test_draw_cancellation_removes_partial_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1957,7 +2054,7 @@ def test_bitmap_generate_coalesces_concurrent_identical_fetch(
     from hutuji_mcp import bitmap_svg
 
     bitmap_svg._bitmap_cache.clear()
-    bitmap_svg._bitmap_fetch_inflight.clear()
+    bitmap_svg._bitmap_inflight.clear()
     calls = 0
     gate = asyncio.Event()
 
@@ -1982,6 +2079,56 @@ def test_bitmap_generate_coalesces_concurrent_identical_fetch(
     bitmap_svg._bitmap_cache.clear()
 
 
+def test_bitmap_generate_cancel_keeps_shared_work_until_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """云端取消不能丢掉已付费的同题生成；重试必须复用完整结果。
+
+    小智云会在慢 ``tools/call`` 尚未返回时取消/重试。旧实现只 shield PNG 下载：
+    取消方立即退出并释放 DrawLimiter，后台下载完成后又立刻清掉在途表，没人负责
+    描摹或写结果缓存；稍晚到达的同题重试会再次付费生图。契约：取消方必须等同题
+    完整 ``BitmapResult`` 进入缓存后才退出，随后重试零额外生图。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    bitmap_svg._bitmap_cache.clear()
+    bitmap_svg._bitmap_inflight.clear()
+    calls = 0
+
+    async def scenario() -> None:
+        nonlocal calls
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_fetch(_desc: str) -> bytes:
+            nonlocal calls
+            calls += 1
+            started.set()
+            await asyncio.wait_for(release.wait(), timeout=5)
+            return _star_png_bytes()
+
+        monkeypatch.setattr(bitmap_svg, "_fetch_image_png", fake_fetch)
+        first = asyncio.create_task(bitmap_svg.generate_bitmap("取消后重试猫"))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        first.cancel()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        try:
+            assert not first.done(), "取消方不得在共享付费生成完成前释放名额"
+        finally:
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+
+        second = await bitmap_svg.generate_bitmap("取消后重试猫")
+        assert second.svg.startswith("<svg")
+        assert calls == 1, "取消后的同题重试必须命中完整结果，不得再次付费生图"
+
+    asyncio.run(scenario())
+    bitmap_svg._bitmap_cache.clear()
+    bitmap_svg._bitmap_inflight.clear()
+
+
 def test_bitmap_generate_does_not_coalesce_different_topics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1991,7 +2138,7 @@ def test_bitmap_generate_does_not_coalesce_different_topics(
     bitmap_svg._bitmap_cache.clear()
 
 
-    bitmap_svg._bitmap_fetch_inflight.clear()
+    bitmap_svg._bitmap_inflight.clear()
     calls = 0
 
     async def fake_fetch(_desc: str) -> bytes:
@@ -2019,7 +2166,7 @@ def test_bitmap_generate_shared_fetch_failure_retries_next_call(
     from hutuji_mcp import bitmap_svg
 
     bitmap_svg._bitmap_cache.clear()
-    bitmap_svg._bitmap_fetch_inflight.clear()
+    bitmap_svg._bitmap_inflight.clear()
     calls = 0
 
     async def fake_fetch(_desc: str) -> bytes:
@@ -2994,7 +3141,7 @@ def test_bitmap_generate_cancel_waits_for_trace_thread(
     monkeypatch.setattr(bitmap_svg, "trace_bitmap_to_polylines", slow_trace)
 
     async def scenario() -> None:
-        task = asyncio.create_task(bitmap_svg.generate_bitmap_svg("x"))
+        task = asyncio.create_task(bitmap_svg.generate_bitmap_svg("单次取消线程猫"))
         # 等线程进场后再取消，确保取消命中 shield 的 await 点而非更早处。
         await asyncio.to_thread(started.wait, 1.0)
         assert started.is_set()
@@ -3042,7 +3189,7 @@ def test_bitmap_generate_survives_second_cancel_during_trace_wait(
     monkeypatch.setattr(bitmap_svg, "trace_bitmap_to_polylines", slow_trace)
 
     async def scenario() -> None:
-        task = asyncio.create_task(bitmap_svg.generate_bitmap_svg("x"))
+        task = asyncio.create_task(bitmap_svg.generate_bitmap_svg("二次取消线程猫"))
         await asyncio.to_thread(started.wait, 1.0)
         assert started.is_set()
         assert not finished.is_set()

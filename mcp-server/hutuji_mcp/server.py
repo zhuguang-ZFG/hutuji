@@ -37,7 +37,7 @@ from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import svg_to_gcode_async
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
-from .llm_svg import generate_svg
+from .llm_svg import _sanitize_description, generate_svg
 
 # 保持默认 streamable_http_path="/mcp"，子应用挂到根（/files 先注册优先匹配），
 # 避免 Mount("/mcp") 对裸 /mcp 产生 307 跳转（POST 桥接器不一定跟随重定向）
@@ -293,34 +293,33 @@ async def _svg_to_gcode_cached(svg: str, svg_path: Path, gcode_path: Path):
     return stats
 
 
-@mcp.tool()
-async def hutuji_draw(description: str) -> str:
-    """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
-
-    生成耗时约 15～45 秒，调用前请先告知用户需要等待。
-    参数 description：简短中文主题，建议 10～40 字；最长 200 字，超出会被截断。
-    好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」。
-    坏例子：长篇故事、要求填色/照片写实、无主题的空话。
-    返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址，有有效期，以返回的
-    ttl_seconds 秒数为准，拿到后请立即开始绘图，过期需重新生成）、lines/bytes/pen_lifts/ttl_seconds。
-    不要编造 url；失败时根据错误白话说明。"""
+# 同题云端重试的完整 draw 事务表。小智云约 35s 会放弃慢调用并重试；若事务归
+# waiter 所有，取消会提前释放 DrawLimiter，下一次请求又发一轮付费生图。任务表
+# 覆盖位图、vpype、产物与返回 JSON；waiter 取消只分离自己，事务仍持有一个名额。
+_draw_inflight: dict[str, asyncio.Task[str]] = {}
 
 
-    # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
-    public_base_url = validate_public_base_url(settings.public_base_url)
+def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
+    """只清掉自己登记的任务，并取走无人等待时的异常。"""
+    if _draw_inflight.get(key) is done:
+        del _draw_inflight[key]
+    if not done.cancelled():
+        done.exception()
+
+
+async def _run_draw_job(description: str, public_base_url: str) -> str:
+    """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
     svg_path: Path | None = None
     gcode_path: Path | None = None
     preview_path: Path | None = None
     try:
         # R13-SRV-02：清理是 IO 运维动作、不是受控的付费生成工作，不占并发名额
         # （hutuji_status 同样在 slot 外跑同一清理，并发重复执行幂等无害）。
-        # 名额只覆盖付费 LLM 与 CPU 密集的 vpype，不能在 SVG 返回后放任转换堆积。
         settings.output_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(_cleanup_expired_outputs)
         async with _draw_limiter.slot():
-            # 位图路线（2026-08-09 起为现行路线）：agnes 文生图 → 中心线描摹 →
+            # 位图路线（2026-08-09 起为现行路线）：文生图 → 中心线描摹 →
             # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
-            # 两条路线的实测对比见 docs/worktree-inventory.md 当日探针行。
             bitmap = await generate_bitmap(description)
             svg = bitmap.svg
 
@@ -332,9 +331,8 @@ async def hutuji_draw(description: str) -> str:
             svg_path.write_text(svg, encoding="utf-8")
             preview_path.write_bytes(bitmap.preview_png)
             stats = await _svg_to_gcode_cached(svg, svg_path, gcode_path)
-
     except BaseException:
-        # 取消也必须清理 capability 产物；清理失败只能记日志，不能覆盖原异常。
+        # 服务停机取消或生成失败都清理半成品；清理失败不能覆盖原异常。
         for path in (svg_path, gcode_path, preview_path):
             if path is not None:
                 try:
@@ -349,18 +347,51 @@ async def hutuji_draw(description: str) -> str:
 
     assert gcode_path is not None
     assert preview_path is not None
-    url = f"{public_base_url}/files/{gcode_path.name}"
-    preview_url = f"{public_base_url}/files/{preview_path.name}"
     return json.dumps({
-        "url": url,
-        "preview_url": preview_url,
+        "url": f"{public_base_url}/files/{gcode_path.name}",
+        "preview_url": f"{public_base_url}/files/{preview_path.name}",
         "lines": stats.lines,
         "bytes": stats.bytes,
         "pen_lifts": stats.pen_lifts,
-        # 让调用方（云端 LLM）能把「约 10 分钟有效」转述给用户，而非等到 404
-        # 才由设备侧猜测原因（CloudUX-F1）。
+        # 让调用方能预告链接有效期，而非等到 404 才由设备侧猜测原因。
         "ttl_seconds": settings.output_ttl_seconds,
     }, ensure_ascii=False)
+
+
+@mcp.tool()
+async def hutuji_draw(description: str) -> str:
+    """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
+
+    生成耗时约 15～45 秒，调用前请先告知用户需要等待。
+    参数 description：简短中文主题，建议 10～40 字；最长 200 字，超出会被截断。
+    好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」。
+    坏例子：长篇故事、要求填色/照片写实、无主题的空话。
+    返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址，有有效期，以返回的
+    ttl_seconds 秒数为准，拿到后请立即开始绘图，过期需重新生成）、lines/bytes/pen_lifts/ttl_seconds。
+    不要编造 url；失败时根据错误白话说明。"""
+
+    # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
+    public_base_url = validate_public_base_url(settings.public_base_url)
+    safe_description = _sanitize_description(description).strip()
+
+    work = _draw_inflight.get(safe_description)
+    if work is not None and work.get_loop() is not asyncio.get_running_loop():
+        # 测试/嵌入调用可能轮换事件循环；生产单 loop 不会走此分支。
+        if work.done() and not work.cancelled():
+            work.exception()
+        if _draw_inflight.get(safe_description) is work:
+            del _draw_inflight[safe_description]
+        work = None
+    if work is None:
+        work = asyncio.create_task(_run_draw_job(safe_description, public_base_url))
+        _draw_inflight[safe_description] = work
+        work.add_done_callback(
+            lambda done, key=safe_description: _forget_draw_inflight(key, done)
+        )
+
+    # shield 只保护完整事务不被本次 waiter 的取消连带杀死；waiter 自己仍立即
+    # 收到 CancelledError，让 FastMCP 结清旧 request。后续同题重试搭同一个任务。
+    return await asyncio.shield(work)
 
 
 @mcp.tool()

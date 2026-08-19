@@ -30,5 +30,7 @@ networkx>=3,<4
 # 更早版本还会整体丢失孤立闭环（纯圆/字母 O）。
 sknw>=0.15,<1
 imageio>=2.34,<3
+# bitmap_svg.py 直接使用 AnyIO 的取消屏蔽；显式声明，不依赖 MCP 的传递安装副作用。
+anyio>=4.5,<5
 # bitmap_svg 模块级 import；此前一直靠 vpype 传递依赖引入，显式声明。
 numpy>=1.26,<3
