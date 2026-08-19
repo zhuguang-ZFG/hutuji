@@ -1989,6 +1989,8 @@ def test_bitmap_generate_does_not_coalesce_different_topics(
     from hutuji_mcp import bitmap_svg
 
     bitmap_svg._bitmap_cache.clear()
+
+
     bitmap_svg._bitmap_fetch_inflight.clear()
     calls = 0
 
@@ -2042,6 +2044,141 @@ def test_bitmap_generate_shared_fetch_failure_retries_next_call(
     assert ok.svg.startswith("<svg")
     assert calls == 2
     bitmap_svg._bitmap_cache.clear()
+
+
+def _full_race_sf_settings() -> SimpleNamespace:
+    """商汤 + Agnes + imagefree + SiliconFlow key（五路全开）。"""
+    return SimpleNamespace(
+        llm_api_key="agnes-key",
+        llm_base_url="https://agnes.invalid/v1",
+        image_model="agnes-image",
+        image_fallback_url="https://fb.invalid/v1/generate",
+        sensenova_api_key="sense-key",
+        sensenova_base_url="https://token.sensenova.invalid/v1",
+        sensenova_image_model="sensenova-u1-fast",
+        siliconflow_api_key="sf-key",
+    )
+
+
+def test_siliconflow_racers_request_shapes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """硅流双 racer 请求字段逐字钉死：schnell 走默认 4 步，可图钉 12 步/guidance 5。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _full_race_sf_settings())
+    calls: list[dict] = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        assert request.url.host == "api.siliconflow.cn"
+        assert request.headers["authorization"] == "Bearer sf-key"
+        calls.append(json.loads(request.content))
+        return _httpx.Response(200, json={"images": [{"url": "https://cdn.example/sf.png"}]})
+
+    async def run() -> list[str]:
+        async with _httpx.AsyncClient(transport=_httpx.MockTransport(handler)) as client:
+            a = await bitmap_svg._request_siliconflow_schnell_image_url(client, "五角星")
+            b = await bitmap_svg._request_siliconflow_kolors_image_url(client, "五角星")
+            return [a, b]
+
+    assert asyncio.run(run()) == ["https://cdn.example/sf.png"] * 2
+    assert calls == [
+        {
+            "model": "black-forest-labs/FLUX.1-schnell",
+            "prompt": bitmap_svg._BITMAP_STYLE + "五角星",
+            "image_size": "1024x1024",
+            "batch_size": 1,
+        },
+        {
+            "model": "Kwai-Kolors/Kolors",
+            "prompt": bitmap_svg._BITMAP_STYLE + "五角星",
+            "image_size": "1024x1024",
+            "batch_size": 1,
+            "num_inference_steps": 12,
+            "guidance_scale": 5.0,
+        },
+    ]
+
+
+def test_siliconflow_wins_race_when_fastest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """硅流 key 在场时双 racer 必须并发加入对冲；最快者胜出，付费输家被取消。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _full_race_sf_settings())
+    calls = {"sense": 0, "agnes": 0, "fb": 0, "sf": 0}
+
+    async def handler(request):  # noqa: ANN001, ANN202
+        host = request.url.host
+        if host == "api.siliconflow.cn":
+            calls["sf"] += 1
+            if "Kolors" in str(request.content):
+                await asyncio.sleep(0.3)  # 可图慢于 schnell
+            return _httpx.Response(200, json={"images": [{"url": "https://cdn.example/sf.png"}]})
+        if request.url.path.endswith("/sf.png"):
+            return _httpx.Response(200, content=_png_stub())
+        if host == "token.sensenova.invalid":
+            calls["sense"] += 1
+        elif host == "agnes.invalid":
+            calls["agnes"] += 1
+        elif host == "fb.invalid":
+            calls["fb"] += 1
+        await asyncio.sleep(0.3)
+        return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/x.png"}]})
+
+    body = asyncio.run(
+        bitmap_svg._fetch_image_png("五角星", transport=_httpx.MockTransport(handler))
+    )
+    assert body == _png_stub()
+    assert calls["sf"] == 2, "schnell 与可图必须并发发起"
+    assert calls["sense"] == 1 and calls["agnes"] == 1 and calls["fb"] == 1
+
+
+def test_siliconflow_absent_without_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未配置硅流 key 时不得发起任何硅流请求（配置即禁用，无需开关）。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_fallback_settings())
+    seen: list[str] = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        seen.append(request.url.host)
+        assert request.url.host != "api.siliconflow.cn"
+        if request.url.host == "token.sensenova.invalid":
+            return _httpx.Response(200, json={"data": [{"url": "https://cdn.example/u1.png"}]})
+        return _httpx.Response(200, content=_png_stub())
+
+    body = asyncio.run(
+        bitmap_svg._fetch_image_png("城堡", transport=_httpx.MockTransport(handler))
+    )
+    assert body == _png_stub()
+
+
+def test_siliconflow_failure_reports_without_key_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """硅流双 racer 失败进聚合错误，文案不得回显 key 或上游正文。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _full_race_sf_settings())
+    monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+
+    def handler(request):  # noqa: ANN001, ANN202
+        return _httpx.Response(500)
+
+    with pytest.raises(bitmap_svg.BitmapError) as exc_info:
+        asyncio.run(bitmap_svg._fetch_image_png("x", transport=_httpx.MockTransport(handler)))
+    msg = str(exc_info.value)
+    assert "硅流 Schnell 同样失败" in msg
+    assert "硅流可图 同样失败" in msg
+    assert "sf-key" not in msg
 
 
 def test_bitmap_fetch_hedge_free_endpoint_wins_when_fastest(

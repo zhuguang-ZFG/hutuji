@@ -66,6 +66,16 @@ _SENSENOVA_ATTEMPT_TIMEOUT_SECONDS = 20.0
 # 商汤 500 实测偶发、同 payload 紧接着可 200；只快速重试一次，避免单次波动
 # 把本来 12s 的快路径让给更慢 racer。仍受单次 20s attempt timeout 约束。
 _SENSENOVA_RETRY_DELAYS_SECONDS = (0.5,)
+# SiliconFlow 双 racer：schnell（4 步，速度标杆）与可图 Kolors（12 步，已备案
+# Beijing-KeTu-202404280003，中文提示词原生）同 key 并发对冲。单次尝试不重试——
+# 其他 racer 就是它的重试。官方 OpenAPI：POST /v1/images/generations，响应
+# images[0].url（URL 有效期 1 小时，本链拿到即下载，兼容）。
+_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
+_SILICONFLOW_SCHNELL_MODEL = "black-forest-labs/FLUX.1-schnell"
+_SILICONFLOW_KOLORS_MODEL = "Kwai-Kolors/Kolors"
+_SILICONFLOW_KOLORS_STEPS = 12
+_SILICONFLOW_KOLORS_GUIDANCE = 5.0
+_SILICONFLOW_ATTEMPT_TIMEOUT_SECONDS = 20.0
 # 相同规范化主题的完整中心线结果缓存：设备/用户常重复「五角星」「小猫」，命中
 # 后只需 vpype（生产实测 ~0.7s），不重复付费生图、下载和描摹。TTL 与能力 URL
 # 同为 600s；缓存仅存内存中的 SVG/预览，不延长任何落盘 capability 的有效期。
@@ -558,6 +568,67 @@ async def _request_fallback_image_url(client: httpx.AsyncClient, description: st
     return image_url
 
 
+def _siliconflow_api_key() -> str:
+    """SiliconFlow key；空值禁用。Settings 可能缺该字段（测试直造），同 getattr 口径。"""
+    return getattr(settings, "siliconflow_api_key", "").strip()
+
+
+async def _request_siliconflow_image_url(
+    client: httpx.AsyncClient,
+    description: str,
+    *,
+    model: str,
+    provider: str,
+    extra: dict,
+) -> str:
+    """SiliconFlow OpenAI 风格生图；响应取 images[0].url（与 Agnes 的 data[0].url 不同构）。"""
+    payload = {
+        "model": model,
+        "prompt": _BITMAP_STYLE + description,
+        "image_size": _IMAGE_SIZE,
+        "batch_size": 1,
+        **extra,
+    }
+    headers = {"Authorization": f"Bearer {_siliconflow_api_key()}"}
+    data = await _post_image_request(
+        client,
+        f"{_SILICONFLOW_BASE_URL}/images/generations",
+        payload,
+        headers,
+        provider,
+        retry_delays=(),
+        attempt_timeout_seconds=_SILICONFLOW_ATTEMPT_TIMEOUT_SECONDS,
+    )
+    try:
+        image_url = data["images"][0]["url"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise BitmapError(f"{provider} 响应结构异常（{type(exc).__name__}）") from exc
+    if not isinstance(image_url, str):
+        raise BitmapError(f"{provider} 未返回有效的 https 图片地址")
+    return image_url
+
+
+async def _request_siliconflow_schnell_image_url(
+    client: httpx.AsyncClient, description: str
+) -> str:
+    return await _request_siliconflow_image_url(
+        client, description,
+        model=_SILICONFLOW_SCHNELL_MODEL, provider="硅流 Schnell", extra={},
+    )
+
+
+async def _request_siliconflow_kolors_image_url(
+    client: httpx.AsyncClient, description: str
+) -> str:
+    return await _request_siliconflow_image_url(
+        client, description,
+        model=_SILICONFLOW_KOLORS_MODEL, provider="硅流可图",
+        extra={
+            "num_inference_steps": _SILICONFLOW_KOLORS_STEPS,
+            "guidance_scale": _SILICONFLOW_KOLORS_GUIDANCE,
+        },
+    )
+
 async def _race_image_backends(
     client: httpx.AsyncClient, description: str
 ) -> str:
@@ -574,6 +645,9 @@ async def _race_image_backends(
         ("商汤生图", _request_sensenova_image_url),
         ("Agnes", _request_agnes_image_url),
     ]
+    if _siliconflow_api_key():
+        racers.append(("硅流 Schnell", _request_siliconflow_schnell_image_url))
+        racers.append(("硅流可图", _request_siliconflow_kolors_image_url))
     if _image_fallback_url():
         racers.append(("备用端点", _request_fallback_image_url))
     tasks = {
@@ -615,6 +689,9 @@ async def _race_image_backends(
             f"商汤生图失败：{errors['商汤生图']}",
             f"Agnes 同样失败：{errors['Agnes']}",
         ]
+        for sf_name in ("硅流 Schnell", "硅流可图"):
+            if sf_name in errors:
+                parts.append(f"{sf_name} 同样失败：{errors[sf_name]}")
         if "备用端点" in errors:
             parts.append(f"备用端点同样失败：{errors['备用端点']}")
         raise BitmapError("；".join(parts))
@@ -641,11 +718,12 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
         timeout=_IMAGE_ATTEMPT_TIMEOUT_SECONDS, transport=transport
     ) as client:
         generation_error: BitmapError | None = None
-        sensenova_enabled = bool(
+        # 商汤或硅流任一在场即进入对冲；对冲名单内已含全部可用后端（含
+        # imagefree），失败后无第二层可退。
+        hedged = bool(
             getattr(settings, "sensenova_api_key", "").strip()
-        )
-        if sensenova_enabled:
-            # 三路对冲内已含 imagefree，失败后无第二层可退。
+        ) or bool(_siliconflow_api_key())
+        if hedged:
             try:
                 image_url = await _race_image_backends(client, description)
             except BitmapError as hedge_exc:
@@ -657,10 +735,9 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                 generation_error = agnes_exc
 
         if generation_error is not None:
-            # 商汤启用时 imagefree 已在对冲里赛跑过，直接抛出；未启用时
-            # 鉴权主后端失败后才走免鉴权备用。生成成功后的 CDN 下载失败
-            # 不进此分支，避免重复计费或画风漂移。
-            if sensenova_enabled or not _image_fallback_url():
+            # 未启用对冲时鉴权主后端失败后才走免鉴权备用。生成成功后的
+            # CDN 下载失败不进此分支，避免重复计费或画风漂移。
+            if hedged or not _image_fallback_url():
                 raise generation_error
             try:
                 image_url = await _request_fallback_image_url(client, description)

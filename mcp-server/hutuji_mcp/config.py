@@ -105,6 +105,9 @@ class Settings:
     sensenova_base_url: str = ""
     sensenova_api_key: str = ""
     sensenova_image_model: str = ""
+    # SiliconFlow：可图已备案（Beijing-KeTu-202404280003）；单 key 即启用
+    # schnell + 可图双 racer，空值禁用。base URL 固定官方端点，不走配置面。
+    siliconflow_api_key: str = ""
 
 
     def __post_init__(self) -> None:
@@ -148,6 +151,7 @@ class Settings:
         # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
         # 0.0.0.0 在生产静默无效、在开发直跑 `python -m hutuji_mcp.server` 却是真裸曝。
         # 静默无效比报错危险：它让人误以为监听面已改。两条路径在此统一口径。
+        object.__setattr__(self, "siliconflow_api_key", self.siliconflow_api_key.strip())
         if not _is_loopback_host(self.host.lower()):
             raise ValueError(
                 f"HUTUJI_HOST 只允许 loopback，当前 {self.host!r}；"
@@ -201,6 +205,7 @@ def load_settings() -> Settings:
         sensenova_base_url=os.environ.get("HUTUJI_SENSENOVA_BASE_URL", ""),
         sensenova_api_key=os.environ.get("HUTUJI_SENSENOVA_API_KEY", ""),
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
+        siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
