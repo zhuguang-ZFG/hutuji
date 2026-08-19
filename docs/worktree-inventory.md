@@ -19,9 +19,9 @@
 ## 3. xiaozhi-esp32（S3 AI 交互）
 
 - **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `f1aa0e7`；UI/设计系统提交 `2dc2769`，BLE 生命周期提交 `f1aa0e7`，工作树已清理。是否已推远端须实时执行 `git log --oneline origin/feat/hutuji-usb-pipe..HEAD`，不以本页静态文字代替。
-- **板上默认 UI 镜像**：COM14 当前运行的默认镜像 `xiaozhi.bin` 2,974,336B、SHA-256 `ee084c20…b2419`，启动横幅 ELF `d4c8fd315...`；触摸初始化成功、`GrobotEyes initialized: 460x300`、WiFi/Telnet/`idle` 均自证，未见 panic/assert/reboot。UI 实际画面目视与预览/五按钮触控仍未验证。
-- **当前源码验证与构建**：`python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 18/18，全 host suite 为 93/93；ESP-IDF v6.0.1 当前默认构建 `build-waveshare-35/xiaozhi.bin` 2,974,336B、SHA-256 `58defc01…63b2`，当前 BLE 启用构建 3,172,544B、SHA-256 `5a68fafe…80d6`，`CONFIG_HUTUJI_BLE_DIAGNOSTICS=y`。两套构建通过，但当前产物均未刷机；不得把当前构建身份写成板上身份。
-- **BLE 板上窄证据与回滚**：启用镜像 `1a3b1777…c8475b` 在运行时 `enabled=1` 后 COM14 稳定约 4 分钟、约 240 次快照刷新，无 `BLE_ERR_MEM_CAPACITY`、panic、assert、reboot；20s/15s Bleak 扫描均收到目标 UUID、固定 6 字节 payload，seq 递增、`stale=0`、无 local name/scan response。随后写 NVS `ble_diag/enabled=0`，默认镜像恢复并启动自证；10s 目标 UUID 扫描为空。该 HIL 早于当前 pending event 合并/轮换优先级加固，不能证明当前 `5a68fafe…80d6` 已刷机。证据：`results/ble-phase-a-fixed-20260819.raw.log`、`results/ble-phase-a-fixed-scan-20260819.json`、`results/ble-phase-a-rollback-scan-20260819.json`（本机，不入库）。BLE 仍保持 🟡：尚未完成当前源码板上复验、WiFi/Telnet 共存量化门槛、完整功耗/温升与阶段 B 认证 GATT。
+- **板上默认 UI 镜像**：COM14 当前运行默认镜像 `58defc01…63b2`（2,974,336B，最终源码 `f1aa0e7` 重建）；回滚后启动自证 WiFi/Telnet/fresh `Idle`，最低 SRAM 27,739B，无 panic/assert/reboot。UI 实际画面目视与预览/五按钮触控仍未验证。
+- **当前源码验证与构建**：`python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 18/18，全 host suite 为 93/93；ESP-IDF v6.0.1 默认构建 `build-waveshare-35/xiaozhi.bin` 2,974,336B、SHA-256 `58defc01…63b2`；BLE 启用构建 `build-hutuji-ble-enabled/xiaozhi.bin` 3,172,544B、SHA-256 `5a68fafe…80d6`（`CONFIG_HUTUJI_BLE_DIAGNOSTICS=y`）。
+- **BLE 板上窄证据与回滚（当前加固源码 `f1aa0e7`）**：启用镜像 `5a68fafe…80d6` 刷入 COM14 后 4 分钟 1,683 行日志无 `BLE_ERR_MEM_CAPACITY`/panic/assert/reboot，free SRAM 稳定约 22.1KiB（`minimal sram: 1647` 低于 24KiB 门槛，缺 BLE-off 基线，不判定回归）；Bleak 30s/15s 均收到目标 UUID、固定 6 字节 payload、seq 10→140、`stale=0`、无 local name/scan response。回滚：NVS 读回 byte-identical（cmp 相等、`enabled=0`），默认镜像重刷自证，10s 目标 UUID 扫描 `matches=[]`。证据：`results/local-only/2026-08-19/ble-current-f1aa0e7-240s.log`、两轮 scan JSON、`default-f1aa0e7-rollback-boot.log`、`ble-current-f1aa0e7-rollback-scan-10s.json`、`com14-nvs-*.bin`（本机，不入库）。BLE 仍 🟡：尚未完成共存量化矩阵（含 off 基线）、完整功耗/温升与阶段 B 认证 GATT。
 
 ## 4. fz（Grbl 门禁）
 

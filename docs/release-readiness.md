@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> **2026-08-19 Waveshare UI 与 BLE Phase A 取证**：COM14 当前运行的默认 UI 镜像为 app `ee084c20…b2419`、ELF `d4c8fd315...`，启动自证触摸初始化、`GrobotEyes initialized: 460x300`、WiFi/Telnet/`idle`，无 panic/assert/reboot；UI 实际画面目视、预览确认/取消与暂停/继续/停止/重画/试笔五个触控动作仍未验证。BLE 启用态约 4 分钟/约 240 次 1s 刷新和 6 字节空中包证据绑定启用镜像 `1a3b1777…c8475b`：无 `BLE_ERR_MEM_CAPACITY`、panic、assert、reboot，Bleak 20s/15s 均收到目标 UUID，seq 递增、`stale=0`、无 local name/scan response。结束后 NVS `ble_diag/enabled=0`，默认镜像恢复，10s 目标 UUID 扫描为空。当前源码又补了 pending event 合并与轮换优先级/过期 event/timer fail-closed 加固，已通过 BLE 专测 18/18、全 host 93/93、默认/启用构建；当前产物分别为 `58defc01…63b2` / `5a68fafe…80d6`，**未刷机**，不得复用上一启用镜像 HIL。证据文件仍为本机 `results/ble-phase-a-fixed-20260819.raw.log`、`results/ble-phase-a-fixed-scan-20260819.json`、`results/ble-phase-a-rollback-scan-20260819.json`。BLE 尚未完成当前源码刷机复验、WiFi/Telnet 共存量化门槛、功耗/温升与阶段 B 认证 GATT，状态仍 🟡。
+> **2026-08-19 Waveshare UI 与 BLE Phase A 取证（最终加固源码 `f1aa0e7`）**：COM14 当前运行默认 UI 镜像 `58defc01…63b2`（2,974,336B，最终源码重建）；启动后 WiFi/Telnet/fresh `Idle` 正常，最低 SRAM 27,739B，无 panic/assert/reboot。BLE 启用镜像 `5a68fafe…80d6`（3,172,544B）已刷入 COM14：4 分钟稳定性抓取 1,683 行，无 `BLE_ERR_MEM_CAPACITY`、panic、assert、reboot，free SRAM 稳定约 22.1KiB；Bleak 30s/15s 两轮均收到目标 UUID 广播，payload 全 6B、seq 10→140 递增、`stale=0`、无 local name/scan response。回滚：NVS 分区 byte-identical 恢复（读回 cmp 相等，`ble_diag/enabled=0`），默认镜像 `58defc01…63b2` 重刷并自证，10s 目标 UUID 扫描 `matches=[]`。证据 `results/local-only/2026-08-19/ble-current-f1aa0e7-240s.log`、`ble-current-f1aa0e7-scan-30s.json`、`ble-current-f1aa0e7-scan-15s.json`、`default-f1aa0e7-rollback-boot.log`、`ble-current-f1aa0e7-rollback-scan-10s.json`、`com14-nvs-*.bin`（本机，不入库）。**未闭合**：4 分钟抓取期间 log 的 `minimal sram: 1647` 低于 §1.4.6 的 24KiB 最低堆门槛，但缺 BLE-off 同构基线，不能判定回归或宣称共存通过；共存量化、功耗/温升、阶段 B/C、UI 画面目视与五触控动作 HIL 均未完成。
 
 > **2026-08-17 SPEED-01 + 中心线预览云端生产部署（运行态窄覆盖）**：LF scp `bitmap_svg.py` / `server.py`，生产 SHA-256 `949d2da7…fff8` / `ac06ee82…e9e` 与本机 staged 文件一致；备份 `/root/hutuji-bak-20260817-speed01/`。仅重启 `hutuji-mcp`，新 MainPID `2559546`，ExecStartPre、应用启动与 fresh MCP 200/202 均通过；进程 maps 实查 `numpy/scipy/skimage` 均已加载，确认重依赖预热落在真实服务进程；生产 preflight **26/26 PASS**。**未验证**：未追加付费首图计时，不能把约 3 秒冷 import 的移出直接写成实测提速；设备预览确认/取消仍缺最终人机验收。bridge/nginx/cloudflared/env/unit 未改，生产提交基线仍为 `1082400`，两文件运行态按上述 SHA 绑定。
 
@@ -24,7 +24,7 @@
 | 5 | MCP / 京东云运行态 | ✅ SPEED-01/设备 PNG 预览窄部署，preflight 26/26；仓库实现已提交 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
-| 8 | BLE 只读诊断辅助面 | 🟡 Phase A 异步 stop→set_data→start 已有 COM14 窄范围 HIL；当前源码再补 pending event 合并/轮换优先级/过期 event/timer fail-closed，BLE 专测 18/18、全 host 93/93、默认/启用构建通过，但当前产物未刷机。尚未完成当前源码板上复验、WiFi/Telnet 共存量化门槛、功耗/温升与阶段 B 认证 GATT，故不得改为 ✅ |
+| 8 | BLE 只读诊断辅助面 | 🟡 Phase A 当前加固源码（`f1aa0e7`）已完成 COM14 刷机复验：4 分钟/1,683 行稳定性、两轮 6 字节空中包、NVS byte-identical 回滚与默认镜像自证，BLE 专测 18/18、全 host 93/93、默认/启用构建通过。尚未完成 WiFi/Telnet 共存量化门槛（含 BLE-off 基线对照）、功耗/温升与阶段 B 认证 GATT，故不得改为 ✅ |
 
 > **BLE 修复实现边界**：只改 `hutuji_ble_diag.cc` 的 NimBLE 广播刷新生命周期：停止广播后把数据设置与重启排到独立 host event；快照刷新与地址轮换共用 pending event，轮换优先；过期 event 无动作返回；定时器重挂失败继续 fail-closed；`Shutdown()` 幂等并移除排队事件。WiFi/Telnet/job 路径未改。
 
