@@ -6,7 +6,7 @@
 
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
-- **生产运行态**：提交基线仍为 `1082400`；2026-08-19 最终三路对冲 + 商汤快速重试 + 同题 single-flight 合并 + 中心线/G-code 双缓存 + 硅流双 racer 版 `bitmap_svg.py` / `config.py`（`server.py` 同批 md5 `65adea296c38f4ab07788bdd1edf7ca0`）LF scp 后本地/生产 md5 `d6f064ccbc1d51474a2c93e4d595e9b3` / `183aa425da1c603bf80e4e00386254f2`，双服务 active（MCP MainPID `2930109`），preflight 26/26；真实同题小松鼠首轮 22.278s、双缓存命中第二轮 0.002s，两次 G-code 均为 941 行/22,159B/50 次抬笔。硅流账户当前可图 402/schnell 403（未充值），充值后重跑质量闸。bridge/nginx/cloudflared/env 结构未改（mcp.env 追加 `HUTUJI_SILICONFLOW_API_KEY`，备份 `mcp.env.bak-20260819-sf`）。
+- **生产运行态**：提交基线仍为 `1082400`；2026-08-19 最终三路对冲 + 商汤快速重试 + 同题 single-flight 合并 + 中心线/G-code 双缓存版 `bitmap_svg.py` / `config.py`（`server.py` 同批 md5 `65adea296c38f4ab07788bdd1edf7ca0`）LF scp 后本地/生产 md5 `d6f064ccbc1d51474a2c93e4d595e9b3` / `183aa425da1c603bf80e4e00386254f2`，双服务 active，preflight 26/26；真实同题小松鼠首轮 22.278s、双缓存命中第二轮 0.002s，两次 G-code 均为 941 行/22,159B/50 次抬笔。硅流双 racer 代码保留但生产 key 已注释停用（用户决定不充值；停用后真实出图无硅流请求）。bridge/nginx/cloudflared/env 结构未改。
 - **本地保留资产**：原 12 个会话记忆、临时脚本和串口转储在 `results/local-only/2026-08-18/`；本轮新增 `.pi-memory-consolidated.md`、`memory-consolidation-plan-v2.md`、`tmp-memory-consolidation-plan.md` 及 Pollinations 六张真实候选图/冷 seed 延迟证据在 `results/local-only/2026-08-19/`（候选图子目录 `pollinations-probe/`；5/6 为 44–46s，画质不满足线稿前提，描摹闭环 300s 未收敛）。两处均只在本机、未删除、未上传，也不纳入产品提交。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
