@@ -26,7 +26,7 @@ alwaysApply: true
 - 正式 Telnet/G-code 契约仍为 v0.5；BLE 独立使用 `BLE-DIAG schema v1`。阶段 A 已实现为 6 字节公开粗粒度广播且不注册 GATT；阶段 B 才启用本地维护确认、LE Secure Connections + MITM bonding、22 字节 `READ` 快照；阶段 C 由手机/PC 消费 RSSI 显示 `near/unknown`，S3 不持续扫描。默认镜像仍关闭；启用态证据见 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`。
 - WiFi Telnet :23 仍是唯一正式板间链路。BLE 不替代/旁路 Telnet，不承载 G-code，不直接控制电机、笔、换纸、授权、abort 或 job 生命周期。
 - 广播不得包含 job/fault/reset 细节、URL、token、密钥、文件名、prompt、G-code 或用户内容；GATT 只读且需认证。RSSI 只能作近距提示，禁止宣称距离、方向、UWB、AoA 或 Apple Precision Finding。Grbl 经典蓝牙 SPP 与 S3 BLE 分属不同器件和职责。
-- 阶段 A 异步广播修复已有 COM14 窄范围 HIL；当前 pending event 合并/轮换优先级加固已过 BLE 专测 18/18、全 host 93/93 和默认/启用构建，但当前产物未刷机。当前源码板上复验、WiFi/Telnet 共存量化门槛、功耗/温升和阶段 B/C 仍未验证，不得写成已完成。字段、持久化、回滚和外部资料证据落点以 `docs/protocol.md` §1.4 为准。
+- 阶段 A 异步广播修复已有 COM14 窄范围 HIL；当前 pending event 合并/轮换优先级加固（`f1aa0e7`）已过 BLE 专测 18/18、全 host 93/93、默认/启用构建，且启用镜像 `5a68fafe…80d6` 已刷 COM14 完成窄范围复验（4 分钟无内存错误/重启、两轮 6 字节广播、NVS 逐字节回滚、回滚后扫描为空）；期间 `minimal sram: 1647` 低于 24KiB 门槛但缺 BLE-off 对照，未判回归。WiFi/Telnet 共存量化门槛、功耗/温升和阶段 B/C 仍未验证，不得写成已完成。字段、持久化、回滚和外部资料证据落点以 `docs/protocol.md` §1.4 为准。
 
 ## 外部参考证据纪律
 

@@ -111,7 +111,7 @@ python -m venv .venv
 
 ## BLE 只读诊断辅助面
 
-正式 Telnet/G-code 契约仍为 v0.5，BLE 独立使用 `BLE-DIAG schema v1`。阶段 A 已实现为仅公开 6 字节粗粒度广播且不注册 GATT；阶段 B 才启用本地维护确认、LE Secure Connections + MITM bonding、22 字节 `READ` 快照；阶段 C 由手机/PC 消费 RSSI 显示 `near/unknown`，S3 不持续扫描。默认镜像仍关闭，不替代 Telnet、不承载 G-code/控制命令；字段、NVS 双槽、回滚和共存门槛见 `docs/protocol.md` §1.4。阶段 A 异步广播修复已有 COM14 窄范围 HIL；当前 pending event 合并/轮换优先级加固已通过 BLE 专测 18/18、全 host 93/93 和默认/启用构建，但当前产物未刷机。共存量化门槛、功耗/温升和阶段 B/C 仍未完成。
+正式 Telnet/G-code 契约仍为 v0.5，BLE 独立使用 `BLE-DIAG schema v1`。阶段 A 已实现为仅公开 6 字节粗粒度广播且不注册 GATT；阶段 B 才启用本地维护确认、LE Secure Connections + MITM bonding、22 字节 `READ` 快照；阶段 C 由手机/PC 消费 RSSI 显示 `near/unknown`，S3 不持续扫描。默认镜像仍关闭，不替代 Telnet、不承载 G-code/控制命令；字段、NVS 双槽、回滚和共存门槛见 `docs/protocol.md` §1.4。阶段 A 当前源码（`f1aa0e7`，含 pending event 合并/轮换优先级加固）已过 BLE 专测 18/18、全 host 93/93、默认/启用构建，且启用镜像 `5a68fafe…80d6` 已刷 COM14 完成窄范围复验（4 分钟稳定、两轮 6 字节广播、NVS 逐字节回滚）；期间 `minimal sram: 1647` 低于 24KiB 门槛但缺 BLE-off 对照，未判回归。共存量化门槛、功耗/温升和阶段 B/C 仍未完成。
 
 ### 环境变量
 
