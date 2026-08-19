@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> **2026-08-18 Waveshare 手动控制固件部分 HIL（S3 `dcbec6f`，COM14；预览/五动作仍未验）**：当前 `build-waveshare-35/xiaozhi.bin` 2,971,264B、SHA-256 `39157935…8362`，ELF SHA-256 `031cafd5…aada`；app 分区写入 `0x20000` 的工具报告完成且 hash 校验通过。首段串口在 `Touch threshold tuned: 70 -> 40` 后暂时掉线；同一取证脚本 76.586s 重新打开 COM14，随后启动横幅 `ELF file SHA256: 031cafd51...` 与当前 ELF 对齐，并完成触摸初始化、七个 hutuji 工具注册、`HutujiPipe` 启动、WiFi、Grbl banner/授权探针与 `idle`。控制抽屉实机链已覆盖 `jog_y+`×2、`jog_x-`、`pen_down`，均收到 `ok`、坐标变化并回 Idle；末尾无 fatal marker，连续 fresh `Idle`，min SRAM `28923B`。**历史边界**：真实语音出图、归位、自动换纸已有 2026-08-17 证据，不替代当前新增 UI HIL。证据 `results/waveshare-manual-controls-v2-20260818.log`、`results/waveshare-passive-reenumeration-20260818.log`（本机，不入库）。**未验证**：预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作。
+> **2026-08-19 Waveshare UI 与 BLE Phase A 取证**：COM14 当前运行的默认 UI 镜像为 app `ee084c20…b2419`、ELF `d4c8fd315...`，启动自证触摸初始化、`GrobotEyes initialized: 460x300`、WiFi/Telnet/`idle`，无 panic/assert/reboot；UI 实际画面目视、预览确认/取消与暂停/继续/停止/重画/试笔五个触控动作仍未验证。BLE 启用态约 4 分钟/约 240 次 1s 刷新和 6 字节空中包证据绑定启用镜像 `1a3b1777…c8475b`：无 `BLE_ERR_MEM_CAPACITY`、panic、assert、reboot，Bleak 20s/15s 均收到目标 UUID，seq 递增、`stale=0`、无 local name/scan response。结束后 NVS `ble_diag/enabled=0`，默认镜像恢复，10s 目标 UUID 扫描为空。当前源码又补了 pending event 合并与轮换优先级/过期 event/timer fail-closed 加固，已通过 BLE 专测 18/18、全 host 93/93、默认/启用构建；当前产物分别为 `58defc01…63b2` / `5a68fafe…80d6`，**未刷机**，不得复用上一启用镜像 HIL。证据文件仍为本机 `results/ble-phase-a-fixed-20260819.raw.log`、`results/ble-phase-a-fixed-scan-20260819.json`、`results/ble-phase-a-rollback-scan-20260819.json`。BLE 尚未完成当前源码刷机复验、WiFi/Telnet 共存量化门槛、功耗/温升与阶段 B 认证 GATT，状态仍 🟡。
 
 > **2026-08-17 SPEED-01 + 中心线预览云端生产部署（运行态窄覆盖）**：LF scp `bitmap_svg.py` / `server.py`，生产 SHA-256 `949d2da7…fff8` / `ac06ee82…e9e` 与本机 staged 文件一致；备份 `/root/hutuji-bak-20260817-speed01/`。仅重启 `hutuji-mcp`，新 MainPID `2559546`，ExecStartPre、应用启动与 fresh MCP 200/202 均通过；进程 maps 实查 `numpy/scipy/skimage` 均已加载，确认重依赖预热落在真实服务进程；生产 preflight **26/26 PASS**。**未验证**：未追加付费首图计时，不能把约 3 秒冷 import 的移出直接写成实测提速；设备预览确认/取消仍缺最终人机验收。bridge/nginx/cloudflared/env/unit 未改，生产提交基线仍为 `1082400`，两文件运行态按上述 SHA 绑定。
 
@@ -20,15 +20,15 @@
 | 1 | S4 有纸出图与自动换纸 | ✅ 已有历史取证；纸面画质目视仍单列待补 |
 | 2 | §9 Grbl 小改清单 | ✅ 核心 §9 已有烧录/fz/实机证据；源码后续 `847b564` 不自动等于板上基线 |
 | 3 | 真实语音出图主链 | ✅ 2026-08-17 语音→云端→下载→出图→归位→换纸已有证据 |
-| 4 | Waveshare 预览与屏幕控制 | 🟡 当前 `dcbec6f` 仅完成启动身份、控制抽屉低层动作部分 HIL；预览确认/取消与五按钮未验 |
+| 4 | Waveshare 预览与屏幕控制 | 🟡 当前最终默认镜像已完成构建/刷写/启动与触摸初始化、Grobot 画布启动身份自证；实际画面目视、预览确认/取消与五按钮触控 HIL 未验 |
 | 5 | MCP / 京东云运行态 | ✅ SPEED-01/设备 PNG 预览窄部署，preflight 26/26；仓库实现已提交 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
-| 8 | BLE 只读诊断辅助面 | 🟡 设计评审已收口；`xiaozhi-esp32` `b78a3b7` 已实现并推送 BLE-DIAG Phase A，host 13/13 与全 host 88/88 通过，ESP-IDF v6.0.1 Waveshare 3.5 默认关闭构建和 NimBLE+BLE-DIAG 启用构建均通过。启用 `xiaozhi.bin` 3,169,104B / SHA-256 `c3e4cedd…64d`，默认构建 2,971,248B / SHA-256 `895b0c68…690`；启用产物含 `ble_surface=advertising_only`、`connectable=no`、`scannable=no`、`gatt=no`、`addr=nrpa`。尚未刷写、扫描器验空中包或做 WiFi/Telnet 共存 HIL，故不得改为 ✅ |
+| 8 | BLE 只读诊断辅助面 | 🟡 Phase A 异步 stop→set_data→start 已有 COM14 窄范围 HIL；当前源码再补 pending event 合并/轮换优先级/过期 event/timer fail-closed，BLE 专测 18/18、全 host 93/93、默认/启用构建通过，但当前产物未刷机。尚未完成当前源码板上复验、WiFi/Telnet 共存量化门槛、功耗/温升与阶段 B 认证 GATT，故不得改为 ✅ |
 
-> **BLE 本轮证据边界（2026-08-19）**：`python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 13/13，`python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v` 为 88/88；ESP-IDF v6.0.1 `idf.py ... build` 的 default/off 与 enabled/on 均通过。两套 build 使用 `D:/Users/xiaozhi-esp32` 提交 `b78a3b7` 的源码和临时 SDK defaults overlay；overlay 未入库。固件分支已推送且工作树干净；未刷写、未扫描空中包、未做 WiFi/Telnet 共存 HIL。
+> **BLE 修复实现边界**：只改 `hutuji_ble_diag.cc` 的 NimBLE 广播刷新生命周期：停止广播后把数据设置与重启排到独立 host event；快照刷新与地址轮换共用 pending event，轮换优先；过期 event 无动作返回；定时器重挂失败继续 fail-closed；`Shutdown()` 幂等并移除排队事件。WiFi/Telnet/job 路径未改。
 
-> **BLE 规划边界（2026-08-18）**：默认关闭；公开/认证字段分级、UUID/线序/枚举、快照 stale/unknown、NVS 双槽记录、运行时 fail-closed、量化共存门槛和外部资料证据表均见 `docs/protocol.md` §1.4。BLE 不替代 WiFi Telnet、不承载 G-code、不直接控制电机/笔/换纸/授权/abort/job，也不宣称 UWB/AoA/Apple Precision Finding。只有完成对应阶段的 host 测试、构建、刷写身份、隐私/认证负向测试和共存 HIL 后，才能改变本行状态。
+> **BLE 分阶段边界（2026-08-19）**：默认关闭；公开/认证字段分级、UUID/线序/枚举、快照 stale/unknown、NVS 双槽记录、运行时 fail-closed、量化共存门槛和外部资料证据表均见 `docs/protocol.md` §1.4。BLE 不替代 WiFi Telnet、不承载 G-code、不直接控制电机/笔/换纸/授权/abort/job，也不宣称 UWB/AoA/Apple Precision Finding。阶段 A 的窄范围板上证据不替代当前源码刷机复验、完整共存矩阵或阶段 B/C。
 
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口 abort 复测；④ 生产与合规签核。
 
@@ -36,10 +36,7 @@
 
 ---
 ## 门禁状态
-
-> 本节只记「最近一次通过」的真值；中间过程不得重复记录。
-
-- 本仓 `hub` 最近通过：**2026-08-18**，pytest **845 passed**、e2e `PASS`；本轮文档治理完成后须再次运行并以退出码为准
+- 本仓 `hub` 最近通过：**2026-08-19**，pytest **845 passed**、e2e `PASS`；docs 指纹 151 处全对，外仓文档引用 152 处全在范围；本轮治理与外仓约束均通过
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）

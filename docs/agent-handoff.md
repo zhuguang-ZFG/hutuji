@@ -5,7 +5,7 @@
 > **完成定义 / 可跑门禁**：`agent-gate.md` + `python scripts/agent_gate.py`。  
 > **防幻觉 / 禁乱改**：`agent-anti-drift.md` + `agent-edit-allowlist.json`；三仓矩阵 `agent-constraint-matrix.md`；脏树见 `worktree-inventory.md`。  
 > 本页只消除「不明所以」——不新增契约，不宣布出货。
-> **2026-08-18 当前 S3 候选（已推 `dcbec6f`，COM14）**：Waveshare 3.5 已加入安全控制抽屉、预览确认链、音频调度让行和「小派」用户面；FT6336 rotation 90 映射为 `swap_xy=1/mirror_x=0/mirror_y=1`。host **67/67**；当前板上启动横幅 ELF `031cafd51...` 与构建 ELF `031cafd5…aada` 对齐，触摸、七工具、Telnet、授权、Idle 均到达；控制抽屉已实测 `jog_y+`×2、`jog_x-`、`pen_down` 并各自回 `ok`/Idle。**仍缺**预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作；不得把部分 HIL 写成整套控制面通过。证据与哈希见 readiness 文首。
+> **2026-08-19 当前 S3 候选（HEAD `f1aa0e7`，COM14 仍跑默认镜像）**：Waveshare 3.5 UI 已以 `2dc2769` 重构为 Grobot 创作工作台，BLE 生命周期加固以 `f1aa0e7` 提交；当前源码全 host **93/93**、BLE 专测 **18/18**，默认/启用 BLE 两套 ESP-IDF v6.0.1 构建通过。COM14 默认镜像 `ee084c20…b2419` 已自证触摸、Grobot 460×300、WiFi/Telnet/Idle；实际画面目视、预览确认/取消与暂停/继续/停止/重画/试笔五个触控动作仍未验证。BLE-DIAG 阶段 A 的 6 字节空中包、约 4 分钟/约 240 次刷新和回滚 HIL 绑定旧启用镜像 `1a3b1777…c8475b`；当前源码产物 `58defc01…63b2` / `5a68fafe…80d6` 未刷机。共存量化、功耗/温升、阶段 B/C 未完成。证据见 readiness 文首与 `worktree-inventory.md`。
 
 
 ## 0. 一句话现状（2026-08-14）
@@ -144,13 +144,13 @@ BLE 只作为 S3 本地**只读诊断辅助面**推进，不改变 WiFi Telnet :
 
 | 阶段 | 交付 | 必须证据 | 明确不做 |
 |---|---|---|---|
-| A | 默认关闭的 6 字节公开粗粒度状态广播；公开面不放 job/fault/reset 细节 | host 构建；广播字段解码；无 GATT 写路径；真实设备关闭/开启 BLE 的 RTT、重连、20 个 job、功耗、堆内存、温升和看门狗对照 | 不发 G-code，不控制电机/笔/换纸/job；不广播 URL、token、密钥或用户内容 |
+| A | 默认关闭的 6 字节公开粗粒度状态广播；公开面不放 job/fault/reset 细节 | **已完成**：host/构建、广播字段解码、无 GATT 面、COM14 启用态约 4 分钟稳定性与回滚；**未完成**：关闭/开启 BLE 的 RTT、重连、20 个 job、功耗、堆内存、温升和看门狗完整对照 | 不发 G-code，不控制电机/笔/换纸/job；不广播 URL、token、密钥或用户内容 |
 | B | 需 LE Secure Connections + bonding 的 22 字节 GATT `READ` 诊断快照；每 peer ≤1 次/s、最多 1 个连接 | schema/UUID/枚举契约；未认证读取被拒、所有写入被拒；NVS 双槽 CRC 记录；重启/断连后 `reset_reason`、`boot_count` 与上次 job 状态可解释 | 不做任务提交、授权、abort、notify/indicate 或任意命令通道 |
 | C | 手机或 PC 诊断工具消费广播，显示 `near/unknown` RSSI 近距提示；S3 不做持续扫描 | 多位置/姿态/遮挡/设备/无目标实测；5 样本中位数、5s 窗口、3s 无样本为 unknown；正式链路无 RTT、吞吐、断连、功耗回归 | 不宣称距离、方向、房间定位、UWB、AoA 或 Apple Precision Finding |
 
 实施共存门槛：每阶段使用同一 S3、写字机、路由器和构建，关闭 BLE 为基线，开启 BLE 至少 3 次、每次 30 分钟；包含 20 个确定性 job 闭环和 10 次受控断连。Telnet RTT、应答错配、job 终态、恢复时间、堆内存、功耗、温升和 panic/watchdog 的具体硬门槛以 `docs/protocol.md` §1.4.6 为准；任一失败即关闭 BLE，不得调 Telnet 超时或窗口掩盖回归。
 
-进入下一阶段前，必须把构建、烧录、启动身份、schema 解码、共存实测和 HIL 原始证据写入 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`。外部资料必须按 `docs/protocol.md` §1.4.8 登记。当前 S3 `CONFIG_BT_ENABLED` 未开启，A/B/C 均为规划；不得把设计文档当作设备能力证据。
+进入下一阶段前，必须把构建、烧录、启动身份、schema 解码、共存实测和 HIL 原始证据写入 `docs/release-readiness.md` 与 `docs/worktree-inventory.md`。外部资料必须按 `docs/protocol.md` §1.4.8 登记。默认镜像仍关闭 `CONFIG_BT_ENABLED`；阶段 A 已实现并完成窄范围板上验证，但完整共存矩阵与阶段 B/C 仍未完成，不得把阶段 A 写成整个 BLE 面通过。
 ## 7. 改完必须同步的文件
 
 | 你改了什么 | 必须更新 |

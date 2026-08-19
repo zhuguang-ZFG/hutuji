@@ -347,7 +347,8 @@ journalctl -u hutuji-mcp --since "<语音时刻-10s>" | grep -iE "hutuji_draw|to
 1. 填 `templates/device-test-record.md`（每台/每轮一行：固件 commit、镜像 SHA256、COM、各项判据勾选、照片/日志路径）。
 2. 填 `templates/release-manifest.md`（本批次结论）。
 3. 按实测结果勾 `release-readiness.md`。当前开放项：Waveshare 预览确认/取消与五个屏幕动作、纸面画质目视、
-   断连恢复 `paper_active` 窗口 abort、生产/合规签核。真实语音出图、归位、自动换纸、正常换纸中 abort
+   断连恢复 `paper_active` 窗口 abort、生产/合规签核；当前源码 BLE pending event 加固虽已通过 host 93/93、BLE 专测 18/18、默认/启用构建，
+   但当前 BLE 产物未刷机，不能把旧启用镜像窄范围 HIL 写成当前源码板上证据。真实语音出图、归位、自动换纸、正常换纸中 abort
    与 S4 出图链路已有历史取证，禁止当默认待办重做。只勾有证据的，没过的留 🟡/🔴。
 4. 更新 `docs/agent-handoff.md` §0 快照 + §6（哪些已闭、下一刀变什么）。
 5. 更新 `docs/worktree-inventory.md`（若取证产生新未提交资产/回刷记录）。

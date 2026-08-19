@@ -63,9 +63,9 @@
 - `firmware/` — S3 板固件补丁说明（②，补丁本体在 xiaozhi-esp32 fork）
 - `deploy/` — 京东云 systemd/nginx/环境变量模板（真实凭据不入库）
 
-### BLE 只读诊断辅助面（规划，默认关闭）
+### BLE 只读诊断辅助面（阶段 A 已实现，默认关闭）
 
-正式 Telnet/G-code 契约仍为 v0.5；BLE 使用独立 `BLE-DIAG schema v1`。阶段 A 仅提供 6 字节公开粗粒度广播，不注册 GATT；阶段 B 才提供需本地确认配对、LE Secure Connections + MITM、单 peer、每秒一次读取上限的 22 字节只读诊断快照；阶段 C 由手机/PC 消费广播并显示 `near/unknown` RSSI 近距提示，S3 不做持续扫描。WiFi Telnet :23 仍是唯一正式板间链路。BLE 不承载 G-code，不直接控制电机、笔、换纸、授权、abort 或 job 生命周期；不以 RSSI 冒充距离/方向/UWB/AoA/Apple Precision Finding。当前 S3 `CONFIG_BT_ENABLED` 未开启，A/B/C 实现与共存 HIL 均未验证，量化门槛见 `docs/protocol.md` §1.4.6。
+正式 Telnet/G-code 契约仍为 v0.5；BLE 使用独立 `BLE-DIAG schema v1`。阶段 A 已实现为 6 字节公开粗粒度广播，不注册 GATT；阶段 B 才提供需本地确认配对、LE Secure Connections + MITM、单 peer、每秒一次读取上限的 22 字节只读诊断快照；阶段 C 由手机/PC 消费广播并显示 `near/unknown` RSSI 近距提示，S3 不做持续扫描。WiFi Telnet :23 仍是唯一正式板间链路。BLE 不承载 G-code，不直接控制电机、笔、换纸、授权、abort 或 job 生命周期；不以 RSSI 冒充距离/方向/UWB/AoA/Apple Precision Finding。默认镜像保持关闭；阶段 A 异步广播修复已有 COM14 窄范围 HIL，当前 pending event 合并/轮换优先级加固已过 BLE 专测 18/18、全 host 93/93 与默认/启用构建，但当前产物未刷机。共存量化、功耗/温升和阶段 B/C 仍未完成，见 `docs/release-readiness.md`。
 
 ### 外部参考证据纪律
 

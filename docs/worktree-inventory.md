@@ -7,7 +7,7 @@
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
 - **生产运行态**：提交基线仍为 `1082400`；2026-08-17 窄部署的 `bitmap_svg.py` / `server.py` 以 SHA-256 `949d2da7…fff8` / `ac06ee82…e9e` 绑定，preflight 26/26。GitHub 源码已由 `155dbff` 追上该运行态及其配置/测试，但未在本轮重新部署。
-- **本地保留资产**：原 12 个会话记忆、临时脚本和串口转储已移入 `results/local-only/2026-08-18/`，保留在本机、未删除、未上传；当前仓库根另有用户/工具生成的未跟踪 `.pi-memory-consolidated.md`，同样保留、不删除、不纳入本次提交。归档文件清单：`pi-hermes-memory-consolidation.md`、`COM13-COM14_Terminal.txt`、`memory-consolidation-ws35-pmic.md`、`memory-consolidation-ws36.md`、`tmp-audit-summary.md`、`tmp-excel-read.py`、`tmp-excel-read2.py`、`tmp-memory-consolidation-plan.md`、`memory-consolidated-v1.md`、`memory-consolidation-plan-v2.md`、`memory-consolidation-plan.md`、`memory_add`。
+- **本地保留资产**：原 12 个会话记忆、临时脚本和串口转储在 `results/local-only/2026-08-18/`；本轮新增 `.pi-memory-consolidated.md`、`memory-consolidation-plan-v2.md`、`tmp-memory-consolidation-plan.md` 已移入 `results/local-only/2026-08-19/`。两处均只在本机、未删除、未上传，也不纳入产品提交。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
 ## 2. Grbl_Esp32（运动控制）
@@ -18,10 +18,10 @@
 
 ## 3. xiaozhi-esp32（S3 AI 交互）
 
-- **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `b78a3b7`；已推 `origin/feat/hutuji-usb-pipe`，工作树干净。
-- **板上源码身份**：COM14 启动横幅 ELF `031cafd51...` 与提交前同一工作树构建的 ELF `031cafd5…aada` 对齐；该身份属于此前 `dcbec6f` 板上镜像，不是本轮 BLE 构建。
-- **本轮 BLE 验证**：host `python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 13/13，全 host suite 为 88/88；ESP-IDF v6.0.1 Waveshare 3.5 默认关闭构建与 NimBLE+BLE-DIAG 启用构建均通过。默认 `xiaozhi.bin` 2,971,248B，SHA-256 `895b0c68…690`；启用 `xiaozhi.bin` 3,169,104B，SHA-256 `c3e4cedd…64d`。启用产物含 `ble_surface=advertising_only`、`connectable=no`、`scannable=no`、`gatt=no`、`addr=nrpa`；对应源码已提交并推送为 `b78a3b7`。
-- **验证边界**：本轮尚未刷写、扫描器验空中包或做 WiFi/Telnet 共存 HIL；readiness 保持 🟡。预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作仍未验证。
+- **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `f1aa0e7`；UI/设计系统提交 `2dc2769`，BLE 生命周期提交 `f1aa0e7`，工作树已清理。是否已推远端须实时执行 `git log --oneline origin/feat/hutuji-usb-pipe..HEAD`，不以本页静态文字代替。
+- **板上默认 UI 镜像**：COM14 当前运行的默认镜像 `xiaozhi.bin` 2,974,336B、SHA-256 `ee084c20…b2419`，启动横幅 ELF `d4c8fd315...`；触摸初始化成功、`GrobotEyes initialized: 460x300`、WiFi/Telnet/`idle` 均自证，未见 panic/assert/reboot。UI 实际画面目视与预览/五按钮触控仍未验证。
+- **当前源码验证与构建**：`python3 -m unittest scripts.tests.test_hutuji_ble_diag_core -v` 为 18/18，全 host suite 为 93/93；ESP-IDF v6.0.1 当前默认构建 `build-waveshare-35/xiaozhi.bin` 2,974,336B、SHA-256 `58defc01…63b2`，当前 BLE 启用构建 3,172,544B、SHA-256 `5a68fafe…80d6`，`CONFIG_HUTUJI_BLE_DIAGNOSTICS=y`。两套构建通过，但当前产物均未刷机；不得把当前构建身份写成板上身份。
+- **BLE 板上窄证据与回滚**：启用镜像 `1a3b1777…c8475b` 在运行时 `enabled=1` 后 COM14 稳定约 4 分钟、约 240 次快照刷新，无 `BLE_ERR_MEM_CAPACITY`、panic、assert、reboot；20s/15s Bleak 扫描均收到目标 UUID、固定 6 字节 payload，seq 递增、`stale=0`、无 local name/scan response。随后写 NVS `ble_diag/enabled=0`，默认镜像恢复并启动自证；10s 目标 UUID 扫描为空。该 HIL 早于当前 pending event 合并/轮换优先级加固，不能证明当前 `5a68fafe…80d6` 已刷机。证据：`results/ble-phase-a-fixed-20260819.raw.log`、`results/ble-phase-a-fixed-scan-20260819.json`、`results/ble-phase-a-rollback-scan-20260819.json`（本机，不入库）。BLE 仍保持 🟡：尚未完成当前源码板上复验、WiFi/Telnet 共存量化门槛、完整功耗/温升与阶段 B 认证 GATT。
 
 ## 4. fz（Grbl 门禁）
 

@@ -87,9 +87,9 @@
 2. PC 上 `telnet <写字机IP> 23`，发 `?` 应回 `<Idle|…>`，发 `$I` 应回 `[VER:…]`——链路通。
 3. S3 侧联调时 `hutuji.status` 应显示 connected/ready。
 
-### 1.4 BLE 只读诊断辅助面（规划，默认关闭）
+### 1.4 BLE 只读诊断辅助面（阶段 A 已实现，默认关闭）
 
-BLE 是 S3 的**本地只读诊断辅助面**，不是板间正式协议。正式 WiFi Telnet/G-code 契约仍为 v0.5；BLE 使用独立的 `BLE-DIAG schema v1`，不因 BLE 设计增补而升级 Telnet 或 G-code 版本。当前 S3 `CONFIG_BT_ENABLED` 未开启，本节不改变现有镜像行为。Grbl 写字机侧已有的经典蓝牙 SPP 与本节是不同器件、不同职责，不能混称为 S3 BLE。
+BLE 是 S3 的**本地只读诊断辅助面**，不是板间正式协议。正式 WiFi Telnet/G-code 契约仍为 v0.5；BLE 使用独立的 `BLE-DIAG schema v1`，不因 BLE 设计增补而升级 Telnet 或 G-code 版本。默认 S3 镜像仍关闭 `CONFIG_BT_ENABLED`，不改变默认镜像行为；本轮另以 ESP-IDF v6.0.1 构建了启用 NimBLE 的验证镜像，并在 COM14 完成阶段 A 广播与回滚验证。Grbl 写字机侧已有的经典蓝牙 SPP 与本节是不同器件、不同职责，不能混称为 S3 BLE。
 
 #### 1.4.1 暴露面、隐私与授权
 
@@ -205,11 +205,15 @@ BLE 实现证据按阶段登记：实现仓的 host 测试、构建、刷写和�
 | [ESP-IDF ESP32-S3 BLE Overview](https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32s3/api-guides/ble/overview.html) | release-v6.0，ESP32-S3 | ESP32-S3 支持 Bluedroid/NimBLE；NimBLE 为 LE-only 且较省 heap/flash | 本项目目标工具链 v6.0.1；文档 URL 为 release-v6.0，具体实现仍须以本地 SDK commit 为准 |
 | [ESP-IDF ESP32-S3 RF Coexistence](https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32s3/api-guides/coexist.html) | release-v6.0，WiFi STA + BLE advertising/connected | 单一 2.4GHz RF 以时分复用；advertising 可抢占 WiFi 时隙；需软件共存开关与真实性能测试 | 这是设置 §1.4.6 RTT/功耗/HIL 硬门槛的依据，不代表门槛已通过 |
 | [Bluetooth SIG Assigned Numbers](https://www.bluetooth.com/specifications/assigned-numbers/) | 在线 Assigned Numbers，访问 2026-08-18 | AD type `0x21` 为 128-bit Service Data；自定义 128-bit UUID 不冒充 adopted service | 本地 SDK `ble_hs_adv.h` 逐字核得 `BLE_HS_ADV_TYPE_SVC_DATA_UUID128=0x21` |
-| 本地 ESP-IDF 源码 | v6.0.1 commit `8c19b156084a0753687347cca1f5355782893533` | `BLE_GAP_CONN_MODE_NON`/`DISC_MODE_NON`、SC/MITM、`INSUFFICIENT_AUTHEN/AUTHOR`、RPA 与 128-bit Service Data 均有实现入口 | 复核命中 `ble_gap.h`、`ble_sm.h`、`ble_att.h`、`ble_hs_adv.h`、NimBLE Kconfig；只是实现地基，尚未在 xiaozhi 构建/板上运行 |
+| 本地 ESP-IDF 源码 | v6.0.1 commit `8c19b156084a0753687347cca1f5355782893533` | `BLE_GAP_CONN_MODE_NON`/`DISC_MODE_NON`、SC/MITM、`INSUFFICIENT_AUTHEN/AUTHOR`、RPA 与 128-bit Service Data 均有实现入口 | 复核命中 `ble_gap.h`、`ble_sm.h`、`ble_att.h`、`ble_hs_adv.h`、NimBLE Kconfig；阶段 A 已在 xiaozhi 构建/COM14 启用态验证，阶段 B/C 仍未实现/验证 |
 
-任何后续社区、GitHub、官方文档、SDK 或硬件资料若影响本节设计，必须追加到本表或明确链接的 `docs/kxnx/` findings，记录来源 URL、版本/commit、访问日期、适用板型与范围、本地复核命令/结果、限制和未验证项。当前 BLE 仍为规划，以上资料没有被当作板上能力证据。
+阶段 A 当前证据：`scripts/tests/test_hutuji_ble_diag_core.py` 专测 18/18、全 host suite 93/93；当前默认 Waveshare 构建 `build-waveshare-35/xiaozhi.bin` 2,974,336B、SHA-256 `58defc01…63b2`，当前 BLE 启用构建 `build-hutuji-ble-enabled/xiaozhi.bin` 3,172,544B、SHA-256 `5a68fafe…80d6`，均为 ESP-IDF v6.0.1、Waveshare 3.5，构建通过。COM14 启用态约 4 分钟/约 240 次刷新、6 字节空中包与回滚证据来自补事件碰撞加固前的启用镜像 `1a3b1777…c8475b`；它证明异步 stop→set_data→start 修复，不证明当前 `5a68fafe…80d6` 已刷机。结束后运行时开关已回滚为 `ble_diag/enabled=0`，默认镜像恢复，10s 目标 UUID 扫描为空。原始证据仅保留在本机 `results/ble-phase-a-fixed-20260819.raw.log`、`results/ble-phase-a-fixed-scan-20260819.json`、`results/ble-phase-a-rollback-scan-20260819.json`。
 
-本节是设计约束，不是实现完成或硬件证据；阶段 A/B/C 均须完成上述契约、共存门槛和 HIL 记录后才能改变 readiness 状态。
+阶段 A 仍未通过 §1.4.6 的 WiFi/Telnet 共存量化门槛，也未完成完整功耗/温升与阶段 B 认证 GATT；这些缺口不因阶段 A 广播验证而关闭。
+
+任何后续社区、GitHub、官方文档、SDK 或硬件资料若影响本节设计，必须追加到本表或明确链接的 `docs/kxnx/` findings，记录来源 URL、版本/commit、访问日期、适用板型与范围、本地复核命令/结果、限制和未验证项。当前阶段 B/C 仍为规划；上述阶段 A 证据不替代后续共存、认证和 HIL 门槛。
+
+本节是设计约束与分阶段实现记录，不是出货或完整硬件验收声明；阶段 B/C 仍须完成对应契约、共存门槛和 HIL 记录后才能改变 readiness 状态。
 
 ## 2. 就绪检测与会话重建
 
