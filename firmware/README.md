@@ -31,7 +31,7 @@
 | abort/单写者 | 🟡 关键闭环已实测 | 非换纸 abort 从 `streaming/Run,Z=5` 恢复至 `aborted/Idle,Z=0`；普通画线断连后的废纸处理与 PSRAM 从头重发主路径已实测，最终页尾无纸 `error:90`，8.3 尚未完整通过 |
 | 硬件冒烟与多页换纸 | 🟡 关键有纸路径已实测 | `13057e8`/`0x2ce890` 已有 S3 自动路径出墨、页尾 `[PaperStatus] 0` + `state=done`；2026-07-30 B-13 已捕获有纸 `Changing=On`。仍缺换纸中 abort、App 真实语音、P2 S3/S4 |
 
-当前源码 HEAD 是 `16f2f83`（`feat/hutuji-usb-pipe`，已提交并推送），已包含 `83eb376` 的超时错误码回填以及授权探针、CRC/URL 边界、255 深应答队列和恢复判定加固。2026-08-08 已用 ESP-IDF v6.0.1 重建标准 release 并 app-flash COM12；板上 ELF SHA `62e1a12e5...` 与发布构建一致，七工具、Telnet、授权探针及持续 fresh-`Idle` 已复核。当前 HEAD 的下载/CRC/窗口应答配对和纸面回归仍待真实设备 token；2026-08-03 S4 证据使用较早的 `ae4b524`。以下为历史提交链：`c1267ec` WiFi 三修 →
+当前源码 HEAD 是 `211d75a`（`feat/hutuji-usb-pipe`，已提交并推送）。该版在既有下载/CRC/授权/窗口流控上叠加 Waveshare Grobot 工作台、预览/控制抽屉、BLE Phase A 与触摸层修复；当前默认镜像已构建并刷 COM14，入口恢复可见且前一版可拖动已有现场反馈，绝对锚定版跟手性和抽屉动作仍待 HIL。2026-08-08 的 `16f2f83` 标准 release/COM12 记录只保留为历史链路证据；当前 HEAD 的下载/CRC/窗口应答配对和纸面回归仍待真实设备 token，2026-08-03 S4 证据使用较早的 `ae4b524`。以下为历史提交链：`c1267ec` WiFi 三修 →
 `ed5b132` 净作画时长 + ETA → `15f73c9` `StreamToGrbl` 窗口化流控（window=512 + 换纸行排空）→
 `13057e8` 落笔前旁路 `G92 Z0` 校准 + `ok` 静默丢失兜底 → `f1cf066` 默认关闭的 §8.5 abort
 取证脚手架（`HUTUJI_AUTO_TEST_ABORT_ON_PAPER`，产品行为不变）。
