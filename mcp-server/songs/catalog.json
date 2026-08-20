@@ -1,0 +1,22 @@
+{
+  "songs": [
+    {
+      "id": "twinkle",
+      "title": "小星星",
+      "file": "twinkle.ogg",
+      "duration_seconds": 25.2
+    },
+    {
+      "id": "tigers",
+      "title": "两只老虎",
+      "file": "tigers.ogg",
+      "duration_seconds": 17.0
+    },
+    {
+      "id": "birthday",
+      "title": "生日快乐",
+      "file": "birthday.ogg",
+      "duration_seconds": 13.4
+    }
+  ]
+}

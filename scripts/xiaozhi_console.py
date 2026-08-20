@@ -66,6 +66,8 @@ _DEVICE_TOOL_ARGUMENTS = {
     "hutuji.resume": frozenset(),
     "hutuji.repeat": frozenset(),
     "hutuji.pen_test": frozenset(),
+    "hutuji.sing": frozenset({"url", "title"}),
+    "hutuji.stop_song": frozenset(),
 }
 _CAPABILITY_URL_RE = re.compile(
     r"(?P<prefix>/files/)draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.gcode"

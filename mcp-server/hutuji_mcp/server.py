@@ -37,7 +37,12 @@ from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import svg_to_gcode_async
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
-from .llm_svg import _sanitize_description, generate_svg
+from .llm_svg import _CONTROL_CHAR_RE, _sanitize_description, generate_svg
+from .memory_store import (
+    forget as _memory_forget,
+    recall as _memory_recall,
+    remember as _memory_remember,
+)
 from .activation_relay import (
     InvalidCodeError,
     RelayDisabledError,
@@ -59,6 +64,9 @@ _DRAW_FILE_RE = re.compile(
 _DRAW_FILE_PARTS_RE = re.compile(
     r"^(draw_\d{8}_\d{6})_(?P<token>[A-Za-z0-9_-]{22})\.(?P<ext>gcode|svg|png)$"
 )
+
+# 歌曲文件名白名单：小写 id + .ogg，无路径分隔符与点号段，天然免疫目录穿越。
+_SONG_FILE_RE = re.compile(r"[a-z0-9_-]{1,64}\.ogg")
 
 logger = logging.getLogger(__name__)
 
@@ -451,6 +459,103 @@ async def hutuji_preview_svg(description: str) -> str:
     return svg[:2000]
 
 
+@mcp.tool()
+async def hutuji_remember(key: str, value: str) -> str:
+    """记住用户告诉你的事情（称呼、偏好、约定等）。
+
+    key 是简短主题（≤50 字），value 是要记住的内容（≤500 字），同主题会覆盖旧的。
+    用户说「记住…」「以后都…」时用；密码、验证码等敏感信息不要记。
+    重启后记忆仍在，除非用户说忘掉。"""
+    return await asyncio.to_thread(_memory_remember, key, value)
+
+
+@mcp.tool()
+async def hutuji_recall(key: str = "") -> str:
+    """回忆之前记住的事情。
+
+    key 留空返回全部记忆（很多时只回最近的并注明总数）；给 key 按主题匹配。
+    用户问「我说过…吗」「你记得…吗」「我喜欢什么」时先查它再回答，查不到就老实说没记住，不要编。"""
+    return await asyncio.to_thread(_memory_recall, key)
+
+
+@mcp.tool()
+async def hutuji_forget(key: str) -> str:
+    """忘掉记住的事情：key 精确删除；传 * 清空全部（须用户明确要求全部忘掉）。
+
+    用户说「忘掉…」「别记了」时用。"""
+    return await asyncio.to_thread(_memory_forget, key)
+
+
+def _songs_dir() -> Path:
+    return settings.output_dir / "songs"
+
+
+def _load_song_catalog() -> list[dict]:
+    """读曲库；catalog.json 缺失/损坏一律空清单——唱歌是娱乐面，fail-open 不可 500。
+
+    条目必须 id/title/file 齐全、file 过名字白名单且文件真实存在才列出：
+    catalog 与磁盘漂移时宁可少列，也不能给设备发必然 404 的 URL。
+    """
+    try:
+        raw = json.loads((_songs_dir() / "catalog.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    entries = raw.get("songs") if isinstance(raw, dict) else None
+    if not isinstance(entries, list):
+        return []
+    catalog: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        song_id, title, file = entry.get("id"), entry.get("title"), entry.get("file")
+        if not all(isinstance(x, str) and x for x in (song_id, title, file)):
+            continue
+        if not _SONG_FILE_RE.fullmatch(file):
+            continue
+        if not (_songs_dir() / file).is_file():
+            continue
+        duration = entry.get("duration_seconds")
+        catalog.append({
+            "id": song_id,
+            "title": title,
+            "file": file,
+            "duration_seconds": duration if isinstance(duration, (int, float)) else None,
+        })
+    return catalog
+
+
+@mcp.tool()
+async def hutuji_sing(song: str = "") -> str:
+    """点歌：song 为歌名，可留空查看曲库。
+
+    返回 JSON：found=true 时含 url/title/duration_seconds，须把 url 和 title 交给
+    设备端工具 hutuji.sing 播放；found=false 时附 catalog 可点歌曲清单，把歌名念给用户挑。
+    曲库里没有的歌不要假装会唱。"""
+    public_base_url = validate_public_base_url(settings.public_base_url)
+    catalog = await asyncio.to_thread(_load_song_catalog)
+    query = _CONTROL_CHAR_RE.sub("", song or "").strip()[:50]
+    hit = None
+    if query:
+        # id 精确优先（助手可能直接引用 catalog 的 id），再 title 子串（用户口语）。
+        hit = next((e for e in catalog if e["id"] == query), None)
+        if hit is None:
+            hit = next((e for e in catalog if query in e["title"]), None)
+    if hit is None:
+        return json.dumps({
+            "found": False,
+            "catalog": [
+                {"id": e["id"], "title": e["title"], "duration_seconds": e["duration_seconds"]}
+                for e in catalog
+            ],
+        }, ensure_ascii=False)
+    return json.dumps({
+        "found": True,
+        "url": f"{public_base_url}/songs/{hit['file']}",
+        "title": hit["title"],
+        "duration_seconds": hit["duration_seconds"],
+    }, ensure_ascii=False)
+
+
 # ----- FastAPI 应用 -----
 
 _mcp_app = mcp.streamable_http_app()
@@ -658,6 +763,31 @@ async def _serve_file(name: str):
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": "attachment",
+        },
+    )
+
+# 歌曲下载：与 _serve_file 同口径（名字白名单 + fstat 拒链接 + 一切失败塌 404），
+# 差异仅三条——无 TTL（曲库是静态内容，过期语义只针对 draw 产物）、
+# 可缓存（同一首歌人人相同）、不带 Content-Disposition（设备直接流式消费）。
+@app.api_route("/songs/{name}", methods=["GET", "HEAD"])
+async def _serve_song(name: str):
+    if not _SONG_FILE_RE.fullmatch(name):
+        raise HTTPException(status_code=404, detail="not found")
+    path = _songs_dir() / name
+    try:
+        data, _mtime = await asyncio.to_thread(_read_regular_file, path)
+    except OSError:
+        # 拒绝原因（symlink/竞态/不存在）回显会泄漏目录内文件属性，统一 404。
+        raise HTTPException(status_code=404, detail="not found") from None
+    crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")
+    return Response(
+        content=data,
+        media_type="audio/ogg",
+        headers={
+            "Content-Length": str(len(data)),
+            "X-Hutuji-CRC32": crc,
+            "Cache-Control": "public, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

@@ -7209,7 +7209,7 @@ def test_console_device_api_uses_separate_token_and_official_path(monkeypatch) -
 
 @pytest.mark.parametrize("tool_name", [
     "hutuji.status", "hutuji.abort", "hutuji.pause", "hutuji.resume",
-    "hutuji.repeat", "hutuji.pen_test",
+    "hutuji.repeat", "hutuji.pen_test", "hutuji.stop_song",
 ])
 def test_console_device_no_argument_tools_are_whitelisted(tool_name) -> None:  # noqa: ANN001
     console = _load_root_script(
@@ -7233,6 +7233,19 @@ def test_console_device_draw_requires_exact_url_argument() -> None:
             console._parse_device_arguments("hutuji.draw", raw)
     with pytest.raises(ValueError, match="不在白名单"):
         console._parse_device_arguments("self.system.reboot", None)
+
+
+def test_console_device_sing_requires_exact_url_and_title_arguments() -> None:
+    console = _load_root_script("hutuji_console_device_sing_test", "xiaozhi_console.py")
+    url = "https://hutuji.donglicao.com/songs/twinkle.ogg"
+
+    assert console._parse_device_arguments(
+        "hutuji.sing", json.dumps({"url": url, "title": "小星星"})
+    ) == {"url": url, "title": "小星星"}
+    for raw in (None, "[]", "{}", '{"url":"x"}', '{"title":"x"}',
+                '{"url":"x","title":"y","extra":1}'):
+        with pytest.raises(ValueError):
+            console._parse_device_arguments("hutuji.sing", raw)
 
 
 def test_console_output_redacts_capability_and_credentials() -> None:
@@ -8273,3 +8286,244 @@ def test_register_route_maps_errors(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(server, "bind_device", _ok)
     result = asyncio.run(_call({"mac": "aa:bb:cc:dd:ee:ff", "code": "123456"}, s))
     assert result == {"status": "bound"}
+
+
+# ----- 小派记忆与唱歌（memory_store / hutuji_sing / /songs / make_songs） -----
+
+from hutuji_mcp import memory_store
+
+
+def _patch_memory_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """memory_store 与 server 各自持有 settings 引用（模块级单例惯例），两边都要换。"""
+    patched = _settings(tmp_path)
+    monkeypatch.setattr(memory_store, "settings", patched)
+    monkeypatch.setattr(server, "settings", patched)
+
+
+def test_memory_remember_recall_forget_roundtrip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    assert "已记住" in asyncio.run(server.hutuji_remember("称呼", "叫我小明"))
+    got = json.loads(asyncio.run(server.hutuji_recall("称呼")))
+    assert got["memories"] == {"称呼": "叫我小明"}
+    # 全量回忆
+    all_got = json.loads(asyncio.run(server.hutuji_recall("")))
+    assert all_got["total"] == 1 and all_got["memories"]["称呼"] == "叫我小明"
+    # 精确删除后查不到
+    assert "已忘掉" in asyncio.run(server.hutuji_forget("称呼"))
+    assert "没有记住" in asyncio.run(server.hutuji_recall("称呼"))
+
+
+def test_memory_same_key_overwrites_and_lru_evicts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    asyncio.run(server.hutuji_remember("画猫偏好", "橘猫"))
+    asyncio.run(server.hutuji_remember("画猫偏好", "黑猫"))
+    got = json.loads(asyncio.run(server.hutuji_recall("画猫偏好")))
+    assert got["memories"] == {"画猫偏好": "黑猫"}
+    # 写满 200 条后再写 2 条：最久未触碰的两条被逐出，总数恒 200
+    for i in range(memory_store.MEMORY_MAX_ENTRIES):
+        asyncio.run(server.hutuji_remember(f"k{i:03d}", "v"))
+    asyncio.run(server.hutuji_remember("extra1", "v"))
+    asyncio.run(server.hutuji_remember("extra2", "v"))
+    all_got = json.loads(asyncio.run(server.hutuji_recall("")))
+    assert all_got["total"] == memory_store.MEMORY_MAX_ENTRIES
+    # k000 是最早写入且未被触碰的，应已被逐出；extra2 必在
+    assert "k000" not in all_got["memories"]
+    assert "extra2" in all_got["memories"]
+
+
+def test_memory_truncates_and_strips_control_chars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    long_key = "题" * (memory_store.MEMORY_KEY_MAX_CHARS + 20)
+    long_value = "值" * (memory_store.MEMORY_VALUE_MAX_CHARS + 20) + "\x00\x1f"
+    asyncio.run(server.hutuji_remember(long_key + "\x07", long_value))
+    got = json.loads(asyncio.run(server.hutuji_recall("")))
+    (key, value), = got["memories"].items()
+    assert len(key) == memory_store.MEMORY_KEY_MAX_CHARS
+    assert len(value) == memory_store.MEMORY_VALUE_MAX_CHARS
+    assert "\x00" not in value and "\x1f" not in value
+
+
+def test_memory_corrupt_file_fails_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """memory.json 损坏/结构不对一律从空开始，不得让工具 500。"""
+    _patch_memory_settings(tmp_path, monkeypatch)
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / memory_store.MEMORY_FILE_NAME).write_text("{broken", encoding="utf-8")
+    got = json.loads(asyncio.run(server.hutuji_recall("")))
+    assert got["total"] == 0
+    # 损坏后仍可正常写入并覆盖坏文件
+    assert "已记住" in asyncio.run(server.hutuji_remember("a", "b"))
+    assert json.loads(asyncio.run(server.hutuji_recall("a")))["memories"] == {"a": "b"}
+    # 结构不对（合法 JSON 但非 dict[str,str]）同样从空开始
+    (tmp_path / memory_store.MEMORY_FILE_NAME).write_text("[1,2,3]", encoding="utf-8")
+    assert json.loads(asyncio.run(server.hutuji_recall("")))["total"] == 0
+
+
+def test_memory_forget_star_clears_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    asyncio.run(server.hutuji_remember("a", "1"))
+    asyncio.run(server.hutuji_remember("b", "2"))
+    assert "全部忘掉" in asyncio.run(server.hutuji_forget("*"))
+    assert json.loads(asyncio.run(server.hutuji_recall("")))["total"] == 0
+
+
+def test_memory_file_not_downloadable_and_not_cleaned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """记忆文件必须同时躲过 /files 闸门与 TTL 清理（位置安全的两条活判据）。"""
+    _patch_memory_settings(tmp_path, monkeypatch)
+    asyncio.run(server.hutuji_remember("称呼", "小明"))
+    # /files 名字闸门拒绝 memory.json
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(memory_store.MEMORY_FILE_NAME))
+    assert caught.value.status_code == 404
+    # TTL 清理只清 draw_* 产物，memory.json 过期语义不适用
+    old = time.time() - 86400
+    os.utime(tmp_path / memory_store.MEMORY_FILE_NAME, (old, old))
+    server._cleanup_expired_outputs()
+    assert (tmp_path / memory_store.MEMORY_FILE_NAME).is_file()
+
+
+def _write_song_catalog(tmp_path: Path, entries: list[dict]) -> Path:
+    songs_dir = tmp_path / "songs"
+    songs_dir.mkdir(parents=True, exist_ok=True)
+    for entry in entries:
+        (songs_dir / entry["file"]).write_bytes(b"OggS" + b"\x00" * 32)
+    (songs_dir / "catalog.json").write_text(
+        json.dumps({"songs": entries}, ensure_ascii=False), encoding="utf-8"
+    )
+    return songs_dir
+
+
+def test_sing_empty_query_returns_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    _write_song_catalog(tmp_path, [
+        {"id": "twinkle", "title": "小星星", "file": "twinkle.ogg", "duration_seconds": 25.2},
+        {"id": "tigers", "title": "两只老虎", "file": "tigers.ogg", "duration_seconds": 17.0},
+    ])
+    got = json.loads(asyncio.run(server.hutuji_sing("")))
+    assert got["found"] is False
+    assert [e["title"] for e in got["catalog"]] == ["小星星", "两只老虎"]
+
+
+def test_sing_hits_by_id_and_title_substring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    _write_song_catalog(tmp_path, [
+        {"id": "twinkle", "title": "小星星", "file": "twinkle.ogg", "duration_seconds": 25.2},
+        {"id": "birthday", "title": "生日快乐", "file": "birthday.ogg", "duration_seconds": 13.4},
+    ])
+    by_id = json.loads(asyncio.run(server.hutuji_sing("twinkle")))
+    assert by_id["found"] is True
+    assert by_id["url"] == "https://draw.example/songs/twinkle.ogg"
+    assert by_id["title"] == "小星星" and by_id["duration_seconds"] == 25.2
+    by_title = json.loads(asyncio.run(server.hutuji_sing("生日")))
+    assert by_title["found"] is True and by_title["url"].endswith("/songs/birthday.ogg")
+
+
+def test_sing_miss_returns_catalog_and_never_invents_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_memory_settings(tmp_path, monkeypatch)
+    _write_song_catalog(tmp_path, [
+        {"id": "twinkle", "title": "小星星", "file": "twinkle.ogg", "duration_seconds": 25.2},
+    ])
+    got = json.loads(asyncio.run(server.hutuji_sing("孤勇者")))
+    assert got["found"] is False
+    assert "url" not in got
+    assert [e["id"] for e in got["catalog"]] == ["twinkle"]
+
+
+def test_sing_catalog_missing_or_drifted_fails_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """catalog.json 缺失 → 空清单；条目指向不存在的文件 → 被剔除（不给设备发死链）。"""
+    _patch_memory_settings(tmp_path, monkeypatch)
+    assert json.loads(asyncio.run(server.hutuji_sing("")) )["catalog"] == []
+    songs_dir = tmp_path / "songs"
+    songs_dir.mkdir(parents=True, exist_ok=True)
+    (songs_dir / "twinkle.ogg").write_bytes(b"OggS")
+    (songs_dir / "catalog.json").write_text(json.dumps({"songs": [
+        {"id": "twinkle", "title": "小星星", "file": "twinkle.ogg", "duration_seconds": 25.2},
+        {"id": "ghost", "title": "不存在", "file": "ghost.ogg", "duration_seconds": 1},
+        {"id": "bad", "title": "坏名字", "file": "../evil.ogg", "duration_seconds": 1},
+        {"id": "nonstr", "title": "坏结构", "file": 42, "duration_seconds": 1},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    got = json.loads(asyncio.run(server.hutuji_sing("")))
+    assert [e["id"] for e in got["catalog"]] == ["twinkle"]
+
+
+def test_serve_song_ok_and_headers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    songs_dir = tmp_path / "songs"
+    songs_dir.mkdir()
+    payload = b"OggS" + bytes(range(64))
+    (songs_dir / "twinkle.ogg").write_bytes(payload)
+    resp = asyncio.run(server._serve_song("twinkle.ogg"))
+    assert resp.body == payload
+    assert resp.media_type == "audio/ogg"
+    assert resp.headers["X-Hutuji-CRC32"] == format(zlib.crc32(payload) & 0xFFFFFFFF, "08x")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../evil.ogg",       # 目录穿越
+        "a/b.ogg",           # 子路径
+        "UPPER.ogg",         # 大写不在白名单
+        "twinkle.mp3",       # 非 ogg
+        "twinkle.oggx",      # 后缀钓鱼
+        ".ogg",              # 空 id
+        "x" * 65 + ".ogg",   # 超长
+        "memory.json",       # 记忆文件不可经 /songs 下载
+    ],
+)
+def test_serve_song_rejects_bad_names(name: str) -> None:
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_song(name))
+    assert caught.value.status_code == 404
+
+
+def test_serve_song_missing_file_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_song("twinkle.ogg"))
+    assert caught.value.status_code == 404
+
+
+def _load_make_songs():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "make_songs.py"
+    spec = importlib.util.spec_from_file_location("hutuji_make_songs_test", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_make_songs_generates_valid_ogg_and_catalog(tmp_path: Path) -> None:
+    """合成产物必须是 ffmpeg 可编码的 OGG，且 catalog 与 server 白名单口径一致。"""
+    make_songs = _load_make_songs()
+    catalog = make_songs.build_songs(tmp_path)
+    assert len(catalog) == 3
+    for entry in catalog:
+        assert server._SONG_FILE_RE.fullmatch(entry["file"])
+        assert entry["duration_seconds"] > 0
+        blob = (tmp_path / entry["file"]).read_bytes()
+        assert blob[:4] == b"OggS"
+        assert len(blob) > 1000  # 不是空壳
+    on_disk = json.loads((tmp_path / "catalog.json").read_text(encoding="utf-8"))
+    assert on_disk["songs"] == catalog
