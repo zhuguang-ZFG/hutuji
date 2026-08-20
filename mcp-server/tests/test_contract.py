@@ -4083,6 +4083,35 @@ def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:
     assert stats.pen_lifts >= 1
 
 
+def test_firmware_jog_envelope_matches_cloud_limits() -> None:
+    """R17-XREPO-01：固件点动包线与云端 §5 限幅互为事实源。
+
+    xiaozhi `hutuji_recovery_core.h` 的 `kJogEnvelopeMax{X,Y}Mm` 是无限位机器上
+    点动的唯一防线（2026-08-20 `DecideJog` fail-closed 加固）。只改云端
+    `MAX_X_MM`/`MAX_Y_MM` 或只改固件常量，两侧限幅就漂移——固件比云端松是
+    撞机风险，比云端紧则云端合法图样的边缘位置点不动。字面量断言两侧互为
+    事实源（R13-GC-01 同款）；外仓缺失时跳过（生产 venv 无 pytest，本机
+    门禁 hub profile 必跑到），路径解析与 agent_gate 外仓层同口径。"""
+    import os
+
+    from hutuji_mcp import gcode_gen
+
+    # 云端侧钉死 §5 硬边界（行为测试之外的显式锚点）。
+    assert gcode_gen.MAX_X_MM == 190.0
+    assert gcode_gen.MAX_Y_MM == 277.0
+
+    root = Path(os.environ.get("XIAOZHI_ROOT", "D:/Users/xiaozhi-esp32"))
+    header = root / "main/boards/lichuang-dev/hutuji_recovery_core.h"
+    if not header.is_file():
+        pytest.skip(f"外仓固件头缺失：{header}")
+
+    text = header.read_text(encoding="utf-8")
+    assert f"kJogEnvelopeMaxXMm = {gcode_gen.MAX_X_MM:.1f}f" in text
+    assert f"kJogEnvelopeMaxYMm = {gcode_gen.MAX_Y_MM:.1f}f" in text
+    # 1mm 固定步进是固件侧独有概念（云端从不点动），逐字对齐奎享 `$J=` 序列。
+    assert "kJogStepMm = 1.0f" in text
+
+
 def test_arc_full_circle_epsilon_boundary_is_inclusive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
