@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=26
+EXPECTED_CHECKS=28
 PASS=0
 FAIL=0
 
@@ -837,6 +837,12 @@ check "公网 HTTPS:443 /files 真下 G-code 200（S3 真实下载路径）" che
 # $mcp），它证不到边缘/隧道层没有另开一条到 :8300 的入口，而这条铁律的唯一「验证」
 # 是末行给人看的提示语。
 check "公网 HTTPS:443 /mcp 返回 404（MCP 未暴露公网）" check_public_mcp_blocked
+# /register（激活码中转）两面判据：本机应用路由在且按 400 拒绝坏形状；
+# 公网只放 POST、坏形状同样 400、GET 被 limit_except 拒（403）——证明 nginx
+# 新 location 生效且未把其他方法/路径放开。503（未配 token）同样是合法上线态，
+# 由下一项单独区分，别把「中转禁用」当路由不存在。
+check "本机 /register 拒绝坏形状（400/503，非 404）" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{\"mac\":\"zz\",\"code\":\"x\"}" http://127.0.0.1:8300/register); [[ "$code" == "400" || "$code" == "503" ]]'
+check "公网 HTTPS:443 /register 只放 POST（POST 坏形状 400/503，GET 403/405）" bash -c 'p=$(curl --noproxy "*" --max-time 8 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{\"mac\":\"zz\",\"code\":\"x\"}" https://hutuji.donglicao.com/register); g=$(curl --noproxy "*" --max-time 8 -s -o /dev/null -w "%{http_code}" https://hutuji.donglicao.com/register); { [[ "$p" == "400" || "$p" == "503" ]] && [[ "$g" == "403" || "$g" == "405" ]]; }'
 
 echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"
 # 必须全 pass：无 skip 可抵扣，少一项都不放行（漏跑与失败同等对待）。

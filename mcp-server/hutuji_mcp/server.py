@@ -38,6 +38,12 @@ from .config import validate_public_base_url
 from .gcode_gen import svg_to_gcode_async
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
 from .llm_svg import _sanitize_description, generate_svg
+from .activation_relay import (
+    InvalidCodeError,
+    RelayDisabledError,
+    UpstreamError as RelayUpstreamError,
+    bind_device,
+)
 
 # 保持默认 streamable_http_path="/mcp"，子应用挂到根（/files 先注册优先匹配），
 # 避免 Mount("/mcp") 对裸 /mcp 产生 307 跳转（POST 桥接器不一定跟随重定向）
@@ -654,6 +660,25 @@ async def _serve_file(name: str):
             "Content-Disposition": "attachment",
         },
     )
+
+# 激活码中转（2026-08-20 用户决策，京东云中转方案）：新设备把小智 OTA 下发的
+# 激活码 POST 上来，服务器持控制台 token 代绑到呼图机 agent，用户联网后无感
+# 完成绑定；本端失败/禁用不影响设备走「屏显激活码人工输入」原兜底。公网入口
+# 由 nginx 单独放行 POST /register（限速），/mcp 维持 404；本路由只接受
+# application/json 的 {mac, code}，体超限由 uvicorn/nginx 双层挡。
+@app.post("/register", status_code=200)
+async def _activate_relay(request: dict):
+    try:
+        status = await bind_device(settings, request.get("mac", ""), request.get("code", ""))
+    except RelayDisabledError:
+        raise HTTPException(status_code=503, detail="relay disabled") from None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad request") from None
+    except InvalidCodeError:
+        raise HTTPException(status_code=400, detail="invalid code") from None
+    except RelayUpstreamError:
+        raise HTTPException(status_code=502, detail="upstream error") from None
+    return {"status": status}
 
 app.mount("/", _mcp_app)
 

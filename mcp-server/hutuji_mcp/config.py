@@ -108,6 +108,12 @@ class Settings:
     # SiliconFlow：可图已备案（Beijing-KeTu-202404280003）；单 key 即启用
     # schnell + 可图双 racer，空值禁用。base URL 固定官方端点，不走配置面。
     siliconflow_api_key: str = ""
+    # 激活码中转（activation_relay）：设备把 OTA 激活码 POST 给 /register，由服务器
+    # 持控制台 token 代绑。token/agent_id 任一空 = 中转禁用（端点 503，设备走人工
+    # 输码兜底）；api_base 必须是 https 且带主机名。
+    xiaozhi_api_base: str = "https://xiaozhi.me/api"
+    xiaozhi_console_token: str = ""
+    xiaozhi_agent_id: str = ""
 
 
     def __post_init__(self) -> None:
@@ -146,6 +152,25 @@ class Settings:
             sensenova_base_url = validate_llm_base_url(sensenova_base_url)
         object.__setattr__(self, "sensenova_base_url", sensenova_base_url)
         object.__setattr__(self, "sensenova_api_key", sensenova_api_key)
+        # 激活码中转：token 与 agent_id 必须同时配置或同时留空（只配一半会让
+        # /register 以 503 假性禁用、掩盖部署事故）；api_base 同 image_fallback 口径。
+        xiaozhi_api_base = self.xiaozhi_api_base.strip().rstrip("/")
+        if xiaozhi_api_base:
+            parsed = urlsplit(xiaozhi_api_base)
+            if parsed.scheme != "https" or not parsed.hostname:
+                raise ValueError(
+                    "HUTUJI_XIAOZHI_API_BASE 必须是 https:// 且带主机名，"
+                    f"当前 {self.xiaozhi_api_base!r}"
+                )
+        object.__setattr__(self, "xiaozhi_api_base", xiaozhi_api_base)
+        token = self.xiaozhi_console_token.strip()
+        agent_id = self.xiaozhi_agent_id.strip()
+        if bool(token) != bool(agent_id):
+            raise ValueError(
+                "HUTUJI_XIAOZHI_TOKEN 与 HUTUJI_XIAOZHI_AGENT_ID 必须同时配置或同时留空"
+            )
+        object.__setattr__(self, "xiaozhi_console_token", token)
+        object.__setattr__(self, "xiaozhi_agent_id", agent_id)
         object.__setattr__(self, "sensenova_image_model", sensenova_image_model)
         # 非 loopback 一律拒绝：锁定决策是「/mcp 只本机可达，公网由 nginx 404」。
         # 生产 unit 用 `--host 127.0.0.1` 钉死且 `-m uvicorn` 不读本字段，所以设成
@@ -202,6 +227,9 @@ def load_settings() -> Settings:
         image_fallback_url=os.environ.get(
             "HUTUJI_IMAGE_FALLBACK_URL", "https://imagefree.tingfengai.art/v1/generate"
         ),
+        xiaozhi_api_base=os.environ.get("HUTUJI_XIAOZHI_API_BASE", "https://xiaozhi.me/api"),
+        xiaozhi_console_token=os.environ.get("HUTUJI_XIAOZHI_TOKEN", ""),
+        xiaozhi_agent_id=os.environ.get("HUTUJI_XIAOZHI_AGENT_ID", ""),
         sensenova_base_url=os.environ.get("HUTUJI_SENSENOVA_BASE_URL", ""),
         sensenova_api_key=os.environ.get("HUTUJI_SENSENOVA_API_KEY", ""),
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),

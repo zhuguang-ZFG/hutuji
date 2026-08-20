@@ -4853,7 +4853,10 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 26
+    assert preflight.count('\ncheck "') == 28
+    # /register（激活码中转）两项必须在列：本机 400/503 判据 + 公网只放 POST 判据。
+    assert '/register 拒绝坏形状' in preflight
+    assert '/register 只放 POST' in preflight
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -4882,7 +4885,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 26
+    assert len(checks) == 28
     assert min(checks) > init_last
 
 
@@ -8041,3 +8044,230 @@ def test_console_show_not_found_exits_nonzero() -> None:
     with pytest.raises(SystemExit) as excinfo:
         console.cmd_show("9999")
     assert excinfo.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# 激活码中转（activation_relay + POST /register）
+# ---------------------------------------------------------------------------
+
+
+def _relay_settings(tmp_path: Path, *, token: str = "tok", agent_id: str = "2094251") -> Settings:
+    return Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+        xiaozhi_console_token=token,
+        xiaozhi_agent_id=agent_id,
+    )
+
+
+def _mock_async_client(monkeypatch, handler):
+    """把 activation_relay 里的 httpx.AsyncClient 换成 MockTransport 版。"""
+    import httpx as _httpx
+
+    transport = _httpx.MockTransport(handler)
+    real_client = _httpx.AsyncClient  # patch 的是全局 httpx 属性，先存真类防递归
+
+    def _factory(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        kwargs["transport"] = transport
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr("hutuji_mcp.activation_relay.httpx.AsyncClient", _factory)
+    return transport
+
+
+def test_relay_validate_mac_and_code() -> None:
+    from hutuji_mcp import activation_relay as ar
+
+    assert ar.validate_mac("AA:BB:CC:DD:EE:FF") == "aa:bb:cc:dd:ee:ff"
+    assert ar.validate_code("123456") == "123456"
+    for bad in ("zz:00:00:00:00:00", "aabbccddeeff", "aa:bb:cc:dd:ee", "", None, 123):
+        with pytest.raises(ValueError):
+            ar.validate_mac(bad)  # type: ignore[arg-type]
+    for bad in ("12345a", "123", "123456789", "", None, 123456):
+        with pytest.raises(ValueError):
+            ar.validate_code(bad)  # type: ignore[arg-type]
+
+
+def test_relay_config_requires_token_and_agent_together(tmp_path: Path) -> None:
+    """token 与 agent_id 只配一半必须在 import 期就炸，不得以 503 假性禁用。"""
+    for token, agent in (("tok", ""), ("", "2094251")):
+        with pytest.raises(ValueError, match="同时配置"):
+            _relay_settings(tmp_path, token=token, agent_id=agent)
+    with pytest.raises(ValueError, match="HUTUJI_XIAOZHI_API_BASE"):
+        Settings(
+            llm_base_url="https://example.invalid/v1",
+            llm_api_key="",
+            llm_model="test",
+            output_dir=tmp_path,
+            public_base_url="https://draw.example",
+            host="127.0.0.1",
+            port=8300,
+            output_ttl_seconds=600,
+            xiaozhi_api_base="http://xiaozhi.me/api",
+        )
+
+
+def test_relay_disabled_raises(tmp_path: Path) -> None:
+    from hutuji_mcp import activation_relay as ar
+
+    s = _relay_settings(tmp_path, token="", agent_id="")
+    with pytest.raises(ar.RelayDisabledError):
+        asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456"))
+
+
+def test_relay_already_bound_skips_post(tmp_path: Path, monkeypatch) -> None:
+    from hutuji_mcp import activation_relay as ar
+
+    calls = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        calls.append(request.method)
+        assert request.method == "GET"
+        return __import__("httpx").Response(
+            200, json={"data": [{"mac_address": "aa:bb:cc:dd:ee:ff"}]}
+        )
+
+    _mock_async_client(monkeypatch, handler)
+    ar.invalidate_device_list_cache()
+    s = _relay_settings(tmp_path)
+    assert asyncio.run(ar.bind_device(s, "AA:BB:CC:DD:EE:FF", "123456")) == "already_bound"
+    assert calls == ["GET"]  # 幂等命中后不得再发 POST
+    ar.invalidate_device_list_cache()
+
+
+def test_relay_bind_success(tmp_path: Path, monkeypatch) -> None:
+    from hutuji_mcp import activation_relay as ar
+    import httpx as _httpx
+
+    posted = []
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.method == "GET":
+            return _httpx.Response(200, json={"data": []})
+        posted.append(request)
+        return _httpx.Response(200, json={"success": True, "data": {}})
+
+    _mock_async_client(monkeypatch, handler)
+    ar.invalidate_device_list_cache()
+    s = _relay_settings(tmp_path)
+    assert asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456")) == "bound"
+    assert len(posted) == 1
+    body = __import__("json").loads(posted[0].content)
+    assert body == {"mac_address": "aa:bb:cc:dd:ee:ff", "verificationCode": "123456"}
+    assert posted[0].headers["Authorization"] == "Bearer tok"
+    ar.invalidate_device_list_cache()
+
+
+def test_relay_invalid_code_mapped(tmp_path: Path, monkeypatch) -> None:
+    from hutuji_mcp import activation_relay as ar
+    import httpx as _httpx
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.method == "GET":
+            return _httpx.Response(200, json={"data": []})
+        return _httpx.Response(
+            400, json={"success": False, "code": "INVALID_VERIFICATION_CODE"}
+        )
+
+    _mock_async_client(monkeypatch, handler)
+    ar.invalidate_device_list_cache()
+    s = _relay_settings(tmp_path)
+    with pytest.raises(ar.InvalidCodeError):
+        asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "000000"))
+    ar.invalidate_device_list_cache()
+
+
+def test_relay_upstream_failures_mapped(tmp_path: Path, monkeypatch) -> None:
+    from hutuji_mcp import activation_relay as ar
+    import httpx as _httpx
+
+    # token 被拒（401）与其他 4xx/5xx 统一 UpstreamError
+    for status in (400, 401, 500):
+        def handler(request, _s=status):  # noqa: ANN001, ANN202
+            if request.method == "GET":
+                return _httpx.Response(200, json={"data": []})
+            return _httpx.Response(_s, json={"success": False, "code": "OTHER"})
+
+        _mock_async_client(monkeypatch, handler)
+        ar.invalidate_device_list_cache()
+        s = _relay_settings(tmp_path)
+        with pytest.raises(ar.UpstreamError):
+            asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456"))
+    # 网络异常也只报 UpstreamError
+    def boom(request):  # noqa: ANN001, ANN202
+        raise _httpx.ConnectError("nope", request=request)
+
+    _mock_async_client(monkeypatch, boom)
+    ar.invalidate_device_list_cache()
+    with pytest.raises(ar.UpstreamError):
+        asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456"))
+    ar.invalidate_device_list_cache()
+
+
+def test_relay_never_logs_code(tmp_path: Path, monkeypatch, caplog) -> None:
+    """脱敏硬约定：无论成功/失败/异常，日志里绝不出现激活码。"""
+    from hutuji_mcp import activation_relay as ar
+    import httpx as _httpx
+    import logging
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.method == "GET":
+            return _httpx.Response(200, json={"data": []})
+        return _httpx.Response(200, json={"success": True, "data": {}})
+
+    _mock_async_client(monkeypatch, handler)
+    ar.invalidate_device_list_cache()
+    s = _relay_settings(tmp_path)
+    with caplog.at_level(logging.INFO):
+        asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "918273"))
+    assert "918273" not in caplog.text
+    ar.invalidate_device_list_cache()
+
+
+def test_register_route_maps_errors(tmp_path: Path, monkeypatch) -> None:
+    """路由层窄异常→HTTP 码：503 禁用 / 400 形状 / 400 无效码 / 502 上游 / 200 成功。"""
+    from hutuji_mcp import server
+    from hutuji_mcp import activation_relay as ar
+
+    async def _call(body, settings_obj):
+        monkeypatch.setattr(server, "settings", settings_obj)
+        return await server._activate_relay(body)
+
+    s_disabled = _relay_settings(tmp_path, token="", agent_id="")
+    with pytest.raises(server.HTTPException) as e1:
+        asyncio.run(_call({"mac": "aa:bb:cc:dd:ee:ff", "code": "123456"}, s_disabled))
+    assert e1.value.status_code == 503
+
+    s = _relay_settings(tmp_path)
+    with pytest.raises(server.HTTPException) as e2:
+        asyncio.run(_call({"mac": "zz", "code": "123456"}, s))
+    assert e2.value.status_code == 400
+
+    def _raise_invalid(settings, mac, code):  # noqa: ANN001, ANN202, ARG001
+        raise ar.InvalidCodeError()
+
+    monkeypatch.setattr(server, "bind_device", _raise_invalid)
+    with pytest.raises(server.HTTPException) as e3:
+        asyncio.run(_call({"mac": "aa:bb:cc:dd:ee:ff", "code": "123456"}, s))
+    assert e3.value.status_code == 400
+
+    def _raise_upstream(settings, mac, code):  # noqa: ANN001, ANN202, ARG001
+        raise ar.UpstreamError("x")
+
+    monkeypatch.setattr(server, "bind_device", _raise_upstream)
+    with pytest.raises(server.HTTPException) as e4:
+        asyncio.run(_call({"mac": "aa:bb:cc:dd:ee:ff", "code": "123456"}, s))
+    assert e4.value.status_code == 502
+
+    async def _ok(settings, mac, code):  # noqa: ANN001, ANN202, ARG001
+        return "bound"
+
+    monkeypatch.setattr(server, "bind_device", _ok)
+    result = asyncio.run(_call({"mac": "aa:bb:cc:dd:ee:ff", "code": "123456"}, s))
+    assert result == {"status": "bound"}
