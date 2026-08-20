@@ -18,9 +18,11 @@
 
 ## 3. xiaozhi-esp32（S3 AI 交互）
 
-- **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `1040c0a`，已推 `origin/feat/hutuji-usb-pipe`；DESIGN.md 契约同步提交 `1040c0a`（仅文档，固件内容与 `abc50d8` 相同），手动区加固提交 `abc50d8`，touch 拖动修复提交 `211d75a`，UI/设计系统提交 `2dc2769`，BLE 生命周期提交 `f1aa0e7`，工作树干净。
-- **板上默认 UI 镜像**：COM14 当前运行 `211d75a` 默认镜像 `966bdf3d…a1adf`（2,974,896B）；esptool 写入哈希校验通过，随后约 60 秒持续收到 Grbl `Idle`，最低 SRAM 27,803B，无 panic/assert/watchdog。用户已确认入口恢复可见且前一版可拖动；当前绝对锚定版慢拖/快拖跟手性仍待现场复核，预览确认/取消与抽屉机器动作 HIL 未验。
-- **当前源码验证与构建**：`abc50d8` 全 host suite 94/94（新增 `DecideJog` fail-closed 编译跑测与抽屉 CLICKED/展开保持钉死）；改动行 clang-format dry-run 干净（存量违例未动）；ESP-IDF v6.0.1 构建 `build/xiaozhi.bin` 2,975,056B、SHA-256 `899e79a0…dc66`，**未刷机**。板上基线仍是 `211d75a` 构建 `build-waveshare-35/xiaozhi.bin` 2,974,896B、SHA-256 `966bdf3d…a1adf`（host 93/93 时构建）。最近一次 BLE 启用构建仍是 `build-hutuji-ble-enabled/xiaozhi.bin` 3,172,544B、SHA-256 `5a68fafe…80d6`（`CONFIG_HUTUJI_BLE_DIAGNOSTICS=y`，生命周期代码 `f1aa0e7`）。
+- **路径 / 分支 / HEAD**：`D:/Users/xiaozhi-esp32` / `feat/hutuji-usb-pipe` / `2bc04a6`，已推 `origin/feat/hutuji-usb-pipe`；DESIGN.md 契约同步提交 `1040c0a`（仅文档，固件内容与 `abc50d8` 相同），手动区加固提交 `abc50d8`，touch 拖动修复提交 `211d75a`，UI/设计系统提交 `2dc2769`，BLE 生命周期提交 `f1aa0e7`。
+- **工作树：干净**。原「分页抽屉 + taskLVGL 栈 12288 + 触摸/点动调参 + WiFi 省电持有 + 测试 + DESIGN」8 文件批次已提交 `2bc04a6`（含 `JobHoldsPerformance`/`PerformanceReassertPeriodMs` 决策核、`StartPerformanceHold`/`StopPerformanceHold`/`ReassertPerformance`/`PerformanceTimerThunk` 接线，host 96/96）。手动页展开 + 点动 + 省电持有连点 HIL 均已过；预览确认/取消与其余四键 HIL 未过。
+- **板上默认 UI 镜像**：COM14 当前运行 `2bc04a6` 的构建 `40778e1c`（`build/xiaozhi.bin`，2,976,352B，含 WiFi 省电持有），esptool 写入哈希校验通过；连点 HIL 已过（13 次点动 0 假失败、PERFORMANCE 包住点动段、0 爆栈/复位）。板上镜像对应提交 `2bc04a6`。
+- **当前源码验证与构建**：全 host suite 94/94（`scripts/tests`，含分页布局、标题抗溢出、`active` 强制回主页、栈 12288 与 HWM 日志的钉死断言；新增断言并入既有 drawer 契约测试，未新增测试项）。ESP-IDF v6.0.1 构建 `build/xiaozhi.bin` 2,976,352B、SHA-256 `40778e1c…`，已刷 COM14。最近一次 BLE 启用构建仍是 `build-hutuji-ble-enabled/xiaozhi.bin` 3,172,544B、SHA-256 `5a68fafe…80d6`（`CONFIG_HUTUJI_BLE_DIAGNOSTICS=y`，生命周期代码 `f1aa0e7`）。
+- **取证脚本已修正**：`results/local-only/2026-08-20/serial_capture.py` 旧版靠 pyserial 默认 open，DTR/RTS 在 open/close 各复位一次板子（S3 原生 USB Serial/JTAG 把它当复位线），曾把工具复位误读成「自发重启」；现改为清 `dtr`/`rts` 后再 `open()`。同目录 `serial_reset_capture.py` 是**有意**用 RTS 发复位脉冲，不要照此修改。
 - **BLE 板上窄证据与回滚（生命周期代码 `f1aa0e7`，当前 HEAD 未改该模块）**：启用镜像 `5a68fafe…80d6` 刷入 COM14 后 4 分钟 1,683 行日志无 `BLE_ERR_MEM_CAPACITY`/panic/assert/reboot，free SRAM 稳定约 22.1KiB（`minimal sram: 1647` 低于 24KiB 门槛，缺 BLE-off 基线，不判定回归）；Bleak 30s/15s 均收到目标 UUID、固定 6 字节 payload、seq 10→140、`stale=0`、无 local name/scan response。NVS 回滚读回 byte-identical（`enabled=0`），默认镜像重刷自证，10s 目标 UUID 扫描无匹配。证据在 `results/local-only/2026-08-19/`（本机，不入库）。BLE 仍 🟡：尚未完成共存量化矩阵（含 off 基线）、完整功耗/温升与阶段 B 认证 GATT。
 
 ## 4. fz（Grbl 门禁）
@@ -33,9 +35,9 @@
 
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
-| hutuji | `git rev-parse --short HEAD` | 服务修复提交 `7eac656` 已部署；生产证据与取消所有权契约已同步；根目录误生成 JSON 已清理，仅保留 ignored local-only 证据 |
+| hutuji | `git rev-parse --short HEAD` | `f93b3d4`：服务修复 `7eac656` 已部署，R17-XREPO-01 交叉钉已提交。工作树脏：`docs/release-readiness.md` + 本页（分页/爆栈/取证工具三条证据）待提交 |
 | Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | `847b564`，干净；板上证据止于 `e3b1cad` |
-| xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `1040c0a`，已推且干净（固件内容与 `abc50d8` 相同）；板上镜像仍是 `211d75a`（COM14 窄启动检查通过），新手动区加固构建 `899e79a0…dc66` 未刷机，HIL 待验 |
+| xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `2bc04a6` 已推且**干净**；手动页展开 + 点动 + 省电持有连点 HIL 均已过，预览确认/取消与其余四键 HIL 未过；板上镜像 `40778e1c` 即 `2bc04a6` 构建 |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留 |
 
 > 每次新增/清除工作树后立即更新。本页的静态 SHA 是证据快照，不替代实时命令；源码 HEAD 也不自动等于生产/板上运行态。

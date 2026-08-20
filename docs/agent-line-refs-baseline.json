@@ -1,5 +1,5 @@
 {
-  "git_head": "eb10071030029829d33db285ef17737e1a6bc9a6",
+  "git_head": "f93b3d4c7a4d2838549de0e37a561c57d9d4876e",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -25,7 +25,7 @@
       "sha8": "9209b4cf",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
-    "docs/agent-handoff.md -> hutuji_job.cc:1319": {
+    "docs/agent-handoff.md -> hutuji_job.cc:1081": {
       "sha8": "8dfb671d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -49,7 +49,7 @@
       "sha8": "eceef844",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1387": {
+    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1469": {
       "sha8": "9ba3260d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -109,7 +109,7 @@
       "sha8": "1bdf9e2e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2062-2063": {
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2144-2145": {
       "sha8": "3506be7b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -169,7 +169,7 @@
       "sha8": "1bdf9e2e",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/09-flow-control-deep.md -> hutuji_job.cc:66-67": {
+    "docs/kxnx/findings/09-flow-control-deep.md -> hutuji_job.cc:73-74": {
       "sha8": "42674be6",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -193,15 +193,15 @@
       "sha8": "4d4023b6",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
-    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:270": {
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:347": {
       "sha8": "d2ec4059",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:600": {
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:677": {
       "sha8": "48ad91c6",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:642": {
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:719": {
       "sha8": "7b71a110",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -237,15 +237,15 @@
       "sha8": "10a98d7e",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2205-2218": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2287-2300": {
       "sha8": "fe67870b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2284-2292": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2366-2374": {
       "sha8": "e170de5d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2431-2436": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2513-2518": {
       "sha8": "09d17b60",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -277,7 +277,7 @@
       "sha8": "59e70fac",
       "target": "docs/agent-constraint-matrix.md"
     },
-    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_job.cc:378-508": {
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_job.cc:455-585": {
       "sha8": "5c38da10",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -445,7 +445,7 @@
       "sha8": "25ad2ee5",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
-    "docs/protocol.md -> hutuji_job.cc:378-508": {
+    "docs/protocol.md -> hutuji_job.cc:455-585": {
       "sha8": "5c38da10",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -468,6 +468,10 @@
     "docs/protocol.md -> protocol.h:36": {
       "sha8": "5817611c",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
+    },
+    "docs/release-readiness.md -> application.cc:535": {
+      "sha8": "634c6586",
+      "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
     "docs/troubleshooting.md -> /Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31": {
       "sha8": "a2e0c3c2",
@@ -581,19 +585,19 @@
       "sha8": "745fa93e",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2205-2218": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2287-2300": {
       "sha8": "fe67870b",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2284-2292": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2366-2374": {
       "sha8": "e170de5d",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2431-2436": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2513-2518": {
       "sha8": "09d17b60",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:66-67": {
+    "docs/troubleshooting.md -> hutuji_job.cc:73-74": {
       "sha8": "42674be6",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
@@ -606,6 +610,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-20T04:39:44Z",
+  "updated": "2026-08-20T09:36:04Z",
   "version": 1
 }
