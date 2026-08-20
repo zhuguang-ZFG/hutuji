@@ -47,7 +47,7 @@ python scripts\agent_gate.py --profile hub        # 期望 overall=pass、pytest
 ## 1. 重取小智控制台 token（用户在浏览器，1 分钟）
 
 > **2026-08-09 已执行并通过**：`list` 回 200，列出智能体 `2094251` 呼图机（设备 1/1 在线，模型 deepseek，`knowledge_base_ids=[71153]`）。
-> **本步每个联调日都要重做**——控制台 JWT 会被服务端作废，**不是**一次性完成项，勿照第 3/4/5 步那样标「跳过」。
+> **本步按看门狗报警执行，不再硬性每日重做**——2026-08-20 实测 JWT 标称寿命 90 天（iat 2026-07-04 → exp 2026-10-02），作废是事件性的（别处重登/改密/登出）。京东云 `xiaozhi-token-watch.sh` cron 每 10 分钟探测，401/403 经 journald 报警；联调日前先看 `journalctl -t hutuji-token-watch -n 5`，无报警即直接用现有 token；有报警则换新值后 `refresh-xiaozhi-token.sh` 一键写回。仍**不是**一次性完成项，勿照第 3/4/5 步那样标「跳过」。
 > **口径**：`list` 输出的「知识库」列是**容器 id**（`71153`，即 `update-kb`/`recall` 的参数），**不是**文档 id；文档 id 每次 sync 都变（`63334` → `65569` → …），二者勿混。
 
 目的：旧 JWT 已被服务端作废（`/api/agents` 返回 401，见 `release-readiness.md` 第 10 条），

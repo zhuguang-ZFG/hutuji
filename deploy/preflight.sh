@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=28
+EXPECTED_CHECKS=29
 PASS=0
 FAIL=0
 
@@ -843,6 +843,10 @@ check "公网 HTTPS:443 /mcp 返回 404（MCP 未暴露公网）" check_public_m
 # 由下一项单独区分，别把「中转禁用」当路由不存在。
 check "本机 /register 拒绝坏形状（400/503，非 404）" bash -c 'code=$(curl --noproxy "*" --max-time 5 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{\"mac\":\"zz\",\"code\":\"x\"}" http://127.0.0.1:8300/register); [[ "$code" == "400" || "$code" == "503" ]]'
 check "公网 HTTPS:443 /register 只放 POST（POST 坏形状 400/503，GET 403/405）" bash -c 'p=$(curl --noproxy "*" --max-time 8 -s -o /dev/null -w "%{http_code}" -X POST -H "content-type: application/json" -d "{\"mac\":\"zz\",\"code\":\"x\"}" https://hutuji.donglicao.com/register); g=$(curl --noproxy "*" --max-time 8 -s -o /dev/null -w "%{http_code}" https://hutuji.donglicao.com/register); { [[ "$p" == "400" || "$p" == "503" ]] && [[ "$g" == "403" || "$g" == "405" ]]; }'
+# token 运维自动化（2026-08-20）：看门狗 cron 与一键换 token 脚本必须装机——
+# JWT 标称 90 天、作废是事件性的，缺了看门狗就只能靠人记，失效时无感激活
+# 与 KB 同步静默坏掉。
+check "token 看门狗 cron 与一键换 token 脚本已安装" bash -c '[[ -x /opt/hutuji/deploy/xiaozhi-token-watch.sh && -x /opt/hutuji/deploy/refresh-xiaozhi-token.sh ]] && crontab -l 2>/dev/null | grep -q "xiaozhi-token-watch.sh"'
 
 echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"
 # 必须全 pass：无 skip 可抵扣，少一项都不放行（漏跑与失败同等对待）。

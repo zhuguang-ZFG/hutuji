@@ -4853,10 +4853,12 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 28
+    assert preflight.count('\ncheck "') == 29
     # /register（激活码中转）两项必须在列：本机 400/503 判据 + 公网只放 POST 判据。
     assert '/register 拒绝坏形状' in preflight
     assert '/register 只放 POST' in preflight
+    # token 看门狗 + 一键换 token 必须在列（JWT 标称 90 天、事件性作废的运维口径）。
+    assert 'token 看门狗 cron 与一键换 token 脚本已安装' in preflight
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -4885,7 +4887,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 28
+    assert len(checks) == 29
     assert min(checks) > init_last
 
 

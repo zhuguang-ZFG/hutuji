@@ -1,0 +1,52 @@
+#!/bin/bash
+# 一键更换小智控制台 JWT（看门狗报警或人工例行刷新时使用）：
+#   /opt/hutuji/deploy/refresh-xiaozhi-token.sh '<new-token>'
+# 无参则交互读取。流程：形状校验 → 线上验证（GET /agents 必须 200）→
+# 备份并原子更新 /etc/hutuji/mcp.env → 重启 hutuji-mcp → /register 探针。
+# 退出码：0 成功；1 验证/探针失败；2 用法或形状错误。
+set -euo pipefail
+
+ENV_FILE=/etc/hutuji/mcp.env
+NEW="${1:-}"
+if [[ -z "$NEW" ]]; then
+  read -r -p "粘贴新 token: " NEW
+fi
+
+# JWT 三段式形状（字符集 base64url）；captcha 登录体系下 token 不可能含别的字符。
+if ! [[ "$NEW" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+  echo "token 形状不对（应为三段 JWT）" >&2
+  exit 2
+fi
+
+get_env() { grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d "\"'"; }
+API=$(get_env HUTUJI_XIAOZHI_API_BASE); API=${API:-https://xiaozhi.me/api}
+
+code=$(curl --noproxy "*" --max-time 10 -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer $NEW" "$API/agents?page=1&pageSize=1")
+if [[ "$code" != "200" ]]; then
+  echo "新 token 线上验证失败 HTTP $code，未写入（旧 token 保持不变）" >&2
+  exit 1
+fi
+
+cp -a "$ENV_FILE" "$ENV_FILE.bak.$(date +%Y%m%d-%H%M%S)"
+if grep -q '^HUTUJI_XIAOZHI_TOKEN=' "$ENV_FILE"; then
+  # JWT 只含 base64url 字符，| 作分隔符安全。
+  sed -i "s|^HUTUJI_XIAOZHI_TOKEN=.*|HUTUJI_XIAOZHI_TOKEN=$NEW|" "$ENV_FILE"
+else
+  printf 'HUTUJI_XIAOZHI_TOKEN=%s\n' "$NEW" >> "$ENV_FILE"
+fi
+chmod 600 "$ENV_FILE"
+
+systemctl restart hutuji-mcp
+sleep 2
+# 探针：本机 /register 对坏形状应回 400（服务活、中转已启用）；503 = env 未生效。
+probe=$(curl --noproxy "*" --max-time 8 -s -o /dev/null -w "%{http_code}" \
+  -X POST -H "content-type: application/json" -d '{"mac":"zz","code":"x"}' \
+  http://127.0.0.1:8300/register)
+if [[ "$probe" != "400" ]]; then
+  echo "WARN: token 已写入并重启，但 /register 探针回 $probe（期望 400）" >&2
+  exit 1
+fi
+# 清看门狗状态，下一次 cron 重新按有效计。
+echo "ok" > /run/hutuji-token-watch.state 2>/dev/null || true
+echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"
