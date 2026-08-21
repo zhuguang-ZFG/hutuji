@@ -8,7 +8,7 @@
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
 - **生产运行态**：应用基线 `fae5eac`（2026-08-21 唱歌+记忆）。唱歌轮（`2d82051`）：`server.py`（`/songs` 路由 + 云端 `hutuji_sing`）/ `songs/`（catalog + 三首自合成公版 OGG）/ `nginx-hutuji.conf`（`/songs` location）逐文件 LF blob 核 SHA-256/CR=0，备份 `/root/hutuji-bak-20260821-sing/`，三服务 active，公网 `/songs/twinkle.ogg` 200 `audio/ogg` 152422B + `x-hutuji-crc32: 441a8c9a`，preflight 29/29。记忆轮（`fae5eac`）：`memory_store.py` SHA-256 `7dc81b9a…` 两端一致，双服务 restart，preflight 29/29，记忆三工具生产写/读/删实测通过。现行链仍含 2026-08-20 取消重试去重、08-19 三路对冲、商汤快速重试、中心线/G-code 双缓存；硅流 key 按用户决定保持停用。
 - **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/`、`2026-08-20/` 与 `2026-08-21/` 均保留且被 gitignore；08-21 新增唱歌部署候选与冒烟证据、刷机事故串口原始日志（`2026-08-21-sing-bootloop-raw.log`）与恢复启动日志（`2026-08-21-waveshare-restore-boot.log`）。根目录杂散 `COM14` 文件已移入 `results/local-only/2026-08-20/`；`tmp/` 未跟踪保留。不新增忽略规则，避免同类误生成被静默掩盖。
-- **工作树（2026-08-21 服务时复核批次，未提交）**：`mcp-server/hutuji_mcp/server.py`（`_serve_file` 增加下载时 §5 复核：新 `StaleOutputError`/`_read_verified_output`）与 `mcp-server/tests/test_contract.py`（新增 4 项回归 + 4 处旧夹具占位 G-code 换合法内容）；另有未跟踪 `tmp/` 保留。对应 readiness 文首 2026-08-21「服务时 G-code 复核」条目。
+- **工作树**：干净（仅未跟踪 `tmp/` 保留）。2026-08-21 服务时复核批次已提交 `4d9e49a`（`server.py` 下载时 §5 复核 `_read_verified_output`/`StaleOutputError` + `test_contract.py` 新增 4 项回归与 4 处夹具换合法内容；pytest 900 绿、e2e PASS、hub 门禁 pass）。对应 readiness 文首 2026-08-21「服务时 G-code 复核」条目；**生产未部署**。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
 ## 2. Grbl_Esp32（运动控制）
@@ -19,7 +19,7 @@
 
 ## 3. xiaozhi-esp32（S3 AI 交互）
 
-- **工作树（2026-08-21 文档收口批次，未提交）**：`DESIGN.md` 与 `main/boards/waveshare/esp32-s3-touch-lcd-3.5/README.md` 各 1 行——点动包线描述 X≤190/Y≤277 改为 X≤190/Y≤190 并注明 2026-08-21 收紧来源；与 `75e83d7` 的 `kJogEnvelopeMaxYMm=190` 对齐。**板上镜像仍是 `5e1a91b` 构建，点动包线在设备上仍为旧值 Y≤277，未刷机前不得宣称设备侧已收紧**。
+- **工作树**：干净。2026-08-21 文档收口批次已提交 `f98d42f`（`DESIGN.md` 与 waveshare 板 README 各 1 行：点动包线 X≤190/Y≤277 → X≤190/Y≤190 并注明收紧来源，与 `75e83d7` 的 `kJogEnvelopeMaxYMm=190` 对齐）。**板上镜像仍是 `5e1a91b` 构建，点动包线在设备上仍为旧值 Y≤277，未刷机前不得宣称设备侧已收紧**。
 - **历史批次（工作树此前干净时登记）**：`70f1c58` 批次 4 文件（板 cc、lcd_display.cc、settings.cc、host 测试）：FT6336 TH_GROUP 70→30（FT5x06 官方寄存器文档 + Linux EDT 20–80 区间）、indev 读定时器 33ms→10ms（`LV_DEF_REFR_PERIOD=33` 实测 + LVGL issue #8152）；复审 P1-1 断连看门狗门控早退后原地续表 + 已恢复连接不进配网、P2-1 `Settings::SetInt` 句柄守卫、P2-2 talk/wifi 点按回弹、P2-3 贴边存档回默认。host 99/99。`37be0e9` 批次 6 文件（lcd_display.{h,cc}、板 cc、双语 locale、host 测试）：「说话」大圆钮 + 「控制」「配网」角落钮、三钮按下跟随拖动 + NVS `hutuji_ui` 布局记忆、二维码「关闭」（Schedule+StopConfigAp 事件链）、断连 120s 看门狗；含实机事故修复（拖动回调 user_data 误传 `this` → LoadProhibited 白屏重启，两轮同 Backtrace `0x42026ca6` 取证，改传 state + 防回退测试钉死）。原「分页抽屉 + taskLVGL 栈 12288 + 触摸/点动调参 + WiFi 省电持有 + 测试 + DESIGN」8 文件批次已提交 `2bc04a6`。Y 限幅收紧批次已提交 `75e83d7`（`hutuji_recovery_core.h` + host 测试 + 文档）。
 - **板上镜像**：COM14 当前运行 `5e1a91b` 的 Waveshare 3.5 构建（`build-waveshare-35/xiaozhi.bin` 0x2da560，含 `hutuji.sing`/`hutuji.stop_song`/`hutuji_music` 字串，otadata 已 erase 强制 ota_0）：25s 串口无崩溃、AFE/编解码/PMIC 正常、HutujiPipe 持续收 `<Idle|…>`；2026-08-21 唱歌语音全链实测通过（「唱一首小星星」→ 云端 `CallToolRequest` → 下载 152,422B 命中 Cloudflare 缓存 → 播放 10.7s → 喊停 → `hutuji.stop_song` 干净退场）。**刷机事故留档**：同日曾误把 lichuang-dev 板型镜像刷入本板，`I2cDevice::WriteReg` 0x108 崩溃循环，先回刷 `build-hutuji-ble-enabled` 止血再以 HEAD 重建 Waveshare 镜像恢复；已知好镜像备份在 `build-waveshare-35-good/`（`70f1c58` 代际，app `6b844555`）。未验证：灵敏度改善与看门狗续表现场 HIL，说话/配网/关闭/断连自动显码/布局记忆重启恢复的现场 HIL。
 - **当前源码验证与构建**：全 host suite **102/102**（`scripts/tests`，含唱歌 `hutuji_music` 核心套件 + 既有触摸/看门狗/布局记忆断言）。ESP-IDF v6.0.1 构建 `build-waveshare-35/xiaozhi.bin` 0x2da560（28% 空闲），已刷 COM14。最近一次 BLE 启用构建仍是 `build-hutuji-ble-enabled/xiaozhi.bin` 3,172,544B、SHA-256 `5a68fafe…80d6`（`CONFIG_HUTUJI_BLE_DIAGNOSTICS=y`，生命周期代码 `f1aa0e7`）。
@@ -36,8 +36,8 @@
 
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
-| hutuji | `git rev-parse --short HEAD` | `6a610a0`（Y 限幅收紧）；工作树脏：服务时复核批次 2 文件未提交（见 §1） |
-| xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `75e83d7`（Y 限幅收紧）已推；工作树脏：文档收口批次 2 文件未提交（见 §3）；唱歌镜像 `5e1a91b` 构建已刷 COM14 并语音实测通过；**板上不含 `75e83d7`，点动包线设备侧仍为 Y≤277** |
+| hutuji | `git rev-parse --short HEAD` | `4d9e49a`（服务时 §5 复核）；工作树干净 |
+| xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `f98d42f`（文档收口）；工作树干净；唱歌镜像 `5e1a91b` 构建已刷 COM14 并语音实测通过；**板上不含 `75e83d7`，点动包线设备侧仍为 Y≤277** |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留 |
 
 > 每次新增/清除工作树后立即更新。本页的静态 SHA 是证据快照，不替代实时命令；源码 HEAD 也不自动等于生产/板上运行态。
