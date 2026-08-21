@@ -141,7 +141,7 @@ location / { return 404; }
 拒绝 `G92`；完整会话由 S3 在每次首画/重画前 fresh `Idle` + 100ms 后旁路固定 `G92 Z0`，
 随后发送下载文件，文件结束 fresh `Idle` 后再单独发送 `M30`。
 禁 `G28`/`G30`、禁任何 `G0` 落点 X0Y0（触发自动换纸）、首行禁 `G0 X0Y0Z0`、行仅 ASCII 且 ≤254 字节 payload（不含换行；第 255 字节起整行被 `error:11` 吃掉，见 `docs/protocol.md` §5）、
-坐标限幅 `0≤X≤190mm`、`0≤Y≤277mm`（A4 四周 10mm 边距；写字机无限位开关，MCP 校验是唯一安全防线）。profile 见 `hutuji_mcp/hutuji_gwrite.toml`。
+坐标限幅 `0≤X≤190mm`、`0≤Y≤190mm`（A4 四周 10mm 边距；2026-08-21 用户口径 X 长边/Y 宽边，Y 已由 277 收紧，X 待实机 `$$` 证明 $130=297 后抬 277；写字机无限位开关，MCP 校验是唯一安全防线）。profile 见 `hutuji_mcp/hutuji_gwrite.toml`。
 
 ## 目录
 

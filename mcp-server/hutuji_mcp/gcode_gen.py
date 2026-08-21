@@ -20,9 +20,11 @@ from pathlib import Path
 
 _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 
-# 坐标限幅：A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
+# 坐标限幅：A4 纸 210×297mm。用户口径（2026-08-21）：X 为长边（297 方向）、Y 为宽边（210 方向），
+# 四周留 10mm 边距。Y 已收紧到物理宽边内（原 277 超 Y 物理行程，无限位开关即撞死点风险）；
+# X 上限维持 190 不放宽——抬到 277 必须先有实机 `$$` 输出证明 $130 确为 297（见 protocol §5）。
 MAX_X_MM = 190.0
-MAX_Y_MM = 277.0
+MAX_Y_MM = 190.0
 # 布局归一化边距：LLM 无视 prompt 的「居中留边」（2026-08-09 画质探针实测六组
 # 题材 bbox 占画布 1.8%~85.5% 乱飞，star 缩到角落、house 顶到硬边零边距），
 # 构图必须由确定性几何兜底：vpype layout 把内容等比缩放并居中到
@@ -30,7 +32,7 @@ MAX_Y_MM = 277.0
 # 两个容差才是最终毫米几何上的绝对值（排在其后会随放大倍数失真）。
 LAYOUT_MARGIN_MM = 10.0
 # 仅用于派生几何：圆弧三角函数浮点误差，以及 G0 近原点的保守换纸保护。
-# 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤190、Y≤277、Z∈{0,5} 是硬边界。
+# 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤190、Y≤190、Z∈{0,5} 是硬边界。
 _GEOMETRY_EPS_MM = 0.01
 # 正 R 圆弧的最小弦长：低于此值的弧起终点近乎重合，几何上是「近整圆」歧义
 #（解出的圆心贴在弦中点旁，正 R 取 minor 一侧圆心会让包围盒退化成弦点而绕过
@@ -107,7 +109,7 @@ class GcodeError(RuntimeError):
     """G-code 转换或合同校验失败。"""
 
 
-_SELF_TEST_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" viewBox="0 0 190 277">
+_SELF_TEST_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" viewBox="0 0 190 190">
 <path d="M20 20 L30 30 L40 20" fill="none" stroke="black" stroke-width="0.5"/>
 </svg>"""
 
@@ -596,7 +598,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
         if has_motion and not (seen_g21 and seen_g90):
             raise GcodeError(f"第 {idx} 行运动前缺少精确 G21/G90（§5 自包含要求）：{line}")
 
-        # 坐标限幅 A4（X≤190mm Y≤277mm），越界即拒。裸轴字同样是模态运动，
+        # 坐标限幅 A4（X≤190mm Y≤190mm），越界即拒。裸轴字同样是模态运动，
         # 不能因本行没有显式 G 字而跳过。
         # 零运动闸要求实际位移（GC-01）：目标点 != 当前坐标才算有内容（含 G2/G3
         # 终点）；零行程（终点 == 起点，如定位同点后的 G2 X100 Y100 I0 J0 /

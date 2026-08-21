@@ -3956,7 +3956,7 @@ def test_svg_to_gcode_upscales_and_centers_tiny_drawing(tmp_path: Path) -> None:
 
     svg = tmp_path / "tiny.svg"
     svg.write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 277">'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 190">'
         '<path d="M5 5 L15 5 L15 15 L5 15 Z" fill="none" stroke="black"/></svg>',
         encoding="utf-8",
     )
@@ -3996,7 +3996,7 @@ def test_svg_to_gcode_layout_handles_degenerate_line(tmp_path: Path) -> None:
 
     svg = tmp_path / "hline.svg"
     svg.write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 277">'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 190">'
         '<line x1="10" y1="100" x2="180" y2="100" stroke="black"/></svg>',
         encoding="utf-8",
     )
@@ -4015,8 +4015,8 @@ def test_svg_to_gcode_layout_handles_vertical_line(tmp_path: Path) -> None:
 
     svg = tmp_path / "vline.svg"
     svg.write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 277">'
-        '<line x1="100" y1="10" x2="100" y2="267" stroke="black"/></svg>',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 190">'
+        '<line x1="100" y1="10" x2="100" y2="180" stroke="black"/></svg>',
         encoding="utf-8",
     )
     gcode = tmp_path / "vline.gcode"
@@ -4024,7 +4024,7 @@ def test_svg_to_gcode_layout_handles_vertical_line(tmp_path: Path) -> None:
 
     min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
     assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
-    assert max_y - min_y == pytest.approx(257.0, abs=2.0), "竖线必须被拉满到边距内"
+    assert max_y - min_y == pytest.approx(170.0, abs=2.0), "竖线必须被拉满到边距内"
 
 
 def test_gwrite_profile_matches_production_shape() -> None:
@@ -4098,7 +4098,7 @@ def test_firmware_jog_envelope_matches_cloud_limits() -> None:
 
     # 云端侧钉死 §5 硬边界（行为测试之外的显式锚点）。
     assert gcode_gen.MAX_X_MM == 190.0
-    assert gcode_gen.MAX_Y_MM == 277.0
+    assert gcode_gen.MAX_Y_MM == 190.0
 
     root = Path(os.environ.get("XIAOZHI_ROOT", "D:/Users/xiaozhi-esp32"))
     header = root / "main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -4345,9 +4345,9 @@ def test_gcode_rejects_nonproduction_motion_shape(line: str) -> None:
 # 圆弧：端点在界内不代表整条弧在界内——弧中途会凸到象限点。
 # 每例都先用 G0 给出起点，否则校验器会以「起点未知」拒绝。
 def test_arc_bulge_outside_limit_is_rejected() -> None:
-    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=280 > 277。
+    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=195 > 190。
     只看端点会放行这条弧，实机就是撞机。"""
-    text = _minimal_gcode("G0 X100 Y270 F8000\nG2 X120 Y270 I10 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y185 F8000\nG2 X120 Y185 I10 J0 F8000\n")
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)
 
@@ -4530,15 +4530,15 @@ def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:
 
 
 def test_coordinate_at_boundary_passes() -> None:
-    """X=190 和 Y=277 恰好在各自界内。"""
-    validate_gcode(_minimal_gcode("G1 X190 Y277 F8000\n"))
+    """X=190 和 Y=190 恰好在各自界内。"""
+    validate_gcode(_minimal_gcode("G1 X190 Y190 F8000\n"))
 
 
 @pytest.mark.parametrize(
     "body",
     [
         "G1 X190.0001 Y5 F8000\n",
-        "G1 X5 Y277.0001 F8000\n",
+        "G1 X5 Y190.0001 F8000\n",
         "G1 X-0.0001 Y5 F8000\n",
         "G1 X5 Y-0.0001 F8000\n",
     ],
@@ -4556,10 +4556,10 @@ def test_explicit_z_requires_exact_production_pen_position(z: str) -> None:
         validate_gcode(_minimal_gcode(f"G1G90 Z{z}F10000\n"))
 
 
-def test_y_over_277mm_rejected() -> None:
-    """Y=277.5 超出 Y 轴限幅 277mm。"""
+def test_y_over_190mm_rejected() -> None:
+    """Y=190.5 超出 Y 轴限幅 190mm。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X5 Y277.5 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X5 Y190.5 F8000\n"))
 
 
 @pytest.mark.parametrize(
@@ -4579,7 +4579,7 @@ def test_mid_file_g91_is_rejected(form: str, body: str) -> None:
     每轮 +10mm 一路顶到 `$130=210` 的机械死点。2026-08-07 用户在手动串口片段上
     实测到这一现象（`MPos.X` 从 0 走到 10.000，反复跑即累积）。
 
-    故 `0~190/0~277` 的绝对限幅**只在全程 G90 时成立**，`G91` 是限幅的整体旁路，
+    故 `0~190/0~190` 的绝对限幅**只在全程 G90 时成立**，`G91` 是限幅的整体旁路，
     必须由指令白名单在文件层拒死。三种绕过形态都要钉住：小写与同行混排若漏，
     白名单形同虚设。
     """
@@ -4637,9 +4637,9 @@ def test_inherited_modal_g0_origin_is_rejected() -> None:
 
 
 def test_inherited_modal_arc_checks_bounding_box() -> None:
-    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 20mm 凸到 Y=280，必须拒。"""
+    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 25mm 凸到 Y=195，必须拒。"""
     text = _minimal_gcode(
-        "G0 X100 Y260 F8000\nG2 X120 Y260 I10 J0 F8000\nX160 Y260 I20 J0 F8000\n"
+        "G0 X100 Y170 F8000\nG2 X120 Y170 I10 J0 F8000\nX170 Y170 I25 J0 F8000\n"
     )
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)

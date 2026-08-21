@@ -1,7 +1,7 @@
 """调 OpenAI 兼容 LLM 生成单线笔画 SVG。
 
 写字机画的是"笔画"不是"填充"。prompt 强制模型只输出 path/line/polyline
-的描线图形，并限制在 A4 画布内（X短Y长）。**LLM 输出不可信**：`_validate_svg`
+的描线图形，并限制在 A4 画布内（用户口径 2026-08-21：X 长边 / Y 宽边）。**LLM 输出不可信**：`_validate_svg`
 在标签+属性两层做确定性白名单，是本模块的主防线（见 mcp-server README 组 1/2）。
 """
 from __future__ import annotations
@@ -19,9 +19,10 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 # 画布与 system prompt（单线笔画约束是本模块的核心）
-# A4 纸 210×297mm，X 短边 Y 长边，四周留 10mm 边距
+# A4 纸 210×297mm。用户口径（2026-08-21）：X 为长边（297 方向）、Y 为宽边（210 方向），四周留 10mm 边距。
+# Y 已收紧到物理宽边内；X 上限待实机 `$$` 证明 $130=297 后才抬 277（与 gcode_gen 同源口径）。
 CANVAS_X_MM = 190
-CANVAS_Y_MM = 277
+CANVAS_Y_MM = 190
 
 # description 输入侧缓解：字数上限 + 剥控制字符（辅助防线，不当主防线）。
 # 剥除范围：C0（\t\n\r 之外）与 DEL（U+007F）、Unicode 行分隔符 U+2028/U+2029

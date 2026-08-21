@@ -384,7 +384,7 @@ def test_generate_svg_bounds_output_without_dropping_prompt_constraints(monkeypa
     assert captured["max_tokens"] == llm_svg.LLM_MAX_TOKENS == 1200
     prompt = captured["messages"][0]["content"]
     for required in (
-        'viewBox="0 0 190 277"',
+        'viewBox="0 0 190 190"',
         "svg/g/path/line/polyline",
         'fill="none"',
         'stroke="black"',
@@ -701,7 +701,7 @@ def test_extract_svg_takes_first_block_only() -> None:
     """R14-TG-05：回复含多个并列 <svg> 块时只取首个校验并返回——钉住现行
     契约，防止日后被改成取末个/合并而静默改变注入面。"""
     text = (
-        '前言废话<svg viewBox="0 0 190 277">'
+        '前言废话<svg viewBox="0 0 190 190">'
         '<path d="M1 1 L2 2" fill="none" stroke="black"/></svg>'
         "中段<script>alert(1)</script><svg><script>alert(2)</script></svg>"
     )

@@ -374,7 +374,7 @@ def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
         str_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in smoothed)
         parts.append(f'<polyline points="{str_pts}"/>')
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
         f'viewBox="0 0 {width} {height}" fill="none" stroke="black" stroke-width="1">'
         + "".join(parts)
         + "</svg>"

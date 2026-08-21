@@ -34,7 +34,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 6. 换纸机构机械/时序/运动/授权/U1 协议**不改**；只允许 `docs/protocol.md` §9 清单内的消息路由/状态字段/网络层小加固，改后必过 fz 门禁。
 7. 本仓 = 枢纽仓，两个 fork 各自独立演进。
 
-实机侧：MK38 板，A4 行程已设（`$130=210`、`$131=297`），原点为左下角死点，X+ 右 / Y+ 前。**写字机无限位开关，MCP 侧限幅（X≤190 / Y≤277mm）是唯一安全防线。** `MAX_TLNT_CLIENTS=1`：PC Telnet 与 S3 不能同时占 :23，PC 查完必须退出，观察走 CH340 串口。
+实机侧：MK38 板，A4 行程记录为 `$130=210`、`$131=297`（**待实机 `$$` 复核**：2026-08-21 用户口径 X 为长边/Y 为宽边，若属实应对调为 `$130=297/$131=210`），原点为左下角死点，X+ 右 / Y+ 前。**写字机无限位开关，MCP 侧限幅（X≤190 / Y≤190mm；Y 已按用户口径收紧，X 待实机证据后才抬 277）是唯一安全防线。** `MAX_TLNT_CLIENTS=1`：PC Telnet 与 S3 不能同时占 :23，PC 查完必须退出，观察走 CH340 串口。
 
 ## Key Directories｜关键目录
 
@@ -97,7 +97,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **async/sync 分工**：MCP 工具是 `async`；TTL 清理走 `asyncio.to_thread`，vpype 用 `asyncio.create_subprocess_exec` 并在取消时回收子进程；LLM 用 `httpx.AsyncClient`；`pipe_sim` / `e2e_local.py` 保持同步 socket + 子进程。
 - **脱敏是硬约定**：能力文件名用 `_DRAW_FILE_PARTS_RE` 拆 token（token 是 urlsafe base64，**本身可能含 `_`**，按最后一个下划线切会泄露约 29%）；桥接只记 JSON-RPC method 标签，stderr 过 `_safe_stderr_line`，网络异常只记类型。第三方 logging 必须在 handler filter 中先 `record.getMessage()` 再脱敏最终文本，并单独脱敏 `exc_info`/`exc_text`/`stack_info`；只扫字符串 `msg/args` 会漏异常对象和 traceback。
 - **产物与 TTL**：只有匹配 `draw_YYYYMMDD_HHMMSS_<22 位 urlsafe token>.{gcode,svg}` 的名字可下载；TTL 600s，过期即删并返 404；清理是访问时顺带做的，**没有后台扫描线程**。
-- **G-code 契约**（`docs/protocol.md` §5，`validate_gcode()` 是活闸门）：头 `G21/G90/F8000` + 两次幂等 `G1G90 Z0.0F10000`（**不建立 Z 基准**）；`G0 ... F8000` 空走、`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件里禁 `G92`/`M3`/`M5`/`M30`/`G4`/`G28`/`G30`，禁 `G0` 落点 X0Y0，Z 只能 0 或 5，`0<F≤10000`，X≤190mm、Y≤277mm、单文件 ≤512KiB。落笔前的 `G92 Z0`、页尾归位行 `G1G90 X0Y0F8000` 与 `M30` 由 S3 旁路单发（先归位、ok+fresh Idle 后再换纸），不进文件。
+- **G-code 契约**（`docs/protocol.md` §5，`validate_gcode()` 是活闸门）：头 `G21/G90/F8000` + 两次幂等 `G1G90 Z0.0F10000`（**不建立 Z 基准**）；`G0 ... F8000` 空走、`G1G90 Z5.0F10000` 落笔、`G1G90 Z0.0F10000` 抬笔。下载文件里禁 `G92`/`M3`/`M5`/`M30`/`G4`/`G28`/`G30`，禁 `G0` 落点 X0Y0，Z 只能 0 或 5，`0<F≤10000`，X≤190mm、Y≤190mm、单文件 ≤512KiB。落笔前的 `G92 Z0`、页尾归位行 `G1G90 X0Y0F8000` 与 `M30` 由 S3 旁路单发（先归位、ok+fresh Idle 后再换纸），不进文件。
 - **profile 陷阱**：`hutuji_gwrite.toml` **故意不以 `G90G0 X0Y0` 收尾**——文件内回原点会触发本机换纸行为；归位由 S3 在页尾以 `G1` 旁路完成（2026-08-14 归位决策），文件契约不变。
 - **SVG 注入防御**：元素白名单 `{svg,g,path,line,polyline}` + 属性白名单，拒 DTD/实体/事件属性/`href`/`url(...)`/非 `none` 填充，深度 ≤64，SVG ≤256KiB，`description` ≤200 字符并剔除控制字符。改校验必须先过 `tests/test_injection.py`。
 - **容差是显式决策**：`LINESIMPLIFY_TOLERANCE_MM = 0.05`、`LINEMERGE_TOLERANCE_MM = 0.3`，有专测钉死，不许顺手调参。
