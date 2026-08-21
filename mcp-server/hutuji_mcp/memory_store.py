@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections import OrderedDict
 from pathlib import Path
 
@@ -25,6 +26,13 @@ MEMORY_VALUE_MAX_CHARS = 500
 # 全量回忆上限：200 条全塞给 LLM 会挤占上下文，超出时只回最近写入的 100 条
 # 并注明总数，让助手如实说「记了很多，这是最近的」。
 MEMORY_RECALL_ALL_LIMIT = 100
+# 全量回忆的字符总量预算：条数上限管不住「100 条 × 500 字符」≈ 50k tokens
+# 挤爆 LLM 上下文的理论极端；从最新往回装，装满为止（条数上限仍先生效）。
+MEMORY_RECALL_ALL_MAX_CHARS = 8000
+
+# MCP 工具走 asyncio.to_thread，remember/forget 的读-改-写必须串行，
+# 否则两个并发写各自 _load 后互相覆盖丢一条（_store 原子写只保不烂不保不丢）。
+_LOCK = threading.Lock()
 
 
 def memory_path() -> Path:
@@ -66,23 +74,35 @@ def remember(key: str, value: str) -> str:
     value = _clean(value, MEMORY_VALUE_MAX_CHARS)
     if not key or not value:
         return "没听清要记什么，这次没有记住。"
-    data = _load()
-    if key in data:
-        del data[key]
-    data[key] = value
-    while len(data) > MEMORY_MAX_ENTRIES:
-        data.popitem(last=False)
-    _store(data)
+    with _LOCK:
+        data = _load()
+        if key in data:
+            del data[key]
+        data[key] = value
+        while len(data) > MEMORY_MAX_ENTRIES:
+            data.popitem(last=False)
+        _store(data)
     return f"已记住「{key}」。"
 
 
 def recall(key: str = "") -> str:
-    """按主题子串回忆；key 为空返回全量（超上限只回最近 N 条并注明总数）。"""
+    """按主题子串回忆；key 为空返回全量（条数与字符总量双上限，注明总数）。"""
     key = _clean(key, MEMORY_KEY_MAX_CHARS)
     data = _load()
     if not key:
         total = len(data)
-        items = list(data.items())[-MEMORY_RECALL_ALL_LIMIT:]
+        items: list[tuple[str, str]] = []
+        budget = MEMORY_RECALL_ALL_MAX_CHARS
+        for item in reversed(list(data.items())):
+            if len(items) >= MEMORY_RECALL_ALL_LIMIT:
+                break
+            cost = len(item[0]) + len(item[1])
+            # 首条超预算也照收：宁可超一点也不能空着手回去
+            if items and cost > budget:
+                break
+            budget -= cost
+            items.append(item)
+        items.reverse()
         return json.dumps(
             {"total": total, "returned": len(items), "memories": dict(items)},
             ensure_ascii=False,
@@ -97,15 +117,17 @@ def forget(key: str) -> str:
     """精确删除一条；传 "*" 清空全部。"""
     key = _clean(key, MEMORY_KEY_MAX_CHARS)
     if key == "*":
-        _store(OrderedDict())
+        with _LOCK:
+            _store(OrderedDict())
         return "已经全部忘掉了。"
     if not key:
         return "没听清要忘掉什么。"
-    data = _load()
-    if key not in data:
-        return f"本来就没有记住「{key}」。"
-    del data[key]
-    _store(data)
+    with _LOCK:
+        data = _load()
+        if key not in data:
+            return f"本来就没有记住「{key}」。"
+        del data[key]
+        _store(data)
     return f"已忘掉「{key}」。"
 
 
