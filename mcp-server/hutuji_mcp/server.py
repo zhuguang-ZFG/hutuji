@@ -35,7 +35,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import settings
 from .config import validate_public_base_url
-from .gcode_gen import svg_to_gcode_async
+from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
 from .llm_svg import _CONTROL_CHAR_RE, _sanitize_description, generate_svg
 from .memory_store import (
@@ -211,6 +211,45 @@ def _read_regular_file(path: Path) -> tuple[bytes, float]:
         if fd >= 0:
             os.close(fd)
         raise
+
+
+class StaleOutputError(RuntimeError):
+    """已落盘的 `.gcode` 不再满足 §5 契约：必须按过期产物处理，不得下发。
+
+    出现的两条真实路径：① 限幅/契约常量收紧后（如 Y 上限 277→190mm），
+    收紧前生成、TTL 未到的旧产物仍留在 output_dir，仍可凭 capability URL
+    下载并被设备执行；② 落盘后文件在磁盘上被改写。两者生成期校验都已通过，
+    只有服务时复核能挡住。携带读取时的 mtime，供调用方在删除前确认路径
+    对象未被并发替换。
+    """
+
+    def __init__(self, message: str, mtime: float) -> None:
+        super().__init__(message)
+        self.mtime = mtime
+
+
+def _read_verified_output(path: Path) -> tuple[bytes, float]:
+    """读取产物；`.gcode` 再过一遍 §5 校验（服务时复核）。
+
+    复核与读取在同一次 `asyncio.to_thread` 内完成，用的就是已校验句柄读回的
+    字节，不再二次打开文件——否则「读到的」与「校验的」可能不是同一个对象。
+    `total_bytes` 传 `len(data)`（磁盘原始字节，与 `_read_generated_gcode`
+    同口径），CRLF 产物不会少算 512KiB 上限。
+    SVG/PNG 不复核：契约面只在 G-code（§5 是设备执行的唯一闸门）。
+    """
+    data, mtime = _read_regular_file(path)
+    if path.suffix != ".gcode":
+        return data, mtime
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise StaleOutputError("G-code 无法按 UTF-8 解码", mtime) from None
+    try:
+        validate_gcode(text, total_bytes=len(data))
+    except GcodeError as exc:
+        raise StaleOutputError(str(exc), mtime) from None
+    return data, mtime
+
 
 def _is_regular_capability_file(path: Path) -> bool:
     """lstat 判普通文件 + 能力命名，与 `_read_regular_file` 拒 symlink 同口径。
@@ -728,10 +767,28 @@ async def _serve_file(name: str):
     try:
         # 打开句柄后做 fstat 校验：拒 symlink / 硬链接 / 非普通文件，竞态替换
         # 不会让请求读到新路径的目标；TTL 用已打开对象的 mtime 判断。
-        data, mtime = await asyncio.to_thread(_read_regular_file, path)
+        # `.gcode` 顺带在同一线程里复核 §5 契约（见 _read_verified_output）。
+        data, mtime = await asyncio.to_thread(_read_verified_output, path)
     except OSError:
         # detail 与「不存在」不可区分：拒绝原因（symlink/硬链接/竞态）回显会
         # 泄漏目录内文件属性，统一 404。
+        raise HTTPException(status_code=404, detail="not found") from None
+    except StaleOutputError as exc:
+        # 契约收紧前的旧产物或落盘后被改写：TTL 未到也不能下发。与过期同处置
+        # ——删除同 stem 三件套并统一 404，避免同一 URL 重试仍拿到越界内容。
+        # 删除前用 mtime 复核路径对象未被并发换新（换新则跳过，删了会误删新
+        # 产物）；拿不到 mtime（已被并发删除）同样跳过。
+        logger.warning(
+            "拒绝下发不再满足 §5 契约的产物 %s：%s",
+            _redact_capability_name(name),
+            exc,
+        )
+        try:
+            unchanged = os.stat(path, follow_symlinks=False).st_mtime == exc.mtime
+        except OSError:
+            unchanged = False
+        if unchanged:
+            _delete_output_pair(path.stem)
         raise HTTPException(status_code=404, detail="not found") from None
     if time.time() - mtime >= settings.output_ttl_seconds:
         # 删除前复核：_read_regular_file 锁定的是打开时的旧对象，期间同 stem

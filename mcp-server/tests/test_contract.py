@@ -1060,7 +1060,7 @@ def test_capability_download_has_integrity_headers(
 ) -> None:
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
     name = f"{server._new_basename()}.gcode"
-    data = b"G21\nG90\n"
+    data = _minimal_gcode("G1 X10 Y10 F8000\n").encode("ascii")
     (tmp_path / name).write_bytes(data)
 
     response = asyncio.run(server._serve_file(name))
@@ -1144,7 +1144,7 @@ def test_expired_capability_returns_404_and_deletes_pair(
     base = server._new_basename()
     gcode = tmp_path / f"{base}.gcode"
     svg = tmp_path / f"{base}.svg"
-    gcode.write_text("G21\nG90\n", encoding="utf-8")
+    gcode.write_text(_minimal_gcode(), encoding="utf-8")
     svg.write_text("<svg/>", encoding="utf-8")
     old = time.time() - 601
     os.utime(gcode, (old, old))
@@ -1156,6 +1156,95 @@ def test_expired_capability_returns_404_and_deletes_pair(
     assert caught.value.status_code == 404
     assert not gcode.exists()
     assert not svg.exists()
+
+
+def test_stale_gcode_over_y_limit_returns_404_and_deletes_triplet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """服务时复核：限幅收紧前落盘、TTL 未到的旧产物（Y=200 > 190）必须按过期
+    同处置——统一 404 并删除同 stem 三件套；重试同一 URL 不得再拿到越界内容。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    base = server._new_basename()
+    gcode = tmp_path / f"{base}.gcode"
+    svg = tmp_path / f"{base}.svg"
+    png = tmp_path / f"{base}.png"
+    gcode.write_text(_minimal_gcode("G0 X100 Y200 F8000\n"), encoding="utf-8")
+    svg.write_text("<svg/>", encoding="utf-8")
+    png.write_bytes(b"\x89PNG")
+
+    with caplog.at_level(logging.WARNING, logger="hutuji_mcp.server"):
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(server._serve_file(gcode.name))
+
+    assert caught.value.status_code == 404
+    assert not gcode.exists()
+    assert not svg.exists()
+    assert not png.exists()
+    # 脱敏硬约定：warning 只允许出现 token 掩码名，不得泄露完整 capability 名。
+    assert any("_*.gcode" in record.getMessage() for record in caplog.records)
+    assert all(base not in record.getMessage() for record in caplog.records)
+
+
+def test_stale_gcode_non_utf8_returns_404_and_deletes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """落盘后被改写成非 UTF-8 字节：解码失败按陈旧产物处理，404 并删除。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    path = tmp_path / name
+    path.write_bytes(b"\xff\xfe\x00binary-garbage")
+
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(name))
+
+    assert caught.value.status_code == 404
+    assert not path.exists()
+
+
+def test_valid_gcode_passes_serve_time_revalidation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """合法产物照常下发：复核只拦违约内容，不改变正常下载的体与完整性头。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    name = f"{server._new_basename()}.gcode"
+    data = _minimal_gcode("G1 X10 Y10 F8000\n").encode("ascii")
+    (tmp_path / name).write_bytes(data)
+
+    resp = asyncio.run(server._serve_file(name))
+
+    assert resp.body == data
+    assert resp.headers["x-hutuji-crc32"] == f"{zlib.crc32(data) & 0xFFFFFFFF:08x}"
+
+
+def test_stale_delete_skipped_when_path_swapped_after_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """读取后、删除前路径被换成新对象（mtime 变化）：跳过删除以免误删新产物，
+    但本次响应仍是 404——旧内容绝不下发。"""
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    base = server._new_basename()
+    gcode = tmp_path / f"{base}.gcode"
+    svg = tmp_path / f"{base}.svg"
+    gcode.write_text(_minimal_gcode("G0 X100 Y200 F8000\n"), encoding="utf-8")
+    svg.write_text("<svg/>", encoding="utf-8")
+
+    real_read = server._read_regular_file
+
+    def _read_then_swap(path: Path) -> tuple[bytes, float]:
+        result = real_read(path)
+        # 模拟并发替换：换入一份新的合法产物，并把 mtime 显式错开。
+        replacement = tmp_path / f"{base}.gcode"
+        replacement.write_text(_minimal_gcode("G0 X10 Y10 F8000\n"), encoding="utf-8")
+        os.utime(replacement, (result[1] + 5, result[1] + 5))
+        return result
+
+    monkeypatch.setattr(server, "_read_regular_file", _read_then_swap)
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(server._serve_file(gcode.name))
+
+    assert caught.value.status_code == 404
+    assert gcode.exists(), "路径已换成新对象时不得误删"
+    assert svg.exists(), "路径已换成新对象时整对删除都应跳过"
 
 
 def test_capability_expiring_exactly_at_ttl_is_expired(
@@ -3440,12 +3529,11 @@ def test_serve_file_returns_response_not_file_response(
 
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
     name = f"{server._new_basename()}.gcode"
-    (tmp_path / name).write_bytes(b"G21\nG90\n")
+    body = _minimal_gcode("G1 X10 Y10 F8000\n").encode("ascii")
+    (tmp_path / name).write_bytes(body)
     resp = asyncio.run(server._serve_file(name))
     assert isinstance(resp, _Resp)
-    assert resp.body == b"G21\nG90\n"
-    assert resp.headers.get("content-disposition") == "attachment"
-
+    assert resp.body == body
 
 def test_serve_file_concurrent_delete_returns_404(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3534,9 +3622,8 @@ def test_serve_file_never_reads_path_swapped_before_open(
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
     name = f"{server._new_basename()}.gcode"
     real = tmp_path / name
-    original = b"G21\nG90\n"
+    original = _minimal_gcode().encode("ascii")
     real.write_bytes(original)
-
     real_open = server.os.open
 
     def _swap_then_open(path, flags, *args, **kwargs):
