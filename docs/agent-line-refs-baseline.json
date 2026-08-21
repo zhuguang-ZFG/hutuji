@@ -1,5 +1,5 @@
 {
-  "git_head": "be2f3f02e668771dfacaaedd2330d0d03086bf69",
+  "git_head": "fae5eac750cce9f23a48e6077d036ff40fc09824",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -473,6 +473,10 @@
       "sha8": "634c6586",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
+    "docs/release-readiness.md -> audio_service.cc:790": {
+      "sha8": "6346a726",
+      "target": "D:/Users/xiaozhi-esp32/main/audio/audio_service.cc"
+    },
     "docs/release-readiness.md -> i2c_device.cc:24": {
       "sha8": "d1a8eac8",
       "target": "D:/Users/xiaozhi-esp32/main/boards/common/i2c_device.cc"
@@ -614,6 +618,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-20T17:47:42Z",
+  "updated": "2026-08-21T04:11:23Z",
   "version": 1
 }
