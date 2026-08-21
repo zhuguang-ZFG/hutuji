@@ -1,5 +1,5 @@
 {
-  "git_head": "fae5eac750cce9f23a48e6077d036ff40fc09824",
+  "git_head": "0601b87ae79569982d58d5cffe4046a23517e45c",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -589,7 +589,7 @@
       "sha8": "72e93d43",
       "target": "docs/kxnx/findings/02-gcode-template.md"
     },
-    "docs/troubleshooting.md -> docs/protocol.md:375": {
+    "docs/troubleshooting.md -> docs/protocol.md:381": {
       "sha8": "745fa93e",
       "target": "docs/protocol.md"
     },
@@ -618,6 +618,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-21T04:11:23Z",
+  "updated": "2026-08-21T04:35:05Z",
   "version": 1
 }

@@ -4877,7 +4877,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
 
 def test_preflight_invokes_every_check_after_env_init() -> None:
     """顶层 check 若在 TUNNEL_HOST/OUTPUT_DIR 赋值之前调用，`set -u` 会在第一条语句就
-    `unbound variable` 退出，26 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
+    `unbound variable` 退出，29 项一个都不会跑——脚本连体检结果都产不出。用行序钉死。"""
     root = Path(__file__).resolve().parents[2]
     lines = (root / "deploy" / "preflight.sh").read_text(encoding="utf-8").splitlines()
 
@@ -4953,7 +4953,7 @@ def test_preflight_check_echoes_failure_criteria_tail() -> None:
     """DEP-UX-01：check() 必须捕获判据输出、失败时回显末尾行。
 
     约半数判据（裸 `bash -c '[[ … ]]'`、systemctl 探活、curl 状态码比对等）失败时
-    本身零输出，不捕获则 26 项里多几项红时操作员定位不到是哪一步、为什么红
+    本身零输出，不捕获则 29 项里多几项红时操作员定位不到是哪一步、为什么红
     （download 失败连 code/len/crc 都看不到）。形态必须是 `out=$(...) || rc=$?`——
     `if ! out=$(...)` 下 `$?` 恒为 0（见 check_bitmap_chain 注释），全仓禁止。
     成功时丢弃输出，[pass]/[fail] 行与 PASS/FAIL 计数语义不得改变。
