@@ -3534,6 +3534,7 @@ def test_serve_file_returns_response_not_file_response(
     resp = asyncio.run(server._serve_file(name))
     assert isinstance(resp, _Resp)
     assert resp.body == body
+    assert resp.headers.get("content-disposition") == "attachment"
 
 def test_serve_file_concurrent_delete_returns_404(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
