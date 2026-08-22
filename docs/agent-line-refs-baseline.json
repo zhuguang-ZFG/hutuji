@@ -1,5 +1,5 @@
 {
-  "git_head": "d6c1651e86d39b4b85eecf7b137fe29f840b084d",
+  "git_head": "a32289e88d3c1eaee62fdd146e52fd83d9c7ba19",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -45,7 +45,7 @@
       "sha8": "a2e0c3c2",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/daytime-tuning-runbook.md -> PaperSystem.cpp:998": {
+    "docs/daytime-tuning-runbook.md -> PaperSystem.cpp:1028": {
       "sha8": "eceef844",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
@@ -353,6 +353,10 @@
       "sha8": "f6d27ec9",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
+    "docs/protocol.md -> Custom/paper_system.cpp:182": {
+      "sha8": "315ec785",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/Custom/paper_system.cpp"
+    },
     "docs/protocol.md -> Defaults.h:82": {
       "sha8": "721be54f",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
@@ -369,6 +373,10 @@
       "sha8": "6da266b8",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
+    "docs/protocol.md -> GCode.cpp:1653": {
+      "sha8": "48ad8fbe",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
     "docs/protocol.md -> GCode.cpp:1727": {
       "sha8": "f39c7221",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
@@ -377,21 +385,41 @@
       "sha8": "4e3a2445",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/Grbl_Esp32.ino"
     },
-    "docs/protocol.md -> PaperSystem.cpp:351": {
-      "sha8": "d10bb1da",
+    "docs/protocol.md -> Machines/custom_3axis_hr4988.h:84": {
+      "sha8": "7b1c80c8",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:1226": {
+      "sha8": "a476dde0",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/protocol.md -> PaperSystem.cpp:50": {
+    "docs/protocol.md -> PaperSystem.cpp:358": {
+      "sha8": "0b16fd7e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:42": {
+      "sha8": "e1493ddc",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:54": {
       "sha8": "65762a57",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/protocol.md -> PaperSystem.cpp:802": {
-      "sha8": "8495e0b2",
+    "docs/protocol.md -> PaperSystem.cpp:55": {
+      "sha8": "e7018114",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:834": {
+      "sha8": "928648bf",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> ProcessSettings.cpp:615": {
       "sha8": "b063367a",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ProcessSettings.cpp"
+    },
+    "docs/protocol.md -> Protocol.cpp:131": {
+      "sha8": "76ffcb05",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:184": {
       "sha8": "ce7cf9b2",
@@ -441,13 +469,29 @@
       "sha8": "975021e9",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
+    "docs/protocol.md -> Serial.cpp:191": {
+      "sha8": "ece5d33e",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
     "docs/protocol.md -> Serial.cpp:380": {
       "sha8": "cd770637",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
+    },
+    "docs/protocol.md -> Serial.cpp:66": {
+      "sha8": "2f10256b",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/protocol.md -> Settings.cpp:6-8": {
       "sha8": "cdccf908",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Settings.cpp"
+    },
+    "docs/protocol.md -> Stepper.cpp:210": {
+      "sha8": "4b9be712",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Stepper.cpp"
+    },
+    "docs/protocol.md -> System.cpp:314": {
+      "sha8": "cd527ee5",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/System.cpp"
     },
     "docs/protocol.md -> TelnetServer.cpp:98": {
       "sha8": "fc7c4faa",
@@ -461,8 +505,20 @@
       "sha8": "f93ca625",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
+    "docs/protocol.md -> WebSettings.cpp:1050": {
+      "sha8": "49244579",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
+    "docs/protocol.md -> WebSettings.cpp:1055": {
+      "sha8": "2463b8a1",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
     "docs/protocol.md -> WebSettings.cpp:1131": {
       "sha8": "212d6e3a",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    },
+    "docs/protocol.md -> WebSettings.cpp:167": {
+      "sha8": "4c53e4fe",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/protocol.md -> WebUI/InputBuffer.h:55": {
@@ -541,15 +597,15 @@
       "sha8": "84164ef4",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/MotionControl.cpp"
     },
-    "docs/troubleshooting.md -> PaperSystem.cpp:147": {
+    "docs/troubleshooting.md -> PaperSystem.cpp:151": {
       "sha8": "a9f10fcb",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/troubleshooting.md -> PaperSystem.cpp:354-355": {
+    "docs/troubleshooting.md -> PaperSystem.cpp:358-359": {
       "sha8": "2dcd8244",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/troubleshooting.md -> PaperSystem.cpp:439-459": {
+    "docs/troubleshooting.md -> PaperSystem.cpp:443-463": {
       "sha8": "c2162a38",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
@@ -650,6 +706,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-22T15:13:45Z",
+  "updated": "2026-08-22T18:00:55Z",
   "version": 1
 }

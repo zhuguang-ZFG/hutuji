@@ -94,6 +94,7 @@ ALLOWLIST_EXACT = {
         "Grbl_Esp32/src/Protocol.cpp",
         "Grbl_Esp32/src/ProtocolDecisionCore.h",
         "Grbl_Esp32/src/WebUI/BTConfig.cpp",
+        "Grbl_Esp32/src/WebUI/WebSettings.cpp",
     ],
     "grbl_core_headers_restore_only": [
         "Grbl_Esp32/src/LicenseCore.h",
@@ -243,6 +244,11 @@ SECTION9_MARKERS = [
         "Grbl_Esp32/src/PaperSystem.cpp",
         ["Changing=%s", "paper_auto_change_is_running"],
         "§9-B2′ Changing 字段",
+    ),
+    (
+        "Grbl_Esp32/src/PaperSystem.cpp",
+        ["compare_exchange_strong", "std::atomic<bool> paper_auto_change_running"],
+        "§9-E′ 换纸入口原子认领",
     ),
 ]
 

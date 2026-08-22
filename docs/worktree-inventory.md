@@ -8,14 +8,14 @@
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
 - **生产运行态**：已切换至 `4787a06` + `67ed684`（2026-08-22）。`server.py` SHA-256 `ae7219b7…7122`、`cloud_bridge.py` `f69e043b…a1739`、`preflight.sh` `e1243451…6cec`、bridge unit `4dc68f4b…824a` 均为 Git blob 精确 LF 内容、CR=0；三服务 active，`/bridge-health` 返回 200，最终 preflight `pass=30 fail=0 expected=30`。备份 `/root/hutuji-bak-20260822-67ed684/`、`/root/hutuji-bak-20260822-4787a06/`、`/root/hutuji-bak-20260822-67ed684-template/`。真实语音 HIL 未执行，设备消息 token 缺失；历史生产轮次保留在 `docs/deployment.md`。
 - **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/`、`2026-08-20/` 与 `2026-08-21/` 均保留且被 gitignore；08-21 新增唱歌部署候选与冒烟证据、刷机事故串口原始日志（`2026-08-21-sing-bootloop-raw.log`）、恢复启动日志（`2026-08-21-waveshare-restore-boot.log`）与触摸第三轮开机取证（`2026-08-21-touch-round3-boot.log`，含双门回读 `70 -> 20 peak 60 -> 40`）。**2026-08-22 新增 `results/local-only/2026-08-22/hil-draw-com14.log`**：设备消息 API 触发的五角星全链 HIL 串口证据（生成→预览→确认→下载 CRC32 `586d72ae`→流控出图→归位→M30→error:90 缺纸）。根目录杂散 `COM14` 文件已移入 `results/local-only/2026-08-20/`；`tmp/` 未跟踪保留。不新增忽略规则，避免同类误生成被静默掩盖。
-- **工作树（2026-08-22 现取）**：HEAD 以 `git rev-parse --short HEAD` 为准。本轮文档（发现收紧契约/行号、厂商参数快照、售后 KB 厂家信息）随文档提交入库。仍未提交：`mcp-server/hutuji_mcp/cloud_bridge.py`、`mcp-server/tests/test_cloud_bridge.py`（空闲死链探活：过期 id 本地消费、禁止覆盖 pending、回包刷新 `_last_traffic`、顶层 JSON-RPC error 立即探活、stdin 锁）；用户未跟踪资产 `memory_user.json` 与 `tmp/` 不纳入候选。**不要把当前脏树或静态 SHA 当作实时生产/板上身份**；生产仍是 `4787a06` + `67ed684`，本轮桥接未部署。
+- **工作树（2026-08-22 现取）**：HEAD 以 `git rev-parse --short HEAD` 为准。本轮文档（发现收紧契约/行号、厂商参数快照、售后 KB 厂家信息）随文档提交入库；§9-E′ 契约+白名单+行号基线批次与 bridge-health 加固批次随后入库（见提交链）。原「桥接空闲死链探活」WIP（过期 id 本地消费、禁止覆盖 pending、回包刷新 `_last_traffic`、顶层 JSON-RPC error 立即探活、stdin 锁）**已整批入 `stash@{0}`**（cloud_bridge.py +201 / test_cloud_bridge.py +342，R20-GW-03 gate isolation）；续作时先 pop，并与 2026-08-22 review 中等项「`_run_proxy_session` spawn 极窄取消窗口（`create_subprocess_exec` 的 await 在 try/finally 之外）」一并处理，避免在 stash 之上改同一文件造成冲突。用户未跟踪资产 `memory_user.json` 与 `tmp/` 不纳入候选。**不要把静态 SHA 当作实时生产/板上身份**；生产仍是 `4787a06` + `67ed684`，`/bridge-health` 读快照异常塌 503 + preflight 快照新鲜度独立断言为**已提交未部署**。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
 ## 2. Grbl_Esp32（运动控制）
 
-- **路径 / 分支 / HEAD**：`D:/Users/Grbl_Esp32` / `fix/panel-hold-after-align-116687e` / `847b564`，与远端同名分支对齐；工作树干净。
+- **路径 / 分支 / HEAD**：`D:/Users/Grbl_Esp32` / `fix/panel-hold-after-align-116687e` / 实时 HEAD 现取（2026-08-22 已提交 `fb2b3b5` §9-E′ 换纸入口原子认领，含 WebSettings.cpp 预检注释降级）；工作树干净。
 - **有证据的板上行为基线**：`e3b1cad`（2026-08-15 烧录与启动自证）；源码后续 `847b564` 增加 §9-D′ 蓝牙功率，**没有本轮烧录证据，不能把源码 HEAD 写成板上基线**。
-- **2026-08-22 换新写字机（COM13，CH340）**：烧前已完整取证并备份——原厂整片镜像 `results/local-only/2026-08-22/new-plotter-factory-backup.bin`（4MB，esptool read_flash）、串口证据 `new-plotter-serial-evidence.log`（烧前 `$I`/`$$`/`$102`/`$130`/`$131`：厂商默认 `$130/$131=200/200`；烧后 `$$` 快照为 fork 机型默认 `$130=210/$131=297`，`$20=0` 软限关闭，云端 190/190 限幅不受影响；X 长边/短边仍待装纸后单轴点动实测量尺）。烧入 app-only `0x10000`（`e3b1cad` 经 worktree 重建 `release`，PlatformIO SUCCESS，esptool `Hash of data verified`），未整片擦写，授权 NVS 保留（启动日志 `[License] Authorized (restored from NVS)`，ChipID `00002C876AE9BFB4`）。注意：源码 HEAD `847b564` 的 fz `standard` 当前因本机 mingw 16.1 工具链损坏红（syslimits/pthread 头链错误，非产品代码失败），故新机用已验证基线 `e3b1cad` 而非 HEAD。配网走 AP 模式（`GRBL_ESP`，WebUI/命令行），静态 IP 待配网完成后按实读网段写 `.13`。
+- **2026-08-22 换新写字机（COM13，CH340）**：烧前已完整取证并备份——原厂整片镜像 `results/local-only/2026-08-22/new-plotter-factory-backup.bin`（4MB，esptool read_flash）、串口证据 `new-plotter-serial-evidence.log`（烧前 `$I`/`$$`/`$102`/`$130`/`$131`：厂商默认 `$130/$131=200/200`；烧后 `$$` 快照为 fork 机型默认 `$130=210/$131=297`，`$20=0` 软限关闭，云端 190/190 限幅不受影响；X 长边/短边仍待装纸后单轴点动实测量尺）。烧入 app-only `0x10000`（`e3b1cad` 经 worktree 重建 `release`，PlatformIO SUCCESS，esptool `Hash of data verified`），未整片擦写，授权 NVS 保留（启动日志 `[License] Authorized (restored from NVS)`，ChipID `00002C876AE9BFB4`）。注意：本机 scoop mingw 16.1 对 fz 门禁不可用——rt_v14 的 `pthread.h`→`limits.h` 头链把 Grbl `src/limits.h` 经 `include_next` 卷入系统链（`-iquote` 下同样触发，实测复现），且该 winlibs 构建不附 libasan/libubsan（mingw-gcc 无 ASan 属社区已知，msys2/MINGW-packages#3163）；**解法：PATH 前置 scoop llvm `22.1.8/bin`（fz `find_compiler` 原生优先 clang++），fz `standard` 实测 overall=pass**（`wokwi_startup` 可选云层红，用 `.pio` 旧镜像、不含 E′，按仓规不阻断）。故新机用已验证基线 `e3b1cad` 而非当时的 HEAD；E′（`fb2b3b5`）已过 fz standard host SIL，**未烧录、未实机复现物理并发**，板上基线不变。配网走 AP 模式（`GRBL_ESP`，WebUI/命令行），静态 IP 待配网完成后按实读网段写 `.13`。
 - **验证边界**：核心 §9、归位、自动换纸有历史证据；后续源码变化须另跑 fz、构建、烧录与启动身份核验。
 
 ## 3. xiaozhi-esp32（S3 AI 交互）
@@ -37,8 +37,9 @@
 
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
-| hutuji | `git rev-parse --short HEAD` | 本轮文档入库后工作树仅剩桥接探活与用户资产（见 §1）；生产仍是 `4787a06` + `67ed684` |
+| hutuji | `git rev-parse --short HEAD` | E′ 契约批次与 bridge-health 加固已入库（加固未部署）；桥接探活 WIP 在 `stash@{0}`（见 §1）；生产仍是 `4787a06` + `67ed684` |
 | xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `c4e9c1b` 已推 `feat/hutuji-usb-pipe`；工作树干净；板上 `303B7A77…2D54`，扫网后缓存命中已见串口，槽位忙 1s 快路径未单列取证 |
-| fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留 |
+| Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | `fb2b3b5`（§9-E′ 已提交、fz standard pass、未烧录）；板上基线仍 `e3b1cad`（COM13） |
+| fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留；门禁须走 clang 路径（见 §2） |
 
 > 每次新增/清除工作树后立即更新。本页的静态 SHA 是证据快照，不替代实时命令；源码 HEAD 也不自动等于生产/板上运行态。

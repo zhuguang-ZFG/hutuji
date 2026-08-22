@@ -199,7 +199,7 @@ python3 scripts\release.py lichuang-dev
 **为什么不是只看 `Paper=OK`**：`Paper=OK` 要求纸恰好压住台面传感器；**`M30` 自动换纸成功的
 终态是 `Paper=No` + `PanelHold=On`**（第 8 步末对位把尾缘再次带过传感器，2026-08-07 COM10
 两次实测）。`PanelHold=On` 由 `paper_enter_panel_low_hold()` 置位，它只在换纸成功收尾处被调用
-（`PaperSystem.cpp:998`，唯一置位点），任何 `paper_disable_drivers()` 都会清零——是「这张纸正被
+（`PaperSystem.cpp:1028`，唯一置位点），任何 `paper_disable_drivers()` 都会清零——是「这张纸正被
 面板夹持」的可靠判据。
 **失败回退**：两者都不成立 → 纸没装好/未换纸/驱动已失能，重装或发 `M30` 送一张；`Changing=On`
 卡住 → 等换纸完成或断电取纸重来，**不在此状态进第 7 步**。

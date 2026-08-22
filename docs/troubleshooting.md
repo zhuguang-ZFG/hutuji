@@ -228,7 +228,7 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 | Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:132-256` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
 | 跨连接残留 1073 字节污染 run1 | run1 全程 `Bf:24x,1200`，Telnet RX 全空（`Bf:249,127` 是 S4 断连那次的另一会话，别往 run1 身上套） |
 | `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-63`/`:99-111`）自身无锁但受外层保护：实测 `Serial.cpp:185-187`（write）与 `:232-234`（read）**都在** `vTaskEnterCritical(&myMutex)` 临界区内 |
-| 重入 `protocol_poll_client` 导致行乱序 | 全项目 6 个调用点都在 `Protocol.cpp`；`protocol_service_during_blocking` 只被 `PaperSystem.cpp:147`（换纸）调用，画线期不进 |
+| 重入 `protocol_poll_client` 导致行乱序 | 全项目 6 个调用点都在 `Protocol.cpp`；`protocol_service_during_blocking` 只被 `PaperSystem.cpp:151`（换纸）调用，画线期不进 |
 | 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
 | 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
@@ -315,7 +315,7 @@ $hasBom = ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)   # 必须 Tr
 
 ## `[ESP901]` 有纸的字面量是 `Paper=OK`，不是 `Paper=Yes`（2026-08-07 源码核实）
 
-`PaperSystem.cpp:354-355` 的格式串是 `"Paper=%s ..."` + 三元 `paper_ok ? "OK" : "No"`,
+`PaperSystem.cpp:358-359` 的格式串是 `"Paper=%s ..."` + 三元 `paper_ok ? "OK" : "No"`,
 故有纸状态输出 **`Paper=OK`**。启动日志里另有 `GPIO34(HIGH=NoP LOW=HavP)` 与 `M704` 的
 `NoP/HavP` 写法,那是**引脚电平注释**,不是 `[ESP901]` 的字段值——按 `NoP/HavP` 或 `Paper=Yes`
 写匹配的护栏会 100% 误判。
@@ -325,9 +325,9 @@ $hasBom = ($b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)   # 必须 Tr
 第 7 步反向回找到 `sensor=found`（精确定位尾缘）、第 8 步再向前 350 步对位，尾缘**又一次**越过
 传感器。`Paper=OK` 只在纸恰好压住 GPIO34 时成立（例如人工把纸直接放到台面传感器下）。
 可靠判据是 **`PanelHold=On` 且 `Changing=Off`**:`paper_panel_low_hold_active` 仅由
-`paper_enter_panel_low_hold()`（`PaperSystem.cpp:439-459`）置位,而它**只在
-`paper_auto_change` 成功收尾处被调用一次**(`:998`),任何 `paper_disable_drivers()`
-(`:388`)都会清零——含**Grbl 复位**,因为它是 RAM 里的 `volatile bool`。
+`paper_enter_panel_low_hold()`（`PaperSystem.cpp:443-463`）置位,而它**只在
+`paper_auto_change` 成功收尾处被调用一次**(`:1028`),任何 `paper_disable_drivers()`
+(`:392`)都会清零——含**Grbl 复位**,因为它是 RAM 里的 `volatile bool`。
 
 ## `SerialPort` 打开/关闭 COM 口可能复位 Grbl（2026-08-07 实测）
 
