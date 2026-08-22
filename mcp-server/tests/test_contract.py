@@ -419,6 +419,32 @@ def test_bridge_health_endpoint_rejects_stale_snapshot(
 
     assert response.status_code == 503
 
+def test_bridge_health_fastapi_route_accepts_loopback_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """真实 FastAPI 路由必须把 Request 注入，而非解析成查询参数。"""
+    import httpx
+
+    monkeypatch.setattr(
+        server,
+        "read_health_status",
+        lambda: {
+            "cloud_connected": True,
+            "proxy_connected": True,
+            "updated_at": server.time.time(),
+            "version": 1,
+        },
+    )
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=server.app, client=("127.0.0.1", 12345))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get("/bridge-health")
+
+    response = asyncio.run(request())
+    assert response.status_code == 200
+    assert response.json()["proxy_connected"] is True
+
 
 def _run_guard_under_proxy_headers(
     trusted: str, peer: tuple[str, int], xff: bytes | None

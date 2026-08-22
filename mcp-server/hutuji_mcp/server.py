@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from mcp.server.fastmcp import FastMCP
 from .cloud_bridge import WATCHDOG_POLL_SECONDS, read_health_status
@@ -774,7 +774,7 @@ app = FastAPI(
 app.add_middleware(LoopbackOnlyMcpGuard)
 
 @app.get("/bridge-health")
-async def _bridge_health(request) -> Response:
+async def _bridge_health(request: Request) -> Response:
     """仅供本机运维探针读取 bridge 的云端与 proxy 状态。"""
     client = request.client
     host = client.host if client is not None else ""
