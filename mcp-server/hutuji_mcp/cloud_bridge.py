@@ -48,6 +48,14 @@ WATCHDOG_POLL_SECONDS = 20
 # 桥接看门狗若早于它开火（旧值 120s），长描摹/慢生图的合法 hutuji_draw 会被
 # 桥接先掀掉——kill 的是自己人。判死只留给「连 SDK 都放弃了还没动静」之后。
 WATCHDOG_STALL_SECONDS = 300
+# 主动探活（2026-08-22）：当日事故证明「空闲后 proxy→MCP 链路静默死亡，云端
+# tools/call 被本地秒回错误且形态不是 Session terminated」，判死器漏判。
+# 双保险：空闲 PROBE_IDLE_SECONDS 后经 proxy 发一次真 tools/list（死链在空闲期暴露）；
+# 任何 isError 工具回包后立即探针复核（合法工具错误的探针会健康返回，不重建）。
+PROBE_IDLE_SECONDS = 60
+# 探针超时要大于看门狗轮询周期、远小于在途请求判死阈值。
+PROBE_TIMEOUT_SECONDS = 25
+_PROBE_ID_PREFIX = "hutuji-probe-"
 
 # mcp-proxy stderr / 第三方库日志可能回显 URL 或凭据；禁止把 token / Bearer /
 # api_key / access_token / sk- 裸密钥 / wss 原文写入日志。各形态共用同一个
@@ -561,6 +569,11 @@ class _SessionActivity:
         self._clock = clock
         # id → 转发给 proxy 的时刻。JSON-RPC id 允许 str/int，用原值做键。
         self._pending: dict[object, float] = {}
+        self._last_traffic = self._clock()
+        # 探针：只跟踪当前 pending 的一只；id 用独特前缀避免与云端整数 id 冲突。
+        self._probe_id: str | None = None
+        self._probe_sent_at = 0.0
+        self._probe_seq = 0
 
     def mark_inbound(self, message: str | bytes) -> None:
         """记下这条入站消息里所有带 id 的 request；notification 不武装看门狗。
@@ -569,6 +582,7 @@ class _SessionActivity:
         receiver 不应对已取消的 request 发送响应，该 id 可以视作「已回包」。
         """
         now = self._clock()
+        self._last_traffic = now
         for request_id in _request_ids(message):
             # 同 id 重复到达（云端重发）以最早时刻为准：那才是真实等待起点。
             self._pending.setdefault(request_id, now)
@@ -578,6 +592,7 @@ class _SessionActivity:
     def mark_outbound(self, message: str | bytes) -> None:
         """按 id 结清已回包的请求。"""
         ids = _response_ids(message)
+        self._last_traffic = self._clock()
         if ids is None:
             # 解析不出 id 的回包（含 batch 解析失败）：无法归属，只能整体结清，
             # 保守回落到旧语义，避免因解析缺口把健康会话判死。
@@ -592,11 +607,92 @@ class _SessionActivity:
             return 0.0
         return self._clock() - min(self._pending.values())
 
+    def idle_seconds(self) -> float:
+        """距最近一次入站/回包的秒数；供看门狗决定何时主动探活。"""
+        return self._clock() - self._last_traffic
+
+    def build_probe(self) -> str | None:
+        """构造一次经 proxy 的真 tools/list 并记为 pending；同一时间只保留一只探针。
+
+        已有 pending 探针时返回 None，禁止覆盖 id——旧回包否则会落到转发路径，
+        污染云端没发过的 id。发送与回包都刷新 ``_last_traffic``，避免探活成功后
+        仍被看成「空闲超时」而每轮看门狗再打一次。
+
+        必须用 tools/list 而非 ping：mcp-proxy 的 create_proxy_server 未注册
+        PingRequest 转发，ping 由 proxy 进程本地应答，探不到 proxy→MCP 链路；
+        tools/list 必然发起到本机 /mcp 的 HTTP POST，且服务端 journal 会留落行，
+        可作为「探针确实到达」的运维证据。
+        """
+        if self._probe_id is not None:
+            return None
+        self._probe_seq += 1
+        self._probe_id = f"{_PROBE_ID_PREFIX}{self._probe_seq}"
+        now = self._clock()
+        self._probe_sent_at = now
+        self._last_traffic = now
+        return json.dumps(
+            {"jsonrpc": "2.0", "id": self._probe_id, "method": "tools/list"},
+            separators=(",", ":"),
+        )
+
+    def probe_pending_seconds(self) -> float:
+        """当前探针已等待的秒数；无 pending 探针返回 0。"""
+        if self._probe_id is None:
+            return 0.0
+        return self._clock() - self._probe_sent_at
+
+    def resolve_probe(self, message: str | bytes) -> bool | None:
+        """探针回包本地消费：True=健康 result；False=错误回包（链路已死）；None=非探针。
+
+        凡 ``hutuji-probe-`` 前缀的回包都本地吃掉（含已覆盖/过期 id），禁止转发云端。
+        """
+        for obj in _iter_jsonrpc_objects(message):
+            raw_id = obj.get("id")
+            if (
+                not isinstance(raw_id, str)
+                or not raw_id.startswith(_PROBE_ID_PREFIX)
+                or "method" in obj
+            ):
+                continue
+            self._last_traffic = self._clock()
+            if raw_id == self._probe_id:
+                self._probe_id = None
+            result = obj.get("result")
+            if "error" in obj:
+                return False
+            if isinstance(result, dict) and result.get("isError") is True:
+                return False
+            return True
+        return None
+
+
+async def _write_proxy_stdin(
+    process: asyncio.subprocess.Process,
+    payload: str,
+    stdin_lock: asyncio.Lock | None = None,
+) -> None:
+    """把一行 JSON-RPC 写入 mcp-proxy stdin；多任务共用同一把锁。"""
+    stdin = process.stdin
+    if stdin is None:
+        raise RuntimeError("mcp-proxy stdin 已关闭，无法写入")
+
+    async def _write() -> None:
+        stdin.write(payload.encode("utf-8") + b"\n")
+        await stdin.drain()
+
+    if stdin_lock is None:
+        await _write()
+        return
+    async with stdin_lock:
+        await _write()
+
 
 async def _cloud_to_proxy(
-    websocket, process: asyncio.subprocess.Process, activity: _SessionActivity
+    websocket,
+    process: asyncio.subprocess.Process,
+    activity: _SessionActivity,
+    stdin_lock: asyncio.Lock | None = None,
 ) -> None:
-    assert process.stdin is not None
     async for message in websocket:
         logger.info("云端 MCP 请求: %s", _message_label(message))
         if isinstance(message, bytes):
@@ -605,14 +701,62 @@ async def _cloud_to_proxy(
         # （字符串内的换行必须转义），但 stdio 是行帧——原样写入会把一帧拆成
         # 多行，子进程逐行 model_validate_json 即炸。换成空格对合法 JSON 零影响。
         message = message.replace("\r", " ").replace("\n", " ")
-        process.stdin.write(message.encode("utf-8") + b"\n")
-        await process.stdin.drain()
+        await _write_proxy_stdin(process, message, stdin_lock)
         # drain 之后才记：这一刻起 proxy 已收到请求，看门狗开始为它计等待时长。
         activity.mark_inbound(message)
 
 
+def _is_tool_error_result(message: str | bytes) -> bool:
+    """判定回包是否含 isError=true 的 CallToolResult（合法工具错误也算）。"""
+    for obj in _iter_jsonrpc_objects(message):
+        result = obj.get("result")
+        if isinstance(result, dict) and result.get("isError") is True:
+            return True
+    return False
+
+
+def _has_jsonrpc_error(message: str | bytes) -> bool:
+    """判定回包是否含顶层 JSON-RPC error 对象（非 Session terminated 秒回也算）。"""
+    for obj in _iter_jsonrpc_objects(message):
+        if isinstance(obj.get("error"), dict):
+            return True
+    return False
+
+
+def _needs_liveness_probe(message: str | bytes) -> bool:
+    """工具 isError 或顶层 JSON-RPC error 都立即探活；Session terminated 由上层先掀。"""
+    return _is_tool_error_result(message) or _has_jsonrpc_error(message)
+
+
+def _tool_error_shape_label(message: str | bytes) -> str:
+    """错误形态标签：只记 error.code 与文本长度等粗粒度形态，**不记任何正文片段**。
+
+    用途：给「未被 Session terminated 指纹匹配」的错误留可复现的形态证据
+    （302 号事故的四帧原文不可考，指纹只能靠下次复现对上）。
+    正文一律不入日志：能力文件名 token 是 22 位 urlsafe，任何明文前缀都可能
+    泄露 token/URL（AGENTS.md 脱敏硬约定），`_redact_secret_text` 只覆盖已知
+    模式、不是兜底。长度 + code 已足以区分「秒回的死链错误」与「慢工具错误」。
+    """
+    for obj in _iter_jsonrpc_objects(message):
+        error = obj.get("error")
+        if isinstance(error, dict):
+            return f"error.code={error.get('code')}"
+        result = obj.get("result")
+        if isinstance(result, dict) and result.get("isError") is True:
+            for item in result.get("content") or []:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        return f"isError=true text_len={len(text)}"
+            return "isError=true text_len=none"
+    return "shape=unknown"
+
+
 async def _proxy_to_cloud(
-    process: asyncio.subprocess.Process, websocket, activity: _SessionActivity
+    process: asyncio.subprocess.Process,
+    websocket,
+    activity: _SessionActivity,
+    stdin_lock: asyncio.Lock | None = None,
 ) -> None:
     assert process.stdout is not None
     while line := await process.stdout.readline():
@@ -623,6 +767,16 @@ async def _proxy_to_cloud(
             logger.warning("mcp-proxy stdout 在行中途 EOF，丢弃 %d 字节残行", len(line))
             break
         message = line.decode("utf-8").rstrip("\r\n")
+        # 探针回包只本地消费：云端没发过这个 id，转发会污染对端会话。
+        probe_verdict = activity.resolve_probe(message)
+        if probe_verdict is not None:
+            if probe_verdict:
+                logger.info("mcp-proxy 探活通过")
+            else:
+                raise _McpSessionTerminated(
+                    "mcp-proxy 探活返回错误，本机 MCP 会话已死，重建 mcp-proxy"
+                )
+            continue
         # 按 id 结清已回包的请求（R7-WD-01/02）；notification（如 progress）不结清
         # ——本机 /mcp 不产生进度通知，该形态今日不可达；若未来引入长任务进度流，
         # 须按 progressToken 归属刷新在途计时，否则 >300s 的慢请求会被看门狗误杀
@@ -636,6 +790,16 @@ async def _proxy_to_cloud(
             raise _McpSessionTerminated(
                 "本机 /mcp 会话已被服务端终止（hutuji-mcp 可能已重启），重建 mcp-proxy"
             )
+        # isError 工具回包或顶层 JSON-RPC error 后立即探针复核：合法工具错误
+        # 的探针会健康返回，不重建；链路死亡产生的合成错误探针必然失败。
+        if _needs_liveness_probe(message):
+            logger.warning(
+                "工具调用返回错误（%s），立即探活本机 MCP 会话",
+                _tool_error_shape_label(message),
+            )
+            probe = activity.build_probe()
+            if probe is not None:
+                await _write_proxy_stdin(process, probe, stdin_lock)
     raise RuntimeError("mcp-proxy 已退出")
 
 
@@ -646,7 +810,9 @@ async def _proxy_stderr(process: asyncio.subprocess.Process) -> None:
 
 
 async def _watchdog(
-    process: asyncio.subprocess.Process, activity: _SessionActivity
+    process: asyncio.subprocess.Process,
+    activity: _SessionActivity,
+    stdin_lock: asyncio.Lock | None = None,
 ) -> None:
     """周期性检查 mcp-proxy 假死，并刷新 bridge 健康心跳。"""
     while True:
@@ -659,29 +825,57 @@ async def _watchdog(
             raise RuntimeError(
                 f"mcp-proxy 对在途请求无响应超过 {WATCHDOG_STALL_SECONDS}s（子进程假死）"
             )
+        # 探针超时：经 proxy 的 tools/list 长时间无响应 = 链路静默死亡，只重建 proxy。
+        if activity.probe_pending_seconds() >= PROBE_TIMEOUT_SECONDS:
+            raise _McpSessionTerminated(
+                f"mcp-proxy 探活超过 {PROBE_TIMEOUT_SECONDS}s 无响应，重建本机 MCP 会话"
+            )
+        # 空闲心跳（方案 2）：无在途请求且超过 PROBE_IDLE_SECONDS 无流量时主动
+        # 探活一次，让静默死链在下一次真实调用前暴露。
+        if (
+            activity.probe_pending_seconds() == 0
+            and activity.stall_seconds() == 0
+            and activity.idle_seconds() >= PROBE_IDLE_SECONDS
+        ):
+            probe = activity.build_probe()
+            if probe is not None:
+                await _write_proxy_stdin(process, probe, stdin_lock)
+                logger.info("空闲超过 %ds，主动探活本机 MCP 会话", PROBE_IDLE_SECONDS)
 
 
 async def _run_proxy_session(websocket, config: BridgeConfig) -> None:
     """运行一个本机 proxy；只把 session 失效交给 WSS 外层处理。"""
-    process = await asyncio.create_subprocess_exec(
-        *proxy_command(config.local_mcp_url),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        limit=MCP_PROXY_STREAM_LIMIT,
-    )
-    _health_state["proxy_connected"] = True
-    _health_state["proxy_pid"] = process.pid
-    _write_health_state(last_event="proxy_connected", last_error=None)
+    # spawn 的 await 同样是取消点：process/tasks 先落位、spawn 包进 try，
+    # 且用 shield 挡住取消等 spawn 落定拿到句柄再抛——否则取消恰好打在
+    # create_subprocess_exec 中途时 mcp-proxy 子进程成孤儿，无人 terminate。
+    process: asyncio.subprocess.Process | None = None
     tasks: set[asyncio.Task] = set()
     try:
+        spawn_task = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                *proxy_command(config.local_mcp_url),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=MCP_PROXY_STREAM_LIMIT,
+            )
+        )
+        try:
+            process = await asyncio.shield(spawn_task)
+        except asyncio.CancelledError:
+            process = await spawn_task
+            raise
+        _health_state["proxy_connected"] = True
+        _health_state["proxy_pid"] = process.pid
+        _write_health_state(last_event="proxy_connected", last_error=None)
         _set_bridge_ready(True)
         activity = _SessionActivity()
+        stdin_lock = asyncio.Lock()
         tasks = {
-            asyncio.create_task(_cloud_to_proxy(websocket, process, activity)),
-            asyncio.create_task(_proxy_to_cloud(process, websocket, activity)),
+            asyncio.create_task(_cloud_to_proxy(websocket, process, activity, stdin_lock)),
+            asyncio.create_task(_proxy_to_cloud(process, websocket, activity, stdin_lock)),
             asyncio.create_task(_proxy_stderr(process)),
-            asyncio.create_task(_watchdog(process, activity)),
+            asyncio.create_task(_watchdog(process, activity, stdin_lock)),
         }
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         first_error: BaseException | None = None
@@ -699,18 +893,19 @@ async def _run_proxy_session(websocket, config: BridgeConfig) -> None:
         async def cleanup() -> None:
             for task in tasks:
                 task.cancel()
-            if process.stdin and not process.stdin.is_closing():
-                process.stdin.close()
-            if process.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    if process.returncode is None:
-                        with contextlib.suppress(ProcessLookupError):
-                            process.kill()
-                    await process.wait()
+            if process is not None:
+                if process.stdin and not process.stdin.is_closing():
+                    process.stdin.close()
+                if process.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        if process.returncode is None:
+                            with contextlib.suppress(ProcessLookupError):
+                                process.kill()
+                        await process.wait()
             await asyncio.gather(*tasks, return_exceptions=True)
 
         cleanup_task = asyncio.create_task(cleanup())

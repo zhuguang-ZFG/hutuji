@@ -579,6 +579,48 @@ def test_bridge_reaps_proxy_when_cancelled(monkeypatch: pytest.MonkeyPatch) -> N
     assert processes[0].returncode is not None
 
 
+def test_bridge_reaps_proxy_when_cancelled_mid_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """取消恰好打在 create_subprocess_exec 中途：shield 须等 spawn 落定拿句柄再抛。
+
+    无此守护时取消直接穿透 spawn 的 await，子进程句柄丢失成孤儿（本用例用
+    慢 spawn 撑开窗口：旧实现下 processes 为空，断言即红）。
+    """
+    import asyncio
+    from hutuji_mcp import cloud_bridge
+
+    processes = []
+    create = asyncio.create_subprocess_exec
+
+    async def slow_spawn(*args, **kwargs):  # noqa: ANN002, ANN003
+        await asyncio.sleep(0.2)  # 撑开取消窗口：下方 cancel 必落在 spawn 途中
+        process = await create(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(cloud_bridge.websockets, "connect", lambda *args, **kwargs: _WebSocketContext())
+    monkeypatch.setattr(
+        cloud_bridge, "proxy_command",
+        lambda url: [sys.executable, "-c", "import time; time.sleep(60)"],
+    )
+    monkeypatch.setattr(cloud_bridge.asyncio, "create_subprocess_exec", slow_spawn)
+
+    async def exercise() -> None:
+        task = asyncio.create_task(cloud_bridge.bridge_once(cloud_bridge.BridgeConfig(
+            endpoint="wss://example.invalid/mcp?token=secret",
+            local_mcp_url="http://127.0.0.1:8300/mcp",
+        )))
+        await asyncio.sleep(0.05)  # 落在 slow_spawn 的 0.2s 窗口内
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    _run_with_reaped_children(exercise, processes)
+    assert processes, "shield 失守：取消穿透 spawn，子进程句柄丢失"
+    assert processes[0].returncode is not None
+
+
 def test_bridge_reaps_proxy_when_stderr_line_exceeds_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -916,6 +958,9 @@ def test_watchdog_never_trips_idle_session_and_exits_on_proxy_death(
         "_write_health_state",
         lambda **updates: health_events.append(updates),
     )
+    # 本测试只覆盖「idle 不判死 + proxy 退出退场」：把主动探活门闩推到无穷远，
+    # 空闲心跳有专测（见 test_watchdog_idle_heartbeat_sends_probe）。
+    monkeypatch.setattr(cloud_bridge, "PROBE_IDLE_SECONDS", 10**9)
 
     async def fake_sleep(_seconds: float) -> None:
         clock["t"] += cloud_bridge.WATCHDOG_STALL_SECONDS * 10
@@ -928,10 +973,340 @@ def test_watchdog_never_trips_idle_session_and_exits_on_proxy_death(
     async def run() -> None:
         # 不得抛：idle 会话不判死；proxy 退出后必须返回而非空转。
         await asyncio.wait_for(cloud_bridge._watchdog(process, activity), timeout=2)
-
     asyncio.run(run())
     assert calls["n"] == 3
     assert health_events == [{"last_event": "heartbeat", "last_error": None}] * 2
+
+
+def _fake_stdin(sent: list[str]):
+    from types import SimpleNamespace
+
+    def write(data: bytes) -> None:
+        sent.append(data.decode("utf-8").rstrip("\n"))
+
+    async def drain() -> None:
+        return None
+
+    return SimpleNamespace(write=write, drain=drain)
+
+
+def test_watchdog_idle_heartbeat_sends_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """空闲超过 PROBE_IDLE_SECONDS：看门狗主动经 proxy 发 tools/list 探活。"""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
+    clock["t"] += cloud_bridge.PROBE_IDLE_SECONDS + 1  # 空闲已超阈值
+    sent: list[str] = []
+    process = SimpleNamespace(returncode=None, stdin=_fake_stdin(sent))
+    monkeypatch.setattr(cloud_bridge, "_write_health_state", lambda **kw: None)
+    calls = {"n": 0}
+
+    async def fake_sleep(_seconds: float) -> None:
+        calls["n"] += 1
+        clock["t"] += 1.0  # 让第二轮能观察到探针已 pending 的秒数
+        if calls["n"] >= 2:
+            process.returncode = 0  # 第二轮（探针已发出）后按 returncode 分支退场
+
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+    asyncio.run(cloud_bridge._watchdog(process, activity))
+
+    assert len(sent) == 1
+    assert '"method":"tools/list"' in sent[0]
+    assert "hutuji-probe-" in sent[0]
+    assert activity.probe_pending_seconds() == 1.0
+
+
+def test_watchdog_probe_timeout_rebuilds_proxy_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """探针超时无响应 → _McpSessionTerminated（只重建 proxy，不拆 WSS）。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
+    activity.build_probe()  # 已有 pending 探针
+    clock["t"] += cloud_bridge.PROBE_TIMEOUT_SECONDS + 1
+    process = SimpleNamespace(returncode=None, stdin=_fake_stdin([]))
+    monkeypatch.setattr(cloud_bridge, "_write_health_state", lambda **kw: None)
+
+    async def fake_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+
+    async def run() -> None:
+        with pytest.raises(cloud_bridge._McpSessionTerminated, match="探活"):
+            await cloud_bridge._watchdog(process, activity)
+
+    asyncio.run(run())
+
+
+def test_probe_response_consumed_not_forwarded() -> None:
+    """健康探针回包只本地消费，不得转发给云端。"""
+    import json
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    activity = cloud_bridge._SessionActivity()
+    probe = activity.build_probe()
+    probe_id = json.loads(probe)["id"]
+    probe_response = json.dumps({"jsonrpc": "2.0", "id": probe_id, "result": {}}) + "\n"
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [probe_response.encode(), b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    sent: list[str] = []
+
+    class _Websocket:
+        async def send(self, message: str) -> None:
+            sent.append(message)
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="已退出"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout(), stdin=_fake_stdin([])),
+                _Websocket(),
+                activity,
+            )
+
+    asyncio.run(run())
+    assert sent == []
+    assert activity.probe_pending_seconds() == 0
+
+
+def test_probe_error_response_rebuilds_proxy() -> None:
+    """探针收到错误回包（链路已死）→ 只重建 proxy。"""
+    import json
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    activity = cloud_bridge._SessionActivity()
+    probe = activity.build_probe()
+    probe_id = json.loads(probe)["id"]
+    probe_error = json.dumps(
+        {"jsonrpc": "2.0", "id": probe_id,
+         "error": {"code": 32600, "message": "Session terminated"}}
+    ) + "\n"
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [probe_error.encode(), b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    async def run() -> None:
+        with pytest.raises(cloud_bridge._McpSessionTerminated, match="探活返回错误"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout(), stdin=_fake_stdin([])),
+                SimpleNamespace(),
+                activity,
+            )
+
+    asyncio.run(run())
+
+
+def test_tool_error_triggers_probe_with_shape_label(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """isError 工具回包：照常转发云端 + 立即探活 + 记形态标签（不记正文）。"""
+    import asyncio
+    import json
+    import logging
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    activity = cloud_bridge._SessionActivity()
+    error_result = json.dumps({
+        "jsonrpc": "2.0", "id": 42,
+        "result": {"isError": True,
+                   "content": [{"type": "text", "text": "some tool failure detail"}]},
+    }) + "\n"
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [error_result.encode(), b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    sent_cloud: list[str] = []
+
+    class _Websocket:
+        async def send(self, message: str) -> None:
+            sent_cloud.append(message)
+
+    sent_stdin: list[str] = []
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="已退出"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout(), stdin=_fake_stdin(sent_stdin)),
+                _Websocket(),
+                activity,
+            )
+
+    with caplog.at_level(logging.WARNING, logger="HUTUJI_MCP_BRIDGE"):
+        asyncio.run(run())
+
+    assert sent_cloud == [error_result.rstrip("\n")]
+    assert len(sent_stdin) == 1 and '"method":"tools/list"' in sent_stdin[0]
+    assert activity.probe_pending_seconds() >= 0
+    warning_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "立即探活" in warning_text
+    assert "some tool failure detail" not in warning_text
+
+
+def test_jsonrpc_error_triggers_probe() -> None:
+    """顶层 JSON-RPC error（非 Session terminated）也立即探活，不拆 WSS。"""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    activity = cloud_bridge._SessionActivity()
+    error_result = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "error": {"code": -32603, "message": "Internal error"},
+            }
+        )
+        + "\n"
+    )
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [error_result.encode(), b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    sent_cloud: list[str] = []
+
+    class _Websocket:
+        async def send(self, message: str) -> None:
+            sent_cloud.append(message)
+
+    sent_stdin: list[str] = []
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="已退出"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout(), stdin=_fake_stdin(sent_stdin)),
+                _Websocket(),
+                activity,
+            )
+
+    asyncio.run(run())
+    assert sent_cloud == [error_result.rstrip("\n")]
+    assert len(sent_stdin) == 1 and '"method":"tools/list"' in sent_stdin[0]
+
+
+def test_build_probe_refuses_to_overwrite_pending() -> None:
+    from hutuji_mcp import cloud_bridge
+
+    activity = cloud_bridge._SessionActivity()
+    first = activity.build_probe()
+    assert first is not None
+    assert activity.build_probe() is None
+    assert cloud_bridge._PROBE_ID_PREFIX in first
+
+
+def test_stale_probe_response_consumed_not_forwarded() -> None:
+    """过期 hutuji-probe-* 回包也只本地消费，不得转发给云端。"""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    activity = cloud_bridge._SessionActivity()
+    current = activity.build_probe()
+    assert current is not None
+    stale = json.dumps(
+        {"jsonrpc": "2.0", "id": "hutuji-probe-999", "result": {}}
+    ) + "\n"
+
+    class _Stdout:
+        def __init__(self) -> None:
+            self._lines = [stale.encode(), b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    sent: list[str] = []
+
+    class _Websocket:
+        async def send(self, message: str) -> None:
+            sent.append(message)
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="已退出"):
+            await cloud_bridge._proxy_to_cloud(
+                SimpleNamespace(stdout=_Stdout(), stdin=_fake_stdin([])),
+                _Websocket(),
+                activity,
+            )
+
+    asyncio.run(run())
+    assert sent == []
+    # 当前探针仍 pending：过期回包不得清掉现行 id。
+    assert activity.build_probe() is None
+    assert activity.probe_pending_seconds() >= 0
+
+
+def test_watchdog_does_not_reprobe_within_idle_window_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """探活成功后刷新空闲计时，60s 内不得再打 tools/list。"""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
+    clock["t"] += cloud_bridge.PROBE_IDLE_SECONDS + 1
+    sent: list[str] = []
+    process = SimpleNamespace(returncode=None, stdin=_fake_stdin(sent))
+    monkeypatch.setattr(cloud_bridge, "_write_health_state", lambda **kw: None)
+    calls = {"n": 0}
+
+    async def fake_sleep(_seconds: float) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            probe_id = json.loads(sent[0])["id"]
+            activity.resolve_probe(
+                json.dumps({"jsonrpc": "2.0", "id": probe_id, "result": {}})
+            )
+            clock["t"] += 20
+        if calls["n"] >= 3:
+            process.returncode = 0
+
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+    asyncio.run(cloud_bridge._watchdog(process, activity))
+    assert len(sent) == 1
 
 
 def test_bridge_once_watchdog_failure_reaps_proxy_and_reconnects(
@@ -945,8 +1320,8 @@ def test_bridge_once_watchdog_failure_reaps_proxy_and_reconnects(
         monkeypatch, "import time; time.sleep(60)"
     )
 
-    async def boom(process, activity):  # noqa: ANN001
-        del process, activity
+    async def boom(process, activity, stdin_lock=None):  # noqa: ANN001
+        del process, activity, stdin_lock
         raise RuntimeError("mcp-proxy 假死 probe")
 
     monkeypatch.setattr(cloud_bridge, "_watchdog", boom)
@@ -1214,6 +1589,9 @@ def test_cloud_to_proxy_passes_message_to_activity(
 
         def mark_outbound(self, message) -> None:  # noqa: ANN001
             seen["out"].append(message)
+
+        def resolve_probe(self, message) -> None:  # noqa: ANN001
+            return None
 
     request = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
     response = '{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}'
