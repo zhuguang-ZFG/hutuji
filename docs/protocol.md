@@ -27,7 +27,7 @@
 | 寻址 | 写字机**固定 IP**：路由器静态 DHCP 租约（首选）或 `$Sta/IPMode=Static` + `$Sta/IP` |
 | 参数 | 链路内即原串口字节流：115200 语义不变，行协议逐行 `ok`/`error:NN` |
 | 流向 | S3 → Grbl：G-code 行；Grbl → S3：`ok` / `error:NN` / 部分 `[MSG:]` / `?` 状态报告（**换纸消息不在其中，见下方「重要认知」**） |
-| 重连 | TCP 断开 = 链路丢失：S3 指数退避自动重连（1s/2s/4s…上限 30s），重连成功后按 §2 重新探活；进行中的任务按 §2.2 处置 |
+| 重连 | TCP 断开 = 链路丢失：S3 指数退避自动重连（1s/2s/4s…上限 30s）；**槽位忙（半开占唯一客户端）固定 1s 重试缓存 IP、不扫网、不加倍等待**；重连成功后按 §2 重新探活；进行中的任务按 §2.2 处置 |
 
 ### 1.1 Telnet 独占（固件硬约束）
 
@@ -47,7 +47,7 @@
 
 | 层 | 动作 | 覆盖场景 |
 |----|------|----------|
-| S3 | 每次重连前对旧 socket 显式 `close()`（发 FIN）；`abort`/错误路径同样保证 FIN 发出 | 优雅断连、主动 abort |
+| S3 | 每次重连前对旧 socket 显式 `shutdown`+`close()`（发 FIN）；`abort`/错误路径同样保证关闭发出 | 优雅断连、主动 abort |
 | S3（已修） | `SO_KEEPALIVE` **必须同时设 `TCP_KEEPIDLE=10`/`KEEPINTVL=3`/`KEEPCNT=3`** | 写字机掉电/断网时 S3 侧的发现 |
 | 写字机（§9-A） | `clearClients()` 取得新客户端后同样设这四项（~20s 回收） | **S3 掉电、瞬断、NAT 超时**（FIN 发不出，S3 侧无法自救） |
 
@@ -272,8 +272,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 7. **错/对**：错=`重连 → $I/M5/G1 探活 → ready → 查 Changing`；对=
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
-   ——`abort_reset_started_` CAS 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_done_` 置位前不得释放（`hutuji_job.cc:443-573`）；窗口模式的在途应答由
+   ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:444-574`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 

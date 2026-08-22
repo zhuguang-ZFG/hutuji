@@ -88,6 +88,7 @@
 |------|------|
 | 本板总图 PDF | `docs/hardware/MK38-总图.pdf` |
 | 固件机型 | `Grbl_Esp32/.../Machines/custom_3axis_hr4988.h` |
+| 厂商固件参数快照（2026-03-23，奎享软件导出） | `docs/hardware/vendor-firmware-params-20260323.properties`（Z 笔控方向/行程/速度参照；出现不落笔、只画斜线、镜像时对照恢复） |
 | 换纸实现 | `Grbl_Esp32/.../PaperSystem.cpp`、`Custom/paper_system.cpp` |
 | 板间协议 | `docs/protocol.md` |
 | 备用 TTL / 否决方案 | `docs/hardware.md` |

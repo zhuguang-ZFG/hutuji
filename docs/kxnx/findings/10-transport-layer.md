@@ -282,7 +282,7 @@ public final class f extends a implements SerialPortEventListener {
 | 奎享串口 | 静默 `connectTimeout`(默认 5s) → **controller `f()` 发一个 `?`**（`grbl/a.java:428-431` → `:410-426`；基类看门狗 `b/a.java:50-60` 仅串口子类启用，见 `grbl/a.java:246-248`） | 再过**一个 1s tick** 仍无回音 → `b(false)` 断链（`machine/b/b.java:20-28`） |
 | 奎享 Grbl WiFi | 发一个 `?` 后**等状态行**才发下一个（`grbl/a.java:379-408`，仅 `r==0` 时发；连接后 2s 一次性 Timer `:239-240`，WiFi 走 `machine/c/a.java:43-45` 时该 Timer 不创建） | 计数器 `r` 累计 **20 拍**没收到 `<...>` → `g.b(false)` 断链（收到 `<...>` 于 `:82` 清零 `r`；失联期间**不重发** `?`）|
 | 奎享 KAT WiFi | 5s 周期检查 | **20s** 无 `[ESP]` 消息 → 断链（`kat/c.java:19`） |
-| **hutuji 现状** | `SO_RCVTIMEO=3s` 超时 → 发 `?`（`hutuji_pipe.cc:194-211`） | **EAGAIN 7 连 ≈21s 无数据判死重连**（P1 已实现，对齐 Grbl WiFi 的 20 拍） |
+| **hutuji 现状** | `SO_RCVTIMEO=3s` 超时 → 发 `?`（`hutuji_pipe.cc:242-259`） | **EAGAIN 7 连 ≈21s 无数据判死重连**（P1 已实现，对齐 Grbl WiFi 的 20 拍） |
 
 > 三套看门狗是**独立**的，别混：串口走基类 `b/a+b/b`（探活 = **controller 发 `?`**）；
 > WiFi 走控制器 `grbl/a.java` 的 `?` 循环（基类看门狗**不覆盖** WiFi）；KAT 走 `kat/c.java`。
@@ -294,7 +294,7 @@ public final class f extends a implements SerialPortEventListener {
 > WiFi 那圈循环是请求-响应节奏，失联后只空转计数、**不再重发** `?`。行号也已按主树校正。
 > 我方每 3s 重发 `?` 与之策略相反，属**有意不对齐**（findings/21 §6）。
 
-**已实机抽验确认的固件缺陷**（修复前原码如下；P1 判死逻辑现在 `hutuji_pipe.cc:180-212`）：
+**已实机抽验确认的固件缺陷**（修复前原码如下；P1 判死逻辑现在 `hutuji_pipe.cc:246-254`）：
 
 ```cpp
 if (errno == EAGAIN || errno == EWOULDBLOCK) {

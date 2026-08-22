@@ -1,5 +1,13 @@
 # 发布与出货就绪度
 
+> **2026-08-22 写字机发现收紧（xiaozhi `c4e9c1b` 已推 `feat/hutuji-usb-pipe`，已刷 COM14）**：刷机后连不上的根因是槽位忙/缓存超时后扫 `/24` 并跳过真 IP，再 1→16s 退避。对照 FluidNC #189 与上游 Grbl_Esp32 拒绝第二客户端。修法：槽位忙固定 1s 重试缓存、不扫网；扫网只跳过已验明非 Grbl 的缓存；扫描超时 50→200ms；发现期 PERFORMANCE；`shutdown`+`close`。host **119/119**。Waveshare `xiaozhi.bin` SHA-256 `303B7A77…2D54`（3,005,024B，分区余 27%），COM14 app-flash `Hash of data verified`。刷后抓串口：uptime 63978ms「扫网后缓存 IP 命中: 192.168.0.13」并 `[VER:1.3a.20211103:]`——证明扫完再用 2s 打缓存的路径通了。**未证明**槽位忙 1s 快路径；本窗也未等到授权探测完成。不得写成已秒连。
+
+> **2026-08-22 控制页断连告警（xiaozhi `c4e9c1b` 已推，当时镜像已被 `303B7A77` 覆盖）**：用户点 XY/抬落笔无反应。根因不是没判断连——`RequestManualControl` 已回 `写字机未连接、未就绪或未授权`，但 `ShowNotification` 画在主屏状态栏上，被整屏控制抽屉挡住；HUD 仍用断连前缓存的 `Idle X…Y…Z` 假装在线。修法：未连接时坐标条改红字「写字机未连接」；抽屉打开时通知改画在遮罩底部（失败红/成功青）。host 抽屉契约钉死，Waveshare `xiaozhi.bin` SHA-256 `14A97DCA…9C653`，COM14 app-flash `Hash of data verified`。**写字机 Telnet 是否已恢复未在本轮验证**。
+
+> **2026-08-22 手动页布局修复（xiaozhi `c4e9c1b` 已推，当时镜像已被 `303B7A77` 覆盖）**：用户截图显示点动键变成飘字、Y− 看不见、抬笔/落笔重影。根因是把 `Idle X… Y… Z…` 长串塞进标题行胶囊，432px 行被挤爆后 flex 负间距重叠、第三行点动被固定高面板裁掉。修法：标题行改回短 locale 状态（空闲/正在画）；坐标 HUD 改到手动页全宽条；点动/工具键加 2px 描边。host **118/118**，Waveshare 构建 `xiaozhi.bin` SHA-256 `A1CA4995…006B3`，COM14 app-flash `Hash of data verified`。**现场布局目视未验证**（须用户再打开控制页）。
+
+> **2026-08-22 小派「点说话没反应/卡顿」修复（xiaozhi `7af5cbb`+`5109c9b`，已刷 COM14）**：根因两层。①播报中点击只静音不进监听（`7af5cbb` 对齐官方唤醒打断路径：abort→ResetDecoder→默认监听）。②MQTT 会话层（`5109c9b`，HIL 逐条坐实）：goodbye 排队关闭执行时不复核会话，旧关闭把新会话开启 160ms 即掐断；空通道关闭拿旧 session 发 goodbye 并触发 closed 回调，重连后残尾 goodbye 踩 LOW_POWER/强制 idle；超时放弃后的迟到 hello 污染下一次开启；通道已关时打断进监听无 UDP 上行、编码队列永久满丢帧（用户感知「卡死」）——重开经 idle 合法边中转（`speaking→connecting` 非合法边）。COM14 加固次轮 HIL：同会话五轮连续对话成功（108.8/127.3/184.9/201.2/220.9s 五次识别均有应答），残尾 goodbye 被空通道 guard 安全丢弃；230.4s 一次 AP 侧 WiFi 断连（reason 3）打断预览下载、3s 重连。未验证：通道已关打断重开分支的板上证据（host 契约测试钉死）。遗留卡顿源登记：每轮监听开头 1-2s mic 丢帧（SRAM 底 15.9KB 内存压力，`EspUdp errno=12`），待专项。
+
 > **2026-08-22 售后知识库并存口径已上云（KB 71153）**：《售后知识点.xlsx》44 条奎享软件问答此前已在 `knowledge-base.md`（§342 起），本轮按用户口径「奎享软件与小派并存」修订 §344 来源边界（先判断链路、判断不准反问）与 §364 引导话术（不再一律引导改用呼图机），§347 冲突口径区改为「同一问题两条链路答案不同」。`update-kb 71153` 成功（新文档 md5 `246d3fe98846…`，旧文档已删）。三类问法召回实测：奎享问题「改字体大小」命中奎享问答与来源边界分区；语音问题「对小派说话画猫」命中呼图机推荐说法/示例；模糊问题「写字机连不上」同时命中奎享连接条目与呼图机故障排查，供 agent 分流。未做真实语音问答 HIL。
 > **2026-08-22 全链 HIL（设备消息 API 触发，非语音）：生成→预览→确认→出图→归位 ✅，自动换纸因缺纸失败 🟡**：设备消息 token 由用户从控制台自定义主题 URL 提供（**该 token 已在聊天明文出现，按仓规视为泄露，待轮换**）。生产本机 loopback MCP 调 `hutuji_draw`（题目「一颗五角星」）返回 454 行/10777 字节/10 抬笔/TTL 600s；`hutuji.draw`（url+preview_url）→ `previewing` → `awaiting_confirmation`（播报预览提示）→ `hutuji.confirm` → `started`。串口证据 `results/local-only/2026-08-22/hil-draw-com14.log`：HTTPS 下载完成 10777 字节、CRC32 头 `586d72ae` 校验通过、`verifying`→`streaming`、G92 Z0 + G21/G90/F8000 头逐行下发、512B 窗口流控 ok 应答正常、进度播报至 100%、Run→Idle 运动完成、页尾 `G1G90 X0Y0F8000` 归位（未触发换纸）、随后 `M30` → `paper_change`。换纸阶段 Grbl 回 `error:90（缺纸/卡纸）`，job state=error——**物理缺纸态，非软件缺陷**；设备随后自行恢复 `connected=true ready=true authorized=true idle`、MPos 0,0,0。待用户确认：纸面五角星目视、纸仓装纸后复测换纸。注意：设备侧 `hutuji.draw` 当前要求 `url`+`preview_url` 双参数，本仓 `xiaozhi_console.py` 白名单仍只允许 `url`（已漂移，待修）；本轮触发走 inline API 调用，未改 CLI。
 > **2026-08-22 MCP 可靠性补强已部署生产；真实语音 HIL 未执行**：候选来自 `67ed684`（`cloud_bridge.py`、`preflight.sh`、`hutuji-cloud-bridge.service`）与 `4787a06`（`server.py` FastAPI `Request` 注入修复）。四个生产文件均由 Git blob 精确导出，CR=0；生产 SHA-256 分别为 `f69e043b…a1739`、`ae7219b7…7122`、`e1243451…6cec`、`4dc68f4b…824a`。备份为 `/root/hutuji-bak-20260822-67ed684/`、`/root/hutuji-bak-20260822-4787a06/`、`/root/hutuji-bak-20260822-67ed684-template/`；两服务显式 restart 后 active，最终 MainPID `hutuji-mcp=3369444`、`hutuji-cloud-bridge=3369445`。首轮发现 `/bridge-health` 未标注 `Request` 导致真实路由 422，`4787a06` 修复后 ASGI 回归 3 项通过，生产响应 200 且 `cloud_connected=true`/`proxy_connected=true`。最终生产 `preflight.sh` **30/30 PASS**，但当前终端无 `XIAOZHI_DEVICE_TOKEN`，控制台 JWT 不具备设备消息调用权限；已知文本注入路由均 404，故未伪造 `tools/call` 或设备出图证据。**
@@ -45,9 +53,7 @@
 
 > **2026-08-16 全脸字幕遮挡已修复（S3 `df5c440` 已推并刷 COM12）**：根因是 `LcdDisplay::SetChatMessage()` 两套编译分支都会显示底部聊天栏，而全脸画布已扩展到 `280x190`，字幕栏从底部向上覆盖嘴部/下半脸。修复在 WeChat 与普通样式两条实现的统一入口增加 `CONFIG_BOARD_TYPE_LICHUANG_DEV_S3 + grobot_eyes_` 守卫：清空 chat label、隐藏 `bottom_bar_`、立即返回；状态栏、情绪、说话/聆听动画不受影响，其它板型继续显示聊天正文。验证：受影响模块 **32/32**、全 host **40/40**；ESP-IDF v6.0.1 build 通过（bin `0x2d4bf0`，app 余 28%）；COM12 app-flash `Hash of data verified`；启动 `unknown→starting→activating→idle`，无 panic/assert，最低 SRAM `41111B`，证据 `results/bringup-grobot-subtitle-suppression-20260816.md`，ELF `e5544a990…`。**边界**：当前固件已刷入，但未在本次串口取证中自动触发完整对话；行为由两分支 host 契约钉死，需用户正常说话目视确认「文字不再覆盖面部」。
 
-> 状态日期：2026-08-21
-
----
+> 状态日期：2026-08-22
 ## 状态总览
 
 > 以 `docs/release-readiness.md` 当前行首状态段落为真值；禁止另起宣称。每条须有命令/commit/设备/日志证据才能标 ✅。
