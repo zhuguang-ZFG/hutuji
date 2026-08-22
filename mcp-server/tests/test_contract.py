@@ -419,6 +419,24 @@ def test_bridge_health_endpoint_rejects_stale_snapshot(
 
     assert response.status_code == 503
 
+def test_bridge_health_endpoint_collapses_snapshot_read_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """读快照抛非预期异常时按 503 塌缩（探针语义），不得回 500。"""
+    from types import SimpleNamespace
+
+    def _raise() -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(server, "read_health_status", _raise)
+
+    response = asyncio.run(
+        server._bridge_health(SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")))
+    )
+
+    assert response.status_code == 503
+    assert b'"cloud_connected":false' in response.body
+
 def test_bridge_health_fastapi_route_accepts_loopback_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

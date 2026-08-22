@@ -171,12 +171,18 @@ check_bridge_health() {
   python3 -c '
 import json
 import sys
+import time
 
 try:
     state = json.load(sys.stdin)
 except (json.JSONDecodeError, UnicodeDecodeError):
     raise SystemExit(1)
-raise SystemExit(0 if state.get("cloud_connected") is True and state.get("proxy_connected") is True else 1)
+# 独立断言快照新鲜度（对齐 server 侧 BRIDGE_HEALTH_MAX_AGE_SECONDS = 3x20s）：
+# 端点偶发 200 但快照过期时不得假绿。
+updated_at = state.get("updated_at")
+fresh = isinstance(updated_at, (int, float)) and 0 <= time.time() - updated_at <= 60
+ok = fresh and state.get("cloud_connected") is True and state.get("proxy_connected") is True
+raise SystemExit(0 if ok else 1)
 ' <<<"$body"
 }
 

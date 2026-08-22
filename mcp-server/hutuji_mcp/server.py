@@ -784,7 +784,16 @@ async def _bridge_health(request: Request) -> Response:
         ip = None
     if ip is None or not ip.is_loopback:
         return Response(content=b"not found", status_code=404, media_type="text/plain")
-    status = read_health_status()
+    try:
+        status = read_health_status()
+    except Exception as exc:  # 探针语义：读快照失败 = 不健康，按 503 塌缩不回 500
+        logger.warning("bridge-health 读取快照失败（%s）", type(exc).__name__)
+        return Response(
+            content=b'{"cloud_connected":false,"proxy_connected":false}',
+            status_code=503,
+            media_type="application/json",
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
     now = time.time()
     updated_at = status.get("updated_at")
     fresh = (
