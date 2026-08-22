@@ -6,7 +6,7 @@
 
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
-- **生产运行态**：已切换至 `998e9f2`（2026-08-23，含 bridge-health 塌 503 加固与桥接探活/spawn 取消窗口修复）。`server.py` SHA-256 `8feb313f…c777`、`cloud_bridge.py` `c608471b…feb5`、`preflight.sh` `52484a0c…763d0` 均为 Git blob 精确 LF 内容（哈希与 blob 逐一相符）；双服务 restart（MainPID `3467219`/`3467221`，02:29:37 CST），最终 preflight `pass=30 fail=0 expected=30`。unit 本轮未改。备份 `/root/hutuji-bak-20260823-pre-998e9f2/`；更早备份见 `docs/deployment.md`。真实语音 HIL 未执行，设备消息 token 缺失；历史生产轮次保留在 `docs/deployment.md`。
+- **生产运行态**：已切换至 `f984182`（2026-08-23，含 bridge-health 塌 503 加固、桥接探活/spawn 取消窗口修复与 ping 不刷新空闲钟修正）。`server.py` SHA-256 `8feb313f…c777`、`cloud_bridge.py` `3ada96c0…62f4`、`preflight.sh` `52484a0c…763d0` 均为 Git blob 精确 LF 内容（哈希与 blob 逐一相符）；双服务 restart，最终 preflight `pass=30 fail=0 expected=30`；探活已获生产落行实证（重启 60s 后「主动探活」+「探活通过」，零错误）。unit 本轮未改。备份 `/root/hutuji-bak-20260823-pre-998e9f2/` 与 `…-pre-f984182/`；更早备份见 `docs/deployment.md`。真实语音 HIL 未执行，设备消息 token 缺失；历史生产轮次保留在 `docs/deployment.md`。
 - **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/`、`2026-08-20/` 与 `2026-08-21/` 均保留且被 gitignore；08-21 新增唱歌部署候选与冒烟证据、刷机事故串口原始日志（`2026-08-21-sing-bootloop-raw.log`）、恢复启动日志（`2026-08-21-waveshare-restore-boot.log`）与触摸第三轮开机取证（`2026-08-21-touch-round3-boot.log`，含双门回读 `70 -> 20 peak 60 -> 40`）。**2026-08-22 新增 `results/local-only/2026-08-22/hil-draw-com14.log`**：设备消息 API 触发的五角星全链 HIL 串口证据（生成→预览→确认→下载 CRC32 `586d72ae`→流控出图→归位→M30→error:90 缺纸）。根目录杂散 `COM14` 文件已移入 `results/local-only/2026-08-20/`；`tmp/` 未跟踪保留。不新增忽略规则，避免同类误生成被静默掩盖。
 - **工作树（2026-08-22 现取）**：HEAD 以 `git rev-parse --short HEAD` 为准。本轮文档（发现收紧契约/行号、厂商参数快照、售后 KB 厂家信息）随文档提交入库；§9-E′ 契约+白名单+行号基线批次与 bridge-health 加固批次随后入库（见提交链）。原「桥接空闲死链探活」WIP（过期 id 本地消费、禁止覆盖 pending、回包刷新 `_last_traffic`、顶层 JSON-RPC error 立即探活、stdin 锁）**已于 2026-08-23 从 `stash@{0}` pop 并入库 `998e9f2`**：同批并入 review 中等项修复——`_run_proxy_session` spawn 包进 try/finally + shield 等 spawn 落定拿句柄，取消打在 `create_subprocess_exec` 中途不再孤儿 mcp-proxy（新增用例 RED→GREEN 实证：旧实现 `processes` 为空判红）；test_cloud_bridge 106→116、全量 908→918 绿，hub 门禁 PASS。stash 已清空。用户未跟踪资产 `memory_user.json` 与 `tmp/` 不纳入候选。**不要把静态 SHA 当作实时生产/板上身份**。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
@@ -38,7 +38,7 @@
 
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
-| hutuji | `git rev-parse --short HEAD` | E′ 契约批次、bridge-health 加固、桥接探活+spawn 取消窗口修复（`998e9f2`）均已入库**并已部署**（2026-08-23 preflight 30/30）；stash 已清空 |
+| hutuji | `git rev-parse --short HEAD` | E′ 契约批次、bridge-health 加固、桥接探活+spawn 取消窗口+ping 空闲钟修正（`f984182`）均已入库**并已部署**（2026-08-23 preflight 30/30，探活生产落行实证）；stash 已清空 |
 | xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `c4e9c1b` 已推 `feat/hutuji-usb-pipe`；工作树干净；板上 `303B7A77…2D54`，扫网后缓存命中已见串口，槽位忙 1s 快路径未单列取证 |
 | Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | `fb2b3b5`（§9-E′ 已提交、fz standard pass、**2026-08-23 已烧 COM13 并启动自证**；ChipID 与 08-22 记录矛盾待澄清，见 §2）；COM13 板基线升为 `fb2b3b5`，物理并发 HIL 未复现 |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留；门禁须走 clang 路径（见 §2）；wokwi 可选层 2026-08-23 起受免费 CI 配额阻塞，非固件回归（见 §2） |
