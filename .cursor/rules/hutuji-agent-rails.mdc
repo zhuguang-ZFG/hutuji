@@ -63,7 +63,7 @@ python scripts\agent_gate.py --profile hub
 - `line_ref_fingerprints`：文档 `path:line` 引用的行内容指纹对基线 `docs/agent-line-refs-baseline.json`；新增/改动引用后先人工核对被引用行，再 `python scripts\agent_gate.py --accept-line-refs` 重登并随文档提交基线 diff
 - `revived_decisions` 允许同一行 `禁止重开：A / B / C`（含粗体标题）的显式否决清单；另起短语重新主张现行方案仍判红，不能借相邻项的“已否决”逃逸。
 - 门禁扫描的实现约束：`当前禁止采用 X` 中「采用」是被禁止的宾语；Markdown 换行/粗体/HTML 注释不构成逃逸。`results` 同时只允许一个存活门禁，存活 PID 的并发启动直接失败；文档 `path:line` 先 resolve 后判仓根；层返回坏结构必须塌成 fail。
-- 生产更新 scp unit 后先 `daemon-reload`，再显式 `restart hutuji-mcp hutuji-cloud-bridge`；代码/依赖变更也须重启两者（共用包/venv），`enable --now` 不会重启 active 服务。候选从 Git blob 精确导出 LF，逐文件核 SHA-256 与 CR=0；本机 `core.autocrlf=true` 下 `git archive` 已实测产生 CRLF，不能直接当候选。当前生产应用基线 `fae5eac`（2026-08-21 唱歌+记忆），本仓脚本与生产均 29 项，`pass=29 fail=0 expected=29`；MCP 两条 ExecStartPre、主进程/bridge 新鲜度、8300 监听身份、nginx 运行态、生成/描摹链、内外网下载、公网 `/mcp` 404 与 `/songs` 冒烟均须成立。旧 PASS 不证明新部署。
+- 生产更新 scp unit 后先 `daemon-reload`，再显式 `restart hutuji-mcp hutuji-cloud-bridge`；代码/依赖变更也须重启两者（共用包/venv），`enable --now` 不会重启 active 服务。候选从 Git blob 精确导出 LF，逐文件核 SHA-256 与 CR=0；本机 `core.autocrlf=true` 下 `git archive` 已实测产生 CRLF，不能直接当候选。当前生产应用基线 `fae5eac`（2026-08-21 唱歌+记忆）；本仓 `preflight.sh` 模板当前 30 项，生产最近历史证据仍为 `pass=29 fail=0 expected=29`（本轮未部署）；MCP 两条 ExecStartPre、主进程/bridge 新鲜度、8300 监听身份、nginx 运行态、生成/描摹链、内外网下载、公网 `/mcp` 404 与 `/songs` 冒烟均须成立。旧 PASS 不证明新部署。
 - **改 `limit_req` 的 key/zone 必须 `systemctl restart nginx`**：nginx 不能热改共享内存区的 key，master 写 `[emerg]` 后继续用旧配置服务，而 `nginx -t`（新进程无继承区）、`systemctl reload`（只发信号）与 `is-active` 全部报成功。2026-08-08 生产实测跑了 37 分钟旧配置而 19 项 preflight 全绿；手工核查看 worker 启动时间与专用日志落行，`stat` 取配置 mtime 必须 `-L`。
 
 ## 禁止宣称（除非 release-readiness 对应行已 ✅）

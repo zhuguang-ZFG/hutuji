@@ -352,6 +352,73 @@ def test_mcp_session_idle_timeout_armed() -> None:
     """
     assert server.mcp.session_manager.session_idle_timeout == 3600
 
+def test_draw_transaction_deadline_rejects_late_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """付费生成完成但事务已过预算时，不发布 G-code/preview。"""
+    from hutuji_mcp import bitmap_svg
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
+    monkeypatch.setattr(server, "DRAW_TRANSACTION_DEADLINE_SECONDS", -0.01)
+
+    async def late_bitmap(_description: str) -> bitmap_svg.BitmapResult:
+        return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"png")
+
+    monkeypatch.setattr(server, "generate_bitmap", late_bitmap)
+    with pytest.raises(server.DrawTimeoutError, match="绘图生成超时"):
+        asyncio.run(server._run_draw_job("超时产物", "https://draw.example"))
+    assert list(tmp_path.iterdir()) == []
+def test_bridge_health_endpoint_is_loopback_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        server,
+        "read_health_status",
+        lambda: {
+            "cloud_connected": True,
+            "proxy_connected": True,
+            "updated_at": server.time.time(),
+            "version": 1,
+        },
+    )
+
+    local = asyncio.run(
+        server._bridge_health(SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")))
+    )
+    assert local.status_code == 200
+    assert b'"cloud_connected":true' in local.body
+
+    external = asyncio.run(
+        server._bridge_health(SimpleNamespace(client=SimpleNamespace(host="203.0.113.10")))
+    )
+    assert external.status_code == 404
+    assert external.body == b"not found"
+
+def test_bridge_health_endpoint_rejects_stale_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        server,
+        "read_health_status",
+        lambda: {
+            "cloud_connected": True,
+            "proxy_connected": True,
+            "updated_at": 1.0,
+            "version": 1,
+        },
+    )
+    monkeypatch.setattr(server.time, "time", lambda: 100.0)
+
+    response = asyncio.run(
+        server._bridge_health(SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")))
+    )
+
+    assert response.status_code == 503
+
 
 def _run_guard_under_proxy_headers(
     trusted: str, peer: tuple[str, int], xff: bytes | None
@@ -627,6 +694,37 @@ def test_draw_result_includes_ttl_seconds(
 
     result = json.loads(asyncio.run(server.hutuji_draw("test")))
     assert result["ttl_seconds"] == 600
+def test_draw_waiter_has_deadline_before_bridge_watchdog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """单次云端 waiter 必须在 bridge watchdog 前返回，后台任务仍可复用。"""
+    import asyncio
+
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
+    monkeypatch.setattr(server, "DRAW_WAITER_DEADLINE_SECONDS", 0.01)
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_job(_description: str, _public_base_url: str) -> str:
+        started.set()
+        await release.wait()
+        return "{}"
+
+    monkeypatch.setattr(server, "_run_draw_job", slow_job)
+
+    async def exercise() -> None:
+        task = asyncio.create_task(server.hutuji_draw("超时复用测试"))
+        await started.wait()
+        with pytest.raises(server.DrawTimeoutError, match="绘图生成超时"):
+            await task
+        work = server._draw_inflight["超时复用测试"]
+        assert not work.done()
+        release.set()
+        await work
+
+    asyncio.run(exercise())
+    server._draw_inflight.clear()
 
 def test_draw_returns_matching_png_preview_capability(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4941,7 +5039,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 29
+    assert preflight.count('\ncheck "') == 30
     # /register（激活码中转）两项必须在列：本机 400/503 判据 + 公网只放 POST 判据。
     assert '/register 拒绝坏形状' in preflight
     assert '/register 只放 POST' in preflight
@@ -4975,7 +5073,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 29
+    assert len(checks) == 30
     assert min(checks) > init_last
 
 

@@ -25,6 +25,7 @@ Group=hutuji
 WorkingDirectory=/opt/hutuji/mcp-server
 EnvironmentFile=/etc/hutuji/bridge.env
 Environment=HUTUJI_BRIDGE_READY_FILE=/run/hutuji/cloud-bridge.ready
+Environment=HUTUJI_BRIDGE_STATUS_FILE=/run/hutuji/cloud-bridge.status.json
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.cloud_bridge
 Restart=on-failure
 RestartSec=5

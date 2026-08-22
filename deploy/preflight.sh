@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=29
+EXPECTED_CHECKS=30
 PASS=0
 FAIL=0
 
@@ -159,6 +159,25 @@ check_bridge_ready() {
   [[ "$pid" =~ ^[1-9][0-9]*$ && -r /run/hutuji/cloud-bridge.ready ]] || return 1
   ready_pid="$(tr -d '[:space:]' < /run/hutuji/cloud-bridge.ready)"
   [[ "$ready_pid" == "$pid" ]]
+}
+
+check_bridge_health() {
+  local response code body
+  response="$(curl --noproxy "*" --max-time 5 -sS \
+    -w $'\n%{http_code}' http://127.0.0.1:8300/bridge-health)" || return 1
+  code="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+  [[ "$code" == "200" ]] || return 1
+  python3 -c '
+import json
+import sys
+
+try:
+    state = json.load(sys.stdin)
+except (json.JSONDecodeError, UnicodeDecodeError):
+    raise SystemExit(1)
+raise SystemExit(0 if state.get("cloud_connected") is True and state.get("proxy_connected") is True else 1)
+' <<<"$body"
 }
 
 check_bridge_env() {
@@ -633,6 +652,7 @@ check "8300 仅本机监听且监听者是 hutuji-mcp 主进程" check_8300_list
 check "公网未监听 8300" bash -c 'command -v ss >/dev/null && ! ss -lnt | grep -E ":8300" | grep -vqE "127.0.0.1|\[::1\]"'
 check "hutuji-mcp active" systemctl is-active --quiet hutuji-mcp
 check "hutuji-cloud-bridge active 且当前 WSS 已连接" check_bridge_ready
+check "hutuji-cloud-bridge tool plane healthy" check_bridge_health
 # DEP-05：active 只证「在跑」，证不到「重启后还会回来」。install-from-repo.sh
 # 刻意不自动 enable（首次上线流程第 4 步才手动 enable，避免 env 还是 REPLACE_ME 时
 # 服务开机自启），于是运维漏 enable 时：重启前 preflight 全绿、重启后服务永久丢失。

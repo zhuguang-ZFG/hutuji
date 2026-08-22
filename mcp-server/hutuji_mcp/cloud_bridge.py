@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+_wall_clock = time.time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +87,74 @@ _CAPABILITY_NAME_RE = re.compile(
 MCP_PROXY_STREAM_LIMIT = 2 * 1024 * 1024
 _MAX_LOG_LINE = 200
 _READY_FILE_ENV = "HUTUJI_BRIDGE_READY_FILE"
+_STATUS_FILE_ENV = "HUTUJI_BRIDGE_STATUS_FILE"
+_DEFAULT_STATUS_FILE = "/run/hutuji/cloud-bridge.status.json"
+_HEALTH_FIELDS = frozenset(
+    {
+        "version",
+        "pid",
+        "cloud_connected",
+        "proxy_connected",
+        "proxy_pid",
+        "proxy_session_recoveries",
+        "reconnect_count",
+        "last_event",
+        "last_error",
+        "updated_at",
+    }
+)
+_health_state: dict[str, object] = {
+    "version": 1,
+    "pid": os.getpid(),
+    "cloud_connected": False,
+    "proxy_connected": False,
+    "proxy_pid": None,
+    "proxy_session_recoveries": 0,
+    "reconnect_count": 0,
+    "last_event": "stopped",
+    "last_error": None,
+}
+
+
+class _McpSessionTerminated(RuntimeError):
+    """本机 MCP session 失效；只需重建 mcp-proxy，不应拆 WSS。"""
+
+
+def _health_path() -> Path:
+    return Path(os.environ.get(_STATUS_FILE_ENV, _DEFAULT_STATUS_FILE))
+
+
+def _write_health_state(**updates: object) -> None:
+    """原子写入不含凭据的桥接状态；状态写失败不得掀掉业务链路。"""
+    _health_state.update(updates)
+    _health_state["pid"] = os.getpid()
+    _health_state["updated_at"] = _wall_clock()
+    raw_path = os.environ.get(_STATUS_FILE_ENV, "").strip()
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(
+            json.dumps(_health_state, ensure_ascii=True, sort_keys=True),
+            encoding="ascii",
+        )
+        os.replace(temporary, path)
+    except OSError as exc:
+        logger.warning("桥接健康状态写入失败（%s）", type(exc).__name__)
+
+
+def read_health_status() -> dict[str, object]:
+    """读取本机桥接健康快照，只返回固定安全字段。"""
+    status = dict(_health_state)
+    try:
+        raw = json.loads(_health_path().read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return status
+    if isinstance(raw, dict):
+        status.update({key: raw[key] for key in _HEALTH_FIELDS if key in raw})
+    return status
 
 
 def _cap_log_line(text: str) -> str:
@@ -562,12 +631,9 @@ async def _proxy_to_cloud(
         logger.info("本机 MCP 响应: %s", _message_label(message))
         await websocket.send(message)
         if _is_session_terminated_response(message):
-            # R10-BRG-01：本机 /mcp 会话已死而 mcp-proxy 不会自愈（SDK 对 404
-            # 只合成错误、不重新 initialize），后续每次工具调用都失败且回包
-            # 流动使看门狗永不触发。先把错误转发给云端（当次调用得到明确失败
-            # 而非超时），再掀掉会话走 bridge_once 清理+重连，重建 mcp-proxy
-            # 即重建会话。
-            raise RuntimeError(
+            # 当前调用已经先转发明确失败；这里只通知上层重建本机 proxy。
+            # 云端 WSS 保持不变，避免后续请求撞进 Endpoint 短暂不存在窗口。
+            raise _McpSessionTerminated(
                 "本机 /mcp 会话已被服务端终止（hutuji-mcp 可能已重启），重建 mcp-proxy"
             )
     raise RuntimeError("mcp-proxy 已退出")
@@ -582,20 +648,88 @@ async def _proxy_stderr(process: asyncio.subprocess.Process) -> None:
 async def _watchdog(
     process: asyncio.subprocess.Process, activity: _SessionActivity
 ) -> None:
-    """周期性检查 mcp-proxy 是否对在途请求假死；命中抛错触发 bridge_once 重连。"""
+    """周期性检查 mcp-proxy 假死，并刷新 bridge 健康心跳。"""
     while True:
         await asyncio.sleep(WATCHDOG_POLL_SECONDS)
         if process.returncode is not None:
             # 进程已退出，交给 _proxy_to_cloud 的 readline 收尾即可，看门狗退场。
             return
+        _write_health_state(last_event="heartbeat", last_error=None)
         if activity.stall_seconds() >= WATCHDOG_STALL_SECONDS:
             raise RuntimeError(
                 f"mcp-proxy 对在途请求无响应超过 {WATCHDOG_STALL_SECONDS}s（子进程假死）"
             )
 
 
+async def _run_proxy_session(websocket, config: BridgeConfig) -> None:
+    """运行一个本机 proxy；只把 session 失效交给 WSS 外层处理。"""
+    process = await asyncio.create_subprocess_exec(
+        *proxy_command(config.local_mcp_url),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        limit=MCP_PROXY_STREAM_LIMIT,
+    )
+    _health_state["proxy_connected"] = True
+    _health_state["proxy_pid"] = process.pid
+    _write_health_state(last_event="proxy_connected", last_error=None)
+    tasks: set[asyncio.Task] = set()
+    try:
+        _set_bridge_ready(True)
+        activity = _SessionActivity()
+        tasks = {
+            asyncio.create_task(_cloud_to_proxy(websocket, process, activity)),
+            asyncio.create_task(_proxy_to_cloud(process, websocket, activity)),
+            asyncio.create_task(_proxy_stderr(process)),
+            asyncio.create_task(_watchdog(process, activity)),
+        }
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        first_error: BaseException | None = None
+        for task in done:
+            try:
+                task.result()
+            except BaseException as exc:  # noqa: BLE001 -- preserve session cancellation/error
+                if first_error is None:
+                    first_error = exc
+        for task in pending:
+            task.cancel()
+        if first_error is not None:
+            raise first_error
+    finally:
+        async def cleanup() -> None:
+            for task in tasks:
+                task.cancel()
+            if process.stdin and not process.stdin.is_closing():
+                process.stdin.close()
+            if process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    if process.returncode is None:
+                        with contextlib.suppress(ProcessLookupError):
+                            process.kill()
+                    await process.wait()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        cleanup_task = asyncio.create_task(cleanup())
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            await cleanup_task
+            raise
+        finally:
+            _set_bridge_ready(False)
+            _write_health_state(
+                proxy_connected=False,
+                proxy_pid=None,
+                last_event="proxy_disconnected",
+            )
+
+
 async def bridge_once(config: BridgeConfig) -> None:
-    """建立一次 WSS 会话；连接断开时清理子进程并交由外层重连。"""
+    """建立一次 WSS；本机 session 失效时只重建 proxy。"""
     logger.info("正在连接小智 MCP 接入点（凭据已隐藏）")
     async with websockets.connect(
         config.endpoint,
@@ -605,78 +739,56 @@ async def bridge_once(config: BridgeConfig) -> None:
         max_size=2 * 1024 * 1024,
     ) as websocket:
         logger.info("小智 MCP WSS 已连接")
-        process = await asyncio.create_subprocess_exec(
-            *proxy_command(config.local_mcp_url),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=MCP_PROXY_STREAM_LIMIT,
+        _write_health_state(
+            cloud_connected=True,
+            last_event="cloud_connected",
+            last_error=None,
         )
-        # ready 文件写入与 task 创建都必须在 try 之内：一旦它们抛错（运行时目录缺失、
-        # 权限不足、创建 task 时被取消），finally 才能回收刚 spawn 的 mcp-proxy。
-        # 否则 run_forever 每次重连都会再 spawn 一个,泄漏进程无上限累积。
-        tasks: set[asyncio.Task] = set()
         try:
-            _set_bridge_ready(True)
-            activity = _SessionActivity()
-            tasks = {
-                asyncio.create_task(_cloud_to_proxy(websocket, process, activity)),
-                asyncio.create_task(_proxy_to_cloud(process, websocket, activity)),
-                asyncio.create_task(_proxy_stderr(process)),
-                asyncio.create_task(_watchdog(process, activity)),
-            }
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            first_error: BaseException | None = None
-            for task in done:
+            while True:
                 try:
-                    task.result()
-                except BaseException as exc:  # noqa: BLE001 -- preserve session cancellation/error
-                    if first_error is None:
-                        first_error = exc
-            for task in pending:
-                task.cancel()
-            if first_error is not None:
-                raise first_error
+                    await _run_proxy_session(websocket, config)
+                    return
+                except _McpSessionTerminated as exc:
+                    _health_state["proxy_session_recoveries"] = int(
+                        _health_state.get("proxy_session_recoveries", 0)
+                    ) + 1
+                    _write_health_state(
+                        last_event="proxy_session_recovery",
+                        last_error=type(exc).__name__,
+                    )
+                    logger.warning("本机 MCP 会话失效，只重建 mcp-proxy（WSS 保持）")
+                    await asyncio.sleep(INITIAL_BACKOFF_SECONDS)
         finally:
-            async def cleanup() -> None:
-                for task in tasks:
-                    task.cancel()
-                if process.stdin and not process.stdin.is_closing():
-                    process.stdin.close()
-                if process.returncode is None:
-                    with contextlib.suppress(ProcessLookupError):
-                        process.terminate()
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=5)
-                    except asyncio.TimeoutError:
-                        if process.returncode is None:
-                            with contextlib.suppress(ProcessLookupError):
-                                process.kill()
-                        await process.wait()
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-            cleanup_task = asyncio.create_task(cleanup())
-            try:
-                await asyncio.shield(cleanup_task)
-            except asyncio.CancelledError:
-                # 外层取消也必须等子进程回收完成，再把取消继续向上传递。
-                await cleanup_task
-                raise
-            finally:
-                _set_bridge_ready(False)
+            _write_health_state(
+                cloud_connected=False,
+                proxy_connected=False,
+                proxy_pid=None,
+                last_event="cloud_disconnected",
+            )
 
 
 async def run_forever(config: BridgeConfig) -> None:
     # 异常退出后由 systemd 重启时，旧实例留下的标记不得被新进程复用。
     _set_bridge_ready(False)
+    _health_state.update(
+        {
+            "pid": os.getpid(),
+            "cloud_connected": False,
+            "proxy_connected": False,
+            "proxy_pid": None,
+            "proxy_session_recoveries": 0,
+            "reconnect_count": 0,
+            "last_event": "starting",
+            "last_error": None,
+        }
+    )
+    _write_health_state()
     backoff = INITIAL_BACKOFF_SECONDS
     while True:
         started = time.monotonic()
         try:
             await bridge_once(config)
-            # 会话正常结束（云端干净关闭走这条路）。只有真正撑过
-            # HEALTHY_SESSION_SECONDS 的会话才复位退避——原意是「长连接断开后不该
-            # 从累积的高值起步」，不是「任何正常返回都从 1 秒起步」。
             elapsed = time.monotonic() - started
             if elapsed >= HEALTHY_SESSION_SECONDS:
                 backoff = INITIAL_BACKOFF_SECONDS
@@ -684,7 +796,16 @@ async def run_forever(config: BridgeConfig) -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # 某些网络库异常可能携带请求 URI；只记类型，避免 query token 进日志。
+            _health_state["reconnect_count"] = int(
+                _health_state.get("reconnect_count", 0)
+            ) + 1
+            _write_health_state(
+                cloud_connected=False,
+                proxy_connected=False,
+                proxy_pid=None,
+                last_event="reconnect_scheduled",
+                last_error=type(exc).__name__,
+            )
             logger.warning("桥接断开（%s），%d 秒后重连", type(exc).__name__, backoff)
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)

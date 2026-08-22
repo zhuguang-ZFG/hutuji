@@ -32,6 +32,7 @@ from typing import Callable
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from mcp.server.fastmcp import FastMCP
+from .cloud_bridge import WATCHDOG_POLL_SECONDS, read_health_status
 
 from .config import settings
 from .config import validate_public_base_url
@@ -73,6 +74,16 @@ logger = logging.getLogger(__name__)
 
 class DrawLimitError(RuntimeError):
     """LLM 生成入口超过本进程安全限额。"""
+# 云端 MCP bridge 与 mcp-proxy 在 300s 时放弃慢响应；完整事务在 290s 后不再发布
+# 产物，waiter 在 295s 返回。两道边界之间留给云端重试和 bridge 清理。
+DRAW_TRANSACTION_DEADLINE_SECONDS = 290
+DRAW_WAITER_DEADLINE_SECONDS = 295
+# 健康快照连续 3 个 watchdog 心跳周期未刷新，视为 bridge 已停止或失联。
+BRIDGE_HEALTH_MAX_AGE_SECONDS = 3 * WATCHDOG_POLL_SECONDS
+
+
+class DrawTimeoutError(RuntimeError):
+    """完整绘图事务超过云端桥接预算；后台共享任务仍可能完成。"""
 
 
 class DrawLimiter:
@@ -359,12 +370,12 @@ def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
     if not done.cancelled():
         done.exception()
 
-
 async def _run_draw_job(description: str, public_base_url: str) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
     svg_path: Path | None = None
     gcode_path: Path | None = None
     preview_path: Path | None = None
+    deadline = time.monotonic() + DRAW_TRANSACTION_DEADLINE_SECONDS
     try:
         # R13-SRV-02：清理是 IO 运维动作、不是受控的付费生成工作，不占并发名额
         # （hutuji_status 同样在 slot 外跑同一清理，并发重复执行幂等无害）。
@@ -374,6 +385,8 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
             # 位图路线（2026-08-09 起为现行路线）：文生图 → 中心线描摹 →
             # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
             bitmap = await generate_bitmap(description)
+            if time.monotonic() >= deadline:
+                raise DrawTimeoutError("绘图生成超时，请稍后重试")
             svg = bitmap.svg
 
             base = _new_basename()
@@ -384,6 +397,8 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
             svg_path.write_text(svg, encoding="utf-8")
             preview_path.write_bytes(bitmap.preview_png)
             stats = await _svg_to_gcode_cached(svg, svg_path, gcode_path)
+            if time.monotonic() >= deadline:
+                raise DrawTimeoutError("绘图生成超时，请稍后重试")
     except BaseException:
         # 服务停机取消或生成失败都清理半成品；清理失败不能覆盖原异常。
         for path in (svg_path, gcode_path, preview_path):
@@ -442,9 +457,15 @@ async def hutuji_draw(description: str) -> str:
             lambda done, key=safe_description: _forget_draw_inflight(key, done)
         )
 
-    # shield 只保护完整事务不被本次 waiter 的取消连带杀死；waiter 自己仍立即
-    # 收到 CancelledError，让 FastMCP 结清旧 request。后续同题重试搭同一个任务。
-    return await asyncio.shield(work)
+    # shield 只保护完整事务不被本次 waiter 的取消连带杀死；waiter 在 bridge
+    # watchdog 之前明确超时，后续同题重试仍搭同一个任务。
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(work), timeout=DRAW_WAITER_DEADLINE_SECONDS
+        )
+    except asyncio.TimeoutError:
+        logger.warning("绘图生成超时（waiter=%ss）", DRAW_WAITER_DEADLINE_SECONDS)
+        raise DrawTimeoutError("绘图生成超时，请稍后重试") from None
 
 
 @mcp.tool()
@@ -751,6 +772,34 @@ app = FastAPI(
     openapi_url=None,
 )
 app.add_middleware(LoopbackOnlyMcpGuard)
+
+@app.get("/bridge-health")
+async def _bridge_health(request) -> Response:
+    """仅供本机运维探针读取 bridge 的云端与 proxy 状态。"""
+    client = request.client
+    host = client.host if client is not None else ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is None or not ip.is_loopback:
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    status = read_health_status()
+    now = time.time()
+    updated_at = status.get("updated_at")
+    fresh = (
+        isinstance(updated_at, (int, float))
+        and 0 <= now - updated_at <= BRIDGE_HEALTH_MAX_AGE_SECONDS
+    )
+    healthy = bool(
+        fresh and status.get("cloud_connected") and status.get("proxy_connected")
+    )
+    return Response(
+        content=json.dumps(status, ensure_ascii=True, sort_keys=True, separators=(",", ":")),
+        status_code=200 if healthy else 503,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 # 静态文件源：自定义路由（非裸 StaticFiles），以带 protocol §5.1 完整性头
 # Content-Length + X-Hutuji-CRC32。S3 侧下完先比长度再比 CRC32 才开画（见 mcp-server README 组 0.2）。

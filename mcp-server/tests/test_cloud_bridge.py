@@ -58,6 +58,87 @@ def test_proxy_command_uses_current_interpreter() -> None:
         "http://127.0.0.1:8300/mcp",
     ]
 
+def test_bridge_once_rebuilds_proxy_without_reconnecting_wss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """本机 session 失效只重建 proxy，不拆掉仍健康的云端 WSS。"""
+    import asyncio
+
+    from hutuji_mcp import cloud_bridge
+
+    class _WebSocketContext:
+        enters = 0
+
+        async def __aenter__(self):
+            self.enters += 1
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+            return False
+
+    context = _WebSocketContext()
+    monkeypatch.setattr(
+        cloud_bridge.websockets, "connect", lambda *args, **kwargs: context
+    )
+    calls = 0
+
+    class _StopProbe(BaseException):
+        pass
+
+    async def fake_proxy_session(_websocket, _config) -> None:  # noqa: ANN001
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise cloud_bridge._McpSessionTerminated("session expired")
+        raise _StopProbe
+
+    monkeypatch.setattr(cloud_bridge, "_run_proxy_session", fake_proxy_session)
+    monkeypatch.setattr(cloud_bridge, "_set_bridge_ready", lambda ready: None)
+
+    async def exercise() -> None:
+        with pytest.raises(_StopProbe):
+            await cloud_bridge.bridge_once(
+                cloud_bridge.BridgeConfig(
+                    endpoint="wss://example.invalid/mcp?token=secret",
+                    local_mcp_url="http://127.0.0.1:8300/mcp",
+                )
+            )
+
+    asyncio.run(exercise())
+    assert calls == 2
+    assert context.enters == 1
+
+
+def test_health_status_reads_connection_state_without_secrets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import json
+
+    from hutuji_mcp import cloud_bridge
+
+    path = tmp_path / "bridge-status.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pid": 123,
+                "cloud_connected": True,
+                "proxy_pid": 456,
+                "proxy_session_recoveries": 2,
+                "last_event": "proxy_session_recovery",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(cloud_bridge._STATUS_FILE_ENV, str(path))
+
+    status = cloud_bridge.read_health_status()
+
+    assert status["cloud_connected"] is True
+    assert status["proxy_pid"] == 456
+    assert "token" not in status
+
+
 
 def test_message_log_never_contains_params() -> None:
     message = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"token":"secret"}}'
@@ -829,6 +910,12 @@ def test_watchdog_never_trips_idle_session_and_exits_on_proxy_death(
     activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])  # 从不 mark_inbound
     process = SimpleNamespace(returncode=None)
     calls = {"n": 0}
+    health_events: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cloud_bridge,
+        "_write_health_state",
+        lambda **updates: health_events.append(updates),
+    )
 
     async def fake_sleep(_seconds: float) -> None:
         clock["t"] += cloud_bridge.WATCHDOG_STALL_SECONDS * 10
@@ -844,6 +931,7 @@ def test_watchdog_never_trips_idle_session_and_exits_on_proxy_death(
 
     asyncio.run(run())
     assert calls["n"] == 3
+    assert health_events == [{"last_event": "heartbeat", "last_error": None}] * 2
 
 
 def test_bridge_once_watchdog_failure_reaps_proxy_and_reconnects(
@@ -1376,6 +1464,7 @@ def test_session_terminated_detector_is_precise(message: str, expected: bool) ->
     from hutuji_mcp import cloud_bridge
 
     assert cloud_bridge._is_session_terminated_response(message) is expected
+
 
 
 def test_watchdog_stall_covers_mcp_client_sse_read_timeout() -> None:
