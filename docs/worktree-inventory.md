@@ -7,7 +7,7 @@
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
 - **生产运行态**：已切换至 `4787a06` + `67ed684`（2026-08-22）。`server.py` SHA-256 `ae7219b7…7122`、`cloud_bridge.py` `f69e043b…a1739`、`preflight.sh` `e1243451…6cec`、bridge unit `4dc68f4b…824a` 均为 Git blob 精确 LF 内容、CR=0；三服务 active，`/bridge-health` 返回 200，最终 preflight `pass=30 fail=0 expected=30`。备份 `/root/hutuji-bak-20260822-67ed684/`、`/root/hutuji-bak-20260822-4787a06/`、`/root/hutuji-bak-20260822-67ed684-template/`。真实语音 HIL 未执行，设备消息 token 缺失；历史生产轮次保留在 `docs/deployment.md`。
-- **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/`、`2026-08-20/` 与 `2026-08-21/` 均保留且被 gitignore；08-21 新增唱歌部署候选与冒烟证据、刷机事故串口原始日志（`2026-08-21-sing-bootloop-raw.log`）、恢复启动日志（`2026-08-21-waveshare-restore-boot.log`）与触摸第三轮开机取证（`2026-08-21-touch-round3-boot.log`，含双门回读 `70 -> 20 peak 60 -> 40`）。根目录杂散 `COM14` 文件已移入 `results/local-only/2026-08-20/`；`tmp/` 未跟踪保留。不新增忽略规则，避免同类误生成被静默掩盖。
+- **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/`、`2026-08-20/` 与 `2026-08-21/` 均保留且被 gitignore；08-21 新增唱歌部署候选与冒烟证据、刷机事故串口原始日志（`2026-08-21-sing-bootloop-raw.log`）、恢复启动日志（`2026-08-21-waveshare-restore-boot.log`）与触摸第三轮开机取证（`2026-08-21-touch-round3-boot.log`，含双门回读 `70 -> 20 peak 60 -> 40`）。**2026-08-22 新增 `results/local-only/2026-08-22/hil-draw-com14.log`**：设备消息 API 触发的五角星全链 HIL 串口证据（生成→预览→确认→下载 CRC32 `586d72ae`→流控出图→归位→M30→error:90 缺纸）。根目录杂散 `COM14` 文件已移入 `results/local-only/2026-08-20/`；`tmp/` 未跟踪保留。不新增忽略规则，避免同类误生成被静默掩盖。
 - **工作树**：有用户未跟踪资产 `memory_user.json` 与 `tmp/`，本轮未修改、未纳入候选；本轮生产证据已写入 `docs/release-readiness.md` 与 `docs/deployment.md`。不要把当前脏树或静态 SHA 当作实时生产/板上身份。
 - **未推判断**：不用静态文字；执行 `git log --oneline origin/main..HEAD`。
 
