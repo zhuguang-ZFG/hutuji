@@ -52,6 +52,8 @@ WATCHDOG_STALL_SECONDS = 300
 # tools/call 被本地秒回错误且形态不是 Session terminated」，判死器漏判。
 # 双保险：空闲 PROBE_IDLE_SECONDS 后经 proxy 发一次真 tools/list（死链在空闲期暴露）；
 # 任何 isError 工具回包后立即探针复核（合法工具错误的探针会健康返回，不重建）。
+# 注意「空闲」剔除云端 ping 心跳：ping 由 proxy 进程本地应答，不过 proxy→MCP 链路，
+# 且 60s 周期恰好压住本阈值——不剔除则探活永不开火（2026-08-23 生产日志实证）。
 PROBE_IDLE_SECONDS = 60
 # 探针超时要大于看门狗轮询周期、远小于在途请求判死阈值。
 PROBE_TIMEOUT_SECONDS = 25
@@ -391,6 +393,31 @@ def _response_ids(message: str | bytes) -> list[object] | None:
     return ids
 
 
+def _ping_request_ids(message: str | bytes) -> set[object]:
+    """提取 ping request 的 id 集合（method=="ping" 且 id 合法，口径同 _request_ids）。"""
+    ids: set[object] = set()
+    for obj in _iter_jsonrpc_objects(message):
+        if obj.get("method") != "ping":
+            continue
+        raw_id = obj.get("id")
+        if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+            continue
+        ids.add(raw_id)
+    return ids
+
+
+def _is_ping_only(message: str | bytes) -> bool:
+    """消息里除 ping 外没有任何对象才为 True；解析失败/含其他方法一律 False。
+
+    云端每 60s 的 ping 心跳由 mcp-proxy 进程本地应答（create_proxy_server 未注册
+    PingRequest 转发），不经过 proxy→MCP 链路——若让它刷新空闲钟，空闲探活恰好被
+    同周期心跳永久压住、从不开火（2026-08-23 生产日志实证：ping 每分钟一条，
+    PROBE_IDLE_SECONDS=60 下 idle 永远到不了阈值）。
+    """
+    objs = _iter_jsonrpc_objects(message)
+    return bool(objs) and all(obj.get("method") == "ping" for obj in objs)
+
+
 def _is_session_terminated_response(message: str | bytes) -> bool:
     """判定 mcp-proxy 回包是否是「本机 /mcp 会话已被服务端终止」的合成错误。
 
@@ -570,6 +597,9 @@ class _SessionActivity:
         # id → 转发给 proxy 的时刻。JSON-RPC id 允许 str/int，用原值做键。
         self._pending: dict[object, float] = {}
         self._last_traffic = self._clock()
+        # ping-only 流量的 id 集合：云端心跳由 proxy 本地应答，不刷新空闲钟，
+        # 回包侧靠这个集合识别 ping 响应（响应无 method，只能按 id 归属）。
+        self._ping_ids: set[object] = set()
         # 探针：只跟踪当前 pending 的一只；id 用独特前缀避免与云端整数 id 冲突。
         self._probe_id: str | None = None
         self._probe_sent_at = 0.0
@@ -580,9 +610,14 @@ class _SessionActivity:
 
         notifications/cancelled 携带的 params.requestId 会被提前结清：按 MCP 规范
         receiver 不应对已取消的 request 发送响应，该 id 可以视作「已回包」。
+
+        ping-only 消息不刷新空闲钟（见 `_is_ping_only`），但仍登记 id 跟踪在途。
         """
         now = self._clock()
-        self._last_traffic = now
+        if _is_ping_only(message):
+            self._ping_ids.update(_ping_request_ids(message))
+        else:
+            self._last_traffic = now
         for request_id in _request_ids(message):
             # 同 id 重复到达（云端重发）以最早时刻为准：那才是真实等待起点。
             self._pending.setdefault(request_id, now)
@@ -590,16 +625,25 @@ class _SessionActivity:
             self._pending.pop(cancel_id, None)
 
     def mark_outbound(self, message: str | bytes) -> None:
-        """按 id 结清已回包的请求。"""
+        """按 id 结清已回包的请求；纯 ping 回包（按 id 归属）不刷新空闲钟。"""
         ids = _response_ids(message)
-        self._last_traffic = self._clock()
+        now = self._clock()
         if ids is None:
             # 解析不出 id 的回包（含 batch 解析失败）：无法归属，只能整体结清，
             # 保守回落到旧语义，避免因解析缺口把健康会话判死。
+            self._last_traffic = now
             self._pending.clear()
             return
+        saw_non_ping = False
         for request_id in ids:
             self._pending.pop(request_id, None)
+            if request_id in self._ping_ids:
+                self._ping_ids.discard(request_id)
+            else:
+                saw_non_ping = True
+        if saw_non_ping or not ids:
+            # 非 ping 回包或 proxy 主动 notification（无 id）：都真过了 proxy→MCP 链路。
+            self._last_traffic = now
 
     def stall_seconds(self) -> float:
         """返回最久未回包的在途请求已等待的秒数；无在途请求时返回 0。"""

@@ -1021,6 +1021,78 @@ def test_watchdog_idle_heartbeat_sends_probe(monkeypatch: pytest.MonkeyPatch) ->
     assert activity.probe_pending_seconds() == 1.0
 
 
+def test_ping_heartbeat_does_not_refresh_idle_clock() -> None:
+    """云端 ping 心跳（proxy 本地应答，不过 proxy→MCP 链路）不得刷新空闲钟。
+
+    2026-08-23 生产日志实证：云端每 60s 一个 ping，恰好压住 PROBE_IDLE_SECONDS=60，
+    若 ping 也算流量则空闲探活永不开火。
+    """
+    import json
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
+    ping_req = json.dumps({"jsonrpc": "2.0", "id": 42, "method": "ping"})
+    clock["t"] += 30.0  # 先积累 30s 无真实流量
+    activity.mark_inbound(ping_req)  # ping 到达不得把空闲钟拨回 0
+    clock["t"] += 40.0
+    # 新语义 idle=70（自构造算起）；旧语义 idle=40（被 ping 刷新）——判旧实现红
+    assert activity.idle_seconds() == 70.0
+    # ping 回包（按 id 归属）同样不刷新
+    activity.mark_outbound(json.dumps({"jsonrpc": "2.0", "id": 42, "result": {}}))
+    assert activity.idle_seconds() == 70.0
+    # 真实请求刷新；ping 与真实请求混排的 batch 也刷新
+    activity.mark_inbound(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+    assert activity.idle_seconds() == 0.0
+    clock["t"] += 10.0
+    activity.mark_outbound(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}))
+    assert activity.idle_seconds() == 0.0
+    clock["t"] += 10.0
+    activity.mark_inbound(json.dumps([
+        {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    ]))
+    assert activity.idle_seconds() == 0.0
+
+
+def test_watchdog_fires_probe_despite_ping_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ping 心跳持续压着也不能让看门狗放弃空闲探活（2026-08-23 生产实证场景）。"""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from hutuji_mcp import cloud_bridge
+
+    clock = {"t": 1000.0}
+    activity = cloud_bridge._SessionActivity(clock=lambda: clock["t"])
+    for k in range(3):  # 心跳每分钟一条且都有回包，但不构成链路证据
+        activity.mark_inbound(json.dumps({"jsonrpc": "2.0", "id": 100 + k, "method": "ping"}))
+        activity.mark_outbound(json.dumps({"jsonrpc": "2.0", "id": 100 + k, "result": {}}))
+        clock["t"] += 30.0
+    # 最后一次 ping 后再过 25s：旧语义（ping 算流量）idle=55<60 不探活（本测试对它判红）；
+    # 新语义（剔除 ping）距最后真实流量已 115s ≥ 60，看门狗照常开火。
+    clock["t"] += 25.0
+    sent: list[str] = []
+    process = SimpleNamespace(returncode=None, stdin=_fake_stdin(sent))
+    monkeypatch.setattr(cloud_bridge, "_write_health_state", lambda **kw: None)
+    calls = {"n": 0}
+
+    async def fake_sleep(_seconds: float) -> None:
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            process.returncode = 0  # 第二轮（探针已发出）后按 returncode 分支退场
+
+    monkeypatch.setattr(cloud_bridge.asyncio, "sleep", fake_sleep)
+    asyncio.run(cloud_bridge._watchdog(process, activity))
+
+    assert len(sent) == 1
+    assert '"method":"tools/list"' in sent[0]
+    assert "hutuji-probe-" in sent[0]
+
+
 def test_watchdog_probe_timeout_rebuilds_proxy_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
