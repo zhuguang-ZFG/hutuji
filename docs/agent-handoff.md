@@ -185,7 +185,7 @@ Grbl 任何代码（含 §9）：`python D:/Users/zhugu/fz/scripts/agent_gate.py
 | 实战派 S3（小智） | `docs/hardware/lichuang-szpi-esp32s3-board.md` + `lichuang-szpi-esp32s3-sch.pdf` |
 | 联调 SOP | `docs/bringup-sop.md` |
 | 白天联调 runbook | `docs/daytime-tuning-runbook.md`（现取三仓 HEAD 与板上启动身份，不再把历史 SHA 当当前；真实语音、归位、自动换纸和换纸中 abort 有历史证据，当前开放项以 readiness 为准） |
-| 京东云模板 | `deploy/`（当前 preflight **29** 项；更新仍须用 scp，装 unit 后先 `daemon-reload`，再显式重启适用服务并跑全 29 项） |
+| 京东云模板 | `deploy/`（当前 preflight **30** 项；更新仍须用 scp，装 unit 后先 `daemon-reload`，再显式重启适用服务并跑全 30 项） |
 | 小智智能体/知识库 | `docs/xiaozhi-agent/`（角色提示 + 知识库，控制台粘贴） |
 | MCP 服务 | `mcp-server/` |
 | S3 补丁说明 | `firmware/m1-usb-pipe.md` |

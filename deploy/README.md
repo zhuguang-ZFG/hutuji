@@ -9,12 +9,12 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ **当前应用基线 `fae5eac`（2026-08-21）**：唱歌目录（`2d82051`：`server.py` `/songs` 路由 + 云端 `hutuji_sing` + `songs/` 三首自合成公版 OGG + nginx `/songs` location）与记忆 RMW 锁（`memory_store.py` SHA-256 `7dc81b9a…`）逐文件 LF blob 核对一致、CR=0；三服务 active，生产 preflight `pass=29 fail=0 expected=29`；`/songs/twinkle.ogg` 公网 200 `audio/ogg` 152422B + `x-hutuji-crc32` 正确，路径穿越/`.mp3` 404 塌缩；记忆三工具生产写/读/删实测通过。备份 `/root/hutuji-bak-20260821-sing/`；历史基线与逐轮证据见 `../docs/deployment.md`。 |
+| VPS 实机部署与验收 | ✅ **当前生产运行态：`4787a06` + `67ed684`（2026-08-22）**：`server.py`、`cloud_bridge.py`、`preflight.sh`、`hutuji-cloud-bridge.service` 均由 Git blob 精确导出，CR=0，SHA-256 已逐文件核对；三服务 active，`/bridge-health` 返回 200，生产 preflight `pass=30 fail=0 expected=30`。回滚副本：`/root/hutuji-bak-20260822-67ed684/`、`/root/hutuji-bak-20260822-4787a06/`、`/root/hutuji-bak-20260822-67ed684-template/`。真实语音 HIL 未执行，当前终端无 `XIAOZHI_DEVICE_TOKEN`，设备消息调用不可用；历史应用基线与逐轮证据见 `../docs/deployment.md`。 |
 > **2026-08-16 安装器脚本已同步（本仓 `a7697b9`）**：仅 `install-from-repo.sh` 适用于生产，LF SHA-256 `d8eec725…75936` 对账一致；运行时服务文件未变、未重启；同步后 preflight `pass=26 fail=0 expected=26`。生产应用基线仍 `1082400`。
 
 
 > 已上线机器**更新代码用 `scp`，不能 `git pull`**（`/opt/hutuji` 无 `.git`）；
-> 更新顺序固定为：精确导出 LF 候选并核 SHA-256/CR=0 → scp（不保留旧 mtime）→ 代码/依赖变更显式重启 MCP + bridge；unit 变更再先 `daemon-reload` → 当前 29 项 preflight。旧 PASS 不能证明新文件。**本机 `core.autocrlf=true` 下 2026-08-20 实测 `git archive` 会把 LF blob 导成 CRLF**，故生产候选用逐文件 `git cat-file blob HEAD:<path>` 或等价方式；工作副本/archive 都必须经哈希和 CR 闸，不能凭命令名推断 LF。
+> 更新顺序固定为：精确导出 LF 候选并核 SHA-256/CR=0 → scp（不保留旧 mtime）→ 代码/依赖变更显式重启 MCP + bridge；unit 变更再先 `daemon-reload` → 当前 30 项 preflight。旧 PASS 不能证明新文件。**本机 `core.autocrlf=true` 下 2026-08-20 实测 `git archive` 会把 LF blob 导成 CRLF**，故生产候选用逐文件 `git cat-file blob HEAD:<path>` 或等价方式；工作副本/archive 都必须经哈希和 CR 闸，不能凭命令名推断 LF。
 > preflight **无 skip 状态**（曾有的 `OPTIONAL_SKIP` 与 pass 等价放行，已删）：输出 `pass=N fail=N expected=N`，须 `PASS==EXPECTED_CHECKS && FAIL==0`；取不到非 loopback IPv4 判 fail 而非跳过。
 >
 > **`daemon-reload` 会清空所有 unit 的 `ExecStartPre` 执行记录**（2026-08-11 生产实测）。
@@ -80,7 +80,7 @@ bash /opt/hutuji/deploy/prepare-host.sh
 2. 放 TLS 到 `/etc/nginx/ssl/hutuji/{fullchain,privkey}.pem`（或改 nginx 路径）。  
 3. `bash /opt/hutuji/deploy/install-from-repo.sh`  
 4. `systemctl enable hutuji-mcp hutuji-cloud-bridge nginx && systemctl restart hutuji-mcp hutuji-cloud-bridge && systemctl start nginx`。必须显式 `restart`：更新时服务通常已经 active，`enable --now` 不会重启，新增的 `ExecStartPre` 也就不会执行。
-5. `nginx -t && systemctl reload nginx`（**若本次改了 `limit_req` 的 key 或 zone，这里必须 `systemctl restart nginx`**——见上方「nginx reload 陷阱」，reload 会被 `[emerg]` 静默丢弃而 `systemctl` 仍报成功），成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 29 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，「位图描摹链」项（`check_bitmap_chain`）会用生产 venv 以与 unit 相同的入口真跑一次位图描摹自检。
+5. `nginx -t && systemctl reload nginx`（**若本次改了 `limit_req` 的 key 或 zone，这里必须 `systemctl restart nginx`**——见上方「nginx reload 陷阱」，reload 会被 `[emerg]` 静默丢弃而 `systemctl` 仍报成功），成功后再执行 `bash /opt/hutuji/deploy/preflight.sh`（当前 30 项）。「生成链」项（`check_generate_chain`）会用生产 venv 真跑一次 `svg_to_gcode()`，「位图描摹链」项（`check_bitmap_chain`）会用生产 venv 以与 unit 相同的入口真跑一次位图描摹自检。
 6. 公网：`/mcp` 须 404；**`/docs`、`/redoc`、`/openapi.json` 与任意随机路径也须 404**（历史上它们是自指 301 环，见 `../docs/deployment.md`）；直连明文 `http://117.72.118.95/files/*` 须 403 而其他路径须 301；`/files/` 只经 HTTPS。
 7. 小智控制台 `tools/list`（阶段 6）；证据写入 `docs/templates/release-manifest.md`。
 
