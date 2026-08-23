@@ -114,6 +114,10 @@ class Settings:
     xiaozhi_api_base: str = "https://xiaozhi.me/api"
     xiaozhi_console_token: str = ""
     xiaozhi_agent_id: str = ""
+    # 设备消息 API token（2026-08-24 P1-3）：生成完成后服务端经官方
+    # /messaging/device/tools/call 链式调 hutuji.draw，消灭云端第二步漏调
+    # （78/xiaozhi-esp32#1011）。空值 = 禁用，云端两步衔接仍是合法回落。
+    xiaozhi_device_token: str = ""
 
 
     def __post_init__(self) -> None:
@@ -232,6 +236,7 @@ def load_settings() -> Settings:
         xiaozhi_agent_id=os.environ.get("HUTUJI_XIAOZHI_AGENT_ID", ""),
         sensenova_base_url=os.environ.get("HUTUJI_SENSENOVA_BASE_URL", ""),
         sensenova_api_key=os.environ.get("HUTUJI_SENSENOVA_API_KEY", ""),
+        xiaozhi_device_token=os.environ.get("HUTUJI_XIAOZHI_DEVICE_TOKEN", ""),
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
         siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),

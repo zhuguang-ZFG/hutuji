@@ -28,6 +28,7 @@ from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+import httpx
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
@@ -369,7 +370,36 @@ def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
     if _draw_inflight.get(key) is done:
         del _draw_inflight[key]
     if not done.cancelled():
+
         done.exception()
+async def _chain_device_draw(url: str, preview_url: str) -> None:
+    """生成完成后经官方设备消息 API 主动调 `hutuji.draw`（2026-08-24 P1-3）。
+
+    消灭云端第二步漏调（78/xiaozhi-esp32#1011 多工具漏调：LLM 调完 draw 后
+    第二步 hutuji.draw 可能永远不到，纸不动）。尽力而为：任何失败只记日志
+    （不记 token、URL 经共享脱敏），draw 结果不受影响——云端两步衔接仍是
+    合法回落路径。token 为空 = 禁用。
+    """
+    token = getattr(settings, "xiaozhi_device_token", "")
+    if not token:
+        return
+    payload = {
+        "name": "hutuji.draw",
+        "arguments": {"url": url, "preview_url": preview_url},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{settings.xiaozhi_api_base}/messaging/device/tools/call",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code != 200:
+            logger.warning("设备链式调用失败 status=%d（回落云端两步）", resp.status_code)
+        else:
+            logger.info("设备链式调用 hutuji.draw 已受理")
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("设备链式调用异常（%s，回落云端两步）", type(exc).__name__)
 
 async def _run_draw_job(description: str, public_base_url: str) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
@@ -418,6 +448,15 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
 
     assert gcode_path is not None
     assert preview_path is not None
+    # P1-3：服务端链式第二步。只在事务唯一完成点触发一次——waiter 取消/重试
+    # 搭车都不会重复触发（重试复用同一任务、同一产物）。失败不阻塞结果。
+    if getattr(settings, "xiaozhi_device_token", ""):
+        asyncio.create_task(
+            _chain_device_draw(
+                f"{public_base_url}/files/{gcode_path.name}",
+                f"{public_base_url}/files/{preview_path.name}",
+            )
+        )
     return json.dumps({
         "url": f"{public_base_url}/files/{gcode_path.name}",
         "preview_url": f"{public_base_url}/files/{preview_path.name}",

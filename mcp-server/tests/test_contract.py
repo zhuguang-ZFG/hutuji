@@ -12,6 +12,8 @@ import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+
 import pytest
 from fastapi import HTTPException
 
@@ -29,11 +31,17 @@ from hutuji_mcp.gcode_gen import (
     _read_generated_gcode,
     validate_gcode,
 )
+from hutuji_mcp import bitmap_svg
 from hutuji_mcp import gcode_gen
 from hutuji_mcp import server
 
 
-def _settings(output_dir: Path, *, ttl: int = 600) -> Settings:
+def _settings(
+    output_dir: Path,
+    *,
+    ttl: int = 600,
+    xiaozhi_device_token: str = "",
+) -> Settings:
     return Settings(
         llm_base_url="https://example.invalid/v1",
         llm_api_key="",
@@ -43,6 +51,7 @@ def _settings(output_dir: Path, *, ttl: int = 600) -> Settings:
         host="127.0.0.1",
         port=8300,
         output_ttl_seconds=ttl,
+        xiaozhi_device_token=xiaozhi_device_token,
     )
 
 
@@ -803,7 +812,149 @@ def test_draw_returns_matching_png_preview_capability(
 
 
 
+def _mock_device_api(monkeypatch, handler):
+    """把 server 里的 httpx.AsyncClient 换成 MockTransport 版（同 activation_relay 夹具）。"""
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+
+    def _factory(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        kwargs["transport"] = transport
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr("hutuji_mcp.server.httpx.AsyncClient", _factory)
+    return transport
+
+
+def _stub_draw_pipeline(monkeypatch, stem: str) -> None:
+    async def fake_bitmap(_desc: str) -> bitmap_svg.BitmapResult:
+        return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
+
+    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+        gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
+        return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
+
+    monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
+    monkeypatch.setattr(server, "_new_basename", lambda: stem)
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_convert)
+    monkeypatch.setattr(
+        server,
+        "_draw_limiter",
+        server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
+    )
+
+
+def test_draw_chains_device_draw_when_token_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-3：token 配置时，draw 唯一完成点必须链式调用设备 hutuji.draw（双参数齐全、
+    Bearer 头正确、端点为官方 /messaging/device/tools/call）。"""
+    stem = "draw_20260824_120000_aaaaaaaaaaaaaaaaaaaaaa"
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, xiaozhi_device_token="dev-token"))
+    _stub_draw_pipeline(monkeypatch, stem)
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"success": True})
+
+    _mock_device_api(monkeypatch, handler)
+
+    async def run() -> dict:
+        result = json.loads(await server.hutuji_draw("五角星"))
+        await asyncio.sleep(0.05)
+        return result
+
+    result = asyncio.run(run())
+
+    assert result["url"] == f"https://draw.example/files/{stem}.gcode"
+    assert len(calls) == 1
+    body = json.loads(calls[0].content)
+    assert body["name"] == "hutuji.draw"
+    assert body["arguments"] == {"url": result["url"], "preview_url": result["preview_url"]}
+    assert calls[0].headers["authorization"] == "Bearer dev-token"
+    assert calls[0].url.path == "/api/messaging/device/tools/call"
+
+
+def test_draw_skips_chain_when_token_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-3：token 为空 = 链式禁用，不得发起任何设备 API 调用（云端两步是合法回落）。"""
+    stem = "draw_20260824_120001_bbbbbbbbbbbbbbbbbbbbbb"
+    monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    _stub_draw_pipeline(monkeypatch, stem)
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"success": True})
+
+    _mock_device_api(monkeypatch, handler)
+
+    async def run() -> dict:
+        result = json.loads(await server.hutuji_draw("五角星"))
+        await asyncio.sleep(0.05)
+        return result
+
+    result = asyncio.run(run())
+
+    assert result["url"].endswith(".gcode")
+    assert calls == []
+
+
+def test_draw_chain_failure_does_not_break_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-3：链式失败（设备 API 500）只记日志，draw 结果与产物不受任何影响。"""
+    stem = "draw_20260824_120002_cccccccccccccccccccccc"
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, xiaozhi_device_token="dev-token"))
+    _stub_draw_pipeline(monkeypatch, stem)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    _mock_device_api(monkeypatch, handler)
+
+    async def run() -> dict:
+        result = json.loads(await server.hutuji_draw("五角星"))
+        await asyncio.sleep(0.05)
+        return result
+
+    result = asyncio.run(run())
+
+    assert result["url"] == f"https://draw.example/files/{stem}.gcode"
+    assert (tmp_path / f"{stem}.gcode").is_file()
+
+
+def test_draw_retry_same_description_chains_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-3 幂等：同题两个 waiter 复用同一任务（single-flight），链式只触发一次。"""
+    stem = "draw_20260824_120003_dddddddddddddddddddddd"
+    monkeypatch.setattr(server, "settings", _settings(tmp_path, xiaozhi_device_token="dev-token"))
+    _stub_draw_pipeline(monkeypatch, stem)
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"success": True})
+
+    _mock_device_api(monkeypatch, handler)
+
+    async def run() -> tuple[str, str]:
+        first = asyncio.create_task(server.hutuji_draw("五角星"))
+        second = asyncio.create_task(server.hutuji_draw("五角星"))
+        ra, rb = await asyncio.gather(first, second)
+        await asyncio.sleep(0.05)
+        return ra, rb
+
+    ra, rb = asyncio.run(run())
+
+    assert json.loads(ra)["url"] == json.loads(rb)["url"]
+    assert len(calls) == 1
+
+
 def test_draw_reuses_gcode_content_for_same_svg(
+
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """同一 SVG 的 vpype 结果是确定内容：命中缓存时跳过子进程，仍写新 capability 文件。"""
