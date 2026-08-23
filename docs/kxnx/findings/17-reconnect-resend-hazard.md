@@ -54,7 +54,7 @@
 
 | 位置 | 行为 |
 |------|------|
-| `hutuji_pipe.cc:770-781` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
+| `hutuji_pipe.cc:778-789` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
 | `hutuji_job.cc:2465-2478` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`hutuji_job.cc:70`） |
 | `hutuji_job.cc:2597-2608` | 窗口化普通行分支：`Failed/Deferred` 先发 `!`、清窗并标记 Quiesced（调用点 `hutuji_job.cc:2690-2696`），退出流循环后同步受控 reset，再发布失败终态；不再只改软件状态 |
 

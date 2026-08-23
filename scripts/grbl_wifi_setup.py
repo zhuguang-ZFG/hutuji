@@ -241,8 +241,8 @@ def main() -> int:
     finally:
         s.close()
 
-    print("\n完成。S3 按决策 ② 连固定 IP 192.168.1.13:23，")
-    print("需在路由器上为本机 MAC 绑定该地址（不依赖 mDNS）。")
+    print("\n完成。S3 会按 NVS 缓存 IP 直连、未命中再扫本机 /24 发现本机（候选须回 Grbl banner）；")
+    print("建议在路由器上为本机 MAC 绑定静态 DHCP 租约，免去每次扫描（不依赖 mDNS）。")
     return 0
 
 

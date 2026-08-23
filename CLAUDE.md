@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **双芯片，禁止合并固件**：ESP32-S3 跑 xiaozhi（AI/语音/WiFi），独立 ESP32 跑 Grbl（运动+换纸）。
 
 **板间通讯 = 方案 E：WiFi Telnet**（不是 USB Host，不是 CH9350，不是蓝牙数据链路）：
-写字机 Grbl_Esp32 内置 ESP3D WebUI 开 **Telnet:23**，STA 连家用路由器拿**固定 IP**；S3 由 xiaozhi WifiBoard 连同一路由器，做 **TCP 客户端**直连。链路内即原串口字节流——115200 语义、行协议 `ok`/`error:NN`、banner、实时字符全部同构。
+写字机 Grbl_Esp32 内置 ESP3D WebUI 开 **Telnet:23**，STA 连家用路由器（DHCP；静态租约仍是运维首选）；S3 由 xiaozhi WifiBoard 连同一路由器，做 **TCP 客户端**直连，按 NVS 缓存 IP → 子网扫描发现写字机，出厂态写字机由 S3 零接触代配户网（见 `docs/protocol.md` §1.5）。链路内即原串口字节流——115200 语义、行协议 `ok`/`error:NN`、banner、实时字符全部同构。
 > 三次推翻的方案，别再往回走：① S3 原生 USB Host——实战派 C 口经板载 CH334F HUB 占为设备口，GPIO19/20 无排针引出；② CH9350 桥接——仅枚举 HID 类设备，不认写字机的 CH340（vendor-specific 串口）。备用链路仅方案 B（拆机 TTL，IO10/IO11），WiFi 实测抖动不可接受时才启用。
 
 **哑管道原则**：G-code 全部在云端（京东云 VPS 的 MCP 服务）生成+转换完毕。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。

@@ -13,7 +13,7 @@
 │ 立创实战派 ESP32-S3  │                │ (京东云 VPS)          │
 │ xiaozhi-esp32 固件   │ ◄─ HTTPS 下载 G-code ─┘               │
 └─────────┬───────────┘    (Cloudflare Tunnel 绕过 ICP 拦截)
-          │ WiFi Telnet :23（两板经家用路由器，写字机固定 IP）
+          │ WiFi Telnet :23（两板经家用路由器，S3 缓存 IP + 扫网发现写字机）
           ▼
 ┌─────────────────────┐
 │ 运动控制板（ESP32）   │  ← 成熟商业化现役固件

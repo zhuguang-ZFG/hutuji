@@ -27,7 +27,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 **锁定决策（编号同根 `README.md`，禁止重开）**
 
 1. 双芯片：S3 跑 xiaozhi，独立 ESP32 跑 Grbl，不合并固件。
-2. 板间 = **WiFi Telnet :23**（写字机 STA 固定 IP `192.168.1.13`，S3 作 TCP 客户端 + 指数退避重连）；USB Host 与 CH9350 均已否决，别再提；拆机 TTL 仅备用。
+2. 板间 = **WiFi Telnet :23**（写字机 STA 连同一路由器，S3 作 TCP 客户端 + NVS 缓存 IP/子网扫描发现 + 指数退避重连；零接触配网见 `docs/protocol.md` §1.5）；USB Host 与 CH9350 均已否决，别再提；拆机 TTL 仅备用。
 3. **哑管道**：G-code 只在云端生成与转换，S3 只做下载 + 校验 + 流控转发。
 4. AI = 小智**官方云**，自定义能力走 MCP 接入点 + 设备侧 MCP 工具。
 5. 部署 = **仅京东云** `117.72.118.95`（专机，无云端冗余），公网入口经 Cloudflare Tunnel `https://hutuji.donglicao.com`。
