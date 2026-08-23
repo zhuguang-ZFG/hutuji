@@ -12,7 +12,6 @@ import contextlib
 import json
 import logging
 import os
-import re
 import sys
 import time
 _wall_clock = time.time
@@ -22,6 +21,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import websockets
+from .redact import (
+    _MAX_LOG_LINE,
+    _RedactSecretsFilter,
+    _cap_log_line,
+    _install_secret_redaction,
+    _redact_secret_text,
+    _safe_exception_text,
+    _safe_stack_text,
+    _safe_stderr_line,
+)
 
 logger = logging.getLogger("HUTUJI_MCP_BRIDGE")
 
@@ -59,43 +68,7 @@ PROBE_IDLE_SECONDS = 60
 PROBE_TIMEOUT_SECONDS = 25
 _PROBE_ID_PREFIX = "hutuji-probe-"
 
-# mcp-proxy stderr / 第三方库日志可能回显 URL 或凭据；禁止把 token / Bearer /
-# api_key / access_token / sk- 裸密钥 / wss 原文写入日志。各形态共用同一个
-# 捕获式：<key>=<value>、JSON 里的 "key": "value"、"key":value、token: value
-# 以及 Authorization: Bearer <value>，替换时保留 key 侧，方便诊断定位。
-_SECRETISH_RE = re.compile(
-    # (?i) 全局生效于整个模式。
-    r"(?i)(?<![A-Za-z0-9])((?:api[-_]?key|access[-_]?token|token|bearer)[\"']?\s*[=:]\s*[\"']?)([^\"'\s,&}]+)"
-    # Authorization 上下文：允许 key 名/分隔侧引号（覆盖 JSON/repr 包裹形态）与
-    # 冒号/等号分隔，值不限形态（含纯字母 opaque token）无条件脱敏；左边界排除
-    # x-authorization 等前缀。
-    r"|(?<![A-Za-z0-9-])((?:authorization|proxy-authorization)[\"']?\s*[=:]\s*[\"']?bearer[ \t]+)([^\s\"',}]+)"
-    # mcp-session-id（BRG-P3a）：mcp-proxy 0.12 的 log_request 恒打请求头且只掩
-    # authorization/x-api-key/cookie，会话 id 明文进 stderr。它可对 loopback 面
-    # 重放已建立的 /mcp 会话，按凭据同等对待（保留 key 供诊断，值涂掉）。
-    r"|(?<![A-Za-z0-9-])(mcp-session-id[\"']?\s*[=:]\s*[\"']?)([^\"'\s,&}]+)"
-    # 同一会话 id 的叙述形态（BRG-11-02）：MCP SDK client 每次会话建立打
-    # "Received session ID: <32hex>"（mcp/client/streamable_http.py，uuid4().hex），
-    # 经 mcp-proxy 默认 INFO 配置直落 stderr——上面的 header 形态规则匹配不到它，
-    # 而它就是可对 loopback 面重放 /mcp 会话的同一个值，按同口径涂掉、保留 key 侧。
-    r"|(?<![A-Za-z0-9-])((?:received\s+)?session\s+id[\"']?\s*[:=]\s*[\"']?)([^\"'\s,&}]+)"
-    # 裸 Bearer header（非 Authorization 前缀）：值必须像凭据（含数字或 -_./ 符号、
-    # 至少 6 位），避免把「bearer token/authentication」这类纯字母普通句子当密钥。
-    r"|(?<![A-Za-z0-9])(Bearer[ \t]+)(?![=:]|header\b)((?=[^\s\"',}]*(?:[0-9]|[-_./]))[^\s\"',}]{6,})"
-    r"|(?<![A-Za-z0-9])(sk-[A-Za-z0-9_-]{8,})"
-)
-# URL 单独一条规则、在凭据规则之后跑：凭据规则先剥掉 token=…/Bearer，URL 规则
-# 再决定整段 URL 去留。这样 URL 内的能力文件名先经结构规则脱敏后还能被识别放行，
-# 保留时间戳+扩展名供诊断；其余 URL 一律整段变 <redacted-url>。
-_URL_ONLY_RE = re.compile(r"(?i)(wss://\S+|https?://\S+)")
-# 能力文件名自带不可猜 token，等价于 capability URL 的凭据部分。即便不带主机名，
-# 裸文件名配上已知公网前缀就能直接下载，故与 token 同等对待：整段 token 变 `*`，
-# 保留时间戳前缀与扩展名供诊断。与 server._redact_capability_name 同口径。
-_CAPABILITY_NAME_RE = re.compile(
-    r"(draw_\d{8}_\d{6})_[A-Za-z0-9_-]{22}\.(gcode|svg)"
-)
 MCP_PROXY_STREAM_LIMIT = 2 * 1024 * 1024
-_MAX_LOG_LINE = 200
 _READY_FILE_ENV = "HUTUJI_BRIDGE_READY_FILE"
 _STATUS_FILE_ENV = "HUTUJI_BRIDGE_STATUS_FILE"
 _DEFAULT_STATUS_FILE = "/run/hutuji/cloud-bridge.status.json"
@@ -167,31 +140,6 @@ def read_health_status() -> dict[str, object]:
     return status
 
 
-def _cap_log_line(text: str) -> str:
-    if len(text) <= _MAX_LOG_LINE:
-        return text
-    # 保留首部和异常末行，既有定位上下文又不让尾部异常信息丢失。
-    tail = min(80, _MAX_LOG_LINE - 2)
-    return text[: _MAX_LOG_LINE - tail - 1] + "…" + text[-tail:]
-
-def _safe_stack_text(text: str, *, exception: bool = False) -> str:
-    """只保留 traceback/stack 标题；异常另保留末行，路径与源码行全部省略。"""
-    lines = text.splitlines()
-    if not lines:
-        return ""
-    safe = [lines[0]]
-    if exception and len(lines) > 1:
-        safe.append(lines[-1])
-    return "\n".join(safe)
-
-
-def _safe_exception_text(exc_info: tuple[object, object, object]) -> str:
-    """格式化异常后按与预格式化 ``exc_text`` 相同的无路径规则收窄。"""
-    try:
-        formatted = logging.Formatter().formatException(exc_info)
-    except Exception:
-        return "<exception formatting failed>"
-    return _safe_stack_text(formatted, exception=True)
 
 
 @dataclass(frozen=True)
@@ -462,96 +410,6 @@ def _is_session_terminated_response(message: str | bytes) -> bool:
     return False
 
 
-def _redact_secret_text(text: str) -> str:
-    """去掉文本中的 token / Bearer / api_key / sk- 裸密钥与 URL，保留其余诊断上下文。"""
-    # 先剥 \x00：能力 URL 的放行标记是 `_\x00ALLOW\x00.`（见下），外部文本
-    # （mcp-proxy stderr 可带云端可控数据，NUL 可经 JSON 字符串转义进入）若
-    # 原样携带该序列即可复刻标记，让带凭据的 URL 绕过脱敏。正常诊断文本不含
-    # NUL，剥除无副作用；_message_label 路径另有 isprintable 清洗，不经过这里。
-    text = text.replace("\x00", "")
-
-    def _sub(match: re.Match[str]) -> str:
-        # 各 key 形态（token= / api_key= / "access_token": / Authorization: Bearer 等）
-        # 保留 key 侧；sk-/wss: 前缀大小写不敏感（`SK-`/`WSS:` 同样整段替换）。
-        for group in match.groups():
-            if group is not None:
-                if "://" in group:
-                    return "<redacted-url>"
-                if group.lower().startswith(("sk-", "wss:")):
-                    return "<redacted>"
-                return f"{group}<redacted>"
-        return "<redacted>"
-
-    # 先按结构去掉能力文件名的 token，并用放行标记替换，再跑凭据/URL 规则。
-    # 标记让 URL 规则能识别「这是已脱敏的能力产物 URL」而保留其路径（时间戳+
-    # 扩展名 = 哪个产物出问题），其余 URL 一律整段变 <redacted-url>；最后还原标记。
-    # 不能回查 _CAPABILITY_NAME_RE：脱敏后的名字含 `*`，已不匹配 22 位 token 模式。
-    text = _CAPABILITY_NAME_RE.sub(lambda m: f"{m.group(1)}_\x00ALLOW\x00.{m.group(2)}", text)
-
-    def _redact_url(match: re.Match[str]) -> str:
-        url = match.group(0)
-        return url if "\x00ALLOW\x00" in url else "<redacted-url>"
-
-    text = _URL_ONLY_RE.sub(_redact_url, _SECRETISH_RE.sub(_sub, text))
-    return text.replace("_\x00ALLOW\x00.", "_*.")
-
-
-def _safe_stderr_line(line: str | bytes) -> str:
-    """脱敏 mcp-proxy stderr：去掉 token=… / wss|http(s) URL，并截断过长行。"""
-    if isinstance(line, bytes):
-        text = line.decode("utf-8", errors="replace")
-    else:
-        text = line
-    return _cap_log_line(_redact_secret_text(text.rstrip("\r\n")))
-
-
-class _RedactSecretsFilter(logging.Filter):
-    """脱敏第三方库（如 websockets）日志记录里的 token / URL。
-
-    websockets 在握手/连接失败时会经 root logger 打出含 ``?token=…`` 的完整 URI；
-    本模块自身的 ``_safe_stderr_line`` / ``_message_label`` 只覆盖自家调用，管不到
-    第三方 logger，故在此对记录文本统一脱敏。
-
-    注意：本 filter 必须挂在 **handler** 上（见 ``_install_secret_redaction``），不能挂在
-    logger 上——logger 级 filter 只对该 logger 自己 emit 的记录生效，子 logger
-    （如 ``websockets.client``）经 propagate 上抛时父 logger 只贡献 handler、不跑父
-    logger 的 filter，挂 logger 上等于死代码。"""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        # 先完成 %-format，再统一脱敏和限长；清空 args/exc_info 防 Formatter 二次泄漏。
-        try:
-            message = record.getMessage()
-        except Exception:
-            message = "<log formatting failed>"
-        message = _redact_secret_text(message)
-
-        exception = ""
-        if record.exc_info is not None:
-            exception = _safe_exception_text(record.exc_info)
-        elif record.exc_text:
-            exception = _safe_stack_text(record.exc_text, exception=True)
-        stack = _safe_stack_text(record.stack_info or "")
-        suffix = "\n".join(part for part in (exception, stack) if part)
-        rendered = _redact_secret_text(message + ("\n" + suffix if suffix else ""))
-        rendered = _cap_log_line(rendered)
-        record.msg = rendered
-        record.args = ()
-        record.message = rendered
-        record.exc_info = None
-        record.exc_text = None
-        record.stack_info = None
-        return True
-
-
-def _install_secret_redaction() -> None:
-    """把脱敏 filter 挂到 root 的每个 handler（handler 级）。
-
-    handler 级 filter 对一切经该 handler 的记录生效——含 ``websockets.client`` 等子
-    logger 经 propagate 上来的记录。必须在 ``logging.basicConfig`` 之后调用（root 才有
-    handler）。对已自行脱敏的本模块日志是幂等 no-op。"""
-    redact = _RedactSecretsFilter()
-    for handler in logging.getLogger().handlers:
-        handler.addFilter(redact)
 
 
 def _set_bridge_ready(ready: bool) -> None:

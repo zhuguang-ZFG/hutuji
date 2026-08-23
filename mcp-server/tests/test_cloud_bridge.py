@@ -493,6 +493,76 @@ def test_redact_filter_caps_oversized_formatted_and_exception_records() -> None:
     assert "stack-adjacent-secret" not in stack_rec.getMessage()
 
 
+def test_redact_install_covers_httpx_and_uvicorn_handlers() -> None:
+    """MCP 进程的第三方 handler 也必须脱敏，不能只保护 bridge 的 root handler。
+
+    生产实锤 httpx INFO 把商汤 24h 预签名 OSS URL 原样写进 journald；uvicorn
+    access 记录另用五元组 args，过滤器既要涂掉查询凭据，也不能破坏其格式化形状。
+    """
+    import logging
+    from io import StringIO
+
+    signed_url = (
+        "https://aoss.example.invalid/image.png?X-Amz-Credential=credential-leak"
+        "&X-Amz-Expires=86400&X-Amz-Signature=signature-leak"
+    )
+    targets = (logging.getLogger("httpx"), logging.getLogger("uvicorn.access"))
+    saved = [
+        (logger, logger.level, logger.propagate, logger.disabled)
+        for logger in targets
+    ]
+    existing_filters = [
+        (handler, tuple(handler.filters))
+        for logger in (logging.getLogger(), *targets)
+        for handler in logger.handlers
+    ]
+    streams: list[StringIO] = []
+    handlers: list[tuple[logging.Logger, logging.Handler]] = []
+    try:
+        for target in targets:
+            stream = StringIO()
+            handler = logging.StreamHandler(stream)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            target.addHandler(handler)
+            target.setLevel(logging.INFO)
+            target.propagate = False
+            target.disabled = False
+            streams.append(stream)
+            handlers.append((target, handler))
+
+        _install_secret_redaction()
+        try:
+            raise RuntimeError(f"download failed: {signed_url}")
+        except RuntimeError:
+            targets[0].exception("HTTP Request: GET %s", signed_url)
+        targets[1].info(
+            '%s - "%s %s HTTP/%s" %d',
+            "127.0.0.1:12345",
+            "GET",
+            "/files/x?X-Amz-Signature=access-signature-leak",
+            "1.1",
+            200,
+        )
+
+        out = "\n".join(stream.getvalue() for stream in streams)
+        assert "credential-leak" not in out
+        assert "signature-leak" not in out
+        assert "access-signature-leak" not in out
+        assert "aoss.example.invalid" not in out
+        assert "HTTP Request: GET <redacted-url>" in out
+        assert '127.0.0.1:12345 - "GET ' in out, "uvicorn 五元组格式不得被清空"
+    finally:
+        for handler, filters in existing_filters:
+            handler.filters[:] = filters
+        for logger, handler in handlers:
+            logger.removeHandler(handler)
+        for logger, level, propagate, disabled in saved:
+            logger.setLevel(level)
+            logger.propagate = propagate
+            logger.disabled = disabled
+
+
+
 class _BlockingWebSocket:
     def __aiter__(self):
         return self

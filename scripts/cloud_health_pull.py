@@ -28,6 +28,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+_MCP_SERVER_ROOT = Path(__file__).resolve().parents[1] / "mcp-server"
+if str(_MCP_SERVER_ROOT) not in sys.path:
+    sys.path.insert(0, str(_MCP_SERVER_ROOT))
+
+from hutuji_mcp.redact import _redact_secret_text  # noqa: E402
+
 DEFAULT_HOST = "root@117.72.118.95"
 UNITS = ("hutuji-mcp", "hutuji-cloud-bridge")
 
@@ -38,8 +44,9 @@ _CAPABILITY_RE = re.compile(r"\bdraw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}(?![A-Za-z0-9_
 
 
 def redact(text: str) -> str:
-    """能力文件名 token 段整段打码；其余内容原样保留。"""
-    return _CAPABILITY_RE.sub(lambda m: m.group(0)[:21] + "***", text)
+    """落盘前脱敏完整 URL/凭据，再统一能力文件名摘要格式。"""
+    safe = _redact_secret_text(text)
+    return _CAPABILITY_RE.sub(lambda m: m.group(0)[:21] + "***", safe)
 
 
 # 关键事件指纹：(标签, 不区分大小写子串)。只统计，不改写原文。

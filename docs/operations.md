@@ -26,7 +26,7 @@
 journalctl -u hutuji-mcp -u hutuji-cloud-bridge -n 200 --no-pager
 ```
 
-桥接与 MCP **不得**把完整 `MCP_ENDPOINT` / API key 打进日志。若发现泄露：轮换密钥 + 记事件。
+桥接、MCP 及其第三方 root/uvicorn/httpx/httpcore handler **不得**把完整 `MCP_ENDPOINT`、能力 URL、预签名 URL、API key、session id 或签名查询参数打进日志；统一由 `hutuji_mcp/redact.py` 过滤，`cloud_health_pull.py` 必须先脱敏再落盘。若发现泄露：停止继续复制原文，保留脱敏后的时间/PID/状态等事件元数据；轮转并 vacuum 已暴露 journal，清理本地副本；可撤销的长期凭据按供应商机制轮换并记事件。**删除日志不等于撤销供应商已签发的预签名 URL**；在供应商确认失效或 `Expires` 到期前仍按有效能力处置，不得写成“签名已撤销”。
 
 ## 备份
 

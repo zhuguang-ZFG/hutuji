@@ -38,6 +38,7 @@ from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
+from .redact import _install_secret_redaction
 from .llm_svg import _CONTROL_CHAR_RE, _sanitize_description, generate_svg
 from .memory_store import (
     forget as _memory_forget,
@@ -746,6 +747,9 @@ async def _warm_generation_deps() -> None:
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    # uvicorn 在 import 应用后才配置自身 handler；进入 lifespan 时安装才能覆盖
+    # root、uvicorn、httpx/httpcore 的真实运行态 handler，避免预签名 URL 进 journald。
+    _install_secret_redaction()
     # 挂载的子应用 lifespan 不会自动运行，必须显式拉起 MCP session manager
     settings.output_dir.mkdir(parents=True, exist_ok=True)
     warm = asyncio.create_task(_warm_generation_deps())

@@ -1285,6 +1285,53 @@ def test_cloud_health_redact_masks_token_ending_with_dash():
         assert "draw_20260823_123456_***" in out, repr(tail)
 
 
+def test_cloud_health_redact_scrubs_presigned_urls_and_credentials():
+    """journalctl 拉取结果落盘前必须吞掉完整 URL 与各类凭据。"""
+    signed_url = (
+        "https://aoss.example.invalid/image.png?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+        "&X-Amz-Credential=credential-leak%2F20260823%2Fs3%2Faws4_request"
+        "&X-Amz-Expires=86400&X-Amz-Signature=signature-leak"
+    )
+    raw = (
+        f'HTTP Request: GET {signed_url} "HTTP/1.1 200 OK"\n'
+        "Authorization: Bearer bearer-leak-123\n"
+        "connecting wss://api.example.invalid/mcp/?token=endpoint-leak\n"
+    )
+
+    out = cloud_health.redact(raw)
+
+    for secret in (
+        "credential-leak",
+        "signature-leak",
+        "bearer-leak-123",
+        "endpoint-leak",
+    ):
+        assert secret not in out
+    assert "aoss.example.invalid" not in out
+    assert "api.example.invalid" not in out
+    assert "<redacted-url>" in out
+
+
+
+
+def test_cloud_health_main_never_writes_raw_secrets(monkeypatch, tmp_path, capsys):
+    """主流程必须只写脱敏后日志与摘要，raw journal 不得落到 results。"""
+    raw = (
+        "HTTP Request: GET https://aoss.example.invalid/x.png?"
+        "X-Amz-Credential=write-credential-leak&X-Amz-Signature=write-signature-leak\n"
+    )
+    monkeypatch.setattr(cloud_health, "pull", lambda *_args: raw)
+    monkeypatch.setattr(sys, "argv", ["cloud_health_pull.py", "-o", str(tmp_path)])
+
+    assert cloud_health.main() == 0
+
+    written = "\n".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+    assert "write-credential-leak" not in written
+    assert "write-signature-leak" not in written
+    assert "aoss.example.invalid" not in written
+    assert "<redacted-url>" in written
+    assert "已落盘" in capsys.readouterr().out
+
 def test_cloud_health_summarize_counts_key_events():
     """关键事件计数：traceback/session terminated/探活/429 分行统计；无命中给明示。"""
     sample = (

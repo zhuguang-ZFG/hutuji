@@ -59,7 +59,7 @@
 - `docs/bringup-sop.md` — 阶段 0–9 联调与小批量出货门禁
 - `docs/deployment.md` / `docs/operations.md` — 京东云部署与值守
 - `docs/templates/` — 逐台测试记录、批次发布清单模板
-- `mcp-server/` — MCP 生成服务（③，契约/安全回归、京东云 HTTPS 常驻与真实语音出图均已有证据；当前未闭项见 `docs/release-readiness.md`）
+- `mcp-server/` — MCP 生成服务（③，`hutuji_mcp/redact.py` 为 MCP/桥接/取证脚本共享日志脱敏唯一实现；契约/安全回归、京东云 HTTPS 常驻与真实语音出图均已有证据；当前未闭项见 `docs/release-readiness.md`）
 - `firmware/` — S3 板固件补丁说明（②，补丁本体在 xiaozhi-esp32 fork）
 - `deploy/` — 京东云 systemd/nginx/环境变量模板（真实凭据不入库）
 

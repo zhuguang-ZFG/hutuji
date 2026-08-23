@@ -5826,6 +5826,36 @@ def test_lifespan_warms_generation_deps_without_blocking_startup(
     assert calls.index("session_manager") < calls.index("serving")
 
 
+def test_lifespan_installs_log_redaction_before_starting_services(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """uvicorn 配好 handler 后进入 lifespan；脱敏必须先于预热和 MCP 会话启动。"""
+    import contextlib as _contextlib
+
+    from hutuji_mcp import server as srv
+
+    calls: list[str] = []
+
+    @_contextlib.asynccontextmanager
+    async def fake_run():
+        calls.append("session_manager")
+        yield
+
+    monkeypatch.setattr(
+        srv, "mcp", SimpleNamespace(session_manager=SimpleNamespace(run=fake_run))
+    )
+    monkeypatch.setattr(srv, "_install_secret_redaction", lambda: calls.append("redact"))
+    monkeypatch.setattr(srv, "warm_trace_deps", lambda: calls.append("warm"))
+
+    async def drive() -> None:
+        async with srv.lifespan(None):
+            calls.append("serving")
+
+    asyncio.run(drive())
+    assert calls[0] == "redact"
+    assert calls.index("redact") < calls.index("session_manager")
+
+
 def test_deploy_guidance_explicitly_restarts_active_application_services() -> None:
     root = Path(__file__).resolve().parents[2]
     install = (root / "deploy" / "install-from-repo.sh").read_text(encoding="utf-8")
