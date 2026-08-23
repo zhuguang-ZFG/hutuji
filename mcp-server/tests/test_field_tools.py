@@ -847,6 +847,32 @@ def test_console_recall_non_integer_id_is_usage_error(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "kb_id 必须是整数" in err
 
+def test_console_draw_arguments_accept_url_and_preview_url():
+    """hutuji.draw 双参数缺一不可：链式链路 + 设备侧校验都要求 url 与 preview_url
+    同时存在（advisory fixup 2026-08-24：白名单只放 url 时，手工复现幂等行为的
+    入口被 CLI 自己拒掉）。"""
+    args = console._parse_device_arguments(
+        "hutuji.draw",
+        '{"url": "https://example/files/a.gcode", "preview_url": "https://example/files/a.png"}',
+    )
+    assert args["url"].endswith("a.gcode")
+    assert args["preview_url"].endswith("a.png")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"url": "https://example/files/a.gcode"}',  # 缺 preview_url
+        '{"preview_url": "https://example/files/a.png"}',  # 缺 url
+        '{"url": "", "preview_url": "https://example/files/a.png"}',  # 空 url
+    ],
+)
+def test_console_draw_arguments_reject_single_param(raw):
+    """双参数缺一不可——设备侧 IsValidDrawCapabilityUrl 双校验会拒单参数调用，
+    CLI 必须先拦下（exit 2），否则刷机后手工复现幂等行为的入口不可用。"""
+    with pytest.raises(ValueError):
+        console._parse_device_arguments("hutuji.draw", raw)
+
 
 def test_update_kb_delete_failure_summarizes_parallel_versions(monkeypatch, tmp_path, capsys):
     """TOOL-UX-03：update-kb 的 DELETE 循环收集到失败后必须汇总提示「新旧并存需人工

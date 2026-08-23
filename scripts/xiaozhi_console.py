@@ -30,7 +30,7 @@
 
     # 直接调用白名单内的设备侧工具
     python scripts/xiaozhi_console.py device-call hutuji.status
-    python scripts/xiaozhi_console.py device-call hutuji.draw '{"url":"https://.../files/...gcode"}'
+    python scripts/xiaozhi_console.py device-call hutuji.draw '{"url":"https://.../files/....gcode","preview_url":"https://.../files/....png"}'
 
 环境变量:
     XIAOZHI_TOKEN  — Bearer token（必须；浏览器控制台 localStorage.getItem('token')）
@@ -60,7 +60,7 @@ KNOWLEDGE_BASE_PATH = REPO_ROOT / "docs" / "xiaozhi-agent" / "knowledge-base.md"
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _DEVICE_TOOL_ARGUMENTS = {
     "hutuji.status": frozenset(),
-    "hutuji.draw": frozenset({"url"}),
+    "hutuji.draw": frozenset({"url", "preview_url"}),
     "hutuji.abort": frozenset(),
     "hutuji.pause": frozenset(),
     "hutuji.resume": frozenset(),
@@ -232,8 +232,11 @@ def _parse_device_arguments(tool_name: str, raw: str | None) -> dict:
         raise ValueError(f"{tool_name} 参数必须严格为：{names}")
     if tool_name == "hutuji.draw":
         url = arguments.get("url")
+        preview_url = arguments.get("preview_url")
         if not isinstance(url, str) or not url.strip():
             raise ValueError("hutuji.draw 的 url 必须是非空字符串")
+        if not isinstance(preview_url, str) or not preview_url.strip():
+            raise ValueError("hutuji.draw 的 preview_url 必须是非空字符串（设备双参数缺一不可）")
     return arguments
 
 
