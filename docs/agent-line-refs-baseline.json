@@ -1,5 +1,5 @@
 {
-  "git_head": "8e3f91a01cf9095517f387379bad3801208c6ff6",
+  "git_head": "bf82b26168d5655d615ccad84d5d61ccb3e1bb47",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -696,6 +696,11 @@
       "source": "    kListeningModeAutoStop,",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
     },
+    "docs/release-readiness.md -> application.cc:1165": {
+      "sha8": "6a10b9cc",
+      "source": "void Application::SendMcpMessage(const std::string& payload) {",
+      "target": "D:/Users/xiaozhi-esp32/main/application.cc"
+    },
     "docs/release-readiness.md -> application.cc:545": {
       "sha8": "634c6586",
       "source": "        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);",
@@ -705,6 +710,11 @@
       "sha8": "6346a726",
       "source": "            codec_->EnableOutput(false);",
       "target": "D:/Users/xiaozhi-esp32/main/audio/audio_service.cc"
+    },
+    "docs/release-readiness.md -> hutuji_job.cc:1016": {
+      "sha8": "2648b332",
+      "source": "        uint32_t net_ms = elapsed_ms > paused_accum_ms_ ? elapsed_ms - paused_accum_ms_ : 0;",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/release-readiness.md -> i2c_device.cc:24": {
       "sha8": "d1a8eac8",
@@ -882,6 +892,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-23T11:01:50Z",
+  "updated": "2026-08-23T16:28:40Z",
   "version": 1
 }

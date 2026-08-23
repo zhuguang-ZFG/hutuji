@@ -314,7 +314,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 工具 | 参数 | 行为 |
 |------|------|------|
 | `hutuji.draw` | `url,preview_url` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`（任务进行中返回 `"busy"` 直接拒绝，不排队不抢占）；用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:292-322`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内** |
-| `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者） |
+| `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
 | `hutuji.confirm` | — | 屏幕预览确认出图（「开始画/可以/就这个」）；仅 `awaiting_confirmation` 态有效，等价于点屏幕「开始画」钮 |
 | `hutuji.pause` | — | 暂停当前绘图（可恢复）；停笔不发 `0x18`，流式态由 Job 层挂起投喂 |
