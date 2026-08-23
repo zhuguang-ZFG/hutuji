@@ -655,6 +655,7 @@ async def _race_image_backends(
         asyncio.create_task(fn(client, description)): name
         for name, fn in racers
     }
+    race_t0 = time.monotonic()
     errors: dict[str, BitmapError] = {}
     pending: set[asyncio.Task] = set(tasks)
     winner: str | None = None
@@ -672,7 +673,9 @@ async def _race_image_backends(
                     errors[tasks[task]] = exc
                     continue
                 winner = image_url
-                logger.info("生图对冲：%s 先出图", tasks[task])
+                logger.info(
+                    "生图对冲：%s 先出图（%.1fs）", tasks[task], time.monotonic() - race_t0
+                )
                 # 同批醒来的其余已完成任务若带异常，标记已取——否则 asyncio
                 # 在 GC 时打 "Task exception was never retrieved" 噪音。
                 for other in done:
@@ -763,6 +766,7 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
         # 缺头（chunked）或头部畸形——两道闸都在数据进内存前生效。
         retry_download = False
         for attempt in range(2):
+            dl_t0 = time.monotonic()
             try:
                 # 必须把 asyncio.timeout 包在 stream 外：httpx timeout= 只管两次 chunk
                 # 间静默间隔，不管总时长；慢速攻击（1KB/s 持续流）可让下载挂 30 分钟。
@@ -782,6 +786,11 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
                                 if len(body) + len(chunk) > _IMAGE_DOWNLOAD_MAX_BYTES:
                                     raise BitmapError("图片超过下载上限")
                                 body.extend(chunk)
+                            logger.info(
+                                "图片下载完成：%d 字节 %.1fs",
+                                len(body),
+                                time.monotonic() - dl_t0,
+                            )
                             return bytes(body)
                         if dl.status_code in _TRANSIENT_HTTP_STATUSES and attempt == 0:
                             retry_download = True
@@ -827,7 +836,9 @@ def _forget_bitmap_inflight(key: str, done: asyncio.Task[BitmapResult]) -> None:
 
 async def _generate_bitmap_uncached(description: str, cache_key: str) -> BitmapResult:
     """跑完整付费生成链并在任务结束前写入结果缓存。"""
+    fetch_t0 = time.monotonic()
     png = await _fetch_image_png(description)
+    fetch_s = time.monotonic() - fetch_t0
 
     def build() -> BitmapResult:
         polys, w, h = trace_bitmap_to_polylines(png)
@@ -837,7 +848,15 @@ async def _generate_bitmap_uncached(description: str, cache_key: str) -> BitmapR
         _validate_svg(svg)
         return BitmapResult(svg=svg, preview_png=polylines_to_preview_png(polys, w, h))
 
+    build_t0 = time.monotonic()
     result = await asyncio.to_thread(build)
+    # 分段计时是「链路慢」的定位数据源（2026-08-23 用户主诉取证）：只记
+    # 阶段名与秒数，不含描述文本/URL（脱敏硬约定）。
+    logger.info(
+        "位图链路分段：生成+下载 %.1fs，描摹+预览 %.1fs",
+        fetch_s,
+        time.monotonic() - build_t0,
+    )
     _cache_bitmap(cache_key, result)
     return result
 

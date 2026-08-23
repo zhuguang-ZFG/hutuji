@@ -396,7 +396,9 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
             # SVG 已被限制到 256KiB；同步落盘很短，并避免取消 to_thread 后后台迟写残留文件。
             svg_path.write_text(svg, encoding="utf-8")
             preview_path.write_bytes(bitmap.preview_png)
+            gcode_t0 = time.monotonic()
             stats = await _svg_to_gcode_cached(svg, svg_path, gcode_path)
+            logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
             if time.monotonic() >= deadline:
                 raise DrawTimeoutError("绘图生成超时，请稍后重试")
     except BaseException:

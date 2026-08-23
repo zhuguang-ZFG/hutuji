@@ -1107,3 +1107,60 @@ def test_bridge_smoke_validate_endpoint_accepts_wss(monkeypatch):
     """R11-BR-02：合法 wss 端点通过预校验（返回 None，不报错）。"""
     monkeypatch.setenv("MCP_ENDPOINT", "wss://cloud.example.com:8300/mcp?token=SECRET")
     assert smoke._validate_endpoint() is None
+
+
+cloud_health = _load_script("cloud_health_pull")
+
+
+def test_cloud_health_redact_masks_capability_token():
+    """能力文件名 token 段整段打码；token 是 urlsafe base64、本身可含下划线，
+    必须按定长前缀拆（draw_+8 位日期+_+6 位时间+_ = 21 字符），不能按最后一个
+    下划线切。短名/普通文本不动。"""
+    name = "draw_20260823_123456_AbCdEf-GhIjKl_MnOpQr12"  # token 恰 22 位且含 _ 与 -
+    out = cloud_health.redact(f"GET /files/{name} 200\n短名 draw_abc 不动\n")
+    assert name not in out
+    assert "draw_20260823_123456_***" in out
+    assert "draw_abc" in out
+
+
+def test_cloud_health_redact_masks_token_ending_with_dash():
+    """回归：token 第 22 位是 `-`（非单词字符）时尾部 \\b 不存在，整段曾漏脱敏；
+    尾部改用负前瞻后，后随空格/引号/行尾三种形态都必须打码。"""
+    name = "draw_20260823_123456_AbCdEf-GhIjKl_MnOpQr1-"  # token 恰 22 位且末位为 -
+    for tail in (" 200", '"', ""):
+        out = cloud_health.redact(f"GET /files/{name}{tail}\n")
+        assert name not in out, repr(tail)
+        assert "draw_20260823_123456_***" in out, repr(tail)
+
+
+def test_cloud_health_summarize_counts_key_events():
+    """关键事件计数：traceback/session terminated/探活/429 分行统计；无命中给明示。"""
+    sample = (
+        "Aug 23 01:00:00 host python[1]: 云端连接已建立\n"
+        "Aug 23 01:10:00 host python[1]: 空闲超过 60s，主动探活本机 MCP 会话\n"
+        "Aug 23 01:10:01 host python[1]: mcp-proxy 探活通过\n"
+        "Aug 23 02:00:00 host python[1]: Traceback (most recent call last):\n"
+        "Aug 23 02:00:01 host python[1]: Session terminated\n"
+        'Aug 23 03:00:00 host nginx[2]: "POST /mcp" 429 19\n'
+    )
+    summary = cloud_health.summarize(sample)
+    assert "traceback: 1" in summary
+    assert "session_terminated: 1" in summary
+    assert "idle_probe: 1" in summary
+    assert "idle_probe_ok: 1" in summary
+    assert "http_429: 1" in summary
+    assert "wss_connect: 1" in summary
+    assert "无关键事件命中" not in summary
+    assert "无关键事件命中" in cloud_health.summarize("平平无奇的一行\n")
+
+
+def test_cloud_health_main_ssh_failure_exit_2(monkeypatch, tmp_path, capsys):
+    """ssh/传输失败塌成退出码 2 且不落盘（诊断不携带 stderr 全文外的信息）。"""
+    def _boom(*_a, **_k):
+        raise RuntimeError("ssh/journalctl 失败（exit 255）：mock")
+
+    monkeypatch.setattr(cloud_health, "pull", _boom)
+    monkeypatch.setattr(sys, "argv", ["cloud_health_pull.py", "-o", str(tmp_path)])
+    assert cloud_health.main() == 2
+    assert "拉取失败" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []

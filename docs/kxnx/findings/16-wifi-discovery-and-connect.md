@@ -129,7 +129,7 @@ SSDP 通道 `d.java:27` 则**硬编码 23**，没走机型判断——即 SSDP �
 
 **但连接与缓存这一层没有任何协议校验，会自锁**：
 
-1. 子网扫描**从 .1 开始顺序试**（`hutuji_pipe.cc:442` `for host = 1; host < 255`）。家用路由器
+1. 子网扫描**从 .1 开始顺序试**（`hutuji_pipe.cc:444` `for host = 1; host < 255`）。家用路由器
    通常就是 `.1`，且部分型号开着 telnet:23。
 2. 一旦连上 `.1`，`break` 退出扫描 → `SaveCachedIp(.1)` 落 NVS。
 3. 此后每次 `ConnectOnce()`：缓存命中 → `found=true` → **`if (!found)` 为假，
