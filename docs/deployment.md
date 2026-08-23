@@ -1,4 +1,5 @@
-# 京东云部署
+# 部署（2026-08-23 起：阿里云主 / 京东云热备；历史章节为京东云口径）
+> **现役拓扑真值见下方「当前（2026-08-23 晚割接后）」条**。本文标题与「目标机 / 拓扑 / 回滚」等多数章节写成于京东云单点时代，仅「当前」条与本条为现态；引用历史章节前先看日期。
 > **2026-08-23 日志脱敏发布（本仓 `c2cdbd4`，已部署；supersede 当日 `f984182` 应用基线）**：生产新增 `hutuji_mcp/redact.py`，并更新 `server.py`/`cloud_bridge.py`；候选均由 `git cat-file blob HEAD:<path>` 导出，CR=0，远端 SHA-256 分别为 `redact.py 8000c953…f1e252`、`server.py a6440db6…bda9c4`、`cloud_bridge.py eaca102f…96264`。备份 `/root/hutuji-bak-20260823-pre-c2cdbd4-log-redact/`；远端 `py_compile` 通过，清理缓存后双服务显式 restart，MainPID=`3603181/3603182`，`/bridge-health` 返回 200 且 `cloud_connected=true`/`proxy_connected=true`，当前 preflight **`pass=30 fail=0 expected=30`**。生产真实生成链日志中的 httpx POST/GET URL 均为 `<redacted-url>`，Uvicorn access query 探针保留五元组并将签名值记为 `<redacted>`；health pull 293 行落盘复核无完整 URL、原始探针或未脱敏签名参数。`server.py` 的 G-code 计时已部署；`bitmap_svg.py` 计时与 health pull 脚本仍为本仓取证面，未装入生产服务。前一 `f984182` 的 bridge-health/探活发布及回滚副本仍属有效历史证据，详见 git 历史中的本文上一版。
 > **2026-08-21 唱歌目录 + 记忆工具发布（当前应用基线 `fae5eac`）**：两轮 scp。第一轮（唱歌，`2d82051`）：`server.py`（`/songs` 路由 + 云端 `hutuji_sing`）/ `songs/`（`catalog.json` + 三首自合成公版 OGG）/ `nginx-hutuji.conf`（两个 server 块各加 `/songs/` location）逐文件 LF blob 核 SHA-256 与 CR=0，备份 `/root/hutuji-bak-20260821-sing/`；重启三服务全 active，公网 `/songs/twinkle.ogg` 200 `audio/ogg` 152422B、`x-hutuji-crc32: 441a8c9a`，路径穿越与 `.mp3` 均 404 塌缩，`/mcp` 公网仍 404；preflight `pass=29 fail=0 expected=29`（26→29 项，新增 `/songs` 冒烟等判据）。第二轮（记忆 RMW 锁，`fae5eac`）：`memory_store.py` SHA-256 `7dc81b9a…` 两端逐位一致，双服务 restart，preflight 29/29，生产记忆三工具写/读/删实测通过。**运维学习**：① 新增 MCP 工具后云端首轮会话调用可能落空（工具表缓存），失败调用触发自动 `tools/list` 刷新，非代码 bug；② `/songs` 响应 `Cache-Control: max-age=3600`，次轮设备下载可能命中 Cloudflare 边缘缓存不回源——源站 GET 日志不是下载证据，设备串口 `hutuji_music` 日志才是。
 
@@ -25,16 +26,18 @@
 
 ## 目标机
 
+> 以下为**京东云历史口径**（现役 = 阿里云主 + 京东云热备，见「当前」条）。
+
 | 项 | 值 |
 |----|-----|
 | 公网 | `117.72.118.95` |
 | 规格 | 2 核 4G / 5Mbps |
 | 上行实测 | **2026-07-26**：公网拉 512KiB 中位 **1.13s / ~3.72 Mbps**（本机→`http://117.72.118.95/…`，3 轮；测完文件已删） |
-| 角色 | 专机只跑 ③（uvicorn + 小智桥接 + nginx） |
-| 冗余 | 无；单点 |
-| 实机业务 | `hutuji-mcp` + **Cloudflare Tunnel HTTPS**（Let's Encrypt） + `hutuji-cloud-bridge` 已连小智 WSS；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；**2026-08-07 起绘图 LLM = Agnes `agnes-2.5-flash`**（此前 llm7 为历史配置） |
+| 角色 | 热备待命（原：专机只跑 ③（uvicorn + 小智桥接 + nginx）） |
+| 冗余 | 阿里云主 + 本机热备（原：无；单点） |
+| 实机业务 | `hutuji-mcp` active（待命）；`hutuji-cloud-bridge` disabled+inactive；`cloudflared` 留作回滚通道；`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`；**2026-08-07 起绘图 LLM = Agnes `agnes-2.5-flash`**（此前 llm7 为历史配置） |
 
-## 拓扑
+## 拓扑（京东云历史口径；现役见「当前」条与割接手冊）
 
 ```
 公网客户端 / S3 板
@@ -258,10 +261,20 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 
 ## 回滚
 
+### A. 主机切换回滚（主生产在阿里云时的割接回退）
+
+1. DNS 把 `hutuji.donglicao.com` 从 A 记录 `47.112.162.80` 指回 Cloudflare Tunnel 目标（CF 面板改回 proxied CNAME）
+2. 京东云：`systemctl enable --now hutuji-cloud-bridge`，验 `curl 127.0.0.1:8300/bridge-health` 200
+3. 阿里云：`systemctl stop hutuji-cloud-bridge && systemctl disable hutuji-cloud-bridge`（防 token 对拍）
+4. 判据：公网 `https://hutuji.donglicao.com/files/<TTL 内产物>` 200、`/mcp` 404；bridge 双 connected。**注意 preflight.sh 30 项为 Debian/京东云口径，在阿里云恒红——回滚后（京东云）可直接跑；阿里云侧在该脚本适配 el8/conf.d 前以手工判据代替（`tools/list` 7 工具、真链出图、公网真下载逐字节一致、`/mcp` 404）**
+5. 在 `docs/templates/release-manifest.md` 记回滚原因与时间
+
+### B. 单机代码回滚（同一台机内回退应用版本）
+
 1. `systemctl stop hutuji-cloud-bridge hutuji-mcp`  
 2. 检出上一发布 commit / 恢复上一 venv  
 3. 恢复对应 EnvironmentFile 与 nginx conf；若回滚会改回 `limit_req` 的键或 zone 名，必须 `systemctl restart nginx`，`reload` 会被静默丢弃
-4. 再 `start`；跑 `preflight.sh`（须 `pass=22 fail=0 expected=22`）+ 一次 `hutuji_status`
+4. 再 `start`；京东云跑 `preflight.sh`（30 项），阿里云在脚本适配前用 A 节的手工判据 + 一次 `hutuji_status`
 5. 在 `docs/templates/release-manifest.md` 记回滚原因与时间  
 
 详细命令见 `../deploy/README.md`。运维日常见 `operations.md`。
