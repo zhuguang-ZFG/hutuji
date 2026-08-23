@@ -7633,14 +7633,19 @@ def test_console_device_no_argument_tools_are_whitelisted(tool_name) -> None:  #
         console._parse_device_arguments(tool_name, '{"unexpected":1}')
 
 
-def test_console_device_draw_requires_exact_url_argument() -> None:
+def test_console_device_draw_requires_exact_url_and_preview_url_arguments() -> None:
+    """hutuji.draw 双参数缺一不可（2026-08-24 fixup：白名单补 preview_url——设备侧
+    IsValidDrawCapabilityUrl 双校验，单参数调用设备也拒，CLI 必须先拦下）。"""
     console = _load_root_script("hutuji_console_device_draw_test", "xiaozhi_console.py")
     url = "https://hutuji.donglicao.com/files/draw_20260807_120000_abcdefghijklmnopqrstuv.gcode"
+    preview = "https://hutuji.donglicao.com/files/draw_20260807_120000_abcdefghijklmnopqrstuv.png"
 
-    assert console._parse_device_arguments("hutuji.draw", json.dumps({"url": url})) == {
-        "url": url,
-    }
-    for raw in (None, "[]", "{}", '{"url":""}', '{"url":"x","extra":1}'):
+    assert console._parse_device_arguments(
+        "hutuji.draw", json.dumps({"url": url, "preview_url": preview})
+    ) == {"url": url, "preview_url": preview}
+    for raw in (None, "[]", "{}", '{"url":""}', '{"url":"x","extra":1}',
+                json.dumps({"url": url}), json.dumps({"preview_url": preview}),
+                '{"url":"x","preview_url":""}'):
         with pytest.raises(ValueError):
             console._parse_device_arguments("hutuji.draw", raw)
     with pytest.raises(ValueError, match="不在白名单"):
