@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ **当前生产运行态：`4787a06` + `67ed684`（2026-08-22）**：`server.py`、`cloud_bridge.py`、`preflight.sh`、`hutuji-cloud-bridge.service` 均由 Git blob 精确导出，CR=0，SHA-256 已逐文件核对；三服务 active，`/bridge-health` 返回 200，生产 preflight `pass=30 fail=0 expected=30`。回滚副本：`/root/hutuji-bak-20260822-67ed684/`、`/root/hutuji-bak-20260822-4787a06/`、`/root/hutuji-bak-20260822-67ed684-template/`。真实语音 HIL 未执行，当前终端无 `XIAOZHI_DEVICE_TOKEN`，设备消息调用不可用；历史应用基线与逐轮证据见 `../docs/deployment.md`。 |
+| VPS 实机部署与验收 | ✅ **当前生产代码基线：`c2cdbd4`（2026-08-23）**：`redact.py`、`server.py`、`cloud_bridge.py` 均由 Git blob 精确导出，CR=0，SHA-256 已逐文件核对；两应用服务 active，`/bridge-health` 返回 200，生产 preflight `pass=30 fail=0 expected=30`。回滚副本：`/root/hutuji-bak-20260823-pre-c2cdbd4-log-redact/`。真实语音 HIL 未执行，当前终端无 `XIAOZHI_DEVICE_TOKEN`，设备消息调用不可用；历史应用基线与逐轮证据见 `../docs/deployment.md`。 |
 > **2026-08-16 安装器脚本已同步（本仓 `a7697b9`）**：仅 `install-from-repo.sh` 适用于生产，LF SHA-256 `d8eec725…75936` 对账一致；运行时服务文件未变、未重启；同步后 preflight `pass=26 fail=0 expected=26`。生产应用基线仍 `1082400`。
 
 

@@ -75,7 +75,7 @@
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、本仓门禁/硬轨 — ✅ 见 `docs/foundation-checklist.md`
 2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 xiaozhi `5e1a91b` 已提交推送并刷入 Waveshare（COM14）；此前 `dcbec6f` 代际已完成触摸、七工具、Telnet、授权、fresh-`Idle` 与控制抽屉低层动作的部分 HIL，2026-08-21 新增唱歌双工具（`hutuji.sing`/`hutuji.stop_song`）并语音全链实测通过（云端 `hutuji_sing` → 下载 → 播放 → 喊停退场）。**仍缺**：预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作 HIL、纸面画质目视、断连恢复 `paper_active` 窗口 abort 复测。
-3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 生产运行态已切换至 `4787a06` + `67ed684`，HTTPS、MCP+桥接常驻，`/bridge-health` 200，生产 preflight `30/30`；真实语音出图 HIL 未执行，剩余设备预览/控制人机验收、纸面画质与生产签核。
+3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 生产代码基线已切换至 `c2cdbd4`（共享 `redact.py`、`server.py`、`cloud_bridge.py` 已按 Git blob 部署），两服务 active，`/bridge-health` 200，生产 preflight `30/30`；真实语音出图 HIL 未执行，剩余设备预览/控制人机验收、纸面画质与生产签核。
 
 > **生图后端边界（2026-08-20）**：正式 `hutuji_draw` 始终保持「PNG → 中心线描摹 → SVG → G-code」。同题完整 draw 事务由独立任务持有，云端取消只结束 waiter；约 35 秒重试复用原任务、同一个限流名额、同一份产物，不得另起付费生成。位图层另有 10 分钟/16 项中心线缓存与覆盖生图+描摹的 in-flight 合并；未命中时商汤 `sensenova-u1-fast`、Agnes、imagefree 与可选硅流（schnell + 可图 Kolors）并发对冲、谁先出图用谁，商汤瞬态 500 快速重试一次，全失败才报错。同一逻辑生成轮仍按既定对冲同时调用已配置后端；取消重试去重不改变该成本/延迟决策。同一 SVG 的 G-code 内容缓存命中时跳过 vpype；禁止切成模型直写 SVG。Pollinations 经 6 个冷 seed + 真实描摹否决（5 次 44–46s，含照片/3D 阴影与纹理，描摹 300s 未收敛），不得加入正式 racer。聊天中出现过的 key 视为泄露，不得使用。
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
