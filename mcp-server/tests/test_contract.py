@@ -6191,7 +6191,7 @@ def test_gate_forbidden_claims_rejects_unrelated_exemptions_and_markup(
         "当前采用 USB Host 并禁止串口旁路。",
         "板间链路当前采用\nUSB Host。",
         "板间链路采用 USB **Host**。",
-        "生产部署落点为阿里<!-- -->云。",
+        "板间通讯采用原生\nCH<!-- -->9350。",
     ],
 )
 def test_gate_revived_decisions_rejects_unrelated_rejection_and_markup(
@@ -6285,18 +6285,19 @@ def test_gate_forbidden_claims_backtick_still_needs_meta_context(
     [
         ("CLAUDE.md", "板间链路当前采用 USB Host 直连。"),
         ("docs/protocol.md", "现行板间方案改用 CH9350 桥接。"),
-        ("docs/release-readiness.md", "生产部署落点为阿里云 ECS。"),
         (".cursor/rules/hutuji-agent-rails.mdc", "板间通讯采用原生 USB Host。"),
     ],
 )
 def test_gate_revived_scan_covers_all_governance_docs(
     rel: str, body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """三条 REVIVED_PATTERNS 原各带一份手写文件清单，合计只覆盖 5 个文件，漏掉的
+    """原三条 REVIVED_PATTERNS 各带一份手写文件清单，合计只覆盖 5 个文件，漏掉的
     恰是优先级最高的几份：CLAUDE.md（对 agent 是 OVERRIDE 级指令）、.cursor 硬轨
     （alwaysApply）、release-readiness.md（进度真值）；`ch9350` 规则连 protocol.md
     都不扫。实测把「当前采用 USB Host，已改用 CH9350，生产落点阿里云」写进
-    CLAUDE.md，门禁全绿。现在三条规则共用 GOVERNANCE_DOCS。"""
+    CLAUDE.md，门禁全绿。现在各规则共用 GOVERNANCE_DOCS。
+    （2026-08-23 用户决策反转后，aliyun_as_prod 规则与 allowlist 同步下线，
+    本参数化同步移除阿里云用例；反转记录见 release-readiness.md。）"""
     gate = _load_agent_gate()
     target = tmp_path / rel
     target.parent.mkdir(parents=True, exist_ok=True)

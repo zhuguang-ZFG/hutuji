@@ -66,7 +66,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `python D:/Users/zhugu/fz/scripts/agent_gate.py`（先设好 `FZ_ROOT`/`GRBL_ROOT`）。overall 非 pass **不得声称修好**。细则见 `D:/Users/zhugu/fz/docs/AGENT_VIBE_CODING.md`。本仓 `--profile full` 的源码标记检查**不替代** fz。
 - **改 Grbl 的边界**：换纸机械/时序、运动、授权、U1-Grbl 协议不改；**禁止**碰 `report_realtime_status()`（固定 `char[200]` + 无边界 `strcat`，有栈溢出风险）与 `report_state_text()`（状态字被现役商业上位机依赖）。
 - **凭据禁入库且日志必须先脱敏**：`D:/Downloads/VPS.txt` 含 VPS 明文密码与 API key，绝不复制、引用、提交到任何仓库。MCP、bridge 与 journal 拉取脚本统一复用 `hutuji_mcp/redact.py`；不得在调用侧复制正则。第三方 root/uvicorn/httpx/httpcore handler 必须装共享 filter，先格式化再脱敏，并覆盖异常与 stack 文本；取证脚本必须在落盘前脱敏完整 URL、签名查询参数和凭据。
-- **禁止自由发挥 / 幻觉 / 乱改**：见 `docs/agent-anti-drift.md`。不重开 USB Host/CH9350/阿里云；不跳 `bringup-sop`；不把 MCP 组 0–4 当待办重做；不覆盖 `worktree-inventory.md` 记载的脏树；不为门禁绿改换纸常量；用户未指定时按 handoff §6。
+- **禁止自由发挥 / 幻觉 / 乱改**：见 `docs/agent-anti-drift.md`。不重开 USB Host/CH9350（「阿里云部署」2026-08-23 已由用户反转，见根 README 决策 #5）；不跳 `bringup-sop`；不把 MCP 组 0–4 当待办重做；不覆盖 `worktree-inventory.md` 记载的脏树；不为门禁绿改换纸常量；用户未指定时按 handoff §6。
 
 ## 构建与测试
 

@@ -30,7 +30,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 2. 板间 = **WiFi Telnet :23**（写字机 STA 连同一路由器，S3 作 TCP 客户端 + NVS 缓存 IP/子网扫描发现 + 指数退避重连；零接触配网见 `docs/protocol.md` §1.5）；USB Host 与 CH9350 均已否决，别再提；拆机 TTL 仅备用。
 3. **哑管道**：G-code 只在云端生成与转换，S3 只做下载 + 校验 + 流控转发。
 4. AI = 小智**官方云**，自定义能力走 MCP 接入点 + 设备侧 MCP 工具。
-5. 部署 = **仅京东云** `117.72.118.95`（专机，无云端冗余），公网入口经 Cloudflare Tunnel `https://hutuji.donglicao.com`。
+5. 部署 = **阿里云主 + 京东云热备**（阿里云 `47.112.162.80` 灰度验证中；京东云 `117.72.118.95` 现役生产兼热备），公网入口现役仍为 Cloudflare Tunnel `https://hutuji.donglicao.com`，灰度直连子域 `aliyun-hutuji.donglicao.com`。2026-08-23 用户反转原「仅京东云」锁定；cloud bridge 单 WSS 任一时刻只在一个节点跑。
 6. 换纸机构机械/时序/运动/授权/U1 协议**不改**；只允许 `docs/protocol.md` §9 清单内的消息路由/状态字段/网络层小加固，改后必过 fz 门禁。
 7. 本仓 = 枢纽仓，两个 fork 各自独立演进。
 
@@ -152,7 +152,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **不准简化设计 / 全称必证**：禁止照文档「可选 / 可去掉 / 可简化 / 待做」措辞删除或弱化任何负载（vpype 管线步骤、校验、安全边界、画质容差 `linesimplify`/`linemerge`、流控、每行带 F 等）——这类许可默认是**假的**，先与 `protocol.md` §5 / `hutuji_gwrite.toml` / `gcode_gen.py` 常量 / `test_contract.py` 钉死值对账，冲突以定案为准并盖章 `supersede`。说「唯一 / 全部 / 已清 / 干净 / 没有第二处」前必须先全仓检索取证。详见 `docs/agent-anti-drift.md` §0 铁律 7–8（已被门禁 `anti_drift` 层机器钉死，删铁律即红）。
 - 改代码前必须能指出「白名单路径 + 契约段落或用户原话」；指不出就只读或问用户。机读白名单：`docs/agent-edit-allowlist.json`。
 - Grbl 侧只可碰 §9 清单内文件意图（`src/WebUI/TelnetServer.cpp`、`src/PaperSystem.cpp`、`src/Protocol.cpp`、§9-C′ 判定谓词所在的 `src/ProtocolDecisionCore.h`、§9-D′ 蓝牙功率所在的 `src/WebUI/BTConfig.cpp`、§9-E′ web 预检所在的 `src/WebUI/WebSettings.cpp`）与其余 `*Core.h` 的 header-only 恢复；**禁止**碰 `report_realtime_status` / `report_state_text`、禁止全量 `CLIENT_ALL` 广播、禁止为仿真绿改换纸机械常量、禁止顺手重构。
-- **禁止重开**：合并固件 / USB Host / CH9350 / 阿里云部署 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。
+- **禁止重开**：合并固件 / USB Host / CH9350 /「G-code 在设备端生成」/「本仓无代码」/ 跳阶段 / 把 MCP 验收组 0–3 当待办重做——这些都已否决或已落地。（「阿里云部署」2026-08-23 已由用户决策反转，见决策 #5 与 release-readiness.md，不再属本清单。）
 - **禁止宣称**（除非 `docs/release-readiness.md` 对应行已 ✅）：可出货、商业放行、§9 已完成、§9 已修好、硬件已验证、联调完成、京东云已上线、M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
 - **凭据禁入库**：`D:/Downloads/VPS.txt`（VPS 明文密码 + API key）、真实小智 MCP 接入点、`小智控制台token.txt`，一律不复制、不引用、不提交。
 - **默认下一刀**（用户未指定时）：① 完成 Waveshare 当前 `dcbec6f` 的预览确认/取消与暂停/继续/停止/重画/试笔屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口的 `abort` 复测；④ 生产与合规签核。真实语音出图、页尾归位、自动换纸、换纸中 `abort` 与 P2 S4 链路已有历史取证，禁止作为默认待办重做。

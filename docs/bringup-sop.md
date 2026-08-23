@@ -169,7 +169,7 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 1. 对小智说一句绘图指令（如「画一只小鸟」）。
 2. 云端 LLM 调 `hutuji_draw(description)` → ③ 生成 SVG → vpype 转 G-code → 校验 → 返回 URL。
-3. 云端把 URL 交给设备侧 `hutuji.draw(url)`。
+3. 云端把 `url`+`preview_url` 交给设备侧 `hutuji.draw` → 先只上屏预览（零机械动作）；用户确认（点屏或 `hutuji.confirm`）后才下载 G-code 出图。
 4. S3：**全量下载**入 PSRAM → 比 `Content-Length` → 比 CRC32 → **授权门** → 才开始逐行发。
    - 注意这是 v0.5 定案：**不边下边转**，校验前移到落笔之前。
 5. 写字机逐行执行，`ok` 一行一行回。

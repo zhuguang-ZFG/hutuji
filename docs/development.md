@@ -9,7 +9,7 @@
 | 本仓 MCP（③） | Python ≥3.10；在 `mcp-server/` 建 venv，装 `requirements-dev.txt` |
 | S3 固件（②） | `D:/Users/xiaozhi-esp32`；ESP-IDF **v6.0.1**（本项目实测基线，勿按上游主线换 v6.0.2）；板型 `lichuang-dev` |
 | Grbl（运动） | `D:/Users/Grbl_Esp32`；分支 `fix/panel-hold-after-align-116687e`；改 §9 后必跑 **fz** 门禁 |
-| 部署目标 | **仅京东云** VPS：`117.72.118.95`（2核4G / 5Mbps，专机只跑 ③） |
+| 部署目标 | **阿里云主 + 京东云热备**：阿里云 `47.112.162.80`（灰度验证中）+ 京东云 `117.72.118.95`（现役生产兼热备）；2026-08-23 用户反转原「仅京东云」锁定 |
 
 凭据只进进程环境（`HUTUJI_LLM_API_KEY`、`MCP_ENDPOINT` 等）。禁止写入仓库、`.env`、systemd unit 正文。
 

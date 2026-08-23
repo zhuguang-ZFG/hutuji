@@ -50,7 +50,6 @@
   ],
   "rejected_current_link": [
     "USB Host as current board link",
-    "CH9350 as current board link",
-    "Aliyun as production VPS"
+    "CH9350 as current board link"
   ]
 }

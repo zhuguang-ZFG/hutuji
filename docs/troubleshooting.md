@@ -422,7 +422,7 @@ AST `ParseFile` 静态校验（PARSE OK）。
 | preflight 生成链通过，但真实请求仍在 vpype 退出 | `check_generate_chain` 在 systemd 服务外运行，未覆盖 unit 的 syscall 沙箱 | 先查 `journalctl -u hutuji-mcp` 与内核审计；当前 unit 的 `ExecStartPre=...gcode_gen --self-test` 才是服务沙箱内判据。两项都要保留，职责不同 |
 | CRC32 总失败 | 变体不一致 | 两侧钉 zlib/IEEE（`zlib.crc32`） |
 | 下载 404 | TTL 过期或 token 错 | 重新 `hutuji_draw`；查 `HUTUJI_OUTPUT_TTL_SECONDS` |
-| `hutuji_draw` 最终生成成功，但 nginx 无 S3 `/files` 下载、Grbl 一直 `Idle` | 小智官方云不支持 10 秒级慢 MCP（维护者答复 `78/xiaozhi-esp32#964`）；Agnes 新提示实测 39.50s，同轮第二个设备工具因实时窗口结束或多工具漏调（`#1011`）而未执行。重复慢调用还会排队生成重复产物 | 临时验收：用设备“自定义主题”URL 的 token 设置 `XIAOZHI_DEVICE_TOKEN`，先跑 `python scripts/xiaozhi_console.py device-tools`，再以新鲜能力 URL 跑 `device-call hutuji.draw '{"url":"..."}'`。产品修复：MCP 快速返回、后台异步生成，完成后经官方 `/api/messaging/device/tools/call` 主动调 `hutuji.draw`；实施前须定义任务幂等、失败状态、token 保管与服务重启恢复。不要再靠增加同步重试或只改提示词 |
+| `hutuji_draw` 最终生成成功，但 nginx 无 S3 `/files` 下载、Grbl 一直 `Idle` | 小智官方云不支持 10 秒级慢 MCP（维护者答复 `78/xiaozhi-esp32#964`）；Agnes 新提示实测 39.50s，同轮第二个设备工具因实时窗口结束或多工具漏调（`#1011`）而未执行。重复慢调用还会排队生成重复产物 | 临时验收：用设备“自定义主题”URL 的 token 设置 `XIAOZHI_DEVICE_TOKEN`，先跑 `python scripts/xiaozhi_console.py device-tools`，再以新鲜能力地址跑 `device-call hutuji.draw '{"url":"...","preview_url":"..."}'`（2026-08-23 审计登记：CLI 白名单缺 `preview_url`，修复前直调会报参数错，走 inline API 调用）。产品修复：MCP 快速返回、后台异步生成，完成后经官方 `/api/messaging/device/tools/call` 主动调 `hutuji.draw`；实施前须定义任务幂等、失败状态、token 保管与服务重启恢复。不要再靠增加同步重试或只改提示词 |
 | 公网能打 `/mcp` | nginx/防火墙配错 | **立即**关掉；只暴露 `/files` + TLS |
 | 小智看不到工具 | 桥接未起或 `MCP_ENDPOINT` 错 | 查 `cloud_bridge` 与 smoke；接入点禁入库 |
 | VPS 服务起不来 | venv/路径/EnvironmentFile | 见 `deployment.md` 与 `journalctl -u hutuji-mcp` |

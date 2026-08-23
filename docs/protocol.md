@@ -313,7 +313,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 工具 | 参数 | 行为 |
 |------|------|------|
-| `hutuji.draw` | `url` | 回调仅校验参数+幂等检查 → 立即返回 `"started"`（任务进行中则返回 `"busy"` **直接拒绝**，不排队不抢占）；独立任务执行：**① 全量下载**（`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:292-322`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内** |
+| `hutuji.draw` | `url,preview_url` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`（任务进行中返回 `"busy"` 直接拒绝，不排队不抢占）；用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:292-322`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内** |
 | `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者） |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
 | `hutuji.confirm` | — | 屏幕预览确认出图（「开始画/可以/就这个」）；仅 `awaiting_confirmation` 态有效，等价于点屏幕「开始画」钮 |
@@ -324,13 +324,13 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | `hutuji.sing` / `hutuji.stop_song` | `url,title` / — | 唱歌（与绘图解耦），契约见 §10.2 |
 
 - 任务完成/失败经 `Application::SendMcpMessage` **设备侧主动推送**；同步查询走 `hutuji.status`。
-- 状态机：`idle → downloading → verifying → streaming ⇄ paused → (paper_change) → done | error | aborted`（预览确认机型另有 `awaiting_confirmation` 前置态）；TCP 断开/banner 重放 → `error`（按 §2 走物理复位分流）。
+- 状态机：`idle → previewing → awaiting_confirmation → downloading → verifying → streaming ⇄ paused → (paper_change) → done | error | aborted`（预览确认链为当前唯一形态）；TCP 断开/banner 重放 → `error`（按 §2 走物理复位分流）。
 - **完成判据**：最后一行的 `ok` 只表示该行进入 planner。S3 必须先等到一份 fresh `Idle`，
   再依次旁路单发 `G1G90 X0Y0F8000`（归位，G1 不触发换纸，ok 后等 fresh `Idle` 确认归位走完）
   与 `M30`（换纸）；`M30` 返回 `ok` 后还要再次取得 fresh `Idle`，此时才能置 `done`。
   不得用旧缓存 `Idle` 或固定 sleep 判完成。~~该路径已编码，尚未完成有纸实机验收~~ **【supersede 2026-08-15】** 有纸全链已实测通过（S4 玫瑰图 2026-08-03 + 归位版 `4c60ca8` 2026-08-15，见 release-readiness.md）。
-- **同一时刻只允许一个任务**；任务期间 PSRAM 缓存（§5.1）持有至任务终结。成功且换纸完成后
-  保留一份供 `repeat` 复用，error/aborted 释放。
+- **同一时刻只允许一个任务**；任务期间 G-code PSRAM 缓存（§5.1）持有至任务终结。成功且换纸完成后
+  保留一份供 `repeat` 复用，error/aborted 在任务收尾释放。**所有权缺口（2026-08-23 源码审查）**：预取命中（`AdoptPrefetch`）时旧 `buffer_` 直接被新指针覆盖而不释放；且预览下载成功但预取失败/中断时无 `CancelPrefetch` 补偿——重复「新画一幅」会持续累积泄漏（≤512KB/幅），修复待独立批次并补 host 测试，详见 `release-readiness.md` 文首审计补充。
 - 代码挂点：`lichuang-dev` 板级 `InitializeTools()`；**板级行为不进核心模块**。
 
 ### 4.1 abort 语义（重要：不是万能急停）
@@ -419,7 +419,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 部署门禁必须用一份合法临时产物同时验证 `HTTP=200`、`Content-Length`、
 `X-Hutuji-CRC32` 与逐字节正文；只比较命令替换后的正文会吞掉尾部换行，也无法证明 S3 必需的响应头仍在。
 
-**PSRAM 缓存生命周期**：校验通过后持有至任务终结（`done`/`error`/`aborted` 均释放）。S3-N16R8 有 8MB PSRAM，512KB 占得起。跨多次重连、跨 ≥60s 换纸期间均须存活。
+**PSRAM 缓存生命周期**：G-code 缓冲校验通过后持有至任务终结（成功且换纸完成后保留一份供 `repeat` 复用，error/aborted 释放）；S3-N16R8 有 8MB PSRAM，512KB 占得起，跨多次重连、跨 ≥60s 换纸期间均须存活。预览 PNG 解码缓冲由预览对象析构释放；预取缓冲只被接管或作废释放，**当前实现已知缺口见 §4 所有权缺口条目**。
 
 ## 6. 授权前置
 
