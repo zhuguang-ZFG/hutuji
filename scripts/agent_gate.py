@@ -1288,7 +1288,11 @@ def _iter_doc_line_refs() -> DocRefScan:
             if not any(line.strip() for line in body):
                 blank[key] = rel_target
                 continue
-            current[key] = {"target": rel_target, "sha8": _sha8(body)}
+            current[key] = {
+                "target": rel_target,
+                "sha8": _sha8(body),
+                "source": "\n".join(body),
+            }
     return DocRefScan(current, blank, broken, unresolved, seen, None)
 
 
@@ -1468,6 +1472,247 @@ def accept_line_refs() -> int:
         f"已登记 {len(current)} 处指纹，保留未解析条目 {len(kept)} 处 → {baseline_path}"
     )
     return 0
+
+
+def _find_line_blocks(haystack: list[str], needle: list[str]) -> list[int]:
+    """在 haystack 中查找 needle 连续行块的所有起始行索引（0 起）。"""
+    if not needle:
+        return []
+    n, m = len(haystack), len(needle)
+    if n < m:
+        return []
+    matches: list[int] = []
+    for i in range(n - m + 1):
+        if haystack[i : i + m] == needle:
+            matches.append(i)
+    return matches
+
+
+def _resolve_baseline_target(target_str: str) -> Path | None:
+    """按基线里登记的 target 字符串找回真实文件路径。
+
+    本仓用仓相对路径；外仓用绝对路径（可能 fork 缺席）。"""
+    if _is_external_target(target_str):
+        p = Path(target_str)
+        return p if p.is_file() else None
+    return _repo_file(target_str)
+
+
+def _parse_line_ref_key(key: str) -> tuple[str, str, int, int] | None:
+    """把基线 key 拆成 (doc_rel, ref, start, end)；无法解析返回 None。"""
+    if " -> " not in key:
+        return None
+    doc_rel, right = key.split(" -> ", 1)
+    if ":" not in right:
+        return None
+    ref, range_s = right.rsplit(":", 1)
+    if "-" in range_s:
+        try:
+            start_s, end_s = range_s.split("-", 1)
+            start, end = int(start_s), int(end_s)
+        except ValueError:
+            return None
+    else:
+        try:
+            start = end = int(range_s)
+        except ValueError:
+            return None
+    return doc_rel, ref, start, end
+
+
+def fix_line_refs() -> int:
+    """自动重定位行号纯移动（--fix-line-refs）。
+
+    只处理指纹层判红的「半漂移」条目：基线保存了原文，且在目标文件中能唯一
+    命中。满足则把文档里的 `path:line` 引用文本改写为新行号，并把基线该条
+    重登（新行号 + 新指纹）。命中 0/多处、内容已变、基线无原文、文档中该
+    引用字符串出现多次时均保持判红并列入待人工清单，不得登记。
+
+    与 --accept-line-refs 纪律一致：空锚点 / 越界等指不到证据的引用拒绝
+    自动修复。全部自动修复成功（或无漂移）退 0，有待人工项退 1。
+    """
+    scan = _iter_doc_line_refs()
+    if scan.error:
+        print(f"fix-line-refs 中止：{scan.error}")
+        return 1
+    baseline_path = _line_ref_baseline_path()
+    if not baseline_path.is_file():
+        print(
+            f"fix-line-refs 中止：基线 {LINE_REF_BASELINE_REL} 不存在；"
+            "先跑 python scripts/agent_gate.py --accept-line-refs 登记"
+        )
+        return 1
+    try:
+        data = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"fix-line-refs 中止：基线不可读/已损坏（{type(exc).__name__}）")
+        return 1
+    old_refs: dict[str, Any] = data.get("refs", {}) if isinstance(data, dict) else {}
+    current, seen = scan.current, scan.seen
+    blank, broken, unresolved = scan.blank, scan.broken, scan.unresolved
+
+    # 与 check_line_ref_fingerprints 同一套判红集合
+    unregistered = sorted(k for k in current if k not in old_refs)
+    drifted = sorted(
+        k
+        for k in current
+        if k in old_refs and old_refs[k].get("sha8") != current[k]["sha8"]
+    )
+    stale = sorted(k for k in old_refs if k not in seen)
+    blank_hits = sorted(blank)
+    broken_kept = sorted(k for k in broken if k in old_refs)
+    vanished = sorted(
+        k
+        for k in unresolved
+        if isinstance(old_refs.get(k), dict)
+        and not _is_external_target(str(old_refs[k].get("target", "")))
+    )
+
+    fixed: list[tuple[str, str, str, str]] = []
+    manual: list[tuple[str, str]] = []
+
+    # 先把无法自动修复的红项列入待人工
+    for key in unregistered:
+        manual.append((key, "未登记（新增引用，须先人工核对再登记）"))
+    for key in stale:
+        manual.append((key, "陈旧（文档已删除该引用）"))
+    for key in blank_hits:
+        manual.append((key, "空锚点（指向空白行，须改指真正的证据行）"))
+    for key in broken_kept:
+        manual.append((key, "越界残留（基线仍登记着行号已越界的引用）"))
+    for key in vanished:
+        manual.append((key, "目标消失（本仓文件被删或改名）"))
+
+    baseline_changes: list[tuple[str, str, dict[str, Any]]] = []
+
+    for key in drifted:
+        entry = old_refs.get(key, {})
+        source = entry.get("source") if isinstance(entry, dict) else None
+        if not source:
+            manual.append((key, "基线未保存原文，无法自动重定位（先跑 --accept-line-refs 补原文）"))
+            continue
+        parsed = _parse_line_ref_key(key)
+        if parsed is None:
+            manual.append((key, "key 格式无法解析"))
+            continue
+        doc_rel, ref, old_start, old_end = parsed
+        target_str = entry.get("target") if isinstance(entry, dict) else None
+        if not target_str:
+            manual.append((key, "基线条目缺少 target"))
+            continue
+        target = _resolve_baseline_target(target_str)
+        if target is None or not target.is_file():
+            manual.append((key, f"目标文件不存在：{target_str}"))
+            continue
+        try:
+            target_lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            manual.append((key, f"无法读取目标文件：{type(exc).__name__}"))
+            continue
+        source_lines = source.split("\n")
+        matches = _find_line_blocks(target_lines, source_lines)
+        if len(matches) != 1:
+            manual.append((key, f"原文命中 {len(matches)} 处，无法唯一重定位"))
+            continue
+        match_idx = matches[0]
+        new_start = match_idx + 1
+        new_end = match_idx + len(source_lines)
+        # 内容没变才是纯移动；行号未变说明是内容真变了
+        if new_start == old_start and new_end == old_end:
+            manual.append((key, "行号未变但指纹不符，不是纯移动"))
+            continue
+        new_sha8 = _sha8(source_lines)
+        doc_path = ROOT / doc_rel
+        if not doc_path.is_file():
+            manual.append((key, f"文档不存在：{doc_rel}"))
+            continue
+        try:
+            raw_doc = doc_path.read_text(encoding="utf-8", errors="replace", newline="")
+        except OSError as exc:
+            manual.append((key, f"无法读取文档：{type(exc).__name__}"))
+            continue
+        # 在已脱敏的副本上解析，确保定位逻辑与门禁一致
+        clean_doc = _strip_invisible(raw_doc)
+        occurrences: list[tuple[int, int, re.Match[str]]] = []
+        for m in _DOC_REF_RE.finditer(clean_doc):
+            norm = _normalize_doc_ref(m.group(1))
+            m_start, m_end, range_err = _doc_ref_range(m)
+            if range_err is not None:
+                continue
+            m_key = (
+                f"{doc_rel} -> {norm}:{m_start}"
+                f"{'-' + str(m_end) if m_end != m_start else ''}"
+            )
+            if m_key == key:
+                occurrences.append((m.start(), m.end(), m))
+        if len(occurrences) != 1:
+            manual.append((key, f"文档中该引用字符串出现 {len(occurrences)} 次，无法唯一定位"))
+            continue
+        _, _, m = occurrences[0]
+        old_literal = m.group(0)
+        # 在原始文本中按唯一字面量定位并替换，保留换行符风格
+        idx = raw_doc.find(old_literal)
+        if idx == -1:
+            manual.append((key, "无法在原始文档中定位该引用字面量"))
+            continue
+        path_text = m.group(1)
+        new_literal = (
+            f"{path_text}:{new_start}"
+            if new_start == new_end
+            else f"{path_text}:{new_start}-{new_end}"
+        )
+        new_doc = raw_doc[:idx] + new_literal + raw_doc[idx + len(old_literal) :]
+        try:
+            doc_path.write_text(new_doc, encoding="utf-8", newline="")
+        except OSError as exc:
+            manual.append((key, f"写回文档失败：{type(exc).__name__}"))
+            continue
+        new_key = (
+            f"{doc_rel} -> {ref}:{new_start}"
+            f"{'-' + str(new_end) if new_end != new_start else ''}"
+        )
+        baseline_changes.append(
+            (key, new_key, {"target": target_str, "sha8": new_sha8, "source": source})
+        )
+        fixed.append((key, new_literal, doc_rel, target_str))
+
+    if fixed:
+        new_refs = dict(old_refs)
+        for old_key, new_key, value in baseline_changes:
+            new_refs.pop(old_key, None)
+            new_refs[new_key] = value
+        payload = {
+            "version": 1,
+            "updated": _now(),
+            "git_head": _git_head(),
+            "refs": new_refs,
+        }
+        _atomic_write(
+            baseline_path,
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        )
+
+    if not fixed and not manual:
+        print("无行号半漂移；文档与基线均无需改动。")
+        return 0
+
+    if fixed:
+        print(f"自动修复 {len(fixed)} 处行号纯移动：")
+        for old_key, new_literal, doc_rel, target_str in fixed:
+            # 从 old_key 中取出旧行号区间用于报告
+            parsed = _parse_line_ref_key(old_key)
+            old_range = (
+                f"{parsed[2]}"
+                if parsed and parsed[2] == parsed[3]
+                else f"{parsed[2]}-{parsed[3]}"
+            ) if parsed else "?"
+            new_range = new_literal.rsplit(":", 1)[1]
+            print(f"  {doc_rel}:{old_range} -> {new_range}（{target_str}）")
+    if manual:
+        print(f"待人工 {len(manual)} 处：")
+        for key, reason in manual:
+            print(f"  {key}: {reason}")
+    return 1 if manual else 0
 
 
 def _mcp_python() -> Path | None:
@@ -1884,14 +2129,22 @@ def main(argv: list[str] | None = None) -> int:
         default="hub",
         help="docs=文档层; hub=文档+外仓行号+MCP(默认); full=hub+§9源码标记",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--accept-line-refs",
         action="store_true",
         help="把当前文档 path:line 引用的行内容指纹重登为基线后退出（登记前必须人工核对被引用行）",
     )
+    mode_group.add_argument(
+        "--fix-line-refs",
+        action="store_true",
+        help="对指纹层判红的半漂移条目自动重定位纯移动并改写文档/重登基线后退出（有待人工项则退 1）",
+    )
     args = parser.parse_args(argv)
     if args.accept_line_refs:
         return accept_line_refs()
+    if args.fix_line_refs:
+        return fix_line_refs()
 
     plan = profile_layers(args.profile)
     stale_mark: dict[str, Any] | None = None

@@ -1,711 +1,887 @@
 {
-  "git_head": "7155935032751a93bbf173d66f9b338688dd3a1c",
+  "git_head": "8e3f91a01cf9095517f387379bad3801208c6ff6",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
+      "source": "    if (cl->len == (LINE_BUFFER_SIZE - 1)) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "CLAUDE.md -> Protocol.h:34": {
       "sha8": "74915816",
+      "source": "#    define LINE_BUFFER_SIZE 256",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
     },
     "CLAUDE.md -> Report.cpp:236": {
       "sha8": "9209b4cf",
+      "source": "            if (verbose_errors->get()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/agent-handoff.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
+      "source": "    if (cl->len == (LINE_BUFFER_SIZE - 1)) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/agent-handoff.md -> Protocol.h:34": {
       "sha8": "74915816",
+      "source": "#    define LINE_BUFFER_SIZE 256",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
     },
     "docs/agent-handoff.md -> Report.cpp:236": {
       "sha8": "9209b4cf",
+      "source": "            if (verbose_errors->get()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/agent-handoff.md -> hutuji_job.cc:1580": {
       "sha8": "8dfb671d",
+      "source": "    if (!http->Open(\"GET\", url)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/agent-handoff.md -> nginx-hutuji.conf:109": {
       "sha8": "fd837018",
+      "source": "    # 能服务 /files/，否则公网经隧道下载会撞下方 301 自指坏环（S3 不跟随 301）。",
       "target": "deploy/nginx-hutuji.conf"
     },
     "docs/agent-handoff.md -> protocol.h:36": {
       "sha8": "5817611c",
+      "source": "    kListeningModeAutoStop,",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
     },
     "docs/agent-handoff.md -> troubleshooting.md:266": {
       "sha8": "11712462",
+      "source": "## 公网探测的两个假阳性（2026-07-30 实测）",
       "target": "docs/troubleshooting.md"
     },
     "docs/bringup-sop.md -> TelnetServer.h:31": {
       "sha8": "a2e0c3c2",
+      "source": "        static const int MAX_TLNT_CLIENTS = 1;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/daytime-tuning-runbook.md -> PaperSystem.cpp:1028": {
       "sha8": "eceef844",
+      "source": "    paper_enter_panel_low_hold();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1648": {
       "sha8": "9ba3260d",
+      "source": "    ESP_LOGI(TAG, \"下载完成 %u 字节 crc_hdr=%08x\", (unsigned)buffer_len_, (unsigned)expect_crc_);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> InputBuffer.cpp:48-63": {
       "sha8": "a6ddb8d0",
+      "source": "    size_t InputBuffer::write(uint8_t c) {\n        if ((1 + _RXbufferSize) <= RXBUFFERSIZE) {\n            int current = _RXbufferpos + _RXbufferSize;\n            if (current > RXBUFFERSIZE) {\n                current = current - RXBUFFERSIZE;\n            }\n            if (current > (RXBUFFERSIZE - 1)) {\n                current = 0;\n            }\n            _RXbuffer[current] = c;\n            current++;\n            _RXbufferSize += 1;\n            return 1;\n        }\n        return 0;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> InputBuffer.h:55": {
       "sha8": "9b0732a6",
+      "source": "        static const int RXBUFFERSIZE = 2048;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
     },
     "docs/design/p2-windowed-flow-control.md -> Protocol.h:33-34": {
       "sha8": "21d23784",
+      "source": "#ifndef LINE_BUFFER_SIZE\n#    define LINE_BUFFER_SIZE 256",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
     },
     "docs/design/p2-windowed-flow-control.md -> Report.cpp:55": {
       "sha8": "1f3f546c",
+      "source": "const int DEFAULTBUFFERSIZE = 64;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> Report.cpp:605-607": {
       "sha8": "98d8c3ac",
+      "source": "        if (client == CLIENT_TELNET) {\n            bufsize = WebUI::telnet_server.get_rx_buffer_available();\n        }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> Report.cpp:616": {
       "sha8": "023ef49e",
+      "source": "            bufsize = client_get_rx_buffer_available(CLIENT_SERIAL);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> Serial.cpp:134-140": {
       "sha8": "eb8f3794",
+      "source": "    if (client_buffer[CLIENT_SERIAL].availableforwrite() && (res = Serial.read()) != -1) {\n#else\n    if (client_buffer[CLIENT_SERIAL].availableforwrite() && (res = Uart0.read()) != -1) {\n#endif\n        *data = res;\n        return CLIENT_SERIAL;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> Serial.cpp:160-165": {
       "sha8": "442d7213",
+      "source": "#if defined(ENABLE_WIFI) && defined(ENABLE_TELNET)\n    if (WebUI::telnet_server.available()) {\n        *data = WebUI::telnet_server.read();\n        return CLIENT_TELNET;\n    }\n#endif",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> Serial.cpp:161-164": {
       "sha8": "835694dc",
+      "source": "    if (WebUI::telnet_server.available()) {\n        *data = WebUI::telnet_server.read();\n        return CLIENT_TELNET;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> Serial.h:26": {
       "sha8": "76dd1ad1",
+      "source": "#    define RX_BUFFER_SIZE 256",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.h"
     },
     "docs/design/p2-windowed-flow-control.md -> TelnetServer.cpp:159-171": {
       "sha8": "96496a11",
+      "source": "            log_d(\"[TELNET out blocked]\");\n            return 0;\n        }\n\n        clearClients();\n\n        // 可靠语义是「整段写出或明确断链」，不能在背压时静默截断 ok/状态行。\n        for (uint8_t i = 0; i < MAX_TLNT_CLIENTS; i++) {\n            if (!_telnetClients[i] || !_telnetClients[i].connected()) {\n                continue;\n            }\n            const int socket = _telnetClients[i].fd();\n            if (socket < 0) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
     "docs/design/p2-windowed-flow-control.md -> TelnetServer.h:33": {
       "sha8": "1bdf9e2e",
+      "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/design/p2-windowed-flow-control.md -> WebUI/InputBuffer.h:55": {
       "sha8": "9b0732a6",
+      "source": "        static const int RXBUFFERSIZE = 2048;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
     },
     "docs/design/p2-windowed-flow-control.md -> WebUI/TelnetServer.h:33": {
       "sha8": "1bdf9e2e",
+      "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2323-2324": {
       "sha8": "3506be7b",
+      "source": "    // TODO(S4/Bf)：实机出图期周期性 ?，若 Telnet Bf 余量 < 300 则临时收窄窗口。\n    //   自适应反压（§3.1）本次不做，S3 核心是 window=512 + 换纸行排空。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:135-162": {
       "sha8": "379b5371",
+      "source": "        ready_.store(false);\n        authorized_.store(false);\n        DrainResponses();\n        if (task_session_active_.load()) {\n            // 进行中的绘图刚经历断连。旧 planner 可能仍在运动，或 M30 换纸仍在\n            // 阻塞；此时 M5/G1 授权探针都会污染状态。先交给 Job 查询 Changing。\n            auth_probe_stage_ = AuthProbeStage::Idle;\n            // 仍保持业务 ready=false；仅受限 reset 事务可使用已验真的活动任务 session。\n            ESP_LOGW(TAG, \"绘图会话重连：暂停自动授权探测，等待断连分流\");\n        } else {\n            auth_probe_stage_ = AuthProbeStage::WaitingBuildInfoOk;\n        }\n        // 新连接另起重试额度（R10-PIPE-01）与无声超时计数（R22-PIPE-02）。\n        auth_probe_retries_ = 0;\n        auth_probe_silent_ticks_ = 0;\n        auth_probe_suspend_notified_ = false;\n\n        // 新连接重建时先关闭「对端正长阻塞」标记：当前仅凭 banner 不能判定是否换纸。\n        // 若 Job 随后 `[ESP901]` 查到 Changing=On，会显式打开，避免换纸期 silent-poll\n        // 误杀 TCP。\n        expect_blocking_peer_.store(false);\n        {\n            std::lock_guard<std::mutex> lock(write_mutex_);\n            // 撤销旧 token 与新 session 发布在线性化点内完成。\n            abort_reset_token_.Cancel();\n            connection_seq_.fetch_add(1);\n            connected_.store(true);\n            if (!task_session_active_.load()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:278-286": {
       "sha8": "1277d190",
+      "source": "        grbl_substate_.store(-1);\n        NotifyCloud(\"写字机连接断开\");\n        {\n            std::lock_guard<std::mutex> receive_lock(reset_receive_mutex_);\n            rx_buffer_.clear();\n        }\n        // 断连必须清空应答队列：上次连接遗留的 ok 若留到下次，会被当成本次命令的\n        // 应答，窗口化流控下等于在途计数凭空少一格（最终死锁）。\n        DrainResponses();",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:726-744": {
       "sha8": "bf5fa5ee",
+      "source": "        std::lock_guard<std::mutex> write_lock(write_mutex_);\n        const uint32_t banner_generation = reset_banner_seq_.fetch_add(1) + 1U;\n        ready_.store(false);\n        authorized_.store(false);\n        const bool recover_abort =\n            abort_reset_token_.Consume(connection_seq_.load(), banner_generation, receive_epoch);\n        if (recover_abort) {\n            auth_probe_stage_ = AuthProbeStage::WaitingAbortUnlockOk;\n        } else if (task_session_active_.load()) {\n            auth_probe_stage_ = AuthProbeStage::Idle;\n        } else {\n            auth_probe_stage_ = AuthProbeStage::WaitingBuildInfoOk;\n        }\n        // 对端已复位 = 全新机器状态，重试额度另起（R10-PIPE-01）；复位也清掉挂起\n        // 期的无声计数与播报闸（R22-PIPE-02）——复位后 client_buffer 已空，排队的\n        // `$I` 不复存在，上面刚重发的那条是唯一在途探针。\n        auth_probe_retries_ = 0;\n        auth_probe_silent_ticks_ = 0;\n        auth_probe_suspend_notified_ = false;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> hutuji_pipe.cc:766-791": {
       "sha8": "ce02a14f",
+      "source": "    }\n\n    // 只有 `ok` 与 `error:NN` 入应答队列。banner / `[VER:` / `<...>` 状态行\n    // 都在上面提前 return —— 对应官方 stream.py 的「非应答行不消耗窗口」（R3）。\n    if (line == \"ok\") {\n        if (HandleAuthProbeResponse(WaitResult::Ok, -1)) {\n            return;\n        }\n        {\n            std::lock_guard<std::mutex> lock(state_mutex_);\n            last_response_ = line;\n            last_error_code_ = -1;\n        }\n        PushResponse(WaitResult::Ok, -1);\n    } else if (line.rfind(\"error\", 0) == 0) {\n        int code = ParseErrorCode(line);\n        if (HandleAuthProbeResponse(code == 8 ? WaitResult::Deferred : WaitResult::Failed, code)) {\n            return;\n        }\n        {\n            std::lock_guard<std::mutex> lock(state_mutex_);\n            last_response_ = line;\n            last_error_code_ = code;\n        }\n        // error:8 = 换纸期运动行被推迟，该行已被丢弃需重发，与其它 error 区分。\n        PushResponse(code == 8 ? WaitResult::Deferred : WaitResult::Failed, code);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/design/p2-windowed-flow-control.md -> inkscape-clean/share/extensions/paixi_runtime/grbl_serial_ops.py:128-157": {
       "sha8": "1158f52c",
+      "source": "def send_job_lines(\n    *,\n    comx: Any,\n    gcode_text: str,\n    startup_commands: Sequence[str],\n    serial_timeout_s: float,\n    AbortExtension: AbortExtensionType,\n    gettext: GettextFn,\n) -> None:\n    for command in startup_commands:\n        write_and_wait(\n            comx=comx,\n            command=command,\n            serial_timeout_s=serial_timeout_s,\n            AbortExtension=AbortExtension,\n            gettext=gettext,\n        )\n    for command in gcode_text.splitlines():\n        command = command.strip()\n        if not command:\n            continue\n        if command.startswith(\"(\") or command.startswith(\";\"):\n            continue\n        write_and_wait(\n            comx=comx,\n            command=command,\n            serial_timeout_s=serial_timeout_s,\n            AbortExtension=AbortExtension,\n            gettext=gettext,\n        )",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/paixi_runtime/grbl_serial_ops.py"
     },
     "docs/design/p2-windowed-flow-control.md -> inkscape-clean/tools/paixi_runtime/serial_runtime.py:130-203": {
       "sha8": "98554f91",
+      "source": "    def send_program(self, lines, on_ack=None, should_abort=None, buffer_bytes=120, overall_timeout_s=0):\n        \"\"\"\n        Buffered streaming sender similar to UGS/cncjs:\n        - Continuously fills the controller RX buffer (byte-based)\n        - Reads back ok/error and only blocks on actual firmware backpressure\n        \"\"\"\n        if not lines:\n            return\n        if (\n            self._require_motion_auth()\n            and self._get_secure_mode() != \"off\"\n            and any(self.is_motion_command(line) for line in lines if (line or \"\").strip())\n            and not self._is_trusted_connection()\n        ):\n            raise RuntimeError(\"安全策略阻止运动命令: 当前设备未通过可信握手\")\n\n        conn = self._conn()\n        pending = [str(line).strip() for line in lines if str(line).strip()]\n        acked = 0\n        inflight = []\n        inflight_bytes = 0\n        deadline = time.time() + float(overall_timeout_s) if overall_timeout_s else None\n\n        def line_bytes(text):\n            return len(text.encode(\"utf-8\")) + 1\n\n        with self._serial_lock:\n            while pending or inflight:\n                if should_abort is not None:\n                    try:\n                        if bool(should_abort()):\n                            raise RuntimeError(\"队列发送已暂停\")\n                    except RuntimeError:\n                        raise\n                    except Exception:\n                        pass\n                if deadline and time.time() > deadline:\n                    raise RuntimeError(\"发送超时：固件未在限定时间内完成响应\")\n\n                while pending:\n                    nxt = pending[0]\n                    size = line_bytes(nxt)\n                    if size > buffer_bytes:\n                        raise RuntimeError(f\"G-code 单行过长({size}B)超出缓冲上限({buffer_bytes}B): {nxt[:120]}\")\n                    if inflight_bytes + size > buffer_bytes:\n                        break\n                    conn.write((nxt + \"\\n\").encode(\"utf-8\"))\n                    inflight.append(nxt)\n                    inflight_bytes += size\n                    pending.pop(0)\n                conn.flush()\n\n                raw = conn.readline()\n                if not raw:\n                    time.sleep(0.002)\n                    continue\n                text = raw.decode(\"utf-8\", errors=\"replace\").strip()\n                if not text:\n                    continue\n                lower = text.lower()\n                if lower == \"ok\":\n                    if inflight:\n                        done = inflight.pop(0)\n                        inflight_bytes -= line_bytes(done)\n                    acked += 1\n                    if on_ack is not None:\n                        try:\n                            on_ack(int(acked))\n                        except Exception:\n                            pass\n                    continue\n                if text.startswith(\"error:\") or text.startswith(\"ALARM:\"):\n                    raise RuntimeError(f\"固件返回错误: {text}\")\n",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/tools/paixi_runtime/serial_runtime.py"
     },
     "docs/design/p2-windowed-flow-control.md -> simple_stream.py:5-12": {
       "sha8": "3b9d69be",
+      "source": "Provided as an illustration of the basic communication interface\nfor grbl. When grbl has finished parsing the g-code block, it will\nreturn an 'ok' or 'error' response. When the planner buffer is full,\ngrbl will not send a response until the planner buffer clears space.\n\nG02/03 arcs are special exceptions, where they inject short line \nsegments directly into the planner. So there may not be a response \nfrom grbl for the duration of the arc.",
       "target": "D:/Users/Grbl_Esp32/doc/script/simple_stream.py"
     },
     "docs/design/p2-windowed-flow-control.md -> stream.py:129-149": {
       "sha8": "f73e8f61",
+      "source": "if settings_mode:\n    # Send settings file via simple call-response streaming method. Settings must be streamed\n    # in this manner since the EEPROM accessing cycles shut-off the serial interrupt.\n    print \"SETTINGS MODE: Streaming\", args.gcode_file.name, \" to \", args.device_file\n    for line in f:\n        l_count += 1 # Iterate line counter    \n        # l_block = re.sub('\\s|\\(.*?\\)','',line).upper() # Strip comments/spaces/new line and capitalize\n        l_block = line.strip() # Strip all EOL characters for consistency\n        if verbose: print \"SND>\"+str(l_count)+\": \\\"\" + l_block + \"\\\"\"\n        s.write(l_block + '\\n') # Send g-code block to grbl\n        while 1:\n            grbl_out = s.readline().strip() # Wait for grbl response with carriage return\n            if grbl_out.find('ok') >= 0 :\n                if verbose: print \"  REC<\"+str(l_count)+\": \\\"\"+grbl_out+\"\\\"\"\n                break\n            elif grbl_out.find('error') >= 0 :\n                if verbose: print \"  REC<\"+str(l_count)+\": \\\"\"+grbl_out+\"\\\"\"\n                error_count += 1\n                break\n            else:\n                print \"    MSG: \\\"\"+grbl_out+\"\\\"\"",
       "target": "D:/Users/Grbl_Esp32/doc/script/stream.py"
     },
     "docs/kxnx/alignment/plan.md -> docs/troubleshooting.md:93": {
       "sha8": "64edaca7",
+      "source": "### 2026-07-30 追加：手动 Telnet 全序列在纸面出墨（画线 `F800`）",
       "target": "docs/troubleshooting.md"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> Error.h:86": {
       "sha8": "1263f5db",
+      "source": "    AnotherInterfaceBusy        = 120,",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Error.h"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> Grbl_Esp32/src/WebUI/WebSettings.cpp:433": {
       "sha8": "65c4e21e",
+      "source": "        webPrintln(\"Sleep mode: \", WiFi.getSleep() ? \"Modem\" : \"None\");",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> Report.cpp:603": {
       "sha8": "67aa53ed",
+      "source": "        int bufsize = DEFAULTBUFFERSIZE;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> Report.cpp:605-607": {
       "sha8": "98d8c3ac",
+      "source": "        if (client == CLIENT_TELNET) {\n            bufsize = WebUI::telnet_server.get_rx_buffer_available();\n        }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> Serial.cpp:191": {
       "sha8": "ece5d33e",
+      "source": "                        grbl_sendf(client, \"error %d\\r\\n\", Error::AnotherInterfaceBusy);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> WebSettings.cpp:167": {
       "sha8": "4c53e4fe",
+      "source": "        return Error::AnotherInterfaceBusy;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> WebUI/TelnetServer.h:33": {
       "sha8": "1bdf9e2e",
+      "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/kxnx/findings/09-flow-control-deep.md -> hutuji_job.cc:74-75": {
       "sha8": "42674be6",
+      "source": "// S3 窗口化流控窗口（§3 取值：Telnet RX ①的 43%）。应答队列容量由同一常量推导。\nconstexpr size_t kWindow = kStreamWindowBytes;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:243-260": {
       "sha8": "943149cf",
+      "source": "                        }\n                    }\n                    // recv 超时：发 ? 轮询 Grbl 状态。\n                    // TCP keepalive 只能发现「TCP 层死了」；若对端协议栈活着而 Grbl\n                    // 主循环假死（不回 `?`），keepalive 不触发，这里必须自己判死，\n                    // 否则本循环会永远转圈。参考奎享 grbl/a.java:379-408 的同类机制。\n                    if (++silent_polls >= kSilentPollLimit) {\n                        if (expect_blocking_peer_.load()) {\n                            // 已知对端正长阻塞（如换纸）：不会回 `?` 属预期，不判死。\n                            // 真死连由 TCP keepalive 兜底。\n                            silent_polls = kSilentPollLimit;\n                        } else {\n                            ESP_LOGW(TAG, \"连续 %d 次探活无应答（约 %ds），判定链路假死\",\n                                     silent_polls, silent_polls * kPollIntervalSec);\n                            break;\n                        }\n                    }\n                    std::lock_guard<std::mutex> wlock(write_mutex_);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/10-transport-layer.md -> hutuji_pipe.cc:247-255": {
       "sha8": "81b09cb8",
+      "source": "                    // 主循环假死（不回 `?`），keepalive 不触发，这里必须自己判死，\n                    // 否则本循环会永远转圈。参考奎享 grbl/a.java:379-408 的同类机制。\n                    if (++silent_polls >= kSilentPollLimit) {\n                        if (expect_blocking_peer_.load()) {\n                            // 已知对端正长阻塞（如换纸）：不会回 `?` 属预期，不判死。\n                            // 真死连由 TCP keepalive 兜底。\n                            silent_polls = kSilentPollLimit;\n                        } else {\n                            ESP_LOGW(TAG, \"连续 %d 次探活无应答（约 %ds），判定链路假死\",",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> Config.h:118-123": {
       "sha8": "f7b49357",
+      "source": "#define ENABLE_HTTP                //enable HTTP and all related services\n#define ENABLE_OTA                 //enable OTA\n#define ENABLE_TELNET              //enable telnet\n#define ENABLE_TELNET_WELCOME_MSG  //display welcome string when connect to telnet\n#define ENABLE_MDNS                //enable mDNS discovery\n#define ENABLE_SSDP                //enable UPNP discovery",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> WebServer.cpp:188-192": {
       "sha8": "899f09c3",
+      "source": "        SSDP.setModelName (ESP32_MODEL_NAME);\n        SSDP.setModelURL (ESP32_MODEL_URL);\n        SSDP.setModelNumber (ESP_MODEL_NUMBER);\n        SSDP.setManufacturer (ESP_MANUFACTURER_NAME);\n        SSDP.setManufacturerURL (ESP_MANUFACTURER_URL);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> WebServer.cpp:206": {
       "sha8": "4d4023b6",
+      "source": "            MDNS.addService(\"http\", \"tcp\", _port);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:334": {
       "sha8": "d2ec4059",
+      "source": "    if (!pipe.IsConnected() || !pipe.IsReady()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:666": {
       "sha8": "48ad91c6",
+      "source": "    if (!pipe.IsReady()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:708": {
       "sha8": "7b71a110",
+      "source": "        if (!pipe.IsConnected() || !pipe.IsReady() || !pipe.IsAuthorized()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_pipe.cc:444": {
       "sha8": "55e39aa8",
+      "source": "        for (int host = 1; host < 255; ++host) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_pipe.cc:716-720": {
       "sha8": "d6edd7a6",
+      "source": "    }\n\n    if (line.rfind(\"[VER:\", 0) == 0) {\n        // `$I` 只证明对端版本；商业固件的授权日志走 CLIENT_SERIAL，Telnet 看不到。\n        // ready_ 要等后续零位移授权探测完成，避免 draw 在授权态未知时抢跑。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_pipe.cc:970-978": {
       "sha8": "025ee529",
+      "source": "            return true;\n\n        case AuthProbeStage::WaitingMotionReply:\n            if (result == WaitResult::Ok) {\n                authorized_.store(true);\n                ready_.store(true);\n                auth_probe_stage_ = AuthProbeStage::Complete;\n                ESP_LOGI(TAG, \"授权探测通过（抬笔后 G53 零位移）\");\n            } else if (result == WaitResult::Failed && error_code == 110) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> InputBuffer.cpp:113-116": {
       "sha8": "442c7f59",
+      "source": "    void InputBuffer::flush(void) {\n        //No need currently\n        //keep for compatibility\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> InputBuffer.cpp:48-63": {
       "sha8": "a6ddb8d0",
+      "source": "    size_t InputBuffer::write(uint8_t c) {\n        if ((1 + _RXbufferSize) <= RXBUFFERSIZE) {\n            int current = _RXbufferpos + _RXbufferSize;\n            if (current > RXBUFFERSIZE) {\n                current = current - RXBUFFERSIZE;\n            }\n            if (current > (RXBUFFERSIZE - 1)) {\n                current = 0;\n            }\n            _RXbuffer[current] = c;\n            current++;\n            _RXbufferSize += 1;\n            return 1;\n        }\n        return 0;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:134": {
       "sha8": "2bd7ebea",
+      "source": "    if (client_buffer[CLIENT_SERIAL].availableforwrite() && (res = Serial.read()) != -1) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:185-187": {
       "sha8": "fddd9c8c",
+      "source": "                    vTaskEnterCritical(&myMutex);\n                    client_buffer[client].write(data);\n                    vTaskExitCritical(&myMutex);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:186": {
       "sha8": "4fcfc884",
+      "source": "                    client_buffer[client].write(data);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> Serial.cpp:222-228": {
       "sha8": "91bb647e",
+      "source": "void client_reset_read_buffer(uint8_t client) {\n    for (uint8_t client_num = 0; client_num < CLIENT_COUNT; client_num++) {\n        if (client == client_num || client == CLIENT_ALL) {\n            client_buffer[client_num].begin();\n        }\n    }\n}",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> WebUI/InputBuffer.h:55": {
       "sha8": "9b0732a6",
+      "source": "        static const int RXBUFFERSIZE = 2048;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> grbl_plotter.py:114-115": {
       "sha8": "10a98d7e",
+      "source": "APP_BRAND = \"派曦绘图\"\nSETTING_INFO = {",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2465-2478": {
       "sha8": "f5c4ff84",
+      "source": "                }\n                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2505-2506": {
       "sha8": "484b9560",
+      "source": "            } else {\n                // 普通行窗口化灌：一行一个 Grbl 应答。不要把多行合并成同一 TCP 包；",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2597-2608": {
       "sha8": "4c28b436",
+      "source": "\n        auto fail_window_and_stop = [&](const std::string& error) {\n            // Grbl 官方 character-counting reservation：坏行回 error 后，RX 内后续行\n            // 仍会继续解析执行。先实时 hold，再清软件窗口并发布 Quiesced；Run 退出\n            // StreamToGrbl 后同步走受控 reset 清 planner/RX，完成前不发布 error。\n            pipe.SendRealtime('!');\n            pipe.DrainResponses();\n            c_line.clear();\n            c_line_bytes_sum = 0;\n            last_error_ = error;\n            stream_error_stop_required_.store(true, std::memory_order_release);\n            window_guard.MarkQuiesced();",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2690-2696": {
       "sha8": "cd7a6a7f",
+      "source": "            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。\n            return fail_window_and_stop(\"error:\" + std::to_string(err));\n        } else if (wr == WaitResult::Deferred) {\n            // 窗口化普通行不应收到 error:8；一旦出现，后续在途同样先物理停机。\n            ESP_LOGW(TAG, \"窗口化分支意外收到 error:8（err=%d），停止并受控 reset\", err);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:70": {
       "sha8": "e47f3653",
+      "source": "constexpr int kDeferredMaxRetries = 8;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_pipe.cc:778-789": {
       "sha8": "8a6d107c",
+      "source": "        }\n        PushResponse(WaitResult::Ok, -1);\n    } else if (line.rfind(\"error\", 0) == 0) {\n        int code = ParseErrorCode(line);\n        if (HandleAuthProbeResponse(code == 8 ? WaitResult::Deferred : WaitResult::Failed, code)) {\n            return;\n        }\n        {\n            std::lock_guard<std::mutex> lock(state_mutex_);\n            last_response_ = line;\n            last_error_code_ = code;\n        }",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/17-reconnect-resend-hazard.md -> writing_console.py:358-359": {
       "sha8": "bc2b08a2",
+      "source": "                wintypes.HWND(hwnd_value),\n                wintypes.UINT(msg_value),",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/tools/writing_console/writing_console.py"
     },
     "docs/kxnx/findings/18-paixi-inkscape-px-comparison.md -> GCode.cpp:1484-1496": {
       "sha8": "efb72470",
+      "source": "#ifdef USE_M3_M5_AS_PEN_UP_DOWN\n        // M5→PEN_UP_Z_MM，M3 S…→PEN_DOWN_Z_MM（具体 mm 见 Machines/*.h）：先同步再执行 Z 移动，再更新模态\n        float pen_target[MAX_N_AXIS];\n        memcpy(pen_target, gc_state.position, sizeof(float) * MAX_N_AXIS);\n        pen_target[Z_AXIS] = (gc_block.modal.spindle == SpindleState::Disable) ? PEN_UP_Z_MM : PEN_DOWN_Z_MM;\n        plan_line_data_t pen_pl_data = {};\n        pen_pl_data.motion.rapidMotion = 1;\n        pen_pl_data.spindle           = SpindleState::Disable;\n        pen_pl_data.coolant           = gc_state.modal.coolant;\n        mc_line(pen_target, &pen_pl_data);\n        protocol_buffer_synchronize();\n        gc_state.position[Z_AXIS] = pen_target[Z_AXIS];\n#endif",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/kxnx/findings/18-paixi-inkscape-px-comparison.md -> custom_3axis_hr4988.h:52-54": {
       "sha8": "e3ac5d86",
+      "source": "#define USE_M3_M5_AS_PEN_UP_DOWN\n#define PEN_UP_Z_MM    0.0f   // 抬笔高度（对应 M5）\n#define PEN_DOWN_Z_MM  5.0f   // 落笔高度（对应 M3/M3 Sxxx）",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
     "docs/kxnx/findings/19-pause-abort-error-and-dual-executor.md -> Error.h:86": {
       "sha8": "1263f5db",
+      "source": "    AnotherInterfaceBusy        = 120,",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Error.h"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> /Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:44": {
       "sha8": "bc7ba209",
+      "source": "// （machine/grbl/a.java:379-408），串口侧两级静默 5s + 约 1s（machine/b/b.java:20-28；",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> docs/agent-constraint-matrix.md:34": {
       "sha8": "59e70fac",
+      "source": "| Grbl 任何代码（含 §9、`*Core.h`） | `hutuji --profile full`（源码标记）**且** `fz agent_gate.py --profile standard` | 两扇都 pass；仍≠已烧录 |",
       "target": "docs/agent-constraint-matrix.md"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_job.cc:444-574": {
       "sha8": "5c38da10",
+      "source": "bool Job::PerformAbortReset(bool wait_for_stream_quiescence, bool owner_claimed,\n                            bool allow_unready_reconnect) {\n    auto& pipe = Pipe::GetInstance();\n    if (!owner_claimed && !abort_reset_owner_.TryClaim()) {\n        return WaitForAbortReset();\n    }\n\n    // R21-F04 残余：`!` 触发的 Hold 转移播报是「取消中」而非用户暂停；抑制窗\n    // RAII 覆盖本函数全程（含所有 break 早退）。pause 的 Hold 播报不受影响——\n    // pause 不进 PerformAbortReset。\n    struct TransitionNotifyGuard {\n        Pipe& p;\n        explicit TransitionNotifyGuard(Pipe& pipe) : p(pipe) {\n            p.SetTransitionNotifySuppressed(true);\n        }\n        ~TransitionNotifyGuard() { p.SetTransitionNotifySuppressed(false); }\n    } transition_notify_guard{pipe};\n\n    const uint32_t session = pipe.GetConnectionSequence();\n    abort_reset_session_.store(session, std::memory_order_release);\n    const TickType_t began = xTaskGetTickCount();\n    bool success = false;\n    do {\n        // `!` 必须先于任何可能长达数十分钟的 planner-sync 应答等待。它只是\n        // 安全停机字符，不是 reset；即使旧流已 Failed 也要先尽力停住机器。\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!pipe.IsResetSessionReady(session, allow_unready_reconnect) ||\n                !pipe.SendRealtime('!')) {\n                break;\n            }\n        }\n\n        bool stopped = false;\n        uint32_t stopped_status_baseline = pipe.GetStatusReportSequence();\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t before_query = pipe.GetStatusReportSequence();\n            if (!pipe.SendRealtime('?')) {\n                break;\n            }\n            const TickType_t query_began = xTaskGetTickCount();\n            while (pipe.GetStatusReportSequence() == before_query &&\n                   (xTaskGetTickCount() - query_began) < pdMS_TO_TICKS(1000)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n            if (pipe.HasFreshStoppedStatus(before_query, session)) {\n                stopped_status_baseline = before_query;\n                stopped = true;\n                abort_hold_confirmed_.store(true, std::memory_order_release);\n                break;\n            }\n        }\n        if (!stopped) {\n            break;\n        }\n\n        if (wait_for_stream_quiescence) {\n            while (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) &&\n                   (xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n        }\n\n        uint32_t paper_before = 0;\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) ||\n                !pipe.IsResetSessionReady(session, allow_unready_reconnect)) {\n                break;\n            }\n            paper_before = pipe.GetPaperStatusSequence();\n            if (!pipe.SendLine(\"[ESP901]\")) {\n                break;\n            }\n        }\n        int paper_error = -1;\n        if (pipe.WaitResponse(kPaperStatusTimeoutMs, nullptr, &paper_error) != WaitResult::Ok ||\n            pipe.GetPaperStatusSequence() == paper_before ||\n            pipe.GetPaperChangingState() != PaperChangingState::Off) {\n            break;\n        }\n        const uint32_t banner_before = pipe.GetResetBannerSequence();\n        const uint32_t post_reset_status = pipe.GetStatusReportSequence();\n        if (!pipe.SendAbortReset(session, stopped_status_baseline, paper_before, banner_before,\n                                 allow_unready_reconnect)) {\n            break;\n        }\n        uint32_t idle_query_baseline = post_reset_status;\n        bool queried_idle = false;\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t banner_generation = pipe.GetResetBannerSequence();\n            if (banner_generation == AbortResetToken::NextGeneration(banner_before) &&\n                pipe.IsReady() && pipe.IsAuthorized()) {\n                if (!queried_idle) {\n                    idle_query_baseline = pipe.GetStatusReportSequence();\n                    queried_idle = true;\n                    if (!pipe.SendRealtime('?')) {\n                        break;\n                    }\n                }\n                if (pipe.GetStatusReportSequence() != idle_query_baseline &&\n                    pipe.GetStatusReportSequence() != post_reset_status &&\n                    pipe.GetGrblState() == GrblState::Idle) {\n                    success = true;\n                    break;\n                }\n            }\n            vTaskDelay(pdMS_TO_TICKS(100));\n        }\n    } while (false);\n\n    if (!success) {\n        pipe.CancelAbortReset();\n        // 不解锁未知 Alarm。若普通 abort 未能完成受限 reset，只拆会话阻止继续写；\n        // busy 在 owner 终态发布后才释放，下一次连接仍须重新验明。\n        if (pipe.GetGrblState() != GrblState::Alarm) {\n            pipe.ShutdownSocket(session);\n        }\n    }\n    if (!abort_reset_owner_.Complete(success)) {\n        pipe.CancelAbortReset();\n        return false;\n    }\n    return success;\n}",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:190-260": {
       "sha8": "985508e5",
+      "source": "                break;\n            } else {\n                if (errno == EAGAIN || errno == EWOULDBLOCK) {\n                    // Changing=On 分流结束后，Job 会释放会话保护。由 Pipe 自己在\n                    // 接收任务内恢复标准探测，避免跨任务并发修改 auth_probe_stage_。\n                    // RetryWait 到期的重探也走这里（R10-PIPE-01）——同一驱动点，\n                    // 保持 auth_probe_stage_ 单任务修改。\n                    const GrblState gs = grbl_state_.load();\n                    // R22-PIPE-02：挂起态下行命令不会被消费，此时发 `$I` 只会在对端\n                    // client_buffer 里排队，解除后一次性回出多个 `ok` 与后续阶段错配。\n                    // 因此挂起期一律不武装/不重探，等挂起解除再发。\n                    const bool suspend_blocks_lines = GrblSuspendBlocksLines(\n                        gs == GrblState::Hold, gs == GrblState::Door, gs == GrblState::Sleep);\n                    if (!task_session_active_.load() && !ready_.load() && !suspend_blocks_lines &&\n                        (auth_probe_stage_ == AuthProbeStage::Idle ||\n                         (auth_probe_stage_ == AuthProbeStage::RetryWait &&\n                          AuthProbeRetryDue(xTaskGetTickCount(), auth_probe_retry_due_tick_)))) {\n                        auth_probe_stage_ = AuthProbeStage::WaitingBuildInfoOk;\n                        auth_probe_silent_ticks_ = 0;\n                        std::lock_guard<std::mutex> wlock(write_mutex_);\n                        SendRawLocked(\"$I\\n\", 3);\n                        silent_polls = 0;\n                        continue;\n                    }\n                    // R22-PIPE-02：`$I` 已发但无声挂死的判定。挂起期 `?` 照常有应答，\n                    // 所以 silent_polls 恒被状态行清零、keepalive 也不触发——不自己\n                    // 数拍就永远停在 WaitingBuildInfoOk。\n                    if (auth_probe_stage_ == AuthProbeStage::WaitingBuildInfoOk &&\n                        !task_session_active_.load()) {\n                        ++auth_probe_silent_ticks_;\n                        switch (DecideAuthProbeStall(auth_probe_silent_ticks_,\n                                                     kAuthProbeSilentTickLimit,\n                                                     suspend_blocks_lines)) {\n                            case AuthProbeStall::ParkSuspended:\n                                // 冻结在上限，等挂起解除后由 ParseStatusReport 自愈重置。\n                                auth_probe_silent_ticks_ = kAuthProbeSilentTickLimit;\n                                if (!auth_probe_suspend_notified_) {\n                                    auth_probe_suspend_notified_ = true;\n                                    ESP_LOGW(TAG,\n                                             \"授权探测停等：对端处于 %s（挂起态不消费行命令），\"\n                                             \"等待用户在写字机侧恢复\",\n                                             GrblStateName(gs));\n                                    NotifyCloud(\"写字机停在暂停状态，请在写字机上恢复运行后重试\");\n                                }\n                                break;\n                            case AuthProbeStall::Reprobe:\n                                // 未挂起却 12s 无应答：`$I` 真丢了（缓冲溢出/丢包），\n                                // 按有界重试重探，耗尽仍 fail closed。\n                                auth_probe_silent_ticks_ = 0;\n                                ScheduleAuthProbeRetryOrFail(\"$I 探活\", -1);\n                                break;\n                            case AuthProbeStall::KeepWaiting:\n                                break;\n                        }\n                    }\n                    // recv 超时：发 ? 轮询 Grbl 状态。\n                    // TCP keepalive 只能发现「TCP 层死了」；若对端协议栈活着而 Grbl\n                    // 主循环假死（不回 `?`），keepalive 不触发，这里必须自己判死，\n                    // 否则本循环会永远转圈。参考奎享 grbl/a.java:379-408 的同类机制。\n                    if (++silent_polls >= kSilentPollLimit) {\n                        if (expect_blocking_peer_.load()) {\n                            // 已知对端正长阻塞（如换纸）：不会回 `?` 属预期，不判死。\n                            // 真死连由 TCP keepalive 兜底。\n                            silent_polls = kSilentPollLimit;\n                        } else {\n                            ESP_LOGW(TAG, \"连续 %d 次探活无应答（约 %ds），判定链路假死\",\n                                     silent_polls, silent_polls * kPollIntervalSec);\n                            break;\n                        }\n                    }\n                    std::lock_guard<std::mutex> wlock(write_mutex_);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:31": {
       "sha8": "0279a96c",
+      "source": "constexpr size_t kRxLineMax = 512;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:38": {
       "sha8": "8ebf7c12",
+      "source": "constexpr int kPollIntervalSec = 3;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:47": {
       "sha8": "b6288c3c",
+      "source": "constexpr int kSilentPollLimit = 7;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_pipe.cc:49-55": {
       "sha8": "6c3ac760",
+      "source": "// 连接后等对端 Telnet banner（\"\\r\\nGrbl <ver> ...\\r\\n\"）的最长时间。\n// Grbl_Esp32 在每个新 Telnet 连接上无条件发 report_init_message（TelnetServer.cpp:217，\n// ENABLE_TELNET_WELCOME_MSG 已开）。这条 banner 是「对端确实是写字机」的唯一被动指纹，\n// 用来堵「局域网里任意开着 :23 的主机（如路由器）被当成写字机缓存/顶替」的活锁。\n// 缓存命中与子网扫描共用此校验。非写字机的 :23 主机每台最多付一次此超时。\nconstexpr int kVerifyTimeoutMs = 1500;\nconstexpr char kGrblBanner[] = \"Grbl \";",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> Grbl_Esp32/src/Defaults.h:97-106": {
       "sha8": "9288a33d",
+      "source": "#ifndef DEFAULT_SOFT_LIMIT_ENABLE\n#    define DEFAULT_SOFT_LIMIT_ENABLE 0  // $20 false\n#endif\n\n#ifndef DEFAULT_HARD_LIMIT_ENABLE\n#    define DEFAULT_HARD_LIMIT_ENABLE 0  // $21 false\n#endif\n\n#ifndef DEFAULT_HOMING_ENABLE\n#    define DEFAULT_HOMING_ENABLE 0  // $22 false",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> Grbl_Esp32/src/Machines/custom_3axis_hr4988.h:314-351": {
       "sha8": "3a4258e2",
+      "source": "#define DEFAULT_STEP_PULSE_MICROSECONDS     3     // $0\n#define DEFAULT_STEPPER_IDLE_LOCK_TIME      25    // $1\n#define DEFAULT_STEPPING_INVERT_MASK        0     // $2\n#define DEFAULT_DIRECTION_INVERT_MASK       7     // $3 = XYZ 全反相\n#define DEFAULT_INVERT_ST_ENABLE            0     // $4\n#define DEFAULT_INVERT_LIMIT_PINS           1     // $5\n#define DEFAULT_INVERT_PROBE_PIN            0     // $6\n#define DEFAULT_STATUS_REPORT_MASK          3     // $10\n#define DEFAULT_JUNCTION_DEVIATION          0.01  // $11\n#define DEFAULT_ARC_TOLERANCE               0.002 // $12\n#define DEFAULT_REPORT_INCHES               0     // $13\n\n#define DEFAULT_SOFT_LIMIT_ENABLE           0     // $20\n#define DEFAULT_HARD_LIMIT_ENABLE           0     // $21\n#define DEFAULT_HOMING_ENABLE               0     // $22\n#define DEFAULT_HOMING_DIR_MASK             0     // $23\n#define DEFAULT_HOMING_FEED_RATE            500.0 // $24\n#define DEFAULT_HOMING_SEEK_RATE            500.0 // $25\n#define DEFAULT_HOMING_DEBOUNCE_DELAY       25    // $26\n#define DEFAULT_HOMING_PULLOFF              1.0   // $27\n\n#define DEFAULT_SPINDLE_RPM_MAX             1000.0 // $30\n#define DEFAULT_SPINDLE_RPM_MIN             0.0    // $31\n#define DEFAULT_LASER_MODE                  0      // $32\n\n// $100–$132（P100）\n#define DEFAULT_X_STEPS_PER_MM              100.0\n#define DEFAULT_Y_STEPS_PER_MM              100.0\n#define DEFAULT_Z_STEPS_PER_MM              50.0\n#define DEFAULT_X_MAX_RATE                  12000.0\n#define DEFAULT_Y_MAX_RATE                  12000.0\n#define DEFAULT_Z_MAX_RATE                  10000.0\n#define DEFAULT_X_ACCELERATION              3000.0\n#define DEFAULT_Y_ACCELERATION              3000.0\n#define DEFAULT_Z_ACCELERATION              8000.0\n#define DEFAULT_X_MAX_TRAVEL                210.0  // A4 短边\n#define DEFAULT_Y_MAX_TRAVEL                297.0  // A4 长边\n#define DEFAULT_Z_MAX_TRAVEL                200.0",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> alignment/plan.md:53-54": {
       "sha8": "949b5657",
+      "source": "> 附带一条待定项：该产物 `pen_lifts=91`，超 `PEN_LIFT_WARN_THRESHOLD = 50` 近一倍，\n> 而它只是 8×118mm 的窄条。阈值 50 的来源无依据记录，机头实测后再锁定（README 组 1.3）。",
       "target": "docs/kxnx/alignment/plan.md"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> custom_3axis_hr4988.h:307-308": {
       "sha8": "24ac13b5",
+      "source": "// #define Y_LIMIT_PIN             GPIO_NUM_XX\n// #define Z_LIMIT_PIN             GPIO_NUM_XX",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> docs/kxnx/alignment/plan.md:45-46": {
       "sha8": "6d782791",
+      "source": "> | 去收尾 | 拒绝：第 6 行 `X-2.205` 越界（限幅 0~190.0mm） |\n> | 去尾 + 平移 +20mm | 通过，`lines=945 bytes=21729 pen_lifts=91` |",
       "target": "docs/kxnx/alignment/plan.md"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> hutuji_gwrite.toml:22-25": {
       "sha8": "f6d27ec9",
+      "source": "#      窗口持续填充 planner，避免笔画期间因 WiFi 往返空档失能。当前保持奎享原值\n#      F10000，不采用未经证明的 F1000/F300 降速方案。2026-07-29 同文件中先画的\n#      F300/F1500 线无墨，后画的 F10000/F1500 线出墨且均匀；落笔速度与先后顺序\n#      尚未解耦，不能据此宣称 F10000 是唯一根因。详见 docs/troubleshooting.md。",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
     "docs/protocol.md -> Custom/paper_system.cpp:182": {
       "sha8": "315ec785",
+      "source": "void user_m30() {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/Custom/paper_system.cpp"
     },
     "docs/protocol.md -> Defaults.h:82": {
       "sha8": "721be54f",
+      "source": "#    define DEFAULT_VERBOSE_ERRORS 0",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
     },
     "docs/protocol.md -> ESPResponse.cpp:46": {
       "sha8": "50d6db08",
+      "source": "        _client = client;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/ESPResponse.cpp"
     },
     "docs/protocol.md -> Error.h:84": {
       "sha8": "cc61c70d",
+      "source": "    AuthenticationFailed        = 110,",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Error.h"
     },
     "docs/protocol.md -> GCode.cpp:1104": {
       "sha8": "6da266b8",
+      "source": "    // 未授权时运动在执行阶段被拦截（见下方 Motion modes 执行块中的 check_license()），M 指令（如 M800）照常执行。",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/protocol.md -> GCode.cpp:1653": {
       "sha8": "48ad8fbe",
+      "source": "        if (!paper_last_change_ok()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/protocol.md -> GCode.cpp:1727": {
       "sha8": "f39c7221",
+      "source": "            grbl_sendf(CLIENT_SERIAL, \"[MSG:PAGE_END_IMMINENT]\\r\\n\");",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/protocol.md -> Grbl_Esp32.ino:28": {
       "sha8": "4e3a2445",
+      "source": "    run_once();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/Grbl_Esp32.ino"
     },
     "docs/protocol.md -> Machines/custom_3axis_hr4988.h:84": {
       "sha8": "7b1c80c8",
+      "source": "#ifndef ENABLE_CONTROL_SW_DEBOUNCE",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
     "docs/protocol.md -> PaperSystem.cpp:1226": {
       "sha8": "a476dde0",
+      "source": "            Error e = paper_auto_change();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> PaperSystem.cpp:358": {
       "sha8": "0b16fd7e",
+      "source": "             \"Paper=%s MotorEn=%s PanelHold=%s Changing=%s\",",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> PaperSystem.cpp:42": {
       "sha8": "e1493ddc",
+      "source": "static std::atomic<bool> paper_auto_change_running{false};",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> PaperSystem.cpp:54": {
       "sha8": "65762a57",
+      "source": "bool paper_auto_change_is_running(void) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> PaperSystem.cpp:55": {
       "sha8": "e7018114",
+      "source": "    return paper_auto_change_running;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> PaperSystem.cpp:834": {
       "sha8": "928648bf",
+      "source": "                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_OUT_OF_PAPER);  // hutuji §9-B1′",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/protocol.md -> ProcessSettings.cpp:615": {
       "sha8": "b063367a",
+      "source": "    WebUI::ESPResponseStream stream(client, true);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ProcessSettings.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:131": {
       "sha8": "76ffcb05",
+      "source": "    if (!paper_auto_change_is_running()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:184": {
       "sha8": "ce7cf9b2",
+      "source": "#if defined(GRBL_PAPER_SYSTEM) && GRBL_PAPER_SYSTEM",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:186": {
       "sha8": "1bf44686",
+      "source": "                    protocol_notify_paper_motion_deferred();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:195-204": {
       "sha8": "f3742770",
+      "source": "#endif\n                if (!check_license() && protocol_line_is_motion_gcode_g0_g3(line)) {\n                    license_notify_motion_blocked();\n                    report_status_message(Error::AuthenticationFailed, client);\n                    if (client == CLIENT_BT) {\n                        paper_bt_on_first_host_ack();\n                    }\n                    empty_line(client);\n                    line_executed = true;\n                    break;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:257-266": {
       "sha8": "20636c4b",
+      "source": "    }\n#ifdef ENABLE_BLUETOOTH\n    // 部分上位机连接后只等状态行，不主动发 ?；周期性上报避免判死\n    if (WebUI::SerialBT.hasClient()) {\n        static uint32_t last_bt_keepalive_ms = 0;\n        uint32_t        now_ms               = millis();\n        if (last_bt_keepalive_ms == 0 || (now_ms - last_bt_keepalive_ms) >= 400u) {\n            last_bt_keepalive_ms = now_ms;\n            sys_rt_exec_state.bit.statusReport = true;\n        }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:639-672": {
       "sha8": "725ffebb",
+      "source": "                                // Set hold and reset appropriate control flags to restart parking sequence.\n                                if (sys.step_control.executeSysMotion) {\n                                    st_update_plan_block_parameters();  // Notify stepper module to recompute for hold deceleration.\n                                    sys.step_control                  = {};\n                                    sys.step_control.executeHold      = true;\n                                    sys.step_control.executeSysMotion = true;\n                                    sys.suspend.bit.holdComplete      = false;\n                                }  // else NO_MOTION is active.\n#endif\n                                sys.suspend.bit.retractComplete = false;\n                                sys.suspend.bit.initiateRestore = false;\n                                sys.suspend.bit.restoreComplete = false;\n                                sys.suspend.bit.restartRetract  = true;\n                            }\n                        }\n                        if (sys.state != State::Sleep) {\n                            sys.state = State::SafetyDoor;\n                        }\n                        sys_rt_exec_state.bit.safetyDoor = false;\n                    }\n                    // NOTE: This flag doesn't change when the door closes, unlike sys.state. Ensures any parking motions\n                    // are executed if the door switch closes and the state returns to HOLD.\n                    sys.suspend.bit.safetyDoorAjar = true;\n                }\n            }\n            if (rt_exec_state.bit.sleep) {\n                if (sys.state == State::Alarm) {\n                    sys.suspend.bit.retractComplete = true;\n                    sys.suspend.bit.holdComplete    = true;\n                }\n                sys.state                   = State::Sleep;\n                sys_rt_exec_state.bit.sleep = false;\n            }\n        }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
+      "source": "    if (cl->len == (LINE_BUFFER_SIZE - 1)) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.cpp:84-86": {
       "sha8": "11ae578c",
+      "source": "    if (line[0] == 0) {\n        return Error::Ok;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/protocol.md -> Protocol.h:34": {
       "sha8": "74915816",
+      "source": "#    define LINE_BUFFER_SIZE 256",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.h"
     },
     "docs/protocol.md -> ProtocolDecisionCore.h:287-293": {
       "sha8": "3a724d78",
+      "source": "    // 仅恢复正常 Cycle 的段缓存断粮；所有有意停止意图都必须继续走原停止分支。\n    static bool should_resume_segment_underflow(bool underflow, bool cycle_stopped, bool planner_has_block,\n                                                bool was_cycle, bool end_motion, bool execute_hold,\n                                                bool motion_cancel, bool soft_limit) {\n        return underflow && cycle_stopped && planner_has_block && was_cycle && !end_motion && !execute_hold &&\n               !motion_cancel && !soft_limit;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ProtocolDecisionCore.h"
     },
     "docs/protocol.md -> Report.cpp:236": {
       "sha8": "9209b4cf",
+      "source": "            if (verbose_errors->get()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/protocol.md -> Report.cpp:583": {
       "sha8": "a8277f33",
+      "source": "void report_realtime_status(uint8_t client) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
     "docs/protocol.md -> Serial.cpp:120": {
       "sha8": "975021e9",
+      "source": "    xTaskCreatePinnedToCore(clientCheckTask,    // task",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/protocol.md -> Serial.cpp:191": {
       "sha8": "ece5d33e",
+      "source": "                        grbl_sendf(client, \"error %d\\r\\n\", Error::AnotherInterfaceBusy);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/protocol.md -> Serial.cpp:380": {
       "sha8": "cd770637",
+      "source": "        WebUI::telnet_server.write((const uint8_t*)text, strlen(text));",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/protocol.md -> Serial.cpp:66": {
       "sha8": "2f10256b",
+      "source": "portMUX_TYPE myMutex = portMUX_INITIALIZER_UNLOCKED;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/protocol.md -> Settings.cpp:6-8": {
       "sha8": "cdccf908",
+      "source": "bool anyState() {\n    return false;\n}",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Settings.cpp"
     },
     "docs/protocol.md -> Stepper.cpp:210": {
       "sha8": "4b9be712",
+      "source": "    if (busy.compare_exchange_strong(expected, true)) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Stepper.cpp"
     },
     "docs/protocol.md -> System.cpp:314": {
       "sha8": "cd527ee5",
+      "source": "        if (paper_auto_change_is_running() || paper_btn_ignore_control_events()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/System.cpp"
     },
     "docs/protocol.md -> TelnetServer.cpp:98": {
       "sha8": "fc7c4faa",
+      "source": "        _telnetserver->begin();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
     "docs/protocol.md -> TelnetServer.h:31": {
       "sha8": "a2e0c3c2",
+      "source": "        static const int MAX_TLNT_CLIENTS = 1;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/protocol.md -> WebSettings.cpp:1008": {
       "sha8": "f93ca625",
+      "source": "    static Error paperStatusHandler(char* parameter, AuthenticationLevel auth_level) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/protocol.md -> WebSettings.cpp:1050": {
       "sha8": "49244579",
+      "source": "        if (paper_auto_change_is_running()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/protocol.md -> WebSettings.cpp:1055": {
       "sha8": "2463b8a1",
+      "source": "        if (e == Error::Ok) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/protocol.md -> WebSettings.cpp:1131": {
       "sha8": "212d6e3a",
+      "source": "        new WebCommand(NULL, WEBCMD, WG, \"ESP901\", \"Paper/Status\", paperStatusHandler, anyState);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/protocol.md -> WebSettings.cpp:167": {
       "sha8": "4c53e4fe",
+      "source": "        return Error::AnotherInterfaceBusy;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/protocol.md -> WebUI/InputBuffer.h:55": {
       "sha8": "9b0732a6",
+      "source": "        static const int RXBUFFERSIZE = 2048;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.h"
     },
     "docs/protocol.md -> WebUI/TelnetServer.cpp:43-74": {
       "sha8": "1670476d",
+      "source": "    // hutuji §9-A2：Telnet client 跨任务互斥（只加锁，不改协议/不改换纸/不改运动）。\n    // 竞态：loopTask（run_once -> grbl_sendf -> client_write -> Telnet_Server::write）\n    // 与 clientCheckTask（wifi_config.handle -> WiFiServices::handle -> Telnet_Server::handle）\n    // 同优先级、同核并发操作同一个 WiFiClient 与同一个 slot：\n    //   1) write() 内 WiFiClient::write() 遇到非 EAGAIN 错误会调 stop()，stop() 把\n    //      _rxBuffer 置空并释放（arduino-esp32 WiFiClient.cpp）；此刻读侧正在\n    //      available()/read() 里走 WiFiClientRxBuffer::fillBuffer -> lwip_recv ->\n    //      pbuf_free，命中 assert \"pbuf_free: p->ref > 0\"（上游 bdring/Grbl_Esp32#1364）。\n    //   2) clearClients() 在两个任务里并发 available() 并对同一 slot 先 stop() 再赋值，\n    //      等于在读侧脚下换掉 _rxBuffer 智能指针。\n    // 递归锁而非普通锁：handle() 内 report_init_message(CLIENT_TELNET) 会回到 write()，\n    // 同一任务必须能重入。\n    // write() 不得在 TCP 背压下长占 loopTask/clientCheckTask。下方改用非阻塞 send +\n    // 绝对 deadline：完整写出或关闭该 session，避免静默少 `ok`，也给实时输入留出上界。\n    static constexpr TickType_t TELNET_WRITE_TIMEOUT_TICKS = pdMS_TO_TICKS(1000);\n    static SemaphoreHandle_t telnetClientMutex = xSemaphoreCreateRecursiveMutex();\n    class TelnetClientLock {\n    public:\n        TelnetClientLock() {\n            if (telnetClientMutex != nullptr) {\n                xSemaphoreTakeRecursive(telnetClientMutex, portMAX_DELAY);\n            }\n        }\n        ~TelnetClientLock() {\n            if (telnetClientMutex != nullptr) {\n                xSemaphoreGiveRecursive(telnetClientMutex);\n            }\n        }\n        TelnetClientLock(const TelnetClientLock&) = delete;\n        TelnetClientLock& operator=(const TelnetClientLock&) = delete;\n    };\n",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
     "docs/protocol.md -> WebUI/TelnetServer.cpp:92": {
       "sha8": "25ad2ee5",
+      "source": "        //create instance",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
     "docs/protocol.md -> hutuji_job.cc:444-574": {
       "sha8": "5c38da10",
+      "source": "bool Job::PerformAbortReset(bool wait_for_stream_quiescence, bool owner_claimed,\n                            bool allow_unready_reconnect) {\n    auto& pipe = Pipe::GetInstance();\n    if (!owner_claimed && !abort_reset_owner_.TryClaim()) {\n        return WaitForAbortReset();\n    }\n\n    // R21-F04 残余：`!` 触发的 Hold 转移播报是「取消中」而非用户暂停；抑制窗\n    // RAII 覆盖本函数全程（含所有 break 早退）。pause 的 Hold 播报不受影响——\n    // pause 不进 PerformAbortReset。\n    struct TransitionNotifyGuard {\n        Pipe& p;\n        explicit TransitionNotifyGuard(Pipe& pipe) : p(pipe) {\n            p.SetTransitionNotifySuppressed(true);\n        }\n        ~TransitionNotifyGuard() { p.SetTransitionNotifySuppressed(false); }\n    } transition_notify_guard{pipe};\n\n    const uint32_t session = pipe.GetConnectionSequence();\n    abort_reset_session_.store(session, std::memory_order_release);\n    const TickType_t began = xTaskGetTickCount();\n    bool success = false;\n    do {\n        // `!` 必须先于任何可能长达数十分钟的 planner-sync 应答等待。它只是\n        // 安全停机字符，不是 reset；即使旧流已 Failed 也要先尽力停住机器。\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!pipe.IsResetSessionReady(session, allow_unready_reconnect) ||\n                !pipe.SendRealtime('!')) {\n                break;\n            }\n        }\n\n        bool stopped = false;\n        uint32_t stopped_status_baseline = pipe.GetStatusReportSequence();\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t before_query = pipe.GetStatusReportSequence();\n            if (!pipe.SendRealtime('?')) {\n                break;\n            }\n            const TickType_t query_began = xTaskGetTickCount();\n            while (pipe.GetStatusReportSequence() == before_query &&\n                   (xTaskGetTickCount() - query_began) < pdMS_TO_TICKS(1000)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n            if (pipe.HasFreshStoppedStatus(before_query, session)) {\n                stopped_status_baseline = before_query;\n                stopped = true;\n                abort_hold_confirmed_.store(true, std::memory_order_release);\n                break;\n            }\n        }\n        if (!stopped) {\n            break;\n        }\n\n        if (wait_for_stream_quiescence) {\n            while (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) &&\n                   (xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n        }\n\n        uint32_t paper_before = 0;\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) ||\n                !pipe.IsResetSessionReady(session, allow_unready_reconnect)) {\n                break;\n            }\n            paper_before = pipe.GetPaperStatusSequence();\n            if (!pipe.SendLine(\"[ESP901]\")) {\n                break;\n            }\n        }\n        int paper_error = -1;\n        if (pipe.WaitResponse(kPaperStatusTimeoutMs, nullptr, &paper_error) != WaitResult::Ok ||\n            pipe.GetPaperStatusSequence() == paper_before ||\n            pipe.GetPaperChangingState() != PaperChangingState::Off) {\n            break;\n        }\n        const uint32_t banner_before = pipe.GetResetBannerSequence();\n        const uint32_t post_reset_status = pipe.GetStatusReportSequence();\n        if (!pipe.SendAbortReset(session, stopped_status_baseline, paper_before, banner_before,\n                                 allow_unready_reconnect)) {\n            break;\n        }\n        uint32_t idle_query_baseline = post_reset_status;\n        bool queried_idle = false;\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t banner_generation = pipe.GetResetBannerSequence();\n            if (banner_generation == AbortResetToken::NextGeneration(banner_before) &&\n                pipe.IsReady() && pipe.IsAuthorized()) {\n                if (!queried_idle) {\n                    idle_query_baseline = pipe.GetStatusReportSequence();\n                    queried_idle = true;\n                    if (!pipe.SendRealtime('?')) {\n                        break;\n                    }\n                }\n                if (pipe.GetStatusReportSequence() != idle_query_baseline &&\n                    pipe.GetStatusReportSequence() != post_reset_status &&\n                    pipe.GetGrblState() == GrblState::Idle) {\n                    success = true;\n                    break;\n                }\n            }\n            vTaskDelay(pdMS_TO_TICKS(100));\n        }\n    } while (false);\n\n    if (!success) {\n        pipe.CancelAbortReset();\n        // 不解锁未知 Alarm。若普通 abort 未能完成受限 reset，只拆会话阻止继续写；\n        // busy 在 owner 终态发布后才释放，下一次连接仍须重新验明。\n        if (pipe.GetGrblState() != GrblState::Alarm) {\n            pipe.ShutdownSocket(session);\n        }\n    }\n    if (!abort_reset_owner_.Complete(success)) {\n        pipe.CancelAbortReset();\n        return false;\n    }\n    return success;\n}",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/protocol.md -> hutuji_recovery_core.h:14-45": {
       "sha8": "ca3797fa",
+      "source": "// 窗口按 payload+LF 计字节；应答队列须覆盖最短非空行形成的最大在途条数，\n// 否则队满丢掉 error 后，后续 ok 会与错误行错配，破坏 fail-closed。\ninline constexpr size_t kStreamWindowBytes = 512;\ninline constexpr size_t kResponseQueueDepth = (kStreamWindowBytes - 1u) / 2u;\n\n/**\n * 解析 Grbl 的 `error` 应答为数字错误码；无法判定时返回 -1。\n *\n * **必须同时认数字与文本两种形态。** Grbl_Esp32 `Report.cpp:236` 在\n * `$Errors/Verbose=1` 时把应答从 `error:11` 换成 `error: Line too long`：\n *\n *     if (verbose_errors->get()) grbl_sendf(client, \"error: %s\\r\\n\", errorString(status_code));\n *     else                       grbl_sendf(client, \"error:%d\\r\\n\", (int)status_code);\n *\n * 只认数字的话，后果不是降级而是**行为反转**：`error:8`（换纸期运动行被推迟、该行\n * 需重发）会解析成 -1 → 走 WaitResult::Failed → 整单失败而非重试；`error:110`\n * （未授权）同样落进 Failed 分支而非「已知未授权」。默认值是 0（`Defaults.h:82`），\n * 但这是块**现役商业固件**，`$`-设置存在 NVS 里，能被任何上位机（奎享本体、\n * ESP3D WebUI）改写并持久化，且我们无法在出厂前保证它没被动过。\n *\n * 文本表取自 `Grbl_Esp32/src/Error.cpp` 的 ErrorNames，只收录 S3 三层换纸判定与\n * 授权探测真正分派到的码 + 行长溢出；其余文本形态回 -1（与旧行为一致，按 Failed 处理）。\n */\ninline int ParseGrblErrorCode(const std::string& line) {\n    // \"error:8\" / \"error:110\" / 旧式 \"error 8\"\n    if (line.rfind(\"error\", 0) != 0) {\n        return -1;\n    }\n    size_t i = 5;\n    while (i < line.size() && (line[i] == ':' || line[i] == ' ')) {\n        ++i;\n    }",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
     },
     "docs/protocol.md -> hutuji_recovery_core.h:15": {
       "sha8": "db7a517c",
+      "source": "// 否则队满丢掉 error 后，后续 ok 会与错误行错配，破坏 fail-closed。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
     },
     "docs/protocol.md -> ota.cc:292-321": {
       "sha8": "461c8cb2",
+      "source": "    size_t content_length = http->GetBodyLength();\n    if (content_length == 0) {\n        ESP_LOGE(TAG, \"Failed to get content length\");\n        return false;\n    }\n\n    constexpr size_t PAGE_SIZE = 4096;\n    char* buffer = (char*)heap_caps_malloc(PAGE_SIZE, MALLOC_CAP_INTERNAL);\n    if (buffer == nullptr) {\n        ESP_LOGE(TAG, \"Failed to allocate buffer\");\n        return false;\n    }\n\n    size_t buffer_offset = 0;  // Current data size in buffer\n    size_t total_read = 0, recent_read = 0;\n    auto last_calc_time = esp_timer_get_time();\n    while (true) {\n        int ret = http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset);\n        if (ret < 0) {\n            ESP_LOGE(TAG, \"Failed to read HTTP data: %s\", esp_err_to_name(ret));\n            heap_caps_free(buffer);\n            return false;\n        }\n\n        // Calculate speed and progress every second\n        recent_read += ret;\n        total_read += ret;\n        buffer_offset += ret;\n        if (esp_timer_get_time() - last_calc_time >= 1000000 || ret == 0) {\n            size_t progress = total_read * 100 / content_length;",
       "target": "D:/Users/xiaozhi-esp32/main/ota.cc"
     },
     "docs/protocol.md -> ota.cc:292-322": {
       "sha8": "4c64a822",
+      "source": "    size_t content_length = http->GetBodyLength();\n    if (content_length == 0) {\n        ESP_LOGE(TAG, \"Failed to get content length\");\n        return false;\n    }\n\n    constexpr size_t PAGE_SIZE = 4096;\n    char* buffer = (char*)heap_caps_malloc(PAGE_SIZE, MALLOC_CAP_INTERNAL);\n    if (buffer == nullptr) {\n        ESP_LOGE(TAG, \"Failed to allocate buffer\");\n        return false;\n    }\n\n    size_t buffer_offset = 0;  // Current data size in buffer\n    size_t total_read = 0, recent_read = 0;\n    auto last_calc_time = esp_timer_get_time();\n    while (true) {\n        int ret = http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset);\n        if (ret < 0) {\n            ESP_LOGE(TAG, \"Failed to read HTTP data: %s\", esp_err_to_name(ret));\n            heap_caps_free(buffer);\n            return false;\n        }\n\n        // Calculate speed and progress every second\n        recent_read += ret;\n        total_read += ret;\n        buffer_offset += ret;\n        if (esp_timer_get_time() - last_calc_time >= 1000000 || ret == 0) {\n            size_t progress = total_read * 100 / content_length;\n            ESP_LOGI(TAG, \"Progress: %u%% (%u/%u), Speed: %uB/s\", progress, total_read, content_length, recent_read);",
       "target": "D:/Users/xiaozhi-esp32/main/ota.cc"
     },
     "docs/protocol.md -> protocol.h:36": {
       "sha8": "5817611c",
+      "source": "    kListeningModeAutoStop,",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
     },
     "docs/release-readiness.md -> application.cc:545": {
       "sha8": "634c6586",
+      "source": "        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
     "docs/release-readiness.md -> audio_service.cc:790": {
       "sha8": "6346a726",
+      "source": "            codec_->EnableOutput(false);",
       "target": "D:/Users/xiaozhi-esp32/main/audio/audio_service.cc"
     },
     "docs/release-readiness.md -> i2c_device.cc:24": {
       "sha8": "d1a8eac8",
+      "source": "    ESP_ERROR_CHECK(i2c_master_transmit(i2c_device_, buffer, 2, 100));",
       "target": "D:/Users/xiaozhi-esp32/main/boards/common/i2c_device.cc"
     },
     "docs/troubleshooting.md -> /Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31": {
       "sha8": "a2e0c3c2",
+      "source": "        static const int MAX_TLNT_CLIENTS = 1;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
     "docs/troubleshooting.md -> Config.h:410": {
       "sha8": "426608a8",
+      "source": "//#define REPORT_ECHO_LINE_RECEIVED // Default disabled. Uncomment to enable.",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
     },
     "docs/troubleshooting.md -> Config.h:415": {
       "sha8": "a9f81258",
+      "source": "//#define REPORT_ECHO_RAW_LINE_RECEIVED // Default disabled. Uncomment to enable.",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
     },
     "docs/troubleshooting.md -> Config.h:469": {
       "sha8": "5059e26f",
+      "source": "#define BLOCK_BUFFER_SIZE 250 // 从200增大到250，进一步增加planner缓冲区深度，容忍更长的蓝牙延迟",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
     },
     "docs/troubleshooting.md -> Error.h:36": {
       "sha8": "8a729b6a",
+      "source": "    IdleError                   = 8,",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Error.h"
     },
     "docs/troubleshooting.md -> GCode.cpp:141": {
       "sha8": "02936fe4",
+      "source": "#ifdef REPORT_ECHO_LINE_RECEIVED",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/troubleshooting.md -> MotionControl.cpp:69-83": {
       "sha8": "84164ef4",
+      "source": "    do {\n        protocol_execute_realtime();  // Check for any run-time commands\n        if (sys.abort) {\n            sys_pl_data_inflight = NULL;\n            return submitted_result;  // Bail, if system abort.\n        }\n        if (plan_check_full_buffer()) {\n            protocol_auto_cycle_start();  // Auto-cycle start when buffer is full.\n        } else {\n            break;\n        }\n        // 忙等等待 planner 释放空间时，给 RTOS/蓝牙栈等让出执行机会\n        //，避免 ok/接收节奏被当前任务阻塞而导致运动卡顿。\n        yield();\n    } while (1);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/MotionControl.cpp"
     },
     "docs/troubleshooting.md -> PaperSystem.cpp:151": {
       "sha8": "a9f10fcb",
+      "source": "    protocol_service_during_blocking();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/troubleshooting.md -> PaperSystem.cpp:358-359": {
       "sha8": "2dcd8244",
+      "source": "             \"Paper=%s MotorEn=%s PanelHold=%s Changing=%s\",\n             paper_ok ? \"OK\" : \"No\",",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/troubleshooting.md -> PaperSystem.cpp:443-463": {
       "sha8": "c2162a38",
+      "source": "static void paper_enter_panel_low_hold(void) {\n    paper_ensure_i2s_passthrough();\n    digitalWrite(PANEL_MOTOR_STEP_PIN, LOW);\n    digitalWrite(PANEL_MOTOR_DIR_PIN, PANEL_DIR_FEED);\n#ifdef USE_I2S_OUT\n    i2s_out_delay();\n#endif\n#ifdef PAPER_DRIVER_REF_PIN\n#    ifndef PAPER_REF_DAC_PANEL_HOLD\n#        define PAPER_REF_DAC_PANEL_HOLD ((PAPER_REF_DAC_PANEL) / 2)\n#    endif\n    paper_set_ref_dac((uint8_t)PAPER_REF_DAC_PANEL_HOLD);\n#endif\n    digitalWrite(PAPER_ENABLE_PIN, LOW);\n#ifdef PAPER_DRIVER_ENABLE_PIN\n    digitalWrite(PAPER_DRIVER_ENABLE_PIN, HIGH);  // 拾落/进纸器关\n#endif\n#ifdef USE_I2S_OUT\n    i2s_out_delay();\n#endif\n    paper_panel_low_hold_active = true;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/troubleshooting.md -> Planner.cpp:315-337": {
       "sha8": "79432f1f",
+      "source": "    if (block->motion.systemMotion) {\n        memcpy(position_steps, sys_position, sizeof(sys_position));\n    } else {\n        memcpy(position_steps, pl.position, sizeof(pl.position));\n    }\n    auto n_axis = number_axis->get();\n    for (idx = 0; idx < n_axis; idx++) {\n        // Calculate target position in absolute steps, number of steps for each axis, and determine max step events.\n        // Also, compute individual axes distance for move and prep unit vector calculations.\n        // NOTE: Computes true distance from converted step values.\n        target_steps[idx]       = lround(target[idx] * axis_settings[idx]->steps_per_mm->get());\n        block->steps[idx]       = labs(target_steps[idx] - position_steps[idx]);\n        block->step_event_count = MAX(block->step_event_count, block->steps[idx]);\n        delta_mm                = (target_steps[idx] - position_steps[idx]) / axis_settings[idx]->steps_per_mm->get();\n        unit_vec[idx]           = delta_mm;  // Store unit vector numerator\n        // Set direction bits. Bit enabled always means direction is negative.\n        if (delta_mm < 0.0) {\n            block->direction_bits |= bit(idx);\n        }\n    }\n    // Bail if this is a zero-length block. Highly unlikely to occur.\n    if (block->step_event_count == 0) {\n        return PLAN_EMPTY_BLOCK;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Planner.cpp"
     },
     "docs/troubleshooting.md -> Protocol.cpp:129-144": {
       "sha8": "fd63f1e9",
+      "source": "// 换纸阻塞期间：不执行 G0–G3，保留 G92 等设置指令\nstatic bool protocol_defer_host_motion_line_during_paper_change(const char* line) {\n    if (!paper_auto_change_is_running()) {\n        return false;\n    }\n    return protocol_line_is_motion_gcode_g0_g3(line);\n}\n\nstatic void protocol_notify_paper_motion_deferred(void) {\n    static uint32_t last_defer_msg_ms = 0;\n    uint32_t        now_ms            = millis();\n    if (last_defer_msg_ms != 0 && (now_ms - last_defer_msg_ms) < 3000u) {\n        return;\n    }\n    last_defer_msg_ms = now_ms;\n    grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Info, \"[PaperAuto] Host G-code deferred (paper change running)\");",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/troubleshooting.md -> Protocol.cpp:147-158": {
       "sha8": "04df37e7",
+      "source": "\n// 从指定 client 读入并执行；若完整执行了一行 G 代码则返回 true\nstatic bool protocol_poll_client(uint8_t client) {\n    int     c;\n    bool    line_executed = false;\n    char*   line;\n    while ((c = client_read(client)) != -1) {\n        Error res = add_char_to_line(c, client);\n        switch (res) {\n            case Error::Ok:\n                break;\n            case Error::Eol:",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/troubleshooting.md -> Protocol.cpp:180": {
       "sha8": "1e258076",
+      "source": "#endif",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/troubleshooting.md -> Protocol.cpp:38-43": {
       "sha8": "297da491",
+      "source": "\ntypedef struct {\n    char buffer[LINE_BUFFER_SIZE];\n    int  len;\n    int  line_number;\n} client_line_t;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Protocol.cpp"
     },
     "docs/troubleshooting.md -> Serial.cpp:185-187": {
       "sha8": "fddd9c8c",
+      "source": "                    vTaskEnterCritical(&myMutex);\n                    client_buffer[client].write(data);\n                    vTaskExitCritical(&myMutex);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp"
     },
     "docs/troubleshooting.md -> Stepper.cpp:313-324": {
       "sha8": "fd0a3fb8",
+      "source": "    for (int axis = 0; axis < n_axis; axis++) {\n        // Execute step displacement profile by Bresenham line algorithm\n        st.counter[axis] += st.steps[axis];\n        if (st.counter[axis] > st.exec_block->step_event_count) {\n            st.step_outbits |= bit(axis);\n            st.counter[axis] -= st.exec_block->step_event_count;\n            if (st.exec_block->direction_bits & bit(axis)) {\n                sys_position[axis]--;\n            } else {\n                sys_position[axis]++;\n            }\n        }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Stepper.cpp"
     },
     "docs/troubleshooting.md -> System.cpp:220-234": {
       "sha8": "0e198573",
+      "source": "// Returns machine position of axis 'idx'. Must be sent a 'step' array.\n// NOTE: If motor steps and machine position are not in the same coordinate frame, this function\n//   serves as a central place to compute the transformation.\nvoid system_convert_array_steps_to_mpos(float* position, int32_t* steps) {\n    auto  n_axis = number_axis->get();\n    float motors[n_axis];\n    for (int idx = 0; idx < n_axis; idx++) {\n        motors[idx] = (float)steps[idx] / axis_settings[idx]->steps_per_mm->get();\n    }\n    motors_to_cartesian(position, motors, n_axis);\n}\nfloat* system_get_mpos() {\n    static float position[MAX_N_AXIS];\n    system_convert_array_steps_to_mpos(position, sys_position);\n    return position;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/System.cpp"
     },
     "docs/troubleshooting.md -> System.cpp:422": {
       "sha8": "5c7f6111",
+      "source": "    WebUI::inputBuffer.push(line);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/System.cpp"
     },
     "docs/troubleshooting.md -> TelnetServer.cpp:132-256": {
       "sha8": "f859a9d5",
+      "source": "                    {\n                        int keepalive = 1;\n                        int keepidle  = 10;\n                        int keepintvl = 3;\n                        int keepcnt   = 3;\n                        int s = _telnetClients[i].fd();\n                        if (setsockopt(s, SOL_SOCKET,  SO_KEEPALIVE, &keepalive, sizeof(keepalive)) < 0 ||\n                            setsockopt(s, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle,  sizeof(keepidle)) < 0 ||\n                            setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL,&keepintvl, sizeof(keepintvl)) < 0 ||\n                            setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT,  &keepcnt,   sizeof(keepcnt)) < 0) {\n                            log_w(\"telnet keepalive setsockopt failed errno=%d\", errno);\n                        }\n                    }\n                    break;\n                }\n            }\n            if (i >= MAX_TLNT_CLIENTS) {\n                //no free/disconnected spot so reject\n                _telnetserver->available().stop();\n            }\n        }\n    }\n\n    size_t Telnet_Server::write(const uint8_t* buffer, size_t size) {\n        TelnetClientLock lock;\n        size_t wsize = 0;\n        if (!_setupdone || _telnetserver == NULL) {\n            log_d(\"[TELNET out blocked]\");\n            return 0;\n        }\n\n        clearClients();\n\n        // 可靠语义是「整段写出或明确断链」，不能在背压时静默截断 ok/状态行。\n        for (uint8_t i = 0; i < MAX_TLNT_CLIENTS; i++) {\n            if (!_telnetClients[i] || !_telnetClients[i].connected()) {\n                continue;\n            }\n            const int socket = _telnetClients[i].fd();\n            if (socket < 0) {\n                continue;\n            }\n            // 每个有效客户端从 0 开始写整段（MAX_TLNT_CLIENTS>1 时不得沿用上一客户端的进度）。\n            wsize = 0;\n            const TickType_t began = xTaskGetTickCount();\n            int send_errno = 0;\n            while (wsize < size) {\n                // 绝对 deadline 覆盖每次正 partial write；不能只在 EAGAIN 分支看时间，\n                // 否则对端每轮接一小段就能无限占住 loopTask。\n                if ((xTaskGetTickCount() - began) >= TELNET_WRITE_TIMEOUT_TICKS) {\n                    log_w(\"[TELNET] write timeout sent=%u/%u\", static_cast<unsigned>(wsize),\n                          static_cast<unsigned>(size));\n                    _telnetClients[i].stop();\n                    return 0;\n                }\n                const int written = send(socket, buffer + wsize, size - wsize, MSG_DONTWAIT);\n                send_errno = written < 0 ? errno : 0;\n                if (written > 0) {\n                    wsize += static_cast<size_t>(written);\n                    continue;\n                }\n                if (written < 0 && (send_errno == EAGAIN || send_errno == EWOULDBLOCK)) {\n                    COMMANDS::wait(0);\n                    vTaskDelay(1);\n                    continue;\n                }\n                log_w(\"[TELNET] write failed n=%d errno=%d sent=%u/%u\", written, send_errno,\n                      static_cast<unsigned>(wsize), static_cast<unsigned>(size));\n                _telnetClients[i].stop();\n                return 0;\n            }\n        }\n        return wsize;\n    }\n\n    void Telnet_Server::handle() {\n        TelnetClientLock lock;\n        COMMANDS::wait(0);\n        //check if can read\n        if (!_setupdone || _telnetserver == NULL) {\n            return;\n        }\n        clearClients();\n        //check clients for data\n        //uint8_t c;\n        for (uint8_t i = 0; i < MAX_TLNT_CLIENTS; i++) {\n            if (_telnetClients[i] && _telnetClients[i].connected()) {\n#    ifdef ENABLE_TELNET_WELCOME_MSG\n                if (_telnetClientsIP[i] != _telnetClients[i].remoteIP()) {\n                    report_init_message(CLIENT_TELNET);\n                    _telnetClientsIP[i] = _telnetClients[i].remoteIP();\n                }\n#    endif\n                if (_telnetClients[i].available()) {\n                    uint8_t buf[1024];\n                    COMMANDS::wait(0);\n                    int readlen  = _telnetClients[i].available();\n                    int writelen = TELNETRXBUFFERSIZE - available();\n                    if (readlen > 1024) {\n                        readlen = 1024;\n                    }\n                    if (readlen > writelen) {\n                        readlen = writelen;\n                    }\n                    if (readlen > 0) {\n                        _telnetClients[i].read(buf, readlen);\n                        push(buf, readlen);\n                    }\n                    return;\n                }\n            } else {\n                if (_telnetClients[i]) {\n#    ifdef ENABLE_TELNET_WELCOME_MSG\n                    _telnetClientsIP[i] = IPAddress(0, 0, 0, 0);\n#    endif\n                    _telnetClients[i].stop();\n                }\n            }\n            COMMANDS::wait(0);\n        }\n    }\n\n    int Telnet_Server::peek(void) {\n        if (_RXbufferSize > 0) {\n            return _RXbuffer[_RXbufferpos];",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
     "docs/troubleshooting.md -> WebServer.cpp:121": {
       "sha8": "96d4813f",
+      "source": "        _socket_server = new WebSocketsServer(_port + 1);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
     "docs/troubleshooting.md -> WebServer.cpp:1561": {
       "sha8": "02e5ada1",
+      "source": "            _socket_server->loop();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
     "docs/troubleshooting.md -> WebServer.cpp:515-519": {
       "sha8": "49740a42",
+      "source": "                if (!Serial2Socket.push(scmd.c_str())) {\n                    hasError = true;\n                }\n            }\n            _webserver->send(200, \"text/plain\", hasError?\"Error\":\"\");",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
     "docs/troubleshooting.md -> WebSettings.cpp:661-673": {
       "sha8": "e8f9440a",
+      "source": "    static Error listSettings(char* parameter, AuthenticationLevel auth_level) {  // ESP400\n        JSONencoder j(espresponse->client() != CLIENT_WEBUI);\n        j.begin();\n        j.begin_array(\"EEPROM\");\n        for (Setting* js = Setting::List; js; js = js->next()) {\n            if (js->getType() == WEBSET) {\n                js->addWebui(&j);\n            }\n        }\n        j.end_array();\n        webPrint(j.end());\n        return Error::Ok;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp"
     },
     "docs/troubleshooting.md -> WebUI/InputBuffer.cpp:48-63": {
       "sha8": "a6ddb8d0",
+      "source": "    size_t InputBuffer::write(uint8_t c) {\n        if ((1 + _RXbufferSize) <= RXBUFFERSIZE) {\n            int current = _RXbufferpos + _RXbufferSize;\n            if (current > RXBUFFERSIZE) {\n                current = current - RXBUFFERSIZE;\n            }\n            if (current > (RXBUFFERSIZE - 1)) {\n                current = 0;\n            }\n            _RXbuffer[current] = c;\n            current++;\n            _RXbufferSize += 1;\n            return 1;\n        }\n        return 0;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
     },
     "docs/troubleshooting.md -> docs/kxnx/findings/02-gcode-template.md:19-20": {
       "sha8": "aa2cec01",
+      "source": "G1 X-2.132Y1.169F8000    # 画线，每行都带 F8000\nG1 X-2.174Y1.183F8000",
       "target": "docs/kxnx/findings/02-gcode-template.md"
     },
     "docs/troubleshooting.md -> docs/kxnx/findings/02-gcode-template.md:46": {
       "sha8": "72e93d43",
+      "source": "   `F10000` 正好等于本机 `$112=10000`（Z 轴最大速率）——奎享是让 Z **跑满速**抬落笔。",
       "target": "docs/kxnx/findings/02-gcode-template.md"
     },
     "docs/troubleshooting.md -> docs/protocol.md:393": {
       "sha8": "745fa93e",
+      "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
     },
     "docs/troubleshooting.md -> hutuji_job.cc:2466-2479": {
       "sha8": "fe67870b",
+      "source": "                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));\n                    continue;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/troubleshooting.md -> hutuji_job.cc:2506-2507": {
       "sha8": "fc6722e2",
+      "source": "                // 普通行窗口化灌：一行一个 Grbl 应答。不要把多行合并成同一 TCP 包；\n                // 当前商业固件链路实测会出现少应答，窗口计数会永久漂移。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/troubleshooting.md -> hutuji_job.cc:2690-2696": {
       "sha8": "cd7a6a7f",
+      "source": "            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。\n            return fail_window_and_stop(\"error:\" + std::to_string(err));\n        } else if (wr == WaitResult::Deferred) {\n            // 窗口化普通行不应收到 error:8；一旦出现，后续在途同样先物理停机。\n            ESP_LOGW(TAG, \"窗口化分支意外收到 error:8（err=%d），停止并受控 reset\", err);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/troubleshooting.md -> hutuji_job.cc:74-75": {
       "sha8": "42674be6",
+      "source": "// S3 窗口化流控窗口（§3 取值：Telnet RX ①的 43%）。应答队列容量由同一常量推导。\nconstexpr size_t kWindow = kStreamWindowBytes;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/troubleshooting.md -> hutuji_pipe.cc:507-508": {
       "sha8": "a2ed49fe",
+      "source": "    // 每条 G-code 都是小包；关闭 Nagle，避免 Z5 已执行并在 `$1=25ms` 后失能，\n    // 下一条 XY 仍因等待前包 ACK 滞留，造成“轨迹走但笔已回弹”。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
     "docs/troubleshooting.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:1063-1084": {
       "sha8": "ba5cf0f9",
+      "source": "}\n\nbool Pipe::SendLine(const std::string& line) {\n    if (!connected_.load()) {\n        ESP_LOGW(TAG, \"TCP 未连接，丢弃发送: %s\", line.c_str());\n        return false;\n    }\n\n    std::lock_guard<std::mutex> lock(write_mutex_);\n    // 逐行模式：发新行前清掉残留应答，防止上一行超时后迟到的 ok 满足本行的等待。\n    // 窗口化模式必须关掉这个清空——那时队列里的应答是「在途」的合法凭据，\n    // 清掉会让在途计数永久漂移（设计文档 §4.1）。\n    if (drain_on_send_.load()) {\n        DrainResponses();\n    }\n\n    std::string payload = line;\n    payload.push_back('\\n');\n    if (!SendRawLocked(payload.data(), payload.size())) {\n        ESP_LOGE(TAG, \"发送失败: %s\", line.c_str());\n        return false;\n    }",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-23T10:33:37Z",
+  "updated": "2026-08-23T11:01:50Z",
   "version": 1
 }

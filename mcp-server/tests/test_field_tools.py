@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import queue
 import signal
@@ -164,6 +165,157 @@ def test_external_refs_pass_on_missing_repos_admits_zero_coverage(monkeypatch, t
     layer = gate.check_external_doc_line_refs(require_repos=False)
     assert layer["status"] == "pass"
     assert "无可校验" in layer["detail"]
+
+
+def _write_fix_baseline(tmp_path: Path, refs: dict[str, dict[str, str]]) -> None:
+    baseline = tmp_path / "docs" / "agent-line-refs-baseline.json"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text(
+        json.dumps(
+            {"version": 1, "git_head": "test", "updated": "test", "refs": refs},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _run_fix_line_refs(tmp_path: Path, monkeypatch) -> int:
+    """把门禁脚本指向 tmp_path 并跑 --fix-line-refs 的测试封装。"""
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "_EXTERNAL_REPOS", ())
+    monkeypatch.setattr(gate, "_git_head", lambda: "testhead")
+    return gate.fix_line_refs()
+
+
+def test_fix_line_refs_relocations_pure_move(tmp_path, monkeypatch):
+    """内容没变只是挪了行号：自动改写文档并重登基线。"""
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    target = tmp_path / "target.py"
+    target.write_text("line1\nfoo\nline3\nline4\nline5\n", encoding="utf-8")
+    doc = tmp_path / "docs" / "test.md"
+    doc.write_text("See target.py:2 for evidence.\n", encoding="utf-8")
+    _write_fix_baseline(
+        tmp_path,
+        {
+            "docs/test.md -> target.py:2": {
+                "target": "target.py",
+                "sha8": gate._sha8(["foo"]),
+                "source": "foo",
+            }
+        },
+    )
+    # 把 foo 从第 2 行挪到第 5 行
+    target.write_text("line1\nline2\nline3\nline4\nfoo\nline6\n", encoding="utf-8")
+    rc = _run_fix_line_refs(tmp_path, monkeypatch)
+    assert rc == 0
+    doc_text = doc.read_text(encoding="utf-8")
+    assert "target.py:5" in doc_text
+    assert "target.py:2" not in doc_text
+    baseline = json.loads(
+        (tmp_path / "docs" / "agent-line-refs-baseline.json").read_text(encoding="utf-8")
+    )
+    assert "docs/test.md -> target.py:5" in baseline["refs"]
+    assert baseline["refs"]["docs/test.md -> target.py:5"]["sha8"] == gate._sha8(["foo"])
+
+
+def test_fix_line_refs_content_change_requires_manual(tmp_path, monkeypatch):
+    """内容变了不是纯移动：保持判红并退 1，不得改文档或基线。"""
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    target = tmp_path / "target.py"
+    target.write_text("line1\nbar\nline3\n", encoding="utf-8")
+    doc = tmp_path / "docs" / "test.md"
+    original_doc = "See target.py:2.\n"
+    doc.write_text(original_doc, encoding="utf-8")
+    _write_fix_baseline(
+        tmp_path,
+        {
+            "docs/test.md -> target.py:2": {
+                "target": "target.py",
+                "sha8": gate._sha8(["foo"]),
+                "source": "foo",
+            }
+        },
+    )
+    rc = _run_fix_line_refs(tmp_path, monkeypatch)
+    assert rc == 1
+    assert doc.read_text(encoding="utf-8") == original_doc
+    baseline = json.loads(
+        (tmp_path / "docs" / "agent-line-refs-baseline.json").read_text(encoding="utf-8")
+    )
+    assert "docs/test.md -> target.py:2" in baseline["refs"]
+
+
+def test_fix_line_refs_multiple_matches_requires_manual(tmp_path, monkeypatch):
+    """原文在目标文件中出现多处：无法唯一重定位，交人工。"""
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    target = tmp_path / "target.py"
+    # 第 1 行不再是 foo，而 foo 在后面出现两次
+    target.write_text("bar\nfoo\nline3\nfoo\nline5\n", encoding="utf-8")
+    doc = tmp_path / "docs" / "test.md"
+    original_doc = "See target.py:1.\n"
+    doc.write_text(original_doc, encoding="utf-8")
+    _write_fix_baseline(
+        tmp_path,
+        {
+            "docs/test.md -> target.py:1": {
+                "target": "target.py",
+                "sha8": gate._sha8(["foo"]),
+                "source": "foo",
+            }
+        },
+    )
+    rc = _run_fix_line_refs(tmp_path, monkeypatch)
+    assert rc == 1
+    assert doc.read_text(encoding="utf-8") == original_doc
+
+
+def test_fix_line_refs_no_drift_returns_zero_and_unchanged(tmp_path, monkeypatch):
+    """基线与当前一致时：无漂移，退 0，不改任何文件。"""
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    target = tmp_path / "target.py"
+    target.write_text("line1\nfoo\nline3\n", encoding="utf-8")
+    doc = tmp_path / "docs" / "test.md"
+    original_doc = "See target.py:2.\n"
+    doc.write_text(original_doc, encoding="utf-8")
+    original_baseline = {
+        "docs/test.md -> target.py:2": {
+            "target": "target.py",
+            "sha8": gate._sha8(["foo"]),
+            "source": "foo",
+        }
+    }
+    _write_fix_baseline(tmp_path, original_baseline)
+    rc = _run_fix_line_refs(tmp_path, monkeypatch)
+    assert rc == 0
+    assert doc.read_text(encoding="utf-8") == original_doc
+    baseline = json.loads(
+        (tmp_path / "docs" / "agent-line-refs-baseline.json").read_text(encoding="utf-8")
+    )
+    assert baseline["refs"] == original_baseline
+
+
+def test_fix_line_refs_old_baseline_without_source_requires_manual(tmp_path, monkeypatch):
+    """兼容旧基线：条目无 source 字段时不能直接自动重定位，交人工。"""
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    target = tmp_path / "target.py"
+    target.write_text("line1\nline2\nline3\nfoo\nline5\n", encoding="utf-8")
+    doc = tmp_path / "docs" / "test.md"
+    original_doc = "See target.py:2.\n"
+    doc.write_text(original_doc, encoding="utf-8")
+    _write_fix_baseline(
+        tmp_path,
+        {
+            "docs/test.md -> target.py:2": {
+                "target": "target.py",
+                "sha8": gate._sha8(["bar"]),
+                # 故意缺少 source
+            }
+        },
+    )
+    rc = _run_fix_line_refs(tmp_path, monkeypatch)
+    assert rc == 1
+    assert doc.read_text(encoding="utf-8") == original_doc
 
 
 
