@@ -24,14 +24,15 @@
 | 文件 | 说明 |
 |------|------|
 | `mcp-server/hutuji_mcp/quickdraw.py` | 运行时模块：类目映射 + 笔画加载 + 复用位图产物面 |
-| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v2（199 键 → 145 官方在册类目，已对账 categories.txt） |
+| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v3（372 键 → 298 官方在册类目，已对账 categories.txt；手机改指 cell phone） |
 | `mcp-server/hutuji_mcp/QUICKDRAW-ATTRIBUTION.md` | CC BY 4.0 署名文件 |
 | `mcp-server/hutuji_mcp/{config.py,server.py}`（已修改） | `HUTUJI_QUICKDRAW_DIR` 配置项 + `_run_draw_job` 命中旁路 |
 | `mcp-server/scripts/quickdraw_prep.py` | 数据准备脚本（蓄水池采样、quote 编码、固定种子可复现） |
 | `mcp-server/tests/test_quickdraw.py` | 12 项契约/集成测试 |
-| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（145 类 × 200 条 ≈ 10MiB，gitignored 目录内） |
+| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（298 类 × 200 条 ≈ 20MiB，gitignored 目录内） |
 | `results/local-only/2026-08-24/aliyun-47.112.162.80-inventory.txt` | 阿里云盘点 + Recraft 可达性探测证据 |
 | 验证状态 | hub 门禁 PASS（pytest 952/952 + e2e）；真实数据 E2E（猫→G-code 91 行/2020B）；生产冒烟 hit/miss 双过（证据 `results/local-only/2026-08-24/quickdraw-deploy-evidence.md`）。preflight 20/30 经置空 env A/B 对照证实为阿里云基线漂移（非本次回归），与 inventory 早前「08-23 阿里云 30/30」记录矛盾，待另案回查 |
+| `docs/design/s3-stream-pacing-investigation.md` | 喂流爬行调查：97% 时间等应答、主嫌疑 Grbl WiFi 省电 DTIM 批化；方案 A-D 待实机窗口（A 超 §9 白名单需用户点名） |
 
 ### 已修改文件（此前任务遗留，非本调研任务）
 | 文件 | 变更类型 | 来源任务 | 说明 |

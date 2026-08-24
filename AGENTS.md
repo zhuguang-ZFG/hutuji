@@ -112,7 +112,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - `mcp-server/hutuji_mcp/gcode_gen.py` — vpype 管线、限幅常量、`validate_gcode()`。
 - `mcp-server/hutuji_mcp/hutuji_gwrite.toml` — 生产 G-code profile（逐字对齐 §5）。
 - `mcp-server/hutuji_mcp/llm_svg.py` — LLM 调用 + `_validate_svg()` 注入闸门。
-- `mcp-server/hutuji_mcp/quickdraw.py` — Quick Draw 本地缓存（2026-08-24 落地）：`lookup()` 命中即免付费生图，复用位图路线产物面；数据根走 `HUTUJI_QUICKDRAW_DIR`，类目映射 `quickdraw_categories.json`（v2 已对账官方 345 类），署名 `QUICKDRAW-ATTRIBUTION.md`。
+- `mcp-server/hutuji_mcp/quickdraw.py` — Quick Draw 本地缓存（2026-08-24 落地）：`lookup()` 命中即免付费生图，复用位图路线产物面；数据根走 `HUTUJI_QUICKDRAW_DIR`，类目映射 `quickdraw_categories.json`（v3：372 键 → 297 官方在册类目，已对账 categories.txt），署名 `QUICKDRAW-ATTRIBUTION.md`。
 - `mcp-server/hutuji_mcp/{redact,cloud_bridge}.py` — `redact.py` 是 MCP/桥接/取证脚本共用的日志脱敏唯一实现；`cloud_bridge.py` 负责小智云 WSS ↔ 本机 `/mcp`（spawn `mcp-proxy`，带脱敏、重连与空闲/错误探活：空闲 60s 或工具 isError/顶层 JSON-RPC error 回包后经 proxy 发真 `tools/list`，探针回包本地消费，25s 无响应判死重建 proxy；云端 60s ping 心跳由 proxy 本地应答、不过 proxy→MCP 链路，**不刷新空闲钟**否则探活被同周期心跳永久压住）。
 - `mcp-server/hutuji_mcp/{grbl_sim,pipe_sim}.py` — 假 Grbl / 假 S3，e2e 与本地调试用。
 - `mcp-server/hutuji_mcp/activation_relay.py` — 激活码中转：设备 POST 激活码到 `/register`，服务器持控制台 token 代绑小智 agent（无感激活）；token 缺失回 503，日志永不记码。

@@ -80,7 +80,7 @@
 
 > **生图后端边界（2026-08-20）**：正式 `hutuji_draw` 始终保持「PNG → 中心线描摹 → SVG → G-code」。同题完整 draw 事务由独立任务持有，云端取消只结束 waiter；约 35 秒重试复用原任务、同一个限流名额、同一份产物，不得另起付费生成。位图层另有 10 分钟/16 项中心线缓存与覆盖生图+描摹的 in-flight 合并；未命中时商汤 `sensenova-u1-fast`、Agnes、imagefree 与可选硅流（schnell + 可图 Kolors）并发对冲、谁先出图用谁，商汤瞬态 500 快速重试一次，全失败才报错。同一逻辑生成轮仍按既定对冲同时调用已配置后端；取消重试去重不改变该成本/延迟决策。同一 SVG 的 G-code 内容缓存命中时跳过 vpype；禁止切成模型直写 SVG。Pollinations 经 6 个冷 seed + 真实描摹否决（5 次 44–46s，含照片/3D 阴影与纹理，描摹 300s 未收敛），不得加入正式 racer。聊天中出现过的 key 视为泄露，不得使用。
 
-> **本地缓存优先（2026-08-24，设计稿用户批准）**：`hutuji_draw` 事务在付费生图前先查 Quick Draw 本地缓存（`quickdraw.lookup`，中文主题→官方类目映射 v2 已对账 categories.txt，145 类 × 200 条 ≈ 10MiB）；命中则跳过生图与限流名额，直接复用位图路线的同一 SVG 产物面与 §5 校验（含预览 PNG），未命中/禁用/数据损坏一律回落既有 AI 对冲。数据由 `mcp-server/scripts/quickdraw_prep.py` 离线准备（CC BY 4.0 署名见 `mcp-server/hutuji_mcp/QUICKDRAW-ATTRIBUTION.md`），生产开关 `HUTUJI_QUICKDRAW_DIR`，空值即回纯 AI 链。
+> **本地缓存优先（2026-08-24，设计稿用户批准）**：`hutuji_draw` 事务在付费生图前先查 Quick Draw 本地缓存（`quickdraw.lookup`，中文主题→官方类目映射 v3 已对账 categories.txt，298 类 × 200 条 ≈ 20MiB）；命中则跳过生图与限流名额，直接复用位图路线的同一 SVG 产物面与 §5 校验（含预览 PNG），未命中/禁用/数据损坏一律回落既有 AI 对冲。数据由 `mcp-server/scripts/quickdraw_prep.py` 离线准备（CC BY 4.0 署名见 `mcp-server/hutuji_mcp/QUICKDRAW-ATTRIBUTION.md`），生产开关 `HUTUJI_QUICKDRAW_DIR`，空值即回纯 AI 链。
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
 实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。
