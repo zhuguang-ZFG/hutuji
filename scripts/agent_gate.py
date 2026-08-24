@@ -808,9 +808,10 @@ _DOC_REF_FULLWIDTH_RE = re.compile(
     r"([A-Za-z0-9_./\\-]+\.(?:py|toml|c|cc|cpp|h|hpp|sh|json|mdc|md|conf|service|ino))：(\d+)"
 )
 
-# basename 兜底解析时跳过的目录：虚拟环境 / 缓存 / 产物 / 代理临时 worktree
-# （`.claude/worktrees/*` 是整仓副本，会让每个 basename 都有多个命中）。既避免误判
-# 到第三方同名文件，也避免同名把「唯一命中」打破、导致本该校验的引用被白白跳过。
+# basename 兜底解析时跳过的目录：虚拟环境 / 缓存 / 产物 / 代理临时 worktree / 临时暂存树
+# （`.claude/worktrees/*` 是整仓副本，会让每个 basename 都有多个命中；根 `tmp/` 还包含
+# deploy/release 暂存副本）。既避免误判到第三方同名文件，也避免同名把「唯一命中」打破、
+# 导致本该校验的引用被白白跳过。
 _REF_SKIP_DIRS = {
     ".venv",
     ".git",
@@ -820,6 +821,7 @@ _REF_SKIP_DIRS = {
     "node_modules",
     "output",
     "results",
+    "tmp",
 }
 
 

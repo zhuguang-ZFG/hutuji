@@ -30,3 +30,11 @@ Thumbs.db
 # 本地构建产物日志 / Claude 工作树
 build*_out.txt
 .claude/
+
+# Quick Draw 数据集本体（CC BY 4.0 素材，入库即构成再分发）
+# 2026-08-24 用户 advisory 点名新增**窄规则**：只忽略数据集，不整目录忽略 tmp/——
+# AGENTS.md 仍引用根 tmp/ 的刷机/抓包工具（flash_hil_ws35.ps1、reset_wdt_capture.py），
+# 整目录忽略会把它们变成只在本机的隐形文件。mcp-server/tmp/ 下 .py 工具与 abkit/twoopt
+# 实验件保持可见、提交仍须点名。
+mcp-server/tmp/quickdraw-data/
+mcp-server/tmp/**/*.jsonl

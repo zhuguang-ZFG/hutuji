@@ -54,7 +54,7 @@
 `firmware/*.md` / `.cursor/rules/*.mdc` 里的 `file.ext:12` 与 `file.ext:12-34` 引用，
 校验目标文件行数覆盖该行号（区间取较大端），并校验区间本身的语义：
 
-- 只认能**唯一**落到本仓的引用：相对路径直接命中，或裸文件名在本仓内恰好 1 个同名文件命中；`.venv`/`.claude`/`results`/`output` 等副本目录不参与解析（`.claude/worktrees/*` 是整仓副本，会把唯一性打破）。
+- 只认能**唯一**落到本仓的引用：相对路径直接命中，或裸文件名在本仓内恰好 1 个同名文件命中；`.venv`/`.claude`/`.pytest_cache`/`results`/`output`/`tmp` 等副本、缓存与暂存目录不参与解析（`.claude/worktrees/*` 是整仓副本，会把唯一性打破；根 `tmp/` 的 deploy/release 暂存副本同理）。
 - 落不到本仓的引用（fork 侧、逆向产物）本层一律跳过，由下面的 `external_doc_line_refs` 接管（`hub` 起就跑）。本层不管「路径拼错」。
 - **扫描面是单一真值 `_doc_scan_files()`，三层共用**（本层 / `external_doc_line_refs` / `line_ref_fingerprints`）。原先三层各自内联同一份 glob，`GOVERNANCE_DOCS` 里的 `.cursor/rules/hutuji-agent-rails.mdc` 不落在任何一条 glob 上，被三层同时漏掉（2026-08-11 code review 实测）。理由同 `required_file_set()`：清单散成三处，新增一类文档要改三处，漏改一处那层就静默失去覆盖。`test_gate_doc_scan_surface_covers_every_governance_doc` 从 `GOVERNANCE_DOCS` 派生断言而非静态清单，下次新增治理文档漏进扫描面即红。**`firmware/*.md` 与那份 `.mdc` 当前都还没有 `path:line` 引用**，这两条 glob 是先把面封住，不是修好了既有漏判。
 - **路径归一化两条硬约束**（均有回归测试，都是上述 review 里实测取到的 RED）：① 只剥真正的 `./` 前缀（`removeprefix`，不是 `lstrip("./")`）——按字符集剥离会把 `.cursor/rules/x.mdc` 吃成 `cursor/rules/x.mdc`，引用永远解析不到，且落进「跳过」而非判红。② `ROOT / ref` 之后必须 `relative_to(ROOT)` 成立才算本仓命中，否则交外仓层：`_DOC_REF_RE` 的字符集不含 `:`，故 `D:/Users/…` 的引用被截成 `/Users/…`，而 Windows 上 `Path("D:/Users/hutuji") / "/Users/xiaozhi-esp32/x.cc"` 恰好等于真实存在的 `D:/Users/xiaozhi-esp32/x.cc`，旧实现据此判为本仓命中，指纹层随后在 `relative_to` 抛 `ValueError` **让整扇门禁崩溃而非判红**。旧 `lstrip` 顺手剥掉了前导 `/` 才一直没暴露——那是巧合，不是防线。

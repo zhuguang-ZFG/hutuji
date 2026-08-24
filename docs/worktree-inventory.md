@@ -20,18 +20,18 @@
 | `memory_user.json` | 用户记忆 JSON 备份 |
 | `tmp/` | 临时工作目录 |
 
-### Quick Draw 本地缓存落地（2026-08-24 设计稿用户批准后实施，已提交 `92b00b7`+`2e0b1f2` 并推 origin，**已部署阿里云生产**）
+### Quick Draw 本地缓存落地（2026-08-24 设计稿用户批准后实施，已提交 `92b00b7`+`2e0b1f2` 并推 origin，既有版本已部署阿里云生产；本轮修复待部署）
 | 文件 | 说明 |
 |------|------|
 | `mcp-server/hutuji_mcp/quickdraw.py` | 运行时模块：类目映射 + 笔画加载 + 复用位图产物面 |
-| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v3（372 键 → 298 官方在册类目，已对账 categories.txt；手机改指 cell phone） |
+| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v3（**387 别名键 → 298 官方在册类目**，已对账 categories.txt；手机改指 cell phone）。2026-08-24 实测：去 `_meta` 后 387 键、去重后 298 值，与 `quickdraw-data/` 的 298 个 `.jsonl` 双向零差；本轮补入 14 个多字别名覆盖原单字类目 |
 | `mcp-server/hutuji_mcp/QUICKDRAW-ATTRIBUTION.md` | CC BY 4.0 署名文件 |
 | `mcp-server/hutuji_mcp/{config.py,server.py}`（已修改） | `HUTUJI_QUICKDRAW_DIR` 配置项 + `_run_draw_job` 命中旁路 |
 | `mcp-server/scripts/quickdraw_prep.py` | 数据准备脚本（蓄水池采样、quote 编码、固定种子可复现） |
-| `mcp-server/tests/test_quickdraw.py` | 12 项契约/集成测试 |
-| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（298 类 × 200 条 ≈ 20MiB，gitignored 目录内） |
+| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离） |
+| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（298 类 × 200 条 ≈ 20MiB）。历史误记「gitignored 目录内」已于 2026-08-24 撤（实测 `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 干跑可见 314 文件）。**决策状态（2026-08-24 用户 advisory 点名）**：本页 `edf68e7` 条目「不新增忽略规则」对**整目录忽略 tmp/** 仍成立——advisory 同文否决整目录方案：AGENTS.md 刷机坑段引用根 `tmp/` 工具（flash_hil_ws35.ps1、reset_wdt_capture.py），整目录忽略会把它们变成只在本机的隐形文件；仅对**数据集本体**开窄例外：`.gitignore` 新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条——后者兜住 qd_smoke/qd_trial/qd_verify 下 4 个散落 .jsonl（同属 CC BY 4.0 素材，入库即构成再分发）。实测 `check-ignore -v` 双向命中正确、`git add -An` 下数据集不可见；mcp-server/tmp/ 剩余可见面 = 12 个实验/工具件（abkit、twoopt_star、capture_resilient.py 等，干跑实测）**仍未忽略**，故**禁止 `git add .`/`git add -A`**，提交必须点名暂存 |
 | `results/local-only/2026-08-24/aliyun-47.112.162.80-inventory.txt` | 阿里云盘点 + Recraft 可达性探测证据 |
-| 验证状态 | hub 门禁 PASS（pytest 952/952 + e2e）；真实数据 E2E（猫→G-code 91 行/2020B）；生产冒烟 hit/miss 双过（证据 `results/local-only/2026-08-24/quickdraw-deploy-evidence.md`）。preflight 20/30 经置空 env A/B 对照证实为阿里云基线漂移（非本次回归），与 inventory 早前「08-23 阿里云 30/30」记录矛盾，待另案回查 |
+| 验证状态 | hub 门禁 **PASS（本轮 13/13）**；全量 pytest **976/976**、e2e `PASS`；docs 指纹 216/216、外仓引用 212/212；Quick Draw 映射 387 键→298 类、14 个单字孤儿类目均有多字别名且跨类子串碰撞为 0；最长优先 4 个真实碰撞断言通过；服务异步 vpype 转换最多 2 个并发且取消/超时回归通过；生产既有 hit/miss 冒烟证据仍有效，**本轮修复尚未部署生产，命中率与运行态资源闸未复验**；根 `tmp/` 暂存副本已纳入 `scripts/agent_gate.py` `_REF_SKIP_DIRS`，原 basename 假绿根因已修 |
 | `docs/design/s3-stream-pacing-investigation.md` | 喂流爬行调查：97% 时间等应答、主嫌疑 Grbl WiFi 省电 DTIM 批化；方案 A-D 待实机窗口（A 超 §9 白名单需用户点名） |
 
 ### 已修改文件（此前任务遗留，非本调研任务）
