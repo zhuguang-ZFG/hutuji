@@ -1,9 +1,9 @@
 # Quick Draw 本地缓存落地设计（v1.0，已实施）
 
 > 状态：✅ 已实施（2026-08-24 用户批准后同日落地）：`quickdraw.py` + 类目映射 v3
-> （372 键 → 298 官方在册类目，同日应用户「更多主题」扩类）+ `quickdraw_prep.py` + 14 项测试全绿 + hub 门禁 PASS
-> （954/954 + e2e）；全量数据 298 类 × 200 条 ≈ 20MiB 已备于 `mcp-server/tmp/quickdraw-data/`。
-> v2 已于同日部署阿里云生产（145 类）；v3 298 类数据与映射随后部署。真机 HIL 见 §11 里程碑 3。
+> （387 键 → 298 官方在册类目，同日应用户「更多主题」扩类）+ `quickdraw_prep.py` + 34 项测试全绿 + hub 门禁 PASS
+> （976/976 + e2e）；全量数据 298 类 × 200 条 ≈ 20MiB 已备于 `mcp-server/tmp/quickdraw-data/`。
+> v3 已于同日部署阿里云生产（373 键 / 298 类）；本轮新增 14 个增强别名至 387 键，尚未部署生产。真机 HIL 见 §11 里程碑 3。
 > 依据是仓根 `lineart-research-report.md`（2026-08-24 调研）的首推路线。
 > 非目标：OpenClipart（phase-2 可选，仅当 CC BY 署名成问题）、SVG-Repo /
 > PublicDomainVectors / PlotterFiles（已否决，见 §13）、汉字笔顺库（另行立项）。
