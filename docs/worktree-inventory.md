@@ -19,6 +19,12 @@
 | `USER_MEMORY.md` | 用户记忆备份（跨会话持久化） |
 | `memory_user.json` | 用户记忆 JSON 备份 |
 | `tmp/` | 临时工作目录 |
+| `mcp-server/tmp/{telnet_draw_test,two_opt_ab,capture_resilient,motion_profile_analysis}.py` | 喂流/运动实验件（F 提速 A/B 与 2-opt 排除用；2026-08-25 advisory 后已改：`telnet_draw_test.py` 送机前强制过生产 `validate_gcode`（exit 6 拒发），`two_opt_ab.py` 弃手抄步序改复用 `_vpype_command()` 仅注入 `--two-opt`）。保留本地不入库 |
+| `mcp-server/tmp/qd_categories.txt` | QD 类目清单工作副本，保留本地 |
+| `mcp-server/tmp/abkit/`（star.svg + draw_f8000/f10000/f12000.gcode） | F 变体实验件。**`draw_f12000.gcode` 违 §5（头行 F12000、全行 F12000>10000 上限）——禁上机**，现由 `telnet_draw_test.py` 的 validate 闸拦截；f8000/f10000 合法仅作对照。保留本地 |
+| `mcp-server/tmp/twoopt_star/{cur,opt}.gcode` | 2-opt A/B 输出对照件，保留本地 |
+| `mcp-server/tmp/qd_verify/cat.{gcode,jsonl}` | QD 命中验证产物（jsonl 已被 `.gitignore` 窄规则盖住）；保留本地 |
+| `tmp/build_jog_ws35.ps1`、`tmp/flash_jog_ws35.ps1` | jog 批构建/烧录脚本（`--after=watchdog-reset` 路径，与既有 flash_hil 同构），保留本地 |
 
 ### Quick Draw 本地缓存落地（2026-08-24 设计稿用户批准后实施，已提交 `92b00b7`+`2e0b1f2` 并推 origin；本日复核修复 `1952caa` 已部署阿里云生产并同步京东云热备，两机运行时面与 HEAD 一致）
 | 文件 | 说明 |
@@ -78,7 +84,7 @@
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
 
-**工作树干净（2026-08-24 语音手动控制批已提交 `fb9eeb2`，未推 origin；**已刷 COM14**）**：`hutuji_recovery_core.h`（+`kVoiceManualActions`/`IsVoiceAllowedAction` 语音白名单）、双板注册 `hutuji.manual`（描述逐字一致）、宿主白名单测试。HEAD `fb9eeb2`（父 `bf0b295` 灌流屏显 250ms 节流 + 撤缺纸预检）。**板上镜像已换**：`build-jog-ws35/xiaozhi.bin` 3,016,464B SHA-256 `259be53a…71c1`，2026-08-24 23:33 经 `tmp/flash_jog_ws35.ps1`（`--after=watchdog-reset`）刷入 COM14，`Hash of data verified`；重启抓包 0 panic、唤醒词 小派/MultiNet7 正常、HutujiPipe 连 Grbl 收 fresh `Idle`；二进制含 `hutuji.manual` 与描述串（注册日志行落 USJ 重枚举丢失窗，与历史 HIL 捕获同态，v9 日志同样不见既有 11 工具的注册行）。宿主 135/135。**语音 HIL 待做**。
+**工作树干净（2026-08-24 语音手动控制批 `fb9eeb2` + 2026-08-25 落笔棘轮闸批 `25b7dd0`，均未推 origin；均已刷 COM14）**：语音白名单 + 双板 `hutuji.manual` 注册（`fb9eeb2`）；落笔棘轮修复（`25b7dd0`）——pen_down 的 G92 重设基准序列重复触发会逐次压深 5mm（无限位、语音面摩擦最低），现以 `manual_pen_down_latched_` 原子锁存幂等短路，SetState 进任何非 settled/manual 态即清除强制重校准；双板描述逐字补幂等语义与方向映射（左=X- 右=X+ 前=Y+ 后=Y-）。host **135/135**。**板上镜像**：`build-jog-ws35/xiaozhi.bin` 3,016,816B SHA-256 `3ef41da7…80fc`（= `25b7dd0` 内容），2026-08-25 经 `tmp/flash_jog_ws35.ps1` 刷入 COM14，`Hash of data verified`；前镜像 `259be53a…71c1`（= `fb9eeb2`）同路径 23:33 首刷证据：重启抓包 0 panic、唤醒词 小派/MultiNet7 正常、HutujiPipe 连 Grbl 收 fresh `Idle`；注册日志行落控制台丢失窗与历史 HIL 同态（v9 日志同样不见既有 11 工具的注册行），二进制字符串证据补链。**语音 HIL 待做**。
 
 ### 批次登记与板上镜像（HEAD 存档并入）
 

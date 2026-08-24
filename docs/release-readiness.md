@@ -80,7 +80,7 @@
 | 9 | Quick Draw 子串最长优先回归覆盖 | ✅ 本地 `test_quickdraw.py` 真实碰撞对断言已补；本机全量 pytest 976/976 通过；无新增生产行为 |
 | 10 | Quick Draw 14 类单字类目增强短语覆盖 | ✅ 14 个多字别名已随 `quickdraw_categories.json`（387 键）部署阿里云生产（2026-08-24，sha256 对账）；生产 hit 冒烟「画一只小猫」命中 `category=cat`、0.714s、无付费生图日志；生产 lookup 类目覆盖 **23/23**（含 14 修复类目全 HIT）；真实语音命中率统计未执行 |
 | 11 | Quick Draw 命中路径 vpype 并发资源闸 | ✅ `svg_to_gcode_async` 资源闸已随 `gcode_gen.py` 部署生产（2026-08-24，sha256 对账 + ExecStartPre 自检过）；本地取消/超时回归与全量 pytest 976/976 通过；生产 6 并发 hit 出图一浪全 OK（墙钟 2.29s、同秒 6 产物、付费日志 0 条，行为与闸一致） |
-| 12 | 小派语音手动控制（`hutuji.manual`） | 🟡 设备侧代码就绪并已刷机（2026-08-24）：复用屏幕手动面板机制（`RequestManualControl` 全套防线：settled 态闸、busy 闸、新鲜 `?` 坐标 + `DecideJog` 包线、逐行应答），语音白名单过滤维护动作（宿主 135/135）；双板注册描述逐字一致；`fb9eeb2` 构建 `build-jog-ws35/xiaozhi.bin` SHA-256 `259be53a…71c1` 已刷 COM14（`--after=watchdog-reset`，`Hash of data verified`；重启抓包 0 panic、唤醒词 小派/MultiNet7 正常、HutujiPipe 连 Grbl 收 fresh Idle；二进制含工具名与描述串）。**待验：语音 HIL**（点动/抬落笔/回原点/步距切换/越界拒绝/忙态拒绝） |
+| 12 | 小派语音手动控制（`hutuji.manual`） | 🟡 设备侧代码就绪并已刷机（2026-08-25）：复用屏幕手动面板机制（settled 态闸、busy 闸、新鲜 `?` 坐标 + `DecideJog` 包线、逐行应答），语音白名单过滤维护动作；**落笔棘轮闸**（`25b7dd0`）——pen_down 的 G92 重设基准序列重复触发会逐次压深 5mm（无限位、语音面摩擦最低），现原子锁存幂等短路 + SetState 接管清除 + 双板描述补幂等语义与方向映射（左=X- 右=X+ 前=Y+ 后=Y-）；host 135/135；板上镜像 `build-jog-ws35/xiaozhi.bin` 3,016,816B SHA-256 `3ef41da7…80fc`（= `25b7dd0`）已刷 COM14（`Hash of data verified`；首刷 `259be53a…71c1`=fb9eeb2 的重启抓包证据：0 panic、唤醒词 小派/MultiNet7、HutujiPipe fresh Idle；注册日志行落控制台丢失窗与历史 HIL 同态，二进制字符串补链）。**待验：语音 HIL**（点动/抬落笔含重复落笔幂等/回原点/步距切换/越界拒绝/忙态拒绝） |
 
 > **BLE 修复实现边界**：只改 `hutuji_ble_diag.cc` 的 NimBLE 广播刷新生命周期：停止广播后把数据设置与重启排到独立 host event；快照刷新与地址轮换共用 pending event，轮换优先；过期 event 无动作返回；定时器重挂失败继续 fail-closed；`Shutdown()` 幂等并移除排队事件。WiFi/Telnet/job 路径未改。
 
