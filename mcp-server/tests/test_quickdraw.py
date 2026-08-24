@@ -1,0 +1,188 @@
+"""Quick Draw 本地缓存契约与集成测试（设计稿 docs/design/quickdraw-local-cache.md §10）。
+
+约定同 test_contract.py：函数式、monkeypatch 模块全局、tmp_path、asyncio.run。
+每条假数据目录只两类各三条，lookup 集成走真实 vpype 转换（~1s/次）。
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from hutuji_mcp import quickdraw, server
+from hutuji_mcp.bitmap_svg import BitmapResult
+from hutuji_mcp.gcode_gen import validate_gcode
+from hutuji_mcp.llm_svg import _validate_svg
+
+_ENTRY = {"strokes": [[[10, 20, 30, 40], [10, 25, 30, 45]], [[50, 60, 70], [200, 210, 205]]]}
+_BASE_URL = "http://127.0.0.1:8300"
+
+
+@pytest.fixture(autouse=True)
+def _reset_caches():
+    quickdraw._category_map.cache_clear()
+    quickdraw._load_entries.cache_clear()
+    quickdraw._warned.clear()
+    yield
+    quickdraw._category_map.cache_clear()
+    quickdraw._load_entries.cache_clear()
+    quickdraw._warned.clear()
+
+
+@pytest.fixture()
+def data_dir(tmp_path: Path) -> Path:
+    d = tmp_path / "qd"
+    d.mkdir()
+    (d / "cat.jsonl").write_text("\n".join(json.dumps(_ENTRY) for _ in range(3)), encoding="utf-8")
+    (d / "dog.jsonl").write_text(json.dumps(_ENTRY), encoding="utf-8")
+    return d
+
+
+def _use_dir(monkeypatch: pytest.MonkeyPatch, data_dir: Path | None) -> None:
+    monkeypatch.setattr(quickdraw, "settings", SimpleNamespace(quickdraw_dir=str(data_dir) if data_dir else ""))
+
+
+# ---------- 映射与前缀 ----------
+
+def test_match_exact(monkeypatch, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("猫") == "cat"
+    assert quickdraw._match_category("小狗") == "dog"
+
+
+def test_match_strips_draw_prefix(monkeypatch, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("画一只猫") == "cat"
+    assert quickdraw._match_category("画只猫") == "cat"
+    assert quickdraw._match_category("画猫") == "cat"
+    assert quickdraw._match_category("一只猫") == "cat"
+
+
+def test_match_never_strips_mid_string(monkeypatch, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("墙上画着猫") is None
+
+
+def test_match_unknown_returns_none(monkeypatch, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("未收录主题") is None
+    assert quickdraw._match_category("") is None
+
+
+# ---------- lookup 单元 ----------
+
+def test_lookup_disabled_returns_none_without_disk(monkeypatch, tmp_path):
+    _use_dir(monkeypatch, None)
+    ghost = tmp_path / "ghost"
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: (_ for _ in ()).throw(AssertionError("触盘")))
+    assert quickdraw.lookup("猫") is None
+
+
+def test_lookup_hit_shape_and_svg_contract(monkeypatch, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    result = quickdraw.lookup("猫")
+    assert isinstance(result, BitmapResult)
+    _validate_svg(result.svg)
+    assert result.svg.count("<polyline") == len(_ENTRY["strokes"])
+    assert 'fill="none"' in result.svg
+    assert result.preview_png.startswith(b"\x89PNG")
+
+
+def test_lookup_missing_category_data_is_miss(monkeypatch, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw.lookup("熊猫") is None  # 映射在案但无 panda.jsonl
+
+
+def test_lookup_corrupt_lines_tolerated(monkeypatch, data_dir):
+    (data_dir / "cat.jsonl").write_text(
+        json.dumps(_ENTRY) + "\n{坏json\n" + json.dumps({"strokes": "非列表"}) + "\n",
+        encoding="utf-8",
+    )
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw.lookup("猫") is not None  # 坏行跳过，好行仍可用
+
+
+def test_lookup_all_corrupt_is_miss_and_warns_once(monkeypatch, data_dir, caplog):
+    (data_dir / "cat.jsonl").write_text("{坏a\n{坏b\n", encoding="utf-8")
+    _use_dir(monkeypatch, data_dir)
+    with caplog.at_level("WARNING"):
+        assert quickdraw.lookup("猫") is None
+        first = sum("Quick Draw" in r.getMessage() for r in caplog.records)
+        assert first >= 1
+        assert quickdraw.lookup("猫") is None
+        second = sum("Quick Draw" in r.getMessage() for r in caplog.records)
+    assert second == first  # 同类失败重复查找不得重复告警
+
+
+class _SlotSpy:
+    """记录进入次数的异步上下文管理器；命中路径必须一次都不进。"""
+
+    def __init__(self):
+        self.entries = 0
+
+    async def __aenter__(self):
+        self.entries += 1
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _server_settings(output_dir: Path, **kw):
+    base = dict(output_dir=output_dir, output_ttl_seconds=600, xiaozhi_device_token="")
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_draw_job_hit_skips_paid_generation(monkeypatch, tmp_path, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    monkeypatch.setattr(server, "settings", _server_settings(tmp_path))
+    slot_spy = _SlotSpy()
+    monkeypatch.setattr(server, "_draw_limiter", SimpleNamespace(slot=lambda: slot_spy))
+
+    def _forbidden_generate(_desc):
+        raise AssertionError("命中路径不得调用付费生图")
+
+    monkeypatch.setattr(server, "generate_bitmap", _forbidden_generate)
+    payload = json.loads(asyncio.run(server._run_draw_job("猫", _BASE_URL)))
+    assert slot_spy.entries == 0
+    name = payload["url"].rsplit("/", 1)[-1]
+    assert name.endswith(".gcode")
+    stats = validate_gcode((tmp_path / name).read_text(encoding="utf-8"))
+    assert stats.lines == payload["lines"] and stats.pen_lifts == payload["pen_lifts"]
+    assert (tmp_path / name.replace(".gcode", ".svg")).exists()
+    assert (tmp_path / name.replace(".gcode", ".png")).exists()
+    assert payload["ttl_seconds"] == 600
+
+
+def test_draw_job_miss_falls_back_to_bitmap(monkeypatch, tmp_path, data_dir):
+    _use_dir(monkeypatch, data_dir)
+    monkeypatch.setattr(server, "settings", _server_settings(tmp_path))
+    slot_spy = _SlotSpy()
+    monkeypatch.setattr(server, "_draw_limiter", SimpleNamespace(slot=lambda: slot_spy))
+    calls = []
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
+        'viewBox="0 0 190 190"><path d="M20 20 L30 30 L40 20" fill="none" '
+        'stroke="black" stroke-width="0.5"/></svg>'
+    )
+
+    async def _fake_generate(desc):
+        calls.append(desc)
+        return BitmapResult(svg=svg, preview_png=b"\x89PNG-fake")
+
+    monkeypatch.setattr(server, "generate_bitmap", _fake_generate)
+    payload = json.loads(asyncio.run(server._run_draw_job("未收录主题", _BASE_URL)))
+    assert calls == ["未收录主题"]
+    assert slot_spy.entries == 1
+    assert payload["url"].endswith(".gcode")
+
+
+# ---------- 映射表自身卫生 ----------
+
+def test_category_map_file_wellformed():
+    mapping = quickdraw._category_map()
+    assert len(mapping) >= 100
+    assert all(k.strip() and v.strip() and " " not in k for k, v in mapping.items())

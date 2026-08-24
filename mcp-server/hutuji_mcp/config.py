@@ -108,6 +108,11 @@ class Settings:
     # SiliconFlow：可图已备案（Beijing-KeTu-202404280003）；单 key 即启用
     # schnell + 可图双 racer，空值禁用。base URL 固定官方端点，不走配置面。
     siliconflow_api_key: str = ""
+    # Quick Draw 本地缓存目录（quickdraw.lookup 的数据根；设计稿
+    # docs/design/quickdraw-local-cache.md）。空值 = 禁用并回落 AI 对冲；
+    # import 期不探测目录存在性（生产目录由部署保证），首次 lookup 惰性确认，
+    # 缺失/不可读按 miss 处理——可用性特性不加 fail-closed 面。
+    quickdraw_dir: str = ""
     # 激活码中转（activation_relay）：设备把 OTA 激活码 POST 给 /register，由服务器
     # 持控制台 token 代绑。token/agent_id 任一空 = 中转禁用（端点 503，设备走人工
     # 输码兜底）；api_base 必须是 https 且带主机名。
@@ -127,6 +132,9 @@ class Settings:
         # llm_configured 的非空闸，全部请求以 401 假性可用、掩盖部署事故。
         # 与下方 image_fallback_url 的 strip 同口径（MCPDetail-F1）。
         object.__setattr__(self, "llm_api_key", self.llm_api_key.strip())
+        # 与 llm_api_key 同口径：纯空白视同未配置，避免空白串被 Path(".") 类
+        # 解析成进程 CWD 而把整棵工作目录当数据根扫。
+        object.__setattr__(self, "quickdraw_dir", self.quickdraw_dir.strip())
         # 备用端点只允许 https 且必须带主机名（置空=禁用）；旧 startswith 前缀
         # 校验会放过裸 `https://`（无 hostname），与 validate_llm_base_url 的
         # urlsplit 口径对齐（MCPDetail-F8）。回显的是部署方自己的配置值，非凭据。
@@ -239,6 +247,7 @@ def load_settings() -> Settings:
         xiaozhi_device_token=os.environ.get("HUTUJI_XIAOZHI_DEVICE_TOKEN", ""),
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
         siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
+        quickdraw_dir=os.environ.get("HUTUJI_QUICKDRAW_DIR", ""),
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
