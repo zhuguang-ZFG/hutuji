@@ -186,3 +186,21 @@ def test_category_map_file_wellformed():
     mapping = quickdraw._category_map()
     assert len(mapping) >= 100
     assert all(k.strip() and v.strip() and " " not in k for k, v in mapping.items())
+
+def test_match_noun_morpheme_blocked(monkeypatch, data_dir):
+    """「画家/画板」等名词语素词不得被剥「画」误配（2026-08-24 review 发现）。"""
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("画家") is None
+    assert quickdraw._match_category("画板") is None
+    assert quickdraw._match_category("画笔") == "paintbrush"  # 精确整词优先于拦截
+    assert quickdraw._match_category("画猫") == "cat"  # 裸「画」动词前缀仍正常剥离
+
+
+def test_lookup_nonfinite_entry_skipped(monkeypatch, data_dir):
+    """含 NaN 坐标的条目在数据边界拒收，好条目仍可用。"""
+    bad = {"strokes": [[[0, float("nan")], [0, 1]]]}
+    (data_dir / "cat.jsonl").write_text(
+        json.dumps(bad) + "\n" + json.dumps(_ENTRY) + "\n", encoding="utf-8"
+    )
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw.lookup("猫") is not None

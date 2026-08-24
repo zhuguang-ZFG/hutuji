@@ -44,17 +44,12 @@ def _iter_ndjson_lines(category: str):
     须经 quote 编码（「sea turtle」→「sea%20turtle」），否则 urllib 抛 InvalidURL。"""
     url = f"{_GCS_BASE}/{quote(category)}.ndjson"
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
-    for attempt in range(1, _ATTEMPTS + 1):
-        try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
-                for raw in resp:
-                    yield raw
-            return
-        except urllib.error.HTTPError:
-            raise  # 404/403 不重试：类目名或权限问题，重试无意义
-        except (urllib.error.URLError, TimeoutError):
-            if attempt == _ATTEMPTS:
-                raise
+    # 单次尝试、不在本层重试：中途断流的重试必须发生在整类目级别（见
+    # _prep_category），否则本生成器从头重 yield 而调用方的蓄水池/计数不重置，
+    # 已消费行会重复入池，「同种子同产出」就被网络状况绑架了。
+    with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
+        for raw in resp:
+            yield raw
 
 
 def _prep_category(category: str, per_category: int, out_dir: Path, seed: int) -> tuple[int, int, int]:
@@ -62,34 +57,44 @@ def _prep_category(category: str, per_category: int, out_dir: Path, seed: int) -
 
     返回 (recognized 总数, 采样数, 输出字节数)。
     """
-    rng = random.Random(f"{seed}:{category}")
-    reservoir: list[dict] = []
-    recognized = 0
-    for raw in _iter_ndjson_lines(category):
+    # 重试在整类目级别：每次尝试都从全新 rng/蓄水池/计数开始，重试后的产物
+    # 与无重试的干净单遍逐字节一致（可复现性不被断流点污染）。
+    for attempt in range(1, _ATTEMPTS + 1):
+        rng = random.Random(f"{seed}:{category}")
+        reservoir: list[dict] = []
+        recognized = 0
         try:
-            row = json.loads(raw)
-        except ValueError:
-            continue
-        if not row.get("recognized"):
-            continue
-        strokes = []
-        for stroke in row.get("drawing", []):
-            # 简化版笔画为 [x[], y[]]（部分带第三路 t[]，忽略）
-            if len(stroke) < 2:
-                continue
-            xs, ys = stroke[0], stroke[1]
-            if len(xs) >= 2 and len(xs) == len(ys):
-                strokes.append([xs, ys])
-        if not strokes:
-            continue
-        recognized += 1
-        # 蓄水池采样：第 i 条以 N/i 概率替换随机槽位，单遍等概
-        if len(reservoir) < per_category:
-            reservoir.append({"strokes": strokes})
-        else:
-            j = rng.randrange(recognized)
-            if j < per_category:
-                reservoir[j] = {"strokes": strokes}
+            for raw in _iter_ndjson_lines(category):
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                if not row.get("recognized"):
+                    continue
+                strokes = []
+                for stroke in row.get("drawing", []):
+                    # 简化版笔画为 [x[], y[]]（部分带第三路 t[]，忽略）
+                    if len(stroke) < 2:
+                        continue
+                    xs, ys = stroke[0], stroke[1]
+                    if len(xs) >= 2 and len(xs) == len(ys):
+                        strokes.append([xs, ys])
+                if not strokes:
+                    continue
+                recognized += 1
+                # 蓄水池采样：第 i 条以 N/i 概率替换随机槽位，单遍等概
+                if len(reservoir) < per_category:
+                    reservoir.append({"strokes": strokes})
+                else:
+                    j = rng.randrange(recognized)
+                    if j < per_category:
+                        reservoir[j] = {"strokes": strokes}
+            break
+        except urllib.error.HTTPError:
+            raise  # 404/403 不重试：类目名或权限问题，重试无意义
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == _ATTEMPTS:
+                raise
     out_path = out_dir / f"{category}.jsonl"
     payload = "".join(json.dumps(e, separators=(",", ":")) + "\n" for e in reservoir)
     # newline="\n"：Windows text mode 会把 \n 翻成 \r\n，产物须跨平台逐字节一致

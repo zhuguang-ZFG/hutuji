@@ -34,13 +34,17 @@ _CANVAS_SIZE = 256
 # 类目数据常驻上限：与位图中心线缓存同量级（16 项），超出 LRU 逐出。
 _STROKE_CACHE_SIZE = 16
 
-# 命中失败时剥一层画动词/量词前缀再查一次（「画一只猫」→「猫」）。只剥开头、
-# 只剥一次：过度规范化会把「墙上画着猫」这类串误判成命中。备择必须最长在前
-# （Python 正则按序取首个命中），否则「画一只猫」会先被裸「画」剥成「一只猫」。
+# 命中失败时剥一层画动词/量词前缀再查一次（「画一只猫」→「猫」、「画猫」→「猫」）。
+# 只剥开头、只剥一次；备择最长在前（Python 正则按序取首个命中）。
+# 裸「画」保留：「画小猫」类说法覆盖面大；代价是「画」作名词语素的词
+# （画家/画板/画册…）会被误剥，由 _NO_STRIP 显式拦截——**往映射表新增
+# 单字键时必须复查这类冲突**（2026-08-24 review 发现「画家」→「家」错配）。
 _PREFIX_RE = re.compile(
     r"^(?:画一[只个幅张条朵棵辆架艘匹头尾群颗粒]|来一[只个幅张条]|"
     r"画[只个幅张条朵棵辆架艘匹头尾群颗粒]|一[只个幅张条朵棵辆架艘匹头尾群颗粒]|画)"
 )
+# 「画」作名词语素的整词不剥离（精确整词命中仍优先，如「画笔」在映射表内）。
+_NO_STRIP = frozenset({"画家", "画板", "画册", "画纸", "画室", "画像", "画展", "画风", "画布"})
 
 # 进程内同类失败只 warning 一次（防日志刷屏）：key = (原因, 类目)。
 _warned: set[tuple[str, str]] = set()
@@ -77,6 +81,8 @@ def _match_category(description: str) -> str | None:
     hit = mapping.get(description)
     if hit is not None:
         return hit
+    if description in _NO_STRIP:
+        return None
     stripped = _PREFIX_RE.sub("", description, count=1)
     if stripped and stripped != description:
         return mapping.get(stripped)
@@ -109,8 +115,13 @@ def _load_entries(data_dir: str, category: str) -> tuple | None:
                 for xs, ys in strokes
                 if len(xs) >= 2 and len(xs) == len(ys)
             )
-            if polys:
+            # 非有限坐标（NaN/Inf，json.loads 会收）在数据边界拒收：进入 SVG
+            # 会格式化成 "nan" 字符串，虽下游 vpype/validate_gcode 仍 fail-closed，
+            # 但边界拦截让坏数据在装载期就现形并按坏行计数。
+            if polys and all(np.isfinite(p).all() for p in polys):
                 entries.append(polys)
+            elif polys:
+                bad += 1
         except (ValueError, KeyError, TypeError):
             bad += 1
     if bad:
