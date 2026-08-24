@@ -24,10 +24,12 @@ _BASE_URL = "http://127.0.0.1:8300"
 @pytest.fixture(autouse=True)
 def _reset_caches():
     quickdraw._category_map.cache_clear()
+    quickdraw._substring_keys.cache_clear()
     quickdraw._load_entries.cache_clear()
     quickdraw._warned.clear()
     yield
     quickdraw._category_map.cache_clear()
+    quickdraw._substring_keys.cache_clear()
     quickdraw._load_entries.cache_clear()
     quickdraw._warned.clear()
 
@@ -207,13 +209,50 @@ def test_lookup_nonfinite_entry_skipped(monkeypatch, data_dir):
 
 
 def test_match_substring_fallback_for_enriched_phrases(monkeypatch, data_dir):
-    """生产实证回归：云端 role-prompt 增强短语必须子串兜底命中（2026-08-24 生产
-    零命中事件）——「单线简笔侧脸小猫」含「小猫」→ cat；最长优先防「猫头鹰」
-    被「猫」抢（testdata 只有 cat/dog，owl 不在数据目录也算类目命中即可）。"""
+    """生产实证回归：云端 role-prompt 增强短语必须子串兜底命中。"""
     _use_dir(monkeypatch, data_dir)
     assert quickdraw._match_category("单线简笔侧脸小猫") == "cat"
     assert quickdraw._match_category("给我画一只小狗好不好") == "dog"
     assert quickdraw._match_category("画一辆自行车") == "bicycle"  # 子串：自行车
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        ("单线简笔风格的皮卡车", "pickup truck"),
+        ("单线简笔的笔记本电脑", "laptop"),
+        ("单线简笔的面包车", "van"),
+        ("单线简笔的棒球棍", "baseball bat"),
+    ],
+)
+def test_match_substring_prefers_longest_alias(description, expected):
+    """真实碰撞对必须由最长键裁决；字典序会把它们错配到短键类目。"""
+    assert quickdraw._match_category(description) == expected
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        ("单线简笔的小蛇", "snake"),
+        ("单线简笔的神龙", "dragon"),
+        ("单线简笔的梨子", "pear"),
+        ("单线简笔的小草", "grass"),
+        ("单线简笔的山峰", "mountain"),
+        ("单线简笔的桥梁", "bridge"),
+        ("单线简笔的架子鼓", "drums"),
+        ("单线简笔的床铺", "bed"),
+        ("单线简笔的大门", "door"),
+        ("单线简笔的人脸", "face"),
+        ("单线简笔的手掌", "hand"),
+        ("单线简笔的大腿", "leg"),
+        ("单线简笔的脚掌", "foot"),
+        ("单线简笔的宝剑", "sword"),
+    ],
+)
+def test_match_substring_covers_single_character_categories(description, expected):
+    """只有单字旧别名的类目也必须有 ≥2 字别名承接增强短语。"""
+    assert quickdraw._match_category(description) == expected
+
 
 
 def test_match_substring_excludes_single_char_keys(monkeypatch, data_dir):

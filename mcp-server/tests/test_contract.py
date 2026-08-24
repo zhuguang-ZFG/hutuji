@@ -4207,6 +4207,81 @@ def test_svg_to_gcode_async_terminates_child_on_timeout(
     assert process.returncode == -15
 
 
+
+def test_svg_to_gcode_async_limits_subprocess_concurrency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """不同 SVG 的并发转换最多启动两个 vpype，Quick Draw 命中也不能绕开资源界。"""
+    active = 0
+    peak = 0
+    two_started = asyncio.Event()
+    release = asyncio.Event()
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            nonlocal active
+            await release.wait()
+            active -= 1
+            return b"", b""
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            return self.returncode
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active >= 2:
+            two_started.set()
+        return FakeProcess()
+
+    stats = gcode_gen.GcodeStats(lines=1, bytes=1, pen_lifts=0)
+    monkeypatch.setattr(gcode_gen.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(gcode_gen, "_read_generated_gcode", lambda _path: stats)
+
+    async def exercise() -> None:
+        tasks = [
+            asyncio.create_task(
+                gcode_gen.svg_to_gcode_async(tmp_path / f"{i}.svg", tmp_path / f"{i}.gcode")
+            )
+            for i in range(3)
+        ]
+        await asyncio.wait_for(two_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert peak == 2
+        release.set()
+        assert await asyncio.gather(*tasks) == [stats, stats, stats]
+
+    asyncio.run(exercise())
+
+
+
+def test_gate_repo_index_skips_tmp_staging_copies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """根 tmp 的部署/发布副本不得破坏本仓源码 basename 唯一解析。"""
+    gate = _load_agent_gate()
+    source = tmp_path / "mcp-server" / "pkg" / "server.py"
+    staging = tmp_path / "tmp" / "deploy-copy" / "pkg" / "server.py"
+    source.parent.mkdir(parents=True)
+    staging.parent.mkdir(parents=True)
+    source.write_text("source\n", encoding="utf-8")
+    staging.write_text("copy\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    index = gate._repo_file_index()
+
+    assert index["server.py"] == [source]
+    assert gate._resolve_doc_ref("server.py", index) == source
+
 def test_svg_to_gcode_async_runs_real_vpype_pipeline(tmp_path: Path) -> None:
     """异步生产入口必须能启动真实 vpype，并产出通过 §5 校验的文件。"""
     from hutuji_mcp import gcode_gen
@@ -6202,6 +6277,24 @@ def test_gate_forbidden_claims_catches_zero_width_joined_claim(
     assert result["status"] == "fail", result
     assert "README.md" in result["detail"]
 
+
+def test_gate_repo_index_skips_tmp_staging_copies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """根 tmp 的部署/发布副本不得破坏本仓源码 basename 唯一解析。"""
+    gate = _load_agent_gate()
+    source = tmp_path / "mcp-server" / "pkg" / "server.py"
+    staging = tmp_path / "tmp" / "deploy-copy" / "pkg" / "server.py"
+    source.parent.mkdir(parents=True)
+    staging.parent.mkdir(parents=True)
+    source.write_text("source\n", encoding="utf-8")
+    staging.write_text("copy\n", encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+
+    index = gate._repo_file_index()
+
+    assert index["server.py"] == [source]
+    assert gate._resolve_doc_ref("server.py", index) == source
 
 def test_gate_doc_line_refs_flags_fullwidth_colon(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

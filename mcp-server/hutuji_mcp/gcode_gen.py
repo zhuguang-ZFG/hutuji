@@ -15,10 +15,28 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 
 _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
+
+# vpype 是外部进程；Quick Draw 命中绕过付费 DrawLimiter 后仍必须有资源上界。
+# 以事件循环为键懒建，兼容测试/嵌入调用轮换 asyncio loop；生产单 loop 只有一个闸。
+_VPYPE_MAX_CONCURRENT = 2
+_vpype_semaphores: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, weakref.ReferenceType[asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+
+
+def _vpype_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    semaphore_ref = _vpype_semaphores.get(loop)
+    semaphore = semaphore_ref() if semaphore_ref is not None else None
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(_VPYPE_MAX_CONCURRENT)
+        _vpype_semaphores[loop] = weakref.ref(semaphore)
+    return semaphore
 
 # 坐标限幅：A4 纸 210×297mm。用户口径（2026-08-21）：X 为长边（297 方向）、Y 为宽边（210 方向），
 # 四周留 10mm 边距。Y 已收紧到物理宽边内（原 277 超 Y 物理行程，无限位开关即撞死点风险）；
@@ -309,7 +327,7 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
     return _read_generated_gcode(gcode_path)
 
 
-async def svg_to_gcode_async(svg_path: Path, gcode_path: Path) -> GcodeStats:
+async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path) -> GcodeStats:
     """可取消地运行 vpype；请求取消或超时都必须回收子进程。"""
     try:
         process = await asyncio.create_subprocess_exec(
@@ -359,6 +377,12 @@ async def svg_to_gcode_async(svg_path: Path, gcode_path: Path) -> GcodeStats:
         logger.error("vpype 转换失败（exit %d）：%s", process.returncode, tail)
         raise GcodeError(f"vpype 转换失败（exit {process.returncode}）")
     return _read_generated_gcode(gcode_path)
+
+
+async def svg_to_gcode_async(svg_path: Path, gcode_path: Path) -> GcodeStats:
+    """可取消地运行 vpype；最多两个子进程并发，取消时仍回收已启动进程。"""
+    async with _vpype_semaphore():
+        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path)
 
 
 def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
