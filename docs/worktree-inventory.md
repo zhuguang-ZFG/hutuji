@@ -41,7 +41,7 @@
 | `docs/design/p2-windowed-flow-control.md` | 行号+逻辑更新 | P2 窗口流控 | 窗口流控设计文档与实现同步 |
 | `docs/kxnx/findings/17-reconnect-resend-hazard.md` | 行号更新 | kxnx 调查 | 重连重发 hazard 代码锚点更新 |
 | `docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md` | 行号更新 | kxnx 调查 | transport watchdog 代码锚点更新 |
-| `docs/protocol.md` | 行号更新 | abort_reset 修复 | abort_reset_owner 行号 +8 |
+| `docs/protocol.md` | 行号更新 | abort_reset 修复 | abort_reset_owner 行号 +8；~~未提交~~ **已随 2026-08-24 `766cfd1` 入库**（该行引用同批经外仓指纹层校验 212/212） |
 | `docs/release-readiness.md` | 日期+摘要更新 | UX 审查收口 | 全链 UX 审查 2026-08-24 结论追加 |
 | `docs/troubleshooting.md` | 行号更新 | 多轮调试 | hutuji_job.cc 多处代码行号随提交前移 |
 
