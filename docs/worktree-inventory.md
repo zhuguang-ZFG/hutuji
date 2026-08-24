@@ -78,7 +78,7 @@
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
 
-**工作树干净（2026-08-24 语音手动控制批已提交 `fb9eeb2`，未推 origin、未刷机）**：`hutuji_recovery_core.h`（+`kVoiceManualActions`/`IsVoiceAllowedAction` 语音白名单）、双板注册 `hutuji.manual`（描述逐字一致）、宿主白名单测试。HEAD `fb9eeb2`（父 `bf0b295` 灌流屏显 250ms 节流 + 撤缺纸预检）。ws35 校验构建 `build-jog-ws35/xiaozhi.bin` 3,016,464B SHA-256 `259be53a…71c1`；宿主 135/135。
+**工作树干净（2026-08-24 语音手动控制批已提交 `fb9eeb2`，未推 origin；**已刷 COM14**）**：`hutuji_recovery_core.h`（+`kVoiceManualActions`/`IsVoiceAllowedAction` 语音白名单）、双板注册 `hutuji.manual`（描述逐字一致）、宿主白名单测试。HEAD `fb9eeb2`（父 `bf0b295` 灌流屏显 250ms 节流 + 撤缺纸预检）。**板上镜像已换**：`build-jog-ws35/xiaozhi.bin` 3,016,464B SHA-256 `259be53a…71c1`，2026-08-24 23:33 经 `tmp/flash_jog_ws35.ps1`（`--after=watchdog-reset`）刷入 COM14，`Hash of data verified`；重启抓包 0 panic、唤醒词 小派/MultiNet7 正常、HutujiPipe 连 Grbl 收 fresh `Idle`；二进制含 `hutuji.manual` 与描述串（注册日志行落 USJ 重枚举丢失窗，与历史 HIL 捕获同态，v9 日志同样不见既有 11 工具的注册行）。宿主 135/135。**语音 HIL 待做**。
 
 ### 批次登记与板上镜像（HEAD 存档并入）
 
