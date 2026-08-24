@@ -78,8 +78,12 @@ def lookup(description: str) -> str | None:
     """本地缓存查找。命中返回可过 _validate_svg 的 SVG 字符串；未命中/禁用/异常返回 None。"""
 ```
 
-- **类目匹配**：`_sanitize_description` 的输出 → 映射表（§6）精确命中；不做模糊
-  匹配、不调 LLM（热路径零网络零付费）。miss 返回 None。
+- **类目匹配**：`_sanitize_description` 的输出 → 映射表（§6）精确命中 → 画动词前缀
+  剥离（含名词语素 `_NO_STRIP` 拦截）→ **最长优先子串兜底（≥2 字键）**；不调 LLM
+  （热路径零网络零付费）。miss 返回 None。子串兜底是 2026-08-24 生产实证后的修订：
+  role-prompt 让云端把 description 写成「单线简笔侧脸小猫」类增强短语，纯精确匹配
+  首日零命中；子串只收 ≥2 字键防「天安门→门」类误配，画字名词（画家/画板）由
+  `_NO_STRIP` 拦截。strip 词干非精确键不得短路（「画一只可爱的小猫」须落到子串）。
 - **取图**：类目内用 `random.SystemRandom` 均匀随机取一条（同一 description 两次
   命中可能出不同图——与 AI 路径的方差语义一致，可接受；并发同题仍被
   `_draw_inflight` 合并）。
