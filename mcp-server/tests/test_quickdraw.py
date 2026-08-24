@@ -204,3 +204,19 @@ def test_lookup_nonfinite_entry_skipped(monkeypatch, data_dir):
     )
     _use_dir(monkeypatch, data_dir)
     assert quickdraw.lookup("猫") is not None
+
+
+def test_match_substring_fallback_for_enriched_phrases(monkeypatch, data_dir):
+    """生产实证回归：云端 role-prompt 增强短语必须子串兜底命中（2026-08-24 生产
+    零命中事件）——「单线简笔侧脸小猫」含「小猫」→ cat；最长优先防「猫头鹰」
+    被「猫」抢（testdata 只有 cat/dog，owl 不在数据目录也算类目命中即可）。"""
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("单线简笔侧脸小猫") == "cat"
+    assert quickdraw._match_category("给我画一只小狗好不好") == "dog"
+    assert quickdraw._match_category("画一辆自行车") == "bicycle"  # 子串：自行车
+
+
+def test_match_substring_excludes_single_char_keys(monkeypatch, data_dir):
+    """单字键不参与子串兜底：「天安门」含「门」也不得误配 door（宁可 miss 走 AI）。"""
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("画一座天安门") is None

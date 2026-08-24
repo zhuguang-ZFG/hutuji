@@ -85,8 +85,22 @@ def _match_category(description: str) -> str | None:
         return None
     stripped = _PREFIX_RE.sub("", description, count=1)
     if stripped and stripped != description:
-        return mapping.get(stripped)
+        hit = mapping.get(stripped)
+        if hit is not None:
+            return hit
+        # 词干非精确键时不得短路返回——继续落到子串兜底（2026-08-24 review 实证：
+        # 「画一只可爱的小猫」strip 成「可爱的小猫」后直接 return None 会跳过子串分支）。
+    for candidate in ((description, stripped) if stripped != description else (description,)):
+        for key in _substring_keys():
+            if key in candidate:
+                return mapping.get(key)
     return None
+
+@lru_cache(maxsize=1)
+def _substring_keys() -> tuple:
+    """参与子串兜底的键：≥2 字、按长度降序（同长按键名字典序，保证确定性）。"""
+    keys = [k for k in _category_map() if len(k) >= 2]
+    return tuple(sorted(keys, key=lambda k: (-len(k), k)))
 
 
 @lru_cache(maxsize=_STROKE_CACHE_SIZE)
