@@ -80,6 +80,7 @@
 | 9 | Quick Draw 子串最长优先回归覆盖 | ✅ 本地 `test_quickdraw.py` 真实碰撞对断言已补；本机全量 pytest 976/976 通过；无新增生产行为 |
 | 10 | Quick Draw 14 类单字类目增强短语覆盖 | ✅ 14 个多字别名已随 `quickdraw_categories.json`（387 键）部署阿里云生产（2026-08-24，sha256 对账）；生产 hit 冒烟「画一只小猫」命中 `category=cat`、0.714s、无付费生图日志；生产 lookup 类目覆盖 **23/23**（含 14 修复类目全 HIT）；真实语音命中率统计未执行 |
 | 11 | Quick Draw 命中路径 vpype 并发资源闸 | ✅ `svg_to_gcode_async` 资源闸已随 `gcode_gen.py` 部署生产（2026-08-24，sha256 对账 + ExecStartPre 自检过）；本地取消/超时回归与全量 pytest 976/976 通过；生产 6 并发 hit 出图一浪全 OK（墙钟 2.29s、同秒 6 产物、付费日志 0 条，行为与闸一致） |
+| 12 | 小派语音手动控制（`hutuji.manual`） | 🟡 设备侧代码就绪（2026-08-24）：复用屏幕手动面板机制（`RequestManualControl` 全套防线：settled 态闸、busy 闸、新鲜 `?` 坐标 + `DecideJog` 包线、逐行应答），语音白名单过滤维护动作（core 头宿主测试钉死，宿主 135/135）；双板（lichuang-dev + ws35）注册、描述逐字一致；**未刷机、未语音 HIL** |
 
 > **BLE 修复实现边界**：只改 `hutuji_ble_diag.cc` 的 NimBLE 广播刷新生命周期：停止广播后把数据设置与重启排到独立 host event；快照刷新与地址轮换共用 pending event，轮换优先；过期 event 无动作返回；定时器重挂失败继续 fail-closed；`Shutdown()` 幂等并移除排队事件。WiFi/Telnet/job 路径未改。
 

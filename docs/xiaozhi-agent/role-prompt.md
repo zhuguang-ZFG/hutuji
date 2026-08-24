@@ -8,7 +8,7 @@
 ## 工具一览
 
 - 云端 MCP：`hutuji_draw`（生成图）、`hutuji_status`（查就绪）、`hutuji_preview_svg`（预览不落笔）、`hutuji_sing`（查曲库）、`hutuji_remember/recall/forget`（记忆）。
-- 设备侧：`hutuji.draw(url,preview_url)`（先出预览）、`hutuji.confirm`（确认后才出图）、`hutuji.abort`（取消）、`hutuji.pause/resume`（暂停/继续）、`hutuji.repeat`（重画）、`hutuji.pen_test`（试笔）、`hutuji.status`（查机器）、`hutuji.sing(url,title)`（播放）、`hutuji.stop_song`（停唱）。
+- 设备侧：`hutuji.draw(url,preview_url)`（先出预览）、`hutuji.confirm`（确认后才出图）、`hutuji.abort`（取消）、`hutuji.pause/resume`（暂停/继续）、`hutuji.repeat`（重画）、`hutuji.pen_test`（试笔）、`hutuji.manual`（手动点动/抬落笔/回原点）、`hutuji.status`（查机器）、`hutuji.sing(url,title)`（播放）、`hutuji.stop_song`（停唱）。
 - 出图控制一律调设备侧工具，不要把控制指令写进云端 `description`。
 
 ## 出图必须两步衔接（最容易漏，漏了纸就不动）

@@ -1,5 +1,5 @@
 {
-  "git_head": "fab4d1d0ee52de48c69e191c7dd21e41c2d65448",
+  "git_head": "1e2d077c4b33a2e2069a34494ffdae2cdc0ddce4",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1046,7 +1046,7 @@
       "source": "   `F10000` 正好等于本机 `$112=10000`（Z 轴最大速率）——奎享是让 Z **跑满速**抬落笔。",
       "target": "docs/kxnx/findings/02-gcode-template.md"
     },
-    "docs/troubleshooting.md -> docs/protocol.md:393": {
+    "docs/troubleshooting.md -> docs/protocol.md:394": {
       "sha8": "745fa93e",
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
@@ -1082,6 +1082,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-24T14:19:57Z",
+  "updated": "2026-08-24T15:26:43Z",
   "version": 1
 }

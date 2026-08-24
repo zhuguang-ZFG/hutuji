@@ -78,7 +78,7 @@
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
 
-**工作树干净** — 无未提交改动。
+**工作树干净（2026-08-24 语音手动控制批已提交 `fb9eeb2`，未推 origin、未刷机）**：`hutuji_recovery_core.h`（+`kVoiceManualActions`/`IsVoiceAllowedAction` 语音白名单）、双板注册 `hutuji.manual`（描述逐字一致）、宿主白名单测试。HEAD `fb9eeb2`（父 `bf0b295` 灌流屏显 250ms 节流 + 撤缺纸预检）。ws35 校验构建 `build-jog-ws35/xiaozhi.bin` 3,016,464B SHA-256 `259be53a…71c1`；宿主 135/135。
 
 ### 批次登记与板上镜像（HEAD 存档并入）
 

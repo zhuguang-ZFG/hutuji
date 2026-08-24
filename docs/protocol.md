@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:451-581`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:459-589`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -321,6 +321,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | `hutuji.resume` | — | 恢复之前暂停的绘图，继续 PSRAM 缓存的行流 |
 | `hutuji.repeat` | — | 用 §5.1 PSRAM 缓存把上一张再画一遍（不重新下载） |
 | `hutuji.pen_test` | — | 笔测试：落笔停 1 秒再抬笔；不动纸、不进换纸路径 |
+| `hutuji.manual` | `action` | 语音手动控制（2026-08-24 新增，复用屏幕手动面板机制）：`jog_x+/jog_x-/jog_y+/jog_y-` 按步距点动（`jog_step_1/jog_step_10` 切 1/10mm，NVS 持久）、`pen_up/pen_down` 抬落笔（落笔先 `G92 Z0` 校准再 `Z5.0`）、`home` 回原点（`G1G90 X0Y0F8000`，不触发换纸）。仅 settled 态（idle/done/error/aborted）可用，期间状态 `manual`，完成设备播报；点动前强制新鲜 `?` 坐标 + `DecideJog` 包线判定（与 §5 限幅同源 190/190，fail-closed）。语音白名单拒绝维护动作 `set_origin/unlock/motor_off/reset`（仅屏幕入口） |
 | `hutuji.sing` / `hutuji.stop_song` | `url,title` / — | 唱歌（与绘图解耦），契约见 §10.2 |
 
 - 任务完成/失败经 `Application::SendMcpMessage` **设备侧主动推送**；同步查询走 `hutuji.status`。
