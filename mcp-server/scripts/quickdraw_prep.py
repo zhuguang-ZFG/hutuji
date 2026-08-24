@@ -92,7 +92,9 @@ def _prep_category(category: str, per_category: int, out_dir: Path, seed: int) -
                 reservoir[j] = {"strokes": strokes}
     out_path = out_dir / f"{category}.jsonl"
     payload = "".join(json.dumps(e, separators=(",", ":")) + "\n" for e in reservoir)
-    out_path.write_text(payload, encoding="utf-8")
+    # newline="\n"：Windows text mode 会把 \n 翻成 \r\n，产物须跨平台逐字节一致
+    # （部署纪律要求 CR=0；运行时 splitlines 虽兼容 CRLF，但哈希对账不许依赖它）。
+    out_path.write_text(payload, encoding="utf-8", newline="\n")
     return recognized, len(reservoir), len(payload.encode("utf-8"))
 
 
