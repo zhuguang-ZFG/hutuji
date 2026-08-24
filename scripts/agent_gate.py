@@ -178,8 +178,9 @@ REVIVED_PATTERNS = [
 ]
 
 # 2026-08-23 用户决策反转：「阿里云部署」自本清单移除（原 aliyun_as_prod 规则与
-# allowlist 同步下线）——新决策为「阿里云主 + 京东云热备」，灰度验证进行中，
-# 现役生产仍是京东云；反转记录见 release-readiness.md 文首与 README 决策 #5。
+# allowlist 同步下线）——新决策为「阿里云主 + 京东云热备」，且当晚割接完成：
+# 阿里云 47.112.162.80 现役生产、京东云热备；反转记录见 release-readiness.md
+# 文首与 README 决策 #5。
 # 复活扫描与禁语扫描共同的文件面。原先三条 REVIVED_PATTERNS 各带一份手写清单，
 # 合计只覆盖 5 个文件，漏掉的恰是优先级最高的几份：`CLAUDE.md`（对 agent 是
 # OVERRIDE 级指令）、`.cursor/rules/hutuji-agent-rails.mdc`（alwaysApply 硬轨）、

@@ -1,5 +1,5 @@
 {
-  "git_head": "a34f92c64eff19e6e0d2a1abe08f6b00a3375768",
+  "git_head": "fab4d1d0ee52de48c69e191c7dd21e41c2d65448",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -626,7 +626,7 @@
       "source": "            activity.probe_pending_seconds() == 0\n            and activity.stall_seconds() == 0\n            and activity.idle_seconds() >= PROBE_IDLE_SECONDS\n        ):",
       "target": "mcp-server/hutuji_mcp/cloud_bridge.py"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> scripts/agent_gate.py:873": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> scripts/agent_gate.py:874": {
       "sha8": "55ee60c3",
       "source": "_EXTERNAL_REPOS: tuple[tuple[str, str, tuple[str, ...]], ...] = (",
       "target": "scripts/agent_gate.py"
@@ -1082,6 +1082,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-24T13:35:41Z",
+  "updated": "2026-08-24T14:19:57Z",
   "version": 1
 }

@@ -73,13 +73,13 @@
 | 2 | §9 Grbl 小改清单 | ✅ 核心 §9 已有烧录/fz/实机证据；源码后续 `847b564` 不自动等于板上基线 |
 | 3 | 真实语音出图主链 | ✅ 2026-08-17 语音→云端→下载→出图→归位→换纸已有证据 |
 | 4 | Waveshare 预览与屏幕控制 | 🟡 当前源码基线 `72a693a`（在 `cb82edb` 的 π 启动画面 + Grobot/主题统一渐变 + 触摸双检测门 + 点动包线 Y≤190 + 唱歌双工具之上，追加省电门控/退避前段/播报等待信号/预取内联，祖先关系经 `git merge-base --is-ancestor` 实测）已推，对应镜像 `93b61d5b…afa9` 已刷 COM14：全分区 esptool 写入哈希校验通过，host 131/131，三轮画图 HIL 通过。**待验**：完整冷启动日志、π/Grobot 动效与按钮呼吸现场目视、触摸灵敏度体感与误触回归、预览确认/取消与暂停/继续/停止/重画/试笔 HIL、纸面画质目视；另登记 PSRAM 预取接管所有权缺口（源码审查，待独立批次修复） |
-| 5 | MCP / 京东云运行态 | ✅ 生产代码基线 `c2cdbd4`，两服务 active，`/bridge-health` 返回 200，生产 preflight `30/30`；真实语音 HIL 未执行，设备端出图结果不据此宣称 |
+| 5 | MCP / 阿里云运行态 | ✅ 生产 = 阿里云 `47.112.162.80`（2026-08-23 晚割接）；2026-08-24 Quick Draw 复核修复已发布，运行时面与本仓 HEAD `1952caa` 一致（见 `deployment.md` 顶部），两服务 active、`/bridge-health` 双 connected；真实语音 HIL 与命中率统计未执行，设备端出图结果不据此宣称 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
 | 8 | BLE 只读诊断辅助面 | 🟡 Phase A 当前加固源码（`f1aa0e7`）已完成 COM14 刷机复验：4 分钟/1,683 行稳定性、两轮 6 字节空中包、NVS byte-identical 回滚与默认镜像自证，BLE 专测 18/18、全 host 93/93、默认/启用构建通过。尚未完成 WiFi/Telnet 共存量化门槛（含 BLE-off 基线对照）、功耗/温升与阶段 B 认证 GATT，故不得改为 ✅ |
 | 9 | Quick Draw 子串最长优先回归覆盖 | ✅ 本地 `test_quickdraw.py` 真实碰撞对断言已补；本机全量 pytest 976/976 通过；无新增生产行为 |
-| 10 | Quick Draw 14 类单字类目增强短语覆盖 | 🟡 源码映射已补 14 个多字别名，测试通过；本轮修复尚未部署生产，生产命中率未复验 |
-| 11 | Quick Draw 命中路径 vpype 并发资源闸 | 🟡 `svg_to_gcode_async` 已统一限制最多 2 个 vpype，取消/超时回归与全量 pytest 通过；本轮修复尚未部署生产 |
+| 10 | Quick Draw 14 类单字类目增强短语覆盖 | ✅ 14 个多字别名已随 `quickdraw_categories.json`（387 键）部署阿里云生产（2026-08-24，sha256 对账）；生产 hit 冒烟「画一只小猫」命中 `category=cat`、0.714s、无付费生图日志；命中率统计与真实语音 HIL 未执行 |
+| 11 | Quick Draw 命中路径 vpype 并发资源闸 | ✅ `svg_to_gcode_async` 资源闸已随 `gcode_gen.py` 部署生产（2026-08-24，sha256 对账 + ExecStartPre 自检过）；本地取消/超时回归与全量 pytest 976/976 通过，生产单独并发压测未执行 |
 
 > **BLE 修复实现边界**：只改 `hutuji_ble_diag.cc` 的 NimBLE 广播刷新生命周期：停止广播后把数据设置与重启排到独立 host event；快照刷新与地址轮换共用 pending event，轮换优先；过期 event 无动作返回；定时器重挂失败继续 fail-closed；`Shutdown()` 幂等并移除排队事件。WiFi/Telnet/job 路径未改。
 
@@ -88,7 +88,7 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口 abort 复测；④ 生产与合规签核。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-08-24**，pytest **976 passed**、e2e `PASS`；docs 指纹 **216** 处全对，外仓文档引用 **212** 处全在范围；本轮 Quick Draw / vpype 资源闸 / basename 门禁修复均已过本机证据，生产部署与命中率复验仍按上方 🟡 条目约束。
+- 本仓 `hub` 最近通过：**2026-08-24**，pytest **976 passed**、e2e `PASS`；docs 指纹 **216** 处全对，外仓文档引用 **212** 处全在范围；Quick Draw / vpype 资源闸 / basename 门禁修复已过本机证据并于同日部署阿里云生产（见 `deployment.md`），生产命中率统计与真实语音 HIL 仍未执行。
 
 ---
 ## 门禁状态
