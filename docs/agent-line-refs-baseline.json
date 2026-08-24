@@ -1,5 +1,5 @@
 {
-  "git_head": "1e2d077c4b33a2e2069a34494ffdae2cdc0ddce4",
+  "git_head": "6b89967d3afa40a473fe37506c0a42751203d763",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -31,7 +31,7 @@
       "source": "            if (verbose_errors->get()) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Report.cpp"
     },
-    "docs/agent-handoff.md -> hutuji_job.cc:1618": {
+    "docs/agent-handoff.md -> hutuji_job.cc:1642": {
       "sha8": "8dfb671d",
       "source": "    if (!http->Open(\"GET\", url)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -61,7 +61,7 @@
       "source": "    paper_enter_panel_low_hold();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1686": {
+    "docs/daytime-tuning-runbook.md -> hutuji_job.cc:1710": {
       "sha8": "9ba3260d",
       "source": "    ESP_LOGI(TAG, \"下载完成 %u 字节 crc_hdr=%08x\", (unsigned)buffer_len_, (unsigned)expect_crc_);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -136,7 +136,7 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2368-2369": {
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2392-2393": {
       "sha8": "3506be7b",
       "source": "    // TODO(S4/Bf)：实机出图期周期性 ?，若 Telnet Bf 余量 < 300 则临时收窄窗口。\n    //   自适应反压（§3.1）本次不做，S3 核心是 window=512 + 换纸行排空。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -181,7 +181,7 @@
       "source": "if settings_mode:\n    # Send settings file via simple call-response streaming method. Settings must be streamed\n    # in this manner since the EEPROM accessing cycles shut-off the serial interrupt.\n    print \"SETTINGS MODE: Streaming\", args.gcode_file.name, \" to \", args.device_file\n    for line in f:\n        l_count += 1 # Iterate line counter    \n        # l_block = re.sub('\\s|\\(.*?\\)','',line).upper() # Strip comments/spaces/new line and capitalize\n        l_block = line.strip() # Strip all EOL characters for consistency\n        if verbose: print \"SND>\"+str(l_count)+\": \\\"\" + l_block + \"\\\"\"\n        s.write(l_block + '\\n') # Send g-code block to grbl\n        while 1:\n            grbl_out = s.readline().strip() # Wait for grbl response with carriage return\n            if grbl_out.find('ok') >= 0 :\n                if verbose: print \"  REC<\"+str(l_count)+\": \\\"\"+grbl_out+\"\\\"\"\n                break\n            elif grbl_out.find('error') >= 0 :\n                if verbose: print \"  REC<\"+str(l_count)+\": \\\"\"+grbl_out+\"\\\"\"\n                error_count += 1\n                break\n            else:\n                print \"    MSG: \\\"\"+grbl_out+\"\\\"\"",
       "target": "D:/Users/Grbl_Esp32/doc/script/stream.py"
     },
-    "docs/design/s3-stream-pacing-investigation.md -> hutuji_job.cc:1256": {
+    "docs/design/s3-stream-pacing-investigation.md -> hutuji_job.cc:1280": {
       "sha8": "9af528d0",
       "source": "void Job::WaitForAudioOutputIdle() {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -261,17 +261,17 @@
       "source": "            MDNS.addService(\"http\", \"tcp\", _port);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
-    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:349": {
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:357": {
       "sha8": "d2ec4059",
       "source": "    if (!pipe.IsConnected() || !pipe.IsReady()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:681": {
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:689": {
       "sha8": "48ad91c6",
       "source": "    if (!pipe.IsReady()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:723": {
+    "docs/kxnx/findings/16-wifi-discovery-and-connect.md -> hutuji_job.cc:731": {
       "sha8": "7b71a110",
       "source": "        if (!pipe.IsConnected() || !pipe.IsReady() || !pipe.IsAuthorized()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -331,22 +331,22 @@
       "source": "APP_BRAND = \"派曦绘图\"\nSETTING_INFO = {",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2516-2529": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2540-2553": {
       "sha8": "f5c4ff84",
       "source": "                }\n                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2556-2557": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2580-2581": {
       "sha8": "484b9560",
       "source": "            } else {\n                // 普通行窗口化灌：一行一个 Grbl 应答。不要把多行合并成同一 TCP 包；",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2648-2659": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2672-2683": {
       "sha8": "4c28b436",
       "source": "\n        auto fail_window_and_stop = [&](const std::string& error) {\n            // Grbl 官方 character-counting reservation：坏行回 error 后，RX 内后续行\n            // 仍会继续解析执行。先实时 hold，再清软件窗口并发布 Quiesced；Run 退出\n            // StreamToGrbl 后同步走受控 reset 清 planner/RX，完成前不发布 error。\n            pipe.SendRealtime('!');\n            pipe.DrainResponses();\n            c_line.clear();\n            c_line_bytes_sum = 0;\n            last_error_ = error;\n            stream_error_stop_required_.store(true, std::memory_order_release);\n            window_guard.MarkQuiesced();",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2750-2756": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2774-2780": {
       "sha8": "cd7a6a7f",
       "source": "            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。\n            return fail_window_and_stop(\"error:\" + std::to_string(err));\n        } else if (wr == WaitResult::Deferred) {\n            // 窗口化普通行不应收到 error:8；一旦出现，后续在途同样先物理停机。\n            ESP_LOGW(TAG, \"窗口化分支意外收到 error:8（err=%d），停止并受控 reset\", err);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -391,7 +391,7 @@
       "source": "| Grbl 任何代码（含 §9、`*Core.h`） | `hutuji --profile full`（源码标记）**且** `fz agent_gate.py --profile standard` | 两扇都 pass；仍≠已烧录 |",
       "target": "docs/agent-constraint-matrix.md"
     },
-    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_job.cc:459-589": {
+    "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md -> hutuji_job.cc:467-597": {
       "sha8": "5c38da10",
       "source": "bool Job::PerformAbortReset(bool wait_for_stream_quiescence, bool owner_claimed,\n                            bool allow_unready_reconnect) {\n    auto& pipe = Pipe::GetInstance();\n    if (!owner_claimed && !abort_reset_owner_.TryClaim()) {\n        return WaitForAbortReset();\n    }\n\n    // R21-F04 残余：`!` 触发的 Hold 转移播报是「取消中」而非用户暂停；抑制窗\n    // RAII 覆盖本函数全程（含所有 break 早退）。pause 的 Hold 播报不受影响——\n    // pause 不进 PerformAbortReset。\n    struct TransitionNotifyGuard {\n        Pipe& p;\n        explicit TransitionNotifyGuard(Pipe& pipe) : p(pipe) {\n            p.SetTransitionNotifySuppressed(true);\n        }\n        ~TransitionNotifyGuard() { p.SetTransitionNotifySuppressed(false); }\n    } transition_notify_guard{pipe};\n\n    const uint32_t session = pipe.GetConnectionSequence();\n    abort_reset_session_.store(session, std::memory_order_release);\n    const TickType_t began = xTaskGetTickCount();\n    bool success = false;\n    do {\n        // `!` 必须先于任何可能长达数十分钟的 planner-sync 应答等待。它只是\n        // 安全停机字符，不是 reset；即使旧流已 Failed 也要先尽力停住机器。\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!pipe.IsResetSessionReady(session, allow_unready_reconnect) ||\n                !pipe.SendRealtime('!')) {\n                break;\n            }\n        }\n\n        bool stopped = false;\n        uint32_t stopped_status_baseline = pipe.GetStatusReportSequence();\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t before_query = pipe.GetStatusReportSequence();\n            if (!pipe.SendRealtime('?')) {\n                break;\n            }\n            const TickType_t query_began = xTaskGetTickCount();\n            while (pipe.GetStatusReportSequence() == before_query &&\n                   (xTaskGetTickCount() - query_began) < pdMS_TO_TICKS(1000)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n            if (pipe.HasFreshStoppedStatus(before_query, session)) {\n                stopped_status_baseline = before_query;\n                stopped = true;\n                abort_hold_confirmed_.store(true, std::memory_order_release);\n                break;\n            }\n        }\n        if (!stopped) {\n            break;\n        }\n\n        if (wait_for_stream_quiescence) {\n            while (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) &&\n                   (xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n        }\n\n        uint32_t paper_before = 0;\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) ||\n                !pipe.IsResetSessionReady(session, allow_unready_reconnect)) {\n                break;\n            }\n            paper_before = pipe.GetPaperStatusSequence();\n            if (!pipe.SendLine(\"[ESP901]\")) {\n                break;\n            }\n        }\n        int paper_error = -1;\n        if (pipe.WaitResponse(kPaperStatusTimeoutMs, nullptr, &paper_error) != WaitResult::Ok ||\n            pipe.GetPaperStatusSequence() == paper_before ||\n            pipe.GetPaperChangingState() != PaperChangingState::Off) {\n            break;\n        }\n        const uint32_t banner_before = pipe.GetResetBannerSequence();\n        const uint32_t post_reset_status = pipe.GetStatusReportSequence();\n        if (!pipe.SendAbortReset(session, stopped_status_baseline, paper_before, banner_before,\n                                 allow_unready_reconnect)) {\n            break;\n        }\n        uint32_t idle_query_baseline = post_reset_status;\n        bool queried_idle = false;\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t banner_generation = pipe.GetResetBannerSequence();\n            if (banner_generation == AbortResetToken::NextGeneration(banner_before) &&\n                pipe.IsReady() && pipe.IsAuthorized()) {\n                if (!queried_idle) {\n                    idle_query_baseline = pipe.GetStatusReportSequence();\n                    queried_idle = true;\n                    if (!pipe.SendRealtime('?')) {\n                        break;\n                    }\n                }\n                if (pipe.GetStatusReportSequence() != idle_query_baseline &&\n                    pipe.GetStatusReportSequence() != post_reset_status &&\n                    pipe.GetGrblState() == GrblState::Idle) {\n                    success = true;\n                    break;\n                }\n            }\n            vTaskDelay(pdMS_TO_TICKS(100));\n        }\n    } while (false);\n\n    if (!success) {\n        pipe.CancelAbortReset();\n        // 不解锁未知 Alarm。若普通 abort 未能完成受限 reset，只拆会话阻止继续写；\n        // busy 在 owner 终态发布后才释放，下一次连接仍须重新验明。\n        if (pipe.GetGrblState() != GrblState::Alarm) {\n            pipe.ShutdownSocket(session);\n        }\n    }\n    if (!abort_reset_owner_.Complete(success)) {\n        pipe.CancelAbortReset();\n        return false;\n    }\n    return success;\n}",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -536,62 +536,62 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:27": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:33": {
       "sha8": "08983e8e",
       "source": "| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v3（**387 别名键 → 298 官方在册类目**，已对账 categories.txt；手机改指 cell phone）。2026-08-24 实测：去 `_meta` 后 387 键、去重后 298 值，与 `quickdraw-data/` 的 298 个 `.jsonl` 双向零差；本轮补入 14 个多字别名覆盖原单字类目 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:31": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:37": {
       "sha8": "b260c862",
       "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离） |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:32": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:38": {
       "sha8": "ba43cd09",
       "source": "| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（298 类 × 200 条 ≈ 20MiB）。历史误记「gitignored 目录内」已于 2026-08-24 撤（实测 `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 干跑可见 314 文件）。**决策状态（2026-08-24 用户 advisory 点名）**：本页 `edf68e7` 条目「不新增忽略规则」对**整目录忽略 tmp/** 仍成立——advisory 同文否决整目录方案：AGENTS.md 刷机坑段引用根 `tmp/` 工具（flash_hil_ws35.ps1、reset_wdt_capture.py），整目录忽略会把它们变成只在本机的隐形文件；仅对**数据集本体**开窄例外：`.gitignore` 新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条——后者兜住 qd_smoke/qd_trial/qd_verify 下 4 个散落 .jsonl（同属 CC BY 4.0 素材，入库即构成再分发）。实测 `check-ignore -v` 双向命中正确、`git add -An` 下数据集不可见；mcp-server/tmp/ 剩余可见面 = 12 个实验/工具件（abkit、twoopt_star、capture_resilient.py 等，干跑实测）**仍未忽略**，故**禁止 `git add .`/`git add -A`**，提交必须点名暂存 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2350-2352": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2374-2376": {
       "sha8": "6f6bdadb",
       "source": "    std::deque<size_t> c_line;    // 在途各行字节数（含 +1 换行，R1）\n    size_t c_line_bytes_sum = 0;  // 在途字节数累加\n    size_t next_ = 0;             // 下一条待发",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2559-2560": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2583-2584": {
       "sha8": "9378c31a",
       "source": "                const size_t need = line.size() + 1;  // R1：含换行符\n                if (c_line_bytes_sum + need < kWindow || c_line.empty()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2638-2647": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2662-2671": {
       "sha8": "2d8c6044",
       "source": "        auto quiesce_for_abort = [&]() {\n            pipe.DrainResponses();\n            c_line.clear();\n            c_line_bytes_sum = 0;\n            // 暂停超时提交的 abort 保留原因文言，用户侧才能对上 Notify 的解释。\n            if (!pause_timeout_cancel) {\n                last_error_ = \"aborted\";\n            }\n            window_guard.MarkQuiesced();\n        };",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2730": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2754": {
       "sha8": "67a3f6a4",
       "source": "            // 进度屏显 250ms 节流：每 ok 一次的 SetStatus 会阻塞灌流循环",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2736": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2760": {
       "sha8": "5c46e37a",
       "source": "            if ((display_now - last_display_tick) >= pdMS_TO_TICKS(250)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2764-2780": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2788-2804": {
       "sha8": "507153d6",
       "source": "            if (ok_fallback_count < kMaxOkFallback &&\n                ConfirmInFlightDoneByStatus(spans, lines_sent_, lines_sent_ + c_line.size())) {\n                ++ok_fallback_count;\n                // 释放整窗前先排空应答队列：等待期内到达的迟到 ok 属于本批已释放的\n                // 行，留在队列里会被下一批第一行的 TakeResponse 错配（ok 与状态行\n                // 无锁并发写同一 socket，迟到 ok 是已证现象；与 abort 分支同口径）。\n                pipe.DrainResponses();\n                const size_t released = c_line.size();\n                ESP_LOGW(TAG,\n                         \"等 ok 超时但状态报告确认在途 %zu 行已执行完（Idle+到位），靠状态\"\n                         \"兜底释放整窗继续（第 %d/%d 次）\",\n                         released, ok_fallback_count, kMaxOkFallback);\n                lines_sent_ += released;\n                c_line.clear();\n                c_line_bytes_sum = 0;\n                UpdateDisplayProgress();\n                continue;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:366": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:374": {
       "sha8": "442f4451",
       "source": "std::string Job::RequestAbort() {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:407-408": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:415-416": {
       "sha8": "19b78aaa",
       "source": "        Notify(\"写字机正在换纸，无法即停；换纸完成后任务将停止\");\n        return JsonString(\"换纸中无法即停，完成后即停\");",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:420-421": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:428-429": {
       "sha8": "7e9d9f23",
       "source": "            Notify(\"写字机正在换纸，无法即停；换纸完成后任务将停止\");\n            return JsonString(\"换纸中无法即停，完成后即停\");",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -606,7 +606,7 @@
       "source": "constexpr size_t kWindow = kStreamWindowBytes;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:972": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:989": {
       "sha8": "5c88da46",
       "source": "        if (!pipe.SendRealtime(0x18)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -856,7 +856,7 @@
       "source": "        //create instance",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
-    "docs/protocol.md -> hutuji_job.cc:459-589": {
+    "docs/protocol.md -> hutuji_job.cc:467-597": {
       "sha8": "5c38da10",
       "source": "bool Job::PerformAbortReset(bool wait_for_stream_quiescence, bool owner_claimed,\n                            bool allow_unready_reconnect) {\n    auto& pipe = Pipe::GetInstance();\n    if (!owner_claimed && !abort_reset_owner_.TryClaim()) {\n        return WaitForAbortReset();\n    }\n\n    // R21-F04 残余：`!` 触发的 Hold 转移播报是「取消中」而非用户暂停；抑制窗\n    // RAII 覆盖本函数全程（含所有 break 早退）。pause 的 Hold 播报不受影响——\n    // pause 不进 PerformAbortReset。\n    struct TransitionNotifyGuard {\n        Pipe& p;\n        explicit TransitionNotifyGuard(Pipe& pipe) : p(pipe) {\n            p.SetTransitionNotifySuppressed(true);\n        }\n        ~TransitionNotifyGuard() { p.SetTransitionNotifySuppressed(false); }\n    } transition_notify_guard{pipe};\n\n    const uint32_t session = pipe.GetConnectionSequence();\n    abort_reset_session_.store(session, std::memory_order_release);\n    const TickType_t began = xTaskGetTickCount();\n    bool success = false;\n    do {\n        // `!` 必须先于任何可能长达数十分钟的 planner-sync 应答等待。它只是\n        // 安全停机字符，不是 reset；即使旧流已 Failed 也要先尽力停住机器。\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!pipe.IsResetSessionReady(session, allow_unready_reconnect) ||\n                !pipe.SendRealtime('!')) {\n                break;\n            }\n        }\n\n        bool stopped = false;\n        uint32_t stopped_status_baseline = pipe.GetStatusReportSequence();\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t before_query = pipe.GetStatusReportSequence();\n            if (!pipe.SendRealtime('?')) {\n                break;\n            }\n            const TickType_t query_began = xTaskGetTickCount();\n            while (pipe.GetStatusReportSequence() == before_query &&\n                   (xTaskGetTickCount() - query_began) < pdMS_TO_TICKS(1000)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n            if (pipe.HasFreshStoppedStatus(before_query, session)) {\n                stopped_status_baseline = before_query;\n                stopped = true;\n                abort_hold_confirmed_.store(true, std::memory_order_release);\n                break;\n            }\n        }\n        if (!stopped) {\n            break;\n        }\n\n        if (wait_for_stream_quiescence) {\n            while (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) &&\n                   (xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n        }\n\n        uint32_t paper_before = 0;\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) ||\n                !pipe.IsResetSessionReady(session, allow_unready_reconnect)) {\n                break;\n            }\n            paper_before = pipe.GetPaperStatusSequence();\n            if (!pipe.SendLine(\"[ESP901]\")) {\n                break;\n            }\n        }\n        int paper_error = -1;\n        if (pipe.WaitResponse(kPaperStatusTimeoutMs, nullptr, &paper_error) != WaitResult::Ok ||\n            pipe.GetPaperStatusSequence() == paper_before ||\n            pipe.GetPaperChangingState() != PaperChangingState::Off) {\n            break;\n        }\n        const uint32_t banner_before = pipe.GetResetBannerSequence();\n        const uint32_t post_reset_status = pipe.GetStatusReportSequence();\n        if (!pipe.SendAbortReset(session, stopped_status_baseline, paper_before, banner_before,\n                                 allow_unready_reconnect)) {\n            break;\n        }\n        uint32_t idle_query_baseline = post_reset_status;\n        bool queried_idle = false;\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t banner_generation = pipe.GetResetBannerSequence();\n            if (banner_generation == AbortResetToken::NextGeneration(banner_before) &&\n                pipe.IsReady() && pipe.IsAuthorized()) {\n                if (!queried_idle) {\n                    idle_query_baseline = pipe.GetStatusReportSequence();\n                    queried_idle = true;\n                    if (!pipe.SendRealtime('?')) {\n                        break;\n                    }\n                }\n                if (pipe.GetStatusReportSequence() != idle_query_baseline &&\n                    pipe.GetStatusReportSequence() != post_reset_status &&\n                    pipe.GetGrblState() == GrblState::Idle) {\n                    success = true;\n                    break;\n                }\n            }\n            vTaskDelay(pdMS_TO_TICKS(100));\n        }\n    } while (false);\n\n    if (!success) {\n        pipe.CancelAbortReset();\n        // 不解锁未知 Alarm。若普通 abort 未能完成受限 reset，只拆会话阻止继续写；\n        // busy 在 owner 终态发布后才释放，下一次连接仍须重新验明。\n        if (pipe.GetGrblState() != GrblState::Alarm) {\n            pipe.ShutdownSocket(session);\n        }\n    }\n    if (!abort_reset_owner_.Complete(success)) {\n        pipe.CancelAbortReset();\n        return false;\n    }\n    return success;\n}",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -901,7 +901,7 @@
       "source": "            codec_->EnableOutput(false);",
       "target": "D:/Users/xiaozhi-esp32/main/audio/audio_service.cc"
     },
-    "docs/release-readiness.md -> hutuji_job.cc:1043": {
+    "docs/release-readiness.md -> hutuji_job.cc:1067": {
       "sha8": "2648b332",
       "source": "        uint32_t net_ms = elapsed_ms > paused_accum_ms_ ? elapsed_ms - paused_accum_ms_ : 0;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -1051,17 +1051,17 @@
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2517-2530": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2541-2554": {
       "sha8": "fe67870b",
       "source": "                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));\n                    continue;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2557-2558": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2581-2582": {
       "sha8": "fc6722e2",
       "source": "                // 普通行窗口化灌：一行一个 Grbl 应答。不要把多行合并成同一 TCP 包；\n                // 当前商业固件链路实测会出现少应答，窗口计数会永久漂移。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2750-2756": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2774-2780": {
       "sha8": "cd7a6a7f",
       "source": "            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。\n            return fail_window_and_stop(\"error:\" + std::to_string(err));\n        } else if (wr == WaitResult::Deferred) {\n            // 窗口化普通行不应收到 error:8；一旦出现，后续在途同样先物理停机。\n            ESP_LOGW(TAG, \"窗口化分支意外收到 error:8（err=%d），停止并受控 reset\", err);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -1082,6 +1082,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-24T15:26:43Z",
+  "updated": "2026-08-24T17:51:45Z",
   "version": 1
 }
