@@ -97,9 +97,11 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
   **不变量同构**；`kWindow` = `hutuji_recovery_core.h:16` `kStreamWindowBytes = 512`
   经 `hutuji_job.cc:75` 转名。
 - 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:2765` 注释 +
-  `hutuji_job.cc:2773` 判据）——
-  即 2026-08-24 喂流结案的修复本身，见 `docs/design/s3-stream-pacing-investigation.md`
-  第 100 行起 §6。**差异已消解，无动作。**
+  `hutuji_job.cc:2773` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
+  更新**：节流在 lichuang-dev 全脸动画下不足（单次 LVGL 锁等待 230–640ms 致半墨
+  复发），已根治——SetStatus 经 `Application::Schedule` 出灌流路径（xiaozhi
+  `e623aec`），窗口循环现与奎享同态（无阻塞 UI 调用），见
+  `docs/design/s3-stream-pacing-investigation.md` §7。**差异已消解，无动作。**
 
 ### 4.2 error 后的处置：fail-fast vs 状态兜底续跑
 
