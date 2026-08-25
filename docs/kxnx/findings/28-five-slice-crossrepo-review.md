@@ -92,23 +92,23 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 - 奎享 `machine/f/b.java:55-75`：窗口准入循环内**无任何 UI 调用**。窗口上界取
   `this.b.g()`（抽象方法，`machine/c.java:46` 声明；Grbl 实现
   `machine/grbl/a.java:312-313` 返回 **100**），判据含 `+1L`（换行符）且**严格小于**。
-- 我方 `hutuji_job.cc:2583-2584`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
-  `need = line.size() + 1`（`hutuji_job.cc:2374-2376` 维护 `c_line`/`c_line_bytes_sum`）。
+- 我方 `hutuji_job.cc:2594-2595`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
+  `need = line.size() + 1`（`hutuji_job.cc:2385-2387` 维护 `c_line`/`c_line_bytes_sum`）。
   **不变量同构**；`kWindow` = `hutuji_recovery_core.h:16` `kStreamWindowBytes = 512`
   经 `hutuji_job.cc:75` 转名。
-- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:2754` 注释 +
-  `hutuji_job.cc:2760` 判据）——
+- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:2765` 注释 +
+  `hutuji_job.cc:2773` 判据）——
   即 2026-08-24 喂流结案的修复本身，见 `docs/design/s3-stream-pacing-investigation.md`
   第 100 行起 §6。**差异已消解，无动作。**
 
 ### 4.2 error 后的处置：fail-fast vs 状态兜底续跑
 
 - 奎享 `machine/f/b.java:136-155`：error 路径清 `c`/`d` 双队列、`e = 0`，**fail-fast**。
-- 我方 `hutuji_job.cc:2788-2804`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
+- 我方 `hutuji_job.cc:2801-2817`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
   已执行完，靠状态兜底释放整窗续跑（上限 `hutuji_job.cc:62` `kMaxOkFallback = 3`），
   并在释放前 `DrainResponses()` 防迟到 ok 错配。
 - 我方多出的是**迟到 ok 容错**，源于 WiFi Telnet 传输（奎享该路径是串口）。
-  abort 侧亦有同口径 quiesce（`hutuji_job.cc:2662-2671`）。**有意差异，无动作。**
+  abort 侧亦有同口径 quiesce（`hutuji_job.cc:2673-2682`）。**有意差异，无动作。**
 
 ## 五、仓库卫生（切片 E · 已修文档 + 窄规则封堵）
 
