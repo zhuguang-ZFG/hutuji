@@ -131,3 +131,29 @@ PC 直连无 S3 无屏刷 = 7.2ms/行（对照组）。
 
 **残余观察项**：SendLine 12.8s/910 行（≈14ms/行写出成本）是新的主桶；PC 直连 7.2ms/行
 为下界参照。是否再压（写出路径）按下一轮实测决定，不预设。
+
+## 7. 复发与根治（2026-08-25，lichuang-dev 半墨）
+
+**复发**：waveshare 修复三件套上线后，lichuang-dev 语音出图再现「半树无墨」。
+抓包 `results/local-only/2026-08-25/tree-redraw-com14.log`（本机）：流完整
+（540 发 540 收、零 error/ALARM、页尾全序列），固件全程报 Z=5.000，但纸面
+树冠/框左缘微段区空白——物理笔位与固件 Z 开环分叉。落笔期空窗 10 次
+230–640ms，与 TTS 播报（「写字机正在动笔…」）、`notify: 出图进度`、屏显同刻。
+
+**根因**：§6 的 250ms 屏显节流只降频率，救不了单次锁等待。`UpdateDisplayProgress()`
+内联 `display->SetStatus` 需拿 LVGL 显示锁；lichuang-dev 的 Grobot 全脸动画
+（TTS 播报期嘴部帧连帧渲染）使主任务整帧持锁，灌流任务单次锁等待即达
+230–640ms——远超微段区缓冲运动量（≈300–500ms），planner 排空 → `$1=25` 失能
+→ 弹簧抬笔（设计行为，`PreparePenOrigin` 注释同款）→ 同段后续笔画无墨。
+旁证：奎享/Inkscape PC 直连同机全墨（PC 发送端无此类阻塞）。
+
+**根治**（xiaozhi `e623aec`）：`UpdateDisplayProgress()` 的 SetStatus 经
+`Application::Schedule` 回主任务执行（仓规钦定模式），灌流任务只付互斥入队
+成本；250ms 节流保留用于约束主任务队列流量。宿主 135/135；镜像
+`build-jog-ws35/xiaozhi.bin` 3,017,280B SHA-256 `80e4ffe8…d7b7` 已刷 COM14。
+
+**修复后实测**（`tree-redraw-fixed-com14.log` 在本机）：落笔期空窗 max 30ms、
+>100ms **零次**（修复前 640ms/10 次），流 142/142 零错误，用户目视**全墨**。
+`$1` 保持 25 未动（机器默认参数被 PC 主机证明充分，缺陷唯在 S3 发送端）。
+附注：AI 生图链「画不像树」属生成质量另一议题（Quick Draw 缓存即为此设），
+与本机制修复无关。

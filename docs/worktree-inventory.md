@@ -18,7 +18,7 @@
 | `docs/design/quickdraw-local-cache.md` | Quick Draw 本地缓存落地设计稿 v0.1（待用户批准，未实施） |
 | `USER_MEMORY.md` | 用户记忆备份（跨会话持久化） |
 | `memory_user.json` | 用户记忆 JSON 备份 |
-| `tmp/` | 临时工作目录 |
+| `tmp/` | 临时工作目录；2026-08-25 半墨调查新增 `results/local-only/2026-08-25/{tree-redraw-com14,fix-boot-com14,tree-redraw-fixed-com14}.log`（复发抓包 10 次落笔期空窗 230–640ms / 刷机后启动验证 / 修复后复测空窗 max 30ms），gitignored 留本机 |
 | `mcp-server/tmp/{telnet_draw_test,two_opt_ab,capture_resilient,motion_profile_analysis}.py` | 喂流/运动实验件（F 提速 A/B 与 2-opt 排除用；2026-08-25 advisory 后已改：`telnet_draw_test.py` 送机前强制过生产 `validate_gcode`（exit 6 拒发），`two_opt_ab.py` 弃手抄步序改复用 `_vpype_command()` 仅注入 `--two-opt`）。保留本地不入库 |
 | `mcp-server/tmp/qd_categories.txt` | QD 类目清单工作副本，保留本地 |
 | `mcp-server/tmp/abkit/`（star.svg + draw_f8000/f10000/f12000.gcode） | F 变体实验件。**`draw_f12000.gcode` 违 §5（头行 F12000、全行 F12000>10000 上限）——禁上机**，现由 `telnet_draw_test.py` 的 validate 闸拦截；f8000/f10000 合法仅作对照。保留本地 |
@@ -84,7 +84,7 @@
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
 
-**工作树干净（2026-08-24 语音手动控制批 `fb9eeb2` + 2026-08-25 落笔棘轮闸批 `25b7dd0`，均未推 origin；均已刷 COM14）**：语音白名单 + 双板 `hutuji.manual` 注册（`fb9eeb2`）；落笔棘轮修复（`25b7dd0`）——pen_down 的 G92 重设基准序列重复触发会逐次压深 5mm（无限位、语音面摩擦最低），现以 `manual_pen_down_latched_` 原子锁存幂等短路，SetState 进任何非 settled/manual 态即清除强制重校准；双板描述逐字补幂等语义与方向映射（左=X- 右=X+ 前=Y+ 后=Y-）。host **135/135**。**板上镜像**：`build-jog-ws35/xiaozhi.bin` 3,016,816B SHA-256 `3ef41da7…80fc`（= `25b7dd0` 内容），2026-08-25 经 `tmp/flash_jog_ws35.ps1` 刷入 COM14，`Hash of data verified`；前镜像 `259be53a…71c1`（= `fb9eeb2`）同路径 23:33 首刷证据：重启抓包 0 panic、唤醒词 小派/MultiNet7 正常、HutujiPipe 连 Grbl 收 fresh `Idle`；注册日志行落控制台丢失窗与历史 HIL 同态（v9 日志同样不见既有 11 工具的注册行），二进制字符串证据补链。**语音 HIL 待做**。
+**工作树干净（2026-08-24 语音手动控制批 `fb9eeb2` + 2026-08-25 落笔棘轮闸批 `25b7dd0` + 2026-08-25 半墨根治批 `e623aec`，均未推 origin；均已刷 COM14）**：语音白名单 + 双板 `hutuji.manual` 注册（`fb9eeb2`）；落笔棘轮修复（`25b7dd0`）——pen_down 的 G92 重设基准序列重复触发会逐次压深 5mm（无限位、语音面摩擦最低），现以 `manual_pen_down_latched_` 原子锁存幂等短路，SetState 进任何非 settled/manual 态即清除强制重校准；双板描述逐字补幂等语义与方向映射（左=X- 右=X+ 前=Y+ 后=Y-）。半墨根治（`e623aec`）：`UpdateDisplayProgress` 的 SetStatus 经 `Application::Schedule` 回主任务，灌流路径零 UI 阻塞——此前内联 SetStatus 在 LVGL 锁上被全脸动画整帧渲染卡 230–640ms（TTS 播报期最烈），planner 排空 → `$1=25` 失能 → 弹簧抬笔 → 树冠/框左缘微段区无墨；250ms 节流（bf0b295）只降频率救不了单次锁等待。修复后实测落笔期空窗 max 30ms、>100ms 零次（修复前 640ms/10 次），语音出图**全墨**；证据与机制详见 hub `docs/design/s3-stream-pacing-investigation.md` §7。host **135/135**。**板上镜像**：`build-jog-ws35/xiaozhi.bin` 3,017,280B SHA-256 `80e4ffe8…d7b7`（= `e623aec` 内容），2026-08-25 经 `tmp/flash_jog_ws35.ps1` 刷入 COM14，5 分区 `Hash of data verified` + WDT reset（exit=1 为已知重枚举竞态）；前镜像 `3ef41da7…80fc`（= `25b7dd0`）；更早 `259be53a…71c1`（= `fb9eeb2`）。**语音 HIL 待做**。
 
 ### 批次登记与板上镜像（HEAD 存档并入）
 
