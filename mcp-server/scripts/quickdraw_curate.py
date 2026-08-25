@@ -79,8 +79,10 @@ def quality(strokes: list[list[list[float]]]) -> float:
     )
 
 
-def curate_file(path: Path, keep: int) -> tuple[int, int]:
+def curate_file(path: Path, keep: int, out_dir: Path | None) -> tuple[int, int, int, bool]:
+    """返回 (可解析样本数, 保留数, 坏行数, 是否跳过写盘)。kept 为空不写盘。"""
     entries = []
+    bad = 0
     for idx, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
         line = line.strip()
         if not line:
@@ -88,34 +90,52 @@ def curate_file(path: Path, keep: int) -> tuple[int, int]:
         try:
             strokes = json.loads(line)["strokes"]
             if not strokes:
-                continue
+                raise ValueError("empty strokes")
         except Exception:
+            bad += 1
             continue
         entries.append((quality(strokes), idx, line))
     before = len(entries)
     entries.sort(key=lambda e: (-e[0], e[1]))
     kept = entries[:keep]
-    path.write_text("\n".join(e[2] for e in kept) + "\n", encoding="utf-8")
-    return before, len(kept)
+    if not kept:
+        print(f"  [WARN] {path.name}: 0 条可解析样本，跳过写盘", file=sys.stderr)
+        return before, 0, bad, True
+    dest = (out_dir / path.name) if out_dir else path
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        bak = path.with_suffix(path.suffix + ".bak")
+        if not bak.exists():
+            bak.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    dest.write_text("\n".join(e[2] for e in kept) + "\n", encoding="utf-8")
+    return before, len(kept), bad, False
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--keep", type=int, default=50)
+    ap.add_argument("--out-dir", default=None, help="缺省原地写（自动留 .bak）；给出则写到新目录")
     args = ap.parse_args()
     data = Path(args.data_dir)
+    out_dir = Path(args.out_dir) if args.out_dir else None
     files = sorted(data.glob("*.jsonl"))
     if not files:
         print(f"no jsonl under {data}", file=sys.stderr)
         return 1
-    total_before = total_after = 0
+    total_before = total_after = total_bad = skipped = 0
     for f in files:
-        b, a = curate_file(f, args.keep)
+        b, a, bad, skipped_flag = curate_file(f, args.keep, out_dir)
         total_before += b
         total_after += a
-        print(f"  {f.name}: {b} -> {a}")
-    print(f"curated {len(files)} categories: {total_before} -> {total_after} samples")
+        total_bad += bad
+        skipped += int(skipped_flag)
+        print(f"  {f.name}: {b} -> {a} (bad={bad})")
+    print(
+        f"curated {len(files)} categories: {total_before} -> {total_after} samples "
+        f"(bad_lines={total_bad}, skipped_empty={skipped})"
+    )
     return 0
 
 
