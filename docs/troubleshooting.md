@@ -486,3 +486,5 @@ BLE 排障必须先确认边界：S3 BLE 阶段 A 已提供 6 字节公开粗粒
 - Z 参数面仅 `zOff/zOn/penUpPos/penDownPos/zSpeed`（`kvenjoy/drawsoft/lib/grbl/GrblParameters.java:16-20`），无任何 Z 回零/基准参数；`Type.java` 五档笔控枚举亦无基准语义。
 - 厂商真实零位是手动「设置原点」= `G92 X<ox> Y<oy> Z0` 把当前位置声明为原点（findings/02 的 2026-08-18 用户实测），同属任意高度校准，靠操作员每会话手动对笔尖状态兜底。
 - 对照结论：「G92 在任意高度校准」是厂商原始行为，非 hutuji 引入的偏差；hutuji 的差异只是校准点受时序控制（fresh Idle + 100ms）。故 Z 叙事的判别力全在上一节可证伪预测：出墨=校准点叙事成立但非「已修」；不出墨=叙事作废转物理面。
+
+纸路现态（22:10 同批只读探针，证据 `results/local-only/2026-08-25/grbl-probe-2210-com13.txt`）：`[ESP901]` → `Paper=No MotorEn=On PanelHold=On Changing=Off`——传感器判**当前无纸**。22:02 那次换纸大概率把末张纸 eject 后未装新纸（或卡纸后传感器未复位）。**判别幅前必须先装纸并复探到 `Paper=On`**，否则出图前缺纸预检直接早退，判别器空转。另：G92 Z=5 仍在而 MPos Z 由 5→0，G92 未清=未复位，开环步计数的事后重建不可靠——按本节口径停止跨场次反推，一切以判别取证三件事为准。
