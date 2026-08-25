@@ -6858,6 +6858,55 @@ def test_gate_required_files_derives_governance_docs(
     assert "docs/brand-new-governance.md" in result["detail"], result
 
 
+def test_test_count_claims_self_consistent() -> None:
+    """计数漂移机器钉死：AGENTS.md 总数 == 分项和 == 实际 collect；inventory 全套同源。
+
+    本会话手抄计数漂了三轮（976→979→981）；不变量本该是派生断言（先例：
+    `required_file_set` 现算并集），不靠人记得同步。collect 只跑
+    `--collect-only -q`，不执行测试体，成本数秒。历史批次记录（如 08-24 批
+    976/976）不在断言面内，只钉「当前共/当前收集/全套」三处当前态表述。
+    """
+    import re
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[2]
+    agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+    m_total = re.search(r"当前收集 \*\*(\d+) 项\*\*", agents)
+    m_sum = re.search(r"当前共 \*\*(\d+) 项\*\*", agents)
+    assert m_total and m_sum, "AGENTS.md 计数行格式漂移"
+    declared = int(m_total.group(1))
+    assert int(m_sum.group(1)) == declared, "AGENTS.md 两处总数不一致"
+    breakdown = {
+        name: int(n)
+        for name, n in re.findall(r"`(test_\w+\.py)` \*\*(\d+)\*\* 项", agents)
+    }
+    assert sum(breakdown.values()) == declared, (
+        f"分项和 {sum(breakdown.values())} != 总数 {declared}: {breakdown}"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests", "--collect-only", "-q"],
+        cwd=root / "mcp-server",
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    collected: dict = {}
+    for line in proc.stdout.splitlines():
+        m = re.match(r"(tests/)?(test_\w+\.py)::", line.strip())
+        if m:
+            collected[m.group(2)] = collected.get(m.group(2), 0) + 1
+    assert collected == breakdown, f"实际 collect 与 AGENTS 分项漂移: {collected}"
+    assert sum(collected.values()) == declared
+
+    inventory = (root / "docs" / "worktree-inventory.md").read_text(encoding="utf-8")
+    m_inv = re.search(r"全套 \*\*(\d+)\*\* 项", inventory)
+    assert m_inv, "inventory 全套计数行格式漂移"
+    assert int(m_inv.group(1)) == declared, "inventory 全套计数与 AGENTS 总数不一致"
+
+
 def test_gate_section9_rejects_marker_files_outside_grbl_repo(tmp_path: Path) -> None:
     gate = _load_agent_gate()
     for rel, needles, _ in gate.SECTION9_MARKERS:
