@@ -40,6 +40,18 @@
 | 验证状态 | hub 门禁 **PASS（2026-08-24，13/13）**；全量 pytest **976/976**、e2e `PASS`；docs 指纹 216/216、外仓引用 212/212；Quick Draw 映射 387 键→298 类、14 个单字孤儿类目均有多字别名且跨类子串碰撞为 0；最长优先 4 个真实碰撞断言通过；服务异步 vpype 转换最多 2 个并发且取消/超时回归通过。**已于 2026-08-24 部署阿里云生产**（3 文件 sha256 对账、双服务重启、ExecStartPre 过、hit 冒烟 0.714s 命中 cat、公网下载逐字节一致、/mcp 404）**并同步京东云热备**（6 产物+数据集 298 文件+env，仅重启 mcp、bridge 保持 disabled，preflight 25/30 其 5 fail 均为热备态预期分歧；详见 `deployment.md` 顶部两条）。**生产量化同日完成**：lookup 类目覆盖 23/23（14 修复类目全 HIT）；6 并发 hit 出图全 OK（墙钟 2.29s、同秒 6 产物、付费日志 0 条）。**仍未执行**：真实语音 HIL、真实使用命中率统计；根 `tmp/` 暂存副本已纳入 `scripts/agent_gate.py` `_REF_SKIP_DIRS`，原 basename 假绿根因已修 |
 | `docs/design/s3-stream-pacing-investigation.md` | 喂流爬行调查 **已结案（§6+§7 两轮）**：第一轮根因=每 ok 一次 LCD 屏刷阻塞灌流循环，修复=屏显 250ms 节流 + 缺纸预检移除 + Grbl 关省电（§6）；第二轮 lichuang 全脸动画下节流不足致半墨复发，根治=屏显走 `Application::Schedule` 出灌流路径（§7，xiaozhi `e623aec`）。§3.1/§4.B/§4.C 已盖 `[superseded → §6]` 标记。用户未提交的结案编辑连同标记与行号修正已随本批入库（如实登记） |
 
+### C 组合（样本精选 + 质量路由，2026-08-25 晚，已提交 `fdf9874`+`41650e4` 并推 origin/main）
+| 文件 | 说明 |
+|------|------|
+| `mcp-server/scripts/quickdraw_curate.py` | 精选脚本：三因子质量分（平滑 0.4 + 构图 0.3 + 笔画数 0.3），每类留头部 `--keep`。**写盘纪律**（2026-08-25 advisory 后加固）：`--out-dir` 写新目录，缺省原地写但自动留 `.bak`；`kept` 为空跳过写盘并 stderr 标红；报告分列 `bad_lines`（整行解析失败）与 `skipped_empty`，避免整文件解析失败被静默清空且报告看不出 |
+| `mcp-server/hutuji_mcp/server.py`（已修改，已提交） | `_QD_STYLE_RE` 质量路由门：默认走 AI 位图链保质量，仅描述含 简笔画/简笔/速写/涂鸦/快速/随便/灵魂 才查 QD 本地缓存 |
+| `mcp-server/hutuji_mcp/quickdraw.py`（已修改，已提交） | 风格词并入 `_PREFIX_RE` 剥离链（与路由门解耦，**词表改动两处同步**） |
+| `mcp-server/tmp/quickdraw-data/` | **已换装为精选版**：298 类 × 50 = 14900 样本（干净重跑：59600→14900，`bad_lines=0`、`skipped_empty=0`）。原始 200 条/类备份在 `mcp-server/tmp/quickdraw-data-uncurated/`（同属 CC BY 4.0 素材，`.gitignore` 的 `mcp-server/tmp/**/*.jsonl` 已兜住） |
+| 目视验证 | 精选头部 top-3 渲染人眼过样（cat/tree/fish/pig/house 各 3 张）：完整猫脸、可识别鱼形与猪脸；对照随机抽样为抽象涂鸦。**顺序为先渲染过样、再换装真数据** |
+| 双机部署 | 阿里云 + 京东云各 298 个 `.jsonl`、`.bak` 0 个；4 类目（cat/tree/zebra/fish）本地 ↔ 两机 sha256 **三方逐一相同**（`bdd0a26c…`/`6c62b86a…`/`e4917113…`/`090c1b6d…`）；代码 2 文件两机 sha256 亦相同（`27c8cb31…`/`a097617d…`）。旧数据保留为 `/opt/hutuji/quickdraw.old` |
+| 生产冒烟 | 阿里云双链验证：`画一只猫`→AI 链 12.81s / 704 行（日志「位图链路分段：生成+下载 9.3s，描摹+预览 2.4s」）；`简笔画一只猫`→QD 0.80s / 60 行（日志「Quick Draw 命中 category=cat entries=50」，`entries=50` 即精选数据生效）|
+| 验证状态 | hub 门禁 **PASS**（`line_ref_fingerprints` 半漂移 1 处已人工核对后 `--accept-line-refs` 重登：被引用行是本页 test_quickdraw 计数行，内容未变仅行移）；pytest **981/981**、e2e `PASS`。**仍未执行**：真实语音 HIL、真实使用命中率统计、京东云本批后 preflight 重跑 |
+
 ### 已修改文件（此前任务遗留，非本调研任务）
 | 文件 | 变更类型 | 来源任务 | 说明 |
 |------|----------|----------|------|

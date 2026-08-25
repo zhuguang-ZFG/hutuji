@@ -222,7 +222,7 @@ if (bl2 && !this.i) {                             // :73-75 由真变假 → 完
 | `[ESP220]` + HTTP `/upload`（`machine/c/a.java:148-151`/`:164-171`）| 本机固件无该协议，走 Telnet 逐行 | **不适用** |
 | `i = bl \|\| y()` 把 hold 也算"在打印"（`machine/c/a.java:71-72`）| 以 fresh `Idle` 判完成，fail-closed | **禁止对齐**：hold 计为进行中会把卡死当正常 |
 | 收到第一个状态行才算"已连上"、版本硬写 `"1.1"`（`machine/c/a.java:76-84`）| Grbl banner 验证对端身份（`hutuji_pipe.cc:49-55`）| **不对齐**：banner 更早，且能挡住局域网里别的 `:23` 主机 |
-| stop = `0x85`+`0x7E` 后**排入** G-code 抬笔 + `G90G0 X0Y0`（`machine/f/g.java:91-95`、`machine/grbl/a.java:266-287`/`:298-301`）| `!` → 轮询到 Hold/Idle → `0x18` 丢 planner，抬笔交给复位后探活的首个 `M5`（`hutuji_job.cc:444-574`）| **不对齐**：奎享的收尾行要等 planner 排空才执行，卡死时永远到不了 |
+| stop = `0x85`+`0x7E` 后**排入** G-code 抬笔 + `G90G0 X0Y0`（`machine/f/g.java:91-95`、`machine/grbl/a.java:266-287`/`:298-301`）| `!` → 轮询到 Hold/Idle → `0x18` 丢 planner，抬笔交给复位后探活的首个 `M5`（`hutuji_job.cc:467-597`）| **不对齐**：奎享的收尾行要等 planner 排空才执行，卡死时永远到不了 |
 
 ## 7 未验证项与 CFR 边界
 
