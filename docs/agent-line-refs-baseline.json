@@ -1,5 +1,5 @@
 {
-  "git_head": "2d85b5e539464c3ae439991bef4057f4a612d7d4",
+  "git_head": "ee92518fd8550020525fd181952953fae695e1f4",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -542,8 +542,8 @@
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:37": {
-      "sha8": "9ddb2d53",
-      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **37 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **979** 项 |",
+      "sha8": "3a3acd7e",
+      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **981** 项 |",
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:38": {
@@ -1142,6 +1142,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-25T14:32:04Z",
+  "updated": "2026-08-25T14:38:05Z",
   "version": 1
 }
