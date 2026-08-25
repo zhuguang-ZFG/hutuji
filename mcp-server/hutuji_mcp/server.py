@@ -72,6 +72,11 @@ _DRAW_FILE_PARTS_RE = re.compile(
 # 歌曲文件名白名单：小写 id + .ogg，无路径分隔符与点号段，天然免疫目录穿越。
 _SONG_FILE_RE = re.compile(r"[a-z0-9_-]{1,64}\.ogg")
 
+# Quick Draw 质量路由（2026-08-25 C 组合）：仅当描述明示简笔/快速画风才走本地
+# 涂鸦缓存；普通描述一律 AI 位图链（用户实测 QD 涂鸦与 AI 线稿并出后「越来越
+# 不好看」——QD 数据集本质是人类 20 秒速写）。词表覆盖口语变体，命中即视为
+# 用户主动要简笔画风。
+_QD_STYLE_RE = re.compile(r"简笔画|简笔|速写|涂鸦|快速画|随便画|灵魂画")
 logger = logging.getLogger(__name__)
 
 
@@ -429,10 +434,16 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
         settings.output_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(_cleanup_expired_outputs)
         # Quick Draw 本地缓存（设计稿 docs/design/quickdraw-local-cache.md，
-        # 2026-08-24 用户批准）：命中即跳过付费生图，不占 _draw_limiter 名额
-        # （名额语义 = 付费 LLM/生图并发闸，与 R13-SRV-02 清理不占名额同口径）；
-        # 未命中/禁用/数据损坏 lookup 一律返回 None，回落既有位图对冲。
-        bitmap = await asyncio.to_thread(quickdraw.lookup, description)
+        # 2026-08-24 用户批准；2026-08-25 C 组合改为**质量路由**）：QD 数据集是
+        # 人类速写涂鸦，与 AI 线稿并发出图后用户实测「越来越不好看」——默认走
+        # AI 位图对冲保质量，仅当描述明示简笔/快速画风（_QD_STYLE_RE）才查本地
+        # 缓存。命中仍跳过付费生图且不占名额；未命中/禁用/数据损坏一律 None
+        # 回落既有位图对冲。
+        bitmap = (
+            await asyncio.to_thread(quickdraw.lookup, description)
+            if _QD_STYLE_RE.search(description)
+            else None
+        )
         if bitmap is not None:
             stats = await _persist_draw_outputs(bitmap)
         else:

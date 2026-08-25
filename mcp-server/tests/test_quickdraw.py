@@ -174,7 +174,8 @@ def test_draw_job_hit_skips_paid_generation(monkeypatch, tmp_path, data_dir):
         raise AssertionError("命中路径不得调用付费生图")
 
     monkeypatch.setattr(server, "generate_bitmap", _forbidden_generate)
-    payload = json.loads(asyncio.run(server._run_draw_job("猫", _BASE_URL)))
+    # 2026-08-25 C 组合后 QD 质量路由：普通词走 AI 链；用"灵魂画"确保 QD 命中。
+    payload = json.loads(asyncio.run(server._run_draw_job("灵魂画一只猫", _BASE_URL)))
     assert slot_spy.entries == 0
     name = payload["url"].rsplit("/", 1)[-1]
     assert name.endswith(".gcode")
@@ -206,6 +207,37 @@ def test_draw_job_miss_falls_back_to_bitmap(monkeypatch, tmp_path, data_dir):
     assert calls == ["未收录主题"]
     assert slot_spy.entries == 1
     assert payload["url"].endswith(".gcode")
+
+
+def test_draw_job_quality_routes_plain_description_to_ai(monkeypatch, tmp_path, data_dir):
+    """C 组合质量路由：普通描述默认走 AI 位图链，QD 仅简笔画风词命中（2026-08-25
+    用户实测 QD 涂鸦与 AI 线稿并出后「越来越不好看」）。"""
+    _use_dir(monkeypatch, data_dir)
+    monkeypatch.setattr(server, "settings", _server_settings(tmp_path))
+    slot_spy = _SlotSpy()
+    monkeypatch.setattr(server, "_draw_limiter", SimpleNamespace(slot=lambda: slot_spy))
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
+        'viewBox="0 0 190 190"><path d="M20 20 L30 30" fill="none" '
+        'stroke="black" stroke-width="0.5"/></svg>'
+    )
+
+    async def _fake_generate(desc):
+        return BitmapResult(svg=svg, preview_png=b"\x89PNG-fake")
+
+    monkeypatch.setattr(server, "generate_bitmap", _fake_generate)
+    # 「画一只猫」在映射表内，但无简笔画风词 → 必须走 AI，不查缓存。
+    payload = json.loads(asyncio.run(server._run_draw_job("画一只猫", _BASE_URL)))
+    assert slot_spy.entries == 1
+    assert payload["url"].endswith(".gcode")
+
+
+def test_draw_quality_routing_keyword_variants(monkeypatch, tmp_path, data_dir):
+    """简笔画风词表：命中任一变体即查 QD 缓存。"""
+    for phrase in ("简笔画一只猫", "画个速写猫", "涂鸦一只猫", "快速画只猫"):
+        assert server._QD_STYLE_RE.search(phrase), phrase
+    for phrase in ("画一只猫", "画一棵树", "给我画个房子"):
+        assert not server._QD_STYLE_RE.search(phrase), phrase
 
 
 # ---------- 映射表自身卫生 ----------
