@@ -1,5 +1,5 @@
 {
-  "git_head": "ca3ddbd8b2fad4f77c8e1f24cb9969584f7d31ec",
+  "git_head": "2d85b5e539464c3ae439991bef4057f4a612d7d4",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -961,6 +961,11 @@
       "source": "    protocol_service_during_blocking();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
+    "docs/troubleshooting.md -> PaperSystem.cpp:349-359": {
+      "sha8": "e124b995",
+      "source": "    // GPIO34: LOW(0)=有纸, HIGH(1)=无纸\n    bool paper_ok = (digitalRead(PAPER_SENSOR_PIN) == 0);\n    bool en_ok    = !digitalRead(PAPER_ENABLE_PIN);\n#ifdef PAPER_DRIVER_ENABLE_PIN\n    en_ok = en_ok || !digitalRead(PAPER_DRIVER_ENABLE_PIN);\n#endif\n    // hutuji §9-B2′：Changing 供 S3 经 [ESP901] 跨 session 判换纸中（abort/断连分流）\n    snprintf(buf,\n             len,\n             \"Paper=%s MotorEn=%s PanelHold=%s Changing=%s\",\n             paper_ok ? \"OK\" : \"No\",",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
     "docs/troubleshooting.md -> PaperSystem.cpp:358-359": {
       "sha8": "2dcd8244",
       "source": "             \"Paper=%s MotorEn=%s PanelHold=%s Changing=%s\",\n             paper_ok ? \"OK\" : \"No\",",
@@ -969,6 +974,11 @@
     "docs/troubleshooting.md -> PaperSystem.cpp:443-463": {
       "sha8": "c2162a38",
       "source": "static void paper_enter_panel_low_hold(void) {\n    paper_ensure_i2s_passthrough();\n    digitalWrite(PANEL_MOTOR_STEP_PIN, LOW);\n    digitalWrite(PANEL_MOTOR_DIR_PIN, PANEL_DIR_FEED);\n#ifdef USE_I2S_OUT\n    i2s_out_delay();\n#endif\n#ifdef PAPER_DRIVER_REF_PIN\n#    ifndef PAPER_REF_DAC_PANEL_HOLD\n#        define PAPER_REF_DAC_PANEL_HOLD ((PAPER_REF_DAC_PANEL) / 2)\n#    endif\n    paper_set_ref_dac((uint8_t)PAPER_REF_DAC_PANEL_HOLD);\n#endif\n    digitalWrite(PAPER_ENABLE_PIN, LOW);\n#ifdef PAPER_DRIVER_ENABLE_PIN\n    digitalWrite(PAPER_DRIVER_ENABLE_PIN, HIGH);  // 拾落/进纸器关\n#endif\n#ifdef USE_I2S_OUT\n    i2s_out_delay();\n#endif\n    paper_panel_low_hold_active = true;",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/troubleshooting.md -> PaperSystem.cpp:822-841": {
+      "sha8": "daa84d71",
+      "source": "        if (!found) {\n            paper_auto_change_running        = false;\n            paper_ignore_host_reset_until_ms = 0;\n            paper_btn_arm_post_change_cooldown();\n            // 缺纸/进纸异常：立即停机并关闭驱动，等待下次从 Step1 重新开始\n            st_go_idle();\n            motors_set_disable(true);\n            paper_disable_drivers();\n            if (timeout_10s) {\n                grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Warning,\n                               \"[PaperAuto-2] OUT_OF_PAPER: no paper detected within %u ms (steps=%u), stop and reset to Step1\",\n                               (unsigned)PAPER_SENSOR_TIMEOUT_MS, (unsigned)steps);\n                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_OUT_OF_PAPER);  // hutuji §9-B1′\n            } else {\n                grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Warning,\n                               \"[PaperAuto-2] ERROR: Feeder timeout - sensor not triggered after %u steps\",\n                               (unsigned)steps);\n                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_FEEDER_TIMEOUT);  // hutuji §9-B1′\n            }\n            return Error::MessageFailed;  // 返回非OK，避免上层误判“Auto paper change completed”",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/troubleshooting.md -> Planner.cpp:315-337": {
@@ -1056,6 +1066,11 @@
       "source": "    size_t InputBuffer::write(uint8_t c) {\n        if ((1 + _RXbufferSize) <= RXBUFFERSIZE) {\n            int current = _RXbufferpos + _RXbufferSize;\n            if (current > RXBUFFERSIZE) {\n                current = current - RXBUFFERSIZE;\n            }\n            if (current > (RXBUFFERSIZE - 1)) {\n                current = 0;\n            }\n            _RXbuffer[current] = c;\n            current++;\n            _RXbufferSize += 1;\n            return 1;\n        }\n        return 0;\n    }",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/InputBuffer.cpp"
     },
+    "docs/troubleshooting.md -> custom_3axis_hr4988.h:245-246": {
+      "sha8": "537b75f9",
+      "source": "// 实测接法：挡住传感器时为 LOW，松开为 HIGH；代码里已按“LOW=paper present, HIGH=no paper”处理\n#define PAPER_SENSOR_PIN        GPIO_NUM_34",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    },
     "docs/troubleshooting.md -> docs/kxnx/findings/02-gcode-template.md:19-20": {
       "sha8": "aa2cec01",
       "source": "G1 X-2.132Y1.169F8000    # 画线，每行都带 F8000\nG1 X-2.174Y1.183F8000",
@@ -1075,6 +1090,11 @@
       "sha8": "1d861f87",
       "source": "    if not seen_xy_motion:\n        raise GcodeError(\n            \"G-code 无任何 XY 运动（空产物：上游几何被全部滤掉，下发只会浪费纸张）\"\n        )",
       "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:1132-1141": {
+      "sha8": "a11bbdbf",
+      "source": "    // P1-1 遥测刷新（消费式）：预览期用户最可能问「还有纸吗」——此刻必为 idle，\n    // 发 [ESP901] 并在本任务内 WaitResponse 收掉 ok（普通命令的应答绝不留队，\n    // 见 StatusJson 只读注释）；失败/超时静默——刷新只是尽力而为，不挡预览。\n    {\n        auto& pipe = Pipe::GetInstance();\n        if (pipe.IsConnected() && pipe.GetPaperChangingState() != PaperChangingState::On) {\n            if (pipe.SendLine(\"[ESP901]\")) {\n                int refresh_err = -1;\n                (void)pipe.WaitResponse(kPaperStatusTimeoutMs, nullptr, &refresh_err);\n            }",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/troubleshooting.md -> hutuji_job.cc:2190-2216": {
       "sha8": "91ad4ab2",
@@ -1111,12 +1131,17 @@
       "source": "    // 每条 G-code 都是小包；关闭 Nagle，避免 Z5 已执行并在 `$1=25ms` 后失能，\n    // 下一条 XY 仍因等待前包 ACK 滞留，造成“轨迹走但笔已回弹”。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
+    "docs/troubleshooting.md -> hutuji_recovery_core.h:797-800": {
+      "sha8": "5810b427",
+      "source": " * 换纸遥测三态：Unknown 是 fail-open 默认态——超时/序号未推进/字段缺席都不得\n * 被解释成「缺纸」，否则一次 Telnet 抖动就会误拒有纸的正常出图（比页尾 error:90 更糟）。\n */\nenum class PaperPresentState : uint8_t { Unknown = 0, Yes, No };",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
+    },
     "docs/troubleshooting.md -> xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:1071-1092": {
       "sha8": "ba5cf0f9",
       "source": "}\n\nbool Pipe::SendLine(const std::string& line) {\n    if (!connected_.load()) {\n        ESP_LOGW(TAG, \"TCP 未连接，丢弃发送: %s\", line.c_str());\n        return false;\n    }\n\n    std::lock_guard<std::mutex> lock(write_mutex_);\n    // 逐行模式：发新行前清掉残留应答，防止上一行超时后迟到的 ok 满足本行的等待。\n    // 窗口化模式必须关掉这个清空——那时队列里的应答是「在途」的合法凭据，\n    // 清掉会让在途计数永久漂移（设计文档 §4.1）。\n    if (drain_on_send_.load()) {\n        DrainResponses();\n    }\n\n    std::string payload = line;\n    payload.push_back('\\n');\n    if (!SendRawLocked(payload.data(), payload.size())) {\n        ESP_LOGE(TAG, \"发送失败: %s\", line.c_str());\n        return false;\n    }",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-25T14:19:14Z",
+  "updated": "2026-08-25T14:32:04Z",
   "version": 1
 }
