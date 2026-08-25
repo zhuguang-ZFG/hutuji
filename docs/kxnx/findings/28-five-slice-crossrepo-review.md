@@ -150,3 +150,14 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
   - M2 命中路径无并发闸：**已修源码**，`svg_to_gcode_async` 统一以按事件循环懒建的信号量限制最多 2 个 vpype；取消、超时、真实管线与并发回归全过。
   - L1/L2/L3：**已修**，删除死的 `stripped` 第二候选、fixture 清理 `_substring_keys` 缓存、改用 mapping 下标并恢复顶层空行。
   - **部署边界**：以上修复仅有本机源码/测试证据，本轮尚未部署阿里云生产；生产命中率与运行态资源闸仍未验证。
+
+## 八、2026-08-26 晚间 MCP 全量复审补遗
+
+- **范围与方式**：quickdraw / server（draw、status、songs、register、files、lifespan、记忆三工具接线）/ memory_store / activation_relay / llm_svg / gcode_gen（异步 vpype）/ bitmap_svg（对冲、取消、single-flight、缓存）逐文件亲读。三个后台 scout 均被看门狗掐掉零产出（6–13 分钟仅进度旁白），复审由主线程人工完成——后续只读审查默认不再开后台 scout。
+- **已修（`2edca9e`）**：① protocol §10.1 `hutuji_sing` 回包字段撤正——契约写 `duration_s`/`size`/`crc32`，实现只回 `duration_seconds`；先查消费方（设备 `hutuji.sing` 只收 `url`/`title`，完整性校验走下载响应头），确认无人消费那三个字段后按实现改契约文本。② protocol §10.3 `hutuji_remember` 超限「报错」→「静默截断」（与实现一致，截空报「没听清」）。③ 设计 §10.2「坐标透传抽查」断言补齐——test_quickdraw 夹具首笔 4 点小于平滑窗口（5 点），原样进 polyline points，断言钉死该边界。
+- **登记未修（P3，按序）**：
+  1. `activation_relay.py` 第 129 行附近——上游 400 响应体为合法 JSON 但非 dict（list/string）时 `.get` 抛 AttributeError 未接，设备收 500 而非 502；一行 isinstance 判型可修，属上游怪异响应边界。
+  2. 设计 §10.7 承诺的 QD 路径并发 single-flight 无专属测试——机制与位图路径共用 `_draw_inflight`（test_contract 的 single-flight 组覆盖同一机制），QD 分支差异仅 lookup 成本，暂不补测。
+  3. 设计 §11 里程碑 4「miss 日志回收一周迭代映射表」未建——C 组合后 miss 仅剩风格词命中但 lookup 失败的窄路径，随真实语音使用一并观察。
+- **复审干净面**：memory_store 读-改-写锁、llm_svg 重试/预算/finish_reason 语义（`length` 只解释「一段 SVG 都提取不到」、不拒已闭合 SVG）、gcode_gen 取消时 terminate→kill 阶梯与按事件循环信号量、bitmap_svg 对冲赛跑 loser 回收（gather return_exceptions 兜底）与 anyio 取消屏蔽循环，均无新发现。
+- **验证**：`pytest tests/test_quickdraw.py` 39 passed；`agent_gate.py --profile docs` PASS；本节行号引用均为散文式，指纹基线不动。
