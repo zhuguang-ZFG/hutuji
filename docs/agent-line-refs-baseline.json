@@ -1,5 +1,5 @@
 {
-  "git_head": "56e27172e78a4109b7a67ccd136ff4eba413b359",
+  "git_head": "ca3ddbd8b2fad4f77c8e1f24cb9969584f7d31ec",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -457,8 +457,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:138-140": {
-      "sha8": "124adcae",
-      "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **979 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 六个测试文件职责（当前共 **979 项**）：`test_contract.py` **591** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、lifespan 日志 filter 安装顺序、服务/部署/门禁回归、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **92** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **37** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/命中不占付费限流名额/miss 回落位图链）。",
+      "sha8": "6f6bc236",
+      "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **981 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 六个测试文件职责（当前共 **981 项**）：`test_contract.py` **591** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、lifespan 日志 filter 安装顺序、服务/部署/门禁回归、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **92** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **39** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/命中不占付费限流名额/miss 回落位图链、C 组合质量路由正反断言）。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -1071,6 +1071,21 @@
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
     },
+    "docs/troubleshooting.md -> gcode_gen.py:689-692": {
+      "sha8": "1d861f87",
+      "source": "    if not seen_xy_motion:\n        raise GcodeError(\n            \"G-code 无任何 XY 运动（空产物：上游几何被全部滤掉，下发只会浪费纸张）\"\n        )",
+      "target": "mcp-server/hutuji_mcp/gcode_gen.py"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:2190-2216": {
+      "sha8": "91ad4ab2",
+      "source": "    // 归位（2026-08-14 用户决策「画完一张之后要归位」）：画完一页先把笔架送回\n    // 原点，再进换纸。必须用 G1 不能用 G0：固件「回原点后换纸」触发\n    // 本行与 M30 一样是 S3 编排命令、不属于下载文件；下载文件的 X0Y0 禁令不变。\n    // R20 补记三条刻意决策：\n    // ①quiescence 不置 Active——入口时流已被 StreamToGrbl 的 WindowGuard 发布为\n    //   Quiesced，abort 的 CanResetAfterStream 立即放行（与 ChangePaperAfterDraw\n    //   的 M30 编排同款：页尾单行编排不再触碰 quiescence 标记）。\n    // ②归位 error:8 不重试——换纸窗外不应出现 error:8，重试被拒运动无意义。\n    // ③归位窗口（~3-5s）内断连不可恢复（任务 error、纸留机上）——窗口在重画\n    //   循环之外，与 ChangePaperAfterDraw 的既有不可恢复窗口同性质，显式接受。\n    // G1 落 (0,0) 不触发——归位与换纸因此仍是两个独立阶段，运动留在可即停的\n    // 常规行里，不进 90s 不可即停的换纸窗口（既有 host test 钉死的口径）。\n    // 本行与 M30 一样是 S3 编排命令、不属于下载文件；下载文件的 X0Y0 禁令不变。\n    // 仅限正常页尾调用：断连恢复的废纸换纸（RecoverDisconnectedDraw 内\n    // ChangePaperAfterDraw 调用点）不归位——该路径刚经历受限 reset，position\n    // 可信度最低，只允许固定的受限恢复序列。\n    {\n        std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n        if (abort_requested_.load()) {\n            last_error_ = \"aborted\";\n            return false;\n        }\n        if (!pipe.SendLine(\"G1G90 X0Y0F8000\")) {\n            last_error_ = \"归位命令发送失败\";\n            return false;\n        }\n    }",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
+    "docs/troubleshooting.md -> hutuji_job.cc:2203-2205": {
+      "sha8": "2250c453",
+      "source": "    // 仅限正常页尾调用：断连恢复的废纸换纸（RecoverDisconnectedDraw 内\n    // ChangePaperAfterDraw 调用点）不归位——该路径刚经历受限 reset，position\n    // 可信度最低，只允许固定的受限恢复序列。",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
+    },
     "docs/troubleshooting.md -> hutuji_job.cc:2592-2605": {
       "sha8": "fe67870b",
       "source": "                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));\n                    continue;",
@@ -1102,6 +1117,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-25T13:43:12Z",
+  "updated": "2026-08-25T14:19:14Z",
   "version": 1
 }
