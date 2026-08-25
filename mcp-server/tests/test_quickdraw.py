@@ -116,6 +116,9 @@ def test_lookup_hit_shape_and_svg_contract(monkeypatch, data_dir):
     _validate_svg(result.svg)
     assert result.svg.count("<polyline") == len(_ENTRY["strokes"])
     assert 'fill="none"' in result.svg
+    # 设计 §10.2 坐标透传抽查：< _SMOOTH_WINDOW(5) 点的笔画不平滑，
+    # 夹具首笔 4 点须原样进 polyline points（格式 x:.1f,y:.1f 空格分隔）。
+    assert 'points="10.0,10.0 20.0,25.0 30.0,30.0 40.0,45.0"' in result.svg
     assert result.preview_png.startswith(b"\x89PNG")
 
 

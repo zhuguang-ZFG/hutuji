@@ -502,7 +502,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ### 10.1 云端 `hutuji_sing` 与 `/songs` 路由
 
-- **工具**：`hutuji_sing(song: str = "")`。`song` 为空 → `{"found": false, "catalog": [...]}`（回全目录供设备选歌）；命中 → `{"found": true, "url": ..., "title": ..., "duration_s": ..., "size": ..., "crc32": ...}`；模糊匹配未命中 → `{"found": false, "catalog": [...]}`。目录文件 `songs/catalog.json` 与 `.ogg` 文件**必须同批部署**（单飞 catalog 会造成 404 塌缩）。
+- **工具**：`hutuji_sing(song: str = "")`。`song` 为空 → `{"found": false, "catalog": [...]}`（回全目录供设备选歌）；命中 → `{"found": true, "url": ..., "title": ..., "duration_seconds": ...}`（`size`/`crc32` 不进工具回包——设备校验走下载响应头，2026-08-25 对账撤正）；模糊匹配未命中 → `{"found": false, "catalog": [...]}`。目录文件 `songs/catalog.json` 与 `.ogg` 文件**必须同批部署**（单飞 catalog 会造成 404 塌缩）。
 - **路由**：`GET|HEAD /songs/{name}`，`name` 正则 `^[a-z0-9_-]{1,64}\.ogg$`；名字不合法/文件缺失/读取竞态统一塌 `404`（同 `/files` 口径，不回显内部细节）。响应 `Content-Type: audio/ogg`，头 `X-Hutuji-CRC32: {crc32:08x}`（`zlib.crc32(payload) & 0xFFFFFFFF`），`Cache-Control: public, max-age=3600`。
 - **公网面**：nginx 新增 `location /songs/`，与 `/files/` 同桶反代 uvicorn（同限速 zone）；`/mcp` 公网仍 404。
 - **曲库内容纪律**：只放自合成公版旋律（numpy 正弦合成 + OGG Vorbis 编码），禁止采购/搬运有版权音频。
@@ -519,7 +519,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ### 10.3 记忆三工具（云端，服务器侧持久化）
 
-- `hutuji_remember(key, value)`：写入一条事实。`key ≤ 50` 字符、`value ≤ 500` 字符；超限报错。总量 200 条 LRU（写第 201 条挤掉最旧）。
+- `hutuji_remember(key, value)`：写入一条事实。`key ≤ 50` 字符、`value ≤ 500` 字符；超限静默截断（与 description 同口径），截空报「没听清」；「超限报错」旧表述 2026-08-25 对账撤正。总量 200 条 LRU（写第 201 条挤掉最旧）。
 - `hutuji_recall(query)`：按关键词匹配返回相关记忆；**返回体双上限**：最多 100 条且总字符 ≤ 8000（从最新往回装），超出截断。`query` 为空返回全部（同受双上限）。
 - `hutuji_forget(key)`：删除指定 key；`key="*"` 清空全部。
 - **存储**：`/etc/hutuji/memory.json`（生产 `chmod 600`），读-改-写用模块级 `threading.Lock` 串行化（并发 RMW 不丢条）。
