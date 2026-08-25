@@ -1898,6 +1898,49 @@ def test_bitmap_trace_synthetic_star_full_chain(tmp_path: Path) -> None:
     assert stats.lines > 5
 
 
+def _irregular_solid_blob_png() -> bytes:
+    """白底 200x200：左上不规则实心块（模拟生图把眼睛画成实心）+ 右下细横线对照。"""
+    import io
+    import struct
+    import zlib
+
+    import imageio.v3 as iio
+    import numpy as np
+
+    rng = np.random.default_rng(7)
+    w = h = 200
+    img = np.full((h, w), 255, dtype=np.uint8)
+    yy, xx = np.mgrid[0:h, 0:w]
+    r = np.sqrt((yy - 70) ** 2 + (xx - 70) ** 2 / 1.6)
+    wobble = rng.uniform(0.85, 1.15, size=(h, w))
+    img[r * wobble <= 30] = 0
+    img[150:152, 120:180] = 0
+    buf = io.BytesIO()
+    iio.imwrite(buf, img, extension=".png")
+    assert struct.unpack(">I", buf.getvalue()[33:37])  # PNG 长度字段自检防呆
+    _ = zlib.crc32  # 保持 zlib 引用（未来改手写编码时不静默丢依赖）
+    return buf.getvalue()
+
+
+def test_bitmap_trace_solid_blob_becomes_ring() -> None:
+    """实心色块→轮廓环（2026-08-26 用户主诉「AI 画的都有问题」）：生图模型偶发
+    把眼睛/鼻头画成实心块，骨架化会把实心盘变成放射乱麻；描摹前须转成外环。
+    判别面实测：朴素 14 段/374px 乱麻 vs 修复 7 段/220px 弧（本仓 rng=7 夹具）。"""
+    from hutuji_mcp import bitmap_svg
+
+    polys, _w, _h = bitmap_svg.trace_bitmap_to_polylines(_irregular_solid_blob_png())
+    total = sum(
+        float((((p[1:] - p[:-1]) ** 2).sum(axis=1) ** 0.5).sum()) for p in polys
+    )
+    assert len(polys) <= 9, polys
+    assert total <= 300, total
+    # 对照细线必须原样保留（清理不得吃掉正常笔画）
+    longest = max(
+        float((((p[1:] - p[:-1]) ** 2).sum(axis=1) ** 0.5).sum()) for p in polys
+    )
+    assert longest >= 55, longest
+
+
 def test_bitmap_trace_rejects_non_png() -> None:
     from hutuji_mcp import bitmap_svg
 

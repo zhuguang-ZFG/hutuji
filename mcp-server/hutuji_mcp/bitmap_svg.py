@@ -111,6 +111,15 @@ _SVG_MAX_BYTES = 256 * 1024
 _MIN_POLY_PX = 12
 _SMOOTH_WINDOW = 5
 
+# 实心色块→轮廓环（2026-08-26 用户主诉「AI 画的都有问题」取证）：生图模型偶发
+# 把眼睛/鼻头画成实心黑块，骨架化会把实心盘变成乱麻团（纸面=涂鸦核心区）。判据
+# 用连通域 solidity（实心块 ≥0.82 vs 线稿主体 0.07-0.18，实测间隔一个量级）+
+# 面积下限（滤掉笔画交点处的小实心三角）。命中后只保留腐蚀出的外环，骨架化即
+# 得单线圈——与手绘眼睛同形态。QD 路径不经过本函数，不受影响。
+_BLOB_AREA_MIN_PX = 600
+_BLOB_AREA_MIN_FRAC = 0.0002
+_BLOB_SOLIDITY_MIN = 0.82
+_BLOB_RING_PX = 3
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
@@ -230,7 +239,7 @@ def _import_trace_deps() -> tuple:
     """一次性取齐描摹链的重依赖；单一出处，供描摹与预热共用。
 
     延迟 import 重依赖（skimage/sknw）：模块被 import 的场合（如只跑
-    LLM 路线的测试/生产旧调用面）不为用不到的功能付加载成本，缺失时报
+    pytest 收集）不付 numpy/skimage 的加载代价，拿到的是装坏时的
     清晰的 BitmapError 而不是 ImportError 穿透。
     """
     try:
@@ -238,7 +247,8 @@ def _import_trace_deps() -> tuple:
         import sknw
         from skimage.color import rgb2gray, rgba2rgb
         from skimage.filters import gaussian, threshold_otsu
-        from skimage.morphology import skeletonize
+        from skimage.morphology import skeletonize, erosion, disk
+        from skimage import measure
     except Exception as exc:  # noqa: BLE001
         # 刻意宽 catch：本块唯一的语句就是 import，不存在吞掉业务异常的风险，而
         # 依赖装坏并不只走 ImportError——numpy/scipy 的 ABI 失配经典报错是
@@ -257,8 +267,7 @@ def _import_trace_deps() -> tuple:
             f"位图描摹依赖不可用（{type(exc).__name__}: {detail}）："
             "生产 venv 需安装 requirements.txt，若为 ABI 失配需重装 numpy/scipy 系依赖"
         ) from exc
-    return iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize
-
+    return iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize, erosion, disk, measure
 
 def warm_trace_deps() -> None:
     """预热描摹链：装重依赖 + 用探针 PNG 真描一次（幂等，不碰网络/磁盘）。
@@ -279,10 +288,10 @@ def warm_trace_deps() -> None:
 
 def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。"""
-    iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize = (
-        _import_trace_deps()
-    )
-
+    (
+        iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu,
+        skeletonize, erosion, disk, measure,
+    ) = _import_trace_deps()
     if not png_bytes.startswith(_PNG_MAGIC):
         raise BitmapError("生图 API 返回的不是 PNG")
     _reject_oversized_png(png_bytes)
@@ -315,6 +324,21 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     try:
         blur = gaussian(img, sigma=1.0, preserve_range=True)
         binary = blur < threshold_otsu(blur)  # 线条为 True
+        # 实心色块→轮廓环：见 _BLOB_* 常量注释。放在 skeletonize 之前——既消
+        # 眼睛乱麻团，也让 R10-BMP-01 的骨架预算按清理后的骨架计。label+regionprops
+        # 在 4Mpx 图上实测 <100ms（描摹段本身 ~1s），不另开线程。
+        lab = measure.label(binary)
+        blob_hits = 0
+        for r in measure.regionprops(lab):
+            if r.area < _BLOB_AREA_MIN_PX or r.area < _BLOB_AREA_MIN_FRAC * h * w:
+                continue
+            if r.solidity < _BLOB_SOLIDITY_MIN:
+                continue
+            comp = lab == r.label
+            binary[comp] = comp[comp] & ~erosion(comp, disk(_BLOB_RING_PX))[comp]
+            blob_hits += 1
+        if blob_hits:
+            logger.info("位图描摹：实心色块转轮廓环 %d 处", blob_hits)
         skel = skeletonize(binary)
         skel_px = int(skel.sum())
         if skel_px > _SKNW_TRACE_BUDGET_PX:
