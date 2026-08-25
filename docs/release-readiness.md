@@ -90,11 +90,11 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口 abort 复测；④ 生产与合规签核。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-08-25**（`56e2717`），pytest **981 passed**、e2e `PASS`；docs 指纹 **216** 处全对，外仓文档引用 **212** 处全在范围；C 组合双机部署全量清单 298/298 零差异、京东云热备 preflight 25/30（预期分歧）、fz feed-hold 切片隔离 3/3 PASS（standard 被 MinGW 环境层阻断）；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-08-25**（`cfe7fe4`），pytest **981 passed**、e2e `PASS`；docs 指纹 **228** 处全对，外仓文档引用 **218** 处全在范围；C 组合双机部署全量清单 298/298 零差异、京东云热备 preflight 25/30（预期分歧）、fz feed-hold 切片隔离 3/3 PASS（standard 被 MinGW 环境层阻断）；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-08-23**，pytest **933 passed**、e2e `PASS`；docs 指纹 176 处全对，外仓文档引用 179 处全在范围；本轮日志脱敏代码与治理口径均通过
+- 本仓 `hub` 最近通过：**2026-08-25**（`cfe7fe4`），pytest **981 passed**、e2e `PASS`；docs 指纹 228 处全对，外仓文档引用 218 处全在范围；本轮日志脱敏代码与治理口径均通过
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）
