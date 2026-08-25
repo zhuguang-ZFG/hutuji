@@ -8757,6 +8757,26 @@ def test_relay_invalid_code_mapped(tmp_path: Path, monkeypatch) -> None:
     ar.invalidate_device_list_cache()
 
 
+def test_relay_400_non_dict_json_is_upstream(tmp_path: Path, monkeypatch) -> None:
+    """400 响应体为合法 JSON 但非 dict（list/str/null）时按形状不符走 UpstreamError
+    (→502)，不得让 AttributeError 裸奔成 500（2026-08-26 复审 P3-1）。"""
+    from hutuji_mcp import activation_relay as ar
+    import httpx as _httpx
+
+    for bad_body in ('["意外形状"]', '"纯字符串"', "null"):
+        def handler(request, _b=bad_body):  # noqa: ANN001, ANN202
+            if request.method == "GET":
+                return _httpx.Response(200, json={"data": []})
+            return _httpx.Response(400, content=_b.encode("utf-8"))
+
+        _mock_async_client(monkeypatch, handler)
+        ar.invalidate_device_list_cache()
+        s = _relay_settings(tmp_path)
+        with pytest.raises(ar.UpstreamError):
+            asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456"))
+        ar.invalidate_device_list_cache()
+
+
 def test_relay_upstream_failures_mapped(tmp_path: Path, monkeypatch) -> None:
     from hutuji_mcp import activation_relay as ar
     import httpx as _httpx

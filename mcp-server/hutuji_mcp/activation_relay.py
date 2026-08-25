@@ -127,7 +127,9 @@ async def bind_device(settings, mac: str, code: str) -> str:
         # 其余 400（形状不符等）按上游异常处理。只读 code 字段，不回显 message。
         try:
             err_code = resp.json().get("code", "")
-        except ValueError:
+        except (ValueError, AttributeError):
+            # 合法 JSON 但非 dict（list/str/null）时 .get 抛 AttributeError——
+            # 与 _list_bound_macs 同口径按形状不符走 502，不让设备收 500。
             err_code = ""
         if err_code == "INVALID_VERIFICATION_CODE":
             logger.info("activate-relay: mac=%s code rejected", mac)

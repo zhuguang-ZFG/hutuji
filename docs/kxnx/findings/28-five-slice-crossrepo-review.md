@@ -153,11 +153,17 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 
 ## 八、2026-08-26 晚间 MCP 全量复审补遗
 
-- **范围与方式**：quickdraw / server（draw、status、songs、register、files、lifespan、记忆三工具接线）/ memory_store / activation_relay / llm_svg / gcode_gen（异步 vpype）/ bitmap_svg（对冲、取消、single-flight、缓存）逐文件亲读。三个后台 scout 均被看门狗掐掉零产出（6–13 分钟仅进度旁白），复审由主线程人工完成——后续只读审查默认不再开后台 scout。
-- **已修（`2edca9e`）**：① protocol §10.1 `hutuji_sing` 回包字段撤正——契约写 `duration_s`/`size`/`crc32`，实现只回 `duration_seconds`；先查消费方（设备 `hutuji.sing` 只收 `url`/`title`，完整性校验走下载响应头），确认无人消费那三个字段后按实现改契约文本。② protocol §10.3 `hutuji_remember` 超限「报错」→「静默截断」（与实现一致，截空报「没听清」）。③ 设计 §10.2「坐标透传抽查」断言补齐——test_quickdraw 夹具首笔 4 点小于平滑窗口（5 点），原样进 polyline points，断言钉死该边界。
-- **登记未修（P3，按序）**：
-  1. `activation_relay.py` 第 129 行附近——上游 400 响应体为合法 JSON 但非 dict（list/string）时 `.get` 抛 AttributeError 未接，设备收 500 而非 502；一行 isinstance 判型可修，属上游怪异响应边界。
-  2. 设计 §10.7 承诺的 QD 路径并发 single-flight 无专属测试——机制与位图路径共用 `_draw_inflight`（test_contract 的 single-flight 组覆盖同一机制），QD 分支差异仅 lookup 成本，暂不补测。
-  3. 设计 §11 里程碑 4「miss 日志回收一周迭代映射表」未建——C 组合后 miss 仅剩风格词命中但 lookup 失败的窄路径，随真实语音使用一并观察。
+- **P3 三项（2026-08-26 用户指令「处理」后全部收口）**：
+  1. `activation_relay.py` 400 响应体为合法 JSON 但非 dict（list/str/null）时 `.get`
+     抛 AttributeError 未接 → **已修**：`except (ValueError, AttributeError)` 与同文件
+     `_list_bound_macs` 同口径，设备收 502；新增 `test_relay_400_non_dict_json_is_upstream`
+     三种坏形状回归。
+  2. 设计 §10.7 QD 路径并发 single-flight 无专属测试 → **已补**：
+     `test_draw_job_hit_concurrent_same_description_share_one_job`（5 并发同题共享
+     一产物、lookup 仅一次、不占限流名额）。
+  3. 设计 §11 里程碑 4「miss 日志回收一周迭代映射表」未建 → **观测面已落 +
+     里程碑改组**：lookup 无匹配类目落 info（`test_lookup_unknown_category_logs_miss`
+     钉死）；独立回收周期 supersede 进真实语音使用观察期（设计稿 §11 已改）。
+  测试计数 982 → **985**（contract 593 / quickdraw 41），AGENTS 与 inventory 已同步。
 - **复审干净面**：memory_store 读-改-写锁、llm_svg 重试/预算/finish_reason 语义（`length` 只解释「一段 SVG 都提取不到」、不拒已闭合 SVG）、gcode_gen 取消时 terminate→kill 阶梯与按事件循环信号量、bitmap_svg 对冲赛跑 loser 回收（gather return_exceptions 兜底）与 anyio 取消屏蔽循环，均无新发现。
-- **验证**：`pytest tests/test_quickdraw.py` 39 passed；`agent_gate.py --profile docs` PASS；本节行号引用均为散文式，指纹基线不动。
+- **验证**：`pytest tests/test_quickdraw.py` 41 passed；全套 985；hub 门禁与 e2e 见本轮提交报告；本节行号引用均为散文式，指纹基线不动。

@@ -172,6 +172,9 @@ def lookup(description: str) -> BitmapResult | None:
         _warn_once("映射表加载失败", "-")
         return None
     if category is None:
+        # 设计 §11 里程碑 4 的观测面：风格词已路由进来但映射表接不住的短语落
+        # info，供回收迭代映射表（description 已过 server 侧净化，非凭据）。
+        logger.info("Quick Draw miss（无匹配类目）description=%s", description)
         return None
     entries = _load_entries(str(data_dir), category)
     if not entries:

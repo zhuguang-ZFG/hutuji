@@ -148,6 +148,18 @@ def test_lookup_all_corrupt_is_miss_and_warns_once(monkeypatch, data_dir, caplog
     assert second == first  # 同类失败重复查找不得重复告警
 
 
+def test_lookup_unknown_category_logs_miss(monkeypatch, data_dir, caplog):
+    """设计 §11 里程碑 4 观测面：风格词路由进来但映射接不住的短语落 info，
+    供一周回收迭代映射表；禁用/数据缺失等其余 miss 分支各有既有日志，不在此列。"""
+    _use_dir(monkeypatch, data_dir)
+    with caplog.at_level("INFO"):
+        assert quickdraw.lookup("完全没见过的主题") is None
+    assert any(
+        "miss" in r.getMessage() and "完全没见过的主题" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 class _SlotSpy:
     """记录进入次数的异步上下文管理器；命中路径必须一次都不进。"""
 
@@ -187,6 +199,49 @@ def test_draw_job_hit_skips_paid_generation(monkeypatch, tmp_path, data_dir):
     assert (tmp_path / name.replace(".gcode", ".svg")).exists()
     assert (tmp_path / name.replace(".gcode", ".png")).exists()
     assert payload["ttl_seconds"] == 600
+
+
+def test_draw_job_hit_concurrent_same_description_share_one_job(monkeypatch, tmp_path, data_dir):
+    """设计 §10.7：QD 命中路径同题并发只跑一次事务——搭车共享同一产物、
+    不重复 lookup、不占限流名额（机制与位图路径共用 _draw_inflight，此处钉 QD 分支）。"""
+    _use_dir(monkeypatch, data_dir)
+    monkeypatch.setattr(server, "settings", _server_settings(tmp_path, public_base_url=_BASE_URL))
+    slot_spy = _SlotSpy()
+    monkeypatch.setattr(server, "_draw_limiter", SimpleNamespace(slot=lambda: slot_spy))
+    getattr(server, "_draw_inflight", {}).clear()
+    server._gcode_cache.clear()
+
+    real_lookup = quickdraw.lookup
+    lookup_calls: list[str] = []
+
+    def _counting_lookup(desc):
+        lookup_calls.append(desc)
+        return real_lookup(desc)
+
+    monkeypatch.setattr(quickdraw, "lookup", _counting_lookup)
+
+    def _forbidden_generate(_desc):
+        raise AssertionError("命中路径不得调用付费生图")
+
+    monkeypatch.setattr(server, "generate_bitmap", _forbidden_generate)
+
+    async def exercise():
+        tasks = [asyncio.create_task(server.hutuji_draw("灵魂画一只猫")) for _ in range(5)]
+        try:
+            payloads = [json.loads(r) for r in await asyncio.gather(*tasks)]
+            assert len({p["url"] for p in payloads}) == 1, "同题并发必须共享同一事务产物"
+            assert len(lookup_calls) == 1
+            assert slot_spy.entries == 0, "QD 命中不得占限流名额"
+            assert not server._draw_inflight
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    asyncio.run(exercise())
+    getattr(server, "_draw_inflight", {}).clear()
+    server._gcode_cache.clear()
 
 
 def test_draw_job_miss_falls_back_to_bitmap(monkeypatch, tmp_path, data_dir):
