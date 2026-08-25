@@ -63,6 +63,32 @@ def test_match_strips_draw_prefix(monkeypatch, data_dir):
     assert quickdraw._match_category("一只猫") == "cat"
 
 
+def test_match_strips_polite_prefixes(monkeypatch, data_dir):
+    """语音口语礼貌前缀（2026-08-25 生产缺口：「请画树」全 miss 走 AI 生烂树）。"""
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("请画树") == "tree"
+    assert quickdraw._match_category("帮我画树") == "tree"
+    assert quickdraw._match_category("请帮我画树") == "tree"
+    assert quickdraw._match_category("麻烦你画一只猫") == "cat"
+    assert quickdraw._match_category("我想画狗") == "dog"
+    assert quickdraw._match_category("我要画太阳") == "sun"
+
+
+def test_match_strips_stacked_prefixes_iteratively(monkeypatch, data_dir):
+    """礼貌+量词叠加须循环剥离（「请画一棵树」两刀到「树」）。"""
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("请画一棵树") == "tree"
+    assert quickdraw._match_category("帮我画一只猫") == "cat"
+    assert quickdraw._match_category("请画一只可爱的小猫") == "cat"
+
+
+def test_match_polite_prefix_keeps_no_strip_guards(monkeypatch, data_dir):
+    """礼貌前缀剥完后仍须过 _NO_STRIP 拦截（「请画画像」→「画像」不得误剥）。"""
+    _use_dir(monkeypatch, data_dir)
+    assert quickdraw._match_category("请画画像") is None
+    assert quickdraw._match_category("帮我画画家") is None
+
+
 def test_match_never_strips_mid_string(monkeypatch, data_dir):
     _use_dir(monkeypatch, data_dir)
     assert quickdraw._match_category("墙上画着猫") is None

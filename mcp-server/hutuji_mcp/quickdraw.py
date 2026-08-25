@@ -34,13 +34,17 @@ _CANVAS_SIZE = 256
 # 类目数据常驻上限：与位图中心线缓存同量级（16 项），超出 LRU 逐出。
 _STROKE_CACHE_SIZE = 16
 
-# 命中失败时剥一层画动词/量词前缀再查一次（「画一只猫」→「猫」、「画猫」→「猫」）。
-# 只剥开头、只剥一次；备择最长在前（Python 正则按序取首个命中）。
+# 命中失败时剥画动词/量词/礼貌前缀再查（「画一只猫」→「猫」、「请画树」→「树」）。
+# 只剥开头；备择最长在前（Python 正则按序取首个命中）。循环剥离 ≤3 刀：语音口语
+# 常叠两层（「请画一棵树」=礼貌+量词；2026-08-25 生产实证：礼貌前缀+单字名词
+# 组合全 miss 走 AI 生图，是「AI 画不像 X」主因之一）。
 # 裸「画」保留：「画小猫」类说法覆盖面大；代价是「画」作名词语素的词
 # （画家/画板/画册…）会被误剥，由 _NO_STRIP 显式拦截——**往映射表新增
 # 单字键时必须复查这类冲突**（2026-08-24 review 发现「画家」→「家」错配）。
 _PREFIX_RE = re.compile(
-    r"^(?:画一[只个幅张条朵棵辆架艘匹头尾群颗粒]|来一[只个幅张条]|"
+    r"^(?:请帮我画|麻烦你画|我想让你画|帮我画|帮忙画|给我画|麻烦画|"
+    r"我想要画|我想画|我要画|请画|"
+    r"画一[只个幅张条朵棵辆架艘匹头尾群颗粒]|来一[只个幅张条]|"
     r"画[只个幅张条朵棵辆架艘匹头尾群颗粒]|一[只个幅张条朵棵辆架艘匹头尾群颗粒]|画)"
 )
 # 「画」作名词语素的整词不剥离（精确整词命中仍优先，如「画笔」在映射表内）。
@@ -81,14 +85,18 @@ def _match_category(description: str) -> str | None:
     hit = mapping.get(description)
     if hit is not None:
         return hit
-    if description in _NO_STRIP:
-        return None
-    stripped = _PREFIX_RE.sub("", description, count=1)
-    if stripped and stripped != description:
-        hit = mapping.get(stripped)
+    candidate = description
+    for _ in range(3):  # ≤3 刀：礼貌+量词叠加（「请画一棵树」两刀到「树」）封顶
+        if candidate in _NO_STRIP:
+            return None
+        stripped = _PREFIX_RE.sub("", candidate, count=1)
+        if not stripped or stripped == candidate:
+            break
+        candidate = stripped
+        hit = mapping.get(candidate)
         if hit is not None:
             return hit
-        # 词干非精确键时不得短路返回——继续落到子串兜底（2026-08-24 review 实证：
+        # 词干非精确键时不得短路返回——继续剥/落到子串兜底（2026-08-24 review 实证：
         # 「画一只可爱的小猫」strip 成「可爱的小猫」后直接 return None 会跳过子串分支）。
     for key in _substring_keys():
         if key in description:

@@ -1,5 +1,5 @@
 {
-  "_meta": "Quick Draw 本地缓存类目映射（v3，2026-08-24）。key = _sanitize_description 之后的规范化中文串（也可是代码剥离常见画动词前缀后的词干）；value = Quick Draw 官方类目文件名。v3 扩到 298 个官方在册类目（官方全集 345 的 86%），刻意不收的：无类目主题（狐狸/鸡/恐龙/火箭/机器人/爱心等）与成人向/抽象类目（wine bottle/wine glass/lighter/lipstick/underwear/rifle/brain/beard/moustache/goatee/skull/syringe/jail 等），一律留空走 AI 对冲，宁缺毋假。「手机」v3 起改映射 cell phone（v2 误指 telephone 座机）。运行时逻辑见 hutuji_mcp/quickdraw.py；新增条目一行一类目组。数据集 Quick, Draw! by Google, Inc.，CC BY 4.0，署名见 QUICKDRAW-ATTRIBUTION.md。",
+  "_meta": "Quick Draw 本地缓存类目映射（v4，2026-08-25）。key = _sanitize_description 之后的规范化中文串（也可是代码剥离常见画动词前缀后的词干）；value = Quick Draw 官方类目文件名。v3 扩到 298 个官方在册类目（官方全集 345 的 86%），刻意不收的：无类目主题（狐狸/鸡/恐龙/火箭/机器人/爱心/圣诞树/松树等——后两者经 GCS 404 实证非官方类目，官方树系仅 tree/palm tree）与成人向/抽象类目（wine bottle/wine glass/lighter/lipstick/underwear/rifle/brain/beard/moustache/goatee/skull/syringe/jail 等），一律留空走 AI 对冲，宁缺毋假。「手机」v3 起改映射 cell phone（v2 误指 telephone 座机）。v4 配套代码侧礼貌前缀循环剥离（请画/帮我画等+单字名词此前全 miss 走 AI，2026-08-25 生产缺口）。运行时逻辑见 hutuji_mcp/quickdraw.py；新增条目一行一类目组。数据集 Quick, Draw! by Google, Inc.，CC BY 4.0，署名见 QUICKDRAW-ATTRIBUTION.md。",
   "猫": "cat", "小猫": "cat", "猫咪": "cat", "小猫咪": "cat",
   "狗": "dog", "小狗": "dog", "狗狗": "dog",
   "兔子": "rabbit", "小兔子": "rabbit", "兔": "rabbit",
