@@ -1,5 +1,5 @@
 {
-  "git_head": "3844ac996e481bf17450811e21526ae6420c4b65",
+  "git_head": "5d6db3adcca5694ced1895cd5540112de30f5fba",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -136,7 +136,7 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2443-2444": {
+    "docs/design/p2-windowed-flow-control.md -> hutuji_job.cc:2463-2464": {
       "sha8": "3506be7b",
       "source": "    // TODO(S4/Bf)：实机出图期周期性 ?，若 Telnet Bf 余量 < 300 则临时收窄窗口。\n    //   自适应反压（§3.1）本次不做，S3 核心是 window=512 + 换纸行排空。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -331,22 +331,22 @@
       "source": "APP_BRAND = \"派曦绘图\"\nSETTING_INFO = {",
       "target": "D:/GitHub/inkscape_px/inkscape-clean/share/extensions/grbl_plotter.py"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2591-2604": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2611-2624": {
       "sha8": "f5c4ff84",
       "source": "                }\n                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2631-2632": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2651-2652": {
       "sha8": "484b9560",
       "source": "            } else {\n                // 普通行窗口化灌：一行一个 Grbl 应答。不要把多行合并成同一 TCP 包；",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2723-2734": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2743-2754": {
       "sha8": "4c28b436",
       "source": "\n        auto fail_window_and_stop = [&](const std::string& error) {\n            // Grbl 官方 character-counting reservation：坏行回 error 后，RX 内后续行\n            // 仍会继续解析执行。先实时 hold，再清软件窗口并发布 Quiesced；Run 退出\n            // StreamToGrbl 后同步走受控 reset 清 planner/RX，完成前不发布 error。\n            pipe.SendRealtime('!');\n            pipe.DrainResponses();\n            c_line.clear();\n            c_line_bytes_sum = 0;\n            last_error_ = error;\n            stream_error_stop_required_.store(true, std::memory_order_release);\n            window_guard.MarkQuiesced();",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2827-2833": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:2847-2853": {
       "sha8": "cd7a6a7f",
       "source": "            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。\n            return fail_window_and_stop(\"error:\" + std::to_string(err));\n        } else if (wr == WaitResult::Deferred) {\n            // 窗口化普通行不应收到 error:8；一旦出现，后续在途同样先物理停机。\n            ESP_LOGW(TAG, \"窗口化分支意外收到 error:8（err=%d），停止并受控 reset\", err);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -556,32 +556,32 @@
       "source": "        if (!pipe.SendRealtime(0x18)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2425-2427": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2445-2447": {
       "sha8": "6f6bdadb",
       "source": "    std::deque<size_t> c_line;    // 在途各行字节数（含 +1 换行，R1）\n    size_t c_line_bytes_sum = 0;  // 在途字节数累加\n    size_t next_ = 0;             // 下一条待发",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2634-2635": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2654-2655": {
       "sha8": "9378c31a",
       "source": "                const size_t need = line.size() + 1;  // R1：含换行符\n                if (c_line_bytes_sum + need < kWindow || c_line.empty()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2713-2722": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2733-2742": {
       "sha8": "2d8c6044",
       "source": "        auto quiesce_for_abort = [&]() {\n            pipe.DrainResponses();\n            c_line.clear();\n            c_line_bytes_sum = 0;\n            // 暂停超时提交的 abort 保留原因文言，用户侧才能对上 Notify 的解释。\n            if (!pause_timeout_cancel) {\n                last_error_ = \"aborted\";\n            }\n            window_guard.MarkQuiesced();\n        };",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2805": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2825": {
       "sha8": "97c54363",
       "source": "            // 进度屏显 250ms 节流：UpdateDisplayProgress 已走 Application::Schedule",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2813": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2833": {
       "sha8": "5c46e37a",
       "source": "            if ((display_now - last_display_tick) >= pdMS_TO_TICKS(250)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2841-2857": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:2861-2877": {
       "sha8": "507153d6",
       "source": "            if (ok_fallback_count < kMaxOkFallback &&\n                ConfirmInFlightDoneByStatus(spans, lines_sent_, lines_sent_ + c_line.size())) {\n                ++ok_fallback_count;\n                // 释放整窗前先排空应答队列：等待期内到达的迟到 ok 属于本批已释放的\n                // 行，留在队列里会被下一批第一行的 TakeResponse 错配（ok 与状态行\n                // 无锁并发写同一 socket，迟到 ok 是已证现象；与 abort 分支同口径）。\n                pipe.DrainResponses();\n                const size_t released = c_line.size();\n                ESP_LOGW(TAG,\n                         \"等 ok 超时但状态报告确认在途 %zu 行已执行完（Idle+到位），靠状态\"\n                         \"兜底释放整窗继续（第 %d/%d 次）\",\n                         released, ok_fallback_count, kMaxOkFallback);\n                lines_sent_ += released;\n                c_line.clear();\n                c_line_bytes_sum = 0;\n                UpdateDisplayProgress();\n                continue;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -1121,17 +1121,17 @@
       "source": "    // 仅限正常页尾调用：断连恢复的废纸换纸（RecoverDisconnectedDraw 内\n    // ChangePaperAfterDraw 调用点）不归位——该路径刚经历受限 reset，position\n    // 可信度最低，只允许固定的受限恢复序列。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2592-2605": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2612-2625": {
       "sha8": "fe67870b",
       "source": "                if (wr == WaitResult::Deferred) {\n                    paper_active_.store(true);\n                    SetState(\"paper_change\");\n                    ++retries;\n                    if (retries > kDeferredMaxRetries) {\n                        ESP_LOGE(TAG, \"换纸行 error:8 重试耗尽: %s\", line.c_str());\n                        // R21-F13：不带 error:8 原文——映射层会把「正在换纸」进行式\n                        // 拼到「已停止」结论上，时态矛盾；技术细节留在上面的日志。\n                        last_error_ = \"换纸未完成，已停止本次绘图，请检查纸张后重试\";\n                        return false;\n                    }\n                    ESP_LOGW(TAG, \"error:8，%d 次重发: %s\", retries, line.c_str());\n                    vTaskDelay(pdMS_TO_TICKS(2000));\n                    continue;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2632-2633": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2652-2653": {
       "sha8": "fc6722e2",
       "source": "                // 普通行窗口化灌：一行一个 Grbl 应答。不要把多行合并成同一 TCP 包；\n                // 当前商业固件链路实测会出现少应答，窗口计数会永久漂移。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:2827-2833": {
+    "docs/troubleshooting.md -> hutuji_job.cc:2847-2853": {
       "sha8": "cd7a6a7f",
       "source": "            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。\n            return fail_window_and_stop(\"error:\" + std::to_string(err));\n        } else if (wr == WaitResult::Deferred) {\n            // 窗口化普通行不应收到 error:8；一旦出现，后续在途同样先物理停机。\n            ESP_LOGW(TAG, \"窗口化分支意外收到 error:8（err=%d），停止并受控 reset\", err);",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -1157,6 +1157,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-26T09:34:02Z",
+  "updated": "2026-08-26T12:34:32Z",
   "version": 1
 }

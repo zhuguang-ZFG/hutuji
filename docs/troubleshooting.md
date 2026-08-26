@@ -119,7 +119,7 @@ G1 Z0.0 F10000     ← 抬笔
 定量对照（机制推演，**已被本地实测限定适用范围**，见下一节）：
 
 - planner 块深 `BLOCK_BUFFER_SIZE 250`（`Config.h:469`）够深，不是瓶颈。
-- 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:74-75`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:2632-2633`，商业固件会少应答、窗口计数永久漂移）。
+- 在途量看 S3 窗口：`kWindow = 512` 字节 ≈ 21 行在飞（`hutuji_job.cc:74-75`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:2652-2653`，商业固件会少应答、窗口计数永久漂移）。
 - 失能门槛可解析求出：planner 空窗 = `RTT − 21 × 段长 ÷ 133.33mm/s`，空窗 > `$1`=25ms 才失能 → **只有段长 < (RTT−25) × 6.349 µm/ms 时才可能断粮**。RTT=40ms → 0.095mm；RTT=30ms → 0.032mm；RTT ≤ 25ms → 恒不失能。**注意这里代入的 20–40ms 已被实测证否**，实测值与重算后的门槛见下面「实测 `$110/$111/$112` 与链路 RTT」一节。
 - 奎享为什么不受这条约束：它 0.044mm 段长下 21 段仅 6.93ms 在途。奎享支持三条通道——USB 串口（我们 COM3 实测往返 ~6ms）、WiFi TCP（port 23，与 hutuji 同构）、**蓝牙 SPP**（商业上位机无线主路径，`PAPER_AUTO_CHANGE_ON_BT_CONNECT` 量产验证，RTT 未知）。下方 6ms 是串口实测基线；同一份文件搬到 WiFi 40ms+ 往返就必失能——**奎享 `simplePaths=0.02mm` 不可照搬到 Telnet 路径**，hutuji 的 `linesimplify 0.05mm` 反倒是 WiFi 路径的必要保护。
 - 交叉印证：`hutuji_pipe.cc:507-508` 关 Nagle 的注释已独立记过同一物理机制（Z5 执行后 `$1` 到点失能、下一条 XY 因等 ACK 滞留 → 轨迹在走但笔已回弹）。
@@ -232,7 +232,7 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 | 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:469`）而本文件仅 11 块 |
 | 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
-| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:2827-2833` 窗口化分支收 `error:8` 先发 `!`、清窗、受控 reset（重发只在 `hutuji_job.cc:2592-2605` 换纸逐行分支），run1 完整走完且日志无 error——该错序机制不成立 |
+| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:2847-2853` 窗口化分支收 `error:8` 先发 `!`、清窗、受控 reset（重发只在 `hutuji_job.cc:2612-2625` 换纸逐行分支），run1 完整走完且日志无 error——该错序机制不成立 |
 | 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
 
 另：**字节级「丢字节/缓冲读错位」类假设整体站不住**——丢字节只能产生原序列的子序列，解释不了 run1 的「B 完整出现在 A 之前」；A、B 相邻两行只差 `Y60.000`↔`Y200.000`，这种跨行字段互换也无法由读错位生成。
