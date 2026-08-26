@@ -433,17 +433,18 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
         # （hutuji_status 同样在 slot 外跑同一清理，并发重复执行幂等无害）。
         settings.output_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(_cleanup_expired_outputs)
-        # Quick Draw 本地缓存（设计稿 docs/design/quickdraw-local-cache.md，
-        # 2026-08-24 用户批准；2026-08-25 C 组合改为**质量路由**）：QD 数据集是
-        # 人类速写涂鸦，与 AI 线稿并发出图后用户实测「越来越不好看」——默认走
-        # AI 位图对冲保质量，仅当描述明示简笔/快速画风（_QD_STYLE_RE）才查本地
-        # 缓存。命中仍跳过付费生图且不占名额；未命中/禁用/数据损坏一律 None
-        # 回落既有位图对冲。
-        bitmap = (
-            await asyncio.to_thread(quickdraw.lookup, description)
-            if _QD_STYLE_RE.search(description)
-            else None
-        )
+        from . import curated as curated_mod
+
+        if curated_mod.is_replace_active():
+            # 精选库已就绪并开启替换：同主题不再走 QD 涂鸦；miss 只回落 AI。
+            bitmap = await asyncio.to_thread(curated_mod.lookup, description)
+        else:
+            # 现网质量路由：仅明示简笔/速写等画风时查 QD。
+            bitmap = (
+                await asyncio.to_thread(quickdraw.lookup, description)
+                if _QD_STYLE_RE.search(description)
+                else None
+            )
         if bitmap is not None:
             stats = await _persist_draw_outputs(bitmap)
         else:
