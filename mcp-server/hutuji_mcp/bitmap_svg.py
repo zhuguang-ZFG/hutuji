@@ -286,6 +286,71 @@ def warm_trace_deps() -> None:
     trace_bitmap_to_polylines(_encode_probe_png())
 
 
+def _stitch_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray]:
+    """端点距离 ≤ tol_px 的折线互连成连续路径（允许反转），降抬笔次数。
+
+    骨架短边被 _MIN_POLY_PX 过滤后，长边之间留下亚 2mm 缺口；vpype linemerge
+    的 0.3mm 阈值（契约钉死）够不着，纸面表现为虚线。并查集分组 + 组内贪心
+    串接；串接不出去的剩余段原样保留（fail-open，不因缝合引入丢线）。
+    """
+    n = len(polys)
+    if n < 2:
+        return polys
+    parent = list(range(n))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    ends = []
+    for i, p in enumerate(polys):
+        ends.append((i, tuple(p[0])))
+        ends.append((i, tuple(p[-1])))
+    for i in range(len(ends)):
+        for j in range(i + 1, len(ends)):
+            if find(ends[i][0]) == find(ends[j][0]):
+                continue
+            d = float(np.linalg.norm(np.array(ends[i][1]) - np.array(ends[j][1])))
+            if d <= tol_px:
+                a, b = find(ends[i][0]), find(ends[j][0])
+                if a != b:
+                    parent[a] = b
+
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+
+    out: list[np.ndarray] = []
+    for idxs in groups.values():
+        if len(idxs) == 1:
+            out.append(polys[idxs[0]])
+            continue
+        pool = {i: polys[i] for i in idxs}
+        start_i = max(pool, key=lambda i: len(polys[i]))
+        chain = [pool.pop(start_i)]
+        tail = chain[0][-1]
+        while pool:
+            best, bd, rev = None, tol_px + 1e-9, False
+            for i, p in pool.items():
+                d0 = float(np.linalg.norm(p[0] - tail))
+                d1 = float(np.linalg.norm(p[-1] - tail))
+                if d0 <= bd:
+                    best, bd, rev = i, d0, False
+                if d1 <= bd:
+                    best, bd, rev = i, d1, True
+            if best is None:
+                out.extend(pool.values())
+                break
+            p = pool.pop(best)
+            chain.append(p[::-1] if rev else p)
+            tail = chain[-1][-1]
+        merged = np.concatenate([c[:-1] for c in chain[:-1]] + [chain[-1]])
+        out.append(merged)
+    return out
+
+
 def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。"""
     (
@@ -376,6 +441,11 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     if not polys:
         logger.warning("位图描摹没有得到任何线条（生图可能不是线稿）")
         raise BitmapError("位图描摹没有得到任何线条（生图可能不是线稿）")
+    # 端点缝合：_MIN_POLY_PX 丢掉的短连接边在长边之间留 0.3-2mm 缺口，恰在
+    # vpype linemerge 0.3mm 阈值之上——2026-08-26 小狗实测 66 笔全是被拆散的
+    # 同一连通路径（2mm 容差合并后只剩 1 笔）。按图幅比例容差在描摹侧缝合
+    # （允许反转），抬笔次数降一个量级；对 1760px 源约 17px ≈ 1.9mm。
+    polys = _stitch_polylines(polys, max(6.0, min(w, h) * 0.01))
     return polys, w, h
 
 

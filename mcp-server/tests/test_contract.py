@@ -2096,16 +2096,56 @@ def _circle_with_chord_png_bytes() -> bytes:
 
 
 def test_bitmap_trace_keeps_parallel_edges_between_same_nodes() -> None:
-    """同节点对间的平行边必须逐条保留（R10-BMP-02）。
+    """同节点对间的平行边必须逐条保留到描摹产物（R10-BMP-02 + 缝合后语义）。
 
     sknw 默认 multi=False 返回 nx.Graph，同一对节点间重复 add_edge 后写覆盖
     前写：圆环+弦的三条路径只剩一条，实测丢 63% 线条——SVG 合法、过白名单、
     过 §5，纸面直接缺线且零告警。必须以 MultiGraph 建图。
+    2026-08-26 端点缝合上线后：节点相接的边合并成更少折线（抬笔更少、缺线
+    反而为零），断言面从「折线数」改为「总点数内容保留」。
     """
     from hutuji_mcp import bitmap_svg
 
     polys, _w, _h = bitmap_svg.trace_bitmap_to_polylines(_circle_with_chord_png_bytes())
-    assert len(polys) >= 3, f"平行边被静默覆盖（只剩 {len(polys)} 条折线）"
+    total = sum(len(p) for p in polys)
+    assert total >= 500, f"平行边内容被丢（总点数 {total}）"
+
+
+def test_stitch_polylines_merges_near_continuations() -> None:
+    """端点缝合（2026-08-26 小狗虚线根因修复）：_MIN_POLY_PX 丢掉的短连接边
+    让一条连通路径碎成 0.3-2mm 缺口的碎片（实测 66 段、2mm 合并后只剩 1 段），
+    vpype linemerge 0.3mm 阈值够不着。缝合必须允许反转、不得误并远特征。"""
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+
+    a = np.array([[0, 0], [5, 0], [10, 0]], dtype=float)
+    b = np.array([[15, 0], [12, 0]], dtype=float)  # 反向续接 (10,0)→(12,0)
+    c = np.array([[16, 0], [20, 0]], dtype=float)  # 正向续接 (15,0)→(16,0)
+    d = np.array([[0, 60], [10, 60]], dtype=float)  # 远端独立特征
+
+    out = bitmap_svg._stitch_polylines([a, b, c, d], 5.0)
+    assert len(out) == 2, out
+    merged = max(out, key=len)
+    assert len(merged) == len(a) + len(b) + len(c) - 2
+    lone = [p for p in out if len(p) == len(d)][0]
+    assert np.array_equal(lone, d)
+
+
+def test_stitch_polylines_preserves_all_content() -> None:
+    """缝合不得丢任何输入点（拼接处只去重复尾点）。"""
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+    a = np.array([[0, 0], [4, 3], [9, 6]], dtype=float)
+    b = np.array([[10, 6], [14, 9]], dtype=float)
+    out = bitmap_svg._stitch_polylines([a, b], 3.0)
+    assert len(out) == 1
+    merged = out[0]
+    # 全链覆盖两端、内容点数 = 总点数 - 拼接去重（每接点丢 1 个重复尾点）
+    assert np.array_equal(merged[0], a[0])
+    assert np.array_equal(merged[-1], b[-1])
+    assert len(merged) == len(a) + len(b) - 1
 
 
 def test_bitmap_trace_rejects_skeleton_over_sknw_trace_budget(
