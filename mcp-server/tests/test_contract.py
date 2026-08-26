@@ -2148,6 +2148,61 @@ def test_stitch_polylines_preserves_all_content() -> None:
     assert len(merged) == len(a) + len(b) - 1
 
 
+def test_decimate_polylines_collapses_pixel_staircase() -> None:
+    """骨架像素阶梯必须抽稀：否则 layout 后 G1 中位 ~0.8mm，F8000 下 70% 段
+    <10ms → planner 空档失能抬笔（2026-08-26 小路 829 段卡顿/没线）。
+
+    不改锁定的 linesimplify=0.05（楼梯偏差常 >0.05mm 会保留阶梯点）；在像素
+    域 Douglas-Peucker 把阶梯压掉。端点必须保留。"""
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+
+    # 100 点水平阶梯：每步 (1, ±1) 锯齿，弦长偏差 ~0.7px，生产 tol=1.5 应收成两端附近
+    xs = np.arange(100, dtype=float)
+    ys = (xs % 2).astype(float)
+    stair = np.column_stack([xs, ys])
+    out = bitmap_svg._decimate_polylines([stair], 1.5)
+    assert len(out) == 1
+    dec = out[0]
+    assert len(dec) <= 8, f"阶梯未抽稀：{len(dec)} 点"
+    assert np.allclose(dec[0], stair[0])
+    assert np.allclose(dec[-1], stair[-1])
+
+
+def test_decimate_polylines_keeps_short_and_corners() -> None:
+    """短折线不动；有真实拐角的折线不得被抽成直线。"""
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+
+    short = np.array([[0, 0], [3, 0]], dtype=float)
+    corner = np.array([[0, 0], [10, 0], [10, 10], [20, 10]], dtype=float)
+    out = bitmap_svg._decimate_polylines([short, corner], 1.5)
+    assert np.array_equal(out[0], short)
+    assert len(out[1]) >= 3, "拐角被抹成直线"
+    assert np.allclose(out[1][0], corner[0])
+    assert np.allclose(out[1][-1], corner[-1])
+
+
+def test_decimate_polylines_keeps_fine_features_at_production_tol() -> None:
+    """生产 tol≈1.5px 不得抹掉老虎类细弯（半圆齿）——5.3px 曾把细节抽成折棍。"""
+    import numpy as np
+
+    from hutuji_mcp import bitmap_svg
+
+    # 半径 8px 的半圆像素阶梯：细特征，tol=1.5 应保留多点；tol=5.3 会塌成弦
+    n = 40
+    ang = np.linspace(0, np.pi, n)
+    arc = np.column_stack([50 + 8 * np.cos(ang), 50 + 8 * np.sin(ang)])
+    arc = np.round(arc).astype(float)
+    mild = bitmap_svg._decimate_polylines([arc], 1.5)[0]
+    harsh = bitmap_svg._decimate_polylines([arc], 5.3)[0]
+    assert len(mild) >= 5, f"生产 tol 抹细弯：{len(mild)} 点"
+    assert len(harsh) <= 4, f"对照 tol=5.3 应更狠：{len(harsh)} 点"
+    assert len(mild) > len(harsh)
+
+
 def test_bitmap_trace_rejects_skeleton_over_sknw_trace_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

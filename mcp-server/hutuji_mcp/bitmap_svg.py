@@ -110,6 +110,14 @@ _SVG_MAX_BYTES = 256 * 1024
 # 骨架链短于此视为噪点；滑动平均窗口压骨架阶梯抖动（探针调参定稿值）。
 _MIN_POLY_PX = 12
 _SMOOTH_WINDOW = 5
+# 像素域 Douglas-Peucker 容差（2026-08-26 小路卡顿/没线）：骨架折线是 1px 阶梯，
+# layout 后 G1 中位 ~0.8mm，F8000 下 70% 段运动 <10ms → planner 空档、$1=25 失能
+# 弹簧抬笔。vpype linesimplify=0.05 契约钉死且拦不住楼梯偏差（常 >0.05mm）。
+# 容差只压像素阶梯（弦偏差 ~0.7px），勿按图幅抬到 3–5px：1760 源 tol=5.3
+# 曾把老虎 25508→1006 点（~96%），五官/条纹被抹成折棍（2026-08-26 用户反馈）。
+# 1024→tol=1.5px≈0.28mm；1760→1.8px≈0.19mm——阶梯仍塌、曲率特征保留。
+_DECIMATE_TOL_MIN_PX = 1.5
+_DECIMATE_TOL_FRAC = 0.001
 
 # 实心色块→轮廓环（2026-08-26 用户主诉「AI 画的都有问题」取证）：生图模型偶发
 # 把眼睛/鼻头画成实心黑块，骨架化会把实心盘变成乱麻团（纸面=涂鸦核心区）。判据
@@ -351,6 +359,49 @@ def _stitch_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray
     return out
 
 
+def _decimate_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray]:
+    """Douglas-Peucker 抽稀骨架折线（像素坐标），压掉 1px 阶梯致密 G1。
+
+    只用 stdlib 几何（不引 skimage.measure）：本函数在 stitch 之后、出 SVG 之前
+    调用；测试与生产路径都要能在无重依赖预热的情况下单测。端点保留；≤2 点原样。
+    """
+    if tol_px <= 0:
+        return polys
+
+    def _rdp(pts: np.ndarray, eps: float) -> np.ndarray:
+        n = len(pts)
+        if n <= 2:
+            return pts
+        start, end = pts[0], pts[-1]
+        seg = end - start
+        seg_len2 = float(seg[0] * seg[0] + seg[1] * seg[1])
+        if seg_len2 < 1e-18:
+            # 起终点重合：按离起点距离找最远点拆分
+            d2 = np.sum((pts - start) ** 2, axis=1)
+            idx = int(np.argmax(d2))
+            if float(d2[idx]) <= eps * eps:
+                return pts[[0, -1]]
+        else:
+            # 点到弦的垂直距离：|(P-A)×seg| / |seg|
+            rel = pts - start
+            cross = np.abs(rel[:, 0] * seg[1] - rel[:, 1] * seg[0])
+            dist = cross / np.sqrt(seg_len2)
+            idx = int(np.argmax(dist))
+            if float(dist[idx]) <= eps:
+                return pts[[0, -1]]
+        left = _rdp(pts[: idx + 1], eps)
+        right = _rdp(pts[idx:], eps)
+        return np.concatenate([left[:-1], right])
+
+    out: list[np.ndarray] = []
+    for p in polys:
+        if len(p) <= 2:
+            out.append(p)
+            continue
+        out.append(_rdp(p.astype(float, copy=False), float(tol_px)))
+    return out
+
+
 def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。"""
     (
@@ -461,6 +512,16 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     # 0.56mm）到 12px（2.2mm）都有，1.9mm 只能接部分。3mm 覆盖 <12px 全部
     # 断口，实测同图抬笔 55→15；独立特征（眼/鼻/嘴）间距通常 >3mm 不误并。
     polys = _stitch_polylines(polys, max(6.0, min(w, h) * 0.016))
+    # 抽稀必须在缝合之后：先把碎段接回长路径，再压阶梯，避免短段被 tol
+    # 直接收成两点后丢曲率。QD 路径不经本函数，不受影响。
+    dec_tol = max(_DECIMATE_TOL_MIN_PX, min(w, h) * _DECIMATE_TOL_FRAC)
+    before = sum(len(p) for p in polys)
+    polys = _decimate_polylines(polys, dec_tol)
+    after = sum(len(p) for p in polys)
+    if before > after:
+        logger.info(
+            "位图描摹：折线抽稀 %d→%d 点（tol=%.1fpx）", before, after, dec_tol
+        )
     return polys, w, h
 
 
