@@ -113,6 +113,10 @@ class Settings:
     # import 期不探测目录存在性（生产目录由部署保证），首次 lookup 惰性确认，
     # 缺失/不可读按 miss 处理——可用性特性不加 fail-closed 面。
     quickdraw_dir: str = ""
+    # Curated SVG library (design docs/superpowers/specs/2026-08-26-curated-svg-library-design.md).
+    # Empty curated_dir = disabled. curated_replace_qd only takes effect when manifest.ready.
+    curated_dir: str = ""
+    curated_replace_qd: bool = False
     # 激活码中转（activation_relay）：设备把 OTA 激活码 POST 给 /register，由服务器
     # 持控制台 token 代绑。token/agent_id 任一空 = 中转禁用（端点 503，设备走人工
     # 输码兜底）；api_base 必须是 https 且带主机名。
@@ -248,6 +252,9 @@ def load_settings() -> Settings:
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
         siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
         quickdraw_dir=os.environ.get("HUTUJI_QUICKDRAW_DIR", ""),
+        curated_dir=os.environ.get("HUTUJI_CURATED_DIR", ""),
+        curated_replace_qd=os.environ.get("HUTUJI_CURATED_REPLACE_QD", "0").strip()
+        in ("1", "true", "TRUE", "yes"),
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
