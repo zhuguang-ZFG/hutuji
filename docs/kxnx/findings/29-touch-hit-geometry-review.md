@@ -22,7 +22,7 @@
 
 1. taskLVGL priority 1→4（拖动跟手，见 08-26 readiness 条目）。
 2. 指针按压期间暂停 AccentDrift 动画（渲染管线让路）。
-3. **命中区扩展**：talk 钮 ext 12px（96→120px 有效，孤立居中无邻接冲突）；两角钮 ext 8px（角钮间距约 20px，12px 会互相越界抢事件）。48px 角钮有效命中 48→64px，覆盖实测 29px 级脱靶；47-52px 级脱靶需更大**视觉**尺寸，属用户审美决策，未擅动。
+3. **命中区扩展 + 角钮合规恢复**（`0cf01ce` + `a7e0495`）：talk 钮 ext 12px（96→120px 有效，孤立居中无邻接冲突）；两角钮 ext 8px（角钮间距约 20px，12px 会互相越界抢事件）。角钮 48→56px——56px 是本仓成文硬约束（`lcd_display.cc:7` 头注 CONSTRAINTS / `PRODUCT.md:55`「at least 56 px」/ `DESIGN.md:169`，DESIGN.md:45 token 表 control 即 56px），2026-08-20 美观改版降到 48px 属违规漂移，恢复 56 属合规非改设计；56+ext8=有效半径 36px 覆盖 29px 级脱靶，47-52px 级靠更大视觉目标改善瞄准。钉死测试同步 48→56（RED→GREEN）。
 
 ## 未验证（待实机 HIL）
 
