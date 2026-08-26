@@ -11,6 +11,14 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### curated 精选库（2026-08-26，代码已合 main / PR #7；灌库未 flip）
+| 项 | 说明 |
+|----|------|
+| 仓内 | `hutuji_mcp/curated*.py`、`scripts/curated_prep.py`、`CURATED-ATTRIBUTION.md`、测试与 `deploy/hutuji-curated-prep.service` 随文档批次入库；gate v3=`1353336` |
+| 阿里云运行态 | `hutuji-curated-prep` enabled+active，写 `/opt/hutuji/curated`；暗部署：`HUTUJI_CURATED_DIR`/`REPLACE_QD` 未开。数据与 audit **不入 git** |
+| 本机 | `tmp/deploy-20260826-curated-fill/` 部署草稿；`mcp-server/tmp/curated-fill.env` 含生产 env 镜像 → **禁止入库** |
+| 未完成 | `manifest.ready`、抽检、京东云同步、REPLACE 探针；xiaozhi 空坐闸已推未刷机 |
+
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
 |------|------|

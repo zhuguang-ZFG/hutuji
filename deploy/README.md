@@ -58,7 +58,8 @@
 | `env.mcp.example` | → `/etc/hutuji/mcp.env`（LLM + `/files` 相关） |
 | `env.bridge.example` | → `/etc/hutuji/bridge.env`（仅 `MCP_ENDPOINT`） |
 | `hutuji-mcp.service` | uvicorn 固定 `127.0.0.1:8300` |
-| `hutuji-cloud-bridge.service` | 小智 WSS 桥接 |
+| `hutuji-cloud-bridge.service` | 小智云 WSS ↔ 本机 `/mcp` |
+| `hutuji-curated-prep.service` | 离线精选 SVG 灌库（写 `/opt/hutuji/curated`；暗部署期与出图路径解耦） |
 | `nginx-hutuji.conf` | 仅 `/files`；显式 404 `/mcp` |
 
 ## 阶段 0：主机准备（密钥未齐也可先做）
