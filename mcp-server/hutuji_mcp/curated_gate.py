@@ -8,8 +8,10 @@ from pathlib import Path
 from .gcode_gen import GcodeStats, svg_to_gcode, validate_gcode
 from .llm_svg import _validate_svg
 
-GATE_VERSION = "1"
-MAX_PEN_LIFTS = 25
+# 2026-08-26 supersede（用户口径）：抬笔次数不是「画不成」判据，硬拒无产品意义。
+# 入库硬闸只拦画不出/会卡死的产物：SVG 注入、vpype/§5、过碎短段、无墨迹、行数爆炸。
+# gate_version=3：相对 v1(≤25)/v2(≤35) 取消抬笔硬上限。
+GATE_VERSION = "3"
 MAX_G1_LINES = 800
 MAX_SVG_BYTES = 256 * 1024
 MAX_SHORT_G1_RATIO = 0.35
@@ -76,18 +78,14 @@ def gate_svg(svg: str, *, work_dir: Path) -> GcodeStats:
     gcode_path = work_dir / "gate.gcode"
     svg_path.write_text(svg, encoding="utf-8")
     try:
-        stats = svg_to_gcode(svg_path, gcode_path)
+        svg_to_gcode(svg_path, gcode_path)
     except Exception as exc:  # noqa: BLE001
         raise GateReject(f"vpype: {exc}") from exc
-    if stats.pen_lifts > MAX_PEN_LIFTS:
-        raise GateReject(f"pen_lifts: {stats.pen_lifts} > {MAX_PEN_LIFTS}")
     text = gcode_path.read_text(encoding="utf-8")
     try:
         stats = validate_gcode(text, total_bytes=len(text.encode("utf-8")))
     except Exception as exc:  # noqa: BLE001
         raise GateReject(f"validate_gcode: {exc}") from exc
-    if stats.pen_lifts > MAX_PEN_LIFTS:
-        raise GateReject(f"pen_lifts: {stats.pen_lifts} > {MAX_PEN_LIFTS}")
     if stats.lines > MAX_G1_LINES:
         raise GateReject(f"lines: {stats.lines} > {MAX_G1_LINES}")
     _ink_checks(text)

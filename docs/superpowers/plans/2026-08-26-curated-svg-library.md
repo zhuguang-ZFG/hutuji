@@ -14,7 +14,7 @@
 
 - Curated English category names == QD values from `quickdraw_categories.json` (298 unique; exclude `_meta`).
 - `n_target=50`, `n_min=30`; `ready` iff every mapped English category has `count >= n_min`.
-- Ingest hard gate: `pen_lifts <= 25` (stricter than runtime soft warn 50).
+- Ingest hard gate: **抬笔不作硬拒**（2026-08-26 用户口径 supersede；初值 ≤25）。硬拒仅：SVG/vpype/§5、短段比、墨迹跨度、G1 行数上限。
 - While `ready=false` or `HUTUJI_CURATED_REPLACE_QD!=1`, runtime must match today’s QD quality routing (`_QD_STYLE_RE` → QD → else AI); curated lookup short-circuits to `None`.
 - When replace active: curated hit skips QD; curated miss → AI only (never QD). Curated path is **not** style-gated (it is the quality replacement).
 - SVG bodies do not enter git; code/tests/scripts/docs do.
