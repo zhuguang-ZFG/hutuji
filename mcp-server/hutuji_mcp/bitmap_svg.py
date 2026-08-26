@@ -247,7 +247,7 @@ def _import_trace_deps() -> tuple:
         import sknw
         from skimage.color import rgb2gray, rgba2rgb
         from skimage.filters import gaussian, threshold_otsu
-        from skimage.morphology import skeletonize, erosion, disk
+        from skimage.morphology import skeletonize, erosion, disk, closing
         from skimage import measure
     except Exception as exc:  # noqa: BLE001
         # 刻意宽 catch：本块唯一的语句就是 import，不存在吞掉业务异常的风险，而
@@ -267,7 +267,7 @@ def _import_trace_deps() -> tuple:
             f"位图描摹依赖不可用（{type(exc).__name__}: {detail}）："
             "生产 venv 需安装 requirements.txt，若为 ABI 失配需重装 numpy/scipy 系依赖"
         ) from exc
-    return iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize, erosion, disk, measure
+    return iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu, skeletonize, erosion, disk, measure, closing
 
 def warm_trace_deps() -> None:
     """预热描摹链：装重依赖 + 用探针 PNG 真描一次（幂等，不碰网络/磁盘）。
@@ -355,7 +355,7 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。"""
     (
         iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu,
-        skeletonize, erosion, disk, measure,
+        skeletonize, erosion, disk, measure, closing,
     ) = _import_trace_deps()
     if not png_bytes.startswith(_PNG_MAGIC):
         raise BitmapError("生图 API 返回的不是 PNG")
@@ -389,6 +389,11 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     try:
         blur = gaussian(img, sigma=1.0, preserve_range=True)
         binary = blur < threshold_otsu(blur)  # 线条为 True
+        # 形态学闭合填孔连断：skimage skeletonize 对毛发纹理图天然产生海量
+        # 像素级毛刺短边（实测 63 边中 31 条 <12px），_MIN_POLY_PX 丢弃后断口
+        # 成虚线。disk(2) 闭合填小孔+连断口、不放大线宽（开闭运算守恒），
+        # 断边 31→21；剩余断口由下游端点缝合（容差从 1.9mm 提到 3mm）兜底。
+        binary = closing(binary, disk(2))
         # 实心色块→轮廓环：见 _BLOB_* 常量注释。放在 skeletonize 之前——既消
         # 眼睛乱麻团，也让 R10-BMP-01 的骨架预算按清理后的骨架计。label+regionprops
         # 在 4Mpx 图上实测 <100ms（描摹段本身 ~1s），不另开线程。
@@ -400,7 +405,14 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
             if r.solidity < _BLOB_SOLIDITY_MIN:
                 continue
             comp = lab == r.label
-            binary[comp] = comp[comp] & ~erosion(comp, disk(_BLOB_RING_PX))[comp]
+            # bbox 局部腐蚀替代全幅腐蚀（advisory LOW：原 `comp[comp]` 恒为
+            # 全 True 冗余全掩码，且 erosion 每个 blob 都跑 4Mpx 全图）。按
+            # regionprops 的 bbox 切片跑，语义等价、计算量从 4Mpx×N 降到
+            # bbox 面积×N。
+            r_slice = r.slice
+            comp_local = comp[r_slice]
+            ring_local = comp_local & ~erosion(comp_local, disk(_BLOB_RING_PX))
+            binary[r_slice] = np.where(comp_local, ring_local, binary[r_slice])
             blob_hits += 1
         if blob_hits:
             logger.info("位图描摹：实心色块转轮廓环 %d 处", blob_hits)
@@ -445,7 +457,10 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     # vpype linemerge 0.3mm 阈值之上——2026-08-26 小狗实测 66 笔全是被拆散的
     # 同一连通路径（2mm 容差合并后只剩 1 笔）。按图幅比例容差在描摹侧缝合
     # （允许反转），抬笔次数降一个量级；对 1760px 源约 17px ≈ 1.9mm。
-    polys = _stitch_polylines(polys, max(6.0, min(w, h) * 0.01))
+    # 容差从 1.9mm 提到 3mm：skimage 骨架毛刺断口实测 3px（@190mm/1024 =
+    # 0.56mm）到 12px（2.2mm）都有，1.9mm 只能接部分。3mm 覆盖 <12px 全部
+    # 断口，实测同图抬笔 55→15；独立特征（眼/鼻/嘴）间距通常 >3mm 不误并。
+    polys = _stitch_polylines(polys, max(6.0, min(w, h) * 0.016))
     return polys, w, h
 
 
