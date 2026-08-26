@@ -54,16 +54,25 @@ def next_index(cat_dir: Path) -> int:
     return max(indices, default=-1) + 1
 
 
+def _prompt_for(category: str, *, attempt: int, slot: int) -> str:
+    """设计稿措辞 + 槽位/尝试序号，避免位图结果缓存让重试永远同一张。"""
+    # bitmap_svg 还会再加线稿风格前缀；这里保持设计稿语义并带唯一后缀破缓存。
+    return (
+        f"单线简笔 {category}，白底黑线，无填充无阴影无文字"
+        f"（variant {slot}-{attempt}）"
+    )
+
+
 async def _gen(prompt: str) -> str:
     from hutuji_mcp.bitmap_svg import generate_bitmap
 
     return (await generate_bitmap(prompt)).svg
 
 
-def _candidate_svg(category: str, fixture: Path | None) -> str:
+def _candidate_svg(category: str, fixture: Path | None, *, attempt: int, slot: int) -> str:
     if fixture is not None:
         return fixture.read_text(encoding="utf-8")
-    return asyncio.run(_gen(category))
+    return asyncio.run(_gen(_prompt_for(category, attempt=attempt, slot=slot)))
 
 
 def _write_audit_list(category: str, cat_dir: Path, audit_dir: Path) -> None:
@@ -94,18 +103,31 @@ def fill_category(
 
     cat_dir = out_dir / cat
     cat_dir.mkdir(parents=True, exist_ok=True)
-    while len(list(cat_dir.glob("*.svg"))) < per_category:
+    while True:
+        have = len(list(cat_dir.glob("*.svg")))
+        if have >= per_category:
+            break
+        slot = have + 1
+        last_reason = ""
         for attempt in range(1, max_attempts + 1):
-            svg = _candidate_svg(cat, fixture)
+            svg = _candidate_svg(cat, fixture, attempt=attempt, slot=slot)
             try:
                 with tempfile.TemporaryDirectory(prefix="curated-gate-") as work:
                     gate_svg(svg, work_dir=Path(work))
             except GateReject as exc:
+                last_reason = exc.reason
+                print(
+                    f"{cat}: reject slot={slot} attempt={attempt}/{max_attempts}: {exc.reason}",
+                    file=sys.stderr,
+                )
                 if attempt == max_attempts:
-                    raise RuntimeError(f"{cat}: gate rejected after {attempt} attempts: {exc.reason}") from exc
+                    raise RuntimeError(
+                        f"{cat}: gate rejected after {attempt} attempts: {last_reason}"
+                    ) from exc
                 continue
             index = next_index(cat_dir)
             (cat_dir / f"{index:03d}.svg").write_text(svg, encoding="utf-8", newline="\n")
+            print(f"{cat}: accept {index:03d}.svg (slot={slot})", flush=True)
             break
     _write_audit_list(cat, cat_dir, audit_dir)
 
