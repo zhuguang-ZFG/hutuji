@@ -38,6 +38,13 @@
 | 双机 env | 追加 `HUTUJI_CURATED_DIR=/opt/hutuji/curated`（京东云无数据前恒落 AI）；`HUTUJI_PAPER_RISK_GATE=0` 保持 shadow |
 | 验证 | test_curated_server 5 项 preference 语义（QD 禁查负断言）、test_quickdraw 删 5 死路由用例留 36、全套 1025/1025、hub 门禁 pass；冒烟 `随便画个猫` → curated hit idx=003、3.4s 零付费零 QD |
 
+### curated 预览坐标框修复（2026-08-27，已提交 `cfee84e` 并双机发布）
+| 文件 | 说明 |
+|------|------|
+| `mcp-server/hutuji_mcp/curated.py` | `_preview_from_svg` 按 viewBox 解析源坐标框（原硬写 256 把 1024/36 空间点全裁出画布，小派预览空白实锤） |
+| `mcp-server/tests/test_curated.py` | +2 项（1024/36 双空间像素级有墨断言）→ 6 项；全套 1027/1027 |
+| 验证 | 冒烟 `画一只猫` → curated hit → 预览 1898B 完整猫（本机回看）；阿里云 196602/196603、京东云 75901 |
+
 ### AI 纸面风险闸批（2026-08-27，已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310`/`0717e25` 并双机发布；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
 | 文件 | 说明 |
 |------|------|
@@ -46,7 +53,7 @@
 | `mcp-server/hutuji_mcp/server.py`（已修改） | `_run_draw_job` AI 路径纸面闸重试环（最多 3 轮、Reject 清半成品、`PaperRiskExhaustedError` 无废 URL）；QD/curated 不经闸 |
 | `mcp-server/hutuji_mcp/config.py`（已修改） | `paper_risk_gate`（`HUTUJI_PAPER_RISK_GATE`，默认开） |
 | `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 13 + 8 项 |
-| 验证状态 | 全套 1025/1025；hub 门禁 **overall=pass**（指纹 231/231）。闸批已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；`HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
+| 验证状态 | 全套 1027/1027；hub 门禁 **overall=pass**（指纹 231/231）。闸批已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；`HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
 
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
