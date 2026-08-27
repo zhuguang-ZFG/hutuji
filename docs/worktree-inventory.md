@@ -30,6 +30,14 @@
 | 阿里云数据面 | `/opt/hutuji/curated`：首轮 accept 456（两轮含 trumpet 补漏）→ 内容哈希去重 226 → cat 52/狗 52/树 52/房 52/鱼 53，**达标类目 142/298**，ready 仍 False；`/opt/hutuji/twemoji-cache/`（下载缓存，~250 SVG）；crab/1f980 单件 805>800 行放弃；prep 服务已恢复 active；**flip 机器侧抽检 142/142 OK**（运行时全链路），视觉样张 8 类目 7 优 1 弱（树偏小偏稀），多条目抬笔 51–88 软告警已登记为闸重钉样本 |
 | 本机证据 | `tmp/curated-vector-data/`（230 条干净库）、`tmp/svg_pilot/`（五类转换预览 + 库内猫预览，均本机留档不入库） |
 
+### curated 达标优先路由 + QD 退役（2026-08-27，已提交 `48b7d05` 并双机发布）
+| 文件 | 说明 |
+|------|------|
+| `mcp-server/hutuji_mcp/curated.py` | 新增 `lookup_preferred`（类目 count≥n_min 即出、manifest 现读保鲜）+ `_pick_and_load` 共用件 |
+| `mcp-server/hutuji_mcp/server.py` | 路由改 curated-prefer→AI；删 `_QD_STYLE_RE` 与 quickdraw 运行时查询 |
+| 双机 env | 追加 `HUTUJI_CURATED_DIR=/opt/hutuji/curated`（京东云无数据前恒落 AI）；`HUTUJI_PAPER_RISK_GATE=0` 保持 shadow |
+| 验证 | test_curated_server 5 项 preference 语义（QD 禁查负断言）、test_quickdraw 删 5 死路由用例留 36、全套 1025/1025、hub 门禁 pass；冒烟 `随便画个猫` → curated hit idx=003、3.4s 零付费零 QD |
+
 ### AI 纸面风险闸批（2026-08-27，已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310`/`0717e25` 并双机发布；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
 | 文件 | 说明 |
 |------|------|
@@ -38,7 +46,7 @@
 | `mcp-server/hutuji_mcp/server.py`（已修改） | `_run_draw_job` AI 路径纸面闸重试环（最多 3 轮、Reject 清半成品、`PaperRiskExhaustedError` 无废 URL）；QD/curated 不经闸 |
 | `mcp-server/hutuji_mcp/config.py`（已修改） | `paper_risk_gate`（`HUTUJI_PAPER_RISK_GATE`，默认开） |
 | `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 13 + 8 项 |
-| 验证状态 | 全套 1028/1028；hub 门禁 **overall=pass**（指纹 231/231）。闸批已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；阿里云 169867/169868、京东云 53678，两机 env `HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
+| 验证状态 | 全套 1025/1025；hub 门禁 **overall=pass**（指纹 231/231）。闸批已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；`HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
 
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
