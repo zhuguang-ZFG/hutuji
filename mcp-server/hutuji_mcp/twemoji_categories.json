@@ -1,0 +1,658 @@
+{
+  "_comment": "Twemoji（jdecked/twemoji，图形 CC-BY 4.0）codepoint → QD 类目映射。键为 298 类目名，值为 twemoji 文件名（assets/svg/<code>.svg）。仅收录形态适合写字机单线描画的条目；twemoji 无对应物的类目不收（宁缺毋假）。",
+  "airplane": [
+    "2708"
+  ],
+  "alarm clock": [
+    "23f0"
+  ],
+  "ambulance": [
+    "1f691"
+  ],
+  "angel": [
+    "1f47c"
+  ],
+  "ant": [
+    "1f41c"
+  ],
+  "apple": [
+    "1f34e"
+  ],
+  "arm": [
+    "1f4aa"
+  ],
+  "axe": [
+    "1fa93"
+  ],
+  "backpack": [
+    "1f392"
+  ],
+  "banana": [
+    "1f34c"
+  ],
+  "bandage": [
+    "1fa79"
+  ],
+  "baseball": [
+    "26be"
+  ],
+  "basketball": [
+    "1f3c0"
+  ],
+  "bat": [
+    "1f987"
+  ],
+  "bathtub": [
+    "1f6c0"
+  ],
+  "beach": [
+    "1f3d6"
+  ],
+  "bear": [
+    "1f43b"
+  ],
+  "bed": [
+    "1f6cf"
+  ],
+  "bee": [
+    "1f41d"
+  ],
+  "bicycle": [
+    "1f6b2"
+  ],
+  "bird": [
+    "1f426"
+  ],
+  "birthday cake": [
+    "1f382"
+  ],
+  "blueberry": [
+    "1fad0"
+  ],
+  "book": [
+    "1f4d6"
+  ],
+  "bread": [
+    "1f35e"
+  ],
+  "broccoli": [
+    "1f966"
+  ],
+  "broom": [
+    "1f9f9"
+  ],
+  "bucket": [
+    "1faa3"
+  ],
+  "bus": [
+    "1f68c"
+  ],
+  "butterfly": [
+    "1f98b"
+  ],
+  "cactus": [
+    "1f335"
+  ],
+  "cake": [
+    "1f370"
+  ],
+  "calendar": [
+    "1f4c5"
+  ],
+  "camel": [
+    "1f42a",
+    "1f42b"
+  ],
+  "camera": [
+    "1f4f7"
+  ],
+  "campfire": [
+    "1f525"
+  ],
+  "candle": [
+    "1f56f"
+  ],
+  "car": [
+    "1f697"
+  ],
+  "carrot": [
+    "1f955"
+  ],
+  "castle": [
+    "1f3f0"
+  ],
+  "cat": [
+    "1f431",
+    "1f408"
+  ],
+  "cell phone": [
+    "1f4f1"
+  ],
+  "chair": [
+    "1fa91"
+  ],
+  "church": [
+    "26ea"
+  ],
+  "circle": [
+    "1f534"
+  ],
+  "clock": [
+    "1f570"
+  ],
+  "cloud": [
+    "2601"
+  ],
+  "compass": [
+    "1f9ed"
+  ],
+  "computer": [
+    "1f4bb"
+  ],
+  "cookie": [
+    "1f36a"
+  ],
+  "couch": [
+    "1f6cb"
+  ],
+  "cow": [
+    "1f42e",
+    "1f404"
+  ],
+  "crab": [
+    "1f980"
+  ],
+  "crayon": [
+    "1f58d"
+  ],
+  "crocodile": [
+    "1f40a"
+  ],
+  "crown": [
+    "1f451"
+  ],
+  "cruise ship": [
+    "1f6f3"
+  ],
+  "diamond": [
+    "1f48e"
+  ],
+  "dog": [
+    "1f436",
+    "1f415"
+  ],
+  "dolphin": [
+    "1f42c"
+  ],
+  "donut": [
+    "1f369"
+  ],
+  "door": [
+    "1f6aa"
+  ],
+  "dragon": [
+    "1f409",
+    "1f432"
+  ],
+  "drums": [
+    "1f941"
+  ],
+  "duck": [
+    "1f986"
+  ],
+  "ear": [
+    "1f442"
+  ],
+  "elephant": [
+    "1f418"
+  ],
+  "envelope": [
+    "2709"
+  ],
+  "eye": [
+    "1f441"
+  ],
+  "eyeglasses": [
+    "1f453"
+  ],
+  "face": [
+    "1f600"
+  ],
+  "firetruck": [
+    "1f692"
+  ],
+  "fish": [
+    "1f41f",
+    "1f420",
+    "1f421"
+  ],
+  "flamingo": [
+    "1f9a9"
+  ],
+  "flashlight": [
+    "1f526"
+  ],
+  "flower": [
+    "1f33c",
+    "1f33a",
+    "1f337"
+  ],
+  "flying saucer": [
+    "1f6f8"
+  ],
+  "foot": [
+    "1f9b6"
+  ],
+  "frog": [
+    "1f438"
+  ],
+  "giraffe": [
+    "1f992"
+  ],
+  "golf club": [
+    "1f3cc"
+  ],
+  "grapes": [
+    "1f347"
+  ],
+  "guitar": [
+    "1f3b8"
+  ],
+  "hamburger": [
+    "1f354"
+  ],
+  "hammer": [
+    "1f528"
+  ],
+  "hand": [
+    "270b"
+  ],
+  "hat": [
+    "1f3a9",
+    "1f9e2"
+  ],
+  "headphones": [
+    "1f3a7"
+  ],
+  "hedgehog": [
+    "1f994"
+  ],
+  "helicopter": [
+    "1f681"
+  ],
+  "helmet": [
+    "26d1"
+  ],
+  "horse": [
+    "1f434",
+    "1f40e"
+  ],
+  "hospital": [
+    "1f3e5"
+  ],
+  "hot dog": [
+    "1f32d"
+  ],
+  "hourglass": [
+    "231b"
+  ],
+  "house": [
+    "1f3e0"
+  ],
+  "hurricane": [
+    "1f300"
+  ],
+  "ice cream": [
+    "1f366"
+  ],
+  "jacket": [
+    "1f9e5"
+  ],
+  "kangaroo": [
+    "1f998"
+  ],
+  "key": [
+    "1f511"
+  ],
+  "keyboard": [
+    "2328"
+  ],
+  "ladder": [
+    "1fa9c"
+  ],
+  "lantern": [
+    "1f3ee"
+  ],
+  "leaf": [
+    "1f343"
+  ],
+  "leg": [
+    "1f9b5"
+  ],
+  "lightning": [
+    "26a1"
+  ],
+  "lion": [
+    "1f981"
+  ],
+  "lobster": [
+    "1f99e"
+  ],
+  "lollipop": [
+    "1f36d"
+  ],
+  "mailbox": [
+    "1f4eb"
+  ],
+  "map": [
+    "1f5fa"
+  ],
+  "megaphone": [
+    "1f4e3"
+  ],
+  "mermaid": [
+    "1f9dc"
+  ],
+  "microphone": [
+    "1f3a4"
+  ],
+  "monkey": [
+    "1f435",
+    "1f412"
+  ],
+  "moon": [
+    "1f319"
+  ],
+  "mosquito": [
+    "1f99f"
+  ],
+  "motorbike": [
+    "1f3cd"
+  ],
+  "mountain": [
+    "26f0"
+  ],
+  "mouse": [
+    "1f42d",
+    "1f401"
+  ],
+  "mouth": [
+    "1f444"
+  ],
+  "mug": [
+    "2615"
+  ],
+  "mushroom": [
+    "1f344"
+  ],
+  "nose": [
+    "1f443"
+  ],
+  "ocean": [
+    "1f30a"
+  ],
+  "octopus": [
+    "1f419"
+  ],
+  "onion": [
+    "1f9c5"
+  ],
+  "owl": [
+    "1f989"
+  ],
+  "paintbrush": [
+    "1f58c"
+  ],
+  "palm tree": [
+    "1f334"
+  ],
+  "panda": [
+    "1f43c"
+  ],
+  "pants": [
+    "1f456"
+  ],
+  "paper clip": [
+    "1f4ce"
+  ],
+  "parrot": [
+    "1f99c"
+  ],
+  "pear": [
+    "1f350"
+  ],
+  "peas": [
+    "1fadb"
+  ],
+  "pencil": [
+    "270f"
+  ],
+  "penguin": [
+    "1f427"
+  ],
+  "piano": [
+    "1f3b9"
+  ],
+  "pig": [
+    "1f437",
+    "1f416"
+  ],
+  "pineapple": [
+    "1f34d"
+  ],
+  "pizza": [
+    "1f355"
+  ],
+  "police car": [
+    "1f693"
+  ],
+  "potato": [
+    "1f954"
+  ],
+  "purse": [
+    "1f45c"
+  ],
+  "rabbit": [
+    "1f430",
+    "1f407"
+  ],
+  "raccoon": [
+    "1f99d"
+  ],
+  "radio": [
+    "1f4fb"
+  ],
+  "rain": [
+    "1f327"
+  ],
+  "rainbow": [
+    "1f308"
+  ],
+  "rhinoceros": [
+    "1f98f"
+  ],
+  "roller coaster": [
+    "1f3a2"
+  ],
+  "sailboat": [
+    "26f5"
+  ],
+  "sandwich": [
+    "1f96a"
+  ],
+  "saw": [
+    "1fa9a"
+  ],
+  "saxophone": [
+    "1f3b7"
+  ],
+  "school bus": [
+    "1f68c"
+  ],
+  "scissors": [
+    "2702"
+  ],
+  "scorpion": [
+    "1f982"
+  ],
+  "screwdriver": [
+    "1fa9b"
+  ],
+  "sea turtle": [
+    "1f422"
+  ],
+  "shark": [
+    "1f988"
+  ],
+  "sheep": [
+    "1f411"
+  ],
+  "shoe": [
+    "1f45e",
+    "1f45f"
+  ],
+  "shorts": [
+    "1fa73"
+  ],
+  "skyscraper": [
+    "1f3d9"
+  ],
+  "smiley face": [
+    "1f603"
+  ],
+  "snail": [
+    "1f40c"
+  ],
+  "snake": [
+    "1f40d"
+  ],
+  "snowflake": [
+    "2744"
+  ],
+  "snowman": [
+    "26c4"
+  ],
+  "soccer ball": [
+    "26bd"
+  ],
+  "sock": [
+    "1f9e6"
+  ],
+  "speedboat": [
+    "1f6a4"
+  ],
+  "spider": [
+    "1f577"
+  ],
+  "spoon": [
+    "1f944"
+  ],
+  "square": [
+    "2b1b"
+  ],
+  "squirrel": [
+    "1f43f"
+  ],
+  "star": [
+    "2b50"
+  ],
+  "steak": [
+    "1f969"
+  ],
+  "stop sign": [
+    "1f6d1"
+  ],
+  "strawberry": [
+    "1f353"
+  ],
+  "suitcase": [
+    "1f9f3"
+  ],
+  "sun": [
+    "2600"
+  ],
+  "swan": [
+    "1f9a2"
+  ],
+  "t-shirt": [
+    "1f455"
+  ],
+  "teapot": [
+    "1fad6"
+  ],
+  "teddy-bear": [
+    "1f9f8"
+  ],
+  "telephone": [
+    "260e"
+  ],
+  "television": [
+    "1f4fa"
+  ],
+  "tennis racquet": [
+    "1f3be"
+  ],
+  "tent": [
+    "26fa"
+  ],
+  "The Eiffel Tower": [
+    "1f5fc"
+  ],
+  "tiger": [
+    "1f42f",
+    "1f405"
+  ],
+  "toilet": [
+    "1f6bd"
+  ],
+  "tooth": [
+    "1f9b7"
+  ],
+  "tornado": [
+    "1f32a"
+  ],
+  "tractor": [
+    "1f69c"
+  ],
+  "traffic light": [
+    "1f6a5"
+  ],
+  "train": [
+    "1f686"
+  ],
+  "tree": [
+    "1f332",
+    "1f333"
+  ],
+  "triangle": [
+    "1f53a"
+  ],
+  "truck": [
+    "1f69a",
+    "1f69b"
+  ],
+  "trumpet": [
+    "1f3ba"
+  ],
+  "umbrella": [
+    "2602"
+  ],
+  "van": [
+    "1f690"
+  ],
+  "violin": [
+    "1f3bb"
+  ],
+  "watermelon": [
+    "1f349"
+  ],
+  "whale": [
+    "1f433"
+  ],
+  "wristwatch": [
+    "231a"
+  ],
+  "zebra": [
+    "1f993"
+  ]
+}
