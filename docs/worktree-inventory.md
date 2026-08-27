@@ -11,14 +11,14 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### 写字机机设 `$1=255`（2026-08-28，NVS，未改固件镜像）
+### 写字机 `$1=255`（2026-08-28：NVS → 机型默认已固化并刷 COM13）
 | 项 | 说明 |
 |----|------|
-| 板 | COM13 CH340 写字机；当时固件基线仍见 §2 Grbl 节（未因本项重烧） |
-| 操作 | `$1=250`→`$1=255` + `$S`；`$$` 复核 `$1=255` |
-| 证据 | `results/local-only/2026-08-28/grbl-set-dollar1-{250,255}-com13.log`（本机） |
-| 配套 | hub `2cbec59` 落笔短 G1 地板已双机；用户确认「画的可以了」 |
-| 注意 | `$RST=$` 回机型默认 25；换板须重设。S3/xiaozhi **无需**为此刷机 |
+| 源码 | `Grbl_Esp32/.../Machines/custom_3axis_hr4988.h`：`DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→255（**已提交 `7f48217`**） |
+| 构建/门禁 | `pio run -e release` SUCCESS；`firmware.bin` SHA-256 `8FE663BE…80E635`；fz `standard` overall=pass（llvm 22.1.8 前置） |
+| 烧录 | COM13 upload `Hash of data verified`；`$$` 仍见 `$1=255`（NVS）；证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log` |
+| 早前 NVS | `$1=250`→`$1=255`+`$S`（`grbl-set-dollar1-{250,255}-com13.log`） |
+| 注意 | `$RST=$` 现回落 **255**。S3 **无需**为此刷机 |
 
 ### curated 精选库（2026-08-26，代码已合 main / PR #7；灌库未 flip）
 | 项 | 说明 |
