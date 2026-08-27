@@ -1,5 +1,5 @@
 {
-  "git_head": "2cbec59a64456800bacbde750cd46b42a6f39b63",
+  "git_head": "376e03816a8e9ffb78e0d11f5c0bff84710ccf5a",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -426,9 +426,9 @@
       "source": "#ifndef DEFAULT_SOFT_LIMIT_ENABLE\n#    define DEFAULT_SOFT_LIMIT_ENABLE 0  // $20 false\n#endif\n\n#ifndef DEFAULT_HARD_LIMIT_ENABLE\n#    define DEFAULT_HARD_LIMIT_ENABLE 0  // $21 false\n#endif\n\n#ifndef DEFAULT_HOMING_ENABLE\n#    define DEFAULT_HOMING_ENABLE 0  // $22 false",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Defaults.h"
     },
-    "docs/kxnx/findings/22-installed-config-vs-machine.md -> Grbl_Esp32/src/Machines/custom_3axis_hr4988.h:314-351": {
-      "sha8": "3a4258e2",
-      "source": "#define DEFAULT_STEP_PULSE_MICROSECONDS     3     // $0\n#define DEFAULT_STEPPER_IDLE_LOCK_TIME      25    // $1\n#define DEFAULT_STEPPING_INVERT_MASK        0     // $2\n#define DEFAULT_DIRECTION_INVERT_MASK       7     // $3 = XYZ 全反相\n#define DEFAULT_INVERT_ST_ENABLE            0     // $4\n#define DEFAULT_INVERT_LIMIT_PINS           1     // $5\n#define DEFAULT_INVERT_PROBE_PIN            0     // $6\n#define DEFAULT_STATUS_REPORT_MASK          3     // $10\n#define DEFAULT_JUNCTION_DEVIATION          0.01  // $11\n#define DEFAULT_ARC_TOLERANCE               0.002 // $12\n#define DEFAULT_REPORT_INCHES               0     // $13\n\n#define DEFAULT_SOFT_LIMIT_ENABLE           0     // $20\n#define DEFAULT_HARD_LIMIT_ENABLE           0     // $21\n#define DEFAULT_HOMING_ENABLE               0     // $22\n#define DEFAULT_HOMING_DIR_MASK             0     // $23\n#define DEFAULT_HOMING_FEED_RATE            500.0 // $24\n#define DEFAULT_HOMING_SEEK_RATE            500.0 // $25\n#define DEFAULT_HOMING_DEBOUNCE_DELAY       25    // $26\n#define DEFAULT_HOMING_PULLOFF              1.0   // $27\n\n#define DEFAULT_SPINDLE_RPM_MAX             1000.0 // $30\n#define DEFAULT_SPINDLE_RPM_MIN             0.0    // $31\n#define DEFAULT_LASER_MODE                  0      // $32\n\n// $100–$132（P100）\n#define DEFAULT_X_STEPS_PER_MM              100.0\n#define DEFAULT_Y_STEPS_PER_MM              100.0\n#define DEFAULT_Z_STEPS_PER_MM              50.0\n#define DEFAULT_X_MAX_RATE                  12000.0\n#define DEFAULT_Y_MAX_RATE                  12000.0\n#define DEFAULT_Z_MAX_RATE                  10000.0\n#define DEFAULT_X_ACCELERATION              3000.0\n#define DEFAULT_Y_ACCELERATION              3000.0\n#define DEFAULT_Z_ACCELERATION              8000.0\n#define DEFAULT_X_MAX_TRAVEL                210.0  // A4 短边\n#define DEFAULT_Y_MAX_TRAVEL                297.0  // A4 长边\n#define DEFAULT_Z_MAX_TRAVEL                200.0",
+    "docs/kxnx/findings/22-installed-config-vs-machine.md -> Grbl_Esp32/src/Machines/custom_3axis_hr4988.h:314-355": {
+      "sha8": "70052e04",
+      "source": "#define DEFAULT_STEP_PULSE_MICROSECONDS     3     // $0\n// $1=255（0xff）= 空闲不按计时失能（常使能）。弹簧笔架下 $1=25 会在 planner\n// 空窗失能 → 笔弹起而逻辑 Z 仍可能为 5，AI 短段链呈虚实交替。2026-08-28 用户确认\n// 机设 255 可画后固化进机型默认；换板 / $RST=$ 不再回落到 25。已有 NVS 值不受\n// 仅刷机影响，须 $RST=$ 或显式 $1=255+$S 才写入。\n#define DEFAULT_STEPPER_IDLE_LOCK_TIME      255   // $1\n#define DEFAULT_STEPPING_INVERT_MASK        0     // $2\n#define DEFAULT_DIRECTION_INVERT_MASK       7     // $3 = XYZ 全反相\n#define DEFAULT_INVERT_ST_ENABLE            0     // $4\n#define DEFAULT_INVERT_LIMIT_PINS           1     // $5\n#define DEFAULT_INVERT_PROBE_PIN            0     // $6\n#define DEFAULT_STATUS_REPORT_MASK          3     // $10\n#define DEFAULT_JUNCTION_DEVIATION          0.01  // $11\n#define DEFAULT_ARC_TOLERANCE               0.002 // $12\n#define DEFAULT_REPORT_INCHES               0     // $13\n\n#define DEFAULT_SOFT_LIMIT_ENABLE           0     // $20\n#define DEFAULT_HARD_LIMIT_ENABLE           0     // $21\n#define DEFAULT_HOMING_ENABLE               0     // $22\n#define DEFAULT_HOMING_DIR_MASK             0     // $23\n#define DEFAULT_HOMING_FEED_RATE            500.0 // $24\n#define DEFAULT_HOMING_SEEK_RATE            500.0 // $25\n#define DEFAULT_HOMING_DEBOUNCE_DELAY       25    // $26\n#define DEFAULT_HOMING_PULLOFF              1.0   // $27\n\n#define DEFAULT_SPINDLE_RPM_MAX             1000.0 // $30\n#define DEFAULT_SPINDLE_RPM_MIN             0.0    // $31\n#define DEFAULT_LASER_MODE                  0      // $32\n\n// $100–$132（P100）\n#define DEFAULT_X_STEPS_PER_MM              100.0\n#define DEFAULT_Y_STEPS_PER_MM              100.0\n#define DEFAULT_Z_STEPS_PER_MM              50.0\n#define DEFAULT_X_MAX_RATE                  12000.0\n#define DEFAULT_Y_MAX_RATE                  12000.0\n#define DEFAULT_Z_MAX_RATE                  10000.0\n#define DEFAULT_X_ACCELERATION              3000.0\n#define DEFAULT_Y_ACCELERATION              3000.0\n#define DEFAULT_Z_ACCELERATION              8000.0\n#define DEFAULT_X_MAX_TRAVEL                210.0  // A4 短边\n#define DEFAULT_Y_MAX_TRAVEL                297.0  // A4 长边\n#define DEFAULT_Z_MAX_TRAVEL                200.0",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
     "docs/kxnx/findings/22-installed-config-vs-machine.md -> alignment/plan.md:53-54": {
@@ -1096,7 +1096,7 @@
       "source": "   `F10000` 正好等于本机 `$112=10000`（Z 轴最大速率）——奎享是让 Z **跑满速**抬落笔。",
       "target": "docs/kxnx/findings/02-gcode-template.md"
     },
-    "docs/troubleshooting.md -> docs/protocol.md:396": {
+    "docs/troubleshooting.md -> docs/protocol.md:397": {
       "sha8": "745fa93e",
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
@@ -1157,6 +1157,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-27T17:34:43Z",
+  "updated": "2026-08-27T18:56:00Z",
   "version": 1
 }
