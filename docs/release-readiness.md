@@ -1,5 +1,6 @@
 # 发布与出货就绪度
-> **2026-08-28 落笔短 G1 地板已双机部署（纸面未验）**：根因 `$1=25`+弹簧笔架下 AI 亚毫米落笔链易抽空 planner。`gcode_gen.MIN_PEN_DOWN_G1_MM=1.0` + `_collapse_short_pen_down_segments` 挂 gwrite 后写回（CRLF 原样保留）。候选 SHA-256 `41b7423009da022dfff6fc09bdde70819b619de33f3982e1b973d633f6c5b130`、45003B、CR=0；阿里云 bak + restart MainPID `230046/230048`、bridge health 200；京东云热备 bak + mcp restart MainPID `109727`（bridge 仍 inactive）。仓内：min_segment 3 项 + contract 分块 599 + 非 contract 全绿 + e2e PASS；docs 门禁 pass。**未验证**：纸面复验「机器人和咖啡」虚实交替是否消失；hub 全量门禁因本机长 pytest 会话被 KeyboardInterrupt 未一次跑完（分块已覆盖）。不改 `$1`/Z5。
+> **2026-08-28 AI 虚实交替：用户纸面确认可画（hub `2cbec59` + 机设 `$1=255`）**：根因 = `$1` 空闲失能 + 弹簧笔架 + AI 亚毫米落笔链。处置两层——①云端落笔 G1≥1.0mm 地板（`MIN_PEN_DOWN_G1_MM`，双机已发，SHA `41b74230…c5b130`）；②写字机 COM13 NVS `$1`：25→250→**255**（常使能，`$S` 保存；日志 `results/local-only/2026-08-28/grbl-set-dollar1-{250,255}-com13.log`）。**用户确认「画的可以了」**。不改 Z5 契约；**未刷 Grbl/S3 固件**（机设在 NVS，非固件镜像）。出货签核/Waveshare 五钮 HIL/`paper_active` abort 复测仍开放。`$RST=$` 会回到机型默认 `$1=25`，换板须重设或改 `DEFAULT_STEPPER_IDLE_LOCK_TIME`（未做）。
+> **2026-08-28 落笔短 G1 地板已双机部署（纸面当时未验；已被上条用户确认 supersede）**：根因 `$1=25`+弹簧笔架下 AI 亚毫米落笔链易抽空 planner。`gcode_gen.MIN_PEN_DOWN_G1_MM=1.0` + `_collapse_short_pen_down_segments` 挂 gwrite 后写回（CRLF 原样保留）。候选 SHA-256 `41b7423009da022dfff6fc09bdde70819b619de33f3982e1b973d633f6c5b130`、45003B、CR=0；阿里云 bak + restart MainPID `230046/230048`、bridge health 200；京东云热备 bak + mcp restart MainPID `109727`（bridge 仍 inactive）。仓内：min_segment 3 项 + contract 分块 599 + 非 contract 全绿 + e2e PASS；docs 门禁 pass。
 > **2026-08-27 curated 预览坐标框修复双机发布（本仓 `cfee84e`；小派预览空白根因修复）**：`_preview_from_svg` 硬写 256×256 源框，生成条目（1024 空间）与矢量条目（36 空间）点全被裁出画布——生产实锤 321B 近空 PNG 上屏（用户照片取证）；改按 viewBox 解析源框。单产物 blob CR=0 双机 SHA-256 逐符、双服务 restart（阿里云 196602/196603、京东云 75901）；冒烟 `画一只猫` → curated hit → 预览 1898B 完整猫（本机回看确认）。test_curated +2（1024/36 双空间像素级有墨断言），全套 1027/1027、hub 门禁 pass。
 > **2026-08-27 达标类目 curated 优先路由上线 + QD 运行时退役（本仓 `48b7d05`，用户拍板；涂鸦体验终结）**：`_run_draw_job` 路由改 **curated-prefer→AI**——类目 manifest count≥n_min(30) 即出 curated（单类目达标、manifest 现读保鲜），未达直接 AI 链；`_QD_STYLE_RE` 与 quickdraw 运行时查询删除，QD 数据/模块留盘作回滚不再服务。两产物 blob CR=0 双机 SHA-256 逐符、双服务 restart（阿里云 190677/190678、京东云 73165），两机 env 追加 `HUTUJI_CURATED_DIR=/opt/hutuji/curated`（京东云无数据前恒落 AI，无害）。**冒烟**：`随便画个猫`（此前必出 QD 涂鸦）→ `curated hit category=cat idx=003.svg`、3.4s、零付费、零 QD。测试：test_curated_server 5 项 preference 语义、test_quickdraw 删 5 死路由用例留 36、全套 1025/1025、hub 门禁 pass。**「REPLACE_QD 全集 flip」被本路由吸收**——ready 到达时所有类目自然由 preference 服务，无需再开 REPLACE_QD；`is_replace_active` 代码留作休眠路径。
 > **2026-08-27 AI 纸面风险闸已双机发布并转 shadow（用户拍板；纸面未验、阈值待重钉后 enforce）**：代码至 `06daa95`（链：`7bf64a8`→`ee5eca0`→`ff718c8`→`1dbd310`→`0717e25`），产物 blob CR=0 双机 SHA-256 逐符、双服务 restart（阿里云 169867/169868、京东云 53678），两机 env 追加 `HUTUJI_PAPER_RISK_GATE=0`；hub 门禁 overall=pass（pytest 1024/1024、e2e PASS、指纹 231/231）。五指标闸（short_g1 0.35/pen_lifts 40/travel_gap_p50 2.0/ink_span 40/scribble_core 0）shadow 记 `paper_risk shadow …` info 行攒样本，**不拒收不重试**；QD/curated 不经闸。**实测修正两处**：scribble v2 平移不变窗（版本 1→2）；拒收缓存逐出（生产实锤同题三轮同败锁）。**标定疑问（转 shadow 的直接原因）**：`画一只小猫` 三轮 reject 耗尽 ×2（含用户真实体验一轮）；shadow 评测正常猫真样本 `pen_lifts=32 short=0.15 travel_gap_p50=7.16 ink=170 scribble=0`——稀疏线稿笔画空走天然 5~10mm，p50 绝对距离分不清「稀疏好图」与「虚线废图」，travel_gap 阈值 2.0 疑似误杀。**下一步**：纸面目视试画产物（`draw_20260827_171500_HQpCLbBWMYnWY2wVcWFGdX.gcode`，再生法见 deployment 文首）+ shadow 样本积累后按废/好样本重钉阈值（bump 版本）再 enforce（两机 env 改 `=1`）。a089288 两项既有红已按用户批准重标定为覆盖率断言（圆+弦 1.8px、探针 0px，均 ≤4px）。preflight 两机与基线一致。**未验证**：五类纸面目视、真实语音 HIL、闸阈值重钉。
@@ -77,7 +78,7 @@
 
 | # | 条目 | 状态 |
 |---|------|------|
-| 1 | S4 有纸出图与自动换纸 | ✅ 已有历史取证；纸面画质目视仍单列待补 |
+| 1 | S4 有纸出图与自动换纸 | ✅ 已有历史取证；**AI 虚实交替**已于 2026-08-28 用户纸面确认可画（hub 短 G1 地板 + 机设 `$1=255`）；出货级全题材画质签核仍属 #7 |
 | 2 | §9 Grbl 小改清单 | ✅ 核心 §9 已有烧录/fz/实机证据；源码后续 `847b564` 不自动等于板上基线 |
 | 3 | 真实语音出图主链 | ✅ 2026-08-17 语音→云端→下载→出图→归位→换纸已有证据 |
 | 4 | Waveshare 预览与屏幕控制 | 🟡 当前源码基线 `72a693a`（在 `cb82edb` 的 π 启动画面 + Grobot/主题统一渐变 + 触摸双检测门 + 点动包线 Y≤190 + 唱歌双工具之上，追加省电门控/退避前段/播报等待信号/预取内联，祖先关系经 `git merge-base --is-ancestor` 实测）已推，对应镜像 `93b61d5b…afa9` 已刷 COM14：全分区 esptool 写入哈希校验通过，host 131/131，三轮画图 HIL 通过。**待验**：完整冷启动日志、π/Grobot 动效与按钮呼吸现场目视、触摸灵敏度体感与误触回归、预览确认/取消与暂停/继续/停止/重画/试笔 HIL、纸面画质目视；另登记 PSRAM 预取接管所有权缺口（源码审查，待独立批次修复） |
@@ -95,7 +96,7 @@
 
 > **BLE 分阶段边界（2026-08-19）**：默认关闭；公开/认证字段分级、UUID/线序/枚举、快照 stale/unknown、NVS 双槽记录、运行时 fail-closed、量化共存门槛和外部资料证据表均见 `docs/protocol.md` §1.4。BLE 不替代 WiFi Telnet、不承载 G-code、不直接控制电机/笔/换纸/授权/abort/job，也不宣称 UWB/AoA/Apple Precision Finding。阶段 A 的窄范围板上证据不替代当前源码刷机复验、完整共存矩阵或阶段 B/C。
 
-> **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 纸面实物画质人工目视；③ 断连恢复 `paper_active` 窗口 abort 复测；④ 生产与合规签核。
+> **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
 - 本仓 `hub` 最近通过：**2026-08-26**（`b6b314e`），pytest **985 passed**、e2e `PASS`；docs 指纹 **228** 处全对；P3 修复双机发布（阿里云 preflight 20/10 结构性分歧已定性、京东云热备 25/30 与基线一致）、fz feed-hold 切片隔离 3/3 PASS（standard 被 MinGW 环境层阻断）；生产命中率统计与真实语音 HIL 仍未执行

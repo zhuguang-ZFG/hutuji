@@ -31,7 +31,8 @@
 #      并对账 readiness 既有证据。
 #      2026-08-28：gwrite 之后 `gcode_gen._collapse_short_pen_down_segments` 把落笔态
 #      G1 塌到 ≥1.0mm（末点保留），压 AI 描摹亚毫米链触发的 `$1` 空窗虚笔；不改本
-#      profile 字面量、不改 `$1`。
+#      profile 字面量。现场写字机另将 NVS `$1` 设为 255（常使能，用户纸面确认可画）；
+#      与奎享默认 25 分叉，换板/`$RST=$` 须重设——非本 profile 职责。
 #
 # Z 取值：Z=5 触纸落笔，Z=0 抬笔；XY 画线/空走仍 F8000。
 
