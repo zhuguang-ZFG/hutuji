@@ -19,7 +19,7 @@
 | 本机 | `tmp/deploy-20260826-curated-fill/` 部署草稿；`mcp-server/tmp/curated-fill.env` 含生产 env 镜像 → **禁止入库** |
 | 未完成 | `manifest.ready`、抽检、京东云同步、REPLACE 探针；xiaozhi 空坐闸已推未刷机 |
 
-### AI 纸面风险闸批（2026-08-27，未提交；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
+### AI 纸面风险闸批（2026-08-27，已提交 `7bf64a8`+`ee5eca0` 并双机发布；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
 | 文件 | 说明 |
 |------|------|
 | `mcp-server/hutuji_mcp/paper_risk.py` | 新模块：五指标纸面闸（short_g1_ratio/pen_lifts/travel_gap_p50/ink_span/scribble_core）+ `enforce_gcode`；阈值钉 08-26 废/好样本中位；Z5 落笔/Z0 抬笔状态机逐字对齐 `hutuji_gwrite.toml` |
@@ -27,7 +27,7 @@
 | `mcp-server/hutuji_mcp/server.py`（已修改） | `_run_draw_job` AI 路径纸面闸重试环（最多 3 轮、Reject 清半成品、`PaperRiskExhaustedError` 无废 URL）；QD/curated 不经闸 |
 | `mcp-server/hutuji_mcp/config.py`（已修改） | `paper_risk_gate`（`HUTUJI_PAPER_RISK_GATE`，默认开） |
 | `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 11 + 8 项 |
-| 验证状态 | 新文件 19/19 绿；迁移后 draw 路由/取消批全绿；**a089288 两项既有红已按用户批准重标定为覆盖率断言**（圆+弦段距 ≤4px 实测 1.8px；探针臂体 ≤4px 实测 0px，HEAD worktree 基线同红为证）；hub 门禁 **overall=pass exit=0**（pytest 1022/1022、e2e PASS、指纹 231/231） |
+| 验证状态 | 新文件 19/19 绿；全套 1022/1022；a089288 两项既有红已按用户批准重标定为覆盖率断言；hub 门禁 **overall=pass**。已提交 `7bf64a8`+`ee5eca0` 并**双机发布**（blob CR=0、SHA-256 逐符、阿里云 160231/160233、京东云 47297；preflight 与基线一致）。生产冒烟：`画一只小猫` 三轮 reject 耗尽；shadow 真样本 travel_gap_p50=7.16 超 2.0 阈值——标定疑问登记 readiness 文首，待纸面目视 |
 
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
