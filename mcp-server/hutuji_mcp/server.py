@@ -38,7 +38,7 @@ from .cloud_bridge import WATCHDOG_POLL_SECONDS, read_health_status
 from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
-from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
+from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
 from . import quickdraw
 from . import paper_risk
 from .redact import _install_secret_redaction
@@ -490,6 +490,9 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
                             "paper_risk reject reason=%s attempt=%d",
                             exc.reason, attempt,
                         )
+                        # 拒收位图不得在 TTL 内复售：逐出该 attempt 缓存，下次
+                        # 同题重试真重生（生产实测三轮全命中缓存三次同败）。
+                        evict_bitmap_cache(description, attempt)
                         for path in (svg_path, gcode_path, preview_path):
                             if path is not None:
                                 path.unlink(missing_ok=True)

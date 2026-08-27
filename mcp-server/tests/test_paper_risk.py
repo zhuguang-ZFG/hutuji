@@ -216,6 +216,45 @@ def test_draw_job_exhausted_cleans_artifacts(monkeypatch, tmp_path):
     assert list(tmp_path.iterdir()) == [], "耗尽不得残留半成品产物"
 
 
+
+def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
+    """拒收位图不得留在缓存（生产实测：三轮全命中缓存、三次同败）。"""
+    from types import SimpleNamespace
+
+    from hutuji_mcp import bitmap_svg, curated, quickdraw, server
+    from hutuji_mcp.bitmap_svg import BitmapResult
+
+    monkeypatch.setattr(server, "settings", _job_settings(tmp_path, True))
+    monkeypatch.setattr(curated, "is_replace_active", lambda: False)
+    monkeypatch.setattr(quickdraw, "lookup", lambda d: None)
+
+    def seed(desc: str, attempt: int) -> None:
+        key = desc.strip() + (f"::attempt={attempt}" if attempt else "")
+        bitmap_svg._bitmap_cache[key] = (0.0, BitmapResult(svg=_AI_SVG, preview_png=b"x"))
+
+    async def fake_generate(desc, *, attempt=0):
+        seed(desc, attempt)
+        return BitmapResult(svg=_AI_SVG, preview_png=b"ai")
+
+    monkeypatch.setattr(server, "generate_bitmap", fake_generate)
+
+    async def fake_gcode(svg, svg_path, gcode_path):
+        gcode_path.write_text(_REJECT_GCODE, encoding="utf-8")
+        return SimpleNamespace(lines=10, bytes=10, pen_lifts=45)
+
+    monkeypatch.setattr(server, "_svg_to_gcode_cached", fake_gcode)
+    monkeypatch.setattr(
+        server, "_draw_limiter", SimpleNamespace(slot=lambda: _SlotSpy())
+    )
+    bitmap_svg._bitmap_cache.clear()
+
+    with pytest.raises(server.PaperRiskExhaustedError):
+        asyncio.run(server._run_draw_job("拒收逐出猫", _BASE_URL))
+
+    keys = [k for k in bitmap_svg._bitmap_cache if k.startswith("拒收逐出猫")]
+    assert keys == [], f"拒收位图残留缓存：{keys}"
+    bitmap_svg._bitmap_cache.clear()
+
 def test_draw_job_gate_disabled_single_attempt(monkeypatch, tmp_path):
     """HUTUJI_PAPER_RISK_GATE=0：即使 G-code 会 Reject 也只跑一轮。"""
     attempts: list[int] = []

@@ -1205,6 +1205,16 @@ async def generate_bitmap_svg(description: str, *, attempt: int = 0) -> str:
     return (await generate_bitmap(description, attempt=attempt)).svg
 
 
+def evict_bitmap_cache(description: str, attempt: int) -> None:
+    """纸面闸拒收后逐出该 attempt 的位图缓存：拒收内容不得在 TTL 内再次被
+    服务——否则同题重试必然复演同一拒绝（生产实测：三轮全命中缓存、三次
+    同败），重试环形同虚设。"""
+    key = description.strip()
+    if attempt:
+        key = f"{key}::attempt={attempt}"
+    _bitmap_cache.pop(key, None)
+
+
 # ---- ExecStartPre 沙箱内自检 ----------------------------------------------
 #
 # 为什么位图路线必须有独立自检：描摹重依赖（skimage/sknw/imageio）是
