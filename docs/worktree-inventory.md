@@ -27,7 +27,7 @@
 | `mcp-server/hutuji_mcp/server.py`（已修改） | `_run_draw_job` AI 路径纸面闸重试环（最多 3 轮、Reject 清半成品、`PaperRiskExhaustedError` 无废 URL）；QD/curated 不经闸 |
 | `mcp-server/hutuji_mcp/config.py`（已修改） | `paper_risk_gate`（`HUTUJI_PAPER_RISK_GATE`，默认开） |
 | `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 13 + 8 项 |
-| 验证状态 | 全套 1024/1024；hub 门禁 **overall=pass**（指纹 231/231）。已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310`/`0717e25` 并**双机发布**（阿里云 168335/168336、京东云 52698；blob CR=0、SHA-256 逐符；preflight 与基线一致）。两处实测修正：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出（生产实锤同题三轮同败锁）。生产冒烟：`画一只小猫` 三轮 reject 耗尽；shadow 真样本 travel_gap_p50=7.16 超 2.0 阈值——标定疑问登记 readiness 文首，待纸面目视 |
+| 验证状态 | 全套 1024/1024；hub 门禁 **overall=pass**（指纹 231/231）。已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；阿里云 169867/169868、京东云 53678，两机 env `HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
 
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
