@@ -308,6 +308,95 @@ def warm_trace_deps() -> None:
     trace_bitmap_to_polylines(_encode_probe_png())
 
 
+def _continue_junctions(polys: list[np.ndarray], tangent_px: int = 5) -> list[np.ndarray]:
+    """骨架交叉点续接：把被交叉点拆散的同一笔画按最直通原则接回长路径。
+
+    动机（2026-08-27 纸面实锤）：sknw 在度≥3 节点把笔画拆成碎段（机器人咖啡
+    实测 274 折线 / 84 抬笔），高频抬落笔下机械接触误差逐次累积，纸面大面积
+    丢墨；奎享 Inkscape 链出闭合长轮廓故无此问题。只拼接既有折线（点集不变、
+    不增删内容），配对规则：
+    - 度=2 共点：唯一伙伴，直接续（现行 `_stitch_polylines` 只从最长段单向
+    -   串尾，链中段的头侧伙伴永远接不上，这里走配对表双向建链补齐）；
+    - 度≥3 交叉：按端点切线夹角偏离 180° 最小贪心两两配对（最平滑续行），
+    -   每半边限配一次，奇数余一个短枝原样保留。
+    """
+    n = len(polys)
+    if n < 2:
+        return polys
+    ends: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for i, p in enumerate(polys):
+        if len(p) < 2:
+            continue
+        key0 = (int(round(float(p[0][0]))), int(round(float(p[0][1]))))
+        key1 = (int(round(float(p[-1][0]))), int(round(float(p[-1][1]))))
+        ends.setdefault(key0, []).append((i, 0))  # 0=头端
+        ends.setdefault(key1, []).append((i, 1))  # 1=尾端
+
+    def tangent(i: int, end: int) -> np.ndarray:
+        p = polys[i]
+        k = min(tangent_px, len(p) - 1)
+        v = (p[-1] - p[-1 - k]) if end == 1 else (p[0] - p[k])
+        norm = float(np.linalg.norm(v))
+        return v / norm if norm > 1e-9 else np.zeros(2)
+
+    pair: dict[tuple[int, int], tuple[int, int]] = {}
+    for members in ends.values():
+        if len(members) == 2:
+            (i, ei), (j, ej) = members
+            if i == j:
+                continue  # 自闭环（同一折线头尾共点）：两端天然连续，无需配对
+            pair[(i, ei)] = (j, ej)
+            pair[(j, ej)] = (i, ei)
+            continue
+        if len(members) < 3:
+            continue
+        cands = []
+        for a in range(len(members)):
+            for b in range(a + 1, len(members)):
+                (i, ei), (j, ej) = members[a], members[b]
+                if i == j:
+                    continue
+                cos = float(np.dot(tangent(i, ei), tangent(j, ej)))
+                cands.append((cos, (i, ei), (j, ej)))  # cos 越接近 -1 越直通
+        cands.sort(key=lambda c: c[0])
+        used: set[tuple[int, int]] = set()
+        for _cos, ha, hb in cands:
+            if ha in used or hb in used:
+                continue
+            pair[ha] = hb
+            pair[hb] = ha
+            used.add(ha)
+            used.add(hb)
+    if not pair:
+        return polys
+    visited: set[int] = set()
+    out: list[np.ndarray] = []
+    for i in range(n):
+        if i in visited or len(polys[i]) < 2:
+            continue
+        chain: list[tuple[int, bool]] = [(i, False)]  # (折线号, 是否反转)
+        visited.add(i)
+        while True:  # 从链尾向前扩展
+            ci, rev = chain[-1]
+            nxt = pair.get((ci, 0 if rev else 1))
+            if nxt is None or nxt[0] in visited:
+                break
+            chain.append((nxt[0], nxt[1] == 1))
+            visited.add(nxt[0])
+        while True:  # 从链头向后扩展
+            fi, rev = chain[0]
+            prv = pair.get((fi, 1 if rev else 0))
+            if prv is None or prv[0] in visited:
+                break
+            chain.insert(0, (prv[0], prv[1] == 0))
+            visited.add(prv[0])
+        if len(chain) == 1:
+            out.append(polys[i])
+            continue
+        parts = [polys[idx][::-1] if rev else polys[idx] for idx, rev in chain]
+        out.append(np.concatenate([c[:-1] for c in parts[:-1]] + [parts[-1]]))
+    return out
+
 def _stitch_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray]:
     """端点距离 ≤ tol_px 的折线互连成连续路径（允许反转），降抬笔次数。
 
@@ -614,6 +703,10 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     if not polys:
         logger.warning("位图描摹没有得到任何线条（生图可能不是线稿）")
         raise BitmapError("位图描摹没有得到任何线条（生图可能不是线稿）")
+    # 交叉点续接在距离缝合之前：sknw 交叉点端点精确共坐标，结构性续接不依赖
+    # 容差猜测；续完再由距离缝合兜底亚 3mm 断口。2026-08-27 纸面实锤：机器人
+    # 咖啡 274 折线/84 抬笔高频 Z 循环丢墨，续接把同一笔画接回长路径。
+    polys = _continue_junctions(polys)
     # 端点缝合：_MIN_POLY_PX 丢掉的短连接边在长边之间留 0.3-2mm 缺口，恰在
     # vpype linemerge 0.3mm 阈值之上——2026-08-26 小狗实测 66 笔全是被拆散的
     # 同一连通路径（2mm 容差合并后只剩 1 笔）。按图幅比例容差在描摹侧缝合

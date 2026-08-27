@@ -94,11 +94,16 @@ def test_suppress_hatch_clusters_bucket_isolates_directions() -> None:
 
 
 def test_trace_pipeline_order_stitch_hatch_decimate(monkeypatch) -> None:
-    """trace 内顺序钉死：sknw→stitch→hatch 抑制→抽稀地板（探针 PNG 真跑）。"""
+    """trace 内顺序钉死：sknw→junction 续接→stitch→hatch 抑制→抽稀地板（探针 PNG 真跑）。"""
     calls: list[str] = []
+    real_junction = bitmap_svg._continue_junctions
     real_stitch = bitmap_svg._stitch_polylines
     real_hatch = bitmap_svg._suppress_hatch_clusters
     real_dec = bitmap_svg._decimate_polylines_with_floor
+
+    def junction(polys):
+        calls.append("junction")
+        return real_junction(polys)
 
     def stitch(polys, tol):
         calls.append("stitch")
@@ -112,12 +117,78 @@ def test_trace_pipeline_order_stitch_hatch_decimate(monkeypatch) -> None:
         calls.append("decimate")
         return real_dec(polys, tol)
 
+    monkeypatch.setattr(bitmap_svg, "_continue_junctions", junction)
     monkeypatch.setattr(bitmap_svg, "_stitch_polylines", stitch)
     monkeypatch.setattr(bitmap_svg, "_suppress_hatch_clusters", hatch)
     monkeypatch.setattr(bitmap_svg, "_decimate_polylines_with_floor", dec)
 
     bitmap_svg.trace_bitmap_to_polylines(bitmap_svg._encode_probe_png())
-    assert calls == ["stitch", "hatch", "decimate"]
+    assert calls == ["junction", "stitch", "hatch", "decimate"]
+
+
+def _y_junction() -> list[np.ndarray]:
+    """Y 形：三笔共端点 (10,10)。上行竖笔 + 左下 + 右下。"""
+    up = np.array([[10.0, 0.0], [10.0, 10.0]])
+    left = np.array([[10.0, 10.0], [0.0, 20.0]])
+    right = np.array([[10.0, 10.0], [20.0, 20.0]])
+    return [up, left, right]
+
+
+def test_continue_junctions_y_pairs_two_leaves_one() -> None:
+    """度=3 交叉：三笔配成一条通笔 + 一个短枝，点集不增不减。"""
+    before = _y_junction()
+    out = bitmap_svg._continue_junctions([p.copy() for p in before])
+    assert len(out) == 2
+    # 点集内容守恒（仅去掉拼接处的重复交叉点）。
+    src = np.concatenate(before)
+    dst = np.concatenate(out)
+    assert len(dst) == len(src) - 1  # 一次拼接去 1 个重复点
+    for pt in ((10.0, 0.0), (0.0, 20.0), (20.0, 20.0)):
+        assert any(np.allclose(q, pt) for q in dst), f"内容点丢失: {pt}"
+
+
+def test_continue_junctions_x_goes_straightest() -> None:
+    """X 交叉（度=4）：按切线最直通配对——东西向续成一笔、南北向续成一笔。"""
+    west = np.array([[0.0, 10.0], [10.0, 10.0]])
+    east = np.array([[10.0, 10.0], [20.0, 10.0]])
+    north = np.array([[10.0, 0.0], [10.0, 10.0]])
+    south = np.array([[10.0, 10.0], [10.0, 20.0]])
+    out = bitmap_svg._continue_junctions([west, east, north, south])
+    assert len(out) == 2
+    spans = sorted(
+        (round(float(p[:, 0].min())), round(float(p[:, 1].min())), round(float(p[:, 0].max())), round(float(p[:, 1].max())))
+        for p in out
+    )
+    assert spans == [(0, 10, 20, 10), (10, 0, 10, 20)], spans
+
+
+def test_continue_junctions_degree2_joins_regardless_of_order() -> None:
+    """度=2 精确共点：唯一伙伴直接续——长段在链中间时头侧伙伴也必须接上
+    （现行 _stitch_polylines 只从最长段向尾单向串，本场景是它的结构性漏洞）。"""
+    head = np.array([[0.0, 0.0], [5.0, 5.0]])
+    mid = np.array([[5.0, 5.0], [10.0, 10.0], [15.0, 5.0], [20.0, 0.0]])  # 最长且在中间
+    tail = np.array([[20.0, 0.0], [25.0, 5.0]])
+    out = bitmap_svg._continue_junctions([head, mid, tail])
+    assert len(out) == 1
+    merged = out[0]
+    assert np.allclose(merged[0], [0.0, 0.0]) and np.allclose(merged[-1], [25.0, 5.0])
+
+
+def test_continue_junctions_chain_through_two_junctions() -> None:
+    """A-J-B-J-C 连续两个交叉：应续成一条通笔。"""
+    a = np.array([[0.0, 0.0], [5.0, 0.0]])
+    b = np.array([[5.0, 0.0], [10.0, 0.0]])
+    c = np.array([[10.0, 0.0], [15.0, 0.0]])
+    out = bitmap_svg._continue_junctions([a, b, c])
+    assert len(out) == 1
+    assert np.allclose(out[0][0], [0.0, 0.0]) and np.allclose(out[0][-1], [15.0, 0.0])
+
+
+def test_continue_junctions_self_loop_untouched() -> None:
+    """自闭环（头尾共点同一折线）：不与自身配对，原样保留。"""
+    ring = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 0.0]])
+    out = bitmap_svg._continue_junctions([ring])
+    assert len(out) == 1 and len(out[0]) == len(ring)
 
 
 def test_generate_bitmap_attempt_busts_cache(monkeypatch) -> None:

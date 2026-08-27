@@ -6044,7 +6044,9 @@ def test_bitmap_module_self_test_runs_offline_trace_chain(
     # 路径，对沙箱漏项（seccomp 放行缺失）的覆盖只是碰运气。
     probe_edge = int(bitmap_svg._IMAGE_SIZE.split("x", 1)[0])
     assert (width, height) == (probe_edge, probe_edge)
-    assert len(polys) == 3
+    # junction 续接（2026-08-27 上线）：⊥ 交叉处横臂左右两半按最直通配对续成
+    # 一条通笔，竖臂成短枝——3 边变 2 笔、抬笔少一次，覆盖断言不变。
+    assert len(polys) == 2
     # 2026-08-27 重标定（用户批准）：08-26 抽稀上线后轴对齐探针任何 tol 都塌成
     # 2-3 点，「每条 ≥_MIN_POLY_PX 点」与抽稀数学上不可共存（HEAD 基线同红，
     # a089288 遗留）。改覆盖率断言：两臂臂体（避开端部 ~20px 骨架收圆区）
