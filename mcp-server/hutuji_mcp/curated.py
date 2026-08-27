@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 _rng = random.SystemRandom()
 _warned: set[tuple[str, str]] = set()
 _POINTS_RE = re.compile(r"<polyline\b[^>]*\bpoints=\"([^\"]+)\"", re.I)
+# 预览源坐标框必须与条目 viewBox 一致：生成件 1024 空间、矢量件 36 空间，
+# 硬写 256 会把全部点裁出画布（2026-08-27 小派预览空白实锤，321B 近空 PNG）。
+_VIEWBOX_RE = re.compile(
+    r"viewBox=\"\s*-?[\d.]+[ ,]+\s*-?[\d.]+[ ,]+([\d.]+)[ ,]+([\d.]+)\""
+)
 
 
 def _warn_once(reason: str, category: str, detail: str = "") -> None:
@@ -92,7 +97,11 @@ def _preview_from_svg(svg: str) -> bytes:
             polys.append(np.array(nums, dtype=float).reshape(-1, 2))
     if not polys:
         polys = [np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)]
-    return polylines_to_preview_png(polys, 256, 256)
+    vb = _VIEWBOX_RE.search(svg)
+    w, h = (
+        (int(float(vb.group(1))), int(float(vb.group(2)))) if vb else (256, 256)
+    )
+    return polylines_to_preview_png(polys, w, h)
 
 
 def lookup(description: str) -> BitmapResult | None:
