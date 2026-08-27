@@ -30,6 +30,7 @@ def _settings(output_dir):
         output_dir=output_dir,
         output_ttl_seconds=600,
         xiaozhi_device_token="",
+        paper_risk_gate=False,  # 路由测试不验纸面闸；闸行为见 test_paper_risk
     )
 
 
@@ -81,7 +82,7 @@ def test_draw_job_replace_miss_falls_back_to_ai_without_quickdraw(monkeypatch, t
     asyncio.run(server._run_draw_job("画一只老虎", _BASE_URL))
 
     assert quickdraw_lookup.call_count == 0
-    generate.assert_awaited_once_with("画一只老虎")
+    generate.assert_awaited_once_with("画一只老虎", attempt=0)
     assert slot_spy.entries == 1
 
 
@@ -102,5 +103,5 @@ def test_draw_job_without_replace_routes_plain_description_to_ai(monkeypatch, tm
 
     curated_lookup.assert_not_called()
     assert quickdraw_lookup.call_count == 0
-    generate.assert_awaited_once_with("画一只老虎")
+    generate.assert_awaited_once_with("画一只老虎", attempt=0)
     assert slot_spy.entries == 1

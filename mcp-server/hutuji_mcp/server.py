@@ -40,6 +40,7 @@ from .config import validate_public_base_url
 from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps
 from . import quickdraw
+from . import paper_risk
 from .redact import _install_secret_redaction
 from .llm_svg import _CONTROL_CHAR_RE, _sanitize_description, generate_svg
 from .memory_store import (
@@ -92,6 +93,15 @@ BRIDGE_HEALTH_MAX_AGE_SECONDS = 3 * WATCHDOG_POLL_SECONDS
 
 class DrawTimeoutError(RuntimeError):
     """完整绘图事务超过云端桥接预算；后台共享任务仍可能完成。"""
+
+
+class PaperRiskExhaustedError(RuntimeError):
+    """纸面风险闸连续拒收（默认 3 轮整轮重生图耗尽）；不发布废 URL。"""
+
+
+# 纸面闸重试上界（2026-08-27）：1 初试 + 2 重跑；每轮 attempt 破缓存真重跑整轮
+# 生图。宁多等一轮也不交废图。
+MAX_PAPER_RISK_ATTEMPTS = 3
 
 
 class DrawLimiter:
@@ -451,10 +461,43 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
             async with _draw_limiter.slot():
                 # 位图路线（2026-08-09 起为现行路线）：文生图 → 中心线描摹 →
                 # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
-                bitmap = await generate_bitmap(description)
-                if time.monotonic() >= deadline:
-                    raise DrawTimeoutError("绘图生成超时，请稍后重试")
-                stats = await _persist_draw_outputs(bitmap)
+                # 纸面闸（2026-08-27）：§5 validate 后追加画糊风险统计，Reject
+                # 即清理半成品、attempt+1 破缓存整轮重生图；最多 3 轮，耗尽不
+                # 发布废 URL。QD/curated 命中不经闸。
+                last_reject: paper_risk.PaperRiskReject | None = None
+                for attempt in range(MAX_PAPER_RISK_ATTEMPTS):
+                    if time.monotonic() >= deadline:
+                        raise DrawTimeoutError("绘图生成超时，请稍后重试")
+                    bitmap = await generate_bitmap(description, attempt=attempt)
+                    if time.monotonic() >= deadline:
+                        raise DrawTimeoutError("绘图生成超时，请稍后重试")
+                    stats = await _persist_draw_outputs(bitmap)
+                    if not getattr(settings, "paper_risk_gate", True):
+                        break
+                    gcode_text = gcode_path.read_text(encoding="utf-8")
+                    try:
+                        paper_risk.enforce_gcode(
+                            gcode_text, pen_lifts=stats.pen_lifts
+                        )
+                        logger.info(
+                            "paper_risk pass attempt=%d pen_lifts=%d",
+                            attempt, stats.pen_lifts,
+                        )
+                        break
+                    except paper_risk.PaperRiskReject as exc:
+                        last_reject = exc
+                        logger.warning(
+                            "paper_risk reject reason=%s attempt=%d",
+                            exc.reason, attempt,
+                        )
+                        for path in (svg_path, gcode_path, preview_path):
+                            if path is not None:
+                                path.unlink(missing_ok=True)
+                        svg_path = gcode_path = preview_path = None
+                else:
+                    raise PaperRiskExhaustedError(
+                        "这张线稿太碎，纸上会画糊，请换个说法再试"
+                    ) from last_reject
         if time.monotonic() >= deadline:
             raise DrawTimeoutError("绘图生成超时，请稍后重试")
     except BaseException:

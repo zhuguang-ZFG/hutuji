@@ -174,7 +174,13 @@ class _SlotSpy:
 
 
 def _server_settings(output_dir: Path, **kw):
-    base = dict(output_dir=output_dir, output_ttl_seconds=600, xiaozhi_device_token="")
+    base = dict(
+        output_dir=output_dir,
+        output_ttl_seconds=600,
+        xiaozhi_device_token="",
+        # 路由测试不验纸面闸；闸行为见 test_paper_risk / test_bitmap_decimate。
+        paper_risk_gate=False,
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -185,7 +191,7 @@ def test_draw_job_hit_skips_paid_generation(monkeypatch, tmp_path, data_dir):
     slot_spy = _SlotSpy()
     monkeypatch.setattr(server, "_draw_limiter", SimpleNamespace(slot=lambda: slot_spy))
 
-    def _forbidden_generate(_desc):
+    def _forbidden_generate(_desc, **_kw):
         raise AssertionError("命中路径不得调用付费生图")
 
     monkeypatch.setattr(server, "generate_bitmap", _forbidden_generate)
@@ -220,7 +226,7 @@ def test_draw_job_hit_concurrent_same_description_share_one_job(monkeypatch, tmp
 
     monkeypatch.setattr(quickdraw, "lookup", _counting_lookup)
 
-    def _forbidden_generate(_desc):
+    def _forbidden_generate(_desc, **_kw):
         raise AssertionError("命中路径不得调用付费生图")
 
     monkeypatch.setattr(server, "generate_bitmap", _forbidden_generate)
@@ -256,7 +262,7 @@ def test_draw_job_miss_falls_back_to_bitmap(monkeypatch, tmp_path, data_dir):
         'stroke="black" stroke-width="0.5"/></svg>'
     )
 
-    async def _fake_generate(desc):
+    async def _fake_generate(desc, **_kw):
         calls.append(desc)
         return BitmapResult(svg=svg, preview_png=b"\x89PNG-fake")
 
@@ -280,7 +286,7 @@ def test_draw_job_quality_routes_plain_description_to_ai(monkeypatch, tmp_path, 
         'stroke="black" stroke-width="0.5"/></svg>'
     )
 
-    async def _fake_generate(desc):
+    async def _fake_generate(desc, **_kw):
         return BitmapResult(svg=svg, preview_png=b"\x89PNG-fake")
 
     monkeypatch.setattr(server, "generate_bitmap", _fake_generate)

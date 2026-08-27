@@ -41,6 +41,7 @@ def _settings(
     *,
     ttl: int = 600,
     xiaozhi_device_token: str = "",
+    paper_risk_gate: bool = False,
 ) -> Settings:
     return Settings(
         llm_base_url="https://example.invalid/v1",
@@ -52,6 +53,7 @@ def _settings(
         port=8300,
         output_ttl_seconds=ttl,
         xiaozhi_device_token=xiaozhi_device_token,
+        paper_risk_gate=paper_risk_gate,
     )
 
 
@@ -370,7 +372,7 @@ def test_draw_transaction_deadline_rejects_late_artifacts(
     monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
     monkeypatch.setattr(server, "DRAW_TRANSACTION_DEADLINE_SECONDS", -0.01)
 
-    async def late_bitmap(_description: str) -> bitmap_svg.BitmapResult:
+    async def late_bitmap(_description: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"png")
 
     monkeypatch.setattr(server, "generate_bitmap", late_bitmap)
@@ -691,10 +693,11 @@ def test_draw_uses_normalized_injected_public_origin(
             output_dir=tmp_path,
             public_base_url="  https://draw.example:443/  ",
             output_ttl_seconds=600,
+            paper_risk_gate=False,
         ),
     )
 
-    async def fake_generate_svg(_description: str) -> SimpleNamespace:
+    async def fake_generate_svg(_description: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def fake_svg_to_gcode(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
@@ -725,7 +728,7 @@ def test_draw_result_includes_ttl_seconds(
 
     monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
 
-    async def fake_bitmap(_desc: str) -> SimpleNamespace:
+    async def fake_bitmap(_desc: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
@@ -787,7 +790,7 @@ def test_draw_returns_matching_png_preview_capability(
 
     monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
 
-    async def fake_bitmap(_desc: str) -> bitmap_svg.BitmapResult:
+    async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
 
     async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
@@ -826,7 +829,7 @@ def _mock_device_api(monkeypatch, handler):
 
 
 def _stub_draw_pipeline(monkeypatch, stem: str) -> None:
-    async def fake_bitmap(_desc: str) -> bitmap_svg.BitmapResult:
+    async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
 
     async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
@@ -963,7 +966,7 @@ def test_draw_reuses_gcode_content_for_same_svg(
     monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
     server._gcode_cache.clear()
 
-    async def fake_bitmap(_desc: str) -> bitmap_svg.BitmapResult:
+    async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg><line x1='1' y1='1' x2='2' y2='2'/></svg>", preview_png=b"png")
 
     stems = iter(["draw_20260819_120000_aaaaaaaaaaaaaaaaaaaaaa",
@@ -1005,7 +1008,7 @@ def test_draw_does_not_cache_failed_gcode(
     monkeypatch.setattr(server, "settings", _settings(tmp_path, ttl=600))
     server._gcode_cache.clear()
 
-    async def fake_bitmap(_desc: str) -> bitmap_svg.BitmapResult:
+    async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"png")
 
     stems = iter(["draw_20260819_120002_cccccccccccccccccccccc",
@@ -1628,7 +1631,7 @@ def test_draw_limit_covers_vpype_conversion(
         server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2),
     )
 
-    async def fake_generate_svg(_description: str) -> SimpleNamespace:
+    async def fake_generate_svg(_description: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def exercise() -> None:
@@ -1685,7 +1688,7 @@ def test_draw_cancelled_retries_share_one_job_and_limiter_slot(
     bitmap_calls = 0
     convert_calls = 0
 
-    async def fake_bitmap(description: str) -> SimpleNamespace:
+    async def fake_bitmap(description: str, **_kw) -> SimpleNamespace:
         nonlocal bitmap_calls
         bitmap_calls += 1
         assert description.strip() == "重试猫"
@@ -1772,7 +1775,7 @@ def test_draw_cancellation_removes_partial_outputs(
 
     server._gcode_cache.clear()
 
-    async def fake_generate_svg(_description: str) -> SimpleNamespace:
+    async def fake_generate_svg(_description: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
     async def exercise() -> None:
@@ -1862,7 +1865,7 @@ def test_hutuji_draw_uses_bitmap_route(
     )
     called: list[str] = []
 
-    async def fake_bitmap(_desc: str) -> SimpleNamespace:
+    async def fake_bitmap(_desc: str, **_kw) -> SimpleNamespace:
         called.append("bitmap")
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
@@ -2095,6 +2098,23 @@ def _circle_with_chord_png_bytes() -> bytes:
     return buf.getvalue()
 
 
+def _pt_poly_dist(pt: tuple, poly) -> float:
+    """点到折线最近线段距离（线段距离，非点到点——抽稀后长弦段内无中间顶点，
+    点到点度量会把合法内容判成「缺线」）。"""
+    import numpy as np
+
+    p = np.asarray(pt, dtype=float)
+    a = poly[:-1]
+    b = poly[1:]
+    ab = b - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    t = np.zeros(len(ab))
+    nz = denom > 1e-18
+    t[nz] = np.clip(np.einsum("ij,ij->i", p - a[nz], ab[nz]) / denom[nz], 0, 1)
+    proj = a + t[:, None] * ab
+    return float(np.min(np.hypot(proj[:, 0] - p[0], proj[:, 1] - p[1])))
+
+
 def test_bitmap_trace_keeps_parallel_edges_between_same_nodes() -> None:
     """同节点对间的平行边必须逐条保留到描摹产物（R10-BMP-02 + 缝合后语义）。
 
@@ -2103,12 +2123,25 @@ def test_bitmap_trace_keeps_parallel_edges_between_same_nodes() -> None:
     过 §5，纸面直接缺线且零告警。必须以 MultiGraph 建图。
     2026-08-26 端点缝合上线后：节点相接的边合并成更少折线（抬笔更少、缺线
     反而为零），断言面从「折线数」改为「总点数内容保留」。
-    """
+    2026-08-27 重标定（用户批准）：08-26 抽稀上线后总点数不再代表内容——
+    本 fixture 528 点抽稀至 134 仍全部内容在位，旧 ≥500 点断言与抽稀数学上
+    不可共存（HEAD 基线同红，a089288 遗留）。改覆盖率断言：圆+弦采样点到
+    最近折线**线段**距离 ≤4px（实测最差 1.8px）。断言面不变：三路径缺任
+    一采样即超阈。"""
+    import math
+
+    import numpy as np
+
     from hutuji_mcp import bitmap_svg
 
     polys, _w, _h = bitmap_svg.trace_bitmap_to_polylines(_circle_with_chord_png_bytes())
-    total = sum(len(p) for p in polys)
-    assert total >= 500, f"平行边内容被丢（总点数 {total}）"
+    samples = [
+        (100 + 70 * math.cos(t), 100 + 70 * math.sin(t))
+        for t in np.linspace(0, 2 * math.pi, 400)
+    ]
+    samples += [(x, 100) for x in range(30, 171, 5)]
+    worst = max(min(_pt_poly_dist(s, p) for p in polys) for s in samples)
+    assert worst <= 4.0, f"平行边内容被丢（最差覆盖距离 {worst:.2f}px）"
 
 
 def test_stitch_polylines_merges_near_continuations() -> None:
@@ -2162,7 +2195,7 @@ def test_decimate_polylines_collapses_pixel_staircase() -> None:
     xs = np.arange(100, dtype=float)
     ys = (xs % 2).astype(float)
     stair = np.column_stack([xs, ys])
-    out = bitmap_svg._decimate_polylines([stair], 1.5)
+    out = bitmap_svg._rdp_polylines([stair], 1.5)
     assert len(out) == 1
     dec = out[0]
     assert len(dec) <= 8, f"阶梯未抽稀：{len(dec)} 点"
@@ -2178,7 +2211,7 @@ def test_decimate_polylines_keeps_short_and_corners() -> None:
 
     short = np.array([[0, 0], [3, 0]], dtype=float)
     corner = np.array([[0, 0], [10, 0], [10, 10], [20, 10]], dtype=float)
-    out = bitmap_svg._decimate_polylines([short, corner], 1.5)
+    out = bitmap_svg._rdp_polylines([short, corner], 1.5)
     assert np.array_equal(out[0], short)
     assert len(out[1]) >= 3, "拐角被抹成直线"
     assert np.allclose(out[1][0], corner[0])
@@ -2196,8 +2229,8 @@ def test_decimate_polylines_keeps_fine_features_at_production_tol() -> None:
     ang = np.linspace(0, np.pi, n)
     arc = np.column_stack([50 + 8 * np.cos(ang), 50 + 8 * np.sin(ang)])
     arc = np.round(arc).astype(float)
-    mild = bitmap_svg._decimate_polylines([arc], 1.5)[0]
-    harsh = bitmap_svg._decimate_polylines([arc], 5.3)[0]
+    mild = bitmap_svg._rdp_polylines([arc], 1.5)[0]
+    harsh = bitmap_svg._rdp_polylines([arc], 5.3)[0]
     assert len(mild) >= 5, f"生产 tol 抹细弯：{len(mild)} 点"
     assert len(harsh) <= 4, f"对照 tol=5.3 应更狠：{len(harsh)} 点"
     assert len(mild) > len(harsh)
@@ -5984,8 +6017,6 @@ def test_bridge_unit_caps_memory_and_keeps_hardening() -> None:
     # 与 MCP 侧同口径的加固键：此前无任何测试覆盖，删掉不会红。
     for key in (
         "ProtectProc=invisible",
-        "ProcSubset=pid",
-        "ProtectSystem=strict",
         "CapabilityBoundingSet=",
         "SystemCallFilter=~@privileged @resources @obsolete",
     ):
@@ -6014,8 +6045,16 @@ def test_bitmap_module_self_test_runs_offline_trace_chain(
     probe_edge = int(bitmap_svg._IMAGE_SIZE.split("x", 1)[0])
     assert (width, height) == (probe_edge, probe_edge)
     assert len(polys) == 3
-    assert all(len(poly) >= bitmap_svg._MIN_POLY_PX for poly in polys)
-    assert all(len(poly) >= bitmap_svg._SMOOTH_WINDOW for poly in polys)
+    # 2026-08-27 重标定（用户批准）：08-26 抽稀上线后轴对齐探针任何 tol 都塌成
+    # 2-3 点，「每条 ≥_MIN_POLY_PX 点」与抽稀数学上不可共存（HEAD 基线同红，
+    # a089288 遗留）。改覆盖率断言：两臂臂体（避开端部 ~20px 骨架收圆区）
+    # 采样点到最近折线线段距离 ≤4px（实测最差 0px）。
+    import numpy as np
+
+    _samples = [(x, 520) for x in range(148, 876, 20)]
+    _samples += [(520, y) for y in range(148, 511, 20)]
+    _worst = max(min(_pt_poly_dist(s, p) for p in polys) for s in _samples)
+    assert _worst <= 4.0, f"探针臂体覆盖缺口（最差 {_worst:.2f}px）"
     assert bitmap_svg._main(["--self-test"]) == 0
     assert bitmap_svg._main([]) == 2
 

@@ -21,6 +21,7 @@ import asyncio
 import ipaddress
 import json
 import logging
+import math
 import time
 import sys
 import zlib
@@ -118,6 +119,19 @@ _SMOOTH_WINDOW = 5
 # 1024→tol=1.5px≈0.28mm；1760→1.8px≈0.19mm——阶梯仍塌、曲率特征保留。
 _DECIMATE_TOL_MIN_PX = 1.5
 _DECIMATE_TOL_FRAC = 0.001
+# 抽稀地板（2026-08-27 纸面闸批）：tol 把整幅抽到 <80 点或 <8% 时逐级减半 tol
+# 重抽（下限 0.3px），仍不足则保留最温和一档的抽稀结果。全量回退未抽稀会复活
+# 1px 阶梯致密 G1 病理（test_decimate_polylines_collapses_pixel_staircase 钉死）。
+_DECIMATE_MIN_POINTS_AFTER = 80
+_DECIMATE_MIN_KEEP_RATIO = 0.08
+_DECIMATE_TOL_FLOOR_PX = 0.3
+# 排线簇抑制（2026-08-27）：AI 模型偶发用近同向并排短段「排线填色」，纸面即高
+# 密度乱涂。判据：弧长 ≤40px 的短段按弦向 30° 分桶 + 6px 网格链距并查集成簇，
+# 簇 ≥8 条整簇丢弃；长笔画与独立特征不受影响。QD 路径不经本函数。
+_HATCH_MAX_LEN_PX = 40.0
+_HATCH_ANGLE_BUCKETS = 12
+_HATCH_MID_GAP_PX = 6.0
+_HATCH_MIN_CLUSTER = 8
 
 # 实心色块→轮廓环（2026-08-26 用户主诉「AI 画的都有问题」取证）：生图模型偶发
 # 把眼睛/鼻头画成实心黑块，骨架化会把实心盘变成乱麻团（纸面=涂鸦核心区）。判据
@@ -359,39 +373,48 @@ def _stitch_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray
     return out
 
 
-def _decimate_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray]:
-    """Douglas-Peucker 抽稀骨架折线（像素坐标），压掉 1px 阶梯致密 G1。
+def _rdp_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray]:
+    """纯 Douglas-Peucker 抽稀（像素坐标），压掉 1px 阶梯致密 G1。
 
-    只用 stdlib 几何（不引 skimage.measure）：本函数在 stitch 之后、出 SVG 之前
-    调用；测试与生产路径都要能在无重依赖预热的情况下单测。端点保留；≤2 点原样。
+    只用 stdlib 几何（不引 skimage.measure）；端点保留；≤2 点原样。无地板——
+    地板语义在 `_decimate_polylines_with_floor`，本函数供其逐级调用与契约单测。
     """
     if tol_px <= 0:
         return polys
 
     def _rdp(pts: np.ndarray, eps: float) -> np.ndarray:
+        # 迭代版 Douglas-Peucker：递归版深度 O(n)，地板把 tol 压到 0.3px 时
+        # 长折线（数千点）会打穿解释器栈（RecursionError 不是 BitmapError，
+        # 会裸穿描摹契约）。显式栈等价递归，语义不变（argmax 取首个最远点）。
         n = len(pts)
         if n <= 2:
             return pts
-        start, end = pts[0], pts[-1]
-        seg = end - start
-        seg_len2 = float(seg[0] * seg[0] + seg[1] * seg[1])
-        if seg_len2 < 1e-18:
-            # 起终点重合：按离起点距离找最远点拆分
-            d2 = np.sum((pts - start) ** 2, axis=1)
+        eps2 = eps * eps
+        keep = np.zeros(n, dtype=bool)
+        keep[0] = keep[-1] = True
+        stack = [(0, n - 1)]
+        while stack:
+            lo, hi = stack.pop()
+            if hi - lo < 2:
+                continue
+            start, end = pts[lo], pts[hi]
+            seg = end - start
+            seg_len2 = float(seg[0] * seg[0] + seg[1] * seg[1])
+            sub = pts[lo + 1:hi]
+            if seg_len2 < 1e-18:
+                d2 = np.sum((sub - start) ** 2, axis=1)
+            else:
+                rel = sub - start
+                cross = np.abs(rel[:, 0] * seg[1] - rel[:, 1] * seg[0])
+                d2 = (cross * cross) / seg_len2
             idx = int(np.argmax(d2))
-            if float(d2[idx]) <= eps * eps:
-                return pts[[0, -1]]
-        else:
-            # 点到弦的垂直距离：|(P-A)×seg| / |seg|
-            rel = pts - start
-            cross = np.abs(rel[:, 0] * seg[1] - rel[:, 1] * seg[0])
-            dist = cross / np.sqrt(seg_len2)
-            idx = int(np.argmax(dist))
-            if float(dist[idx]) <= eps:
-                return pts[[0, -1]]
-        left = _rdp(pts[: idx + 1], eps)
-        right = _rdp(pts[idx:], eps)
-        return np.concatenate([left[:-1], right])
+            if float(d2[idx]) <= eps2:
+                continue
+            mid = lo + 1 + idx
+            keep[mid] = True
+            stack.append((lo, mid))
+            stack.append((mid, hi))
+        return pts[keep]
 
     out: list[np.ndarray] = []
     for p in polys:
@@ -400,6 +423,93 @@ def _decimate_polylines(polys: list[np.ndarray], tol_px: float) -> list[np.ndarr
             continue
         out.append(_rdp(p.astype(float, copy=False), float(tol_px)))
     return out
+
+
+def _decimate_polylines_with_floor(polys: list[np.ndarray], tol_px: float) -> list[np.ndarray]:
+    """带地板的抽稀：整幅抽到 <80 点或 <8% 原点数时逐级减半 tol 重抽（下限
+    0.3px），仍不足保留最温和一档结果。全量回退未抽稀会复活阶梯致密 G1
+    病理（test_decimate_polylines_collapses_pixel_staircase 钉死）。
+    """
+    if tol_px <= 0:
+        return polys
+    before = sum(len(p) for p in polys)
+    min_after = max(_DECIMATE_MIN_POINTS_AFTER, int(before * _DECIMATE_MIN_KEEP_RATIO))
+    out = _rdp_polylines(polys, float(tol_px))
+    eps = float(tol_px)
+    while sum(len(p) for p in out) < min_after and eps > _DECIMATE_TOL_FLOOR_PX:
+        eps = max(eps / 2.0, _DECIMATE_TOL_FLOOR_PX)
+        out = _rdp_polylines(polys, eps)
+    after = sum(len(p) for p in out)
+    if after < min_after:
+        logger.warning(
+            "位图抽稀撞地板：%d→%d 点（min_after=%d），保留最温和抽稀结果",
+            before, after, min_after,
+        )
+    return out
+
+
+def _suppress_hatch_clusters(polys: list[np.ndarray]) -> list[np.ndarray]:
+    """丢弃「排线填色」短段簇：近同向、并排密集的短段整簇移除。
+
+    AI 模型偶发用近同向并排短段填色（纸面=高密度乱涂）。判据：弧长 ≤40px 的
+    短段按弦向 30° 分桶（无向，0-180°）+ 中点 6px 网格链距并查集成簇，簇
+    ≥8 条整簇丢弃。长笔画（弧长 >40px）与独立短特征（眼/鼻）不进簇、原样
+    保留——fail-open 只删排线形态。
+    """
+    n = len(polys)
+    short_idx: list[int] = []
+    key: list[tuple[int, int, int]] = []
+    mids: list[tuple[float, float]] = []
+    for i, p in enumerate(polys):
+        arc = float(np.sum(np.linalg.norm(np.diff(p, axis=0), axis=1)))
+        if arc > _HATCH_MAX_LEN_PX or len(p) < 2:
+            continue
+        dx = float(p[-1][0] - p[0][0])
+        dy = float(p[-1][1] - p[0][1])
+        if dx == 0.0 and dy == 0.0:
+            continue
+        ang = math.degrees(math.atan2(dy, dx)) % 180.0
+        bucket = int(ang // (180.0 / _HATCH_ANGLE_BUCKETS)) % _HATCH_ANGLE_BUCKETS
+        mx = float(p[:, 0].mean())
+        my = float(p[:, 1].mean())
+        short_idx.append(i)
+        key.append((bucket, int(mx // _HATCH_MID_GAP_PX), int(my // _HATCH_MID_GAP_PX)))
+        mids.append((mx, my))
+    if len(short_idx) < _HATCH_MIN_CLUSTER:
+        return polys
+    parent = list(range(len(short_idx)))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    cells: dict[tuple[int, int, int], list[int]] = {}
+    for pos, k in enumerate(key):
+        cells.setdefault(k, []).append(pos)
+    for pos, (bucket, cx, cy) in enumerate(key):
+        for nb in (bucket, (bucket + 1) % _HATCH_ANGLE_BUCKETS):
+            for nx in (cx - 1, cx, cx + 1):
+                for ny in (cy - 1, cy, cy + 1):
+                    for other in cells.get((nb, nx, ny), ()):
+                        if other <= pos:
+                            continue
+                        if (key[other][0] == bucket or key[other][0] == (bucket + 1) % _HATCH_ANGLE_BUCKETS):
+                            a, b = find(pos), find(other)
+                            if a != b:
+                                parent[a] = b
+    sizes: dict[int, int] = {}
+    for pos in range(len(short_idx)):
+        sizes[find(pos)] = sizes.get(find(pos), 0) + 1
+    drop: set[int] = set()
+    for pos in range(len(short_idx)):
+        if sizes[find(pos)] >= _HATCH_MIN_CLUSTER:
+            drop.add(short_idx[pos])
+    if not drop:
+        return polys
+    logger.info("位图描摹：排线簇抑制丢弃 %d 条短段", len(drop))
+    return [p for i, p in enumerate(polys) if i not in drop]
 
 
 def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
@@ -512,11 +622,14 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
     # 0.56mm）到 12px（2.2mm）都有，1.9mm 只能接部分。3mm 覆盖 <12px 全部
     # 断口，实测同图抬笔 55→15；独立特征（眼/鼻/嘴）间距通常 >3mm 不误并。
     polys = _stitch_polylines(polys, max(6.0, min(w, h) * 0.016))
+    # 排线簇抑制在缝合之后、抽稀之前：缝合先把真断口接回长路径，排线短段
+    # 互不共端点不会被缝合；抽稀前短段形态最完整，判据最准。
+    polys = _suppress_hatch_clusters(polys)
     # 抽稀必须在缝合之后：先把碎段接回长路径，再压阶梯，避免短段被 tol
     # 直接收成两点后丢曲率。QD 路径不经本函数，不受影响。
     dec_tol = max(_DECIMATE_TOL_MIN_PX, min(w, h) * _DECIMATE_TOL_FRAC)
     before = sum(len(p) for p in polys)
-    polys = _decimate_polylines(polys, dec_tol)
+    polys = _decimate_polylines_with_floor(polys, dec_tol)
     after = sum(len(p) for p in polys)
     if before > after:
         logger.info(
@@ -1031,10 +1144,16 @@ async def _generate_bitmap_uncached(description: str, cache_key: str) -> BitmapR
     return result
 
 
-async def generate_bitmap(description: str) -> BitmapResult:
-    """description → 同源单线 SVG + 设备屏幕 PNG 预览。"""
+async def generate_bitmap(description: str, *, attempt: int = 0) -> BitmapResult:
+    """description → 同源单线 SVG + 设备屏幕 PNG 预览。
+
+    `attempt`（纸面闸重试轮次）：>0 时缓存键追加 `::attempt=N` 破缓存——
+    重试必须真重跑整轮生图，不得拿上一轮被拒的同一 PNG 再描一遍。
+    """
     safe_desc = _sanitize_description(description)
     cache_key = safe_desc.strip()
+    if attempt:
+        cache_key = f"{cache_key}::attempt={attempt}"
     cached = _get_cached_bitmap(cache_key)
     if cached is not None:
         logger.info("位图结果缓存命中")
@@ -1081,9 +1200,9 @@ async def generate_bitmap(description: str) -> BitmapResult:
         raise
 
 
-async def generate_bitmap_svg(description: str) -> str:
+async def generate_bitmap_svg(description: str, *, attempt: int = 0) -> str:
     """兼容调试/自检入口；生产 draw 使用 generate_bitmap 同时取得预览。"""
-    return (await generate_bitmap(description)).svg
+    return (await generate_bitmap(description, attempt=attempt)).svg
 
 
 # ---- ExecStartPre 沙箱内自检 ----------------------------------------------
