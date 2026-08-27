@@ -19,15 +19,15 @@
 | 本机 | `tmp/deploy-20260826-curated-fill/` 部署草稿；`mcp-server/tmp/curated-fill.env` 含生产 env 镜像 → **禁止入库** |
 | 未完成 | `manifest.ready`、抽检、京东云同步、REPLACE 探针；xiaozhi 空坐闸已推未刷机 |
 
-### AI 纸面风险闸批（2026-08-27，已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310` 并双机发布 v2；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
+### AI 纸面风险闸批（2026-08-27，已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310`/`0717e25` 并双机发布；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
 | 文件 | 说明 |
 |------|------|
 | `mcp-server/hutuji_mcp/paper_risk.py` | 新模块：五指标纸面闸（short_g1_ratio/pen_lifts/travel_gap_p50/ink_span/scribble_core）+ `enforce_gcode`；阈值钉 08-26 废/好样本中位；Z5 落笔/Z0 抬笔状态机逐字对齐 `hutuji_gwrite.toml` |
 | `mcp-server/hutuji_mcp/bitmap_svg.py`（已修改） | `_rdp_polylines` 迭代化（递归 O(n) 深度在地板低 tol 下打栈）+ `_decimate_polylines_with_floor`（逐级减半 tol、下限 0.3px、不回退未抽稀）+ `_suppress_hatch_clusters`（排线填色短段簇整簇丢弃）+ `generate_bitmap(..., attempt=)` 破缓存；trace 顺序 stitch→hatch→decimate |
 | `mcp-server/hutuji_mcp/server.py`（已修改） | `_run_draw_job` AI 路径纸面闸重试环（最多 3 轮、Reject 清半成品、`PaperRiskExhaustedError` 无废 URL）；QD/curated 不经闸 |
 | `mcp-server/hutuji_mcp/config.py`（已修改） | `paper_risk_gate`（`HUTUJI_PAPER_RISK_GATE`，默认开） |
-| `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 12 + 8 项 |
-| 验证状态 | 全套 1023/1023；hub 门禁 **overall=pass**（指纹 231/231）。已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310` 并**双机发布**（v2：阿里云 165168/165169、京东云 50302；blob CR=0、SHA-256 逐符；preflight 与基线一致）。v2 修正 scribble 固定桶骑缝逃逸（改平移不变窗 + 钉回 plan 1mm/45 常量，版本 1→2）。生产冒烟：`画一只小猫` 三轮 reject 耗尽；shadow 真样本 travel_gap_p50=7.16 超 2.0 阈值——标定疑问登记 readiness 文首，待纸面目视 |
+| `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 13 + 8 项 |
+| 验证状态 | 全套 1024/1024；hub 门禁 **overall=pass**（指纹 231/231）。已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310`/`0717e25` 并**双机发布**（阿里云 168335/168336、京东云 52698；blob CR=0、SHA-256 逐符；preflight 与基线一致）。两处实测修正：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出（生产实锤同题三轮同败锁）。生产冒烟：`画一只小猫` 三轮 reject 耗尽；shadow 真样本 travel_gap_p50=7.16 超 2.0 阈值——标定疑问登记 readiness 文首，待纸面目视 |
 
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
