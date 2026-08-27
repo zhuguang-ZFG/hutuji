@@ -19,6 +19,17 @@
 | 本机 | `tmp/deploy-20260826-curated-fill/` 部署草稿；`mcp-server/tmp/curated-fill.env` 含生产 env 镜像 → **禁止入库** |
 | 未完成 | `manifest.ready`、抽检、京东云同步、REPLACE 探针；xiaozhi 空坐闸已推未刷机 |
 
+
+### Twemoji 矢量源灌库通道（2026-08-27，已提交 `580bb02`/`639ee36`；阿里云首轮灌库完成）
+| 文件 | 说明 |
+|------|------|
+| `mcp-server/scripts/curated_vector_prep.py` | 矢量源灌库脚本：下载 → vpype 展平 → RDP 自适应压缩（≤780 点、6 档）→ gate v3 → NNN.svg + manifest 重算 |
+| `mcp-server/hutuji_mcp/twemoji_categories.json` | 212 类目 → ~250 codepoint 映射（已对账 QD 298 在册，剔 20 个不在册类目） |
+| `mcp-server/hutuji_mcp/CURATED-ATTRIBUTION.md` | 追加 Twemoji（jdecked/twemoji，图形 CC-BY 4.0）署名与改动性质说明 |
+| `mcp-server/tests/test_curated_vector.py` | +4 项（映射卫生/转换过闸/空路径/量化闸） |
+| 阿里云数据面 | `/opt/hutuji/curated`：首轮 accept 456（两轮含 trumpet 补漏）→ 内容哈希去重 226 → cat 52/狗 52/树 52/房 52/鱼 53，**达标类目 142/298**，ready 仍 False；`/opt/hutuji/twemoji-cache/`（下载缓存，~250 SVG）；crab/1f980 单件 805>800 行放弃；prep 服务已恢复 active |
+| 本机证据 | `tmp/curated-vector-data/`（230 条干净库）、`tmp/svg_pilot/`（五类转换预览 + 库内猫预览，均本机留档不入库） |
+
 ### AI 纸面风险闸批（2026-08-27，已提交 `7bf64a8`/`ee5eca0`/`ff718c8`/`1dbd310`/`0717e25` 并双机发布；设计 `docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md`）
 | 文件 | 说明 |
 |------|------|
@@ -27,7 +38,7 @@
 | `mcp-server/hutuji_mcp/server.py`（已修改） | `_run_draw_job` AI 路径纸面闸重试环（最多 3 轮、Reject 清半成品、`PaperRiskExhaustedError` 无废 URL）；QD/curated 不经闸 |
 | `mcp-server/hutuji_mcp/config.py`（已修改） | `paper_risk_gate`（`HUTUJI_PAPER_RISK_GATE`，默认开） |
 | `mcp-server/tests/test_paper_risk.py` / `test_bitmap_decimate.py` | 新测试 13 + 8 项 |
-| 验证状态 | 全套 1024/1024；hub 门禁 **overall=pass**（指纹 231/231）。已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；阿里云 169867/169868、京东云 53678，两机 env `HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
+| 验证状态 | 全套 1028/1028；hub 门禁 **overall=pass**（指纹 231/231）。闸批已提交至 `06daa95` 并**双机发布 + 转 shadow**（用户拍板：travel_gap 2.0 疑似误杀正常猫，攒样本重钉后再 enforce；阿里云 169867/169868、京东云 53678，两机 env `HUTUJI_PAPER_RISK_GATE=0`）。另修：scribble v2 平移不变窗（版本 1→2）+ 拒收缓存逐出 + shadow 指标日志 |
 
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
