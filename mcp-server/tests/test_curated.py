@@ -97,29 +97,43 @@ def test_lookup_hit_when_replace_forced(tmp_path, monkeypatch):
 _GEN_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
     'viewBox="0 0 1024 1024" fill="none" stroke="black" stroke-width="1">'
-    '<polyline points="672.0,140.0 655.0,151.0 639.4,172.0 627.6,187.0 '
-    '700.0,300.0 500.0,500.0 300.0,700.0 265.0,852.6"/>'
-    "</svg>"
+    '<polyline points="'
+    + " ".join(
+        f"{300 + (i % 6) * 100},{125 + (i // 6) * 80}" for i in range(60)
+    )
+    + '"/></svg>'
 )
 
-def test_preview_uses_viewbox_frame_for_generation_entries():
-    """生成条目（viewBox 1024）预览不得近空白——256 硬框曾把点全裁出画布
-    （2026-08-27 小派预览空白实锤：近空 PNG ~321B）。"""
-    import imageio.v3 as iio
 
-    png = curated._preview_from_svg(_GEN_SVG)
+def _ink_span(png: bytes) -> float:
+    """预览墨跨度（行覆盖比 × 列覆盖比）：坐标框正确则整图铺开（实测 ~0.38），
+    框取错（回退 256）则被裁近空（实测 ~0.009）——比字节数稳健（字节随内容密度漂）。"""
+    import imageio.v3 as iio
+    import numpy as np
+
     img = iio.imread(png)
-    assert (img < 128).any(), "1024 空间预览无墨（仍被裁空）"
+    ink = img < 128
+    if not ink.any():
+        return 0.0
+    rows = np.where(ink.any(axis=1))[0]
+    cols = np.where(ink.any(axis=0))[0]
+    return ((rows[-1] - rows[0]) / img.shape[0]) * ((cols[-1] - cols[0]) / img.shape[1])
+
+
+def test_preview_uses_viewbox_frame_for_generation_entries():
+    """生成条目（viewBox 1024）预览按 viewBox 取框——回退 256 会把 >256 的点
+    全裁出画布（2026-08-27 小派预览空白实锤 321B 近空）。跨度阈值 0.25：
+    正确框实测 ~0.38、错框实测 ~0.009。"""
+    png = curated._preview_from_svg(_GEN_SVG)
+    assert _ink_span(png) > 0.25, "1024 空间预览被裁近空（坐标框取错）"
 
 
 def test_preview_uses_viewbox_frame_for_vector_entries():
-    """矢量条目（viewBox 36）预览同样按 viewBox 取框。"""
+    """矢量条目（viewBox 36）预览同样按 viewBox 取框——回退 256 会把内容
+    挤进左上 ~14% 角落（跨度 ~0.009）。阈值 0.25：正确框实测 ~0.40。"""
     vec_svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">'
         '<polyline points="5,5 18,30 31,5 5,5 8,20 28,20" fill="none"/></svg>'
     )
-    import imageio.v3 as iio
-
     png = curated._preview_from_svg(vec_svg)
-    img = iio.imread(png)
-    assert (img < 128).any(), "36 空间预览无墨（仍被裁空）"
+    assert _ink_span(png) > 0.25, "36 空间预览被挤角落（坐标框取错）"
