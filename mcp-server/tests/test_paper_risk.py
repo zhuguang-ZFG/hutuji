@@ -232,7 +232,10 @@ def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
         key = desc.strip() + (f"::attempt={attempt}" if attempt else "")
         bitmap_svg._bitmap_cache[key] = (0.0, BitmapResult(svg=_AI_SVG, preview_png=b"x"))
 
+    calls: list[tuple[str, int]] = []
+
     async def fake_generate(desc, *, attempt=0):
+        calls.append((desc, attempt))
         seed(desc, attempt)
         return BitmapResult(svg=_AI_SVG, preview_png=b"ai")
 
@@ -253,6 +256,14 @@ def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
 
     keys = [k for k in bitmap_svg._bitmap_cache if k.startswith("拒收逐出猫")]
     assert keys == [], f"拒收位图残留缓存：{keys}"
+
+    # 第二个 job（同题重试）：attempt=0 键已被逐出 → 必须真重调 generate_bitmap。
+    with pytest.raises(server.PaperRiskExhaustedError):
+        asyncio.run(server._run_draw_job("拒收逐出猫", _BASE_URL))
+    second_calls = [c for c in calls if c[0] == "拒收逐出猫"]
+    assert second_calls.count(("拒收逐出猫", 0)) == 2, (
+        f"逐出后同题重试必须真重生 attempt=0，实际调用 {second_calls}"
+    )
     bitmap_svg._bitmap_cache.clear()
 
 def test_draw_job_gate_disabled_single_attempt(monkeypatch, tmp_path, caplog):
