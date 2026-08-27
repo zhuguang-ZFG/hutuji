@@ -255,14 +255,20 @@ def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
     assert keys == [], f"拒收位图残留缓存：{keys}"
     bitmap_svg._bitmap_cache.clear()
 
-def test_draw_job_gate_disabled_single_attempt(monkeypatch, tmp_path):
-    """HUTUJI_PAPER_RISK_GATE=0：即使 G-code 会 Reject 也只跑一轮。"""
+def test_draw_job_gate_disabled_single_attempt(monkeypatch, tmp_path, caplog):
+    """HUTUJI_PAPER_RISK_GATE=0：即使 G-code 会 Reject 也只跑一轮，但照记
+    shadow 指标日志（攒证据供重钉阈值）。"""
+    import logging
+
     attempts: list[int] = []
     server, slot_spy = _stub_job(
         monkeypatch, tmp_path, [_REJECT_GCODE], attempts, gate=False
     )
 
-    payload = json.loads(asyncio.run(server._run_draw_job("闸关闭", _BASE_URL)))
+    with caplog.at_level(logging.INFO):
+        payload = json.loads(asyncio.run(server._run_draw_job("闸关闭", _BASE_URL)))
 
     assert attempts == [0]
     assert payload["url"].endswith(".gcode")
+    shadow = [r.getMessage() for r in caplog.records if "paper_risk shadow" in r.getMessage()]
+    assert shadow, "shadow 模式必须照记指标日志"

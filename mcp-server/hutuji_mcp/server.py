@@ -472,9 +472,24 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
                     if time.monotonic() >= deadline:
                         raise DrawTimeoutError("绘图生成超时，请稍后重试")
                     stats = await _persist_draw_outputs(bitmap)
-                    if not getattr(settings, "paper_risk_gate", True):
-                        break
                     gcode_text = gcode_path.read_text(encoding="utf-8")
+                    if not getattr(settings, "paper_risk_gate", True):
+                        # shadow（2026-08-27 用户拍板）：evaluate 照跑只记日志，
+                        # 攒废/好样本指标供重钉阈值；不拒收、不重试。
+                        report = paper_risk.evaluate_gcode(
+                            gcode_text, pen_lifts=stats.pen_lifts
+                        )
+                        logger.info(
+                            "paper_risk shadow short=%.2f lifts=%d gap_p50=%.2f "
+                            "ink=%.1f scribble=%d segs=%d",
+                            report.short_g1_ratio,
+                            report.pen_lifts,
+                            report.travel_gap_p50_mm,
+                            report.ink_span_mm,
+                            report.scribble_core_hits,
+                            report.g1_xy_segments,
+                        )
+                        break
                     try:
                         paper_risk.enforce_gcode(
                             gcode_text, pen_lifts=stats.pen_lifts
