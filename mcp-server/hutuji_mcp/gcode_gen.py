@@ -96,6 +96,11 @@ LINESIMPLIFY_TOLERANCE_MM = 0.05
 # 碎笔画合并容差（mm）：对齐奎享 nearDst=0.3，减少抬落笔次数。
 # 合并端点几乎相接的线；0.3mm 内并笔不改变构图（奎享现役值，实测安全）。
 LINEMERGE_TOLERANCE_MM = 0.3
+# 落笔态最短 G1（mm）：压住本机 `$1=25` + 弹簧笔架空窗。F8000≈133mm/s 时
+# 1.0mm≈7.5ms；连续 21 段≈157ms ≫ 25ms。AI 描摹 worst21≈89ms 曾虚笔，
+# curated≈575ms 实笔——同 Z5 字面量，差在段能否撑住 planner（2026-08-28）。
+# 不改 $1/Z5 契约；只在 gwrite 之后塌缩落笔短段。笔画末点始终保留。
+MIN_PEN_DOWN_G1_MM = 1.0
 
 # G-code 字（字母 + 十进制数值）。整行唯一的解析入口：G/M 字号与 X/Y 坐标都从这里取，
 # 避免两套正则口径不一致（旧代码 `\b([XY])` 在 `G0X0Y0` 里因 X 紧跟数字而无词边界，
@@ -285,6 +290,128 @@ def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
     ]
 
 
+def _xy_from_words(upper: str) -> tuple[float | None, float | None]:
+    x = y = None
+    for letter, number in _WORD_RE.findall(upper):
+        if letter == "X":
+            x = float(number)
+        elif letter == "Y":
+            y = float(number)
+    return x, y
+
+
+def _z_from_words(upper: str) -> float | None:
+    for letter, number in _WORD_RE.findall(upper):
+        if letter == "Z":
+            return float(number)
+    return None
+
+
+def _collapse_short_pen_down_segments(
+    text: str, min_mm: float | None = None
+) -> str:
+    """把落笔态连续短 G1 塌到 ≥ min_mm，末点保留；不跨越抬笔/G0。
+
+    动机：亚毫米 G1 @ F8000 使 planner 空档触发 `$1` 失能与弹簧抬笔，逻辑 Z
+    仍可为 5，纸面呈「虚实交替」。缓存长笔画撑得住，故同 profile 表现不同。
+
+    换行风格原样保留（CRLF 不得塌成 LF），否则会改磁盘字节数，绕过 §5
+    512KiB 按磁盘字节计的上限，并让回给 S3 的 `bytes` 与 Content-Length 脱钩。
+    """
+    floor = MIN_PEN_DOWN_G1_MM if min_mm is None else min_mm
+    nl = "\r\n" if "\r\n" in text else "\n"
+    ends_with_nl = text.endswith("\n")
+    raw_lines = text.splitlines()
+    out: list[str] = []
+    cur_x: float | None = None
+    cur_y: float | None = None
+    pen_down = False
+    last_emit_x: float | None = None
+    last_emit_y: float | None = None
+    pending: tuple[float, float] | None = None
+
+    def _flush_pending() -> None:
+        nonlocal pending, last_emit_x, last_emit_y, cur_x, cur_y
+        if pending is None:
+            return
+        px, py = pending
+        if last_emit_x is None or last_emit_y is None or (
+            abs(px - last_emit_x) > 1e-9 or abs(py - last_emit_y) > 1e-9
+        ):
+            out.append(f"G1 X{px:.3f}Y{py:.3f}F8000")
+            last_emit_x, last_emit_y = px, py
+            cur_x, cur_y = px, py
+        pending = None
+
+    for raw in raw_lines:
+        line = raw.strip()
+        if not line:
+            out.append(raw)
+            continue
+        code_part = line.split(";", 1)[0].strip()
+        upper = code_part.upper()
+        words = _WORD_RE.findall(upper)
+        letters = {letter for letter, _ in words}
+        z_val = _z_from_words(upper)
+        x_val, y_val = _xy_from_words(upper)
+        is_g1 = any(letter == "G" and abs(float(number) - 1.0) < 1e-9 for letter, number in words)
+        is_g0 = any(letter == "G" and abs(float(number) - 0.0) < 1e-9 for letter, number in words)
+
+        if is_g1 and z_val is not None and abs(z_val - 5.0) < 1e-6:
+            _flush_pending()
+            pen_down = True
+            last_emit_x, last_emit_y = cur_x, cur_y
+            out.append(line)
+            continue
+
+        if is_g1 and z_val is not None and abs(z_val - 0.0) < 1e-6:
+            _flush_pending()
+            pen_down = False
+            out.append(line)
+            continue
+
+        if pen_down and is_g1 and "Z" not in letters and (x_val is not None or y_val is not None):
+            nx = cur_x if x_val is None else x_val
+            ny = cur_y if y_val is None else y_val
+            if nx is None or ny is None:
+                out.append(line)
+                continue
+            pending = (nx, ny)
+            if last_emit_x is None or last_emit_y is None:
+                out.append(f"G1 X{nx:.3f}Y{ny:.3f}F8000")
+                last_emit_x, last_emit_y = nx, ny
+                pending = None
+            else:
+                dist = math.hypot(nx - last_emit_x, ny - last_emit_y)
+                if dist + 1e-9 >= floor:
+                    out.append(f"G1 X{nx:.3f}Y{ny:.3f}F8000")
+                    last_emit_x, last_emit_y = nx, ny
+                    pending = None
+            cur_x, cur_y = nx, ny
+            continue
+
+        if is_g0 or (is_g1 and not pen_down):
+            _flush_pending()
+            if x_val is not None:
+                cur_x = x_val
+            if y_val is not None:
+                cur_y = y_val
+            out.append(line)
+            continue
+
+        out.append(line)
+
+    _flush_pending()
+    body = nl.join(out)
+    if ends_with_nl:
+        if nl == "\r\n":
+            if not body.endswith("\r\n"):
+                body += "\r\n"
+        elif not body.endswith("\n"):
+            body += "\n"
+    return body
+
+
 def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     """读取 vpype 成功退出后的产物，并统一成合同错误。
 
@@ -301,6 +428,16 @@ def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     except (OSError, UnicodeDecodeError) as exc:
         logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
         raise GcodeError("vpype 转换未产出 G-code 文件") from None
+    # 落笔短段地板：写回磁盘，保证 /files 下载字节与校验口径一致。
+    collapsed = _collapse_short_pen_down_segments(text)
+    if collapsed != text:
+        try:
+            gcode_path.write_bytes(collapsed.encode("utf-8"))
+        except OSError as exc:
+            logger.error("落笔短段塌缩后写回失败：%s", exc, exc_info=True)
+            raise GcodeError("G-code 落笔短段塌缩写回失败") from None
+        text = collapsed
+        raw = collapsed.encode("utf-8")
     return validate_gcode(text, total_bytes=len(raw))
 
 
