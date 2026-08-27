@@ -157,12 +157,10 @@ def _job_settings(tmp_path, gate: bool = True):
 def _stub_job(monkeypatch, tmp_path, gcode_queue, attempts, gate=True):
     from types import SimpleNamespace
 
-    from hutuji_mcp import curated, quickdraw, server
+    from hutuji_mcp import server
     from hutuji_mcp.bitmap_svg import BitmapResult
 
     monkeypatch.setattr(server, "settings", _job_settings(tmp_path, gate))
-    monkeypatch.setattr(curated, "is_replace_active", lambda: False)
-    monkeypatch.setattr(quickdraw, "lookup", lambda d: None)
 
     async def fake_generate(desc, *, attempt=0):
         attempts.append(attempt)
@@ -221,12 +219,10 @@ def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
     """拒收位图不得留在缓存（生产实测：三轮全命中缓存、三次同败）。"""
     from types import SimpleNamespace
 
-    from hutuji_mcp import bitmap_svg, curated, quickdraw, server
+    from hutuji_mcp import bitmap_svg, server
     from hutuji_mcp.bitmap_svg import BitmapResult
 
     monkeypatch.setattr(server, "settings", _job_settings(tmp_path, True))
-    monkeypatch.setattr(curated, "is_replace_active", lambda: False)
-    monkeypatch.setattr(quickdraw, "lookup", lambda d: None)
 
     def seed(desc: str, attempt: int) -> None:
         key = desc.strip() + (f"::attempt={attempt}" if attempt else "")

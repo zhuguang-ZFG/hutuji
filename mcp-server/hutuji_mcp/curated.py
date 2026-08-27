@@ -118,3 +118,52 @@ def lookup(description: str) -> BitmapResult | None:
         return None
     logger.info("curated hit category=%s idx=%s", category, name)
     return BitmapResult(svg=svg, preview_png=_preview_from_svg(svg))
+
+
+def _pick_and_load(root_s: str, category: str) -> BitmapResult | None:
+    """类目内随机抽一条并加载校验；lookup 与 lookup_preferred 共用。"""
+    names = _list_svgs(root_s, category)
+    if not names:
+        return None
+    name = _rng.choice(names)
+    try:
+        svg = (Path(root_s) / category / name).read_text(encoding="utf-8")
+        _validate_svg(svg)
+    except Exception:
+        _warn_once("bad svg", category, name)
+        return None
+    logger.info("curated hit category=%s idx=%s", category, name)
+    return BitmapResult(svg=svg, preview_png=_preview_from_svg(svg))
+
+
+def lookup_preferred(description: str) -> BitmapResult | None:
+    """达标类目优先出 curated（2026-08-27 用户拍板 QD 退役路由）。
+
+    判据：类目在 manifest 的 count >= n_min（单类目达标，不要求全集
+    ready——142/142 运行时抽检已过，见 deployment 文首）。manifest 每次
+    现读（灌库进行中计数要新鲜，不能 lru_cache 冻结）；未达标/未映射/
+    目录缺失一律 None 落 AI 链。
+    """
+    root = _curated_dir()
+    if root is None:
+        return None
+    category = quickdraw._match_category(description)
+    if category is None:
+        return None
+    root_s = str(root.resolve())
+    try:
+        manifest = json.loads((Path(root_s) / "manifest.json").read_text(encoding="utf-8"))
+    except OSError:
+        _warn_once("manifest unreadable", "-")
+        return None
+    n_min = int(manifest.get("n_min", 30))
+    count = int(manifest.get("categories", {}).get(category, {}).get("count", 0))
+    if count < n_min:
+        logger.info(
+            "curated prefer miss（count=%d < %d）category=%s → AI", count, n_min, category
+        )
+        return None
+    result = _pick_and_load(root_s, category)
+    if result is None:
+        _warn_once("miss under prefer", category, "→ AI")
+    return result

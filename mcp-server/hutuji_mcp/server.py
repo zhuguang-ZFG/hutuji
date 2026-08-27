@@ -39,7 +39,6 @@ from .config import settings
 from .config import validate_public_base_url
 from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
-from . import quickdraw
 from . import paper_risk
 from .redact import _install_secret_redaction
 from .llm_svg import _CONTROL_CHAR_RE, _sanitize_description, generate_svg
@@ -72,12 +71,6 @@ _DRAW_FILE_PARTS_RE = re.compile(
 
 # 歌曲文件名白名单：小写 id + .ogg，无路径分隔符与点号段，天然免疫目录穿越。
 _SONG_FILE_RE = re.compile(r"[a-z0-9_-]{1,64}\.ogg")
-
-# Quick Draw 质量路由（2026-08-25 C 组合）：仅当描述明示简笔/快速画风才走本地
-# 涂鸦缓存；普通描述一律 AI 位图链（用户实测 QD 涂鸦与 AI 线稿并出后「越来越
-# 不好看」——QD 数据集本质是人类 20 秒速写）。词表覆盖口语变体，命中即视为
-# 用户主动要简笔画风。
-_QD_STYLE_RE = re.compile(r"简笔画|简笔|速写|涂鸦|快速画|随便画|灵魂画")
 logger = logging.getLogger(__name__)
 
 
@@ -445,16 +438,9 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
         await asyncio.to_thread(_cleanup_expired_outputs)
         from . import curated as curated_mod
 
-        if curated_mod.is_replace_active():
-            # 精选库已就绪并开启替换：同主题不再走 QD 涂鸦；miss 只回落 AI。
-            bitmap = await asyncio.to_thread(curated_mod.lookup, description)
-        else:
-            # 现网质量路由：仅明示简笔/速写等画风时查 QD。
-            bitmap = (
-                await asyncio.to_thread(quickdraw.lookup, description)
-                if _QD_STYLE_RE.search(description)
-                else None
-            )
+        # QD 退役（2026-08-27 用户拍板）：达标类目（count≥n_min）curated 优先，
+        # 未达直接 AI 链；QD 涂鸦数据留盘作回滚，运行时不再查询。
+        bitmap = await asyncio.to_thread(curated_mod.lookup_preferred, description)
         if bitmap is not None:
             stats = await _persist_draw_outputs(bitmap)
         else:
