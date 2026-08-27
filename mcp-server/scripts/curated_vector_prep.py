@@ -61,7 +61,7 @@ def convert_svg(svg_text: str, code: str) -> str:
     if not polys:
         raise ValueError(f"{code}: 无可画路径")
     tol = _RDP_TOL_START
-    for _ in range(4):
+    for _ in range(6):
         polys = _rdp_polylines(polys, tol)
         if sum(len(p) for p in polys) <= _MAX_PLOTTER_POINTS:
             break
