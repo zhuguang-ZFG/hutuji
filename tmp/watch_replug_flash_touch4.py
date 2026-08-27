@@ -41,7 +41,7 @@ if not com14_present():
     sys.exit("COM14 not back 10s after flash; replug again, then rerun this script.")
 # Boot capture: WDT reset path, miss first ~1-2s is accepted trade-off.
 r = subprocess.run(
-    [IDF_PY, CAPTURE_PY, OUT_LOG, "20"],
+    [IDF_PY, CAPTURE_PY, OUT_LOG, "120"],
     capture_output=True, text=True, timeout=180,
 )
 print(r.stdout[-400:], r.stderr[-200:], flush=True)
