@@ -27,7 +27,7 @@ import re
 from dataclasses import dataclass
 
 # 阈值调整 = 行为变更：bump 版本号并在回归里用废/好样本重钉。
-PAPER_RISK_GATE_VERSION = "1"
+PAPER_RISK_GATE_VERSION = "2"
 
 MAX_SHORT_G1_RATIO = 0.35  # 同 curated_gate（gate v3 口径）
 MIN_INK_SPAN_MM = 40.0  # 同 curated_gate
@@ -35,10 +35,11 @@ MAX_PEN_LIFTS = 40  # 好样本中位 15 与废样本 55 之间的中间带
 MAX_TRAVEL_GAP_P50_MM = 2.0  # 好样本中位 4.85→收紧到 2.0 拒虚线形态
 MAX_SCRIBBLE_CORE_HITS = 0  # 任一涂鸦团即拒
 
-# 涂鸦团判据常量：包围盒边长上限、盒内点数/段数下限。
-SCRIBBLE_WIN_MM = 10.0
-SCRIBBLE_PTS_MIN = 25
-SCRIBBLE_SEG_MIN = 8
+# 涂鸦团判据（2026-08-27 v2 修正）：1mm 窗内 ≥45 个**短段**中点。窗口必须平移
+# 不变——固定网格桶会让跨桶密团被劈半逃逸（v1 已证：45 段密团骑缝时两桶各
+# ~22 双双低于阈值）。
+SCRIBBLE_WIN_MM = 1.0
+SCRIBBLE_SEG_MIN = 45
 _SHORT_MM = 0.5  # 同 curated_gate 的短段定义
 
 # hutuji_gwrite 产物紧凑无空格（`G1G90 Z5.0F10000`、`G0 X12.3Y4.5F8000`），
@@ -88,6 +89,7 @@ def _parse_strokes(gcode: str):
     pen_lifts = 0
     xs: list[float] = []
     ys: list[float] = []
+    short_mids: list[tuple[float, float]] = []
 
     for raw in gcode.splitlines():
         line = raw.strip()
@@ -120,46 +122,50 @@ def _parse_strokes(gcode: str):
         new = (float(m.group(1)), float(m.group(2)))
         if pen_down:
             if pos is not None:
-                segments.append(
-                    ((new[0] - pos[0]) ** 2 + (new[1] - pos[1]) ** 2) ** 0.5
-                )
+                d = ((new[0] - pos[0]) ** 2 + (new[1] - pos[1]) ** 2) ** 0.5
+                segments.append(d)
+                if d < _SHORT_MM:
+                    short_mids.append(((pos[0] + new[0]) / 2, (pos[1] + new[1]) / 2))
             xs.append(new[0])
             ys.append(new[1])
             seen_first_stroke = True
         pos = new
-    return segments, gaps, pen_lifts, xs, ys
+    return segments, gaps, pen_lifts, xs, ys, short_mids
 
 
-def _count_scribble_cores(xs: list[float], ys: list[float]) -> int:
-    """10mm 滑窗内落笔点 ≥25 的小团计数（网格哈希，O(n) 近似）。"""
-    if len(xs) < SCRIBBLE_PTS_MIN:
+
+
+def _count_scribble_cores(short_mids: list[tuple[float, float]]) -> int:
+    """平移不变 1mm 窗内短段中点 ≥45 的涂鸦团计数。
+
+    对每个短段中点，统计以其为中心的 1mm 盒内的短段中点数；任一 ≥45 即判
+    涂鸦团。网格桶只做邻域加速（每点只查 3×3 桶），判据与桶对齐无关，跨缝
+    密团无法逃逸。返回命中点数（报告面：≥1 即拒）。
+    """
+    if len(short_mids) < SCRIBBLE_SEG_MIN:
         return 0
     cell = SCRIBBLE_WIN_MM
+    half = cell / 2.0
     buckets: dict[tuple[int, int], list[tuple[float, float]]] = {}
-    for x, y in zip(xs, ys):
+    for x, y in short_mids:
         buckets.setdefault((int(x // cell), int(y // cell)), []).append((x, y))
     hits = 0
-    for (cx, cy), pts in buckets.items():
-        # 3×3 邻域合并成以该格为左下角的 10mm 窗近似；避免重复计数只从左下
-        # 角格发起窗口。
-        if (cx - 1, cy) in buckets or (cx, cy - 1) in buckets:
-            continue
-        x0 = cx * cell
-        y0 = cy * cell
+    for x, y in short_mids:
+        cx, cy = int(x // cell), int(y // cell)
         count = 0
         for nx in range(cx - 1, cx + 2):
             for ny in range(cy - 1, cy + 2):
-                for x, y in buckets.get((nx, ny), ()):
-                    if x0 <= x <= x0 + cell and y0 <= y <= y0 + cell:
+                for ox, oy in buckets.get((nx, ny), ()):
+                    if abs(ox - x) <= half and abs(oy - y) <= half:
                         count += 1
-        if count >= SCRIBBLE_PTS_MIN:
+        if count >= SCRIBBLE_SEG_MIN:
             hits += 1
     return hits
 
 
 def evaluate_gcode(gcode: str, *, pen_lifts: int) -> PaperRiskReport:
     """统计五项指标；`pen_lifts` 用 §5 `validate_gcode` 的权威值覆盖文本沿计数。"""
-    segments, gaps, _text_lifts, xs, ys = _parse_strokes(gcode)
+    segments, gaps, _text_lifts, xs, ys, short_mids = _parse_strokes(gcode)
     total = len(segments)
     short = sum(1 for d in segments if d < _SHORT_MM)
     short_ratio = (short / total) if total else 0.0
@@ -178,7 +184,7 @@ def evaluate_gcode(gcode: str, *, pen_lifts: int) -> PaperRiskReport:
         short_g1_ratio=short_ratio,
         travel_gap_p50_mm=gap_p50,
         ink_span_mm=ink_span,
-        scribble_core_hits=_count_scribble_cores(xs, ys),
+        scribble_core_hits=_count_scribble_cores(short_mids),
         g1_xy_segments=total,
     )
 

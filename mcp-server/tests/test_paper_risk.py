@@ -30,7 +30,7 @@ def _gcode(strokes: list[list[tuple[float, float]]]) -> str:
 
 
 def test_version_constant() -> None:
-    assert paper_risk.PAPER_RISK_GATE_VERSION == "1"
+    assert paper_risk.PAPER_RISK_GATE_VERSION == "2"
 
 
 def test_pass_long_continuous_stroke() -> None:
@@ -74,13 +74,29 @@ def test_reject_short_g1_ratio() -> None:
 
 
 def test_reject_scribble_core() -> None:
-    # 5mm 盒内 30 点密团（间距 0.6 不算短段）+ 长尾拉跨度。
-    cluster = [(10.0 + (i % 6) * 0.6, 10.0 + (i // 6) * 0.6) for i in range(30)]
-    tail = [(20.0 + i * 5.0, 10.0) for i in range(9)]
+    # 涂鸦团骑 1mm 桶缝（中心恰在 x=10.0/y=10.0 桶界）：0.09mm 网格 50 点
+    # 密团（段长 0.09<0.5 短段），固定桶会劈半逃逸，平移不变窗必须命中。
+    cluster = [
+        (9.6 + (i % 10) * 0.09, 9.6 + (i // 10) * 0.09) for i in range(50)
+    ]
+    # 长尾蛇形拉跨度并把短段比压到阈值下（密团只贡献 ~45 短段）。
+    tail: list[tuple[float, float]] = []
+    for i in range(18):
+        y = 12.0 + i * 3.0
+        row = [(10.0 + j * 14.0, y) for j in range(7)]
+        tail += row if i % 2 == 0 else row[::-1]
     with pytest.raises(paper_risk.PaperRiskReject) as ei:
         paper_risk.enforce_gcode(_gcode([cluster + tail]), pen_lifts=1)
     assert ei.value.reason == "scribble_core"
     assert ei.value.report.scribble_core_hits >= 1
+
+
+def test_scribble_core_spread_short_segments_no_hit() -> None:
+    # 短段但摊开的线稿不得误判涂鸦团：0.45mm 段 × 100 点一线排开，
+    # 1mm 窗内至多 ~3 个中点，远低 45。
+    stroke = [(10.0 + i * 0.45, 10.0 + (i % 2) * 40.0) for i in range(100)]
+    report = paper_risk.evaluate_gcode(_gcode([stroke]), pen_lifts=1)
+    assert report.scribble_core_hits == 0
 
 
 def test_reject_ink_span() -> None:
