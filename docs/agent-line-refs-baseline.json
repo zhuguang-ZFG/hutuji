@@ -1,5 +1,5 @@
 {
-  "git_head": "a27d17b99550612d1c4d79b5695f40e330791691",
+  "git_head": "3ca14ea2dbcd4614ee70b5c713e5ee39b3d49984",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -901,6 +901,11 @@
       "source": " * CONSTRAINTS: preserve callbacks, state gates, locale keys, and 56 px touch targets.",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
+    "docs/release-readiness.md -> PaperSystem.cpp:325": {
+      "sha8": "49119e0c",
+      "source": "        // GPIO34: 3.3V=NoP(无纸), 0V=HavP(有纸)",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
     "docs/release-readiness.md -> application.cc:1165": {
       "sha8": "6a10b9cc",
       "source": "void Application::SendMcpMessage(const std::string& payload) {",
@@ -1172,6 +1177,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-28T07:24:00Z",
+  "updated": "2026-08-28T09:08:02Z",
   "version": 1
 }
