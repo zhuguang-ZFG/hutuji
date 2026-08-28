@@ -156,7 +156,7 @@ python -m venv .venv
 ## 路线图（当前进度）
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
-2. **② 哑管道** — 🟡 xiaozhi `dcbec6f` 已推；当前 Waveshare 镜像已绑定 ELF `031cafd5…`，触摸、七工具、Telnet、授权、Idle 与控制抽屉低层动作有部分 HIL。缺预览确认/取消、暂停/继续/停止/重画/试笔五个屏幕动作、纸面画质目视与断连恢复 `paper_active` 窗口 abort 复测。
+2. **② 哑管道** — 🟡 实时分支/HEAD 与板上镜像证据以 `docs/worktree-inventory.md` 为准（不钉静态 SHA，防腐）；触摸、七工具、Telnet、授权、Idle 与控制抽屉低层动作有部分 HIL，2026-08-28 唤醒/Grbl 主屏指示（聆听扫光/胶囊变色/说话钮变绿/顶栏三级圆点）已刷 COM14，用户照片确认 Grbl 绿点与顶栏上屏。缺预览确认/取消、暂停/继续/停止/重画/试笔五个屏幕动作、纸面画质目视与断连恢复 `paper_active` 窗口 abort 复测。
 3. **③ 智能端** — 🟡 HTTPS、京东云 MCP+桥接常驻和真实语音出图已有证据；SPEED-01/设备 PNG 预览运行态已部署，仓库实现见当前 HEAD。剩余设备预览/控制人机验收与生产签核。
 4. **④ 出货** — 🔴 剩余 HIL、生产与合规签核未闭合。
 

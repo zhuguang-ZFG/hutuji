@@ -74,7 +74,7 @@
 ## 路线图
 
 1. **① 仓库奠基**：协议、文档入口、SOP、生产/部署模板、本仓门禁/硬轨 — ✅ 见 `docs/foundation-checklist.md`
-2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 当前源码基线 xiaozhi `72a693a`（稳定性批次：省电门控 + 退避前段 + 播报等待信号 + 预取内联）已推已刷 COM14 且三轮画图 HIL 通过；其祖先 `cb82edb` 代际已完成触摸、七工具、Telnet、授权、fresh-`Idle` 与控制抽屉低层动作的部分 HIL，2026-08-21 新增唱歌双工具（`hutuji.sing`/`hutuji.stop_song`）并语音全链实测通过（云端 `hutuji_sing` → 下载 → 播放 → 喊停退场）。**仍缺**：预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作 HIL、纸面画质目视、断连恢复 `paper_active` 窗口 abort 复测；另登记 PSRAM 所有权缺口（下条）。
+2. **② 哑管道**：S3 设备侧 MCP + 下载校验 + Telnet 流控 — 🟡 实时分支/HEAD 与板上镜像证据以 `docs/worktree-inventory.md` 为准（此处不钉静态 SHA，防腐）；截至 2026-08-28 板上 COM14 现役镜像含唤醒/Grbl 主屏指示（聆听扫光/胶囊变色/说话钮变绿/顶栏三级圆点）与顶栏 z-order 修复，用户照片确认 Grbl 绿点上屏；历史已证：三轮画图 HIL、触摸、七工具、Telnet、授权、fresh-`Idle` 与控制抽屉低层动作的部分 HIL，2026-08-21 新增唱歌双工具（`hutuji.sing`/`hutuji.stop_song`）并语音全链实测通过（云端 `hutuji_sing` → 下载 → 播放 → 喊停退场）。**仍缺**：预览确认/取消与暂停/继续/停止/重画/试笔五个屏幕动作 HIL、纸面画质目视、断连恢复 `paper_active` 窗口 abort 复测；另登记 PSRAM 所有权缺口（下条）。
    - 2026-08-23 全链审计补充阻断：源码审查实测 `hutuji_job.cc` 预取接管路径在上一张成功且预取命中时不释放旧 G-code PSRAM（`AdoptPrefetch` 无所有权交换）——重复「新画一幅」会持续累积 PSRAM；连同 `scripts/xiaozhi_console.py` 白名单缺 `preview_url`（设备 `hutuji.draw` 双参数），两者均待用户批准独立批次修复。
 3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 京东云 — 🟡 生产代码基线已切换至 `c2cdbd4`（共享 `redact.py`、`server.py`、`cloud_bridge.py` 已按 Git blob 部署），两服务 active，`/bridge-health` 200，生产 preflight `30/30`；真实语音出图 HIL 未执行，剩余设备预览/控制人机验收、纸面画质与生产签核。
 
