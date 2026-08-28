@@ -24,11 +24,11 @@ Grbl 侧 0x18 在换纸阻塞期**能**触发停机，链路完整：
 | 2 | `Serial.cpp:171` | `clientCheckTask` 是承载任务 |
 | 3 | `Serial.cpp:179-180` | `is_realtime_command` → `execute_realtime_command`，**不排队**、实时拦截 |
 | 4 | `Serial.cpp:250-252` | `Cmd::Reset` 先过 `paper_should_ignore_host_reset()` |
-| 5 | `PaperSystem.cpp:58` + `PaperSystem.cpp:762` | 忽略窗口 = 换纸启动起 `millis() + 8000u`；**8s 后放行** `mc_reset()` |
+| 5 | `PaperSystem.cpp:58` + `PaperSystem.cpp:771` | 忽略窗口 = 换纸启动起 `millis() + 8000u`；**8s 后放行** `mc_reset()` |
 | 6 | `Protocol.cpp:228` | 换纸阻塞期跑 `protocol_service_during_blocking()` |
 | 7 | `Protocol.cpp:269` | 其尾部调 `protocol_execute_realtime()` |
 | 8 | `Protocol.cpp:577` | `sys.abort = true`（源码注释自称 `Only place this is set true`） |
-| 9 | `PaperSystem.cpp:155` → `PaperSystem.cpp:707` | `paper_blocking_abort_requested()` → `paper_auto_change_abort_cleanup()` 安全停机 + error:90 |
+| 9 | `PaperSystem.cpp:155` → `PaperSystem.cpp:716` | `paper_blocking_abort_requested()` → `paper_auto_change_abort_cleanup()` 安全停机 + error:90 |
 
 即：**换纸开始 8s 之后**，S3 发 0x18 可让换纸安全中止。
 
@@ -40,7 +40,7 @@ Grbl 侧 0x18 在换纸阻塞期**能**触发停机，链路完整：
 - `hutuji_job.cc:441-442`
 
 两处均 `Notify("写字机正在换纸，无法即停；换纸完成后任务将停止")` 并直接返回，
-**不发 0x18**。而 S3 本身有该能力：`hutuji_job.cc:1148` 已在用 `pipe.SendRealtime(0x18)`
+**不发 0x18**。而 S3 本身有该能力：`hutuji_job.cc:1155` 已在用 `pipe.SendRealtime(0x18)`
 （仅 worker 路径用）。
 
 ### 1.3 切片 C 的建议动作被证伪
@@ -92,12 +92,12 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 - 奎享 `machine/f/b.java:55-75`：窗口准入循环内**无任何 UI 调用**。窗口上界取
   `this.b.g()`（抽象方法，`machine/c.java:46` 声明；Grbl 实现
   `machine/grbl/a.java:312-313` 返回 **100**），判据含 `+1L`（换行符）且**严格小于**。
-- 我方 `hutuji_job.cc:2876-2877`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
-  `need = line.size() + 1`（`hutuji_job.cc:2667-2669` 维护 `c_line`/`c_line_bytes_sum`）。
+- 我方 `hutuji_job.cc:2883-2884`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
+  `need = line.size() + 1`（`hutuji_job.cc:2674-2676` 维护 `c_line`/`c_line_bytes_sum`）。
   **不变量同构**；`kWindow` = `hutuji_recovery_core.h:16` `kStreamWindowBytes = 512`
   经 `hutuji_job.cc:87` 转名。
-- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:3047` 注释 +
-  `hutuji_job.cc:3055` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
+- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:3054` 注释 +
+  `hutuji_job.cc:3062` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
   更新**：节流在 lichuang-dev 全脸动画下不足（单次 LVGL 锁等待 230–640ms 致半墨
   复发），已根治——SetStatus 经 `Application::Schedule` 出灌流路径（xiaozhi
   `e623aec`），窗口循环现与奎享同态（无阻塞 UI 调用），见
@@ -106,19 +106,19 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 ### 4.2 error 后的处置：fail-fast vs 状态兜底续跑
 
 - 奎享 `machine/f/b.java:136-155`：error 路径清 `c`/`d` 双队列、`e = 0`，**fail-fast**。
-- 我方 `hutuji_job.cc:3088-3104`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
+- 我方 `hutuji_job.cc:3095-3111`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
   已执行完，靠状态兜底释放整窗续跑（上限 `hutuji_job.cc:66` `kMaxOkFallback = 3`），
   并在释放前 `DrainResponses()` 防迟到 ok 错配。
 - 我方多出的是**迟到 ok 容错**，源于 WiFi Telnet 传输（奎享该路径是串口）。
-  abort 侧亦有同口径 quiesce（`hutuji_job.cc:2955-2964`）。**有意差异，无动作。**
+  abort 侧亦有同口径 quiesce（`hutuji_job.cc:2962-2971`）。**有意差异，无动作。**
 
 ## 五、仓库卫生（切片 E · 已修文档 + 窄规则封堵）
 
 | 项 | 实测 | 处置 |
 |---|---|---|
-| `mcp-server/tmp/` 未 ignore | `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 列 314 文件（约 20MB，含 298 个 quickdraw-data `.jsonl`）；**0 staged** | `docs/worktree-inventory.md:76` 原写「gitignored 目录内」= 谎报，已改为实测真相。同日用户 advisory 点名窄例外：`edf68e7`「不新增忽略规则」对**整目录忽略 tmp/** 仍成立（整目录方案被否决——AGENTS.md 引用根 `tmp/` 刷机/抓包工具），`.gitignore` 仅新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条；实测数据集对 `git add -A` 不可见，剩余 12 个实验/工具件仍未忽略 → **禁止 `git add .`** 不变 |
-| quickdraw 键数演进 | 实测 **387 别名键 → 298 类目 ↔ 298 个 `.jsonl`**，双向零差；较复核时 373 键新增 14 个多字别名 | `AGENTS.md:115`、`docs/worktree-inventory.md:71` 已同步 387 键；2026-08-25 v4 批后演进为 402 键（礼貌前缀循环剥离 + 15 个「小X」别名），见 hub readiness 行 13 |
-| 测试计数演进 | `test_quickdraw` **34 项**、全套 **976/976** | `AGENTS.md:139-141`、`docs/worktree-inventory.md:91` 已同步；2026-08-25 v4 批后演进为 test_quickdraw 39 项、全套 981/981（C 组合质量路由 +2）；计数不变量测试批后 test_contract 592 项、全套 982/982；2026-08-28 全套 **1035**（含 `test_gcode_min_segment` 3 项） |
+| `mcp-server/tmp/` 未 ignore | `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 列 314 文件（约 20MB，含 298 个 quickdraw-data `.jsonl`）；**0 staged** | `docs/worktree-inventory.md:85` 原写「gitignored 目录内」= 谎报，已改为实测真相。同日用户 advisory 点名窄例外：`edf68e7`「不新增忽略规则」对**整目录忽略 tmp/** 仍成立（整目录方案被否决——AGENTS.md 引用根 `tmp/` 刷机/抓包工具），`.gitignore` 仅新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条；实测数据集对 `git add -A` 不可见，剩余 12 个实验/工具件仍未忽略 → **禁止 `git add .`** 不变 |
+| quickdraw 键数演进 | 实测 **387 别名键 → 298 类目 ↔ 298 个 `.jsonl`**，双向零差；较复核时 373 键新增 14 个多字别名 | `AGENTS.md:115`、`docs/worktree-inventory.md:80` 已同步 387 键；2026-08-25 v4 批后演进为 402 键（礼貌前缀循环剥离 + 15 个「小X」别名），见 hub readiness 行 13 |
+| 测试计数演进 | `test_quickdraw` **34 项**、全套 **976/976** | `AGENTS.md:139-141`、`docs/worktree-inventory.md:100` 已同步；2026-08-25 v4 批后演进为 test_quickdraw 39 项、全套 981/981（C 组合质量路由 +2）；计数不变量测试批后 test_contract 592 项、全套 982/982；2026-08-28 全套 **1035**（含 `test_gcode_min_segment` 3 项） |
 
 ## 六、门禁面观察（已修根因；候选项仍不动作）
 

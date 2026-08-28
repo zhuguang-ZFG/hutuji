@@ -20,6 +20,15 @@
 | 早前 NVS | `$1=250`→`$1=255`+`$S`（`grbl-set-dollar1-{250,255}-com13.log`） |
 | 注意 | `$RST=$` 现回落 **255**。S3 **无需**为此刷机 |
 
+### Grbl M30/换纸 `$1=255` 失能守卫（2026-08-28 晚，**已提交 `2cecd2d` 已推 origin**）
+| 项 | 说明 |
+|----|------|
+| 源码 | `Grbl_Esp32/src/GCode.cpp`（M30 页尾 2 处 `$1==0xff` 跳过失能）、`PaperSystem.cpp`（`paper_finish_xyz_after_fault()`：abort/Step2 超时/Step6 卡纸 + 换纸成功恢复） |
+| 构建 | `pio run -e release` SUCCESS；`firmware.bin` 1858112B SHA-256 `12275654AF0D85462A4FB30403B8E19402406FA184AC95A5A3DF070C146429A5` |
+| 烧录 | COM13 upload `Hash of data verified`（2026-08-28 晚） |
+| 验证 | 用户确认画完后电机保持使能、出图正常；证据 `results/local-only/2026-08-28/grbl-m30-enable-hil-monitor.log` |
+| fz | 本机构建 SUCCESS；fz `standard` 本机 native_sim 环境预存红（mingw/limits.h），不阻断产品结论 |
+
 ### curated 精选库（2026-08-26，代码已合 main / PR #7；灌库未 flip）
 | 项 | 说明 |
 |----|------|
@@ -135,11 +144,11 @@
 
 ## 2. Grbl_Esp32（`D:\Users\Grbl_Esp32`）
 
-**工作树干净** — 无未提交改动。
+**工作树干净（2026-08-28 晚 M30/换纸 `$1=255` 守卫已提交）** — 见下条。
 
 ### 板上基线与验证边界（HEAD 存档并入）
 
-- **路径 / 分支 / HEAD**：`D:/Users/Grbl_Esp32` / `fix/panel-hold-after-align-116687e` / 实时 HEAD 现取（2026-08-22 已提交 `fb2b3b5` §9-E′ 换纸入口原子认领，含 WebSettings.cpp 预检注释降级）；工作树干净。
+- **路径 / 分支 / HEAD**：`D:/Users/Grbl_Esp32` / `fix/panel-hold-after-align-116687e` / **`2cecd2d`**（`7f48217` `$1=255` 机型默认 + §9-F′ M30/换纸失能守卫）；COM13 板上镜像 SHA `12275654…429A5`（2026-08-28 晚刷）。
 - **有证据的板上行为基线**：`e3b1cad`（2026-08-15 烧录与启动自证）；源码后续 `847b564` 增加 §9-D′ 蓝牙功率，**没有本轮烧录证据，不能把源码 HEAD 写成板上基线**。
 - **2026-08-22 换新写字机（COM13，CH340）**：烧前已完整取证并备份——原厂整片镜像 `results/local-only/2026-08-22/new-plotter-factory-backup.bin`（4MB，esptool read_flash）、串口证据 `new-plotter-serial-evidence.log`（烧前 `$I`/`$$`/`$102`/`$130`/`$131`：厂商默认 `$130/$131=200/200`；烧后 `$$` 快照为 fork 机型默认 `$130=210/$131=297`，`$20=0` 软限关闭，云端 190/190 限幅不受影响；X 长边/短边仍待装纸后单轴点动实测量尺）。烧入 app-only `0x10000`（`e3b1cad` 经 worktree 重建 `release`，PlatformIO SUCCESS，esptool `Hash of data verified`），未整片擦写，授权 NVS 保留（启动日志 `[License] Authorized (restored from NVS)`，ChipID `00002C876AE9BFB4`）。注意：本机 scoop mingw 16.1 对 fz 门禁不可用——rt_v14 的 `pthread.h`→`limits.h` 头链把 Grbl `src/limits.h` 经 `include_next` 卷入系统链（`-iquote` 下同样触发，实测复现），且该 winlibs 构建不附 libasan/libubsan（mingw-gcc 无 ASan 属社区已知，msys2/MINGW-packages#3163）；**解法：PATH 前置 scoop llvm `22.1.8/bin`（fz `find_compiler` 原生优先 clang++），fz `standard` 实测 overall=pass**（`wokwi_startup` 可选云层红，用 `.pio` 旧镜像、不含 E′，按仓规不阻断）。故新机用已验证基线 `e3b1cad` 而非当时的 HEAD；E′（`fb2b3b5`）已过 fz standard host SIL，**未烧录、未实机复现物理并发**，板上基线不变。配网走 AP 模式（`GRBL_ESP`，WebUI/命令行），静态 IP 待配网完成后按实读网段写 `.13`。
 - **2026-08-23 烧录 `fb2b3b5`（COM13，用户批准后执行）**：`pio run -e release` 重建 SUCCESS（仅重编 PaperSystem.cpp/WebSettings.cpp，与 E′ 触碰面一致；新 bin 1857936 字节，取代 08-15 旧镜像）→ `pio run -t upload --upload-port COM13` app-only `0x10000`，esptool `Hash of data verified`，RTS 硬复位。启动自证 `results/local-only/2026-08-23/fb2b3b5-com13-boot.log`（抓取脚本 `tmp/cap_fb2b3b5_com13.py`）：`Grbl_ESP32 Ver 1.3a`、paper system vM716 ready、`[License] Authorized (restored from NVS)`、连上 `ChinaNet-jJmz` 获 `192.168.1.13`、HTTP/TELNET:23 起来，无崩溃重启。**矛盾待澄清**：本次启动自报 ChipID（efuse MAC）`0000FC7742C63C94`，与 §2 上文 08-22 记录的 `00002C876AE9BFB4` 不一致（本地证据文件中检索不到后者出处），COM 号漂移或多台写字机皆有可能——物理身份需用户确认；可确认的是「今天 COM13 这块板」已跑 `fb2b3b5` 且授权/.13 网络身份正常。物理并发复现（E′ 的 HIL）仍未做。**wokwi 同日登记**：复跑 `run_wokwi_smoke.py`（新镜像已就位）失败根因为 Wokwi 免费版月度 CI 配额耗尽（`API Error: ... Free plan monthly CI minute quota`，serial 0 行），属外部阻塞非固件回归；该可选层本月不可跑，不阻断产品门禁。
@@ -191,7 +200,7 @@
 |---|---|---|
 | hutuji | `git rev-parse --short HEAD` | 生产现役 `34b44d4`（2026-08-28 下午双机发布并复验：生产实画 + 公网真下载 200 验证，见 deployment.md 首条；原日志脱敏批 `c2cdbd4` 为 08-23 基线）：三文件 Git blob 哈希/CR=0 对账、双服务 active、`/bridge-health` 200、preflight 30/30；生产 POST/GET/access 日志与 health pull 落盘均无原始 URL/签名值。R4 中 `server.py` G-code 计时已随本批上线，`bitmap_svg.py` 计时仍未部署生产。2026-08-23 全链审计登记：`xiaozhi_console.py` 白名单缺 `preview_url`（CLI 直调 `hutuji.draw` 会被设备拒），待用户批准独立批次修复。**更正 2026-08-28**：`preview_url` 已于 2026-08-24 `55a8d0a` 进白名单（blame 实证 `xiaozhi_console.py:63`），此登记滞后，关闭；`bitmap_svg.py` 计时及 `c2cdbd4` 之后全部 13 个服务端 commit（描摹质量修复链/paper_risk 闸/QD 精选路由/P1-3）截至 2026-08-28 均未部署生产，部署为独立批次待用户拍板。 |
 | xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `72a693a` 已推 `feat/hutuji-usb-pipe`（origin 实际此前已到 `4ce8b59`，本条仅推 `72a693a`）；工作树干净；板上当时 `93b61d5b…afa9`（= `72a693a` 内容）三轮画图 HIL 通过；host 131/131（2026-08-28 起板上为 `c3cf3d7`，host 已 137/137，见 §3）。2026-08-23 全链审计登记：`hutuji_job.cc` 预取接管在上一张成功且预取命中时不释放旧 G-code PSRAM（重复新画累积泄漏），修复待独立批次，见 §3 工作树条。 |
-| Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | `fb2b3b5`（§9-E′ 已提交、fz standard pass、**2026-08-23 已烧 COM13 并启动自证**；ChipID 与 08-22 记录矛盾待澄清，见 §2）；COM13 板基线升为 `fb2b3b5`，物理并发 HIL 未复现 |
+| Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | **`2cecd2d`**（§9-F′ M30/换纸 `$1=255` 守卫 + `7f48217` 机型默认）；COM13 板上 SHA `12275654…429A5`（2026-08-28 晚）；用户确认使能/出图正常 |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留；门禁须走 clang 路径（见 §2）；wokwi 可选层 2026-08-23 起受免费 CI 配额阻塞，非固件回归（见 §2） |
 
 ---

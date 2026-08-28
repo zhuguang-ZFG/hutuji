@@ -1,5 +1,5 @@
 {
-  "git_head": "d057cd666f2f2aed44802d29655088fb482821c2",
+  "git_head": "e7cebe5b365a45238d4fe5eb5e6c59f752cd7eac",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -46,7 +46,7 @@
       "source": "    kListeningModeAutoStop,",
       "target": "D:/Users/xiaozhi-esp32/main/protocols/protocol.h"
     },
-    "docs/agent-handoff.md -> troubleshooting.md:267": {
+    "docs/agent-handoff.md -> troubleshooting.md:268": {
       "sha8": "11712462",
       "source": "## 公网探测的两个假阳性（2026-07-30 实测）",
       "target": "docs/troubleshooting.md"
@@ -56,7 +56,7 @@
       "source": "        static const int MAX_TLNT_CLIENTS = 1;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/daytime-tuning-runbook.md -> PaperSystem.cpp:1028": {
+    "docs/daytime-tuning-runbook.md -> PaperSystem.cpp:1037": {
       "sha8": "eceef844",
       "source": "    paper_enter_panel_low_hold();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
@@ -191,7 +191,7 @@
       "source": "    // 每条 G-code 都是小包；关闭 Nagle，避免 Z5 已执行并在 `$1=25ms` 后失能，\n    // 下一条 XY 仍因等待前包 ACK 滞留，造成“轨迹走但笔已回弹”。\n    int no_delay = 1;\n    if (setsockopt(sock_, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay)) != 0) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/kxnx/alignment/plan.md -> docs/troubleshooting.md:94": {
+    "docs/kxnx/alignment/plan.md -> docs/troubleshooting.md:95": {
       "sha8": "64edaca7",
       "source": "### 2026-07-30 追加：手动 Telnet 全序列在纸面出墨（画线 `F800`）",
       "target": "docs/troubleshooting.md"
@@ -476,12 +476,12 @@
       "source": "bool paper_should_ignore_host_reset(void) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> PaperSystem.cpp:707": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> PaperSystem.cpp:716": {
       "sha8": "1ee07211",
       "source": "static Error paper_auto_change_abort_cleanup(const char* reason) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> PaperSystem.cpp:762": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> PaperSystem.cpp:771": {
       "sha8": "299f0939",
       "source": "    paper_ignore_host_reset_until_ms = millis() + 8000u;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
@@ -536,19 +536,19 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:71": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:100": {
+      "sha8": "be896891",
+      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1041** 项（2026-08-28 塌缩 F 继承 +1（`test_gcode_min_segment.py` 4）；2026-08-28 异步生成+完成推送 +5；2026-08-26 +6；2026-08-27 纸面闸批 +19 后 scribble v2 +1、拒收缓存逐出 +1、Twemoji 矢量源 +4；QD 退役 -5、curated 优先 +2、viewBox 预览 +2；junction 续接 +5：`test_paper_risk.py` 13、`test_bitmap_decimate.py` 13、`test_curated_vector.py` 4、`test_quickdraw.py` 36、`test_curated_server.py` 5、`test_curated.py` 6） |",
+      "target": "docs/worktree-inventory.md"
+    },
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:80": {
       "sha8": "3ed41734",
       "source": "| `docs/design/quickdraw-local-cache.md` | Quick Draw 本地缓存落地设计稿 v0.1（待用户批准，未实施） |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:76": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:85": {
       "sha8": "a492061a",
       "source": "| `mcp-server/tmp/qd_categories.txt` | QD 类目清单工作副本，保留本地 |",
-      "target": "docs/worktree-inventory.md"
-    },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:91": {
-      "sha8": "be896891",
-      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1041** 项（2026-08-28 塌缩 F 继承 +1（`test_gcode_min_segment.py` 4）；2026-08-28 异步生成+完成推送 +5；2026-08-26 +6；2026-08-27 纸面闸批 +19 后 scribble v2 +1、拒收缓存逐出 +1、Twemoji 矢量源 +4；QD 退役 -5、curated 优先 +2、viewBox 预览 +2；junction 续接 +5：`test_paper_risk.py` 13、`test_bitmap_decimate.py` 13、`test_curated_vector.py` 4、`test_quickdraw.py` 36、`test_curated_server.py` 5、`test_curated.py` 6） |",
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:1155": {
@@ -676,6 +676,11 @@
       "source": "            grbl_sendf(CLIENT_SERIAL, \"[MSG:PAGE_END_IMMINENT]\\r\\n\");",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
+    "docs/protocol.md -> GCode.cpp:1732": {
+      "sha8": "fe86c136",
+      "source": "            if (stepper_idle_lock_time->get() != 0xff) {",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
+    },
     "docs/protocol.md -> Grbl_Esp32.ino:28": {
       "sha8": "4e3a2445",
       "source": "    run_once();",
@@ -686,7 +691,7 @@
       "source": "#ifndef ENABLE_CONTROL_SW_DEBOUNCE",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
     },
-    "docs/protocol.md -> PaperSystem.cpp:1226": {
+    "docs/protocol.md -> PaperSystem.cpp:1239": {
       "sha8": "a476dde0",
       "source": "            Error e = paper_auto_change();",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
@@ -711,7 +716,12 @@
       "source": "    return paper_auto_change_running;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/protocol.md -> PaperSystem.cpp:834": {
+    "docs/protocol.md -> PaperSystem.cpp:708-714": {
+      "sha8": "c8c4be14",
+      "source": "static void paper_finish_xyz_after_fault(void) {\n    if (stepper_idle_lock_time->get() == 0xff) {\n        motors_set_disable(false);\n    } else {\n        motors_set_disable(true);\n    }\n}",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
+    },
+    "docs/protocol.md -> PaperSystem.cpp:843": {
       "sha8": "928648bf",
       "source": "                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_OUT_OF_PAPER);  // hutuji §9-B1′",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
@@ -901,14 +911,9 @@
       "source": " * CONSTRAINTS: preserve callbacks, state gates, locale keys, and 56 px touch targets.",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
-    "docs/release-readiness.md -> GCode.cpp:1730": {
-      "sha8": "da544f74",
-      "source": "            motors_set_disable(true);       // 写完一页/程序结束立即失能 XYZ，避免依赖主循环 250ms 后才失能（换纸期间主循环被阻塞）",
-      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
-    },
-    "docs/release-readiness.md -> GCode.cpp:1785": {
-      "sha8": "3a51505a",
-      "source": "            motors_set_disable(true);  // 回原点写完一页后立即失能 XYZ，换纸期间主循环被阻塞无法执行延时失能",
+    "docs/release-readiness.md -> GCode.cpp:1732": {
+      "sha8": "fe86c136",
+      "source": "            if (stepper_idle_lock_time->get() != 0xff) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/GCode.cpp"
     },
     "docs/release-readiness.md -> PaperSystem.cpp:325": {
@@ -1021,9 +1026,9 @@
       "source": "static void paper_enter_panel_low_hold(void) {\n    paper_ensure_i2s_passthrough();\n    digitalWrite(PANEL_MOTOR_STEP_PIN, LOW);\n    digitalWrite(PANEL_MOTOR_DIR_PIN, PANEL_DIR_FEED);\n#ifdef USE_I2S_OUT\n    i2s_out_delay();\n#endif\n#ifdef PAPER_DRIVER_REF_PIN\n#    ifndef PAPER_REF_DAC_PANEL_HOLD\n#        define PAPER_REF_DAC_PANEL_HOLD ((PAPER_REF_DAC_PANEL) / 2)\n#    endif\n    paper_set_ref_dac((uint8_t)PAPER_REF_DAC_PANEL_HOLD);\n#endif\n    digitalWrite(PAPER_ENABLE_PIN, LOW);\n#ifdef PAPER_DRIVER_ENABLE_PIN\n    digitalWrite(PAPER_DRIVER_ENABLE_PIN, HIGH);  // 拾落/进纸器关\n#endif\n#ifdef USE_I2S_OUT\n    i2s_out_delay();\n#endif\n    paper_panel_low_hold_active = true;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/troubleshooting.md -> PaperSystem.cpp:822-841": {
-      "sha8": "daa84d71",
-      "source": "        if (!found) {\n            paper_auto_change_running        = false;\n            paper_ignore_host_reset_until_ms = 0;\n            paper_btn_arm_post_change_cooldown();\n            // 缺纸/进纸异常：立即停机并关闭驱动，等待下次从 Step1 重新开始\n            st_go_idle();\n            motors_set_disable(true);\n            paper_disable_drivers();\n            if (timeout_10s) {\n                grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Warning,\n                               \"[PaperAuto-2] OUT_OF_PAPER: no paper detected within %u ms (steps=%u), stop and reset to Step1\",\n                               (unsigned)PAPER_SENSOR_TIMEOUT_MS, (unsigned)steps);\n                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_OUT_OF_PAPER);  // hutuji §9-B1′\n            } else {\n                grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Warning,\n                               \"[PaperAuto-2] ERROR: Feeder timeout - sensor not triggered after %u steps\",\n                               (unsigned)steps);\n                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_FEEDER_TIMEOUT);  // hutuji §9-B1′\n            }\n            return Error::MessageFailed;  // 返回非OK，避免上层误判“Auto paper change completed”",
+    "docs/troubleshooting.md -> PaperSystem.cpp:835-848": {
+      "sha8": "d626a700",
+      "source": "            // 缺纸/进纸异常：立即停机并关闭纸路驱动；XYZ 是否失能见 paper_finish_xyz_after_fault\n            st_go_idle();\n            paper_finish_xyz_after_fault();\n            paper_disable_drivers();\n            if (timeout_10s) {\n                grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Warning,\n                               \"[PaperAuto-2] OUT_OF_PAPER: no paper detected within %u ms (steps=%u), stop and reset to Step1\",\n                               (unsigned)PAPER_SENSOR_TIMEOUT_MS, (unsigned)steps);\n                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_OUT_OF_PAPER);  // hutuji §9-B1′\n            } else {\n                grbl_msg_sendf(CLIENT_SERIAL, MsgLevel::Warning,\n                               \"[PaperAuto-2] ERROR: Feeder timeout - sensor not triggered after %u steps\",\n                               (unsigned)steps);\n                grbl_msg_sendf(CLIENT_ALL, MsgLevel::Info, \"[PaperStatus] %d\", PAPER_STATUS_FEEDER_TIMEOUT);  // hutuji §9-B1′",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
     "docs/troubleshooting.md -> Planner.cpp:315-337": {
@@ -1192,6 +1197,6 @@
       "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-28T13:18:58Z",
+  "updated": "2026-08-28T14:49:53Z",
   "version": 1
 }
