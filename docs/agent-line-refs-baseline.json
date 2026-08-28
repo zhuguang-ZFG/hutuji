@@ -1,5 +1,5 @@
 {
-  "git_head": "376e03816a8e9ffb78e0d11f5c0bff84710ccf5a",
+  "git_head": "2976b55215b6d32cc46e88cdfabac68375681c4d",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -911,6 +911,11 @@
       "source": "        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
+    "docs/release-readiness.md -> application.cc:914": {
+      "sha8": "9db5f6db",
+      "source": "#if CONFIG_SEND_WAKE_WORD_DATA",
+      "target": "D:/Users/xiaozhi-esp32/main/application.cc"
+    },
     "docs/release-readiness.md -> audio_service.cc:790": {
       "sha8": "6346a726",
       "source": "            codec_->EnableOutput(false);",
@@ -1157,6 +1162,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-27T18:56:00Z",
+  "updated": "2026-08-28T04:24:41Z",
   "version": 1
 }
