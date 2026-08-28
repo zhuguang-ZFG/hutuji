@@ -39,7 +39,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 写字机 Grbl_Esp32 内置 ESP3D WebUI 开 **Telnet:23**，STA 连家用路由器（DHCP；静态租约仍是运维首选）；S3 由 xiaozhi WifiBoard 连同一路由器，做 **TCP 客户端**直连，按 NVS 缓存 IP → 子网扫描发现写字机，出厂态写字机由 S3 零接触代配户网（见 `docs/protocol.md` §1.5）。链路内即原串口字节流——115200 语义、行协议 `ok`/`error:NN`、banner、实时字符全部同构。
 > 三次推翻的方案，别再往回走：① S3 原生 USB Host——实战派 C 口经板载 CH334F HUB 占为设备口，GPIO19/20 无排针引出；② CH9350 桥接——仅枚举 HID 类设备，不认写字机的 CH340（vendor-specific 串口）。备用链路仅方案 B（拆机 TTL，IO10/IO11），WiFi 实测抖动不可接受时才启用。
 
-**哑管道原则**：G-code 全部在云端（京东云 VPS 的 MCP 服务）生成+转换完毕。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。
+**哑管道原则**：G-code 全部在云端（阿里云主节点 MCP 服务生成+转换完毕，京东云作为热备）。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。
 
 **行长上限是 254 字节 payload，不是 255**：`Protocol.h:34` 是 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能进缓冲，紧随的换行符先撞上 `len == 255` 回 `error:11`，`:218` 的 `empty_line()` 把整行丢掉，**该行从未进 `execute_line()`**。上游 grblHAL 用 257 正是为绕开这个 off-by-one。校验器口径 `MAX_LINE_PAYLOAD_BYTES = 254`，**禁止改回 255**（旧口径会放行一种设备静默吃行的产物）。同理 **CRLF 行尾会让设备每行回两个 `ok`**（`\r`、`\n` 各触发一次 EOL，空行也回 ok），故 **S3 必须重切行、禁止原样透传下载字节**——透传会让在途窗口计数正向漂移。两条都在 `docs/protocol.md` §3。
 
@@ -135,14 +135,14 @@ python -m venv .venv
 
 实战派 S3 板载 CH334F HUB + CH340K 做 UART 桥，故 **S3 会以 `USB-SERIAL CH340K` 枚举**——「CH340 是写字机最全诊断口」不能反推「CH340 就是写字机」。判定一律看**被动串口日志自证**（S3 打 `Project name: xiaozhi`），不要用 `esptool chip_id`（会打断运行中固件）。
 
-### 京东云部署
+### 双机部署（阿里云主 / 京东云热备）
 
-`deploy/` + `docs/deployment.md`。**2026-07-27 HTTPS 已通**：`hutuji-mcp` + `hutuji-cloud-bridge` + nginx + **Cloudflare Tunnel**（`hutuji.donglicao.com`，Let's Encrypt 证书，绕过京东云 ICP 拦截）。`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`。权威进度见 `docs/release-readiness.md`。
+`deploy/` + `docs/deployment.md`。当前公网入口由 DNS A 直连阿里云主节点 `47.112.162.80`，京东云 `117.72.118.95` 作为热备；Cloudflare Tunnel 已退役为回退路径。`HUTUJI_PUBLIC_BASE_URL=https://hutuji.donglicao.com`。权威进度见 `docs/release-readiness.md`。
 
 - **更新代码用 scp，不能 `git pull`**：`/opt/hutuji` 无 `.git`。改完推文件到 `/opt/hutuji/mcp-server/hutuji_mcp/`，属主保持 `hutuji`，再 `systemctl restart hutuji-mcp`。
 - **生图后端**：正式出图只允许图片路线。同题完整 `hutuji_draw` 事务由独立任务持有；MCP waiter 取消不得杀掉任务或释放限流名额，后续同题重试复用生图、描摹、vpype、产物和结果。Quick Draw 命中跳过付费限流名额，但服务异步 G-code 转换仍受全进程最多 2 个 vpype 子进程的资源闸保护。位图层另有 10 分钟/16 项缓存与覆盖生图+描摹的 single-flight。未命中时商汤、Agnes、imagefree 与可选硅流 racer 并发对冲；去重的是客户端重试，不取消同一逻辑生成轮内既定的多后端对冲。商汤瞬态 500 快速重试一次；同 SVG G-code 缓存跳过 vpype；CDN 下载失败不得重新生成。禁止模型直写 SVG；Pollinations 已实测否决；聊天中粘贴过的 key 一律视为泄露。
 - **生产 venv 精简装，没有 pytest**：只能跑 `scripts/e2e_local.py` 与直接 import 校验函数实测。
-- 改动前先备份；候选从 Git blob 导出为 LF，并逐文件核对哈希与 CR=0（2026-08-20 本机实测 `git archive` 会受 CRLF 转换影响，不能直接当生产候选）。代码/依赖变更后显式重启 `hutuji-mcp` 与共用包/venv 的 `hutuji-cloud-bridge`；unit 变更先 `daemon-reload`，`enable --now` 不会重启已 active 服务。当前生产应用代码基线为 `c2cdbd4`（2026-08-23：共享日志脱敏 + 第三方 handler 过滤 + health pull 落盘前脱敏），三文件远端 SHA-256 与 Git blob 相符、CR=0；两服务 active，`/bridge-health` 200，当前 30 项 preflight `pass=30 fail=0 expected=30`。真实语音 HIL 尚未执行；完整部署记录与 nginx reload、mtime、监听身份、bridge restart recency 约束见 `docs/deployment.md` 与 `deploy/README.md`。
+- 改动前先备份；候选从 Git blob 导出为 LF，并逐文件核对哈希与 CR=0（2026-08-20 本机实测 `git archive` 会受 CRLF 转换影响，不能直接当生产候选）。代码/依赖变更后显式重启 `hutuji-mcp` 与共用代码/venv 的 `hutuji-cloud-bridge`；unit 变更先 `daemon-reload`，`enable --now` 不会重启已 active 服务。当前生产应用代码基线为 `34b44d4`（2026-08-28 双机发布；阿里云主、京东云热备，异步生成由生产 env 开启）；双机 preflight 数字必须按节点口径读取，不能把单节点历史 `30/30` 当作双机共同结果。真实语音 HIL 尚未执行；完整部署记录与 nginx reload、mtime、监听身份、bridge restart recency 约束见 `docs/deployment.md` 与 `deploy/README.md`。
 - **`limit_req` 的 key/zone 变更必须 `restart nginx`，`reload` 会静默丢弃**（2026-08-08 生产实测并已隔离复现全过程）：三道常规检查全部看不见这个失败——`nginx -t` 是新进程、无继承共享内存区，必过；`systemctl reload` 只发信号不等受理，恒 `status=0/SUCCESS`；master 拒绝后只写 `error.log` 的 `[emerg] limit_req ... uses the "$hutuji_client_ip" key while previously it used the "$binary_remote_addr" key`，并**继续用旧配置服务**，worker 不换、`is-active` 仍 active。生产实际跑了 37 分钟旧配置，而当时 19 项 preflight **全绿**——其余 19 项在旧配置下同样成立，唯一变化的限速身份没有任何判据覆盖。隔离复现（独立 nginx 实例，`/tmp/nginx-repro`，已清理）四项全部再现：`-t` successful、`-s reload` exit 0、`[emerg]` 同文言、reload 前后 **PID 不变**，且探针**不进**自定义日志而落进 http 级默认 combined 日志；restart 后探针立刻进自定义日志。可靠判据只有两个：worker 启动时间（比配置 mtime 新）与专用日志真收到带标记的探针；`stat` 取配置 mtime 必须 `-L`，否则读到 `ln -sfn` 的时刻（实测差一天：符号链接 08-07 17:31:15 vs 配置本体 08-08 20:54:01）。
 
 - **FastAPI 自动文档端点必须在应用层关掉**：`FastAPI(...)` 须显式传 `docs_url=None`/`redoc_url=None`/`openapi_url=None`。不传时默认自动挂 `/docs`、`/redoc`、`/openapi.json`、`/docs/oauth2-redirect`，实测四条全回 200。公网当前访问不到，但那份安全**完全来自 nginx 兜底**（443 的 `location / { return 404; }`），应用层零防御——`location /` 一旦放开、或给 `:8300` 开直连调试，攻击面即静默打开。对比 `/mcp` 有三层保护，这四条原本只有第一层。preflight 第 18 项直连 `:8300` 验它们必须 404（**不能经 nginx 探**，那证不到应用层）。
@@ -157,7 +157,7 @@ python -m venv .venv
 
 1. **① 仓库奠基** — ✅ 文档地图、门禁、deploy 模板；见 `foundation-checklist.md`
 2. **② 哑管道** — 🟡 实时分支/HEAD 与板上镜像证据以 `docs/worktree-inventory.md` 为准（不钉静态 SHA，防腐）；触摸、七工具、Telnet、授权、Idle 与控制抽屉低层动作有部分 HIL，2026-08-28 唤醒/Grbl 主屏指示（聆听扫光/胶囊变色/说话钮变绿/顶栏三级圆点）已刷 COM14，用户照片确认 Grbl 绿点与顶栏上屏。缺预览确认/取消、暂停/继续/停止/重画/试笔五个屏幕动作、纸面画质目视与断连恢复 `paper_active` 窗口 abort 复测。
-3. **③ 智能端** — 🟡 HTTPS、京东云 MCP+桥接常驻和真实语音出图已有证据；SPEED-01/设备 PNG 预览运行态已部署，仓库实现见当前 HEAD。剩余设备预览/控制人机验收与生产签核。
+3. **③ 智能端** — 🟡 HTTPS、阿里云主节点 MCP+bridge 与京东云热备已有证据；SPEED-01/设备 PNG 预览运行态已部署，仓库实现见当前 HEAD。剩余设备预览/控制人机验收与生产签核。
 4. **④ 出货** — 🔴 剩余 HIL、生产与合规签核未闭合。
 
 > **不可出货**。默认下一刀见 `docs/agent-handoff.md` §6：当前 Waveshare UI HIL → 断连恢复 `paper_active` 窗口 abort 复测 → 生产与合规签核。AI 虚实交替与异步生成+完成推送均已于 2026-08-28 闭环（后者当日生产启用+屏幕目视确认），不作默认待办重做。

@@ -1,6 +1,6 @@
 # 小智云智能体配置（让呼图机更聪明）
 
-> 目标：小智云负责「听懂 + 选工具」；绘图质量由京东云 MCP + **Agnes `agnes-2.5-flash`**（现行；llm7 为历史配置）决定。
+> 目标：小智云负责「听懂 + 选工具」；绘图质量由阿里云主节点 MCP（京东云热备）+ 当前生产图像/精选库路线决定，图片链路包含 curated SVG 或 PNG 中心线描摹（禁止模型直写 SVG）。
 > 本目录是**可粘贴到控制台**的文稿，不含密钥。  
 > **进度（2026-07-26）**：全部通过脚本自动同步完成。模型 DeepSeek V4；角色提示含 few-shot + 智能补全策略（2459 字符）；知识库含硬件规格/故障排查/创意玩法/对话风格；助手自称已改为「呼图机」。S3 屏幕 UI 文案已定制（待构建烧录）。
 > **2026-07-31 事实对齐**：role-prompt 与 knowledge-base 已补「出图两步衔接」（云端 `hutuji_draw` 只返 url，须再调设备 `hutuji.draw`(url) 才落笔；原 KB「自动衔接」为假）、暂停超 10 分钟自动取消、可画区 190×277、断连从开头重画。**本批只改本仓文稿**；云端生效须用户在控制台重取 JWT 后跑 `python scripts/xiaozhi_console.py sync 2094251`（旧 token 已 401 失效，见 `release-readiness.md` #10），sync 前云端仍是旧文稿。
@@ -69,7 +69,7 @@ python scripts/xiaozhi_console.py device-call hutuji.draw '{"url":"https://hutuj
 | 层 | 谁 | 变聪明靠什么 |
 |----|-----|--------------|
 | 对话/意图 | 小智云（DeepSeek V4） | 角色提示 + 知识库 + few-shot 对话示例 |
-| 出图 | 京东云 MCP `llm_svg.py` | `SYSTEM_PROMPT` + Agnes `agnes-2.5-flash`（现行；llm7 为历史配置） |
+| 出图 | 阿里云主节点 MCP `hutuji_draw`（京东云热备） | 当前生产图片链路 + `SYSTEM_PROMPT`；异步完成后有设备消息 token 时由服务端自动推送预览 |
 
 ## 验收话术
 

@@ -2388,6 +2388,8 @@ def _sensenova_settings() -> SimpleNamespace:
     )
 
 
+
+
 def test_bitmap_fetch_uses_sensenova_official_image_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -9482,3 +9484,35 @@ def test_draw_async_env_parsing(monkeypatch):
         assert load_settings().draw_async is False, val
     monkeypatch.delenv("HUTUJI_DRAW_ASYNC", raising=False)
     assert load_settings().draw_async is False
+
+
+def test_bitmap_prompt_requires_plotter_safe_sparse_contours() -> None:
+    """共享生图提示必须把纸面风险前移为可执行的画面约束。
+
+    这些词不是纸面闸的替代品；它们钉住模型侧的辅助手段，避免后续只保留
+    「线稿、无填色」却再次放开双轮廓、排线、纹理和孤立碎线。
+    """
+    prompt = bitmap_svg._BITMAP_STYLE
+    for required in (
+        "plotter-friendly",
+        "稀疏连续的轮廓线",
+        "不要双轮廓",
+        "不要排线",
+        "不要纹理",
+        "不要无语义的孤立小线段",
+    ):
+        assert required in prompt
+
+
+def test_hutuji_draw_description_explains_async_and_sync_results() -> None:
+    """MCP 工具说明必须覆盖生产异步返回与同步回落两种分支。"""
+    doc = server.hutuji_draw.__doc__ or ""
+    for required in (
+        "accepted: true",
+        "自动推送到设备预览",
+        "不要重复调用",
+        "url",
+        "preview_url",
+        "同步模式",
+    ):
+        assert required in doc

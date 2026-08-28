@@ -3,19 +3,20 @@
 > 接手先读 `../docs/agent-handoff.md`。组 0–4 多数已落地，勿把下方验收清单当「待重新实现」。
 
 语音 → 小智官方云 LLM → 调 MCP 工具 `hutuji_draw(自然语言)` → 本服务：
-LLM 生成单线笔画 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验）→ 存本地并经 HTTP 暴露 URL
-→ 返回 URL 给云端 → S3 板经 `hutuji.draw` 下载、校验并转发给写字机。
+文生图提示约束 → PNG → sknw 中心线描摹 → 单线 SVG → vpype/vpype-gcode 转 G-code（§5 契约校验）
+→ 存本地并经 HTTP 暴露 URL。`HUTUJI_DRAW_ASYNC=1` 且配置设备消息 token 时，立即返回 `accepted: true`，
+生成完成后由服务端自动调用设备侧 `hutuji.draw` 推送预览；否则同步等待并返回 `url`/`preview_url`，
+由云端按设备链路传递两个地址并在用户确认后落笔。
 
-契约见 `../docs/protocol.md` **v0.5** §3/§4/§5/§5.1。生产已部署到**京东云 VPS 单点**（2核4G / 5Mbps / 公网 `117.72.118.95`，专机只跑 ③），经 nginx + Cloudflare Tunnel 提供 HTTPS。
-
-> ✅ **服务基础与生产边界已有证据**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流、loopback 控制面与 nginx/Cloudflare 公网边界均已落地。当前生产应用基线 `7eac656`（2026-08-20）：完整 draw 事务独立于 JSON-RPC waiter，同题取消重试共享任务与限流名额；生产标准 MCP cancel×2 后第三次接管成功，日志仅一轮生图对冲。三份运行文件哈希与 LF blob 一致，两服务/监听身份/两条 ExecStartPre 正常，preflight **26/26 PASS**；仓内 863 项 + e2e `PASS`。单轮多后端对冲、设备侧协议和硬件行为未改；当前剩余项以 `../docs/release-readiness.md` 为准。
+契约见 `../docs/protocol.md` **v0.5** §3/§4/§5/§5.1。生产为**阿里云主 + 京东云热备**（阿里云 `47.112.162.80`，京东云 `117.72.118.95`），公网入口走 DNS A 直连与 nginx/TLS。
+> ✅ **服务基础与生产边界已有证据**：v0.5 完整性头、512KiB 上限、SVG 输出白名单、capability URL、10 分钟 TTL、全局限流、loopback 控制面与 nginx 公网边界均已落地。当前生产应用基线 `34b44d4`；本批 prompt 与工具 docstring 仅完成本地改动，尚未部署生产，亦未形成新的纸面 A/B 结论。
 
 ## 架构
 
 ```
 小智云 LLM ──MCP──► 本服务 :8300
                       ├─ /mcp    MCP 工具端点（streamable-http）
-                      │            ├─ hutuji_draw(description)      自然语言→SVG→G-code→URL
+                      │            ├─ hutuji_draw(description)      自然语言→PNG→中心线 SVG→G-code→accepted 或 URL
                       │            ├─ hutuji_status()               服务状态
                       │            └─ hutuji_preview_svg(description) 只出 SVG（调试）
                       └─ /files/{name}.gcode   G-code 静态文件源（S3 板下载入口）
@@ -41,6 +42,8 @@ LLM（OpenAI 兼容）文生图 → 位图 → sknw 中心线描摹 → SVG ─�
 | `HUTUJI_HOST` | `127.0.0.1` | uvicorn 监听地址；**只接受 `127.0.0.1` / `::1` / `localhost` 三个值**（大小写不敏感，非集合内一律拒绝，`127.0.0.2` 之类同段地址也拒），非法值在构造 `settings`（import `config` 时）即抛 `ValueError` 拒绝启动。原先只在文档里劝，生产漏配还能静默把 `/mcp` 绑到 `0.0.0.0`；注意 `python -m uvicorn hutuji_mcp.server:app` **不读**本变量，必须显式 `--host 127.0.0.1` |
 | `HUTUJI_PORT` | `8300` | HTTP 端口 |
 | `HUTUJI_OUTPUT_TTL_SECONDS` | `600` | capability 文件有效期；过期下载直接 404 并清理同组产物 |
+| `HUTUJI_XIAOZHI_DEVICE_TOKEN` | （空） | 设备消息 API token；与异步开关同配时，生成完成后服务端自动调用 `hutuji.draw` 推送预览；空值时异步开关回落同步。 |
+| `HUTUJI_DRAW_ASYNC` | `0` | `1` 且已配置设备消息 token 时，`hutuji_draw` 立即返回 `accepted: true`；否则同步等待并返回 `url`/`preview_url`。 |
 
 Windows PowerShell 示例：
 
@@ -156,8 +159,7 @@ output/      生成产物（运行时创建）
 
 # 实施验收清单（2026-07-25 grill-me 定案）
 
-> **给下一任 agent**：组 0、1、2、3.2、3.3、3.4 的代码与自动化回归**已经落地**（pytest 含契约/注入/脱敏）；**不要**把下文「改哪里」当成待办再实现一遍。  
-> 组 3.1 与组 4 已在京东云实机验收：uvicorn localhost、nginx 公网只放 `/files/`、Cloudflare Tunnel TLS、bridge 常驻与 preflight 全 PASS（计数未复验，见 `../docs/deployment.md`）。
+> 组 3.1 与组 4 已在双机拓扑上验收：阿里云为主节点、京东云为热备；uvicorn localhost、nginx 公网只放 `/files/`、bridge 单 WSS 运行、preflight 按节点口径执行（计数与历史证据见 `../docs/deployment.md`）。
 > 全文是验收记录 + 再验方法。契约真值：`../docs/protocol.md` **v0.5**。接手全貌见 `../docs/agent-handoff.md`。
 
 ## 组 0：契约漂移修正（✅ 代码已落地，保留作验收记录）
@@ -288,7 +290,7 @@ output/      生成产物（运行时创建）
 > **执行顺序与每阶段通过判据**，见 `../docs/bringup-sop.md`（9 阶段 SOP）。
 > 本清单的组 3/4 对应 SOP 的**阶段 3–4**（③ 本地跑通 + 契约合规），组 0–2 是其前置。
 
-**当前进度**：组 0–4 已落地；京东云 MCP+bridge+nginx+Cloudflare Tunnel 常驻，当前生产应用基线 `7eac656`（2026-08-20）且 preflight **26/26 PASS**。取消重试同题完整事务去重已用生产标准 MCP cancel 探针验真；公网 `/mcp` 404、8300 仅 loopback 且监听者为 MCP MainPID，官方云/设备主链历史证据与当前剩余项见 `../docs/release-readiness.md`。
+**当前进度**：组 0–4 已落地；阿里云主节点 MCP+bridge+nginx 运行，京东云 MCP 热备待命，当前生产应用基线 `34b44d4`（2026-08-28 双机发布）。异步生成+完成推送已由生产 env 开启；取消重试同题完整事务去重已用生产标准 MCP cancel 探针验真；公网 `/mcp` 404、8300 仅 loopback 且监听者为 MCP MainPID，官方云/设备主链历史证据与当前剩余项见 `../docs/release-readiness.md`。
 
 历史实施顺序（均已完成，勿重复开工）：组 0 → 3.1/3.2 → 1/2 → 3.3/3.4 → 组 4。
 

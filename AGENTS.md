@@ -6,7 +6,7 @@
 
 hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生成 G-code → S3 板下载转发 → Grbl 写字机出图并自动换纸。
 
-本仓 = **枢纽仓**：MCP 生成服务（`mcp-server/`）、板间协议、硬件说明、京东云部署脚本、门禁与联调 SOP。**固件本体不在本仓，也不向本仓合并**：
+本仓 = **枢纽仓**：MCP 生成服务（`mcp-server/`）、板间协议、硬件说明、双机部署脚本、门禁与联调 SOP。**固件本体不在本仓，也不向本仓合并**：
 
 - 运动控制 + 自动换纸（成熟商业现役固件）→ `D:/Users/Grbl_Esp32`
 - AI 交互（ESP32-S3，板型 `lichuang-dev`）→ `D:/Users/xiaozhi-esp32`
@@ -16,8 +16,8 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 ## Architecture & Data Flow｜架构与数据流
 
 ```
-语音 → 小智官方云(+MCP 接入点) → 京东云 MCP 服务 hutuji_draw
-     → LLM 出 SVG → 校验 → vpype 转 G-code → validate_gcode → output/ + 能力 URL
+语音 → 小智官方云(+MCP 接入点) → 阿里云主节点 MCP 服务 hutuji_draw（京东云热备）
+     → curated SVG 或图像后端生成 PNG →（AI 路径）中心线描摹为单线 SVG → 校验 → vpype 转 G-code → validate_gcode → output/ + 能力 URL
      → 云端把 URL 回给 S3 → S3 下载 + CRC32 校验（PSRAM 全量缓冲）
      → WiFi Telnet :23 按 512B 在途窗口发给 Grbl → 页尾 fresh `Idle` 后 S3 旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸）再发 `M30` → 自动换纸
 ```
@@ -44,7 +44,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 | `mcp-server/tests/` | pytest 契约/注入回归 + `test_star.svg` 夹具 |
 | `mcp-server/scripts/` | `e2e_local.py`（无硬件闭环）、`cloud_bridge_smoke.py`（云工具发现） |
 | `scripts/` | 本仓门禁 `agent_gate.py` + 实机工具（WiFi 配网、故障注入抓包、小智控制台） |
-| `deploy/` | 京东云 systemd / nginx / env 模板 + `prepare-host.sh`、`install-from-repo.sh`、`preflight.sh` |
+| `deploy/` | 双机 systemd / nginx / env 模板 + `prepare-host.sh`、`install-from-repo.sh`、`preflight.sh` |
 | `docs/` | 契约、状态、SOP、硬件、逆向 findings；批次模板在 `docs/templates/`（**不是**仓库根 `templates/`） |
 | `firmware/` | 只放 S3 补丁**说明文档**（`README.md`、`m1-usb-pipe.md`），不放固件源码 |
 | `results/` | 门禁报告与实机证据；整目录被 `.gitignore` 忽略，**证据只在本机**，故须登记进 `docs/worktree-inventory.md` |
@@ -136,9 +136,9 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 
 ## Testing & QA｜测试与门禁
 
-- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **1041 项**。
+- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\Scripts\python -m pytest -q` 当前收集 **1043 项**。
 - 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。
-- 十四个测试文件职责（当前共 **1041 项**）：`test_contract.py` **604** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **92** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）。
+- 十四个测试文件职责（当前共 **1043 项**）：`test_contract.py` **606** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **92** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）。
 - 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。
 - 门禁分层（`docs/agent-gate.md` 是定义真值）：`docs` = 必备文件 + 决策锚点 + 否决项复活扫描 + **禁止宣称扫描** + 白名单 JSON + 防漂移文档 + 三仓矩阵 + 文档 `path:line` 引用 + **行号内容指纹**（半漂移防线，基线 `docs/agent-line-refs-baseline.json`）；`hub` 再加**外仓 `path:line` 引用** + pytest + e2e；`full` 再加 Grbl §9 源码标记，并把「三仓全缺」从 pass 收紧为 fail。任一层 fail → overall fail、exit 1。分层真值在 `scripts/agent_gate.py` 的 `profile_layers()`（纯函数，有门禁自测钉死），不要再在 `main()` 里另加分支。
 - **复活扫描与禁语扫描共用 `GOVERNANCE_DOCS`（18 份）**：新增治理文档必须加进 `scripts/agent_gate.py` 的该清单，否则两层都绕过它。此前三条复活规则各带手写清单、合计只覆盖 5 份，`CLAUDE.md` 与 `.cursor/rules/` 硬轨都不在其中；`claims_forbidden` 更是只做列表比对、从不扫正文（实测在 README 追加一句含三条禁语的完成式断言，门禁全绿）。**2026-08-09 补入第 18 份 `docs/daytime-tuning-runbook.md`**：它决定「哪几步真机验证可以跳过」，写出「已完成/可跳过」后续代理就不再上真机复验，属行为直接约束源，此前无机器把关；已由 `test_gate_governance_docs_cover_repo_governance_surface` 的 `must` 清单钉死（RED→GREEN 实测），两层扫描均 pass。

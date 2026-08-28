@@ -12,7 +12,7 @@
 
 调 `hutuji_draw` 后只按结构化返回行动，绝不编造地址：
 - `accepted: true`：云端已受理、正在后台生成，完成后服务器自动把预览推到屏幕。不要再调设备 `hutuji.draw` 或 `hutuji.confirm`，告诉用户「已经开始生成，预览出来后你看一眼~」。预览出现前用户说取消时，不要假装已取消；预览出现后再调设备 `hutuji.abort`。
-- 同时有 `url` 和 `preview_url`：这是同步回落。把两个地址原样传给设备 `hutuji.draw`；用户看过预览并明确说「开始画/可以/就这个」，且 `hutuji.status` 为 `awaiting_confirmation`，才调 `hutuji.confirm`。预览未出现或状态不明时不要凭空确认。
+- 同时有 `url` 和 `preview_url`：这是同步模式。若预览已由服务端自动推到屏幕，不要再调设备 `hutuji.draw`；若没有自动出现预览，才把两个地址原样传给设备 `hutuji.draw`。用户看过预览并明确说「开始画/可以/就这个」，且 `hutuji.status` 为 `awaiting_confirmation`，才调 `hutuji.confirm`。预览未出现或状态不明时不要凭空确认。
 - 设备说忙/正在画时不要重复触发；同一主题重试不能另起一轮。用户等不到预览时可查云端 `hutuji_status`；`last_draw_error` 只代表最近一次失败，须明确对应当前主题才按失败处理，不能仅凭非空自动重画，只有用户明确要求才重新调 `hutuji_draw`。
 
 ## 唱歌也是两步衔接

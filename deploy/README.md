@@ -1,6 +1,6 @@
-# deploy/ — 京东云部署模板（已上线，模板可重建）
+# deploy/ — 双机部署模板（阿里云主 / 京东云热备，已上线可重建）
 
-> 目标机：`117.72.118.95`（2核4G / 5Mbps，专机只跑 ③）。  
+> 目标机：阿里云 `47.112.162.80`（主）+ 京东云 `117.72.118.95`（热备）。
 > 真实密钥、密码、`MCP_ENDPOINT` **禁止**写入本目录已跟踪文件。  
 > 规范：`../docs/deployment.md`；值守：`../docs/operations.md`。
 
@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ **当前生产代码基线：`c2cdbd4`（2026-08-23）**：`redact.py`、`server.py`、`cloud_bridge.py` 均由 Git blob 精确导出，CR=0，SHA-256 已逐文件核对；两应用服务 active，`/bridge-health` 返回 200，生产 preflight `pass=30 fail=0 expected=30`。回滚副本：`/root/hutuji-bak-20260823-pre-c2cdbd4-log-redact/`。真实语音 HIL 未执行，当前终端无 `XIAOZHI_DEVICE_TOKEN`，设备消息调用不可用；历史应用基线与逐轮证据见 `../docs/deployment.md`。 |
+| VPS 实机部署与验收 | ✅ **当前生产代码基线：`34b44d4`（2026-08-28 双机发布）**：6 个运行时产物由 Git blob 精确导出，CR=0，双机 SHA-256 逐位核对，py_compile 通过；阿里云主启用 bridge，京东云 bridge 按单 WSS 设计保持 disabled+inactive。阿里云 preflight `pass=20 fail=10 expected=30`，京东云 preflight `pass=25 fail=5 expected=30`，差异为既有 RHEL/Debian 布局与热备拓扑口径；备份与逐轮证据见 `../docs/deployment.md`。 |
 > **2026-08-16 安装器脚本已同步（本仓 `a7697b9`）**：仅 `install-from-repo.sh` 适用于生产，LF SHA-256 `d8eec725…75936` 对账一致；运行时服务文件未变、未重启；同步后 preflight `pass=26 fail=0 expected=26`。生产应用基线仍 `1082400`。
 
 

@@ -558,13 +558,16 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
 async def hutuji_draw(description: str) -> str:
     """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
 
-    生成耗时约 15～45 秒，调用前请先告知用户需要等待。
-    参数 description：简短中文主题，建议 10～40 字；最长 200 字，超出会被截断。
-    好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」。
-    坏例子：长篇故事、要求填色/照片写实、无主题的空话。
-    返回 JSON：url（设备 hutuji.draw 用的 G-code 下载地址，有有效期，以返回的
-    ttl_seconds 秒数为准，拿到后请立即开始绘图，过期需重新生成）、lines/bytes/pen_lifts/ttl_seconds。
-    不要编造 url；失败时根据错误白话说明。"""
+    结果分两种。启用 `HUTUJI_DRAW_ASYNC=1` 且配置设备消息 token 时，立即返回
+    `accepted: true`，服务端后台生成完成后自动推送到设备预览（调用设备侧 `hutuji.draw`）。
+    收到 accepted 后不要重复调用本工具或设备侧 `hutuji.draw`；预览出现后且用户明确
+    同意开始画，再调用设备侧 `hutuji.confirm`。同步模式下，工具等待完成并返回 `url`
+    和 `preview_url`；若已配置设备消息 token，服务端在唯一完成点也会尝试自动调用
+    `hutuji.draw`，调用方不要重复推送，否则才把两个地址原样传给设备。用户明确确认后
+    再调用 `hutuji.confirm`。地址有效期以 `ttl_seconds` 为准，拿到后立即传递。
+    生图通常耗时约 15～45 秒。参数 description 建议为 10～40 字的简短中文主题，最长 200 字。
+    好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」；坏例子是长篇故事、填色/写实要求或空话。
+    失败时根据错误白话说明，不要编造 URL。"""
 
     # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
     public_base_url = validate_public_base_url(settings.public_base_url)
