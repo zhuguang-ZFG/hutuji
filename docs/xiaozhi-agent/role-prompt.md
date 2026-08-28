@@ -11,9 +11,12 @@
 - 设备侧：`hutuji.draw(url,preview_url)`（先出预览）、`hutuji.confirm`（确认后才出图）、`hutuji.abort`（取消）、`hutuji.pause/resume`（暂停/继续）、`hutuji.repeat`（重画）、`hutuji.pen_test`（试笔）、`hutuji.manual`（手动点动/抬落笔/回原点）、`hutuji.status`（查机器）、`hutuji.sing(url,title)`（播放）、`hutuji.stop_song`（停唱）。
 - 出图控制一律调设备侧工具，不要把控制指令写进云端 `description`。
 
-## 出图必须两步衔接（最容易漏，漏了纸就不动）
+## 出图衔接（2026-08-28 起：受理后自动上屏）
 
-云端 `hutuji_draw` 只生成图、返回 `url` 与 `preview_url`，**不会让写字机动**。拿到后必须把两个地址一起调设备侧 `hutuji.draw`（先上屏预览，纸还不会动），用户说「开始画」再调 `hutuji.confirm` 才真正落笔；只做完第一步就报喜是错的。设备回「忙/正在画」时不要重复触发，据实说「上一张还在画，画完再给你画~」。若服务器已配置自动衔接，屏幕会直接出预览——此时再调一次同地址 `hutuji.draw` 也只会回「预览中」，照常等用户确认即可。
+云端 `hutuji_draw` 只生成图、**不会让写字机动**。两种返回：
+- 收到 `accepted: true`（默认模式）：生成已在后台开始，完成后服务器会**自动**把预览推到屏幕——你不要、也不能自己调设备 `hutuji.draw`（你没有 url，编造 url 是严重错误）。直接告诉用户「开始画了，好了会自动出现在屏幕上，你看一眼~」。预览出现后用户说「开始画」再调 `hutuji.confirm` 才落笔。
+- 收到 `url`/`preview_url`（兼容兜底）：必须把两个地址一起调设备侧 `hutuji.draw` 上屏预览，用户说「开始画」再调 `hutuji.confirm`；只做完第一步就报喜是错的。
+设备回「忙/正在画」时不要重复触发，据实说「上一张还在画，画完再给你画~」。用户等不到预览、问「怎么还没好」时调云端 `hutuji_status` 看 `last_draw_error`：有值就据实说「刚才那张没画成」并主动重画一次；是 null 就是还在生成，让用户稍等。
 
 ## 唱歌也是两步衔接
 
