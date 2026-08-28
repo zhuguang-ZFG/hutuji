@@ -9285,3 +9285,200 @@ def test_make_songs_generates_valid_ogg_and_catalog(tmp_path: Path) -> None:
         assert len(blob) > 1000  # 不是空壳
     on_disk = json.loads((tmp_path / "catalog.json").read_text(encoding="utf-8"))
     assert on_disk["songs"] == catalog
+
+# ---------- 2026-08-28 异步生成+完成推送 ----------
+def test_draw_async_with_token_returns_accepted_immediately(tmp_path, monkeypatch):
+    """HUTUJI_DRAW_ASYNC=1 且 token 已配时，hutuji_draw 立即回 accepted 且任务在跑。"""
+    import asyncio, json
+    from hutuji_mcp.config import Settings
+    from hutuji_mcp import server
+    patched = Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+        xiaozhi_device_token="dev-token",
+        draw_async=True,
+        paper_risk_gate=False,
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._draw_inflight.clear()
+    server._draw_last_error = None
+    started = asyncio.Event()
+    release = asyncio.Event()
+    async def fake_job(desc, url):
+        started.set()
+        await release.wait()
+        return json.dumps({"url": f"{url}/files/fake.gcode", "preview_url": f"{url}/files/fake.png", "lines":1,"bytes":1,"pen_lifts":0,"ttl_seconds":600})
+    monkeypatch.setattr(server, "_run_draw_job", fake_job)
+    async def exercise():
+        raw = await server.hutuji_draw("小猫")
+        data = json.loads(raw)
+        assert data["accepted"] is True
+        assert data["description"] == "小猫"
+        assert data["eta_seconds"] == 45
+        assert "无需重复调用" in data["note"]
+        work = server._draw_inflight.get("小猫")
+        assert work is not None and not work.done()
+        release.set()
+        await work
+    try:
+        asyncio.run(exercise())
+    finally:
+        server._draw_inflight.clear()
+        server._draw_last_error = None
+
+def test_draw_async_second_call_reuses_task(tmp_path, monkeypatch):
+    """同题 second call 搭车不新建任务（single-flight 复用）。"""
+    import asyncio, json
+    from hutuji_mcp.config import Settings
+    from hutuji_mcp import server
+    patched = Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+        xiaozhi_device_token="dev-token",
+        draw_async=True,
+        paper_risk_gate=False,
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._draw_inflight.clear()
+    server._draw_last_error = None
+    release = asyncio.Event()
+    async def fake_job(desc, url):
+        await release.wait()
+        return json.dumps({"url": f"{url}/files/fake2.gcode", "preview_url": f"{url}/files/fake2.png", "lines":1,"bytes":1,"pen_lifts":0,"ttl_seconds":600})
+    monkeypatch.setattr(server, "_run_draw_job", fake_job)
+    async def exercise():
+        r1 = json.loads(await server.hutuji_draw("同题"))
+        r2 = json.loads(await server.hutuji_draw("同题"))
+        assert r1["accepted"] is True and r2["accepted"] is True
+        tasks = list(server._draw_inflight.values())
+        assert len(tasks) == 1
+        assert tasks[0] is server._draw_inflight["同题"]
+        release.set()
+        await tasks[0]
+    try:
+        asyncio.run(exercise())
+    finally:
+        server._draw_inflight.clear()
+        server._draw_last_error = None
+
+def test_draw_async_without_token_falls_back_sync(tmp_path, monkeypatch, caplog):
+    """HUTUJI_DRAW_ASYNC=1 但无 token 时回落同步路径并记 warning，返回正常产物 JSON。"""
+    import asyncio, json
+    from pathlib import Path
+    from types import SimpleNamespace
+    from hutuji_mcp.config import Settings
+    from hutuji_mcp import server
+    patched = Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+        xiaozhi_device_token="",
+        draw_async=True,
+        paper_risk_gate=False,
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._draw_inflight.clear()
+    server._draw_last_error = None
+    async def fake_bitmap(_desc, **_kw):
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
+    async def fake_gcode(_svg_path: Path, gcode_path: Path):
+        gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
+        return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
+    monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
+    monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260828_120000_abcdefghijklmnopqrstuv")
+    monkeypatch.setattr(server, "svg_to_gcode_async", fake_gcode)
+    monkeypatch.setattr(server, "_draw_limiter", server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2))
+    caplog.set_level("WARNING")
+    raw = asyncio.run(server.hutuji_draw("回落测试"))
+    data = json.loads(raw)
+    assert "url" in data and "accepted" not in data
+    assert any("回落同步" in r.message for r in caplog.records)
+    server._draw_inflight.clear()
+    server._draw_last_error = None
+
+def test_draw_last_error_recorded_and_cleared(tmp_path, monkeypatch):
+    """_run_draw_job 失败时 hutuji_status.last_draw_error 有类型名，成功后清零。"""
+    import asyncio, json
+    from hutuji_mcp.config import Settings
+    from hutuji_mcp import server
+    patched = Settings(
+        llm_base_url="https://example.invalid/v1",
+        llm_api_key="",
+        llm_model="test",
+        output_dir=tmp_path,
+        public_base_url="https://draw.example",
+        host="127.0.0.1",
+        port=8300,
+        output_ttl_seconds=600,
+        paper_risk_gate=False,
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._draw_inflight.clear()
+    server._draw_last_error = None
+    # 失败路径：generate_bitmap 抛 RuntimeError
+    async def boom(_desc, **_kw):
+        raise RuntimeError("boom details must not leak")
+    monkeypatch.setattr(server, "generate_bitmap", boom)
+    monkeypatch.setattr(server, "_draw_limiter", server.DrawLimiter(per_second=100, per_minute=100, max_concurrent=2))
+    # 需要让 curated 返回 None 走 bitmap 路径
+    import hutuji_mcp.curated as curated_mod
+    monkeypatch.setattr(curated_mod, "lookup_preferred", lambda desc: None)
+    # 直接调 _run_draw_job 触发失败
+    try:
+        asyncio.run(server._run_draw_job("失败主题", "https://draw.example"))
+    except RuntimeError:
+        pass
+    assert server._draw_last_error is not None
+    assert server._draw_last_error["description"] == "失败主题"
+    assert server._draw_last_error["error_type"] == "RuntimeError"
+    assert "boom details" not in json.dumps(server._draw_last_error)
+    status = json.loads(asyncio.run(server.hutuji_status()))
+    assert status["last_draw_error"] is not None
+    assert status["last_draw_error"]["error_type"] == "RuntimeError"
+    # 成功路径：清理后应归零
+    from types import SimpleNamespace
+    from pathlib import Path
+    async def ok_bitmap(_desc, **_kw):
+        return SimpleNamespace(svg="<svg/>", preview_png=b"png")
+    async def ok_gcode(_svg_path: Path, gcode_path: Path):
+        gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
+        return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
+    monkeypatch.setattr(server, "generate_bitmap", ok_bitmap)
+    monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260828_120001_abcdefghijklmnopqrstuv")
+    monkeypatch.setattr(server, "svg_to_gcode_async", ok_gcode)
+    asyncio.run(server._run_draw_job("成功主题", "https://draw.example"))
+    assert server._draw_last_error is None
+    status2 = json.loads(asyncio.run(server.hutuji_status()))
+    assert status2["last_draw_error"] is None
+    server._draw_inflight.clear()
+    server._draw_last_error = None
+
+def test_draw_async_env_parsing(monkeypatch):
+    """HUTUJI_DRAW_ASYNC 真值集与 HUTUJI_CURATED_REPLACE_QD 一致。"""
+    from hutuji_mcp.config import load_settings
+    for val in ["1", "true", "TRUE", "yes"]:
+        monkeypatch.setenv("HUTUJI_DRAW_ASYNC", val)
+        assert load_settings().draw_async is True, val
+    for val in ["0", "false", "FALSE", "no", "", "2", "True"]:
+        monkeypatch.setenv("HUTUJI_DRAW_ASYNC", val)
+        # "True" (capital T) not in truth set, should be False per existing convention
+        assert load_settings().draw_async is False, val
+    monkeypatch.delenv("HUTUJI_DRAW_ASYNC", raising=False)
+    assert load_settings().draw_async is False

@@ -127,11 +127,15 @@ class Settings:
     # /messaging/device/tools/call 链式调 hutuji.draw，消灭云端第二步漏调
     # （78/xiaozhi-esp32#1011）。空值 = 禁用，云端两步衔接仍是合法回落。
     xiaozhi_device_token: str = ""
+    # 异步生成+完成推送（2026-08-28 决策）：默认关闭（同步）；开启且已配
+    # HUTUJI_XIAOZHI_DEVICE_TOKEN 时 hutuji_draw 立即返回 accepted 并由
+    # _run_draw_job 完成后经 _chain_device_draw 自动推送到设备预览；无 token
+    # 时回落同步（fail-open 不丢可用性）。
+    draw_async: bool = False
     # 纸面风险闸（2026-08-27）：AI 位图链 G-code 画糊风险统计拒收重画，最多
     # 3 轮；QD/curated 命中不经闸。`HUTUJI_PAPER_RISK_GATE=0` 关闭 enforce
     # （仍记 shadow 日志由 paper_risk.evaluate 提供，见 server 重试环）。
     paper_risk_gate: bool = True
-
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
@@ -258,6 +262,8 @@ def load_settings() -> Settings:
         quickdraw_dir=os.environ.get("HUTUJI_QUICKDRAW_DIR", ""),
         curated_dir=os.environ.get("HUTUJI_CURATED_DIR", ""),
         curated_replace_qd=os.environ.get("HUTUJI_CURATED_REPLACE_QD", "0").strip()
+        in ("1", "true", "TRUE", "yes"),
+        draw_async=os.environ.get("HUTUJI_DRAW_ASYNC", "0").strip()
         in ("1", "true", "TRUE", "yes"),
         paper_risk_gate=os.environ.get("HUTUJI_PAPER_RISK_GATE", "1").strip()
         not in ("0", "false", "FALSE", "no"),

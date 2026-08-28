@@ -406,7 +406,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **按「设备看到的字节」计，不按上位机的字符数**：S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**，故云端判上限必须量同一个对象。Python 的 `read_text()` 走 universal newlines，会把 CRLF 塌成单个 LF、每行少算 1 字节——实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 也少报 20846。512KiB 是 S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。单行 **254** 字节 payload（Grbl `LINE_BUFFER_SIZE` 的可用值，见 §3）同理按字节计。
 
 - **MCP 生成事务取消所有权（2026-08-20，不升协议号）**：规范化后相同 `description` 的在途 `hutuji_draw` 必须共享一个完整事务（付费生图、中心线描摹、SVG→G-code、产物与返回 JSON）和一个并发名额。客户端 `notifications/cancelled` 只结清对应 JSON-RPC waiter，不得取消已计费事务、提前释放名额或让后续同题重试另起生成；重试搭车原任务，完成后拿同一 capability 结果。共享任务失败/取消后必须从在途表移除，使下一次调用能重新尝试；成功结果仍受 600 秒 capability TTL。该约束只合并同一逻辑生成轮，不取消该轮内已定案的商汤/Agnes/imagefree 并发对冲。
-
+- **异步生成+完成推送（2026-08-28 决策，默认关闭）**：`HUTUJI_DRAW_ASYNC=1` 且已配 `HUTUJI_XIAOZHI_DEVICE_TOKEN` 时 `hutuji_draw` 立即回 `{"accepted":true,"description":<安全化后>,"eta_seconds":45,"note":"生成完成会自动推送到设备预览，无需重复调用"}`，任务由 `_draw_inflight` 持有生命周期并在 `_run_draw_job` 唯一完成点经 `_chain_device_draw` 自动推送到设备预览（单 flight 复用，同题第二调搭车不另起生成）；缺 token 时回落同步并记一行 warning。
 ### 5.1 下载完整性契约（先下完 + 校验 + 再发）
 
 **放弃「边下边转」**：流式边下边发若中途截断，前半已画在纸上，且提前 EOF 可能不报错——会静默产出「看似画完实则缺半」的纸。故把完整性校验**前移到落笔之前**。

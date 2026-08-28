@@ -373,6 +373,10 @@ async def _svg_to_gcode_cached(svg: str, svg_path: Path, gcode_path: Path):
 # 覆盖位图、vpype、产物与返回 JSON；waiter 取消只分离自己，事务仍持有一个名额。
 _draw_inflight: dict[str, asyncio.Task[str]] = {}
 
+# 2026-08-28 异步生成失败可见性：记最近一次 _run_draw_job 异常的类型名与描述主题
+# 成功后清零，供 hutuji_status 暴露 last_draw_error（不记异常细节，脱敏硬约定）。
+_draw_last_error: dict[str, object] | None = None
+
 
 def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
     """只清掉自己登记的任务，并取走无人等待时的异常。"""
@@ -412,6 +416,7 @@ async def _chain_device_draw(url: str, preview_url: str) -> None:
 
 async def _run_draw_job(description: str, public_base_url: str) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
+    global _draw_last_error
     svg_path: Path | None = None
     gcode_path: Path | None = None
     preview_path: Path | None = None
@@ -504,22 +509,31 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
                     ) from last_reject
         if time.monotonic() >= deadline:
             raise DrawTimeoutError("绘图生成超时，请稍后重试")
-    except BaseException:
+    except BaseException as exc:
+        # 2026-08-28 fail-visible：只记类型名不记细节，description 已是安全化后文本。
+        if isinstance(exc, Exception):
+            _draw_last_error = {
+                "description": description,
+                "error_type": type(exc).__name__,
+                "ts": time.time(),
+            }
         # 服务停机取消或生成失败都清理半成品；清理失败不能覆盖原异常。
         for path in (svg_path, gcode_path, preview_path):
             if path is not None:
                 try:
                     path.unlink(missing_ok=True)
-                except OSError as exc:
+                except OSError as exc2:
                     logger.warning(
                         "清理失败产物失败 %s：%s",
                         _redact_capability_name(path.name),
-                        exc,
+                        exc2,
                     )
         raise
 
     assert gcode_path is not None
     assert preview_path is not None
+    # 2026-08-28 成功即清失败可见性，供 status 回 null。
+    _draw_last_error = None
     # P1-3：服务端链式第二步。只在事务唯一完成点触发一次——waiter 取消/重试
     # 搭车都不会重复触发（重试复用同一任务、同一产物）。失败不阻塞结果。
     if getattr(settings, "xiaozhi_device_token", ""):
@@ -571,6 +585,18 @@ async def hutuji_draw(description: str) -> str:
             lambda done, key=safe_description: _forget_draw_inflight(key, done)
         )
 
+    # 2026-08-28 异步生成+完成推送（默认关闭）：双真立即 accepted，任务由
+    # _draw_inflight 持有生命周期；缺 token 则回落同步并 warning。
+    if getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
+        return json.dumps({
+            "accepted": True,
+            "description": safe_description,
+            "eta_seconds": 45,
+            "note": "生成完成会自动推送到设备预览，无需重复调用",
+        }, ensure_ascii=False)
+    if getattr(settings, "draw_async", False):
+        logger.warning("HUTUJI_DRAW_ASYNC 已启用但未配置 HUTUJI_XIAOZHI_DEVICE_TOKEN，回落同步模式")
+
     # shield 只保护完整事务不被本次 waiter 的取消连带杀死；waiter 在 bridge
     # watchdog 之前明确超时，后续同题重试仍搭同一个任务。
     try:
@@ -620,6 +646,7 @@ async def hutuji_status() -> str:
         "latest": _redact_capability_name(files[-1].name) if files else None,
         # CloudUX-F6：显式 mtime 时间戳，让「刚才生成成功没」不必靠 LLM 解析文件名。
         "latest_ts": _safe_mtime(files[-1]) if files else None,
+        "last_draw_error": _draw_last_error,
     }, ensure_ascii=False)
 
 
