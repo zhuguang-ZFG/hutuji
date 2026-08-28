@@ -40,7 +40,7 @@ Grbl 侧 0x18 在换纸阻塞期**能**触发停机，链路完整：
 - `hutuji_job.cc:441-442`
 
 两处均 `Notify("写字机正在换纸，无法即停；换纸完成后任务将停止")` 并直接返回，
-**不发 0x18**。而 S3 本身有该能力：`hutuji_job.cc:1141` 已在用 `pipe.SendRealtime(0x18)`
+**不发 0x18**。而 S3 本身有该能力：`hutuji_job.cc:1148` 已在用 `pipe.SendRealtime(0x18)`
 （仅 worker 路径用）。
 
 ### 1.3 切片 C 的建议动作被证伪
@@ -92,12 +92,12 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 - 奎享 `machine/f/b.java:55-75`：窗口准入循环内**无任何 UI 调用**。窗口上界取
   `this.b.g()`（抽象方法，`machine/c.java:46` 声明；Grbl 实现
   `machine/grbl/a.java:312-313` 返回 **100**），判据含 `+1L`（换行符）且**严格小于**。
-- 我方 `hutuji_job.cc:2869-2870`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
-  `need = line.size() + 1`（`hutuji_job.cc:2660-2662` 维护 `c_line`/`c_line_bytes_sum`）。
+- 我方 `hutuji_job.cc:2876-2877`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
+  `need = line.size() + 1`（`hutuji_job.cc:2667-2669` 维护 `c_line`/`c_line_bytes_sum`）。
   **不变量同构**；`kWindow` = `hutuji_recovery_core.h:16` `kStreamWindowBytes = 512`
   经 `hutuji_job.cc:87` 转名。
-- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:3040` 注释 +
-  `hutuji_job.cc:3048` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
+- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:3047` 注释 +
+  `hutuji_job.cc:3055` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
   更新**：节流在 lichuang-dev 全脸动画下不足（单次 LVGL 锁等待 230–640ms 致半墨
   复发），已根治——SetStatus 经 `Application::Schedule` 出灌流路径（xiaozhi
   `e623aec`），窗口循环现与奎享同态（无阻塞 UI 调用），见
@@ -106,11 +106,11 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 ### 4.2 error 后的处置：fail-fast vs 状态兜底续跑
 
 - 奎享 `machine/f/b.java:136-155`：error 路径清 `c`/`d` 双队列、`e = 0`，**fail-fast**。
-- 我方 `hutuji_job.cc:3081-3097`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
+- 我方 `hutuji_job.cc:3088-3104`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
   已执行完，靠状态兜底释放整窗续跑（上限 `hutuji_job.cc:66` `kMaxOkFallback = 3`），
   并在释放前 `DrainResponses()` 防迟到 ok 错配。
 - 我方多出的是**迟到 ok 容错**，源于 WiFi Telnet 传输（奎享该路径是串口）。
-  abort 侧亦有同口径 quiesce（`hutuji_job.cc:2948-2957`）。**有意差异，无动作。**
+  abort 侧亦有同口径 quiesce（`hutuji_job.cc:2955-2964`）。**有意差异，无动作。**
 
 ## 五、仓库卫生（切片 E · 已修文档 + 窄规则封堵）
 

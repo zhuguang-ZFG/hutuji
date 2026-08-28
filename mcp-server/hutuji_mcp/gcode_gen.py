@@ -307,6 +307,13 @@ def _z_from_words(upper: str) -> float | None:
     return None
 
 
+def _f_from_words(words: list) -> float | None:
+    for letter, number in words:
+        if letter == "F":
+            return float(number)
+    return None
+
+
 def _collapse_short_pen_down_segments(
     text: str, min_mm: float | None = None
 ) -> str:
@@ -326,19 +333,20 @@ def _collapse_short_pen_down_segments(
     cur_x: float | None = None
     cur_y: float | None = None
     pen_down = False
+    cur_feed = 8000.0
     last_emit_x: float | None = None
     last_emit_y: float | None = None
-    pending: tuple[float, float] | None = None
+    pending: tuple[float, float, float] | None = None  # (x, y, 设 pending 那行的 F)
 
     def _flush_pending() -> None:
         nonlocal pending, last_emit_x, last_emit_y, cur_x, cur_y
         if pending is None:
             return
-        px, py = pending
+        px, py, pf = pending
         if last_emit_x is None or last_emit_y is None or (
             abs(px - last_emit_x) > 1e-9 or abs(py - last_emit_y) > 1e-9
         ):
-            out.append(f"G1 X{px:.3f}Y{py:.3f}F8000")
+            out.append(f"G1 X{px:.3f}Y{py:.3f}F{pf:g}")
             last_emit_x, last_emit_y = px, py
             cur_x, cur_y = px, py
         pending = None
@@ -376,15 +384,21 @@ def _collapse_short_pen_down_segments(
             if nx is None or ny is None:
                 out.append(line)
                 continue
-            pending = (nx, ny)
+            # 塌缩写回的 F 继承本行（缺 F 回落模态值，再兜底 8000）——硬编码
+            # F8000 会让非 F8000 profile/夹具的进给实验失真（2026-08-28 review）。
+            line_feed = _f_from_words(words)
+            if line_feed is not None:
+                cur_feed = line_feed
+            emit_feed = line_feed if line_feed is not None else cur_feed
+            pending = (nx, ny, emit_feed)
             if last_emit_x is None or last_emit_y is None:
-                out.append(f"G1 X{nx:.3f}Y{ny:.3f}F8000")
+                out.append(f"G1 X{nx:.3f}Y{ny:.3f}F{emit_feed:g}")
                 last_emit_x, last_emit_y = nx, ny
                 pending = None
             else:
                 dist = math.hypot(nx - last_emit_x, ny - last_emit_y)
                 if dist + 1e-9 >= floor:
-                    out.append(f"G1 X{nx:.3f}Y{ny:.3f}F8000")
+                    out.append(f"G1 X{nx:.3f}Y{ny:.3f}F{emit_feed:g}")
                     last_emit_x, last_emit_y = nx, ny
                     pending = None
             cur_x, cur_y = nx, ny

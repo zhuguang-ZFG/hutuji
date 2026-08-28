@@ -118,3 +118,20 @@ def test_collapse_does_not_bridge_pen_up() -> None:
     out = gcode_gen._collapse_short_pen_down_segments(text)
     assert out.count("G1G90 Z5.0F10000") == 2
     assert "G0 X20.000Y10.000F8000" in out
+
+
+def test_collapse_preserves_line_feed_rate():
+    """塌缩写回不得硬编码 F8000：本行 F 必须继承（2026-08-28 review 抓获——
+    A/B 夹具 F10000/F12000 被硬编码写成 F8000 会让进给实验失真）。"""
+    from hutuji_mcp.gcode_gen import _collapse_short_pen_down_segments
+    src = ("G21\nG90\n"
+           "G1G90 Z5.0F10000\n"
+           "G1 X10.000Y10.000F12000\n"
+           "G1 X10.200Y10.000F12000\n"   # 0.2mm 短段，应被塌进下一条
+           "G1 X11.500Y10.000F12000\n"   # 落点 ≥1mm，保留且 F12000
+           "G1G90 Z0.0F10000\n")
+    out = _collapse_short_pen_down_segments(src, min_mm=1.0)
+    kept = [l for l in out.splitlines() if "X11.500" in l]
+    assert kept == ["G1 X11.500Y10.000F12000"], kept
+    assert "F8000" not in [l for l in out.splitlines() if l.startswith("G1 X")], out
+

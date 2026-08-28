@@ -38,6 +38,8 @@ build*_out.txt
 # 实验件保持可见、提交仍须点名。
 mcp-server/tmp/quickdraw-data/
 mcp-server/tmp/**/*.jsonl
+mcp-server/tmp/curated-data-sync.tgz
+mcp-server/tmp/curated-data/
 
 # Superpowers / local git worktrees
 .worktrees/
