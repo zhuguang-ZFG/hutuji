@@ -58,7 +58,7 @@ $env:PYTHONPATH = (Get-Location)
 5. 将 `deploy/nginx-kb-admin-snippet.conf` 并入 nginx 443 块，`nginx -t` 后 reload/restart。
 6. 登录 `https://hutuji.donglicao.com/kb-admin/` → 导入 → 启用条目 → 发布 → 控制台 `recall` 抽测。
 
-**路径前缀注意**：生产 unit 使用 `--root-path /kb-admin`；静态页当前 `fetch("/api/…")` 为站点根绝对路径。在 `/kb-admin/` 反代下，须改用子域 **或** 后续把前端改为相对 `api/…`（待办，非本模板范围）。
+**路径前缀**：生产 unit 使用 `--root-path /kb-admin`；静态页 `fetch("api/…")` 为相对路径，本地 `/` 与 nginx `/kb-admin/` 反代均可工作。
 
 ## 回滚
 

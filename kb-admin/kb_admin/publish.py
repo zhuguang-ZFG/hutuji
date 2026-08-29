@@ -79,6 +79,17 @@ def publish(
             error_summary=_redact_error(str(exc)),
             faq_count=faq_count,
         )
+    except SystemExit as exc:
+        code = exc.code if exc.code is not None else 1
+        rec = PublishRecord(
+            id=rec_id,
+            created_at=created_at,
+            created_by=actor,
+            status="failed",
+            xiaozhi_doc_md5="",
+            error_summary=_redact_error(f"控制台 API 异常退出 code={code}"),
+            faq_count=faq_count,
+        )
 
     store.add_publish_record(rec)
     return rec

@@ -82,6 +82,22 @@ def test_publish_failure_no_raise(tmp_path: Path, monkeypatch):
     assert rows[0].status == "failed"
 
 
+def test_publish_system_exit_records_failure(tmp_path: Path, monkeypatch):
+    store = Store(tmp_path / "t.db")
+    store.upsert_faq(_sample_faq())
+
+    def boom(_kb_id, _path):
+        raise SystemExit(1)
+
+    monkeypatch.setattr("kb_admin.publish.update_kb_from_path", boom)
+
+    rec = publish(store, kb_id=71153, actor="u", preface="", appendix="")
+
+    assert rec.status == "failed"
+    assert "code=1" in (rec.error_summary or "")
+    assert store.list_publish_records()[0].status == "failed"
+
+
 def test_publish_counts_only_enabled(tmp_path: Path, monkeypatch):
     store = Store(tmp_path / "t.db")
     store.upsert_faq(_sample_faq(title="on"))

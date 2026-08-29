@@ -179,7 +179,7 @@
         opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
         opts.body = JSON.stringify(opts.body);
       }
-      const res = await fetch("/api" + path, opts);
+      const res = await fetch("api" + path, opts);
       let data = null;
       const ct = res.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
