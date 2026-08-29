@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from kb_admin.app import create_app
+from kb_admin.config import load_config
 from kb_admin.models import PublishRecord
 
 
@@ -37,6 +38,13 @@ def test_index_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     r = client.get("/")
     assert r.status_code == 200
     assert "登录" in r.text
+
+
+def test_rejects_non_loopback_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _env(monkeypatch, tmp_path)
+    monkeypatch.setenv("KB_ADMIN_HOST", "0.0.0.0")
+    with pytest.raises(RuntimeError, match="loopback"):
+        load_config()
 
 
 def test_rejects_anonymous(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

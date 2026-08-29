@@ -1,0 +1,51 @@
+[Unit]
+Description=hutuji KB admin (loopback FAQ editor)
+Documentation=file:///opt/hutuji/kb-admin/README.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/kb-admin
+EnvironmentFile=/etc/hutuji/kb-admin.env
+# 监听面由命令行 --host/--port 钉死；KB_ADMIN_HOST 在 load_config 里做 loopback 校验。
+# --factory 因为 app 只有 create_app()，无模块级 app 实例。
+# --root-path 与 nginx location /kb-admin/ 前缀一致（见 deploy/nginx-kb-admin-snippet.conf）。
+# --no-proxy-headers 与 hutuji-mcp 同口径：禁止环境变量静默放宽 X-Forwarded-For 信任。
+ExecStart=/opt/hutuji/kb-admin/.venv/bin/python -m uvicorn kb_admin.app:create_app --factory --host 127.0.0.1 --port 8301 --root-path /kb-admin --no-proxy-headers
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+MemoryMax=256M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hutuji/kb-admin
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+PrivateDevices=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+[Install]
+WantedBy=multi-user.target
