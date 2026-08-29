@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>小派知识库管理</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; color: #222; }
+    h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+    h2 { font-size: 1rem; margin: 1.5rem 0 0.5rem; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; max-width: 960px; }
+    label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; }
+    input[type="password"], input[type="text"], textarea, select {
+      width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border: 1px solid #ccc; border-radius: 4px;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    button {
+      padding: 0.45rem 0.75rem; margin-right: 0.5rem; margin-bottom: 0.5rem;
+      border: 1px solid #888; border-radius: 4px; background: #fff; cursor: pointer;
+    }
+    button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+    button.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .toolbar select { width: auto; margin: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; }
+    th { background: #eee; }
+    .badge-yes { color: #15803d; }
+    .badge-no { color: #b91c1c; }
+    .hidden { display: none !important; }
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center; z-index: 10;
+    }
+    .modal { background: #fff; border-radius: 8px; padding: 1rem; width: min(520px, 92vw); max-height: 90vh; overflow: auto; }
+    .modal-actions { margin-top: 0.75rem; }
+    .msg { color: #b91c1c; font-size: 0.875rem; min-height: 1.25rem; }
+    .msg.ok { color: #15803d; }
+  </style>
+</head>
+<body>
+  <div id="login-view" class="card">
+    <h1>登录</h1>
+    <form id="login-form">
+      <label for="password">密码</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button type="submit" class="primary">登录</button>
+      <p id="login-msg" class="msg"></p>
+    </form>
+  </div>
+
+  <div id="app-view" class="hidden">
+    <div class="card">
+      <h1>FAQ 管理</h1>
+      <div class="toolbar">
+        <label for="filter-category">分类筛选</label>
+        <select id="filter-category">
+          <option value="">全部</option>
+        </select>
+        <button type="button" id="btn-new">新建</button>
+        <button type="button" id="btn-import">导入</button>
+        <button type="button" id="btn-publish" class="primary">发布</button>
+        <button type="button" id="btn-refresh">刷新</button>
+        <button type="button" id="btn-logout">退出</button>
+      </div>
+      <p id="app-msg" class="msg"></p>
+      <table>
+        <thead>
+          <tr>
+            <th>标题</th>
+            <th>分类</th>
+            <th>启用</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="faq-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+      <h2>发布历史</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>状态</th>
+            <th>FAQ 数</th>
+            <th>MD5</th>
+            <th>错误摘要</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="edit-modal" class="modal-backdrop hidden">
+    <div class="modal">
+      <h2 id="modal-title">编辑 FAQ</h2>
+      <form id="edit-form">
+        <input type="hidden" id="edit-id">
+        <label for="edit-title">标题</label>
+        <input id="edit-title" type="text" required>
+        <label for="edit-body">正文</label>
+        <textarea id="edit-body" required></textarea>
+        <label for="edit-category">分类</label>
+        <select id="edit-category" required></select>
+        <label for="edit-aliases">别名（逗号或换行分隔）</label>
+        <textarea id="edit-aliases" rows="3"></textarea>
+        <label><input type="checkbox" id="edit-enabled"> 启用</label>
+        <div class="modal-actions">
+          <button type="submit" class="primary">保存</button>
+          <button type="button" id="btn-cancel">取消</button>
+          <button type="button" id="btn-delete" class="danger hidden">删除</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const CATEGORIES = [
+      ["install", "装机"],
+      ["fault", "故障"],
+      ["consumable", "耗材"],
+      ["safety", "安全"],
+      ["kxnx", "奎享"],
+      ["other", "其他"],
+    ];
+    const categoryLabel = Object.fromEntries(CATEGORIES);
+
+    const loginView = document.getElementById("login-view");
+    const appView = document.getElementById("app-view");
+    const loginForm = document.getElementById("login-form");
+    const loginMsg = document.getElementById("login-msg");
+    const appMsg = document.getElementById("app-msg");
+    const filterCategory = document.getElementById("filter-category");
+    const faqTbody = document.getElementById("faq-tbody");
+    const historyTbody = document.getElementById("history-tbody");
+    const editModal = document.getElementById("edit-modal");
+    const editForm = document.getElementById("edit-form");
+    const editId = document.getElementById("edit-id");
+    const editTitle = document.getElementById("edit-title");
+    const editBody = document.getElementById("edit-body");
+    const editCategory = document.getElementById("edit-category");
+    const editAliases = document.getElementById("edit-aliases");
+    const editEnabled = document.getElementById("edit-enabled");
+    const modalTitle = document.getElementById("modal-title");
+    const btnDelete = document.getElementById("btn-delete");
+
+    function fillCategorySelect(select, includeAll) {
+      select.innerHTML = "";
+      if (includeAll) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "全部";
+        select.appendChild(opt);
+      }
+      for (const [value, label] of CATEGORIES) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        select.appendChild(opt);
+      }
+    }
+
+    fillCategorySelect(filterCategory, true);
+    fillCategorySelect(editCategory, false);
+
+    function setMsg(el, text, ok) {
+      el.textContent = text || "";
+      el.classList.toggle("ok", !!ok);
+    }
+
+    async function api(path, options) {
+      const opts = Object.assign({ credentials: "same-origin" }, options || {});
+      if (opts.body && typeof opts.body !== "string") {
+        opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+        opts.body = JSON.stringify(opts.body);
+      }
+      const res = await fetch("/api" + path, opts);
+      let data = null;
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        data = await res.json();
+      }
+      return { res, data };
+    }
+
+    function parseAliases(text) {
+      return text
+        .split(/[\n,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function formatTime(ts) {
+      if (!ts) return "";
+      return new Date(ts * 1000).toLocaleString("zh-CN");
+    }
+
+    function showLogin() {
+      loginView.classList.remove("hidden");
+      appView.classList.add("hidden");
+    }
+
+    function showApp() {
+      loginView.classList.add("hidden");
+      appView.classList.remove("hidden");
+    }
+
+    async function loadFaqs() {
+      const cat = filterCategory.value;
+      const q = cat ? "?category=" + encodeURIComponent(cat) : "";
+      const { res, data } = await api("/faqs" + q);
+      if (res.status === 401) {
+        showLogin();
+        return;
+      }
+      if (!res.ok) {
+        setMsg(appMsg, (data && data.detail) || "加载 FAQ 失败");
+        return;
+      }
+      faqTbody.innerHTML = "";
+      for (const faq of data) {
+        const tr = document.createElement("tr");
+        const enabled = faq.enabled
+          ? '<span class="badge-yes">是</span>'
+          : '<span class="badge-no">否</span>';
+        tr.innerHTML =
+          "<td>" + escapeHtml(faq.title) + "</td>" +
+          "<td>" + escapeHtml(categoryLabel[faq.category] || faq.category) + "</td>" +
+          "<td>" + enabled + "</td>" +
+          '<td><button type="button" data-id="' + escapeAttr(faq.id) + '">编辑</button></td>';
+        tr.querySelector("button").addEventListener("click", () => openEdit(faq));
+        faqTbody.appendChild(tr);
+      }
+    }
+
+    async function loadHistory() {
+      const { res, data } = await api("/publish-records");
+      if (res.status === 401) return;
+      if (!res.ok) return;
+      historyTbody.innerHTML = "";
+      for (const rec of data) {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + escapeHtml(formatTime(rec.created_at)) + "</td>" +
+          "<td>" + escapeHtml(rec.status) + "</td>" +
+          "<td>" + escapeHtml(String(rec.faq_count)) + "</td>" +
+          "<td>" + escapeHtml(rec.xiaozhi_doc_md5 || "") + "</td>" +
+          "<td>" + escapeHtml(rec.error_summary || "") + "</td>";
+        historyTbody.appendChild(tr);
+      }
+    }
+
+    async function refreshAll() {
+      setMsg(appMsg, "");
+      await loadFaqs();
+      await loadHistory();
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function escapeAttr(s) {
+      return String(s).replace(/"/g, "&quot;");
+    }
+
+    function openEdit(faq) {
+      if (faq) {
+        modalTitle.textContent = "编辑 FAQ";
+        editId.value = faq.id;
+        editTitle.value = faq.title;
+        editBody.value = faq.body;
+        editCategory.value = faq.category;
+        editAliases.value = (faq.aliases || []).join("，");
+        editEnabled.checked = !!faq.enabled;
+        btnDelete.classList.remove("hidden");
+      } else {
+        modalTitle.textContent = "新建 FAQ";
+        editId.value = "";
+        editTitle.value = "";
+        editBody.value = "";
+        editCategory.value = "other";
+        editAliases.value = "";
+        editEnabled.checked = true;
+        btnDelete.classList.add("hidden");
+      }
+      editModal.classList.remove("hidden");
+    }
+
+    function closeEdit() {
+      editModal.classList.add("hidden");
+    }
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      setMsg(loginMsg, "");
+      const password = document.getElementById("password").value;
+      const { res, data } = await api("/login", {
+        method: "POST",
+        body: { password },
+      });
+      if (!res.ok) {
+        setMsg(loginMsg, (data && data.detail) || "登录失败");
+        return;
+      }
+      document.getElementById("password").value = "";
+      showApp();
+      await refreshAll();
+    });
+
+    document.getElementById("btn-logout").addEventListener("click", async () => {
+      await api("/logout", { method: "POST" });
+      showLogin();
+    });
+
+    document.getElementById("btn-new").addEventListener("click", () => openEdit(null));
+    document.getElementById("btn-cancel").addEventListener("click", closeEdit);
+    filterCategory.addEventListener("change", loadFaqs);
+    document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+
+    document.getElementById("btn-import").addEventListener("click", async () => {
+      setMsg(appMsg, "");
+      const { res, data } = await api("/import", { method: "POST" });
+      if (!res.ok) {
+        setMsg(appMsg, (data && data.detail) || "导入失败");
+        return;
+      }
+      setMsg(appMsg, "已导入 " + data.imported + " 条", true);
+      await refreshAll();
+    });
+
+    document.getElementById("btn-publish").addEventListener("click", async () => {
+      if (!confirm("将推送到小智知识库，确认？")) return;
+      setMsg(appMsg, "");
+      const { res, data } = await api("/publish", { method: "POST" });
+      if (!res.ok) {
+        setMsg(appMsg, (data && data.detail) || "发布失败");
+        return;
+      }
+      setMsg(appMsg, "发布完成：" + data.status, true);
+      await loadHistory();
+    });
+
+    editForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        title: editTitle.value.trim(),
+        body: editBody.value,
+        category: editCategory.value,
+        aliases: parseAliases(editAliases.value),
+        enabled: editEnabled.checked,
+      };
+      const id = editId.value;
+      let result;
+      if (id) {
+        result = await api("/faqs/" + encodeURIComponent(id), { method: "PUT", body: payload });
+      } else {
+        result = await api("/faqs", { method: "POST", body: payload });
+      }
+      if (!result.res.ok) {
+        alert((result.data && result.data.detail) || "保存失败");
+        return;
+      }
+      closeEdit();
+      await loadFaqs();
+    });
+
+    btnDelete.addEventListener("click", async () => {
+      const id = editId.value;
+      if (!id || !confirm("确定删除这条 FAQ？")) return;
+      const { res, data } = await api("/faqs/" + encodeURIComponent(id), { method: "DELETE" });
+      if (!res.ok) {
+        alert((data && data.detail) || "删除失败");
+        return;
+      }
+      closeEdit();
+      await loadFaqs();
+    });
+
+    (async function init() {
+      const { res } = await api("/faqs");
+      if (res.status === 401) {
+        showLogin();
+      } else {
+        showApp();
+        await refreshAll();
+      }
+    })();
+  </script>
+</body>
+</html>

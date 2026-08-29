@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from kb_admin.auth import SESSION_COOKIE, clear_session_cookie, set_session_cookie, verify_session
@@ -208,6 +210,9 @@ def create_app() -> FastAPI:
     @app.get("/api/publish-records", dependencies=secured)
     def list_publish_records() -> list[dict[str, Any]]:
         return [_publish_record_to_dict(r) for r in store.list_publish_records()]
+
+    static_dir = Path(__file__).resolve().parent / "static"
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
     return app
 

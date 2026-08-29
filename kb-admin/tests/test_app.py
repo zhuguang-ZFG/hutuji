@@ -32,6 +32,13 @@ def _login(client: TestClient) -> None:
     assert r.status_code == 200
 
 
+def test_index_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _client(monkeypatch, tmp_path)
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "登录" in r.text
+
+
 def test_rejects_anonymous(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _client(monkeypatch, tmp_path)
     assert client.get("/api/faqs").status_code == 401
