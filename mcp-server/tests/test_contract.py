@@ -1561,7 +1561,9 @@ def test_capability_expiring_exactly_at_ttl_is_expired(
 
 def test_draw_limiter_rejects_rate_and_concurrency() -> None:
     now = [0.0]
-    limiter = server.DrawLimiter(clock=lambda: now[0])
+    limiter = server.DrawLimiter(
+        per_second=1, per_minute=30, max_concurrent=2, clock=lambda: now[0]
+    )
 
     asyncio.run(limiter.enter())
     with pytest.raises(server.DrawLimitError, match="绘图服务正忙"):

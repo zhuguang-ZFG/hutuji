@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import secrets
 import shutil
 import time
@@ -21,6 +22,39 @@ def _new_basename() -> str:
     return f"draw_{time.strftime('%Y%m%d_%H%M%S')}_{token}"
 
 
+def _install_capability_pair(
+    *,
+    gcode_src: Path,
+    png_src: Path,
+    mcp_output_dir: Path,
+    public_base_url: str,
+    basename: str | None = None,
+) -> PublishResult:
+    """写入 MCP output/ 并生成公网 URL。
+
+    必须刷新 mtime：MCP `/files/` 按磁盘 mtime 判 600s TTL。
+    `shutil.copy2` 会保留图库旧 mtime，导致「图库重发」立刻被当过期 404，
+    设备预览下载失败后清屏（用户感知：预览没完成就退出）。
+    """
+    if not gcode_src.is_file() or not png_src.is_file():
+        raise FileNotFoundError("job 产物不完整")
+    base = basename or _new_basename()
+    mcp_output_dir.mkdir(parents=True, exist_ok=True)
+    gcode_dst = mcp_output_dir / f"{base}.gcode"
+    png_dst = mcp_output_dir / f"{base}.png"
+    shutil.copyfile(gcode_src, gcode_dst)
+    shutil.copyfile(png_src, png_dst)
+    now = time.time()
+    os.utime(gcode_dst, (now, now))
+    os.utime(png_dst, (now, now))
+    prefix = public_base_url.rstrip("/")
+    return PublishResult(
+        gcode_url=f"{prefix}/files/{base}.gcode",
+        preview_url=f"{prefix}/files/{base}.png",
+        basename=base,
+    )
+
+
 def publish_job_files(
     *,
     job_dir: Path,
@@ -28,21 +62,11 @@ def publish_job_files(
     public_base_url: str,
 ) -> PublishResult:
     """复制 job 产物到 MCP output/，生成公网 capability URL。"""
-    base = _new_basename()
-    mcp_output_dir.mkdir(parents=True, exist_ok=True)
-    gcode_src = job_dir / "draw.gcode"
-    png_src = job_dir / "preview.png"
-    if not gcode_src.is_file() or not png_src.is_file():
-        raise FileNotFoundError("job 产物不完整")
-    gcode_dst = mcp_output_dir / f"{base}.gcode"
-    png_dst = mcp_output_dir / f"{base}.png"
-    shutil.copy2(gcode_src, gcode_dst)
-    shutil.copy2(png_src, png_dst)
-    prefix = public_base_url.rstrip("/")
-    return PublishResult(
-        gcode_url=f"{prefix}/files/{base}.gcode",
-        preview_url=f"{prefix}/files/{base}.png",
-        basename=base,
+    return _install_capability_pair(
+        gcode_src=job_dir / "draw.gcode",
+        png_src=job_dir / "preview.png",
+        mcp_output_dir=mcp_output_dir,
+        public_base_url=public_base_url,
     )
 
 

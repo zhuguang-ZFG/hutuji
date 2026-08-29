@@ -136,6 +136,12 @@ class Settings:
     # 3 轮；QD/curated 命中不经闸。`HUTUJI_PAPER_RISK_GATE=0` 关闭 enforce
     # （仍记 shadow 日志由 paper_risk.evaluate 提供，见 server 重试环）。
     paper_risk_gate: bool = True
+    # 课堂级并发生图闸（单进程 DrawLimiter + vpype；默认 8/4/120/6）。
+    # 禁止靠多 uvicorn worker「翻倍」——每进程各有一份内存闸，会静默放大。
+    draw_max_concurrent: int = 8
+    draw_per_second: int = 4
+    draw_per_minute: int = 120
+    vpype_max_concurrent: int = 6
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
@@ -210,6 +216,14 @@ class Settings:
             raise ValueError(f"port 必须在 1..65535，当前 {self.port}")
         if self.output_ttl_seconds <= 0:
             raise ValueError(f"output_ttl_seconds 必须 > 0，当前 {self.output_ttl_seconds}")
+        for name, value, lo, hi in (
+            ("draw_max_concurrent", self.draw_max_concurrent, 1, 32),
+            ("draw_per_second", self.draw_per_second, 1, 32),
+            ("draw_per_minute", self.draw_per_minute, 1, 600),
+            ("vpype_max_concurrent", self.vpype_max_concurrent, 1, 16),
+        ):
+            if not lo <= value <= hi:
+                raise ValueError(f"{name} 必须在 {lo}..{hi}，当前 {value}")
 
     @property
     def llm_configured(self) -> bool:
@@ -270,6 +284,10 @@ def load_settings() -> Settings:
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
+        draw_max_concurrent=_env_int("HUTUJI_DRAW_MAX_CONCURRENT", "8"),
+        draw_per_second=_env_int("HUTUJI_DRAW_PER_SECOND", "4"),
+        draw_per_minute=_env_int("HUTUJI_DRAW_PER_MINUTE", "120"),
+        vpype_max_concurrent=_env_int("HUTUJI_VPYPE_MAX_CONCURRENT", "6"),
     )
 
 

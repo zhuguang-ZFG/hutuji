@@ -1,5 +1,7 @@
 # 部署（2026-08-23 起：阿里云主 / 京东云热备；历史章节为京东云口径）
 
+> **2026-08-29 晚 课堂级并发生图闸上线（双机）**：`DrawLimiter` 默认/生产 **并发 8、每秒 4、每分钟 120**；vpype **≤6**（env：`HUTUJI_DRAW_MAX_CONCURRENT` / `_PER_SECOND` / `_PER_MINUTE` / `HUTUJI_VPYPE_MAX_CONCURRENT`）。单进程 uvicorn，**不加多 worker**（每进程各一份内存闸会静默翻倍）。双机 mcp.env 已写、代码已 scp、`hutuji-mcp` 已 restart（阿里云另 restart bridge）。付费 API 费用与 CPU 随并发上升，课堂仍可能顶满——再高须另拍板。
+
 ## kb-admin（小派售后知识库编辑后台）
 
 一期 FAQ 编辑后台：**未部署生产**（仅仓内模板与代码）。Loopback systemd unit `hutuji-kb-admin`（`:8301`）+ nginx `location /kb-admin/` 反代；编辑真源 SQLite，发布推小智官方云 KB。

@@ -21,12 +21,23 @@ from pathlib import Path
 
 _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 
-# vpype 是外部进程；Quick Draw 命中绕过付费 DrawLimiter 后仍必须有资源上界。
+# vpype 是外部进程；curated/QD 命中绕过付费 DrawLimiter 后仍必须有资源上界。
 # 以事件循环为键懒建，兼容测试/嵌入调用轮换 asyncio loop；生产单 loop 只有一个闸。
-_VPYPE_MAX_CONCURRENT = 2
+# 上限读 HUTUJI_VPYPE_MAX_CONCURRENT（默认 6，与 config.settings 课堂级默认对齐）。
 _vpype_semaphores: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, weakref.ReferenceType[asyncio.Semaphore]
 ] = weakref.WeakKeyDictionary()
+
+
+def _vpype_max_concurrent() -> int:
+    import os
+
+    raw = os.environ.get("HUTUJI_VPYPE_MAX_CONCURRENT", "6").strip() or "6"
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 6
+    return max(1, min(n, 16))
 
 
 def _vpype_semaphore() -> asyncio.Semaphore:
@@ -34,7 +45,7 @@ def _vpype_semaphore() -> asyncio.Semaphore:
     semaphore_ref = _vpype_semaphores.get(loop)
     semaphore = semaphore_ref() if semaphore_ref is not None else None
     if semaphore is None:
-        semaphore = asyncio.Semaphore(_VPYPE_MAX_CONCURRENT)
+        semaphore = asyncio.Semaphore(_vpype_max_concurrent())
         _vpype_semaphores[loop] = weakref.ref(semaphore)
     return semaphore
 

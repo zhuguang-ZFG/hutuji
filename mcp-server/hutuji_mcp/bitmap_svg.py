@@ -95,7 +95,7 @@ _bitmap_cache_clock = time.monotonic
 # 桥接看门狗 300s（WATCHDOG_STALL_SECONDS，超时判死重连会丢掉在途 draw 应答）。
 _IMAGE_ATTEMPT_TIMEOUT_SECONDS = 45
 # 下载单独给更紧的上限：≤16MB 的 PNG 走 30s 已极宽裕。下载不像生图——
-# 重试不再计费，慢连接不值得占住 DrawLimiter 名额久等（并发只有 2）。
+# 重试不再计费，慢连接不值得占住 DrawLimiter 名额久等（课堂级默认并发 8）。
 _IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 30
 _IMAGE_DOWNLOAD_MAX_BYTES = 16 * 1024 * 1024
 # 与 LLM 路线同一口径：瞬态状态码重试两次（1s/3s），其余立即失败。

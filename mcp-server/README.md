@@ -267,8 +267,8 @@ output/      生成产物（运行时创建）
 - **实现**：默认 TTL 600s（`HUTUJI_OUTPUT_TTL_SECONDS`）；draw/status/下载路径触发清理；过期下载 404。
 - **再验**：`tests/test_contract.py` TTL 用例。
 
-### 3.4 全局限流（对齐上游 FreeModel 硬限）✅
-- **实现**：`DrawLimiter`——每秒 ≤1、每分钟 ≤30、并发 ≤2；`hutuji_preview_svg` 直接持有名额，`hutuji_draw` 的完整事务由 `_draw_inflight` 独立任务持有。客户端取消只结束 waiter，同题重试搭车原任务，不能提前释放名额或另起付费生成。
+### 3.4 全局限流（课堂级可配置）✅
+- **实现**：`DrawLimiter`——默认并发 ≤8、每秒 ≤4、每分钟 ≤120（`HUTUJI_DRAW_MAX_CONCURRENT` / `_PER_SECOND` / `_PER_MINUTE`）；vpype 子进程默认 ≤6（`HUTUJI_VPYPE_MAX_CONCURRENT`）。均为**单进程**内存闸；**禁止**用多 uvicorn worker 假装扩容（每进程各算一份会静默翻倍）。`hutuji_preview_svg` 直接持有名额，`hutuji_draw` 的完整事务由 `_draw_inflight` 独立任务持有。客户端取消只结束 waiter，同题重试搭车原任务，不能提前释放名额或另起付费生成。
 - **再验**：`tests/test_contract.py` 的限流与 `test_draw_cancelled_retries_share_one_job_and_limiter_slot`；生产用标准 MCP `notifications/cancelled` 两次后第三次接管，日志应只有一轮生图对冲。
 
 ## 组 4：部署（Q4/Q5）

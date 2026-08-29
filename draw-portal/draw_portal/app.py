@@ -31,7 +31,7 @@ from draw_portal.models import normalize_bind_code, normalize_email, normalize_m
 from draw_portal.passwords import hash_password, verify_password
 from draw_portal.pipeline import copy_saved_preview, process_upload
 from draw_portal.probe import probe_device_token
-from draw_portal.push import publish_job_files, push_for_user_binding
+from draw_portal.push import _install_capability_pair, publish_job_files, push_for_user_binding
 from draw_portal.store import Store
 
 
@@ -491,23 +491,19 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="文件已丢失")
         binding = _require_binding(user_id)
 
-        import secrets as _secrets
-
-        token = _secrets.token_urlsafe(16).replace("-", "_")[:22]
-        base = f"draw_{time.strftime('%Y%m%d_%H%M%S')}_{token}"
-        config.mcp_output_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(gcode_file, config.mcp_output_dir / f"{base}.gcode")
-        shutil.copy2(preview_file, config.mcp_output_dir / f"{base}.png")
-        prefix = config.public_base_url.rstrip("/")
-        gcode_url = f"{prefix}/files/{base}.gcode"
-        preview_url = f"{prefix}/files/{base}.png"
+        published = _install_capability_pair(
+            gcode_src=gcode_file,
+            png_src=preview_file,
+            mcp_output_dir=config.mcp_output_dir,
+            public_base_url=config.public_base_url,
+        )
 
         ok, summary = push_for_user_binding(
             api_base=config.xiaozhi_api_base,
             token_cipher_key=config.token_cipher_key,
             device_token_enc=binding.device_token_enc,
-            gcode_url=gcode_url,
-            preview_url=preview_url,
+            gcode_url=published.gcode_url,
+            preview_url=published.preview_url,
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())

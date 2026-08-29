@@ -98,19 +98,27 @@ MAX_PAPER_RISK_ATTEMPTS = 3
 
 
 class DrawLimiter:
-    """单进程全局限流：1 次/秒、30 次/分钟、最多 2 个并发。"""
+    """单进程全局限流；默认对齐课堂级 settings（可用构造参数覆盖）。"""
 
     def __init__(
         self,
         *,
-        per_second: int = 1,
-        per_minute: int = 30,
-        max_concurrent: int = 2,
+        per_second: int | None = None,
+        per_minute: int | None = None,
+        max_concurrent: int | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.per_second = per_second
-        self.per_minute = per_minute
-        self.max_concurrent = max_concurrent
+        from .config import settings as _settings
+
+        self.per_second = (
+            _settings.draw_per_second if per_second is None else per_second
+        )
+        self.per_minute = (
+            _settings.draw_per_minute if per_minute is None else per_minute
+        )
+        self.max_concurrent = (
+            _settings.draw_max_concurrent if max_concurrent is None else max_concurrent
+        )
         self._clock = clock
         self._starts: deque[float] = deque()
         self._active = 0
