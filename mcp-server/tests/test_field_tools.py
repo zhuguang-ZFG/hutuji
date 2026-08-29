@@ -786,6 +786,30 @@ def test_wifi_setup_not_connected_still_fails_closed(monkeypatch, capsys):
 console = _load_script("xiaozhi_console")
 
 
+def test_update_kb_from_path_uses_given_file(tmp_path, monkeypatch):
+    """库函数 update_kb_from_path 必须读取调用方传入的 path，而非硬编码 KNOWLEDGE_BASE_PATH。"""
+    md = tmp_path / "out.md"
+    md.write_text("# hi\n", encoding="utf-8")
+
+    def fake_api(method, path, body=None):
+        if method == "GET" and "document?" in path:
+            return {"data": {"list": []}}
+        if method == "POST" and path == "/knowledge-bases/document":
+            return {"success": True}
+        if method == "DELETE":
+            return {"success": True}
+        return {"success": True, "data": {}}
+
+    def fake_upload(path, file_path):
+        assert Path(file_path) == md
+        return {"success": True, "data": {"file_name": "out.md", "file_md5": "abc123"}}
+
+    monkeypatch.setattr(console, "api", fake_api)
+    monkeypatch.setattr(console, "api_upload", fake_upload)
+    md5 = console.update_kb_from_path(71153, md)
+    assert md5 == "abc123"
+
+
 def test_update_kb_missing_upload_data_fails_single_line(monkeypatch, tmp_path, capsys):
     """F-XZ-08：上传应答 success=true 却缺 data.file_name/file_md5 时必须按
     「上传应答缺少 file_name/file_md5」单行报错 exit 1，不能裸 KeyError traceback
