@@ -272,6 +272,7 @@ pytest 与 `e2e_local.py` 各带超时（600s / 300s）：卡死（如 e2e 的�
 
 - 开工时门禁先写 `results/.hutuji_gate_running`（含 profile、计划层清单、pid、HEAD），两份报告都落盘后才删除；**该标记在场 = 上次没跑完**（崩溃/断电/Ctrl+C），旁边的报告一律不得当作结论。再次启动时若发现标记残留，门禁会打印提示并覆盖。
 - 报告头绑定 `git_head`（非 git 环境记「未知」）：与 `git rev-parse HEAD` 不符即过期。
+- **报告是固定路径的单槽，后一轮无条件覆盖前一轮**：`profile` 字段只等于**最后一次运行**的层级。跑完 `hub` 再跑一次 `docs`（例如改完文档顺手复查），槽里就只剩 `profile=docs`——此时任何「见报告 `profile=hub`」的引用都是伪证。因此文档里引用本文件当 `hub` 通过的凭据前，必须核对 `profile` 与 `timestamp` 两项，或干脆把 `hub` 排成提交前的最后一轮；只写日期而不写 profile 也比写错 profile 安全。
 
 ## 9. 与其它文档的关系
 

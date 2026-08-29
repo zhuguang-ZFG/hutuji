@@ -119,11 +119,11 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-08-29**（当日多轮，末轮报告以 `results/hutuji_gate_last.json` 的 `timestamp`/`git_head` 为真值；此处不钉文档提交 SHA，避免自指陈旧。发布并部署的应用基线为 `befba0a`），pytest **1043 passed**、e2e `PASS`；docs 指纹 **238** 处全对（原 239 处含 inventory 指向 `xiaozhi_console.py` 第 63 行的引用，该引用随 08-29 现态改写删除，基线已 `--accept-line-refs` 重登于 `befba0ae`）、外仓引用 **232** 处全在范围；提示词强化 + docstring 双分支双机发布（阿里云 preflight 21/30、京东云热备 25/30，均为既有结构性分歧）；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-08-29**（当日多轮 `profile=hub` 全部 `overall=pass`；发布并部署的应用基线为 `befba0a`。末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile=hub` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub 的证据），pytest **1043 passed**、e2e `PASS`；docs 指纹 **238** 处全对（原 239 处含 inventory 指向 `xiaozhi_console.py` 第 63 行的引用，该引用随 08-29 现态改写删除，基线已 `--accept-line-refs` 重登于 `befba0ae`）、外仓引用 **232** 处全在范围；提示词强化 + docstring 双分支双机发布（阿里云 preflight 21/30、京东云热备 25/30，均为既有结构性分歧）；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-08-29**（真值读 `results/hutuji_gate_last.json`：`profile=hub`、`overall_status=pass`，`timestamp`/`git_head` 随当轮更新；`results/.hutuji_gate_running` 不在场），pytest **1043 passed**、e2e `PASS`；docs 指纹 238 处全对（基线登记于 `befba0ae`，此后仅改未被指纹覆盖的引用行，门禁显式标注 HEAD 已前进并仍判 pass）、外仓文档引用 232 处全在范围；部署的应用基线 `befba0a` 在发布前亦通过两层门禁
+- 本仓 `hub` 最近通过：**2026-08-29**（当日多轮 `hub` 均 `overall=pass`：pytest **1043 passed**、e2e `PASS`、docs 指纹 238 处全对、外仓文档引用 232 处全在范围；末轮 hub 在提交前运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线登记于 `befba0ae`，此后仅改未被指纹覆盖的引用行，门禁显式标注 HEAD 已前进并仍判 pass；部署的应用基线 `befba0a` 在发布前亦通过两层门禁
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）
