@@ -1,4 +1,6 @@
 # 发布与出货就绪度
+> **2026-08-29 位图提示词强化 + `hutuji_draw` docstring 双分支双机发布（本仓 `befba0a`）**：`_BITMAP_STYLE` 增加绘图仪友好稀疏轮廓约束（模型侧辅助前移，不替代纸面闸），docstring 钉死异步 `accepted: true`+自动推送与同步分支契约（+2 回归测试）。部署前全量 **1043 passed** + hub 门禁 PASS（指纹 239、外仓引用 232、e2e PASS）。2 产物按 Git blob 规则发布双机（CR=0、SHA-256 双机逐位、py_compile 过、双机备份）；冒烟「画一只猫」：异步 accepted → curated hit → 完成点设备链式推送已受理 → 公网真下载 200/7838B、SHA-256 与服务端逐位相符（可复核产物 `draw_20260829_113933_zXrufqLyvvSAahZe3CnXBw.gcode`，curated hit 免付费） → `/mcp` 404。preflight 阿里云 21/30、京东云 25/30 均为既有结构性分歧。未做纸面 A/B；`mcp-server/README.md`「尚未部署」注记由本条 supersede。
+
 > **2026-08-28 晚 Grbl `$1=255` 页尾/换纸失能守卫闭环（Grbl `2cecd2d` 已提交；COM13 已刷；用户确认正常）**：根因=商业固件在 **M30 页尾**（`GCode.cpp`）与 **换纸 abort/进纸超时/卡纸**（`PaperSystem.cpp`）无条件 `motors_set_disable(true)`，绕过 NVS `$1=255` 常使能 → 弹簧笔架抬笔 → 画完或下一页「没墨/电机不使能」。修复=`stepper_idle_lock_time==0xff` 时 M30 跳过失能；换纸失败/abort 改 `paper_finish_xyz_after_fault()`（常使能机显式恢复 enable）；换纸成功仍 `:1047` 恢复。构建 `pio run -e release` SUCCESS；`firmware.bin` 1858112B SHA-256 `12275654…429A5`；COM13 upload `Hash of data verified`。证据 `results/local-only/2026-08-28/grbl-m30-enable-hil-monitor.log`（21:54 feeder timeout 曾触发旧路径失能）；**用户 2026-08-28 晚确认「好了没问题了」**。S3 无需改。~~「M30 页尾强制失能…与 `$1=255` 无关」~~ **【supersede】** 本条。
 > **2026-08-28 晚 设备侧网络退化：TLS 失速/停顿原因未定性**：`minimal sram` 来自 `heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`，表示自启动以来的内部堆最低水位；2343→1587→707 只能说明历史最低值被刷新，不能证明泄漏。同期 `free sram` 约 36–38KB 未见随 session 持续下滑；20:52 重启屏幕后连续 9 分钟 `free sram≈39.5KB` 稳定、`minimal sram=19839` 不动（`hil-screen-c2-com14.log`）。TLS 握手曾耗时 3.2–6.7s，下载停顿时云侧 nginx/uvicorn 已记录 200，设备侧响应链仍未定性。云侧 abort 对下载态有效（20:50:33 实证取消成功，err=HTTP Open 失败）。下一次下载停死须在同一时间窗记录 current free、内部最大连续块、WiFi RSSI 与重连计数，再决定审计方向（不得预设泄漏）。~~M30 页尾强制失能 XYZ 与 `$1=255` 无关~~ **【supersede 2026-08-28 晚 F′】**：原 `GCode.cpp:1732`/`:1789` 无条件失能已加 `$1=255` 守卫，见文首条与 `protocol.md` §9-F′。
 > **2026-08-28 晚 暂停后停止归位修复并 HIL 通过（xiaozhi `be50a88`，镜像 `1f95fc62…` 已刷 COM14）**：二轮失败根因=断流任务未清 S3 侧 `paused_` 冻结闸，流循环停在某流收应答冻结、收口永不发布、abort 悬挂（另证：Hold 期 1s 应答超时刷屏=流收循环刻意的迟到 ok 排流，非探测堵锁）。修复：drain 任务先清 `paused_` 解冻 + `~` 退 Hold，再同序列归位；收口超时兜底移交 reset。实证：19:32:05 暂停→Hold(126.5,110.1) → 19:32:10 停止 → 解冻+`~`+排空 → 19:32:14 Idle → 19:32:15 归位完成播报「已停止并回原点」，全程 5 秒。**「停止」双路径至此全闭**。同批 review 修复：`_collapse_short_pen_down_segments` 塌缩写回 F8000 硬编码改继承本行/模态 F（+1 钉死测试，A/B 进给夹具失真风险消除）；根目录 `lineart-research-report.md` 挪 tmp/、curated 数据同步工件入 gitignore。
@@ -100,7 +102,7 @@
 | 2 | §9 Grbl 小改清单 | ✅ 核心 §9 已有烧录/fz/实机证据；源码后续 `847b564` 不自动等于板上基线 |
 | 3 | 真实语音出图主链 | ✅ 2026-08-17 语音→云端→下载→出图→归位→换纸已有证据 |
 | 4 | Waveshare 预览与屏幕控制 | 🟡 当前源码基线 `72a693a`（在 `cb82edb` 的 π 启动画面 + Grobot/主题统一渐变 + 触摸双检测门 + 点动包线 Y≤190 + 唱歌双工具之上，追加省电门控/退避前段/播报等待信号/预取内联，祖先关系经 `git merge-base --is-ancestor` 实测）已推，对应镜像 `93b61d5b…afa9` 已刷 COM14：全分区 esptool 写入哈希校验通过，host 131/131，三轮画图 HIL 通过。**待验**：完整冷启动日志、π/Grobot 动效与按钮呼吸现场目视、触摸灵敏度体感与误触回归、预览确认/取消与暂停/继续/停止/重画/试笔 HIL、纸面画质目视；另登记 PSRAM 预取接管所有权缺口（源码审查，待独立批次修复） |
-| 5 | MCP / 阿里云运行态 | ✅ 生产 = 阿里云 `47.112.162.80`（2026-08-23 晚割接）；2026-08-26 复审 P3 修复已发布双机（`b6b314e`，`activation_relay.py`/`quickdraw.py` sha256 对账，见 `deployment.md` 顶部），运行时面与本仓 HEAD 一致，两服务 active、bridge 全链在案；真实语音 HIL 与命中率统计未执行，设备端出图结果不据此宣称 |
+| 5 | MCP / 阿里云运行态 | ✅ 生产 = 阿里云 `47.112.162.80`（2026-08-23 晚割接）；2026-08-29 提示词强化 + docstring 双分支已发布双机（`befba0a`，`bitmap_svg.py`/`server.py` SHA-256 双机对账，见 `deployment.md` 顶部），运行时面与本仓 HEAD 一致，两服务 active、bridge 双 connected，冒烟「画一只猫」全链含公网真下载；真实语音 HIL 与命中率统计未执行，设备端出图结果不据此宣称 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
 | 8 | BLE 只读诊断辅助面 | 🟡 Phase A 当前加固源码（`f1aa0e7`）已完成 COM14 刷机复验：4 分钟/1,683 行稳定性、两轮 6 字节空中包、NVS byte-identical 回滚与默认镜像自证，BLE 专测 18/18、全 host 93/93、默认/启用构建通过。尚未完成 WiFi/Telnet 共存量化门槛（含 BLE-off 基线对照）、功耗/温升与阶段 B 认证 GATT，故不得改为 ✅ |
@@ -117,11 +119,11 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-08-26**（`b6b314e`），pytest **985 passed**、e2e `PASS`；docs 指纹 **228** 处全对；P3 修复双机发布（阿里云 preflight 20/10 结构性分歧已定性、京东云热备 25/30 与基线一致）、fz feed-hold 切片隔离 3/3 PASS（standard 被 MinGW 环境层阻断）；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-08-29**（`befba0a`），pytest **1043 passed**、e2e `PASS`；docs 指纹 **238** 处全对（原 239 处含 `docs/worktree-inventory.md -> xiaozhi_console.py:63`，该引用随 08-29 现态改写删除，基线已 `--accept-line-refs` 重登）、外仓引用 **232** 处全在范围；提示词强化 + docstring 双分支双机发布（阿里云 preflight 21/30、京东云热备 25/30，均为既有结构性分歧）；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-08-25**（`12ad370`），pytest **982 passed**、e2e `PASS`；docs 指纹 228 处全对，外仓文档引用 218 处全在范围；本轮日志脱敏代码与治理口径均通过
+- 本仓 `hub` 最近通过：**2026-08-29**（`befba0a`），pytest **1043 passed**、e2e `PASS`；docs 指纹 238 处全对，外仓文档引用 232 处全在范围；本批提示词与 docstring 改动部署前通过两层门禁
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）

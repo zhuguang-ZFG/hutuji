@@ -1,5 +1,5 @@
 {
-  "git_head": "1f0253ed71732d57a5c6bc99b66c6f208ab549e3",
+  "git_head": "befba0ae29bb971f31c46a16810c7e1f6b847a56",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1190,13 +1190,8 @@
       "sha8": "ba5cf0f9",
       "source": "}\n\nbool Pipe::SendLine(const std::string& line) {\n    if (!connected_.load()) {\n        ESP_LOGW(TAG, \"TCP 未连接，丢弃发送: %s\", line.c_str());\n        return false;\n    }\n\n    std::lock_guard<std::mutex> lock(write_mutex_);\n    // 逐行模式：发新行前清掉残留应答，防止上一行超时后迟到的 ok 满足本行的等待。\n    // 窗口化模式必须关掉这个清空——那时队列里的应答是「在途」的合法凭据，\n    // 清掉会让在途计数永久漂移（设计文档 §4.1）。\n    if (drain_on_send_.load()) {\n        DrainResponses();\n    }\n\n    std::string payload = line;\n    payload.push_back('\\n');\n    if (!SendRawLocked(payload.data(), payload.size())) {\n        ESP_LOGE(TAG, \"发送失败: %s\", line.c_str());\n        return false;\n    }",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
-    },
-    "docs/worktree-inventory.md -> xiaozhi_console.py:63": {
-      "sha8": "65e5060a",
-      "source": "    \"hutuji.draw\": frozenset({\"url\", \"preview_url\"}),",
-      "target": "scripts/xiaozhi_console.py"
     }
   },
-  "updated": "2026-08-28T18:51:03Z",
+  "updated": "2026-08-29T03:44:03Z",
   "version": 1
 }
