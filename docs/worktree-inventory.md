@@ -76,6 +76,8 @@
 ### 未跟踪文件（本次调研新增）
 | 文件 | 说明 |
 |------|------|
+| `tmp/s3-confirm-capture-0829.log` / `tmp/grbl-confirm-capture-0829.log` / `tmp/s3-confirm-tail-0829.log` | 2026-08-29「能预览却画不了」复现抓包（COM14+COM13）；确认→预取复用→streaming→有墨；本机留档不入库 |
+| `tmp/cap_confirm_hil_0829.py` / `tmp/diag_nodraw_0829.py` / `tmp/cap_s3_nodraw_0829.py` | 同日只读诊断/抓包脚本（不入库） |
 | `lineart-research-report.md` | 简笔图获取方式调研报告（纯调研产物） |
 | `docs/design/quickdraw-local-cache.md` | Quick Draw 本地缓存落地设计稿 v0.1（待用户批准，未实施） |
 | `USER_MEMORY.md` | 用户记忆备份（跨会话持久化） |

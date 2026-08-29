@@ -1,5 +1,5 @@
 {
-  "git_head": "f41164f1128d5f687c0617a8d5c64572d334954a",
+  "git_head": "2940f5b3d70497a79b1e2fc4788c0a4928abe5f5",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -536,17 +536,17 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:100": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:102": {
       "sha8": "d8716e43",
       "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1043** 项（2026-08-28 塌缩 F 继承 +1（`test_gcode_min_segment.py` 4）；2026-08-28 异步生成+完成推送 +5；2026-08-26 +6；2026-08-27 纸面闸批 +19 后 scribble v2 +1、拒收缓存逐出 +1、Twemoji 矢量源 +4；QD 退役 -5、curated 优先 +2、viewBox 预览 +2；junction 续接 +5：`test_paper_risk.py` 13、`test_bitmap_decimate.py` 13、`test_curated_vector.py` 4、`test_quickdraw.py` 36、`test_curated_server.py` 5、`test_curated.py` 6） |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:80": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:82": {
       "sha8": "3ed41734",
       "source": "| `docs/design/quickdraw-local-cache.md` | Quick Draw 本地缓存落地设计稿 v0.1（待用户批准，未实施） |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:85": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:87": {
       "sha8": "a492061a",
       "source": "| `mcp-server/tmp/qd_categories.txt` | QD 类目清单工作副本，保留本地 |",
       "target": "docs/worktree-inventory.md"
@@ -1192,6 +1192,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-29T07:30:47Z",
+  "updated": "2026-08-29T09:14:41Z",
   "version": 1
 }

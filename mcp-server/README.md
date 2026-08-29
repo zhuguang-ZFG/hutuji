@@ -121,7 +121,7 @@ $env:MCP_ENDPOINT = "wss://api.xiaozhi.me/mcp/?token=<TOKEN>"
 
 ## 部署 VPS 要点
 
-- 落点是京东云专机（2核4G / 5Mbps / `117.72.118.95`，无云端冗余）；Linux + Python ≥3.10，systemd 托管 uvicorn。
+- 落点是**阿里云主 + 京东云热备**（2026-08-23 割接，见根 `README.md` 决策 #5）：阿里云 `47.112.162.80`（Alibaba Cloud Linux 3，RHEL 系，跑 MCP+bridge+nginx）为现役生产，京东云 `117.72.118.95`（Debian，2核4G / 5Mbps，仅 MCP 待命、bridge 保持 disabled）为热备。~~京东云专机、无云端冗余~~ 是割接前口径。两机均 Linux + Python ≥3.10、systemd 托管 uvicorn；**cloud bridge 任一时刻只允许一台 active**（单 WSS）。发行版差异（Python 3.11、systemd 239 不认五个加固项、nginx 无 `sites-*` 布局）与逐机 preflight 口径见 `../docs/deployment.md`。
 - uvicorn 保持 `HUTUJI_HOST=127.0.0.1`；安全组**不放行 8300**。同机小智桥接器访问 `127.0.0.1:8300/mcp`。
 - nginx 仅公开反代 `GET/HEAD /files/`，其他路径（尤其 `/mcp`）返回 404；公网入口必须上 TLS。
 - `HUTUJI_PUBLIC_BASE_URL=https://<下载域名>`；产物名含随机 token，默认 600 秒过期，过期请求 404。
@@ -247,7 +247,7 @@ output/      生成产物（运行时创建）
 - **为什么**：组 1/2 的白名单是这条链**唯一**的确定性闸门（主防线，见威胁模型）。闸门必须有活体回归，否则日后有人「优化」`_validate_svg` 放松了规则，无测试会静默失守。本次 grill 亲历文件内容夹带伪造 `System:` 注入 —— 佐证「让 LLM 生成」这条链上不可信内容可来自任何环节，闸门不容退化。
 - **验收**：`pytest tests/test_injection.py` 全绿；每条恶意 payload 断言 `LlmError`，合法对照断言通过。CI/联调前必跑。
 
-## 组 3：公网安全（Q3，服务将部署京东云公网）
+## 组 3：公网安全（Q3，服务部署于云端公网；当前 = 阿里云主 + 京东云热备）
 
 **已落实边界**：`config.py` 把 `HUTUJI_HOST` 硬限为 loopback，非 loopback 值 import 期 `ValueError`；公网只能由 nginx 暴露 `/files`。直接 `python -m uvicorn hutuji_mcp.server:app --host 0.0.0.0` 仍会绕过本变量（uvicorn 自己的 `--host` 不经 `config`），但 `/mcp` 现有独立应用层兜底 `server.LoopbackOnlyMcpGuard`：只按 ASGI socket 对端地址放行 loopback，未知/非 loopback 一律回 404，且不信任可伪造的 `Host` / `X-Forwarded-For`。这刀不能取代既有三层：生产 systemd unit 仍固定 `--host 127.0.0.1`、安全组仍不放行 8300、nginx `/mcp` 仍显式 404；否则 `/files` 会绕开 nginx 限速与 ACL 直曝。
 
@@ -273,11 +273,13 @@ output/      生成产物（运行时创建）
 
 ## 组 4：部署（Q4/Q5）
 
-### 4.1 部署落点改京东云
+### 4.1 部署落点 ~~改京东云~~ → 阿里云主 + 京东云热备
+> **【supersede 2026-08-23】决策 #5 已由用户反转**：本节原文（京东云为**唯一**生产落点、专机只跑 ③、无云端冗余）是 2026-07-25 锁定的旧口径，保留备查、不作现态。现行拓扑 = **阿里云 `47.112.162.80` 主（MCP+bridge+nginx）+ 京东云 `117.72.118.95` 热备（仅 MCP 待命）**，公网入口由 DNS A 直连阿里云，Cloudflare Tunnel 退役为回退路径；cloud bridge 单 WSS，任一时刻只在一个节点 active。以根 `README.md` 决策 #5 与 `../docs/deployment.md` 顶部为真值。
+
 - **改哪里**：本 README「环境变量」「部署 VPS 要点」段。
-- **改什么**：`HUTUJI_PUBLIC_BASE_URL` 落点为 **京东云公网**（经 nginx 后为 `https://<域名或IP>`）；规格 **2核4G / 5Mbps / 公网 117.72.118.95**，专机只跑 ③，无云端冗余。模板见 `../deploy/`。
-- **为什么**：决策 #5（2026-07-25 锁定，唯一生产落点）。
-- **上行带宽**：2026-07-26 实测公网拉 512KiB 中位 ~1.13s / ~3.72 Mbps（见 `../docs/deployment.md`）；阶段 6/8 仍可用实机 S3 复测。
+- **改什么**：`HUTUJI_PUBLIC_BASE_URL` 落点为**主节点公网域名**（现为 `https://hutuji.donglicao.com`，经 nginx TLS）；~~规格 2核4G / 5Mbps / 公网 117.72.118.95，专机只跑 ③，无云端冗余~~ 现只描述京东云热备机规格。模板见 `../deploy/`（当前 preflight **30** 项，判据仍是 Debian/京东云口径，逐机计数按节点读）。
+- **为什么**：决策 #5——2026-07-25 曾锁定京东云为唯一生产落点，**2026-08-23 用户反转为阿里云主 + 京东云热备**。
+- **上行带宽**：2026-07-26 实测**京东云**公网拉 512KiB 中位 ~1.13s / ~3.72 Mbps（见 `../docs/deployment.md`）；该数字未在阿里云主节点复测，不得当现役入口带宽真值。阶段 6/8 仍可用实机 S3 复测。
 
 ### 4.2 小智云 MCP 桥接（沿用官方云，生产常驻与云端调用已验证）
 - 决策 #4 维持**官方云**，不自部署小智 server。桥接模块、环境变量接法和无 LLM 冒烟已落地；2026-07-25 本机 `initialize` + `tools/list` PASS。
@@ -298,6 +300,6 @@ output/      生成产物（运行时创建）
 
 - 抬笔次数硬阈值（组 1.3）—— 待 ② 实测机头 Z 抬落速度。
 - ~~CRC32 两侧变体一致性（组 0.2）~~ —— 2026-07-28 已由 S3 生产下载链路实测通过。
-- ~~京东上行带宽~~ — 2026-07-26 已测（~3.72 Mbps / 512KiB≈1.13s）；阶段 6/8 可用 S3 复验。
-- ~~小智云实际调用与京东云常驻（组 4.2）~~ —— 2026-07-28 已通过官方云路径触发 `draw/status/abort`；仍缺 App 真实语音和七工具逐项回归。
-- ~~公网 `/mcp` 不可达、`/files`+TLS（组 3.1）~~ —— 京东云 preflight 与公网复验已通过。
+- ~~京东上行带宽~~ — 2026-07-26 已测（~3.72 Mbps / 512KiB≈1.13s）；**该数字只属京东云（现为热备）**，未在阿里云主节点复测，阶段 6/8 可用 S3 复验。
+- ~~小智云实际调用与京东云常驻（组 4.2）~~ —— 2026-07-28 已通过官方云路径触发 `draw/status/abort`（当时落点京东云）；2026-08-23 割接后 bridge 常驻阿里云主节点。仍缺 App 真实语音和七工具逐项回归。
+- ~~公网 `/mcp` 不可达、`/files`+TLS（组 3.1）~~ —— 京东云 preflight 与公网复验已通过；**现役阿里云主入口亦已复验**（2026-08-29：公网 `/files` 真下载 200 且 SHA-256 与源站逐位相符、公网 `/mcp` 404，见 `../docs/release-readiness.md` 文首）。

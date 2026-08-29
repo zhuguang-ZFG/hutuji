@@ -490,3 +490,14 @@ BLE 排障必须先确认边界：S3 BLE 阶段 A 已提供 6 字节公开粗粒
 - 对照结论：「G92 在任意高度校准」是厂商原始行为，非 hutuji 引入的偏差；hutuji 的差异只是校准点受时序控制（fresh Idle + 100ms）。故 Z 叙事的判别力全在上一节可证伪预测：出墨=校准点叙事成立但非「已修」；不出墨=叙事作废转物理面。
 
 纸路语义纠偏（2026-08-25 用户指正 + 源码复核，撤消本行旧版「装纸前置」结论）：`[ESP901]` 的 `Paper=` 是**进纸/弹纸槽**传感器（GPIO34，LOW=纸在槽位，`PaperSystem.cpp:349-359`、`custom_3axis_hr4988.h:245-246`），量的是换纸流程里「旧纸是否还在槽里/新纸是否到位」，**不是画台有无纸**；idle 有纸时读 `Paper=No` 属正常。S3 侧更不把纸当出图闸：`PaperPresentState` 仅上云遥测、`Unknown` fail-open 不得解释为缺纸（`hutuji_recovery_core.h:797-800`），预览期 `[ESP901]` 刷新尽力而为、不挡预览（`hutuji_job.cc:1258-1267`），**S3 没有缺纸出图闸**（inventory a1afd2a 行「Paper=No 早退」表述同日撤正）。唯一纸相关拒绝在 M30 换纸内：进纸 10s 未触发传感器=OUT_OF_PAPER、传感器持续有纸=卡纸，均收敛 error:90（`PaperSystem.cpp:835-848`）。故 16:57 error:90 = 换纸的进纸阶段失败（feeder 无下一张或卡纸），不是「画台没纸」；22:02「没画直接换纸」与纸态无关，仍用 (0,0) 归位判别器分档。旧证据 `grbl-probe-2210-com13.txt` 保留但只作传感器现态记录，不作有无纸判据。另：G92 Z=5 仍在而 MPos Z 由 5→0，G92 未清=未复位，开环步计数事后重建不可靠——按本节口径停止跨场次反推。
+
+## 「能生成、能预览、却画不了」先别怪云端 / `Paper=`（2026-08-29）
+
+判别顺序（本轮实锤）：
+
+1. **先看云端 journal**：有 `curated hit` / 链式 `hutuji.draw` 已受理 + `GET /files/draw_*.{png,gcode}` **200** ⇒ 云端生成与推预览正常，不是「云挂了」。
+2. **别用 `Paper=No` 解释画台没纸**：见上节纸路语义；换纸成功常见 `Paper=No + PanelHold=On`。
+3. **抓 COM14 看确认有没有进门**：应出现 `ui preview action=confirm`（或语音等价入口）→ `确认即画：复用预取…` / 下载 → `streaming` → `G92 Z0`。只有 Idle 心跳、没有 confirm 行 ⇒ 断在确认入口（屏触/语音/忙态），不是 MCP。
+4. **COM13 `?` 看有没有运动**：`Run` + 非零 MPos / 落笔 Z=5 ⇒ 写字机在画；全程 `Idle MPos:0,0,0` + `G92:0` ⇒ 确认后从未开到 `PreparePenOrigin`。
+
+2026-08-29 17:08 HIL：上述 1–4 全绿，用户确认纸面有墨；证据本机 `tmp/s3-confirm-capture-0829.log`（不入库），结论条见 `release-readiness.md` 文首。

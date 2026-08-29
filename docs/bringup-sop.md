@@ -159,7 +159,7 @@ partition 与 app 均 `Hash of data verified`，NVS 授权保留。串口最小�
 
 **通过判据**：小智云侧能看到并成功调用 `hutuji_status`。
 
-> **历史记录（2026-07-31；已被后续生产记录 supersede）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻；当时 preflight 为 14 项且全 PASS，合法命名产物经公网 Tunnel 与 `:80` 回源均 HTTP=200，`/mcp` 404、`POST /files/` 403。官方小智消息 API 已发现七个设备侧工具并触发 `draw/status/abort`。阶段 6 云端调用子项已过，但 App 真实语音不属于该证据，阶段 7 另行验收。**当前生产真值**：SPEED-01/PNG 预览运行态已部署，preflight **26/26 PASS**；真实语音出图、归位、自动换纸已有 2026-08-17 历史证据，当前未闭项看 `release-readiness.md`。
+> **历史记录（2026-07-31；已被后续生产记录 supersede）**：京东云 MCP+bridge+nginx+Cloudflare Tunnel 已常驻；当时 preflight 为 14 项且全 PASS，合法命名产物经公网 Tunnel 与 `:80` 回源均 HTTP=200，`/mcp` 404、`POST /files/` 403。官方小智消息 API 已发现七个设备侧工具并触发 `draw/status/abort`。阶段 6 云端调用子项已过，但 App 真实语音不属于该证据，阶段 7 另行验收。**当前生产真值**：生产 = 阿里云主 + 京东云热备，现役应用基线 `b7f88e3`（2026-08-29 晚生产漂移收口，逐项证据见 `deployment.md` 顶部）；**preflight 模板现为 30 项且数字按节点口径读**——阿里云 `pass=21 fail=9`（8 项 nginx 判据锁 Debian `sites-*` 布局 + 1 项 08-23 手调 el8 unit）、京东云 `pass=25 fail=5`（4 项 bridge 按单 WSS 热备设计不满足 + 1 项公网 `/files` 安全组 hairpin），旧文「26/26 PASS」是 26 项模板时代的单节点快照，不得当双机共同结果。真实语音出图、归位、自动换纸已有 2026-08-17 历史证据，当前未闭项看 `release-readiness.md`。
 
 ---
 

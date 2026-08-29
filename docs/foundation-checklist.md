@@ -33,7 +33,7 @@
 
 ## C. 部署 / 生产模板（有模板 ≠ 已上线）
 
-- [x] `docs/deployment.md` + `deploy/`（拆分 env、prepare/install/preflight 脚本；京东云生产已常驻，SPEED-01 运行态与 preflight 26/26 证据见 `docs/deployment.md` / `release-readiness.md`）
+- [x] `docs/deployment.md` + `deploy/`（拆分 env、prepare/install/preflight 脚本；生产 = **阿里云主 + 京东云热备**（2026-08-23 割接），现役应用基线与逐机 preflight 口径见 `docs/deployment.md` 顶部 / `release-readiness.md`；旧文「京东云生产已常驻 + preflight 26/26」是 26 项模板时代的单节点快照，勿当现态）
 - [x] `docs/operations.md` 值守骨架
 - [x] `docs/production-sop.md` + `docs/release-checklist.md` + `docs/compliance.md`
 - [x] `docs/templates/device-test-record.md` + `release-manifest.md`
@@ -61,7 +61,7 @@
 | Grbl §9 烧录 + bringup 阶段 2 | 路线图 ② | ✅ 核心 §9 已有烧录/fz/实机历史证据；后续源码 HEAD 不自动等于板上基线 |
 | S3 哑管道 | 路线图 ② | 🟡 主链与部分 Waveshare HIL 有证据；预览/五按钮与断连恢复窗口仍缺 |
 | 硬件联调证据 | bringup 0–8 | 🟡 多项已有历史证据；纸面画质与当前 UI HIL 未闭合 |
-| 京东云运行态 | 路线图 ③ / deployment | ✅ 服务常驻，SPEED-01 窄部署与 preflight 26/26 有证据 |
+| 云端运行态 | 路线图 ③ / deployment | ✅ 阿里云主（MCP+bridge+nginx）与京东云热备（仅 MCP）常驻，现役基线 `b7f88e3`；preflight 按节点口径读（阿里云 21/30、京东云 25/30，差异为 RHEL/Debian 布局与热备拓扑），逐项证据见 `deployment.md` 顶部 |
 | 出货签核 | 路线图 ④ | 🔴 剩余 HIL、纸面画质、生产与合规签核未闭合 |
 
 ## G. 交接时必做
