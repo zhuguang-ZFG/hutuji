@@ -29,6 +29,16 @@
 | 验证 | 用户确认画完后电机保持使能、出图正常；证据 `results/local-only/2026-08-28/grbl-m30-enable-hil-monitor.log` |
 | fz | 本机构建 SUCCESS；fz `standard` 本机 native_sim 环境预存红（mingw/limits.h），不阻断产品结论 |
 
+### draw-portal 买家网页传图（2026-08-29 入库 + 阿里云已部署）
+
+| 项 | 说明 |
+|----|------|
+| 路径 | `draw-portal/`（FastAPI + SQLite + 静态页） |
+| 部署 | `deploy/hutuji-draw-portal.service`、`deploy/env.draw-portal.example`、`deploy/nginx-draw-portal-snippet.conf` |
+| 探活脚本 | `scripts/probe_device_messaging_token.py`（token 勿入库） |
+| 契约 | `docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md` |
+| 生产 | 阿里云 active；venv 共用 MCP；数据 `/var/lib/hutuji/draw-portal/` |
+
 ### curated 精选库（2026-08-26，代码已合 main / PR #7；灌库未 flip）
 | 项 | 说明 |
 |----|------|
@@ -161,7 +171,20 @@
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
 
-**工作树干净（2026-08-24 语音手动控制批 `fb9eeb2` + 2026-08-25 落笔棘轮闸批 `25b7dd0` + 2026-08-25 半墨根治批 `e623aec` + 2026-08-25 点动越界同步预检批 `95884c7`，、2026-08-26 触摸第四轮批 `12b6751` + 扩展点击区 `0cf01ce` + 角钮 56px 合规 `a7e0495` + 几何日志 `135cecd`/`0ea1cbd`（登记时均未刷机；2026-08-28 已随 `c3cf3d7` 构建整体上板——该 commit 是 `5abbd50` 后代，触摸第四轮/扩展点击区/角钮 56px/几何日志链全在其中，经用户照片确认）均已推 origin/feat/hutuji-usb-pipe；`95884c7` 及以前当时已刷 COM14，**2026-08-28 起板上为 `c3cf3d7`**（见下 5876c13/c3cf3d7 两条））**：语音白名单 + 双板 `hutuji.manual` 注册（`fb9eeb2`）；落笔棘轮修复（`25b7dd0`）——pen_down 的 G92 重设基准序列重复触发会逐次压深 5mm（无限位、语音面摩擦最低），现以 `manual_pen_down_latched_` 原子锁存幂等短路，SetState 进任何非 settled/manual 态即清除强制重校准；双板描述逐字补幂等语义与方向映射（左=X- 右=X+ 前=Y+ 后=Y-）。半墨根治（`e623aec`）：`UpdateDisplayProgress` 的 SetStatus 经 `Application::Schedule` 回主任务，灌流路径零 UI 阻塞——此前内联 SetStatus 在 LVGL 锁上被全脸动画整帧渲染卡 230–640ms（TTS 播报期最烈），planner 排空 → `$1=25` 失能 → 弹簧抬笔 → 树冠/框左缘微段区无墨；250ms 节流（bf0b295）只降频率救不了单次锁等待。修复后实测落笔期空窗 max 30ms、>100ms 零次（修复前 640ms/10 次），语音出图**全墨**；证据与机制详见 hub `docs/design/s3-stream-pacing-investigation.md` §7。点动越界同步预检（`95884c7`）：实机语音 HIL 发现越界只在 ManualTask 拦时工具已回 started、失败仅进 notify，LLM 假播「已经往左挪啦」——现 `RequestManualControl` 于任务派发前以同一新鲜坐标+同一 `DecideJog` 预判，越界/坐标不可信以工具返回值直述失败，任务内判定保留纵深防御；复验原点左挪播报「已经在最左边啦」，1mm 细档 `$J=Y1.0` 实证。**语音 HIL 完成（两轮抓包 hub `results/local-only/2026-08-25/manual-hil-{com14,fix-com14}.log`）**：棘轮幂等「再落笔一次」零运动实证、点动/抬落笔/回原点/步距双档逐条过。host **135/135**。**板上镜像**：`build-jog-ws35/xiaozhi.bin` 3,017,968B SHA-256 `7325a367…c188`（= `95884c7`，2026-08-25 刷 COM14，`Hash of data verified` + WDT reset；上一版 `80e4ffe8…d7b7`=`e623aec` 已被覆盖）。
+### DRAW-BIND 绑机固件（2026-08-29，**未提交 / 未推 origin**）
+
+| 文件 | 说明 |
+|------|------|
+| `main/boards/lichuang-dev/hutuji_draw_bind.{h,cc}` | 绑机 QR/announce；单任务 `hutuji_bind` 栈 8192（修 COM14 `hutuji_bind_pol` 栈溢出） |
+| `main/display/lcd_display.{h,cc}` | 维护页「绑定呼图账号」可见性；预览 UI |
+| `main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc` | 挂 `StartDrawBind` |
+| `main/boards/lichuang-dev/hutuji_job.cc` | （若本批有改动则登记） |
+| `main/ota.cc` | OTA 解析 `messaging` 段写 NVS（待刷机验证） |
+| 证据 | `tmp/bind-reboot-com14.log`（旧镜像栈溢出）；绑机栈修复后 announce 200 无重启 |
+
+**板上**：绑机+预览+屏上确认出图已 HIL；messaging token 自动写入仍靠运维。**勿与 hub draw-portal 代码提交混为一谈**——固件在外仓单独 commit。
+
+**工作树（2026-08-29）**：DRAW-BIND 绑机固件脏树见上表；历史语音/触摸/稳定性批次见下「批次登记」小节。
 
 ### 批次登记与板上镜像（HEAD 存档并入）
 

@@ -1,0 +1,13 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+cryptography>=42
+python-multipart>=0.0.9
+pytest>=8.3,<9
+# 传图链复用 hutuji_mcp（PYTHONPATH=/opt/hutuji/mcp-server）；须与 mcp-server/requirements.txt 描摹/vpype 线对齐
+vpype>=1.14,<2
+vpype-gcode>=0.13,<1
+scikit-image>=0.24,<0.27
+networkx>=3,<4
+sknw>=0.15,<1
+imageio>=2.34,<3
+numpy>=1.26,<3

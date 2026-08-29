@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>呼图云 · 运营后台</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+    .card { background: #1e293b; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+    input, button, textarea { font: inherit; }
+    input, textarea { width: 100%; padding: .5rem; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; }
+    button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: .45rem .8rem; cursor: pointer; }
+    button.secondary { background: #334155; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: .45rem; border-bottom: 1px solid #334155; text-align: left; vertical-align: top; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .75rem; }
+    .stat { background: #0f172a; border-radius: 8px; padding: .75rem; }
+    .stat b { display: block; font-size: 1.2rem; }
+    .hidden { display: none !important; }
+    .tag { display: inline-block; padding: .1rem .4rem; border-radius: 999px; font-size: .75rem; }
+    .tag.active { background: #064e3b; color: #6ee7b7; }
+    .tag.banned { background: #7f1d1d; color: #fecaca; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>呼图云运营后台</h1>
+    <p>用户、绑机、传图数据管理</p>
+  </div>
+
+  <section id="login-section" class="card">
+    <h2>管理员登录</h2>
+    <label>密码<input id="admin-password" type="password"></label>
+    <button id="btn-admin-login">登录</button>
+    <div id="login-msg"></div>
+  </section>
+
+  <section id="dash-section" class="hidden">
+    <div class="card">
+      <div class="row" style="display:flex;gap:.5rem;align-items:center;justify-content:space-between">
+        <h2 style="margin:0">概览</h2>
+        <button id="btn-admin-logout" class="secondary">退出</button>
+      </div>
+      <div id="stats" class="stats"></div>
+    </div>
+    <div class="card">
+      <h2>用户列表</h2>
+      <table>
+        <thead><tr><th>邮箱</th><th>状态</th><th>绑机</th><th>传图</th><th>图库</th><th>操作</th></tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>用户详情</h2>
+      <pre id="detail" style="white-space:pre-wrap;font-size:.85rem"></pre>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+async function api(path, opts = {}) {
+  const res = await fetch('/draw-admin/api' + path, { credentials: 'same-origin', ...opts, headers: { 'Content-Type': 'application/json', ...(opts.headers||{}) } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+function tag(status) {
+  return `<span class="tag ${status}">${status}</span>`;
+}
+async function loadStats() {
+  const s = await api('/stats');
+  $('stats').innerHTML = Object.entries(s).map(([k,v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+async function loadUsers() {
+  const data = await api('/users');
+  $('users-body').innerHTML = data.items.map(u => `
+    <tr>
+      <td>${u.email}</td>
+      <td>${tag(u.status)}</td>
+      <td>${u.bound ? (u.device_mac || '是') : '否'}</td>
+      <td>${u.job_count}</td>
+      <td>${u.saved_count}</td>
+      <td>
+        <button data-id="${u.id}" data-act="detail">详情</button>
+        ${u.status === 'banned'
+          ? `<button class="secondary" data-id="${u.id}" data-act="unban">解封</button>`
+          : `<button class="secondary" data-id="${u.id}" data-act="ban">封禁</button>`}
+        ${u.bound ? `<button class="secondary" data-id="${u.id}" data-act="unbind">解绑</button>` : ''}
+      </td>
+    </tr>`).join('');
+  $('users-body').querySelectorAll('button').forEach(btn => btn.onclick = async () => {
+    const id = btn.dataset.id;
+    const act = btn.dataset.act;
+    try {
+      if (act === 'detail') {
+        const d = await api('/users/' + id);
+        $('detail').textContent = JSON.stringify(d, null, 2);
+      } else if (act === 'ban') {
+        const reason = prompt('封禁原因') || '违规';
+        await api('/users/' + id + '/ban', { method: 'POST', body: JSON.stringify({ reason }) });
+        await loadUsers();
+      } else if (act === 'unban') {
+        await api('/users/' + id + '/unban', { method: 'POST' });
+        await loadUsers();
+      } else if (act === 'unbind') {
+        if (confirm('确认代客解绑？')) {
+          await api('/users/' + id + '/unbind', { method: 'POST' });
+          await loadUsers();
+        }
+      }
+    } catch (e) { alert(e.message); }
+  });
+}
+async function enterDash() {
+  $('login-section').classList.add('hidden');
+  $('dash-section').classList.remove('hidden');
+  await loadStats();
+  await loadUsers();
+}
+$('btn-admin-login').onclick = async () => {
+  try {
+    await api('/auth/login', { method: 'POST', body: JSON.stringify({ password: $('admin-password').value }) });
+    await enterDash();
+  } catch (e) { $('login-msg').textContent = e.message; }
+};
+$('btn-admin-logout').onclick = async () => {
+  await api('/auth/logout', { method: 'POST' });
+  location.reload();
+};
+api('/stats').then(() => enterDash()).catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d4ed8">
+  <title>呼图云 · 网页传图</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef2ff;
+      --bg-accent: #dbeafe;
+      --card: #ffffff;
+      --line: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-dark: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --ok: #059669;
+      --err: #dc2626;
+      --shadow: 0 10px 30px rgba(15, 23, 42, .08);
+      --radius: 16px;
+      --tap: 48px;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 500px at 50% -120px, #bfdbfe 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg) 0%, #f8fafc 100%);
+      min-height: 100dvh;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .shell { max-width: 480px; margin: 0 auto; padding: 1rem 1rem 2rem; }
+    .hero {
+      text-align: center;
+      padding: 1.25rem .5rem 1rem;
+    }
+    .logo {
+      width: 56px; height: 56px; margin: 0 auto .75rem;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: #fff; font-size: 1.6rem; font-weight: 700;
+      display: grid; place-items: center;
+      box-shadow: 0 8px 24px rgba(37, 99, 235, .35);
+    }
+    .hero h1 { font-size: 1.45rem; margin: 0 0 .35rem; letter-spacing: -.02em; }
+    .hero p { margin: 0; color: var(--muted); font-size: .95rem; line-height: 1.5; }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(226, 232, 240, .9);
+      border-radius: var(--radius);
+      padding: 1.1rem;
+      margin-bottom: .85rem;
+      box-shadow: var(--shadow);
+    }
+    .card-head {
+      display: flex; align-items: center; gap: .65rem;
+      margin-bottom: .85rem;
+    }
+    .card-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--accent-soft); color: var(--accent-dark);
+      display: grid; place-items: center; font-size: 1.1rem; flex-shrink: 0;
+    }
+    .card-head h2 { margin: 0; font-size: 1.05rem; }
+    .card-head p { margin: .15rem 0 0; font-size: .82rem; color: var(--muted); }
+    .tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .35rem;
+      background: #f1f5f9; border-radius: 12px; padding: .25rem; margin-bottom: 1rem;
+    }
+    .tab {
+      border: 0; background: transparent; color: var(--muted);
+      border-radius: 10px; min-height: 40px; font: inherit; font-weight: 600; cursor: pointer;
+    }
+    .tab.active { background: #fff; color: var(--accent-dark); box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+    label.field { display: block; margin-bottom: .75rem; }
+    label.field span {
+      display: block; font-size: .85rem; font-weight: 600; margin-bottom: .35rem; color: #334155;
+    }
+    label.field .hint { font-weight: 400; color: var(--muted); font-size: .78rem; }
+    input[type=email], input[type=password], input[type=text] {
+      width: 100%; min-height: var(--tap);
+      padding: .65rem .85rem;
+      border: 1px solid var(--line); border-radius: 12px;
+      font: inherit; background: #fff;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus {
+      outline: none; border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, .15);
+    }
+    .btn-row { display: grid; gap: .55rem; }
+    .btn-row.two { grid-template-columns: 1fr 1fr; }
+    button {
+      min-height: var(--tap);
+      border: 0; border-radius: 12px;
+      font: inherit; font-weight: 600; cursor: pointer;
+      padding: .65rem 1rem;
+      transition: transform .08s, opacity .15s;
+    }
+    button:active { transform: scale(.98); }
+    button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-dark)); color: #fff; }
+    button.secondary { background: #fff; color: var(--text); border: 1px solid var(--line); }
+    button.ghost { background: #f8fafc; color: var(--muted); border: 1px solid var(--line); }
+    button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .hidden { display: none !important; }
+    .msg {
+      margin-top: .75rem; padding: .65rem .8rem; border-radius: 10px;
+      font-size: .88rem; line-height: 1.45;
+    }
+    .msg.err { background: #fef2f2; color: var(--err); }
+    .msg.ok { background: #ecfdf5; color: var(--ok); }
+    .pill {
+      display: inline-flex; align-items: center; gap: .35rem;
+      padding: .25rem .65rem; border-radius: 999px;
+      font-size: .78rem; font-weight: 600;
+    }
+    .pill.ok { background: #d1fae5; color: #047857; }
+    .pill.warn { background: #fef3c7; color: #b45309; }
+    .pill.neutral { background: #f1f5f9; color: #475569; }
+    .steps {
+      display: flex; gap: .4rem; margin: .5rem 0 1rem;
+    }
+    .step {
+      flex: 1; text-align: center; font-size: .72rem; color: var(--muted);
+      padding-bottom: .45rem; border-bottom: 2px solid #e2e8f0;
+    }
+    .step.active { color: var(--accent-dark); border-color: var(--accent); font-weight: 600; }
+    .upload-zone {
+      border: 2px dashed #cbd5e1; border-radius: 14px;
+      padding: 1.25rem 1rem; text-align: center; background: #f8fafc;
+      cursor: pointer;
+    }
+    .upload-zone strong { display: block; margin-bottom: .25rem; }
+    .upload-zone span { color: var(--muted); font-size: .85rem; }
+    .upload-zone input { display: none; }
+    .preview {
+      width: 100%; max-height: 280px; object-fit: contain;
+      border-radius: 12px; border: 1px solid var(--line);
+      background: #f8fafc; margin-top: .85rem;
+    }
+    .saved-item {
+      display: grid; grid-template-columns: 72px 1fr; gap: .65rem;
+      padding: .65rem 0; border-bottom: 1px solid var(--line);
+    }
+    .saved-item:last-child { border-bottom: 0; }
+    .saved-item img {
+      width: 72px; height: 72px; object-fit: contain;
+      border-radius: 10px; background: #f1f5f9; border: 1px solid var(--line);
+    }
+    .saved-meta strong { display: block; font-size: .92rem; margin-bottom: .15rem; }
+    .saved-meta span { color: var(--muted); font-size: .8rem; }
+    .saved-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
+    .empty { text-align: center; color: var(--muted); font-size: .88rem; padding: 1rem 0; }
+    .user-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+      margin-bottom: .85rem;
+    }
+    .user-bar .email { font-size: .88rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (min-width: 520px) {
+      .shell { max-width: 560px; padding-top: 1.5rem; }
+      .btn-row.two { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <div class="logo" aria-hidden="true">呼</div>
+    <h1>呼图云网页传图</h1>
+    <p id="subtitle">上传线稿 · 绑定小派 · 一键发送到设备</p>
+  </header>
+
+  <section id="auth-section" class="card">
+    <div id="guest-auth">
+      <div class="tabs" role="tablist">
+        <button id="tab-login" class="tab active" type="button" role="tab" aria-selected="true">登录</button>
+        <button id="tab-register" class="tab" type="button" role="tab" aria-selected="false">注册</button>
+      </div>
+      <div id="register-steps" class="steps hidden">
+        <div class="step active" id="step-1">1. 填写 QQ 邮箱</div>
+        <div class="step" id="step-2">2. 验证码确认</div>
+      </div>
+      <label class="field">
+        <span>QQ 邮箱 <span class="hint">仅支持 @qq.com / @foxmail.com</span></span>
+        <input id="email" type="email" inputmode="email" autocomplete="username" placeholder="name@qq.com">
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input id="password" type="password" autocomplete="current-password" placeholder="至少 8 位">
+      </label>
+      <div id="verify-box" class="hidden">
+        <label class="field">
+          <span>邮箱验证码</span>
+          <input id="verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
+        </label>
+        <button id="btn-verify" class="secondary" type="button">确认验证码并完成注册</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-login" class="primary" type="button">登录</button>
+        <button id="btn-register" class="secondary hidden" type="button">发送注册验证码</button>
+      </div>
+    </div>
+    <div id="logged-in-bar" class="user-bar hidden">
+      <span class="email" id="user-email"></span>
+      <button id="btn-logout" class="ghost" type="button" style="min-height:36px;padding:.35rem .75rem;font-size:.85rem">退出</button>
+    </div>
+    <div id="auth-msg" class="msg hidden"></div>
+  </section>
+
+  <section id="bind-section" class="card hidden">
+    <div class="card-head">
+      <div class="card-icon" aria-hidden="true">📱</div>
+      <div>
+        <h2>设备绑定</h2>
+        <p>在设备屏打开<strong>控制抽屉</strong> → 连点右上角切页按钮，切到<strong>「维护」</strong>页 → 点<strong>「绑定呼图账号」</strong>，屏上会显示 6 位码与二维码。</p>
+        <details style="margin:.5rem 0 0;font-size:.85rem;color:var(--muted)">
+          <summary style="cursor:pointer;color:var(--accent)">找不到？逐步说明</summary>
+          <ol style="margin:.5rem 0 0;padding-left:1.2rem;line-height:1.6">
+            <li>小派主屏点<strong>机器控制</strong>（Grbl 绿点/控制区）打开抽屉</li>
+            <li>抽屉右上角有切页钮，顺序：<em>主页 → 点动·手动 → 维护</em></li>
+            <li>在<strong>维护</strong>页点「绑定呼图账号」→ 扫码或手动输入绑定码</li>
+          </ol>
+          <p style="margin:.5rem 0 0">需已刷含绑机功能的 Waveshare 3.5 屏固件；旧镜像可能没有该按钮。</p>
+        </details>
+      </div>
+    </div>
+    <p id="bind-status"><span class="pill neutral">未绑定</span></p>
+    <label class="field">
+      <span>绑定码</span>
+      <input id="bind-code" type="text" maxlength="8" placeholder="例如 ABC123" autocapitalize="characters">
+    </label>
+    <div class="btn-row two">
+      <button id="btn-bind" class="primary" type="button">确认绑定</button>
+      <button id="btn-unbind" class="secondary" type="button">解绑</button>
+    </div>
+    <div id="bind-msg" class="msg hidden"></div>
+  </section>
+
+  <section id="upload-section" class="card hidden">
+    <div class="card-head">
+      <div class="card-icon" aria-hidden="true">🖼</div>
+      <div>
+        <h2>上传图片</h2>
+        <p>支持 PNG / JPG / WebP / GIF / BMP / SVG，最大 4MB</p>
+      </div>
+    </div>
+    <label class="upload-zone" id="upload-zone">
+      <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.svg">
+      <strong id="file-label">点击选择图片</strong>
+      <span>线稿或简笔画效果最佳</span>
+    </label>
+    <div class="btn-row" style="margin-top:.85rem">
+      <button id="btn-upload" class="primary" type="button" disabled>开始转换</button>
+    </div>
+    <div id="upload-msg" class="msg hidden"></div>
+    <img id="job-preview" class="preview hidden" alt="预览">
+    <div id="job-actions" class="btn-row two hidden" style="margin-top:.85rem">
+      <button id="btn-send" class="primary" type="button">发送到小派</button>
+      <button id="btn-save" class="secondary" type="button">保存预览</button>
+    </div>
+  </section>
+
+  <section id="saved-section" class="card hidden">
+    <div class="card-head">
+      <div class="card-icon" aria-hidden="true">📂</div>
+      <div><h2>已保存预览</h2><p>最多保留 50 张，可一键重发</p></div>
+    </div>
+    <div id="saved-list"></div>
+  </section>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const QQ_DOMAINS = new Set(['qq.com', 'foxmail.com', 'vip.qq.com']);
+let currentJobId = null;
+let authMode = 'login';
+
+function qsBindCode() {
+  return (new URLSearchParams(location.search).get('c') || '').trim().toUpperCase();
+}
+
+function isQqEmail(raw) {
+  const e = raw.trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return false;
+  return QQ_DOMAINS.has(e.slice(at + 1));
+}
+
+function showMsg(el, text, ok) {
+  if (!text) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  $('tab-login').classList.toggle('active', mode === 'login');
+  $('tab-register').classList.toggle('active', mode === 'register');
+  $('tab-login').setAttribute('aria-selected', mode === 'login');
+  $('tab-register').setAttribute('aria-selected', mode === 'register');
+  $('btn-login').classList.toggle('hidden', mode !== 'login');
+  $('btn-register').classList.toggle('hidden', mode !== 'register');
+  $('register-steps').classList.toggle('hidden', mode !== 'register');
+  $('password').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch('/draw-upload/api' + path, {
+    credentials: 'same-origin',
+    ...opts,
+    headers: {
+      ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(opts.headers || {}),
+    },
+  });
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) {
+    const detail = data?.detail
+      ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
+      : res.statusText;
+    throw new Error(detail || '请求失败');
+  }
+  return data;
+}
+
+async function refreshMe() {
+  try {
+    const me = await api('/auth/me');
+    $('guest-auth').classList.add('hidden');
+    $('logged-in-bar').classList.remove('hidden');
+    $('user-email').textContent = me.email;
+    $('bind-section').classList.remove('hidden');
+    $('upload-section').classList.remove('hidden');
+    $('saved-section').classList.remove('hidden');
+    const b = me.binding || {};
+    const el = $('bind-status');
+    if (b.bound) {
+      const warn = b.token_probe_ok === false ? ' · 推送探活失败' : '';
+      el.innerHTML = '<span class="pill ok">已绑定 ' + (b.device_mac || '') + warn + '</span>';
+    } else {
+      el.innerHTML = '<span class="pill warn">未绑定设备</span>';
+    }
+    await loadSaved();
+  } catch (_) {
+    $('guest-auth').classList.remove('hidden');
+    $('logged-in-bar').classList.add('hidden');
+    $('bind-section').classList.add('hidden');
+    $('upload-section').classList.add('hidden');
+    $('saved-section').classList.add('hidden');
+  }
+}
+
+async function loadSaved() {
+  const box = $('saved-list');
+  box.innerHTML = '';
+  try {
+    const data = await api('/draw/saved');
+    const items = data.items || [];
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">暂无保存的预览</div>';
+      return;
+    }
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'saved-item';
+      row.innerHTML = `
+        <img src="/draw-upload${it.preview_url}" alt="">
+        <div class="saved-meta"><strong>${escapeHtml(it.title)}</strong><span>${new Date(it.saved_at * 1000).toLocaleString()}</span></div>
+        <div class="saved-actions">
+          <button data-send="${it.id}" ${it.has_gcode ? '' : 'disabled'} type="button">发送</button>
+          <button class="secondary" data-del="${it.id}" type="button">删除</button>
+        </div>`;
+      box.appendChild(row);
+    }
+    box.querySelectorAll('[data-send]').forEach(btn => btn.onclick = async () => {
+      try {
+        const r = await api('/draw/saved/' + btn.dataset.send + '/send', { method: 'POST' });
+        showMsg($('upload-msg'), r.status === 'sent'
+          ? '已从图库发送。请在设备屏点「开始画」确认出图'
+          : ('发送失败：' + r.detail), r.status === 'sent');
+      } catch (e) { showMsg($('upload-msg'), e.message, false); }
+    });
+    box.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
+      await api('/draw/saved/' + btn.dataset.del, { method: 'DELETE' });
+      await loadSaved();
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="empty">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function validateRegisterInputs() {
+  const email = $('email').value.trim();
+  if (!isQqEmail(email)) {
+    showMsg($('auth-msg'), '请使用 QQ 邮箱（@qq.com 或 @foxmail.com）', false);
+    return false;
+  }
+  if ($('password').value.length < 8) {
+    showMsg($('auth-msg'), '密码至少 8 位', false);
+    return false;
+  }
+  return true;
+}
+
+$('tab-login').onclick = () => { setAuthMode('login'); showMsg($('auth-msg'), '', false); };
+$('tab-register').onclick = () => { setAuthMode('register'); showMsg($('auth-msg'), '', false); };
+
+$('btn-login').onclick = async () => {
+  try {
+    await api('/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+    showMsg($('auth-msg'), '登录成功', true);
+    await refreshMe();
+  } catch (e) { showMsg($('auth-msg'), e.message, false); }
+};
+
+$('btn-register').onclick = async () => {
+  if (!validateRegisterInputs()) return;
+  try {
+    const r = await api('/auth/register/request', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+    $('verify-box').classList.remove('hidden');
+    $('step-1').classList.remove('active');
+    $('step-2').classList.add('active');
+    showMsg($('auth-msg'), r.dev_code ? ('验证码已发送（开发模式：' + r.dev_code + '）') : '验证码已发送到 QQ 邮箱', true);
+  } catch (e) { showMsg($('auth-msg'), e.message, false); }
+};
+
+$('btn-verify').onclick = async () => {
+  if (!validateRegisterInputs()) return;
+  try {
+    await api('/auth/register/verify', { method: 'POST', body: JSON.stringify({ email: $('email').value, code: $('verify-code').value }) });
+    showMsg($('auth-msg'), '注册成功', true);
+    await refreshMe();
+  } catch (e) { showMsg($('auth-msg'), e.message, false); }
+};
+
+$('btn-logout').onclick = async () => {
+  await api('/auth/logout', { method: 'POST' });
+  location.reload();
+};
+
+$('btn-bind').onclick = async () => {
+  try {
+    await api('/user/bind/complete', { method: 'POST', body: JSON.stringify({ bind_code: $('bind-code').value }) });
+    showMsg($('bind-msg'), '绑定成功', true);
+    await refreshMe();
+  } catch (e) { showMsg($('bind-msg'), e.message, false); }
+};
+
+$('btn-unbind').onclick = async () => {
+  try {
+    await api('/user/bind/unbind', { method: 'POST' });
+    showMsg($('bind-msg'), '已解绑', true);
+    await refreshMe();
+  } catch (e) { showMsg($('bind-msg'), e.message, false); }
+};
+
+$('file').onchange = () => {
+  const f = $('file').files[0];
+  $('file-label').textContent = f ? f.name : '点击选择图片';
+  $('btn-upload').disabled = !f;
+};
+
+$('btn-upload').onclick = async () => {
+  const f = $('file').files[0];
+  if (!f) { showMsg($('upload-msg'), '请选择图片', false); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  $('btn-upload').disabled = true;
+  showMsg($('upload-msg'), '转换中…', true);
+  $('job-actions').classList.add('hidden');
+  try {
+    const res = await fetch('/draw-upload/api/draw/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '上传失败');
+    currentJobId = data.job_id;
+    $('job-preview').src = data.preview_url;
+    $('job-preview').classList.remove('hidden');
+    $('job-actions').classList.remove('hidden');
+    showMsg($('upload-msg'), '转换完成（' + data.lines + ' 行）', true);
+  } catch (e) {
+    showMsg($('upload-msg'), e.message, false);
+  } finally {
+    $('btn-upload').disabled = false;
+  }
+};
+
+$('btn-send').onclick = async () => {
+  if (!currentJobId) return;
+  try {
+    const r = await api('/draw/' + currentJobId + '/send', { method: 'POST' });
+    showMsg($('upload-msg'), r.status === 'sent'
+      ? '已推送到小派。请在设备屏预览上点青色「开始画」，或对小派说「开始画」'
+      : ('推送失败：' + r.detail), r.status === 'sent');
+  } catch (e) { showMsg($('upload-msg'), e.message, false); }
+};
+
+$('btn-save').onclick = async () => {
+  if (!currentJobId) return;
+  try {
+    await api('/draw/' + currentJobId + '/save', { method: 'POST', body: JSON.stringify({}) });
+    showMsg($('upload-msg'), '已保存到图库', true);
+    await loadSaved();
+  } catch (e) { showMsg($('upload-msg'), e.message, false); }
+};
+
+const code = qsBindCode();
+if (code) $('bind-code').value = code;
+setAuthMode('login');
+refreshMe();
+</script>
+</body>
+</html>

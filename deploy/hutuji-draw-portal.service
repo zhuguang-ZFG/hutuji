@@ -1,0 +1,44 @@
+[Unit]
+Description=hutuji draw-portal (buyer bind + web upload)
+Documentation=file:///opt/hutuji/draw-portal/README.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/draw-portal
+EnvironmentFile=/etc/hutuji/draw-portal.env
+Environment=PYTHONPATH=/opt/hutuji/mcp-server
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn draw_portal.app:create_app --factory --host 127.0.0.1 --port 8302 --root-path /draw-upload --no-proxy-headers
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+MemoryMax=512M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hutuji/draw-portal /opt/hutuji/mcp-server/output
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+[Install]
+WantedBy=multi-user.target

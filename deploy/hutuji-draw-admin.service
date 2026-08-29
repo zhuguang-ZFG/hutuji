@@ -1,0 +1,22 @@
+[Unit]
+Description=hutuji draw-admin (buyer ops console)
+After=network-online.target hutuji-draw-portal.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/draw-portal
+EnvironmentFile=/etc/hutuji/draw-admin.env
+ExecStart=/opt/hutuji/draw-portal/.venv/bin/python -m uvicorn draw_admin.app:create_app --factory --host 127.0.0.1 --port 8303 --root-path /draw-admin --no-proxy-headers
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hutuji/draw-portal
+
+[Install]
+WantedBy=multi-user.target

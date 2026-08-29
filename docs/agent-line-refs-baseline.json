@@ -1,5 +1,5 @@
 {
-  "git_head": "2940f5b3d70497a79b1e2fc4788c0a4928abe5f5",
+  "git_head": "01e5d9f1ef537515aa8b4e1a306776e3aadf17ba",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -536,17 +536,17 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:102": {
-      "sha8": "d8716e43",
-      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1043** 项（2026-08-28 塌缩 F 继承 +1（`test_gcode_min_segment.py` 4）；2026-08-28 异步生成+完成推送 +5；2026-08-26 +6；2026-08-27 纸面闸批 +19 后 scribble v2 +1、拒收缓存逐出 +1、Twemoji 矢量源 +4；QD 退役 -5、curated 优先 +2、viewBox 预览 +2；junction 续接 +5：`test_paper_risk.py` 13、`test_bitmap_decimate.py` 13、`test_curated_vector.py` 4、`test_quickdraw.py` 36、`test_curated_server.py` 5、`test_curated.py` 6） |",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:128": {
+      "sha8": "e6a32655",
+      "source": "| 验证状态 | hub 门禁 **PASS**（`56e2717`：pytest **981/981**、e2e `PASS`、指纹 216/216、外仓引用 212/212）；京东云本批后 preflight **25/30**（5 fail 与 08-24 热备基线同款预期分歧：bridge active/自启/重启 4 项 + 公网 /files 真下 1 项因 DNS 指阿里云）；阿里云本批后 preflight **20/30**（10 fail 为 Alibaba Linux/双 nginx 布局已知环境差异，同 `deployment.md`「30 项为京东云口径、阿里云不适用」口径，非本批回归）；fz `json_feed_hold_tcp` 隔离重放 **3/3 PASS**（同 simulator SHA、`-t 1.0`；standard profile 被 MinGW `limits.h` 头遮蔽致 `AxisMask` 未定义的环境层阻断，非该 case 回归）；COM13 只读快照留档（`$1=25` 未改、`$#` G92 Z=5.000、`?` MPos Z=5.000）。**仍未执行**：真实语音 HIL（C 组合部署后）、真实使用命中率统计 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:82": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:92": {
       "sha8": "3ed41734",
       "source": "| `docs/design/quickdraw-local-cache.md` | Quick Draw 本地缓存落地设计稿 v0.1（待用户批准，未实施） |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:87": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:97": {
       "sha8": "a492061a",
       "source": "| `mcp-server/tmp/qd_categories.txt` | QD 类目清单工作副本，保留本地 |",
       "target": "docs/worktree-inventory.md"
@@ -636,7 +636,7 @@
       "source": " * CONSTRAINTS: preserve callbacks, state gates, locale keys, and 56 px touch targets.",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
-    "docs/kxnx/findings/29-touch-hit-geometry-review.md -> main/display/lcd_display.cc:807-814": {
+    "docs/kxnx/findings/29-touch-hit-geometry-review.md -> main/display/lcd_display.cc:810-817": {
       "sha8": "cf334518",
       "source": "// 24px 区分点按与拖动：FT5x06 灵敏化调参（threshold 70→40）后，静止按压的单轴\n// 抖动可达数 px，6px 曼哈顿阈值在 2026-08-20 HIL 实测中把正常点按误判成拖动、\n// 抽屉几乎打不开；24px 远高于抖动、仍远低于有意拖动的起步位移，且触发钮不参与\n// LVGL 滚动判定（SCROLLABLE/CHAIN 均关），放宽不与任何手势歧义。\n// 位置从首个采样起跟手，越过阈值时不会丢掉起步位移。\nconstexpr lv_coord_t kTriggerDragThresholdPx = 24;\n}  // namespace\n",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
@@ -891,12 +891,12 @@
       "source": "// 否则队满丢掉 error 后，后续 ok 会与错误行错配，破坏 fail-closed。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
     },
-    "docs/protocol.md -> ota.cc:292-321": {
+    "docs/protocol.md -> ota.cc:309-338": {
       "sha8": "461c8cb2",
       "source": "    size_t content_length = http->GetBodyLength();\n    if (content_length == 0) {\n        ESP_LOGE(TAG, \"Failed to get content length\");\n        return false;\n    }\n\n    constexpr size_t PAGE_SIZE = 4096;\n    char* buffer = (char*)heap_caps_malloc(PAGE_SIZE, MALLOC_CAP_INTERNAL);\n    if (buffer == nullptr) {\n        ESP_LOGE(TAG, \"Failed to allocate buffer\");\n        return false;\n    }\n\n    size_t buffer_offset = 0;  // Current data size in buffer\n    size_t total_read = 0, recent_read = 0;\n    auto last_calc_time = esp_timer_get_time();\n    while (true) {\n        int ret = http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset);\n        if (ret < 0) {\n            ESP_LOGE(TAG, \"Failed to read HTTP data: %s\", esp_err_to_name(ret));\n            heap_caps_free(buffer);\n            return false;\n        }\n\n        // Calculate speed and progress every second\n        recent_read += ret;\n        total_read += ret;\n        buffer_offset += ret;\n        if (esp_timer_get_time() - last_calc_time >= 1000000 || ret == 0) {\n            size_t progress = total_read * 100 / content_length;",
       "target": "D:/Users/xiaozhi-esp32/main/ota.cc"
     },
-    "docs/protocol.md -> ota.cc:292-322": {
+    "docs/protocol.md -> ota.cc:309-339": {
       "sha8": "4c64a822",
       "source": "    size_t content_length = http->GetBodyLength();\n    if (content_length == 0) {\n        ESP_LOGE(TAG, \"Failed to get content length\");\n        return false;\n    }\n\n    constexpr size_t PAGE_SIZE = 4096;\n    char* buffer = (char*)heap_caps_malloc(PAGE_SIZE, MALLOC_CAP_INTERNAL);\n    if (buffer == nullptr) {\n        ESP_LOGE(TAG, \"Failed to allocate buffer\");\n        return false;\n    }\n\n    size_t buffer_offset = 0;  // Current data size in buffer\n    size_t total_read = 0, recent_read = 0;\n    auto last_calc_time = esp_timer_get_time();\n    while (true) {\n        int ret = http->Read(buffer + buffer_offset, PAGE_SIZE - buffer_offset);\n        if (ret < 0) {\n            ESP_LOGE(TAG, \"Failed to read HTTP data: %s\", esp_err_to_name(ret));\n            heap_caps_free(buffer);\n            return false;\n        }\n\n        // Calculate speed and progress every second\n        recent_read += ret;\n        total_read += ret;\n        buffer_offset += ret;\n        if (esp_timer_get_time() - last_calc_time >= 1000000 || ret == 0) {\n            size_t progress = total_read * 100 / content_length;\n            ESP_LOGI(TAG, \"Progress: %u%% (%u/%u), Speed: %uB/s\", progress, total_read, content_length, recent_read);",
       "target": "D:/Users/xiaozhi-esp32/main/ota.cc"
@@ -1192,6 +1192,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-29T09:14:41Z",
+  "updated": "2026-08-29T14:39:48Z",
   "version": 1
 }
