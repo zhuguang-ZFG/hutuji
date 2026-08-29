@@ -198,7 +198,7 @@
 
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
-| hutuji | `git rev-parse --short HEAD` | 本仓 HEAD `fb8f0c4`（2026-08-29 部署证据登记提交，docs-only，与 `origin/main` 同步）；**生产现役应用基线 `befba0a`**（其父提交，2026-08-29 双机发布并复验：2 产物 `bitmap_svg.py`/`server.py` SHA-256 双机逐位相符、CR=0、py_compile 过，见 deployment.md 首条；前基线 `34b44d4` 为 08-28 登记）：冒烟「画一只猫」异步 accepted → curated hit → 链式推送已受理，公网真下载 SHA 相符、`/mcp` 404，双服务 active。**已关闭的滞后登记**：`preview_url` 白名单 2026-08-24 `55a8d0a` 已修；`c2cdbd4` 之后 13 个服务端 commit 已于 08-28 `34b44d4` 全部部署，两处登记均已关闭。 |
+| hutuji | `git rev-parse --short HEAD` | 本仓 HEAD 以左列命令现取（08-29 起为 docs-only 证据登记提交，与 `origin/main` 同步；此处不钉 SHA 防自指陈旧）；**生产现役应用基线 `befba0a`**（2026-08-29 双机发布并复验：2 产物 `bitmap_svg.py`/`server.py` SHA-256 双机逐位相符、CR=0、py_compile 过，见 deployment.md 首条；前基线 `34b44d4` 为 08-28 登记）：冒烟「画一只猫」异步 accepted → curated hit → 链式推送已受理，公网真下载 SHA 相符、`/mcp` 404，双服务 active。**已关闭的滞后登记**：`preview_url` 白名单 2026-08-24 `55a8d0a` 已修；`c2cdbd4` 之后 13 个服务端 commit 已于 08-28 `34b44d4` 全部部署，两处登记均已关闭。 |
 | xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `72a693a` 已推 `feat/hutuji-usb-pipe`（origin 实际此前已到 `4ce8b59`，本条仅推 `72a693a`）；工作树干净；板上当时 `93b61d5b…afa9`（= `72a693a` 内容）三轮画图 HIL 通过；host 131/131（2026-08-28 起板上为 `c3cf3d7`，host 已 137/137，见 §3）。2026-08-23 全链审计登记：`hutuji_job.cc` 预取接管在上一张成功且预取命中时不释放旧 G-code PSRAM（重复新画累积泄漏），修复待独立批次，见 §3 工作树条。 |
 | Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | **`2cecd2d`**（§9-F′ M30/换纸 `$1=255` 守卫 + `7f48217` 机型默认）；COM13 板上 SHA `12275654…429A5`（2026-08-28 晚）；用户确认使能/出图正常 |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留；门禁须走 clang 路径（见 §2）；wokwi 可选层 2026-08-23 起受免费 CI 配额阻塞，非固件回归（见 §2） |
