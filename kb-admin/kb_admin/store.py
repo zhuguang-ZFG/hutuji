@@ -39,6 +39,10 @@ class Store:
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
 
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
