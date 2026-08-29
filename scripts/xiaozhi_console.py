@@ -363,18 +363,19 @@ def cmd_update_role(agent_id):
     print("✓ 角色提示更新成功")
 
 
-def cmd_update_kb(kb_id):
+class XiaozhiConsoleError(Exception):
+    """小智控制台库调用方可捕获的运行期错误（CLI 映射为 exit 1）。"""
+
+
+def update_kb_from_path(kb_id: str | int, path: Path) -> str:
+    """上传 path 指向的文件替换知识库文档，成功返回 file_md5；失败抛 XiaozhiConsoleError。"""
     try:
         kb_id_int = int(kb_id)
-    except ValueError:
-        # kb_id 非整数是参数错误，不是运行期故障：退出码 2（TOOL-UX-03 统一口径）。
-        print(f"kb_id 必须是整数: {kb_id!r}", file=sys.stderr)
-        sys.exit(2)
-    if not KNOWLEDGE_BASE_PATH.exists():
-        print(f"文件不存在: {KNOWLEDGE_BASE_PATH}", file=sys.stderr)
-        sys.exit(1)
+    except (ValueError, TypeError):
+        raise ValueError(f"kb_id 必须是整数: {kb_id!r}") from None
+    if not path.exists():
+        raise XiaozhiConsoleError(f"文件不存在: {path}")
 
-    # 先拉完全部旧文档；只取 page=1 会在第 51 篇起静默残留旧版本却仍报替换成功。
     old_docs = []
     page = 1
     page_size = 50
@@ -385,32 +386,25 @@ def cmd_update_kb(kb_id):
         )
         batch = docs_result.get("data", {}).get("list", [])
         if not isinstance(batch, list):
-            print("✗ 文档列表应答形状不符（旧文档保留）", file=sys.stderr)
-            sys.exit(1)
+            raise XiaozhiConsoleError("文档列表应答形状不符（旧文档保留）")
         old_docs.extend(batch)
         if len(batch) < page_size:
             break
         page += 1
     print(f"现有文档 {len(old_docs)} 篇；先上传新文件，成功后再删旧")
 
-    # 上传新文件
-    print(f"上传 {KNOWLEDGE_BASE_PATH.name}...")
-    upload_result = api_upload("/knowledge-bases/upload-file", str(KNOWLEDGE_BASE_PATH))
+    print(f"上传 {path.name}...")
+    upload_result = api_upload("/knowledge-bases/upload-file", str(path))
     if not upload_result.get("success"):
         message = _redact_text(str(upload_result.get("message", "?")))
-        print(f"✗ 上传失败: {message}（旧文档保留）", file=sys.stderr)
-        sys.exit(1)
+        raise XiaozhiConsoleError(f"上传失败: {message}（旧文档保留）")
 
     upload_data = upload_result.get("data") or {}
     if "file_name" not in upload_data or "file_md5" not in upload_data:
-        # success=true 却缺 file_name/file_md5：应答形状不符。裸取 upload_result["data"]
-        # 会 KeyError traceback；与 api() 的单行脱敏风格同口径收成一行（F-XZ-08）。
-        print("✗ 上传应答缺少 file_name/file_md5（旧文档保留）", file=sys.stderr)
-        sys.exit(1)
+        raise XiaozhiConsoleError("上传应答缺少 file_name/file_md5（旧文档保留）")
     file_name = upload_data["file_name"]
     file_md5 = upload_data["file_md5"]
 
-    # 创建文档
     create_result = api("POST", "/knowledge-bases/document", {
         "knowledgeBaseId": kb_id_int,
         "fileName": file_name,
@@ -419,26 +413,32 @@ def cmd_update_kb(kb_id):
     })
     if not create_result.get("success"):
         message = _redact_text(str(create_result.get("message", "?")))
-        print(f"✗ 创建文档失败: {message}（旧文档保留）", file=sys.stderr)
-        sys.exit(1)
+        raise XiaozhiConsoleError(f"创建文档失败: {message}（旧文档保留）")
     print(f"✓ 新文档已建立 (md5={file_md5[:12]}...)")
 
-    # 新文档就位后才清理旧文档；删除失败不丢数据（新旧并存），但要非零退出提示人工清理
     delete_failed = []
     for doc in old_docs:
         doc_id = doc["id"]
         title = doc.get("title", "?")
         print(f"删除旧文档: {title} (id={doc_id})")
         del_result = api("DELETE", f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&documentId={doc_id}")
-        # api() 对 HTTP 错误已 sys.exit；这里只拦「HTTP 200 但 success=false」
         if isinstance(del_result, dict) and del_result.get("success") is False:
             delete_failed.append(f"{title}(id={doc_id})")
     if delete_failed:
-        # 汇总提示「新旧并存需人工清理」：新文档已建档、部分旧文档没删掉，远端是
-        # 新旧两版并存的状态——不点明并存，操作员会以为只是「有一条没删干净」。
-        print(f"✗ 旧文档删除失败，新旧并存需人工清理: {delete_failed}", file=sys.stderr)
-        sys.exit(1)
+        raise XiaozhiConsoleError(f"旧文档删除失败，新旧并存需人工清理: {delete_failed}")
     print("✓ 知识库文档替换成功")
+    return file_md5
+
+
+def cmd_update_kb(kb_id):
+    try:
+        update_kb_from_path(kb_id, KNOWLEDGE_BASE_PATH)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(2)
+    except XiaozhiConsoleError as e:
+        print(f"✗ {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_kb_list():
