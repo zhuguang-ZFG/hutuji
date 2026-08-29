@@ -119,11 +119,11 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-08-29**（`befba0a`），pytest **1043 passed**、e2e `PASS`；docs 指纹 **238** 处全对（原 239 处含 `docs/worktree-inventory.md -> xiaozhi_console.py:63`，该引用随 08-29 现态改写删除，基线已 `--accept-line-refs` 重登）、外仓引用 **232** 处全在范围；提示词强化 + docstring 双分支双机发布（阿里云 preflight 21/30、京东云热备 25/30，均为既有结构性分歧）；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-08-29T03:54:10Z**（报告 `git_head` = `fb8f0c4`，即部署证据登记提交；发布并部署的应用基线为其父 `befba0a`），pytest **1043 passed**、e2e `PASS`；docs 指纹 **238** 处全对（原 239 处含 inventory 指向 `xiaozhi_console.py` 第 63 行的引用，该引用随 08-29 现态改写删除，基线已 `--accept-line-refs` 重登于 `befba0ae`）、外仓引用 **232** 处全在范围；提示词强化 + docstring 双分支双机发布（阿里云 preflight 21/30、京东云热备 25/30，均为既有结构性分歧）；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-08-29**（`befba0a`），pytest **1043 passed**、e2e `PASS`；docs 指纹 238 处全对，外仓文档引用 232 处全在范围；本批提示词与 docstring 改动部署前通过两层门禁
+- 本仓 `hub` 最近通过：**2026-08-29T03:54:10Z**（`results/hutuji_gate_last.json`：`profile=hub`、`overall_status=pass`、`git_head=fb8f0c4`；`results/.hutuji_gate_running` 不在场），pytest **1043 passed**、e2e `PASS`；docs 指纹 238 处全对（基线登记于 `befba0ae`，门禁显式标注 HEAD 已前进且本批未改被覆盖引用行）、外仓文档引用 232 处全在范围；部署的应用基线 `befba0a` 在发布前亦通过两层门禁
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）

@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ **当前生产代码基线：`34b44d4`（2026-08-28 双机发布）**：6 个运行时产物由 Git blob 精确导出，CR=0，双机 SHA-256 逐位核对，py_compile 通过；阿里云主启用 bridge，京东云 bridge 按单 WSS 设计保持 disabled+inactive。阿里云 preflight `pass=20 fail=10 expected=30`，京东云 preflight `pass=25 fail=5 expected=30`，差异为既有 RHEL/Debian 布局与热备拓扑口径；备份与逐轮证据见 `../docs/deployment.md`。 |
+| VPS 实机部署与验收 | ✅ **当前生产代码基线：`befba0a`（2026-08-29 双机发布，位图提示词强化 + `hutuji_draw` docstring 双分支；前基线 `34b44d4` 为 08-28）**：2 个运行时产物 `bitmap_svg.py`/`server.py` 由 Git blob 精确导出，CR=0，双机 SHA-256 逐位核对，py_compile 通过；阿里云主启用 bridge，京东云 bridge 按单 WSS 设计保持 disabled+inactive。阿里云 preflight `pass=21 fail=9 expected=30`，京东云 preflight `pass=25 fail=5 expected=30`，差异为既有 RHEL/Debian 布局与热备拓扑口径；备份与逐轮证据见 `../docs/deployment.md`。 |
 > **2026-08-16 安装器脚本已同步（本仓 `a7697b9`）**：仅 `install-from-repo.sh` 适用于生产，LF SHA-256 `d8eec725…75936` 对账一致；运行时服务文件未变、未重启；同步后 preflight `pass=26 fail=0 expected=26`。生产应用基线仍 `1082400`。
 
 
