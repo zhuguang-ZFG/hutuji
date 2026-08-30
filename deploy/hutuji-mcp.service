@@ -89,6 +89,8 @@ ProcSubset=pid
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @obsolete
+# 同 bridge：el8 上 Python 3.12 子进程（vpype）需要 pidfd_open 回落为 ENOSYS。
+SystemCallErrorNumber=ENOSYS
 # vpype 的数值依赖会调用 mbind；其余 @resources 调用仍逐项拒绝。
 SystemCallFilter=~ioprio_set migrate_pages move_pages nice sched_setaffinity sched_setattr sched_setparam sched_setscheduler set_mempolicy set_mempolicy_home_node setpriority setrlimit
 

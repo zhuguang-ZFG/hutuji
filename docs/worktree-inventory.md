@@ -19,7 +19,17 @@
 | 根因 | 内容 MD5 未变时小智 create 回 400「文档已存在」；`api()` 用 `sys.exit(1)`，库调用方捕不到真错误 |
 | 改动 | `scripts/xiaozhi_console.py`：`_api_lib`/`_api_upload_lib`；「文档已存在」当成功。`kb-admin` 静态页失败 toast 带 `error_summary`。`test_field_tools.py` +1 |
 | 生产 | 两文件 scp 阿里云 + restart `hutuji-kb-admin`；复测 SUCCESS。脚本 `tmp/deploy_kb_publish_fix.py`（不入库） |
-| Git | 本批随文档一并提交并 push origin/main |
+| Git | `113b1d4` 已 push origin/main |
+
+### bridge proxy ENOSYS 回归（2026-08-30 20:13–20:26，阿里云已修）
+
+| 项 | 说明 |
+|----|------|
+| 现象 | 用户「画小猪」小派复读「云端生成服务有问题」；`conversation_events` 调 `% hutuji.draw` 非 `hutuji_draw` |
+| 根因 | bridge WSS 在线但 `mcp-proxy` 未 spawn（`proxy_connected=false` 自 19:36）；磁盘 unit 缺 `SystemCallErrorNumber=ENOSYS` |
+| 生产 | 补 ENOSYS 于 bridge+mcp unit；备份 `/root/hutuji-bak-20260830-bridge-enosys/`；restart bridge → 双 connected；20:28:49 首条 `tools/call` |
+| 仓内 | `deploy/hutuji-{cloud-bridge,mcp}.service` + `test_contract.py` 钉 ENOSYS（本批待 push） |
+| 未验证 | 修复后完整语音「画 xxx → hutuji_draw」HIL |
 
 ### 高并发 Phase-1/2 + Phase-3a + 假负载压测（2026-08-30，**`4af959d` 已双机；阿里云队列 19:04 已启用**）
 
@@ -175,7 +185,7 @@
 
 - **路径 / 分支**：`D:/Users/hutuji` / `main`
 - **当前提交链**：实时用 `git log --oneline origin/main..HEAD` 与 `git rev-parse --short HEAD` 查询；不以本页静态快照代替。
-- **生产运行态（2026-08-29 晚漂移收口后）**：**阿里云 `47.112.162.80` 为主**——`hutuji-mcp`+`hutuji-cloud-bridge` 双 active（bridge cloud/proxy 双 connected，MainPID=401040/401046），DNS `hutuji.donglicao.com` A 记录直连，Let's Encrypt 双证书双 443 块，代码基线 `b7f88e3`（2026-08-29 晚生产漂移收口：运行时包 `hutuji_mcp/` 全 22 文件与 HEAD blob 双机逐位相符、CR=0，备份 `/root/hutuji-bak-20260829-drift-*`；行为证据 = 双机生产 venv F1500 夹具塌缩继承 F1500 无 F8000，旧版必写 F8000；前基线 `befba0a` 为 08-29 上午登记）；冒烟「画一只猫」公网真下载 `200/8923B/SHA beef9e98…50c0`（可复核产物 `draw_20260829_131513_4Tz20LECC0ucPQgX5VuHnQ.gcode`）。el8 unit 差异：删 systemd 239 不识的 4 个 Protect/ProcSubset 行与 `set_mempolicy_home_node`，加 `SystemCallErrorNumber=ENOSYS`（修 Python 3.12 `pidfd_open` 被 @system-service 拦成 SIGSYS）；生效配置回同步本机 `results/.tmp/deploy-aliyun/`。**京东云 `117.72.118.95` 转热备**：bridge disabled+inactive（防 token 对拍），hutuji-mcp active 待命（MainPID=345101）；回滚 = DNS 指回 CF Tunnel + 启京东云 bridge + 停阿里云 bridge。真实语音 HIL 未执行。
+- **生产运行态（2026-08-30 20:26 bridge ENOSYS 修复后）**：**阿里云 `47.112.162.80` 为主**——`hutuji-mcp`+`hutuji-cloud-bridge` 双 active（bridge **cloud/proxy 双 connected**，MainPID 871455/871459 为修复后当场值；不以静态 PID 作长期身份）；代码基线 `2710739` + kb-admin/console 热修 + **bridge unit ENOSYS 热修**（模板本批入库防再丢）。队列/worker/PG shadow 仍仅阿里云（19:04 启用）。**京东云 `117.72.118.95` 热备**：bridge disabled+inactive；回滚 = DNS 指回 CF Tunnel + 启京东云 bridge + 停阿里云 bridge。真实语音 HIL 未执行。
 - **本地保留资产**：`results/local-only/2026-08-18/`、`2026-08-19/`、`2026-08-20/` 与 `2026-08-21/` 均保留且被 gitignore；08-21 新增唱歌部署候选与冒烟证据、刷机事故串口原始日志（`2026-08-21-sing-bootloop-raw.log`）、恢复启动日志（`2026-08-21-waveshare-restore-boot.log`）与触摸第三轮开机取证（`2026-08-21-touch-round3-boot.log`，含双门回读 `70 -> 20 peak 60 -> 40`）。**2026-08-22 新增 `results/local-only/2026-08-22/hil-draw-com14.log`**：设备消息 API 触发的五角星全链 HIL 串口证据（生成→预览→确认→下载 CRC32 `586d72ae`→流控出图→归位→M30→error:90 缺纸）。根目录杂散 `COM14` 文件已移入 `results/local-only/2026-08-20/`；`tmp/` 未跟踪保留。不新增忽略规则，避免同类误生成被静默掩盖。
 - **2026-08-23 阿里云部署本机资产（gitignored，不删）**：`results/.tmp/deploy-aliyun/` = 灰度节点部署候选——14 模块 + `hutuji_gwrite.toml` + `requirements.txt` 由 `git cat-file blob HEAD` 导出（远端 SHA-256 已逐文件核对相符、CR=0）、`nginx-hutuji-gray{,-bootstrap}.conf`（阿里云直连入口模板，`$binary_remote_addr` 限速、`/mcp` 404，已生效于 `/etc/nginx/conf.d/hutuji-gray.conf`）、`hutuji-{mcp,cloud-bridge}-el8.service`（systemd 239 兼容 unit，已生效于 `/etc/systemd/system/`）；`results/.tmp/songs/` 是京东云歌曲目录副本（已同步到阿里云 output/songs，属主 hutuji）。**会话期 askpass 密码文件已删除**（用完即焚，凭据不出 `D:/Downloads/VPS.txt`）。**独立缺陷登记（不在本轮修）**：复活/禁语扫描面是 `GOVERNANCE_DOCS` 18 份，`results/` 整目录 gitignored 不在扫描面——治理文本若落进 results 下文件门禁看不见；本轮合规来自用户显式决策反转与源头规则下线，不依赖该盲区。
 - **工作树（2026-08-22 现取）**：HEAD 以 `git rev-parse --short HEAD` 为准。本轮文档（发现收紧契约/行号、厂商参数快照、售后 KB 厂家信息）随文档提交入库；§9-E′ 契约+白名单+行号基线批次与 bridge-health 加固批次随后入库（见提交链）。原「桥接空闲死链探活」WIP（过期 id 本地消费、禁止覆盖 pending、回包刷新 `_last_traffic`、顶层 JSON-RPC error 立即探活、stdin 锁）**已于 2026-08-23 从 `stash@{0}` pop 并入库 `998e9f2`**：同批并入 review 中等项修复——`_run_proxy_session` spawn 包进 try/finally + shield 等 spawn 落定拿句柄，取消打在 `create_subprocess_exec` 中途不再孤儿 mcp-proxy（新增用例 RED→GREEN 实证：旧实现 `processes` 为空判红）；test_cloud_bridge 106→116、全量 908→918 绿，hub 门禁 PASS。stash 已清空。用户未跟踪资产 `memory_user.json` 与 `tmp/` 不纳入候选。**不要把静态 SHA 当作实时生产/板上身份**。

@@ -5974,6 +5974,7 @@ def test_mcp_unit_self_tests_vpype_inside_sandbox_and_only_allows_mbind() -> Non
     ]
     assert "SystemCallFilter=~@privileged @resources @obsolete" not in unit
     assert "SystemCallFilter=~@privileged @obsolete" in unit
+    assert "SystemCallErrorNumber=ENOSYS" in unit
     denied_resources = next(
         line for line in unit.splitlines()
         if line.startswith("SystemCallFilter=~ioprio_set ")
@@ -6045,6 +6046,7 @@ def test_bridge_unit_caps_memory_and_keeps_hardening() -> None:
         "ProtectProc=invisible",
         "CapabilityBoundingSet=",
         "SystemCallFilter=~@privileged @resources @obsolete",
+        "SystemCallErrorNumber=ENOSYS",
     ):
         assert key in unit, f"bridge unit 缺加固键 {key}"
 
