@@ -21,13 +21,15 @@
     .tag { display: inline-block; padding: .1rem .4rem; border-radius: 999px; font-size: .75rem; }
     .tag.active { background: #064e3b; color: #6ee7b7; }
     .tag.banned { background: #7f1d1d; color: #fecaca; }
+    pre.conv { background:#0f172a; padding:.75rem; border-radius:8px; max-height:320px; overflow:auto; font-size:.82rem; }
+    .usage-list { display:grid; gap:.35rem; font-size:.85rem; }
   </style>
 </head>
 <body>
 <main>
   <div class="card">
     <h1>呼图云运营后台</h1>
-    <p>用户、绑机、传图数据管理</p>
+    <p>用户、对话采集、功能使用统计</p>
   </div>
 
   <section id="login-section" class="card">
@@ -44,6 +46,8 @@
         <button id="btn-admin-logout" class="secondary">退出</button>
       </div>
       <div id="stats" class="stats"></div>
+      <h3 style="margin:1rem 0 .5rem;font-size:.95rem">近 7 天功能使用</h3>
+      <div id="usage-7d" class="usage-list"></div>
     </div>
     <div class="card">
       <h2>用户列表</h2>
@@ -53,8 +57,10 @@
       </table>
     </div>
     <div class="card">
-      <h2>用户详情</h2>
+      <h2>用户详情 / 对话</h2>
       <pre id="detail" style="white-space:pre-wrap;font-size:.85rem"></pre>
+      <div id="conv-sessions"></div>
+      <pre id="conv-messages" class="conv hidden"></pre>
     </div>
   </section>
 </main>
@@ -71,7 +77,14 @@ function tag(status) {
 }
 async function loadStats() {
   const s = await api('/stats');
-  $('stats').innerHTML = Object.entries(s).map(([k,v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+  $('stats').innerHTML = Object.entries(s).filter(([k]) => k !== 'usage_7d').map(([k,v]) => {
+    if (typeof v === 'object') return '';
+    return `<div class="stat"><span>${k}</span><b>${v}</b></div>`;
+  }).join('');
+  const usage = s.usage_7d || {};
+  $('usage-7d').innerHTML = Object.keys(usage).length
+    ? Object.entries(usage).map(([k,v]) => `<div>${k}: <b>${v}</b></div>`).join('')
+    : '<div>暂无 usage 事件（配置 MCP/portal ingest secret 后生效）</div>';
 }
 async function loadUsers() {
   const data = await api('/users');
@@ -84,6 +97,7 @@ async function loadUsers() {
       <td>${u.saved_count}</td>
       <td>
         <button data-id="${u.id}" data-act="detail">详情</button>
+        <button data-id="${u.id}" data-act="conv">对话</button>
         ${u.status === 'banned'
           ? `<button class="secondary" data-id="${u.id}" data-act="unban">解封</button>`
           : `<button class="secondary" data-id="${u.id}" data-act="ban">封禁</button>`}
@@ -97,6 +111,24 @@ async function loadUsers() {
       if (act === 'detail') {
         const d = await api('/users/' + id);
         $('detail').textContent = JSON.stringify(d, null, 2);
+        $('conv-sessions').innerHTML = '';
+        $('conv-messages').classList.add('hidden');
+      } else if (act === 'conv') {
+        const d = await api('/users/' + id + '/conversations');
+        $('detail').textContent = '';
+        $('conv-messages').classList.add('hidden');
+        $('conv-sessions').innerHTML = (d.items || []).map(s => `
+          <button class="secondary" style="margin:.25rem .35rem .25rem 0" data-uid="${id}" data-sid="${s.session_id}">
+            ${s.session_id.slice(0,8)}… (${s.message_count}条)
+          </button>`).join('') || '<p>暂无采集到的对话（需固件上报 + 已绑机）</p>';
+        $('conv-sessions').querySelectorAll('button[data-sid]').forEach(b => b.onclick = async () => {
+          const m = await api('/users/' + b.dataset.uid + '/conversations/' + b.dataset.sid);
+          $('conv-messages').classList.remove('hidden');
+          $('conv-messages').textContent = (m.messages || []).map(x => {
+            const who = x.role === 'user' ? '用户' : (x.role === 'assistant' ? '小派' : x.role);
+            return `[${who}] ${x.content}`;
+          }).join('\n\n');
+        });
       } else if (act === 'ban') {
         const reason = prompt('封禁原因') || '违规';
         await api('/users/' + id + '/ban', { method: 'POST', body: JSON.stringify({ reason }) });

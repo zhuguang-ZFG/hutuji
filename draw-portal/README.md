@@ -46,4 +46,13 @@ D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
 
 绑定表内的 `device_token` 须为控制台「主题配置 / assets-generator」URL 的 `token=`（JWT `purpose=messaging`），**不是** NVS `websocket.token`。主题配置每次重开会作废旧 token；探活失败时可在设备上重新绑机，或运维脚本更新绑定表（值勿入库）。
 
-契约与设计：`docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md`。
+契约与设计：`docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md`、`docs/design/conversation-capture.md`。
+
+## 对话采集 + usage 埋点（双链）
+
+| 链 | 入口 | 存储 |
+|---|---|---|
+| 对话 | 固件 `POST /api/device/conversation/report`（须 OTA） | `conversation_events` |
+| usage | portal 页面动作 + MCP `POST /api/internal/usage` | `usage_events` |
+
+环境：`DRAW_PORTAL_USAGE_INGEST_SECRET` 与 `HUTUJI_USAGE_INGEST_SECRET` **须同值**；MCP 默认 URL `http://127.0.0.1:8302/api/internal/usage`。运营查看：`https://hutuji.donglicao.com/draw-admin/`（8303，阿里云已启）。

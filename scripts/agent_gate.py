@@ -93,6 +93,7 @@ ALLOWLIST_EXACT = {
         "Grbl_Esp32/src/PaperSystem.cpp",
         "Grbl_Esp32/src/Protocol.cpp",
         "Grbl_Esp32/src/ProtocolDecisionCore.h",
+        "Grbl_Esp32/src/ProcessSettings.cpp",
         "Grbl_Esp32/src/WebUI/BTConfig.cpp",
         "Grbl_Esp32/src/WebUI/WebSettings.cpp",
     ],
@@ -244,6 +245,16 @@ SECTION9_MARKERS = [
         "Grbl_Esp32/src/PaperSystem.cpp",
         ["compare_exchange_strong", "std::atomic<bool> paper_auto_change_running"],
         "§9-E′ 换纸入口原子认领",
+    ),
+    (
+        "Grbl_Esp32/src/ProcessSettings.cpp",
+        ["is_hutuji_locked_setting_key", "SettingDisabled"],
+        "§9-G′ 设置写保护",
+    ),
+    (
+        "Grbl_Esp32/src/ProtocolDecisionCore.h",
+        ["is_hutuji_locked_setting_key"],
+        "§9-G′ 设置写保护谓词",
     ),
 ]
 

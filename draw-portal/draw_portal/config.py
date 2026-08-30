@@ -36,6 +36,9 @@ class Config:
     smtp_from: str
     email_code_ttl_seconds: int
     email_dev_expose_code: bool
+    usage_ingest_secret: str
+    conversation_retention_days: int
+    conversation_max_content: int
 
 
 @dataclass(frozen=True)
@@ -106,6 +109,13 @@ def load_config() -> Config:
         .strip()
         .lower()
         in {"1", "true", "yes"},
+        usage_ingest_secret=os.environ.get("DRAW_PORTAL_USAGE_INGEST_SECRET", "").strip(),
+        conversation_retention_days=int(
+            os.environ.get("DRAW_PORTAL_CONVERSATION_RETENTION_DAYS", "90")
+        ),
+        conversation_max_content=int(
+            os.environ.get("DRAW_PORTAL_CONVERSATION_MAX_CONTENT", "500")
+        ),
     )
 
 

@@ -500,6 +500,14 @@
           <li>点「绑定呼图账号」→ 扫码或输入绑定码</li>
         </ol>
       </details>
+      <p class="privacy-note" style="margin:.75rem 0 0;padding:.65rem .75rem;border-radius:10px;background:var(--surface-2,#1a2332);font-size:.8rem;line-height:1.55;color:var(--muted)">
+        <strong style="color:var(--text,#e8eef7)">隐私说明：</strong>绑定后，设备与小派的语音对话文本（不含原始录音）会经加密链路上传至呼图云，用于售后排查与产品改进，保留约 90 天。您可在账户设置中解绑以停止新对话采集；解绑不自动删除已入库历史。详见
+        <a href="https://hutuji.donglicao.com/draw-upload/" style="color:var(--accent)">呼图云</a> 服务说明。
+      </p>
+      <label class="field consent" style="margin-top:.65rem;display:flex;gap:.5rem;align-items:flex-start;font-size:.82rem;line-height:1.45">
+        <input id="bind-consent" type="checkbox" style="width:auto;margin-top:.2rem">
+        <span>我已阅读并同意上述隐私说明；确认绑定即表示授权对话文本采集。</span>
+      </label>
       <label class="field" style="margin-top:.85rem">
         <span>绑定码</span>
         <input id="bind-code" type="text" maxlength="8" placeholder="例如 ABC123" autocapitalize="characters">
@@ -787,6 +795,10 @@ $('btn-toggle-bind').onclick = () => {
 };
 
 $('btn-bind').onclick = async () => {
+  if (!$('bind-consent').checked) {
+    showMsg($('bind-msg'), '请先勾选隐私说明同意框', false);
+    return;
+  }
   try {
     await api('/user/bind/complete', { method: 'POST', body: JSON.stringify({ bind_code: $('bind-code').value }) });
     showMsg($('bind-msg'), '绑定成功', true);

@@ -7,6 +7,7 @@
     "Grbl_Esp32/src/PaperSystem.cpp",
     "Grbl_Esp32/src/Protocol.cpp",
     "Grbl_Esp32/src/ProtocolDecisionCore.h",
+    "Grbl_Esp32/src/ProcessSettings.cpp",
     "Grbl_Esp32/src/WebUI/BTConfig.cpp",
     "Grbl_Esp32/src/WebUI/WebSettings.cpp"
   ],

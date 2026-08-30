@@ -53,3 +53,47 @@ def test_admin_users_ban_unbind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     stats = client.get("/api/stats")
     assert stats.status_code == 200
     assert stats.json()["users_total"] == 1
+
+
+def test_admin_conversation_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _env(monkeypatch, tmp_path)
+    store = Store(tmp_path / "t.db")
+    user = store.create_user(
+        email="u@example.com",
+        password_hash=hash_password("secret123"),
+        email_verified_at=1.0,
+    )
+    store.set_device_binding(
+        user_id=user.id,
+        device_mac="aa:bb:cc:dd:ee:ff",
+        device_token_enc="enc",
+        bound_at=1.0,
+        token_probe_ok=True,
+    )
+    store.insert_conversation_event(
+        dedupe_key="k1",
+        device_mac="aa:bb:cc:dd:ee:ff",
+        user_id=user.id,
+        session_id="sess1",
+        role="user",
+        content="你好",
+        client_ts=1.0,
+        created_at=1.0,
+    )
+    client = TestClient(create_app())
+    client.post("/api/auth/login", json={"password": "admin-secret"})
+
+    listed = client.get(f"/api/users/{user.id}/conversations")
+    assert listed.status_code == 200
+    assert listed.json()["items"]
+
+    detail = client.get(f"/api/users/{user.id}/conversations/sess1")
+    assert detail.status_code == 200
+
+    with store._connect() as conn:
+        rows = conn.execute(
+            "SELECT action FROM admin_audit_log ORDER BY id"
+        ).fetchall()
+    actions = [r[0] for r in rows]
+    assert "view_conversations" in actions
+    assert "view_conversation_detail" in actions

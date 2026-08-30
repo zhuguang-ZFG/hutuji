@@ -142,6 +142,9 @@ class Settings:
     draw_per_second: int = 4
     draw_per_minute: int = 120
     vpype_max_concurrent: int = 6
+    # draw-portal usage 采集（loopback internal API；secret 与 portal 同值）
+    usage_ingest_url: str = "http://127.0.0.1:8302/api/internal/usage"
+    usage_ingest_secret: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_base_url", validate_public_base_url(self.public_base_url))
@@ -288,6 +291,10 @@ def load_settings() -> Settings:
         draw_per_second=_env_int("HUTUJI_DRAW_PER_SECOND", "4"),
         draw_per_minute=_env_int("HUTUJI_DRAW_PER_MINUTE", "120"),
         vpype_max_concurrent=_env_int("HUTUJI_VPYPE_MAX_CONCURRENT", "6"),
+        usage_ingest_url=os.environ.get(
+            "HUTUJI_USAGE_INGEST_URL", "http://127.0.0.1:8302/api/internal/usage"
+        ),
+        usage_ingest_secret=os.environ.get("HUTUJI_USAGE_INGEST_SECRET", "").strip(),
     )
 
 

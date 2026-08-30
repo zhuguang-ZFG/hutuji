@@ -37,6 +37,7 @@ from .cloud_bridge import WATCHDOG_POLL_SECONDS, read_health_status
 
 from .config import settings
 from .config import validate_public_base_url
+from .usage_report import record_tool_usage
 from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
 from . import paper_risk
@@ -72,6 +73,16 @@ _DRAW_FILE_PARTS_RE = re.compile(
 # 歌曲文件名白名单：小写 id + .ogg，无路径分隔符与点号段，天然免疫目录穿越。
 _SONG_FILE_RE = re.compile(r"[a-z0-9_-]{1,64}\.ogg")
 logger = logging.getLogger(__name__)
+
+
+def _report_mcp_tool(name: str, *, ok: bool = True, detail: str | None = None) -> None:
+    record_tool_usage(
+        ingest_url=getattr(settings, "usage_ingest_url", "") or "",
+        ingest_secret=getattr(settings, "usage_ingest_secret", "") or "",
+        event_type=f"tool_{name}",
+        ok=ok,
+        detail=detail,
+    )
 
 
 class DrawLimitError(RuntimeError):
@@ -417,10 +428,13 @@ async def _chain_device_draw(url: str, preview_url: str) -> None:
             )
         if resp.status_code != 200:
             logger.warning("设备链式调用失败 status=%d（回落云端两步）", resp.status_code)
+            _report_mcp_tool("draw_push", ok=False, detail=f"http_{resp.status_code}")
         else:
             logger.info("设备链式调用 hutuji.draw 已受理")
+            _report_mcp_tool("draw_push", ok=True)
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("设备链式调用异常（%s，回落云端两步）", type(exc).__name__)
+        _report_mcp_tool("draw_push", ok=False, detail=type(exc).__name__)
 
 async def _run_draw_job(description: str, public_base_url: str) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
@@ -577,6 +591,7 @@ async def hutuji_draw(description: str) -> str:
     好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」；坏例子是长篇故事、填色/写实要求或空话。
     失败时根据错误白话说明，不要编造 URL。"""
 
+    _report_mcp_tool("draw")
     # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
     public_base_url = validate_public_base_url(settings.public_base_url)
     safe_description = _sanitize_description(description).strip()
@@ -625,6 +640,7 @@ async def hutuji_status() -> str:
 
     在用户问「能不能画了」「服务正常吗」「刚才生成成功没」时使用。
     这不是写字机笔尖实时位置；设备连线请用设备侧 hutuji.status。"""
+    _report_mcp_tool("status")
     await asyncio.to_thread(_cleanup_expired_outputs)
     out = settings.output_dir
     def _safe_mtime(p: Path) -> float:
@@ -667,6 +683,7 @@ async def hutuji_preview_svg(description: str) -> str:
 
     走的是 LLM 直写 SVG 旧路线（调试用）；hutuji_draw 出图走位图路线，两者观感不同。
     参数 description 同 hutuji_draw。返回 SVG 文本截断（前 2000 字符）。"""
+    _report_mcp_tool("preview_svg")
     svg = await _generate_svg_limited(description)
     return svg[:2000]
 
@@ -678,6 +695,7 @@ async def hutuji_remember(key: str, value: str) -> str:
     key 是简短主题（≤50 字），value 是要记住的内容（≤500 字），同主题会覆盖旧的。
     用户说「记住…」「以后都…」时用；密码、验证码等敏感信息不要记。
     重启后记忆仍在，除非用户说忘掉。"""
+    _report_mcp_tool("remember")
     return await asyncio.to_thread(_memory_remember, key, value)
 
 
@@ -687,6 +705,7 @@ async def hutuji_recall(key: str = "") -> str:
 
     key 留空返回全部记忆（很多时只回最近的并注明总数）；给 key 按主题匹配。
     用户问「我说过…吗」「你记得…吗」「我喜欢什么」时先查它再回答，查不到就老实说没记住，不要编。"""
+    _report_mcp_tool("recall")
     return await asyncio.to_thread(_memory_recall, key)
 
 
@@ -695,6 +714,7 @@ async def hutuji_forget(key: str) -> str:
     """忘掉记住的事情：key 精确删除；传 * 清空全部（须用户明确要求全部忘掉）。
 
     用户说「忘掉…」「别记了」时用。"""
+    _report_mcp_tool("forget")
     return await asyncio.to_thread(_memory_forget, key)
 
 
@@ -743,6 +763,7 @@ async def hutuji_sing(song: str = "") -> str:
     返回 JSON：found=true 时含 url/title/duration_seconds，须把 url 和 title 交给
     设备端工具 hutuji.sing 播放；found=false 时附 catalog 可点歌曲清单，把歌名念给用户挑。
     曲库里没有的歌不要假装会唱。"""
+    _report_mcp_tool("sing")
     public_base_url = validate_public_base_url(settings.public_base_url)
     catalog = await asyncio.to_thread(_load_song_catalog)
     query = _CONTROL_CHAR_RE.sub("", song or "").strip()[:50]

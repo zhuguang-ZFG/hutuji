@@ -442,6 +442,30 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - 烧录不覆盖 NVS，授权与 `$` 设置持久；改机头默认需 `$RST=$`（联调 SOP 记录，非 S3 职责）。
 - **联调前置条件**：② 冒烟测试前先确认 `status.authorized==true`（或串口 banner 含 `[License] Authorized`）；未授权先走授权 SOP 再开测。授权持久，实际上是**一次性**的。
 
+### 6.1 Grbl `$` 设置指纹（2026-08-30）
+
+奎享 / ESP3D WebUI 可经 Telnet 改写 `$` 并持久化到 NVS，会绕过 MCP 侧 X/Y≤190mm 安全限幅（例：把 `$130/$131` 改小）。S3 在**授权探测之后、置 `ready=true` 之前**逐项只读查询 golden 表；Grbl 侧对同表项**拒绝写入**（`Error::SettingDisabled`=5）。`$RST=$` 出厂恢复 SOP 不受影响。
+
+**Golden 表（2026-08-29 COM13 实机 `$$` + `[Errors/Verbose]` 只读取证）**：
+
+| 项 | 期望值 |
+|----|--------|
+| `$1` | 255 |
+| `$3` | 7 |
+| `$20/$21/$22` | 0 |
+| `$100/$101` | 100 |
+| `$110/$111` | 12000 |
+| `$130/$131/$132` | 210 / 297 / 200 |
+| `Errors/Verbose` | 0 |
+
+**S3 行为**：
+
+- 连接后授权探测完成 → 逐项 `$N` / `[Errors/Verbose]` 查询 → 比对通过才 `grbl_settings_ok=true` 且 `ready=true`。
+- 任一不符 → `grbl_settings_ok=false`，`hutuji.status` 带 `grbl_settings_mismatch`（golden key，如 `"130"`）；`draw` / `confirm` / 试笔 / 手动点动 **拒画**，云端可见 `grbl_settings_mismatch` 错误 token。
+- 实现：`hutuji_recovery_core.h` 纯函数 + `hutuji_pipe` 状态机 + host 单测 `scripts/tests/test_hutuji_recovery_core.py`。
+
+**Grbl 行为（§9 G′）**：`ProcessSettings.cpp` 在 `setStringValue` 前调用 `ProtocolDecisionCore::is_hutuji_locked_setting_key()`；读/显示不受影响。
+
 ## 7. 错误处理
 
 | 情况 | 含义 | S3 行为 |
@@ -489,6 +513,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | D′ | `WebUI/BTConfig.cpp`（`begin()`） | 经典蓝牙启动成功后 `esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9)`（GRBL_PAPER_SYSTEM 守卫内，失败只记消息不阻断） | 2026-08-15 用户决策：IDF 默认发射功率上限仅 P3=+3dBm（`esp_bt.h:331`），拉满 +9dBm 改善 BT 链路质量。纯射频参数，不碰数据面/换纸/运动/授权；§8「不用蓝牙走正式数据链路」不变 |
 | F′ | `GCode.cpp:1732`、`:1789`、`PaperSystem.cpp:708-714`、`:837`、`:959`、`:1047-1049` | **`$1=255` 常使能守卫**：M30 页尾与换纸 abort/进纸超时/卡纸不得无条件失能 XYZ；`paper_finish_xyz_after_fault()` 在 `$1≠255` 时仍立即失能、在 `$1=255` 时显式 `motors_set_disable(false)` 恢复（含 M30 已失能的残留）；换纸成功路径仍恢复使能 | 商业固件在 M30 与 `PaperAuto-2` feeder timeout 等处硬编码 `motors_set_disable(true)`，弹簧笔架在「逻辑 Z 仍可能为 5」时失能抬笔 → 下一页没墨。2026-08-28 COM13 刷机 + 用户确认修复后正常 |
 | E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1050` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1050` 自此降级为 fast-path advisory（只负责 web 侧 `"busy"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |
+| G′ | `ProtocolDecisionCore.h`、`ProcessSettings.cpp`（`is_hutuji_locked_setting_key` → `SettingDisabled`） | **Golden `$` 写保护**：Telnet/WebUI 对 `$1/$3/$20-22/$100/$101/$110/$111/$130/$131/$132`/`Errors/Verbose` 的写入统一回 `Error::SettingDisabled`(5)；S3 侧只读指纹见 §6.1 | 奎享/WebUI 可改 `$130/$131` 行程，绕过 MCP X/Y≤190mm 安全限幅；2026-08-29 实机 golden 见 §6.1 |
 
 > **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:131`/`:233`、`System.cpp:314`、`WebSettings.cpp:1050`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
 > **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1055` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:191`、`WebSettings.cpp:167`），且 M30 路径看不到它，换不来任何 S3 可见收益。

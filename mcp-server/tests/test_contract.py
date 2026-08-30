@@ -4387,6 +4387,8 @@ def test_svg_to_gcode_async_limits_subprocess_concurrency(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """不同 SVG 的并发转换最多启动两个 vpype，Quick Draw 命中也不能绕开资源界。"""
+    monkeypatch.setenv("HUTUJI_VPYPE_MAX_CONCURRENT", "2")
+    gcode_gen._vpype_semaphores.clear()
     active = 0
     peak = 0
     two_started = asyncio.Event()

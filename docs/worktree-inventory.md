@@ -36,7 +36,8 @@
 | 路径 | `draw-portal/`（FastAPI + SQLite + 静态页） |
 | 部署 | `deploy/hutuji-draw-portal.service`、`deploy/env.draw-portal.example`、`deploy/nginx-draw-portal-snippet.conf` |
 | 探活脚本 | `scripts/probe_device_messaging_token.py`（token 勿入库） |
-| 契约 | `docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md` |
+| 契约 | `docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md`、`docs/design/conversation-capture.md` |
+| 本批（未部署） | 对话上报 API + `conversation_events`；usage 埋点 + `usage_events`；`draw-admin` 会话/usage 视图；MCP `usage_report.py`；固件 `hutuji_conversation_report.*`（xiaozhi 未提交） |
 | 生产 | 阿里云 active；venv 共用 MCP；数据 `/var/lib/hutuji/draw-portal/` |
 
 ### curated 精选库（2026-08-26，代码已合 main / PR #7；灌库未 flip）
@@ -156,11 +157,24 @@
 
 ## 2. Grbl_Esp32（`D:\Users\Grbl_Esp32`）
 
-**工作树干净（2026-08-28 晚 M30/换纸 `$1=255` 守卫已提交）** — 见下条。
+**工作树脏（2026-08-30 §9-G′ `$` 写保护，未提交）** — 见下条。
+
+### §9-G′ Golden `$` 写保护（2026-08-30，**未提交 / 未推 origin**）
+
+| 文件 | 说明 |
+|------|------|
+| `Grbl_Esp32/src/ProtocolDecisionCore.h` | `is_hutuji_locked_setting_key()` |
+| `Grbl_Esp32/src/ProcessSettings.cpp` | Telnet/WebUI 写入 golden 项 → `Error::SettingDisabled`(5) |
+
+- **板上（2026-08-30 COM13 刷入）**：`firmware.bin` SHA-256 `7069D20E95DDF58DA8B4C15650FC115D636B8CD2783D2B5DE20956E76405C4E1`；`pio run -e release` + upload `Hash of data verified`。
+- **实机**：`$130=200` → `error:5`；`$130` 只读 → `$130=210.000`（脚本 `tmp/test_grbl_write_lock_com13.py`）。
+- **fz 门禁**：**未验证**。
+
+**工作树干净（2026-08-28 晚 M30/换纸 `$1=255` 守卫已提交）** — 历史见下条。
 
 ### 板上基线与验证边界（HEAD 存档并入）
 
-- **路径 / 分支 / HEAD**：`D:/Users/Grbl_Esp32` / `fix/panel-hold-after-align-116687e` / **`2cecd2d`**（`7f48217` `$1=255` 机型默认 + §9-F′ M30/换纸失能守卫）；COM13 板上镜像 SHA `12275654…429A5`（2026-08-28 晚刷）。
+- **路径 / 分支 / HEAD**：`D:/Users/Grbl_Esp32` / `fix/panel-hold-after-align-116687e` / **`2cecd2d`**（源码；§9-G′ 写保护为工作树未提交改动）；COM13 板上镜像 SHA **`7069D20E…05C4E1`**（2026-08-30 刷，取代 `12275654…429A5`）。
 - **有证据的板上行为基线**：`e3b1cad`（2026-08-15 烧录与启动自证）；源码后续 `847b564` 增加 §9-D′ 蓝牙功率，**没有本轮烧录证据，不能把源码 HEAD 写成板上基线**。
 - **2026-08-22 换新写字机（COM13，CH340）**：烧前已完整取证并备份——原厂整片镜像 `results/local-only/2026-08-22/new-plotter-factory-backup.bin`（4MB，esptool read_flash）、串口证据 `new-plotter-serial-evidence.log`（烧前 `$I`/`$$`/`$102`/`$130`/`$131`：厂商默认 `$130/$131=200/200`；烧后 `$$` 快照为 fork 机型默认 `$130=210/$131=297`，`$20=0` 软限关闭，云端 190/190 限幅不受影响；X 长边/短边仍待装纸后单轴点动实测量尺）。烧入 app-only `0x10000`（`e3b1cad` 经 worktree 重建 `release`，PlatformIO SUCCESS，esptool `Hash of data verified`），未整片擦写，授权 NVS 保留（启动日志 `[License] Authorized (restored from NVS)`，ChipID `00002C876AE9BFB4`）。注意：本机 scoop mingw 16.1 对 fz 门禁不可用——rt_v14 的 `pthread.h`→`limits.h` 头链把 Grbl `src/limits.h` 经 `include_next` 卷入系统链（`-iquote` 下同样触发，实测复现），且该 winlibs 构建不附 libasan/libubsan（mingw-gcc 无 ASan 属社区已知，msys2/MINGW-packages#3163）；**解法：PATH 前置 scoop llvm `22.1.8/bin`（fz `find_compiler` 原生优先 clang++），fz `standard` 实测 overall=pass**（`wokwi_startup` 可选云层红，用 `.pio` 旧镜像、不含 E′，按仓规不阻断）。故新机用已验证基线 `e3b1cad` 而非当时的 HEAD；E′（`fb2b3b5`）已过 fz standard host SIL，**未烧录、未实机复现物理并发**，板上基线不变。配网走 AP 模式（`GRBL_ESP`，WebUI/命令行），静态 IP 待配网完成后按实读网段写 `.13`。
 - **2026-08-23 烧录 `fb2b3b5`（COM13，用户批准后执行）**：`pio run -e release` 重建 SUCCESS（仅重编 PaperSystem.cpp/WebSettings.cpp，与 E′ 触碰面一致；新 bin 1857936 字节，取代 08-15 旧镜像）→ `pio run -t upload --upload-port COM13` app-only `0x10000`，esptool `Hash of data verified`，RTS 硬复位。启动自证 `results/local-only/2026-08-23/fb2b3b5-com13-boot.log`（抓取脚本 `tmp/cap_fb2b3b5_com13.py`）：`Grbl_ESP32 Ver 1.3a`、paper system vM716 ready、`[License] Authorized (restored from NVS)`、连上 `ChinaNet-jJmz` 获 `192.168.1.13`、HTTP/TELNET:23 起来，无崩溃重启。**矛盾待澄清**：本次启动自报 ChipID（efuse MAC）`0000FC7742C63C94`，与 §2 上文 08-22 记录的 `00002C876AE9BFB4` 不一致（本地证据文件中检索不到后者出处），COM 号漂移或多台写字机皆有可能——物理身份需用户确认；可确认的是「今天 COM13 这块板」已跑 `fb2b3b5` 且授权/.13 网络身份正常。物理并发复现（E′ 的 HIL）仍未做。**wokwi 同日登记**：复跑 `run_wokwi_smoke.py`（新镜像已就位）失败根因为 Wokwi 免费版月度 CI 配额耗尽（`API Error: ... Free plan monthly CI minute quota`，serial 0 行），属外部阻塞非固件回归；该可选层本月不可跑，不阻断产品门禁。
@@ -170,6 +184,20 @@
 ---
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
+
+### Grbl `$` 设置指纹 + 对话上报（2026-08-30，**未提交 / 未推 origin**）
+
+| 文件 | 说明 |
+|------|------|
+| `main/boards/lichuang-dev/hutuji_recovery_core.h` | golden 表 + `ParseGrblSettingLine`（含 `Off/On`） |
+| `main/boards/lichuang-dev/hutuji_pipe.{h,cc}` | 授权后 13 项只读指纹；`grbl_settings_ok` / mismatch |
+| `main/boards/lichuang-dev/hutuji_job.cc` | confirm/出图/试笔/点动拒画；status JSON 字段 |
+| `main/boards/lichuang-dev/hutuji_conversation_report.{h,cc}` | 对话上报（Idle 冲刷） |
+| `main/application.cc` | 唤醒词 speaking 期关自打断 |
+| `scripts/tests/test_hutuji_recovery_core.py` | +指纹 host 单测 |
+
+- **板上 COM14（2026-08-30）**：`build-hil-ws35/xiaozhi.bin` SHA-256 `1555415246ADF3DF4CBD42ADDE53B53DF9C82627745BD78219972CBA56C1BA62`；抓包 `tmp/settings-fp-fixed-com14.log`：`Grbl 设置指纹通过（13 项）`。
+- **首刷 bug**：`Errors/Verbose=Off` 未解析 → 已修并重刷（同 SHA 系增量构建）。
 
 ### DRAW-BIND 绑机固件（2026-08-29，**未提交 / 未推 origin**）
 

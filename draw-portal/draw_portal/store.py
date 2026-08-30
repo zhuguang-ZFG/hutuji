@@ -87,6 +87,41 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
     detail TEXT,
     created_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS conversation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    device_mac TEXT NOT NULL,
+    user_id TEXT,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    client_ts REAL,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_mac_time
+    ON conversation_events(device_mac, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_user_time
+    ON conversation_events(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS usage_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    user_id TEXT,
+    device_mac TEXT,
+    detail TEXT,
+    ok INTEGER,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_type_time
+    ON usage_events(event_type, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_usage_user_time
+    ON usage_events(user_id, created_at DESC);
 """
 
 _USER_MIGRATION_COLUMNS = (
@@ -403,6 +438,10 @@ class Store:
             jobs_ready = conn.execute(
                 "SELECT COUNT(*) FROM draw_jobs WHERE status = 'ready'"
             ).fetchone()[0]
+            conversations = conn.execute(
+                "SELECT COUNT(*) FROM conversation_events"
+            ).fetchone()[0]
+            usage = conn.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0]
         return {
             "users_total": int(users),
             "users_active": int(active),
@@ -411,6 +450,8 @@ class Store:
             "jobs_total": int(jobs),
             "jobs_ready": int(jobs_ready),
             "saved_total": int(saved),
+            "conversation_events_total": int(conversations),
+            "usage_events_total": int(usage),
         }
 
     def user_detail(self, user_id: str) -> dict[str, Any] | None:
@@ -740,3 +781,187 @@ class Store:
                     paths.append(row["gcode_path"])
             conn.commit()
         return paths
+
+    def get_user_id_for_mac(self, device_mac: str) -> str | None:
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM device_bindings WHERE device_mac = ?",
+                (mac,),
+            ).fetchone()
+        return str(row["user_id"]) if row else None
+
+    def purge_conversation_before(self, cutoff_ts: float) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM conversation_events WHERE created_at < ?",
+                (cutoff_ts,),
+            )
+            conn.commit()
+            return int(cur.rowcount)
+
+    def insert_conversation_event(
+        self,
+        *,
+        dedupe_key: str,
+        device_mac: str,
+        user_id: str | None,
+        session_id: str,
+        role: str,
+        content: str,
+        client_ts: float | None,
+        created_at: float,
+    ) -> bool:
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO conversation_events (
+                        dedupe_key, device_mac, user_id, session_id, role,
+                        content, client_ts, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        dedupe_key,
+                        device_mac,
+                        user_id,
+                        session_id,
+                        role,
+                        content,
+                        client_ts,
+                        created_at,
+                    ),
+                )
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def insert_usage_event(
+        self,
+        *,
+        source: str,
+        event_type: str,
+        user_id: str | None = None,
+        device_mac: str | None = None,
+        detail: str | None = None,
+        ok: bool | None = None,
+        created_at: float | None = None,
+    ) -> None:
+        when = created_at if created_at is not None else time.time()
+        mac = normalize_mac(device_mac) if device_mac else None
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO usage_events (
+                    source, event_type, user_id, device_mac, detail, ok, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source,
+                    event_type,
+                    user_id,
+                    mac,
+                    (detail[:200] if detail else None),
+                    None if ok is None else int(ok),
+                    when,
+                ),
+            )
+            conn.commit()
+
+    def list_conversation_sessions(
+        self,
+        *,
+        user_id: str | None = None,
+        device_mac: str | None = None,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 100))
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if device_mac:
+            clauses.append("device_mac = ?")
+            params.append(normalize_mac(device_mac))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT session_id,
+                       MAX(created_at) AS last_at,
+                       MIN(created_at) AS first_at,
+                       COUNT(*) AS message_count,
+                       device_mac
+                FROM conversation_events
+                {where}
+                GROUP BY session_id, device_mac
+                ORDER BY last_at DESC
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_conversation_messages(
+        self,
+        *,
+        session_id: str,
+        user_id: str | None = None,
+        device_mac: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 500))
+        clauses = ["session_id = ?"]
+        params: list[Any] = [session_id]
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if device_mac:
+            clauses.append("device_mac = ?")
+            params.append(normalize_mac(device_mac))
+        where = " AND ".join(clauses)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT role, content, client_ts, created_at, device_mac
+                FROM conversation_events
+                WHERE {where}
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def usage_counts_since(self, since_ts: float) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT event_type, source, COUNT(*) AS count
+                FROM usage_events
+                WHERE created_at >= ?
+                GROUP BY event_type, source
+                ORDER BY count DESC
+                """,
+                (since_ts,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def usage_counts_for_user_since(
+        self, user_id: str, since_ts: float
+    ) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT event_type, source, COUNT(*) AS count
+                FROM usage_events
+                WHERE user_id = ? AND created_at >= ?
+                GROUP BY event_type, source
+                ORDER BY count DESC
+                """,
+                (user_id, since_ts),
+            ).fetchall()
+        return [dict(r) for r in rows]
+

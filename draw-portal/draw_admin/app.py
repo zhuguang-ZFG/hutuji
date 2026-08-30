@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
@@ -7,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pathlib import Path
 
+from draw_portal.analytics import retention_cutoff, summarize_usage_rows
 from draw_admin.auth import (
     ADMIN_SESSION_COOKIE,
     clear_admin_session_cookie,
@@ -60,7 +62,51 @@ def create_app() -> FastAPI:
 
     @app.get("/api/stats", dependencies=secured)
     def stats() -> dict[str, Any]:
-        return store.platform_stats()
+        base = store.platform_stats()
+        since = retention_cutoff(retention_days=7)
+        usage_rows = store.usage_counts_since(since)
+        base["usage_7d"] = summarize_usage_rows(usage_rows)
+        return base
+
+    @app.get("/api/analytics/usage", dependencies=secured)
+    def analytics_usage(days: int = 7) -> dict[str, Any]:
+        days = max(1, min(days, 90))
+        since = time.time() - days * 86400
+        rows = store.usage_counts_since(since)
+        return {"days": days, "items": rows, "totals": summarize_usage_rows(rows)}
+
+    @app.get("/api/users/{user_id}/conversations", dependencies=secured)
+    def user_conversations(user_id: str, limit: int = 30) -> dict[str, Any]:
+        if store.get_user(user_id) is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        limit = min(limit, 100)
+        sessions = store.list_conversation_sessions(user_id=user_id, limit=limit)
+        store.log_admin_action(
+            action="view_conversations",
+            target_user_id=user_id,
+            detail=f"limit={limit} count={len(sessions)}",
+        )
+        return {"items": sessions}
+
+    @app.get(
+        "/api/users/{user_id}/conversations/{session_id}", dependencies=secured
+    )
+    def user_conversation_detail(user_id: str, session_id: str) -> dict[str, Any]:
+        if store.get_user(user_id) is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        messages = store.list_conversation_messages(
+            session_id=session_id,
+            user_id=user_id,
+            limit=300,
+        )
+        if not messages:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        store.log_admin_action(
+            action="view_conversation_detail",
+            target_user_id=user_id,
+            detail=f"session={session_id[:32]} messages={len(messages)}",
+        )
+        return {"session_id": session_id, "messages": messages}
 
     @app.get("/api/users", dependencies=secured)
     def users(limit: int = 100, offset: int = 0) -> dict[str, Any]:

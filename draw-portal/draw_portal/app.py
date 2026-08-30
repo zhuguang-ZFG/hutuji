@@ -8,11 +8,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from draw_portal.analytics import (
+    conversation_dedupe_key,
+    normalize_role,
+    retention_cutoff,
+    truncate_conversation_content,
+    usage_event_type,
+)
 from draw_portal.auth import (
     SESSION_COOKIE,
     clear_session_cookie,
@@ -64,6 +71,27 @@ class SavePreviewBody(BaseModel):
     title: str | None = None
 
 
+class ConversationTurnBody(BaseModel):
+    role: str
+    content: str = Field(min_length=1, max_length=2000)
+    client_ts: float | None = None
+
+
+class ConversationReportBody(BaseModel):
+    mac: str
+    session_id: str = Field(min_length=1, max_length=64)
+    events: list[ConversationTurnBody] = Field(min_length=1, max_length=50)
+
+
+class UsageIngestBody(BaseModel):
+    source: str = Field(default="mcp", max_length=32)
+    event_type: str = Field(min_length=1, max_length=64)
+    user_id: str | None = None
+    device_mac: str | None = None
+    detail: str | None = Field(default=None, max_length=200)
+    ok: bool | None = None
+
+
 _MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 _MAX_VERIFY_ATTEMPTS = 8
 
@@ -78,6 +106,36 @@ def _saved_dir(data_dir: Path, user_id: str) -> Path:
 
 def _default_saved_title() -> str:
     return datetime.now().strftime("上传 %Y-%m-%d %H:%M")
+
+
+def _record_portal_usage(
+    store: Store,
+    *,
+    event_type: str,
+    user_id: str | None = None,
+    device_mac: str | None = None,
+    detail: str | None = None,
+    ok: bool | None = None,
+) -> None:
+    store.insert_usage_event(
+        source="draw_portal",
+        event_type=usage_event_type(event_type),
+        user_id=user_id,
+        device_mac=device_mac,
+        detail=detail,
+        ok=ok,
+    )
+
+
+def _is_loopback_client(host: str) -> bool:
+    if host in {"127.0.0.1", "::1", "localhost"}:
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def create_app() -> FastAPI:
@@ -296,12 +354,27 @@ def create_app() -> FastAPI:
             bound_at=now,
             token_probe_ok=ok,
         )
+        _record_portal_usage(
+            store,
+            event_type="bind_complete",
+            user_id=user_id,
+            device_mac=binding.device_mac,
+            ok=ok,
+        )
         return {"status": "bound", "binding": store.binding_status_dict(binding)}
 
     @app.post("/api/user/bind/unbind", dependencies=secured)
     def bind_unbind(user_id: str = Depends(user_dep)) -> dict[str, str]:
+        binding = store.get_binding_for_user(user_id)
         if not store.delete_binding_for_user(user_id):
             raise HTTPException(status_code=404, detail="未绑定设备")
+        if binding is not None:
+            _record_portal_usage(
+                store,
+                event_type="unbind",
+                user_id=user_id,
+                device_mac=binding.device_mac,
+            )
         return {"status": "unbound"}
 
     @app.get("/api/user/bind/status", dependencies=secured)
@@ -362,6 +435,13 @@ def create_app() -> FastAPI:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
             raise HTTPException(status_code=422, detail="图片转换失败") from exc
 
+        _record_portal_usage(
+            store,
+            event_type="web_upload",
+            user_id=user_id,
+            detail=source_name[:120],
+            ok=True,
+        )
         return {
             "status": "ready",
             "job_id": job.id,
@@ -389,6 +469,13 @@ def create_app() -> FastAPI:
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())
+        _record_portal_usage(
+            store,
+            event_type="web_send",
+            user_id=user_id,
+            device_mac=binding.device_mac,
+            ok=ok,
+        )
         return {"status": "sent" if ok else "push_failed", "detail": summary}
 
     @app.post("/api/draw/{job_id}/save", dependencies=secured)
@@ -432,6 +519,13 @@ def create_app() -> FastAPI:
                 Path(path).unlink(missing_ok=True)
             except OSError:
                 pass
+        _record_portal_usage(
+            store,
+            event_type="web_save",
+            user_id=user_id,
+            detail=saved.title[:120],
+            ok=True,
+        )
         return {
             "status": "saved",
             "id": saved.id,
@@ -507,7 +601,93 @@ def create_app() -> FastAPI:
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())
+        _record_portal_usage(
+            store,
+            event_type="web_saved_send",
+            user_id=user_id,
+            device_mac=binding.device_mac,
+            ok=ok,
+        )
         return {"status": "sent" if ok else "push_failed", "detail": summary}
+
+    @app.post("/api/device/conversation/report")
+    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:
+        try:
+            mac = normalize_mac(body.mac)
+            session_id = body.session_id.strip()[:64]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        user_id = store.get_user_id_for_mac(mac)
+        if user_id is None:
+            raise HTTPException(status_code=403, detail="设备未绑定呼图账号")
+        now = time.time()
+        store.purge_conversation_before(
+            retention_cutoff(retention_days=config.conversation_retention_days)
+        )
+        accepted = 0
+        for turn in body.events:
+            try:
+                role = normalize_role(turn.role)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            content = truncate_conversation_content(
+                turn.content, max_len=config.conversation_max_content
+            )
+            if not content:
+                continue
+            client_ts = turn.client_ts if turn.client_ts is not None else now
+            key = conversation_dedupe_key(
+                device_mac=mac,
+                session_id=session_id,
+                role=role,
+                content=content,
+                client_ts=client_ts,
+            )
+            if store.insert_conversation_event(
+                dedupe_key=key,
+                device_mac=mac,
+                user_id=user_id,
+                session_id=session_id,
+                role=role,
+                content=content,
+                client_ts=client_ts,
+                created_at=now,
+            ):
+                accepted += 1
+        return {"status": "ok", "accepted": accepted, "total": len(body.events)}
+
+    @app.post("/api/internal/usage")
+    def usage_ingest(
+        body: UsageIngestBody,
+        request: Request,
+        x_hutuji_usage_secret: str | None = Header(default=None, alias="X-Hutuji-Usage-Secret"),
+    ) -> dict[str, str]:
+        if not config.usage_ingest_secret:
+            raise HTTPException(status_code=503, detail="usage ingest 未配置")
+        if x_hutuji_usage_secret != config.usage_ingest_secret:
+            raise HTTPException(status_code=401, detail="unauthorized")
+        client_host = request.client.host if request.client else ""
+        if not _is_loopback_client(client_host):
+            raise HTTPException(status_code=403, detail="仅允许 loopback 写入")
+        try:
+            event_type = usage_event_type(body.event_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        mac = None
+        if body.device_mac:
+            try:
+                mac = normalize_mac(body.device_mac)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        store.insert_usage_event(
+            source=(body.source or "mcp")[:32],
+            event_type=event_type,
+            user_id=body.user_id,
+            device_mac=mac,
+            detail=body.detail,
+            ok=body.ok,
+        )
+        return {"status": "ok"}
 
     @app.delete("/api/draw/saved/{saved_id}", dependencies=secured)
     def draw_saved_delete(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, str]:
