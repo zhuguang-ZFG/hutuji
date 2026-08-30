@@ -6,6 +6,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from draw_portal.draw_limits import DRAW_LIMIT_KEYS, validate_draw_limit_overrides
+from draw_portal.image_backends import (
+    IMAGE_BACKEND_DB_KEYS,
+    IMAGE_BACKEND_NAMES,
+    default_image_backend_toggles,
+)
+from draw_portal.mcp_settings import build_mcp_settings_payload
 from draw_portal.models import (
     BindSession,
     DeviceBinding,
@@ -122,6 +129,12 @@ CREATE INDEX IF NOT EXISTS idx_usage_type_time
 
 CREATE INDEX IF NOT EXISTS idx_usage_user_time
     ON usage_events(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 _USER_MIGRATION_COLUMNS = (
@@ -934,6 +947,156 @@ class Store:
                 (*params, limit),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def list_conversation_export_rows(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 20000))
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if session_id:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        where = " AND ".join(clauses)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT session_id, role, content, client_ts, created_at, device_mac
+                FROM conversation_events
+                WHERE {where}
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_draw_limit_overrides(self) -> dict[str, int]:
+        return self._parse_int_platform_settings(DRAW_LIMIT_KEYS)
+
+    def get_image_backend_toggles(self) -> dict[str, bool]:
+        toggles = default_image_backend_toggles()
+        raw = self._read_platform_settings(tuple(IMAGE_BACKEND_DB_KEYS.values()))
+        for name in IMAGE_BACKEND_NAMES:
+            db_key = IMAGE_BACKEND_DB_KEYS[name]
+            if db_key in raw:
+                toggles[name] = raw[db_key].strip() not in ("0", "false", "False")
+        return toggles
+
+    def get_mcp_settings_payload(self) -> dict[str, object]:
+        raw = self._read_platform_settings(
+            tuple(DRAW_LIMIT_KEYS) + tuple(IMAGE_BACKEND_DB_KEYS.values())
+        )
+        limits: dict[str, int] = {}
+        for key in DRAW_LIMIT_KEYS:
+            if key not in raw:
+                continue
+            try:
+                limits[key] = int(raw[key])
+            except ValueError:
+                continue
+        image_raw = {
+            db_key: raw[db_key]
+            for name, db_key in IMAGE_BACKEND_DB_KEYS.items()
+            if db_key in raw
+        }
+        return build_mcp_settings_payload(
+            draw_limit_overrides=limits,
+            image_backend_raw=image_raw,
+        )
+
+    def _read_platform_settings(self, keys: tuple[str, ...]) -> dict[str, str]:
+        if not keys:
+            return {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT key, value FROM platform_settings
+                WHERE key IN ({})
+                """.format(",".join("?" * len(keys))),
+                keys,
+            ).fetchall()
+        return {str(row["key"]): str(row["value"]) for row in rows}
+
+    def _parse_int_platform_settings(self, keys: tuple[str, ...]) -> dict[str, int]:
+        raw = self._read_platform_settings(keys)
+        out: dict[str, int] = {}
+        for key in keys:
+            if key not in raw:
+                continue
+            try:
+                out[key] = int(raw[key])
+            except ValueError:
+                continue
+        return out
+
+    def _write_platform_settings(
+        self,
+        *,
+        allowed_keys: frozenset[str],
+        values: dict[str, str | None],
+    ) -> None:
+        now = time.time()
+        with self._connect() as conn:
+            for key, value in values.items():
+                if key not in allowed_keys:
+                    continue
+                conn.execute("DELETE FROM platform_settings WHERE key = ?", (key,))
+                if value is not None:
+                    conn.execute(
+                        """
+                        INSERT INTO platform_settings (key, value, updated_at)
+                        VALUES (?, ?, ?)
+                        """,
+                        (key, value, now),
+                    )
+            conn.commit()
+
+    def apply_draw_limit_patch(self, patch: dict[str, int | None]) -> dict[str, int]:
+        current = self.get_draw_limit_overrides()
+        for key in DRAW_LIMIT_KEYS:
+            if key not in patch:
+                continue
+            value = patch[key]
+            if value is None:
+                current.pop(key, None)
+            else:
+                current[key] = value
+        validated = validate_draw_limit_overrides(current)
+        writes: dict[str, str | None] = {
+            key: (str(validated[key]) if key in validated else None)
+            for key in DRAW_LIMIT_KEYS
+        }
+        self._write_platform_settings(
+            allowed_keys=frozenset(DRAW_LIMIT_KEYS),
+            values=writes,
+        )
+        return validated
+
+    def apply_image_backend_patch(self, patch: dict[str, bool | None]) -> dict[str, bool]:
+        toggles = self.get_image_backend_toggles()
+        writes: dict[str, str | None] = {}
+        for name in IMAGE_BACKEND_NAMES:
+            if name not in patch:
+                continue
+            value = patch[name]
+            db_key = IMAGE_BACKEND_DB_KEYS[name]
+            if value is None:
+                toggles[name] = True
+                writes[db_key] = None
+            else:
+                toggles[name] = bool(value)
+                writes[db_key] = "1" if toggles[name] else "0"
+        if writes:
+            self._write_platform_settings(
+                allowed_keys=frozenset(IMAGE_BACKEND_DB_KEYS.values()),
+                values=writes,
+            )
+        return toggles
 
     def usage_counts_since(self, since_ts: float) -> list[dict[str, Any]]:
         with self._connect() as conn:

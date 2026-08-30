@@ -2,120 +2,947 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>小派知识库管理</title>
   <style>
+    :root {
+      --bg: #f0f4f8;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-soft: #94a3b8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --success: #059669;
+      --success-soft: #ecfdf5;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --warning: #d97706;
+      --warning-soft: #fffbeb;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+      --shadow-lg: 0 20px 50px rgba(15, 23, 42, 0.12);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --font: "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+
     * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; color: #222; }
-    h1 { font-size: 1.25rem; margin: 0 0 1rem; }
-    h2 { font-size: 1rem; margin: 1.5rem 0 0.5rem; }
-    .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; max-width: 960px; }
-    label { display: block; margin-bottom: 0.25rem; font-size: 0.875rem; }
-    input[type="password"], input[type="text"], textarea, select {
-      width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border: 1px solid #ccc; border-radius: 4px;
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(37, 99, 235, 0.12), transparent),
+        var(--bg);
+      line-height: 1.5;
+      padding:
+        env(safe-area-inset-top)
+        env(safe-area-inset-right)
+        env(safe-area-inset-bottom)
+        env(safe-area-inset-left);
     }
-    textarea { min-height: 120px; resize: vertical; }
-    button {
-      padding: 0.45rem 0.75rem; margin-right: 0.5rem; margin-bottom: 0.5rem;
-      border: 1px solid #888; border-radius: 4px; background: #fff; cursor: pointer;
+
+    button, input, textarea, select {
+      font: inherit;
     }
-    button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-    button.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .toolbar select { width: auto; margin: 0; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-    th, td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; }
-    th { background: #eee; }
-    .badge-yes { color: #15803d; }
-    .badge-no { color: #b91c1c; }
+
     .hidden { display: none !important; }
-    .modal-backdrop {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-      display: flex; align-items: center; justify-content: center; z-index: 10;
+
+    /* —— Login —— */
+    .login-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
     }
-    .modal { background: #fff; border-radius: 8px; padding: 1rem; width: min(520px, 92vw); max-height: 90vh; overflow: auto; }
-    .modal-actions { margin-top: 0.75rem; }
-    .msg { color: #b91c1c; font-size: 0.875rem; min-height: 1.25rem; }
-    .msg.ok { color: #15803d; }
+
+    .login-card {
+      width: min(420px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      padding: 2rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 1.125rem;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand p {
+      margin: 0.15rem 0 0;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+
+    .field-label {
+      display: block;
+      margin-bottom: 0.375rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .field-input {
+      width: 100%;
+      padding: 0.625rem 0.875rem;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .field-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    /* —— Buttons —— */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      padding: 0.5rem 0.875rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--surface-2);
+      border-color: var(--border-strong);
+    }
+
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: #b91c1c;
+      border-color: #b91c1c;
+    }
+
+    .btn-ghost {
+      border-color: transparent;
+      background: transparent;
+      color: var(--text-muted);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
+    .btn-sm {
+      padding: 0.3rem 0.625rem;
+      font-size: 0.8125rem;
+    }
+
+    .btn-block { width: 100%; margin-top: 0.25rem; }
+
+    .btn-icon {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+    }
+
+    /* —— App shell —— */
+    .app-shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 1.25rem 1.25rem 2.5rem;
+    }
+
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .topbar .brand { margin-bottom: 0; }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.125rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-soft);
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+
+    .panel-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 1rem 1.125rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 0.9375rem;
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 1.5rem;
+      background: var(--border);
+      margin: 0 0.125rem;
+    }
+
+    .search-wrap {
+      position: relative;
+      min-width: 200px;
+      flex: 1;
+      max-width: 280px;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 0.625rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 1rem;
+      height: 1rem;
+      color: var(--text-soft);
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 0.45rem 0.75rem 0.45rem 2.125rem;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      font-size: 0.875rem;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .filter-select {
+      padding: 0.45rem 0.625rem;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      font-size: 0.875rem;
+      min-width: 110px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 0.625rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--text-muted);
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    tbody tr:hover { background: #fafbfc; }
+
+    .faq-title {
+      font-weight: 600;
+      color: var(--text);
+      max-width: 360px;
+    }
+
+    .faq-preview {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      max-width: 420px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .chip-install { background: #dbeafe; color: #1e40af; }
+    .chip-fault { background: #fee2e2; color: #991b1b; }
+    .chip-consumable { background: #d1fae5; color: #065f46; }
+    .chip-safety { background: #fef3c7; color: #92400e; }
+    .chip-kxnx { background: #ede9fe; color: #5b21b6; }
+    .chip-other { background: #f1f5f9; color: #475569; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .status-on {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .status-off {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-success { background: var(--success-soft); color: var(--success); }
+    .status-failed { background: var(--danger-soft); color: var(--danger); }
+
+    .row-actions {
+      display: flex;
+      gap: 0.375rem;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: #cbd5e1;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-track::after {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 2px;
+      top: 2px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    }
+
+    .toggle-switch input:checked + .toggle-track {
+      background: var(--success);
+    }
+
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(16px);
+    }
+
+    .toggle-switch input:disabled + .toggle-track {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      color: var(--text-soft);
+      margin-bottom: 0.75rem;
+    }
+
+    .empty-state p { margin: 0.25rem 0; }
+
+    .md5-cell {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* —— Modal —— */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1rem;
+    }
+
+    .modal {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      width: min(560px, 100%);
+      max-height: 90vh;
+      overflow: auto;
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.125rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-head h2 {
+      margin: 0;
+      font-size: 1.0625rem;
+      font-weight: 700;
+    }
+
+    .modal-body { padding: 1.25rem; }
+
+    .form-grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .form-row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    @media (max-width: 520px) {
+      .form-row-2 { grid-template-columns: 1fr; }
+      .app-shell { padding: 0.85rem 0.85rem 2rem; }
+      .topbar { flex-direction: column; align-items: stretch; }
+      .topbar-actions { justify-content: flex-end; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .panel-header { flex-direction: column; align-items: stretch; }
+      .toolbar { width: 100%; }
+      .search-wrap { max-width: none; min-width: 0; flex: 1 1 100%; }
+      .toolbar-divider { display: none; }
+      .btn { min-height: 44px; }
+      .table-wrap {
+        margin: 0 -0.5rem;
+        padding: 0 0.5rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      table { min-width: 640px; }
+      .modal-backdrop { align-items: flex-end; padding: 0; }
+      .modal {
+        width: 100%;
+        max-height: 92dvh;
+        border-radius: var(--radius) var(--radius) 0 0;
+      }
+      .toast-stack {
+        left: 1rem;
+        right: 1rem;
+        transform: none;
+        max-width: none;
+      }
+    }
+
+    textarea.field-input {
+      min-height: 140px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.625rem 0.875rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+
+    .checkbox-row input { width: 1rem; height: 1rem; accent-color: var(--primary); }
+
+    .checkbox-row label {
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .batch-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.625rem 1rem;
+      margin: 0 1rem 0.75rem;
+      background: var(--primary-soft);
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      border-radius: var(--radius-sm);
+    }
+
+    .batch-count {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--primary);
+      margin-right: 0.25rem;
+    }
+
+    .col-check {
+      width: 2.5rem;
+      text-align: center;
+    }
+
+    .row-check {
+      width: 1rem;
+      height: 1rem;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    .modal-foot {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .modal-foot-right {
+      display: flex;
+      gap: 0.5rem;
+      margin-left: auto;
+    }
+
+    .field-hint {
+      font-size: 0.75rem;
+      color: var(--text-soft);
+      margin-top: 0.25rem;
+    }
+
+    /* —— Toast —— */
+    .toast-stack {
+      position: fixed;
+      bottom: 1.25rem;
+      right: 1.25rem;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-width: min(360px, calc(100vw - 2rem));
+    }
+
+    .toast {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow);
+      font-size: 0.875rem;
+      font-weight: 500;
+      animation: toast-in 0.25s ease;
+      border: 1px solid transparent;
+    }
+
+    .toast-ok {
+      background: var(--success-soft);
+      color: #065f46;
+      border-color: #a7f3d0;
+    }
+
+    .toast-err {
+      background: var(--danger-soft);
+      color: #991b1b;
+      border-color: #fecaca;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 0.875rem;
+      height: 0.875rem;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    .spinner-dark {
+      border-color: rgba(37, 99, 235, 0.2);
+      border-top-color: var(--primary);
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.5);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .loading-box {
+      background: var(--surface);
+      padding: 1.25rem 1.5rem;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
-  <div id="login-view" class="card">
-    <h1>登录</h1>
-    <form id="login-form">
-      <label for="password">密码</label>
-      <input id="password" type="password" autocomplete="current-password" required>
-      <button type="submit" class="primary">登录</button>
-      <p id="login-msg" class="msg"></p>
-    </form>
+  <div id="login-view" class="login-wrap">
+    <div class="login-card">
+      <div class="brand">
+        <div class="brand-icon">派</div>
+        <div>
+          <h1>小派知识库</h1>
+          <p>售后 FAQ 编辑与发布</p>
+        </div>
+      </div>
+      <form id="login-form">
+        <label class="field-label" for="password">管理员密码</label>
+        <input id="password" class="field-input" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+        <button type="submit" class="btn btn-primary btn-block" id="btn-login">
+          登录
+        </button>
+      </form>
+    </div>
   </div>
 
   <div id="app-view" class="hidden">
-    <div class="card">
-      <h1>FAQ 管理</h1>
-      <div class="toolbar">
-        <label for="filter-category">分类筛选</label>
-        <select id="filter-category">
-          <option value="">全部</option>
-        </select>
-        <button type="button" id="btn-new">新建</button>
-        <button type="button" id="btn-import">导入</button>
-        <button type="button" id="btn-publish" class="primary">发布</button>
-        <button type="button" id="btn-refresh">刷新</button>
-        <button type="button" id="btn-logout">退出</button>
-      </div>
-      <p id="app-msg" class="msg"></p>
-      <table>
-        <thead>
-          <tr>
-            <th>标题</th>
-            <th>分类</th>
-            <th>启用</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="faq-tbody"></tbody>
-      </table>
-    </div>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-icon">派</div>
+          <div>
+            <h1>小派知识库</h1>
+            <p>编辑 FAQ · 发布到小智云</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh">刷新</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-logout">退出</button>
+        </div>
+      </header>
 
-    <div class="card" style="margin-top: 1rem;">
-      <h2>发布历史</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>状态</th>
-            <th>FAQ 数</th>
-            <th>MD5</th>
-            <th>错误摘要</th>
-          </tr>
-        </thead>
-        <tbody id="history-tbody"></tbody>
-      </table>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">FAQ 总数</div>
+          <div class="stat-value" id="stat-total">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">已启用</div>
+          <div class="stat-value" id="stat-enabled">—</div>
+          <div class="stat-sub" id="stat-enabled-sub"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">最近发布</div>
+          <div class="stat-value" id="stat-last-publish" style="font-size:1rem;">—</div>
+          <div class="stat-sub" id="stat-last-md5"></div>
+        </div>
+      </div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">FAQ 列表</h2>
+          <div class="toolbar">
+            <div class="search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input id="search-input" class="search-input" type="search" placeholder="搜索标题或别名…">
+            </div>
+            <select id="filter-category" class="filter-select" title="分类筛选">
+              <option value="">全部分类</option>
+            </select>
+            <div class="toolbar-divider"></div>
+            <button type="button" class="btn btn-sm" id="btn-new">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+              新建
+            </button>
+            <button type="button" class="btn btn-sm" id="btn-import">导入 MD</button>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-publish">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              发布到小智
+            </button>
+          </div>
+        </div>
+        <div id="batch-bar" class="batch-bar hidden">
+          <span class="batch-count" id="batch-count">已选 0 条</span>
+          <button type="button" class="btn btn-sm" id="btn-batch-enable">批量启用</button>
+          <button type="button" class="btn btn-sm" id="btn-batch-disable">批量停用</button>
+          <select id="batch-category" class="filter-select" title="批量改分类"></select>
+          <button type="button" class="btn btn-sm" id="btn-batch-category">改分类</button>
+          <button type="button" class="btn btn-sm btn-danger" id="btn-batch-delete">批量删除</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-batch-clear">取消选择</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="select-all" class="row-check" title="全选当前列表"></th>
+                <th>标题</th>
+                <th>分类</th>
+                <th>启用</th>
+                <th style="width:140px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="faq-tbody"></tbody>
+          </table>
+          <div id="faq-empty" class="empty-state hidden">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h6M9 16h6M7 4h10a2 2 0 0 1 2 2v14l-4-2-4 2-4-2-4 2V6a2 2 0 0 1 2-2z"/></svg>
+            <p><strong>暂无 FAQ</strong></p>
+            <p>点击「新建」或「导入 MD」开始</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">发布历史</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>状态</th>
+                <th>FAQ 数</th>
+                <th>MD5</th>
+                <th>错误摘要</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+          <div id="history-empty" class="empty-state hidden">
+            <p>尚无发布记录</p>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 
   <div id="edit-modal" class="modal-backdrop hidden">
-    <div class="modal">
-      <h2 id="modal-title">编辑 FAQ</h2>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2 id="modal-title">编辑 FAQ</h2>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-modal-close" aria-label="关闭">✕</button>
+      </div>
       <form id="edit-form">
-        <input type="hidden" id="edit-id">
-        <label for="edit-title">标题</label>
-        <input id="edit-title" type="text" required>
-        <label for="edit-body">正文</label>
-        <textarea id="edit-body" required></textarea>
-        <label for="edit-category">分类</label>
-        <select id="edit-category" required></select>
-        <label for="edit-aliases">别名（逗号或换行分隔）</label>
-        <textarea id="edit-aliases" rows="3"></textarea>
-        <label><input type="checkbox" id="edit-enabled"> 启用</label>
-        <div class="modal-actions">
-          <button type="submit" class="primary">保存</button>
-          <button type="button" id="btn-cancel">取消</button>
-          <button type="button" id="btn-delete" class="danger hidden">删除</button>
+        <div class="modal-body form-grid">
+          <input type="hidden" id="edit-id">
+          <div>
+            <label class="field-label" for="edit-title">标题（主问）</label>
+            <input id="edit-title" class="field-input" type="text" required placeholder="用户可能会怎么问">
+          </div>
+          <div>
+            <label class="field-label" for="edit-body">标准答</label>
+            <textarea id="edit-body" class="field-input" required placeholder="Markdown 纯文本，支持换行"></textarea>
+          </div>
+          <div class="form-row-2">
+            <div>
+              <label class="field-label" for="edit-category">分类</label>
+              <select id="edit-category" class="field-input" required></select>
+            </div>
+            <div>
+              <label class="field-label" for="edit-aliases">同义问</label>
+              <textarea id="edit-aliases" class="field-input" rows="3" placeholder="逗号或换行分隔"></textarea>
+              <p class="field-hint">帮助语音召回匹配不同说法</p>
+            </div>
+          </div>
+          <div class="checkbox-row">
+            <input type="checkbox" id="edit-enabled">
+            <label for="edit-enabled">启用（停用后不进入发布正文）</label>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" id="btn-delete" class="btn btn-danger btn-sm hidden">删除</button>
+          <div class="modal-foot-right">
+            <button type="button" class="btn btn-sm" id="btn-cancel">取消</button>
+            <button type="submit" class="btn btn-primary btn-sm" id="btn-save">保存</button>
+          </div>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div id="toast-stack" class="toast-stack"></div>
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loading-box">
+      <span class="spinner spinner-dark"></span>
+      <span id="loading-text">处理中…</span>
     </div>
   </div>
 
@@ -130,14 +957,20 @@
     ];
     const categoryLabel = Object.fromEntries(CATEGORIES);
 
+    let allFaqs = [];
+    let publishRecords = [];
+    let busy = false;
+    let selectedIds = new Set();
+
     const loginView = document.getElementById("login-view");
     const appView = document.getElementById("app-view");
     const loginForm = document.getElementById("login-form");
-    const loginMsg = document.getElementById("login-msg");
-    const appMsg = document.getElementById("app-msg");
     const filterCategory = document.getElementById("filter-category");
+    const searchInput = document.getElementById("search-input");
     const faqTbody = document.getElementById("faq-tbody");
+    const faqEmpty = document.getElementById("faq-empty");
     const historyTbody = document.getElementById("history-tbody");
+    const historyEmpty = document.getElementById("history-empty");
     const editModal = document.getElementById("edit-modal");
     const editForm = document.getElementById("edit-form");
     const editId = document.getElementById("edit-id");
@@ -148,13 +981,20 @@
     const editEnabled = document.getElementById("edit-enabled");
     const modalTitle = document.getElementById("modal-title");
     const btnDelete = document.getElementById("btn-delete");
+    const toastStack = document.getElementById("toast-stack");
+    const loadingOverlay = document.getElementById("loading-overlay");
+    const loadingText = document.getElementById("loading-text");
+    const batchBar = document.getElementById("batch-bar");
+    const batchCount = document.getElementById("batch-count");
+    const selectAll = document.getElementById("select-all");
+    const batchCategory = document.getElementById("batch-category");
 
     function fillCategorySelect(select, includeAll) {
       select.innerHTML = "";
       if (includeAll) {
         const opt = document.createElement("option");
         opt.value = "";
-        opt.textContent = "全部";
+        opt.textContent = "全部分类";
         select.appendChild(opt);
       }
       for (const [value, label] of CATEGORIES) {
@@ -167,10 +1007,63 @@
 
     fillCategorySelect(filterCategory, true);
     fillCategorySelect(editCategory, false);
+    fillCategorySelect(batchCategory, false);
 
-    function setMsg(el, text, ok) {
-      el.textContent = text || "";
-      el.classList.toggle("ok", !!ok);
+    function updateBatchBar() {
+      const n = selectedIds.size;
+      batchBar.classList.toggle("hidden", n === 0);
+      batchCount.textContent = "已选 " + n + " 条";
+      const list = filteredFaqs();
+      const visibleIds = list.map((f) => f.id);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+      selectAll.indeterminate = n > 0 && !allSelected;
+      selectAll.checked = allSelected;
+    }
+
+    function clearSelection() {
+      selectedIds.clear();
+      updateBatchBar();
+    }
+
+    async function runBatch(action, category) {
+      if (selectedIds.size === 0 || busy) return;
+      const ids = Array.from(selectedIds);
+      if (action === "delete") {
+        if (!confirm("确定删除选中的 " + ids.length + " 条 FAQ？此操作不可撤销。")) return;
+      }
+      setBusy(true, "批量处理中…");
+      const body = { ids, action };
+      if (action === "set_category") body.category = category;
+      const { res, data } = await api("/faqs/batch", { method: "POST", body });
+      setBusy(false);
+      if (!res.ok) {
+        toast((data && data.detail) || "批量操作失败", false);
+        return;
+      }
+      toast("已处理 " + data.affected + " 条", true);
+      clearSelection();
+      await loadFaqs();
+    }
+
+    function toast(text, ok) {
+      const el = document.createElement("div");
+      el.className = "toast " + (ok ? "toast-ok" : "toast-err");
+      el.textContent = text;
+      toastStack.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = "0";
+        el.style.transition = "opacity 0.2s";
+        setTimeout(() => el.remove(), 220);
+      }, 3200);
+    }
+
+    function setBusy(on, text) {
+      busy = on;
+      loadingOverlay.classList.toggle("hidden", !on);
+      if (text) loadingText.textContent = text;
+      document.querySelectorAll(".toolbar .btn, .topbar .btn").forEach((b) => {
+        b.disabled = on;
+      });
     }
 
     async function api(path, options) {
@@ -189,15 +1082,33 @@
     }
 
     function parseAliases(text) {
-      return text
-        .split(/[\n,，]/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      return text.split(/[\n,，]/).map((s) => s.trim()).filter(Boolean);
     }
 
     function formatTime(ts) {
+      if (!ts) return "—";
+      return new Date(ts * 1000).toLocaleString("zh-CN", {
+        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      });
+    }
+
+    function formatTimeFull(ts) {
       if (!ts) return "";
       return new Date(ts * 1000).toLocaleString("zh-CN");
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function escapeAttr(s) {
+      return String(s).replace(/"/g, "&quot;");
+    }
+
+    function chipClass(cat) {
+      return "chip chip-" + (cat in categoryLabel ? cat : "other");
     }
 
     function showLogin() {
@@ -210,67 +1121,143 @@
       appView.classList.remove("hidden");
     }
 
+    function filteredFaqs() {
+      const cat = filterCategory.value;
+      const q = searchInput.value.trim().toLowerCase();
+      return allFaqs.filter((faq) => {
+        if (cat && faq.category !== cat) return false;
+        if (!q) return true;
+        const hay = [faq.title, faq.body, ...(faq.aliases || [])].join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    function updateStats() {
+      const total = allFaqs.length;
+      const enabled = allFaqs.filter((f) => f.enabled).length;
+      document.getElementById("stat-total").textContent = String(total);
+      document.getElementById("stat-enabled").textContent = String(enabled);
+      document.getElementById("stat-enabled-sub").textContent =
+        total ? `占 ${Math.round((enabled / total) * 100)}%` : "";
+
+      const last = publishRecords[0];
+      const elPub = document.getElementById("stat-last-publish");
+      const elMd5 = document.getElementById("stat-last-md5");
+      if (!last) {
+        elPub.textContent = "—";
+        elMd5.textContent = "尚未发布";
+        return;
+      }
+      elPub.textContent = last.status === "success" ? "成功" : "失败";
+      elPub.style.color = last.status === "success" ? "var(--success)" : "var(--danger)";
+      elMd5.textContent = formatTimeFull(last.created_at) +
+        (last.xiaozhi_doc_md5 ? " · " + last.xiaozhi_doc_md5.slice(0, 8) + "…" : "");
+    }
+
+    function renderFaqs() {
+      const list = filteredFaqs();
+      faqTbody.innerHTML = "";
+      faqEmpty.classList.toggle("hidden", list.length > 0);
+
+      for (const faq of list) {
+        const tr = document.createElement("tr");
+        const preview = faq.body.replace(/\s+/g, " ").slice(0, 80);
+        const checked = selectedIds.has(faq.id);
+        tr.innerHTML =
+          '<td class="col-check"><input type="checkbox" class="row-check" data-select-id="' +
+          escapeAttr(faq.id) + '"' + (checked ? " checked" : "") + '></td>' +
+          '<td><div class="faq-title">' + escapeHtml(faq.title) + '</div>' +
+          '<div class="faq-preview">' + escapeHtml(preview) + '</div></td>' +
+          '<td><span class="' + chipClass(faq.category) + '">' +
+          escapeHtml(categoryLabel[faq.category] || faq.category) + '</span></td>' +
+          '<td><label class="toggle-switch" title="切换启用">' +
+          '<input type="checkbox" data-toggle-id="' + escapeAttr(faq.id) + '"' +
+          (faq.enabled ? " checked" : "") + '>' +
+          '<span class="toggle-track"></span></label></td>' +
+          '<td><div class="row-actions">' +
+          '<button type="button" class="btn btn-sm" data-edit-id="' + escapeAttr(faq.id) + '">编辑</button>' +
+          '</div></td>';
+
+        tr.querySelector("[data-edit-id]").addEventListener("click", () => openEdit(faq));
+        tr.querySelector("[data-select-id]").addEventListener("change", (e) => {
+          if (e.target.checked) selectedIds.add(faq.id);
+          else selectedIds.delete(faq.id);
+          updateBatchBar();
+        });
+        tr.querySelector("[data-toggle-id]").addEventListener("change", async (e) => {
+          const checked = e.target.checked;
+          e.target.disabled = true;
+          const { res, data } = await api("/faqs/" + encodeURIComponent(faq.id), {
+            method: "PUT",
+            body: { enabled: checked },
+          });
+          e.target.disabled = false;
+          if (!res.ok) {
+            e.target.checked = !checked;
+            toast((data && data.detail) || "切换失败", false);
+            return;
+          }
+          faq.enabled = checked;
+          updateStats();
+          toast(checked ? "已启用" : "已停用", true);
+        });
+        faqTbody.appendChild(tr);
+      }
+      updateBatchBar();
+    }
+
+    function renderHistory() {
+      historyTbody.innerHTML = "";
+      historyEmpty.classList.toggle("hidden", publishRecords.length > 0);
+      for (const rec of publishRecords) {
+        const tr = document.createElement("tr");
+        const statusCls = rec.status === "success" ? "status-success" : "status-failed";
+        const statusLabel = rec.status === "success" ? "成功" : "失败";
+        tr.innerHTML =
+          "<td>" + escapeHtml(formatTimeFull(rec.created_at)) + "</td>" +
+          '<td><span class="status-badge ' + statusCls + '">' + statusLabel + "</span></td>" +
+          "<td>" + escapeHtml(String(rec.faq_count)) + "</td>" +
+          '<td class="md5-cell" title="' + escapeAttr(rec.xiaozhi_doc_md5 || "") + '">' +
+          escapeHtml(rec.xiaozhi_doc_md5 || "—") + "</td>" +
+          "<td>" + escapeHtml(rec.error_summary || "—") + "</td>";
+        historyTbody.appendChild(tr);
+      }
+    }
+
     async function loadFaqs() {
       const cat = filterCategory.value;
       const q = cat ? "?category=" + encodeURIComponent(cat) : "";
       const { res, data } = await api("/faqs" + q);
-      if (res.status === 401) {
-        showLogin();
-        return;
-      }
+      if (res.status === 401) { showLogin(); return; }
       if (!res.ok) {
-        setMsg(appMsg, (data && data.detail) || "加载 FAQ 失败");
+        toast((data && data.detail) || "加载 FAQ 失败", false);
         return;
       }
-      faqTbody.innerHTML = "";
-      for (const faq of data) {
-        const tr = document.createElement("tr");
-        const enabled = faq.enabled
-          ? '<span class="badge-yes">是</span>'
-          : '<span class="badge-no">否</span>';
-        tr.innerHTML =
-          "<td>" + escapeHtml(faq.title) + "</td>" +
-          "<td>" + escapeHtml(categoryLabel[faq.category] || faq.category) + "</td>" +
-          "<td>" + enabled + "</td>" +
-          '<td><button type="button" data-id="' + escapeAttr(faq.id) + '">编辑</button></td>';
-        tr.querySelector("button").addEventListener("click", () => openEdit(faq));
-        faqTbody.appendChild(tr);
+      if (!cat) {
+        allFaqs = data;
+      } else {
+        const { res: r2, data: all } = await api("/faqs");
+        if (r2.ok) allFaqs = all;
+        else allFaqs = data;
       }
+      renderFaqs();
+      updateStats();
     }
 
     async function loadHistory() {
       const { res, data } = await api("/publish-records");
       if (res.status === 401) return;
       if (!res.ok) return;
-      historyTbody.innerHTML = "";
-      for (const rec of data) {
-        const tr = document.createElement("tr");
-        tr.innerHTML =
-          "<td>" + escapeHtml(formatTime(rec.created_at)) + "</td>" +
-          "<td>" + escapeHtml(rec.status) + "</td>" +
-          "<td>" + escapeHtml(String(rec.faq_count)) + "</td>" +
-          "<td>" + escapeHtml(rec.xiaozhi_doc_md5 || "") + "</td>" +
-          "<td>" + escapeHtml(rec.error_summary || "") + "</td>";
-        historyTbody.appendChild(tr);
-      }
+      publishRecords = data;
+      renderHistory();
+      updateStats();
     }
 
     async function refreshAll() {
-      setMsg(appMsg, "");
+      setBusy(true, "加载中…");
       await loadFaqs();
       await loadHistory();
-    }
-
-    function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
-
-    function escapeAttr(s) {
-      return String(s).replace(/"/g, "&quot;");
+      setBusy(false);
     }
 
     function openEdit(faq) {
@@ -294,6 +1281,7 @@
         btnDelete.classList.add("hidden");
       }
       editModal.classList.remove("hidden");
+      editTitle.focus();
     }
 
     function closeEdit() {
@@ -302,51 +1290,85 @@
 
     loginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      setMsg(loginMsg, "");
+      const btn = document.getElementById("btn-login");
+      btn.disabled = true;
       const password = document.getElementById("password").value;
-      const { res, data } = await api("/login", {
-        method: "POST",
-        body: { password },
-      });
+      const { res, data } = await api("/login", { method: "POST", body: { password } });
+      btn.disabled = false;
       if (!res.ok) {
-        setMsg(loginMsg, (data && data.detail) || "登录失败");
+        toast((data && data.detail) || "登录失败", false);
         return;
       }
       document.getElementById("password").value = "";
       showApp();
       await refreshAll();
+      toast("登录成功", true);
     });
 
     document.getElementById("btn-logout").addEventListener("click", async () => {
       await api("/logout", { method: "POST" });
+      allFaqs = [];
+      publishRecords = [];
+      clearSelection();
       showLogin();
     });
 
     document.getElementById("btn-new").addEventListener("click", () => openEdit(null));
     document.getElementById("btn-cancel").addEventListener("click", closeEdit);
-    filterCategory.addEventListener("change", loadFaqs);
+    document.getElementById("btn-modal-close").addEventListener("click", closeEdit);
+    editModal.addEventListener("click", (e) => { if (e.target === editModal) closeEdit(); });
+    filterCategory.addEventListener("change", () => { clearSelection(); loadFaqs(); });
+    searchInput.addEventListener("input", renderFaqs);
     document.getElementById("btn-refresh").addEventListener("click", refreshAll);
 
+    selectAll.addEventListener("change", () => {
+      const list = filteredFaqs();
+      if (selectAll.checked) {
+        for (const faq of list) selectedIds.add(faq.id);
+      } else {
+        for (const faq of list) selectedIds.delete(faq.id);
+      }
+      renderFaqs();
+    });
+
+    document.getElementById("btn-batch-enable").addEventListener("click", () => runBatch("enable"));
+    document.getElementById("btn-batch-disable").addEventListener("click", () => runBatch("disable"));
+    document.getElementById("btn-batch-category").addEventListener("click", () =>
+      runBatch("set_category", batchCategory.value));
+    document.getElementById("btn-batch-delete").addEventListener("click", () => runBatch("delete"));
+    document.getElementById("btn-batch-clear").addEventListener("click", () => { clearSelection(); renderFaqs(); });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !editModal.classList.contains("hidden")) closeEdit();
+    });
+
     document.getElementById("btn-import").addEventListener("click", async () => {
-      setMsg(appMsg, "");
+      if (busy) return;
+      setBusy(true, "导入中…");
       const { res, data } = await api("/import", { method: "POST" });
+      setBusy(false);
       if (!res.ok) {
-        setMsg(appMsg, (data && data.detail) || "导入失败");
+        toast((data && data.detail) || "导入失败", false);
         return;
       }
-      setMsg(appMsg, "已导入 " + data.imported + " 条", true);
+      toast("已导入 " + data.imported + " 条", true);
+      filterCategory.value = "";
+      searchInput.value = "";
       await refreshAll();
     });
 
     document.getElementById("btn-publish").addEventListener("click", async () => {
-      if (!confirm("将推送到小智知识库，确认？")) return;
-      setMsg(appMsg, "");
+      if (busy) return;
+      const enabled = allFaqs.filter((f) => f.enabled).length;
+      if (!confirm("将把 " + enabled + " 条已启用 FAQ 推送到小智知识库，确认？")) return;
+      setBusy(true, "发布中…");
       const { res, data } = await api("/publish", { method: "POST" });
+      setBusy(false);
       if (!res.ok) {
-        setMsg(appMsg, (data && data.detail) || "发布失败");
+        toast((data && data.detail) || "发布失败", false);
         return;
       }
-      setMsg(appMsg, "发布完成：" + data.status, true);
+      toast("发布完成：" + data.status, data.status === "success");
       await loadHistory();
     });
 
@@ -360,40 +1382,43 @@
         enabled: editEnabled.checked,
       };
       const id = editId.value;
+      const btnSave = document.getElementById("btn-save");
+      btnSave.disabled = true;
       let result;
       if (id) {
         result = await api("/faqs/" + encodeURIComponent(id), { method: "PUT", body: payload });
       } else {
         result = await api("/faqs", { method: "POST", body: payload });
       }
+      btnSave.disabled = false;
       if (!result.res.ok) {
-        alert((result.data && result.data.detail) || "保存失败");
+        toast((result.data && result.data.detail) || "保存失败", false);
         return;
       }
       closeEdit();
+      toast("已保存", true);
+      filterCategory.value = "";
+      searchInput.value = "";
       await loadFaqs();
     });
 
     btnDelete.addEventListener("click", async () => {
       const id = editId.value;
-      if (!id || !confirm("确定删除这条 FAQ？")) return;
+      if (!id || !confirm("确定删除这条 FAQ？此操作不可撤销。")) return;
       const { res, data } = await api("/faqs/" + encodeURIComponent(id), { method: "DELETE" });
       if (!res.ok) {
-        alert((data && data.detail) || "删除失败");
+        toast((data && data.detail) || "删除失败", false);
         return;
       }
       closeEdit();
+      toast("已删除", true);
       await loadFaqs();
     });
 
     (async function init() {
       const { res } = await api("/faqs");
-      if (res.status === 401) {
-        showLogin();
-      } else {
-        showApp();
-        await refreshAll();
-      }
+      if (res.status === 401) showLogin();
+      else { showApp(); await refreshAll(); }
     })();
   </script>
 </body>

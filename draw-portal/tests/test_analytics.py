@@ -90,3 +90,25 @@ def test_conversation_report_and_usage_ingest(tmp_path: Path, monkeypatch: pytes
 
     rows = store.usage_counts_since(0)
     assert any(r["event_type"] == "tool_draw" for r in rows)
+
+
+def test_internal_mcp_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _env(monkeypatch, tmp_path)
+    store = Store(tmp_path / "t.db")
+    store.apply_draw_limit_patch({"draw_max_concurrent": 5})
+    store.apply_image_backend_patch({"sensenova": False})
+    client = TestClient(create_app())
+    monkeypatch.setattr("draw_portal.app._is_loopback_client", lambda _host: True)
+
+    denied = client.get("/api/internal/mcp-settings")
+    assert denied.status_code == 401
+
+    res = client.get(
+        "/api/internal/mcp-settings",
+        headers={"X-Hutuji-Usage-Secret": "ingest-secret"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["draw_limits"]["draw_max_concurrent"] == 5
+    assert data["image_backends"]["sensenova"] is False
+    assert data["image_backends"]["agnes"] is True

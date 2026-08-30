@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import csv
+import io
 import time
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pathlib import Path
 
 from draw_portal.analytics import retention_cutoff, summarize_usage_rows
+from draw_portal.draw_limits import DRAW_LIMIT_BOUNDS, DRAW_LIMIT_KEYS
+from draw_portal.image_backends import IMAGE_BACKEND_LABELS, IMAGE_BACKEND_NAMES
 from draw_admin.auth import (
     ADMIN_SESSION_COOKIE,
     clear_admin_session_cookie,
@@ -30,6 +35,41 @@ class BanBody(BaseModel):
 
 class NoteBody(BaseModel):
     note: str = Field(max_length=1000)
+
+
+class DrawLimitsPatchBody(BaseModel):
+    draw_max_concurrent: int | None = None
+    draw_per_second: int | None = None
+    draw_per_minute: int | None = None
+    vpype_max_concurrent: int | None = None
+
+
+class ImageBackendsPatchBody(BaseModel):
+    sensenova: bool | None = None
+    agnes: bool | None = None
+    siliconflow: bool | None = None
+    fallback: bool | None = None
+
+
+def _conversation_csv(rows: list[dict[str, Any]]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["session_id", "role", "content", "client_ts", "created_at", "device_mac"]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                row.get("session_id", ""),
+                row.get("role", ""),
+                row.get("content", ""),
+                row.get("client_ts", ""),
+                row.get("created_at", ""),
+                row.get("device_mac", ""),
+            ]
+        )
+    # Excel 中文：UTF-8 BOM
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
 def create_app() -> FastAPI:
@@ -88,6 +128,38 @@ def create_app() -> FastAPI:
         )
         return {"items": sessions}
 
+    @app.get("/api/users/{user_id}/conversations/export", dependencies=secured)
+    def user_conversations_export(
+        user_id: str,
+        session_id: str | None = None,
+        limit: int = 5000,
+    ) -> StreamingResponse:
+        if store.get_user(user_id) is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        limit = min(limit, 20000)
+        rows = store.list_conversation_export_rows(
+            user_id=user_id,
+            session_id=session_id,
+            limit=limit,
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="无对话记录")
+        store.log_admin_action(
+            action="export_conversations",
+            target_user_id=user_id,
+            detail=(
+                f"session={session_id[:32] if session_id else 'all'} "
+                f"rows={len(rows)} limit={limit}"
+            ),
+        )
+        suffix = session_id[:8] if session_id else "all"
+        filename = f"conversations_{user_id[:8]}_{suffix}.csv"
+        return StreamingResponse(
+            iter([_conversation_csv(rows)]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @app.get(
         "/api/users/{user_id}/conversations/{session_id}", dependencies=secured
     )
@@ -107,6 +179,51 @@ def create_app() -> FastAPI:
             detail=f"session={session_id[:32]} messages={len(messages)}",
         )
         return {"session_id": session_id, "messages": messages}
+
+    @app.get("/api/settings/draw-limits", dependencies=secured)
+    def get_draw_limits() -> dict[str, Any]:
+        overrides = store.get_draw_limit_overrides()
+        return {
+            "overrides": overrides,
+            "bounds": {k: {"min": lo, "max": hi} for k, (lo, hi) in DRAW_LIMIT_BOUNDS.items()},
+            "keys": list(DRAW_LIMIT_KEYS),
+            "hint": "留空表示沿用 MCP 环境变量；保存后约 30 秒内生效，无需重启服务",
+        }
+
+    @app.put("/api/settings/draw-limits", dependencies=secured)
+    def put_draw_limits(body: DrawLimitsPatchBody) -> dict[str, Any]:
+        patch = body.model_dump(exclude_unset=True)
+        try:
+            overrides = store.apply_draw_limit_patch(patch)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        store.log_admin_action(
+            action="update_draw_limits",
+            target_user_id=None,
+            detail=",".join(f"{k}={v}" for k, v in overrides.items())[:200] or "cleared",
+        )
+        return {"status": "ok", "overrides": overrides}
+
+    @app.get("/api/settings/image-backends", dependencies=secured)
+    def get_image_backends() -> dict[str, Any]:
+        toggles = store.get_image_backend_toggles()
+        return {
+            "toggles": toggles,
+            "labels": IMAGE_BACKEND_LABELS,
+            "keys": list(IMAGE_BACKEND_NAMES),
+            "hint": "仅控制是否参与生图对冲；API key 仍在 MCP 环境变量中配置",
+        }
+
+    @app.put("/api/settings/image-backends", dependencies=secured)
+    def put_image_backends(body: ImageBackendsPatchBody) -> dict[str, Any]:
+        patch = body.model_dump(exclude_unset=True)
+        toggles = store.apply_image_backend_patch(patch)
+        store.log_admin_action(
+            action="update_image_backends",
+            target_user_id=None,
+            detail=",".join(f"{k}={'on' if v else 'off'}" for k, v in toggles.items())[:200],
+        )
+        return {"status": "ok", "toggles": toggles}
 
     @app.get("/api/users", dependencies=secured)
     def users(limit: int = 100, offset: int = 0) -> dict[str, Any]:

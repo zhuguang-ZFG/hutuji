@@ -30,6 +30,13 @@ _vpype_semaphores: weakref.WeakKeyDictionary[
 
 
 def _vpype_max_concurrent() -> int:
+    from .config import settings
+    from .portal_settings import effective_vpype_max_concurrent
+
+    return effective_vpype_max_concurrent(settings, _vpype_env_default())
+
+
+def _vpype_env_default() -> int:
     import os
 
     raw = os.environ.get("HUTUJI_VPYPE_MAX_CONCURRENT", "6").strip() or "6"
@@ -42,10 +49,12 @@ def _vpype_max_concurrent() -> int:
 
 def _vpype_semaphore() -> asyncio.Semaphore:
     loop = asyncio.get_running_loop()
+    limit = _vpype_max_concurrent()
     semaphore_ref = _vpype_semaphores.get(loop)
     semaphore = semaphore_ref() if semaphore_ref is not None else None
-    if semaphore is None:
-        semaphore = asyncio.Semaphore(_vpype_max_concurrent())
+    if semaphore is None or getattr(semaphore, "_hutuji_limit", None) != limit:
+        semaphore = asyncio.Semaphore(limit)
+        semaphore._hutuji_limit = limit  # type: ignore[attr-defined]
         _vpype_semaphores[loop] = weakref.ref(semaphore)
     return semaphore
 

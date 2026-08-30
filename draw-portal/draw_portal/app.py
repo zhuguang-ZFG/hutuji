@@ -689,6 +689,20 @@ def create_app() -> FastAPI:
         )
         return {"status": "ok"}
 
+    @app.get("/api/internal/mcp-settings")
+    def mcp_settings_internal(
+        request: Request,
+        x_hutuji_usage_secret: str | None = Header(default=None, alias="X-Hutuji-Usage-Secret"),
+    ) -> dict[str, Any]:
+        if not config.usage_ingest_secret:
+            raise HTTPException(status_code=503, detail="mcp settings 未配置")
+        if x_hutuji_usage_secret != config.usage_ingest_secret:
+            raise HTTPException(status_code=401, detail="unauthorized")
+        client_host = request.client.host if request.client else ""
+        if not _is_loopback_client(client_host):
+            raise HTTPException(status_code=403, detail="仅允许 loopback 读取")
+        return store.get_mcp_settings_payload()
+
     @app.delete("/api/draw/saved/{saved_id}", dependencies=secured)
     def draw_saved_delete(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, str]:
         item = store.delete_saved_preview(saved_id, user_id=user_id)

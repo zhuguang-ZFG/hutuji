@@ -97,3 +97,64 @@ def test_admin_conversation_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     actions = [r[0] for r in rows]
     assert "view_conversations" in actions
     assert "view_conversation_detail" in actions
+
+
+def test_admin_conversation_export_csv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _env(monkeypatch, tmp_path)
+    store = Store(tmp_path / "t.db")
+    user = store.create_user(
+        email="u@example.com",
+        password_hash=hash_password("secret123"),
+        email_verified_at=1.0,
+    )
+    store.insert_conversation_event(
+        dedupe_key="k1",
+        device_mac="aa:bb:cc:dd:ee:ff",
+        user_id=user.id,
+        session_id="sess1",
+        role="user",
+        content="你好",
+        client_ts=1.0,
+        created_at=1.0,
+    )
+    client = TestClient(create_app())
+    client.post("/api/auth/login", json={"password": "admin-secret"})
+    res = client.get(f"/api/users/{user.id}/conversations/export")
+    assert res.status_code == 200
+    assert "text/csv" in res.headers.get("content-type", "")
+    body = res.content.decode("utf-8-sig")
+    assert "session_id,role,content" in body
+    assert "你好" in body
+    with store._connect() as conn:
+        row = conn.execute(
+            "SELECT action FROM admin_audit_log WHERE action = 'export_conversations'"
+        ).fetchone()
+    assert row is not None
+
+
+def test_admin_draw_limits_and_image_backends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _env(monkeypatch, tmp_path)
+    client = TestClient(create_app())
+    client.post("/api/auth/login", json={"password": "admin-secret"})
+
+    limits = client.get("/api/settings/draw-limits")
+    assert limits.status_code == 200
+    assert "draw_max_concurrent" in limits.json()["keys"]
+
+    put_limits = client.put(
+        "/api/settings/draw-limits",
+        json={"draw_max_concurrent": 6, "draw_per_second": None},
+    )
+    assert put_limits.status_code == 200
+    assert put_limits.json()["overrides"]["draw_max_concurrent"] == 6
+
+    backends = client.get("/api/settings/image-backends")
+    assert backends.status_code == 200
+    assert backends.json()["toggles"]["agnes"] is True
+
+    put_back = client.put(
+        "/api/settings/image-backends",
+        json={"sensenova": False, "agnes": True},
+    )
+    assert put_back.status_code == 200
+    assert put_back.json()["toggles"]["sensenova"] is False

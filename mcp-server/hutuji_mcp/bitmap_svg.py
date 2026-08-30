@@ -951,6 +951,12 @@ def _siliconflow_api_key() -> str:
     return getattr(settings, "siliconflow_api_key", "").strip()
 
 
+def _image_backend_enabled(name: str) -> bool:
+    from .portal_settings import image_backend_enabled
+
+    return image_backend_enabled(settings, name)
+
+
 async def _request_siliconflow_image_url(
     client: httpx.AsyncClient,
     description: str,
@@ -1019,15 +1025,18 @@ async def _race_image_backends(
     """
     racers: list[
         tuple[str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
-    ] = [
-        ("商汤生图", _request_sensenova_image_url),
-        ("Agnes", _request_agnes_image_url),
-    ]
-    if _siliconflow_api_key():
+    ] = []
+    if _image_backend_enabled("sensenova"):
+        racers.append(("商汤生图", _request_sensenova_image_url))
+    if _image_backend_enabled("agnes"):
+        racers.append(("Agnes", _request_agnes_image_url))
+    if _image_backend_enabled("siliconflow") and _siliconflow_api_key():
         racers.append(("硅流 Schnell", _request_siliconflow_schnell_image_url))
         racers.append(("硅流可图", _request_siliconflow_kolors_image_url))
-    if _image_fallback_url():
+    if _image_backend_enabled("fallback") and _image_fallback_url():
         racers.append(("备用端点", _request_fallback_image_url))
+    if not racers:
+        raise BitmapError("未启用任何生图后端（请在运营后台或环境变量中配置）")
     tasks = {
         asyncio.create_task(fn(client, description)): name
         for name, fn in racers
@@ -1066,16 +1075,17 @@ async def _race_image_backends(
         if rest:
             await asyncio.gather(*rest, return_exceptions=True)
     if winner is None:
-        parts = [
-            f"商汤生图失败：{errors['商汤生图']}",
-            f"Agnes 同样失败：{errors['Agnes']}",
-        ]
+        parts: list[str] = []
+        if "商汤生图" in errors:
+            parts.append(f"商汤生图失败：{errors['商汤生图']}")
+        if "Agnes" in errors:
+            parts.append(f"Agnes 同样失败：{errors['Agnes']}")
         for sf_name in ("硅流 Schnell", "硅流可图"):
             if sf_name in errors:
                 parts.append(f"{sf_name} 同样失败：{errors[sf_name]}")
         if "备用端点" in errors:
             parts.append(f"备用端点同样失败：{errors['备用端点']}")
-        raise BitmapError("；".join(parts))
+        raise BitmapError("；".join(parts) if parts else "全部生图后端均失败")
     return winner
 
 
@@ -1098,34 +1108,7 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
     async with httpx.AsyncClient(
         timeout=_IMAGE_ATTEMPT_TIMEOUT_SECONDS, transport=transport
     ) as client:
-        generation_error: BitmapError | None = None
-        # 商汤或硅流任一在场即进入对冲；对冲名单内已含全部可用后端（含
-        # imagefree），失败后无第二层可退。
-        hedged = bool(
-            getattr(settings, "sensenova_api_key", "").strip()
-        ) or bool(_siliconflow_api_key())
-        if hedged:
-            try:
-                image_url = await _race_image_backends(client, description)
-            except BitmapError as hedge_exc:
-                generation_error = hedge_exc
-        else:
-            try:
-                image_url = await _request_agnes_image_url(client, description)
-            except BitmapError as agnes_exc:
-                generation_error = agnes_exc
-
-        if generation_error is not None:
-            # 未启用对冲时鉴权主后端失败后才走免鉴权备用。生成成功后的
-            # CDN 下载失败不进此分支，避免重复计费或画风漂移。
-            if hedged or not _image_fallback_url():
-                raise generation_error
-            try:
-                image_url = await _request_fallback_image_url(client, description)
-            except BitmapError as fallback_exc:
-                raise BitmapError(
-                    f"{generation_error}；备用端点同样失败：{fallback_exc}"
-                ) from None
+        image_url = await _race_image_backends(client, description)
         # 只验 https 前缀挡不住内网 https 地址（SSRF，见 IMG-URL-SSRF-GAP）。
         _validate_image_download_url(image_url)
 
