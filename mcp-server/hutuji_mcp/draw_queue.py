@@ -18,6 +18,9 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
+# inflight 允许略长于 job：残留窗口由 _decide_attach 的 replace 分支兜底
+# （status 缺失即删残留重入队）；反过来 inflight 先过期会让仍在 processing 的
+# 同题任务被重复入队——那是付费生成，代价高于一次 replace。
 JOB_TTL_SECONDS = 600
 INFLIGHT_TTL_SECONDS = 620
 QUEUE_KEY = "hutuji:draw:queue"
@@ -52,6 +55,22 @@ def _job_key(job_id: str) -> str:
 
 def _inflight_key(description: str) -> str:
     return f"{INFLIGHT_PREFIX}{_description_hash(description)}"
+
+def _decide_attach(existing_job_id: str | None, status: str | None) -> str:
+    """同题 inflight 的处置决策（纯函数，两后端共用，便于参数化回归）。
+
+    返回：
+    - "attach"：搭车复用进行中的任务；
+    - "create"：无 inflight，直接新建；
+    - "replace"：inflight 指向 failed 或 job_key 已消失的死任务（TTL 窗口、
+      worker 崩溃在 mark_failed 与 clear_inflight 之间）——删除残留后重新入队，
+      不得把调用方钉到死任务上（那会让重试立即收到过期失败或「未知任务」）。
+    """
+    if existing_job_id is None:
+        return "create"
+    if status in ("pending", "processing", "done"):
+        return "attach"
+    return "replace"
 
 
 class DrawQueueBackend(Protocol):
@@ -91,7 +110,8 @@ class MemoryDrawQueueBackend:
             existing = self._inflight.get(inflight_key)
             if existing is not None:
                 job = self._jobs.get(existing)
-                if job and job.get("status") in ("pending", "processing", "done"):
+                # replace 与 create 都落到下方新建分支：inflight 赋值即覆盖残留
+                if _decide_attach(existing, job.get("status") if job else None) == "attach":
                     return existing
             await self._check_enqueue_limits_locked(device_id)
             job_id = secrets.token_urlsafe(16)
@@ -195,12 +215,17 @@ class RedisDrawQueueBackend:
     ) -> str:
         client = self._client()
         inflight = _inflight_key(description)
-        existing = await client.get(inflight)
-        if existing:
-            status = await client.hget(_job_key(existing), "status")
-            if status in ("pending", "processing", "done"):
-                return existing
 
+        existing = await client.get(inflight)
+        status = await client.hget(_job_key(existing), "status") if existing else None
+        decision = _decide_attach(existing, status)
+        if decision == "attach":
+            return existing
+
+        # 限深/限流只在首次判定后计一次；replace 重试不重复扣配额。
+        # 已知不对称：首轮判 create/replace 后扣了配额，NX 冲突重判仍可能 attach
+        # 到并发 winner——即一次搭车也占一格配额（memory 后端搭车不占）。仅在
+        # 真并发竞争下发生，额度是软限制，移动检查点反而要在占坑后回滚，不值。
         depth = await client.llen(QUEUE_KEY)
         if depth >= settings.draw_queue_max_depth:
             raise DrawQueueBusyError("绘图服务正忙，请稍候再试")
@@ -222,35 +247,45 @@ class RedisDrawQueueBackend:
             if device_count > settings.draw_per_device_minute:
                 raise DrawQueueBusyError("绘图服务正忙，请稍候再试")
 
-        job_id = secrets.token_urlsafe(16)
-        job_key = _job_key(job_id)
-        pipe = client.pipeline()
-        pipe.hset(
-            job_key,
-            mapping={
-                "status": "pending",
-                "description": description,
-                "public_base_url": public_base_url,
-                "device_id": device_id,
-            },
-        )
-        pipe.expire(job_key, JOB_TTL_SECONDS)
-        pipe.set(inflight, job_id, nx=True, ex=INFLIGHT_TTL_SECONDS)
-        results = await pipe.execute()
-        if not results[-1]:
-            winner = await client.get(inflight)
-            if winner:
-                return winner
-        payload = json.dumps(
-            {
-                "job_id": job_id,
-                "description": description,
-                "public_base_url": public_base_url,
-            },
-            ensure_ascii=False,
-        )
-        await client.lpush(QUEUE_KEY, payload)
-        return job_id
+        for _attempt in range(3):
+            if decision == "replace":
+                # 仅当 inflight 仍指向同一死任务才删，避免误删并发 winner 的新 inflight
+                if await client.get(inflight) == existing:
+                    await client.delete(inflight)
+            job_id = secrets.token_urlsafe(16)
+            job_key = _job_key(job_id)
+            pipe = client.pipeline()
+            pipe.hset(
+                job_key,
+                mapping={
+                    "status": "pending",
+                    "description": description,
+                    "public_base_url": public_base_url,
+                    "device_id": device_id,
+                },
+            )
+            pipe.expire(job_key, JOB_TTL_SECONDS)
+            pipe.set(inflight, job_id, nx=True, ex=INFLIGHT_TTL_SECONDS)
+            results = await pipe.execute()
+            if results[-1]:
+                payload = json.dumps(
+                    {
+                        "job_id": job_id,
+                        "description": description,
+                        "public_base_url": public_base_url,
+                    },
+                    ensure_ascii=False,
+                )
+                await client.lpush(QUEUE_KEY, payload)
+                return job_id
+            # NX 失败：并发 winner 已占位（本轮 hset 的孤儿 job_key 随 TTL 自清），
+            # 重新判定；winner 仍是死任务则下一轮删残留再试
+            existing = await client.get(inflight)
+            status = await client.hget(_job_key(existing), "status") if existing else None
+            decision = _decide_attach(existing, status)
+            if decision == "attach":
+                return existing
+        raise DrawQueueBusyError("绘图服务正忙，请稍候再试")
 
     async def wait_result(self, job_id: str, *, timeout: float) -> str:
         client = self._client()
