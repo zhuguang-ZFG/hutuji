@@ -16,8 +16,9 @@ ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.draw_worker
 Restart=on-failure
 RestartSec=5
 # 优雅停机宽限：SIGTERM 只是置停止事件，worker 跑完当前付费 job 才退出。
-# 不设本条时默认 90s 一到 systemd 直接 SIGKILL，长 job（多后端对冲+描摹+vpype，
-# 实测上界约 120s）照样被拦腰砍断。300s 覆盖约 2.5× 实测上界，且 < JOB_TTL 600s，
+# 不设本条时默认 90s 一到 systemd 直接 SIGKILL，画途中 job 被拦腰砍断。
+# 付费全链路（对冲生图+描摹+vpype）真实上界未实测——2026-08-30 生产 5 个 job
+# 全为缓存快路径（tool_draw→push 约 2s）；300s 为保守取值，且 < JOB_TTL 600s，
 # 万一真被杀，残留键仍由 draw_queue 既有 TTL/replace 逻辑收口。
 TimeoutStopSec=300
 NoNewPrivileges=true

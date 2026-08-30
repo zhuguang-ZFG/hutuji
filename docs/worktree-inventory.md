@@ -350,7 +350,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `deploy/hutuji-draw-worker{,@}.service` | 补 `TimeoutStopSec=300`：优雅停机只置事件，默认 90s 宽限会让长 job（对冲生图+描摹+vpype 实测上界约 120s）照样被 SIGKILL；300s ≥2× 上界且 < JOB_TTL 600s（advisory 指出，原部署只证明了空闲 worker 干净退出） |
+| `deploy/hutuji-draw-worker{,@}.service` | 补 `TimeoutStopSec=300`：优雅停机只置事件，默认 90s 宽限会让长 job 照样被 SIGKILL；300s 为保守取值（付费全链路上界未实测，当日 5 个生产 job 全为缓存快路径约 2s）且 < JOB_TTL 600s（advisory 指出，原部署只证明了空闲 worker 干净退出） |
 | `mcp-server/tests/test_contract.py` | +1 项（606→607）：`test_worker_units_grant_stop_grace_longer_than_paid_job` 钉两 unit 恰好一条 TimeoutStopSec、240≤v<600；全套 1086→**1087** |
 | `.gitignore` | 窄规则 `tmp/*password*`（finding #1：`tmp/pg-password-20260830-phase3-rollout.txt` 明文 PG 密码此前未被忽略，`git add -A` 会入库；git 历史为空取证从未入库；`check-ignore`+`add -An` 干跑实测生效）。文件留原位不动——6 个本机 rollout 脚本引用该路径，且与 quickdraw/curated「本机留档+窄规则」先例同口径 |
 | `tmp/prod_recon_0830.py`（本机不入库） | finding #2/#3 修复：删除本地手写 token 正则，输出统一走 `hutuji_mcp.redact._redact_secret_text` + 能力 token 打码（同 `scripts/cloud_health_pull.py` 口径）；对话内容同管道过脱敏。实测 `token=abc123`→`<redacted>`、能力文件名打码正常 |
