@@ -59,18 +59,21 @@ async def _process_one() -> bool:
     return True
 
 
-async def run_forever() -> None:
+async def run_forever(stop: asyncio.Event | None = None) -> None:
     from . import queue_metrics
 
     if not queue_enabled():
         raise SystemExit("HUTUJI_DRAW_QUEUE_URL 未配置，draw-worker 无法启动")
     logger.info("draw-worker 已启动，消费 %s", settings.draw_queue_url.split("@")[-1])
-    stop = asyncio.Event()
+    if stop is None:
+        stop = asyncio.Event()
     metrics_task = asyncio.create_task(
         queue_metrics.metrics_loop(stop, role="draw-worker")
     )
     try:
-        while True:
+        # 停止事件只在迭代边界观察：处理中的 job 跑完再退出，
+        # 避免 systemd SIGTERM 把付费生成拦腰砍断（画途中 TERM 浪费一次生成）
+        while not stop.is_set():
             try:
                 await _process_one()
             except asyncio.CancelledError:
@@ -78,6 +81,7 @@ async def run_forever() -> None:
             except Exception:
                 logger.exception("draw-worker 循环异常，5s 后重试")
                 await asyncio.sleep(5.0)
+        logger.info("draw-worker 收到停止事件，退出消费循环")
     finally:
         stop.set()
         metrics_task.cancel()
@@ -89,18 +93,18 @@ async def run_forever() -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    _install_secret_redaction()
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
+    stop = asyncio.Event()
+    # 停止语义是「置事件、跑完当前 job、迭代边界退出」；
+    # 旧实现 handler 直调 loop.stop 会让 run_until_complete 抛 RuntimeError、
+    # run_forever 协程悬挂销毁，systemd 记 exit=1（2026-08-30 22:07 实机噪音）
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            loop.add_signal_handler(sig, loop.stop)
+            loop.add_signal_handler(sig, stop.set)
         except NotImplementedError:
             pass
 
     try:
-        loop.run_until_complete(run_forever())
+        loop.run_until_complete(run_forever(stop))
     finally:
         loop.close()
 

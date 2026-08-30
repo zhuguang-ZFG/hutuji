@@ -237,6 +237,68 @@ def test_redis_attach_nx_conflict_rejudges(memory_queue, monkeypatch, winner_sta
     asyncio_run(run_case())
 
 
+def test_worker_run_forever_clean_stop(monkeypatch):
+    """stop 事件置位后消费循环干净返回（SIGTERM 不再 loop.stop 裸死 exit=1）。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import draw_worker, queue_metrics
+
+    monkeypatch.setattr(draw_worker, "queue_enabled", lambda: True)
+    monkeypatch.setattr(
+        draw_worker, "settings", SimpleNamespace(draw_queue_url="redis://stub")
+    )
+
+    async def _fake_metrics(stop, *, role):
+        await stop.wait()
+
+    monkeypatch.setattr(queue_metrics, "metrics_loop", _fake_metrics)
+
+    stop = asyncio.Event()
+    calls = 0
+
+    async def _fake_process_one():
+        nonlocal calls
+        calls += 1
+        if calls >= 3:
+            stop.set()
+        return False
+
+    monkeypatch.setattr(draw_worker, "_process_one", _fake_process_one)
+    asyncio_run(draw_worker.run_forever(stop))
+    assert calls == 3
+
+
+def test_worker_stop_mid_job_finishes_current(monkeypatch):
+    """停止事件在 job 处理中到达：当前 job 跑完后才在迭代边界退出。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from hutuji_mcp import draw_worker, queue_metrics
+
+    monkeypatch.setattr(draw_worker, "queue_enabled", lambda: True)
+    monkeypatch.setattr(
+        draw_worker, "settings", SimpleNamespace(draw_queue_url="redis://stub")
+    )
+
+    async def _fake_metrics(stop, *, role):
+        await stop.wait()
+
+    monkeypatch.setattr(queue_metrics, "metrics_loop", _fake_metrics)
+
+    stop = asyncio.Event()
+    finished: list[str] = []
+
+    async def _fake_process_one():
+        stop.set()  # 信号在 job 处理中到达
+        finished.append("job")
+        return True
+
+    monkeypatch.setattr(draw_worker, "_process_one", _fake_process_one)
+    asyncio_run(draw_worker.run_forever(stop))
+    assert finished == ["job"]
+
+
 def test_draw_queue_url_validation():
     with pytest.raises(ValueError, match="HUTUJI_DRAW_QUEUE_URL"):
         Settings(
