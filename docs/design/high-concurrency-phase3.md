@@ -341,13 +341,13 @@ HUTUJI_BENCH_LIVE=1 python scripts/bench_draw_live.py ...  # Phase-3 新脚本�
 
 ## 12. 验收标准（Phase-3 完成定义）
 
-- [x] 3a（仓内）：`job_ledger` / `breaker` shadow / `queue_metrics` + hooks；默认 `HUTUJI_BREAKER_ENFORCE=0`；hub 测试已增专测（**未部署、未 shadow 48h**）
+- [x] 3a（仓内+双机代码）：`job_ledger` / `breaker` shadow / `queue_metrics` + hooks 已部署 `4af959d`；默认 `HUTUJI_BREAKER_ENFORCE=0`；**未配 PG DSN → shadow 48h 未起**
 - [ ] 3a：生产 shadow 48h，PG 有 pending/done 行，写入失败不阻断 draw  
-- [ ] 3b：模拟单通道 503，breaker open，对冲自动换通道；preflight 新项双机通过（按角色 expected）  
+- [x] 3b（探针模板）：preflight +3 条件探针已上机（未配 env 仍 pass）；**breaker enforce 未开**  
 - [ ] 3c：公网下载经 CDN，CRC32 与源站一致（抽 10 文件）  
 - [ ] bench：Redis 模式 10 rps × 300s 假负载 PASS  
-- [ ] 文档：`deployment.md` 登记 RDS/CDN 步骤；`worktree-inventory.md` 更新  
-- [ ] hub 门禁 pass；**不得**写「可出货 / 联调完成」
+- [x] 文档：`deployment.md` / `worktree-inventory.md` / `release-readiness.md` 已登记 `4af959d`  
+- [ ] hub 门禁一次完整 pass（本环境 pytest 超 ~25s 被中断；非 contract 462 项 + e2e PASS + docs pass）；**不得**写「可出货 / 联调完成」
 
 ---
 
