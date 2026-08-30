@@ -6051,6 +6051,28 @@ def test_bridge_unit_caps_memory_and_keeps_hardening() -> None:
         assert key in unit, f"bridge unit 缺加固键 {key}"
 
 
+def test_worker_units_grant_stop_grace_longer_than_paid_job() -> None:
+    """两个 draw-worker unit 都必须显式给停机宽限，且量级覆盖单 job 上界。
+
+    2026-08-30 优雅停机改为「SIGTERM 置停止事件、迭代边界退出」后，systemd
+    默认 TimeoutStopSec=90s 成了新瓶颈：付费 job（多后端对冲生图 + 描摹 +
+    vpype，实测上界约 120s）超过 90s 照样被 SIGKILL 拦腰砍断，「跑完当前 job」
+    在生产不成立。本条钉：两 unit 恰好各一条 TimeoutStopSec，取值 ≥240s
+    （≥2× 实测 job 上界）且 < JOB_TTL 600s（真被杀时残留键仍由 draw_queue
+    既有 TTL/replace 逻辑收口）。此前 worker unit 无任何形状测试，删掉不会红。
+    """
+    root = Path(__file__).resolve().parents[2]
+    for name in ("hutuji-draw-worker.service", "hutuji-draw-worker@.service"):
+        unit = (root / "deploy" / name).read_text(encoding="utf-8")
+        lines = [l for l in unit.splitlines() if l.startswith("TimeoutStopSec=")]
+        assert len(lines) == 1, f"{name} 必须恰好一条 TimeoutStopSec，当前 {len(lines)}"
+        value = lines[0].split("=", 1)[1].strip()
+        assert value.isdigit(), f"{name} TimeoutStopSec 必须是整数秒，当前 {value!r}"
+        secs = int(value)
+        assert secs >= 240, f"{name} TimeoutStopSec={secs} 盖不住单 job 上界（约 120s）"
+        assert secs < 600, f"{name} TimeoutStopSec={secs} 不得达到 JOB_TTL 600s"
+
+
 def test_gcode_module_self_test_runs_real_generation_chain() -> None:
     gcode_gen._run_self_test()
     assert gcode_gen._main(["--self-test"]) == 0

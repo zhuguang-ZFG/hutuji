@@ -15,6 +15,11 @@ EnvironmentFile=-/etc/hutuji/mcp.env
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.draw_worker
 Restart=on-failure
 RestartSec=5
+# 优雅停机宽限：SIGTERM 只是置停止事件，worker 跑完当前付费 job 才退出。
+# 不设本条时默认 90s 一到 systemd 直接 SIGKILL，长 job（多后端对冲+描摹+vpype，
+# 实测上界约 120s）照样被拦腰砍断。300s 覆盖约 2.5× 实测上界，且 < JOB_TTL 600s，
+# 万一真被杀，残留键仍由 draw_queue 既有 TTL/replace 逻辑收口。
+TimeoutStopSec=300
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

@@ -13,6 +13,8 @@ EnvironmentFile=-/etc/hutuji/mcp.env
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.draw_worker
 Restart=on-failure
 RestartSec=5
+# 与 @.service 同口径的优雅停机宽限（理由见 @.service 注释）。
+TimeoutStopSec=300
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
