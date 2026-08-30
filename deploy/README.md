@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ **当前生产代码基线：`4af959d`（2026-08-30 高并发 Phase-1/2/3a 代码；队列/PG/OSS **未启用**；前基线 `b7f88e3` 为 08-29 晚漂移收口）**：15 产物 Git blob 导出 CR=0，双机 SHA-256 与 `4af959d` blob 逐位相符；阿里云 mcp+bridge active（MainPID 723260/723265），京东云 mcp active、bridge **disabled+inactive**（验证中曾发现误为 active 双 connected，已 stop）。阿里云 preflight `pass=24 fail=9 expected=33`，京东云停 bridge 前误测 `31/33`；数字按节点口径读。备份 `/root/hutuji-bak-20260830-phase3-4af959d/`。 |
+| VPS 实机部署与验收 | ✅ **当前生产：`4af959d` 包 + 2026-08-30 19:04 阿里云队列启用**（worker 去 seccomp、breaker 扫描修复；主节点 Redis/PG shadow；OSS 未开；京东云不跑队列）。17:07 双机 15 产物与 `4af959d` blob 对账；备份 `/root/hutuji-bak-20260830-phase3-4af959d/`。队列冒烟 9799B/0.9s。preflight 数字按节点口径读（启用后当场阿里云 23/33；京东云停 bridge 后曾 27/33）。 |
 > **2026-08-16 安装器脚本已同步（本仓 `a7697b9`）**：仅 `install-from-repo.sh` 适用于生产，LF SHA-256 `d8eec725…75936` 对账一致；运行时服务文件未变、未重启；同步后 preflight `pass=26 fail=0 expected=26`。生产应用基线仍 `1082400`。
 
 

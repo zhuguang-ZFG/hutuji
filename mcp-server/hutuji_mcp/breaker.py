@@ -108,6 +108,8 @@ class RedisBreakerStore:
     def list_open_backends(self) -> list[str]:
         open_ids: list[str] = []
         for key in self._client.scan_iter(match=f"{BREAKER_PREFIX}*"):
+            if str(key).startswith(SAMPLE_PREFIX):
+                continue
             raw = self._client.get(key)
             if not raw:
                 continue

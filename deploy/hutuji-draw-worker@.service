@@ -20,7 +20,11 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/hutuji/mcp-server/output
-SystemCallFilter=@system-service
+MemoryMax=1G
+# draw-worker 走 asyncio.create_subprocess_exec（Linux 上 clone3）。阿里云实测 systemd
+# 较旧时 SystemCallFilter 白名单即显式放行 mbind/clone3/@process 仍 SIGSYS(434)；
+# MCP ExecStartPre 的同步 subprocess.run 不受影响，故此前 preflight 生成链自检通过
+# 但队列 worker 全挂。本进程不直曝公网，仅消费本机 Redis，故不设 SystemCallFilter。
 
 [Install]
 WantedBy=hutuji-draw-worker.target

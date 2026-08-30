@@ -58,6 +58,24 @@ def test_breaker_enforce_opens_after_consecutive_failures(
     assert breaker.should_skip_backend("agnes") is True
 
 
+def test_redis_breaker_list_open_skips_sample_zsets() -> None:
+    """scan_iter 前缀 hutuji:breaker:* 会命中 samples ZSET；GET 会 ResponseError。"""
+
+    class _FakeClient:
+        def scan_iter(self, match=None):
+            yield "hutuji:breaker:samples:agnes"
+            yield "hutuji:breaker:agnes"
+
+        def get(self, key):
+            if str(key).startswith("hutuji:breaker:samples:"):
+                raise AssertionError("不得 GET samples ZSET")
+            return '{"state": "open"}'
+
+    store = breaker.RedisBreakerStore.__new__(breaker.RedisBreakerStore)
+    store._client = _FakeClient()
+    assert store.list_open_backends() == ["agnes"]
+
+
 def test_breaker_success_closes_from_half_open(memory_breaker, monkeypatch: pytest.MonkeyPatch) -> None:
     store = breaker.MemoryBreakerStore()
     now = time.time()
