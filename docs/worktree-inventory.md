@@ -25,7 +25,7 @@
 | 默认行为 | **未配** `HUTUJI_DRAW_QUEUE_URL` = 现网进程内 asyncio；**未配** `HUTUJI_PG_DSN` = 账本禁用；**默认** `HUTUJI_BREAKER_ENFORCE=0` = shadow 只记事件不过滤 |
 | 推荐上线 env（未验证） | Phase-1/2 同前 + `HUTUJI_PG_DSN=postgresql://…`、`HUTUJI_BREAKER_ENFORCE=0`（3a shadow；3b 稳定 48h 后改 1）、`HUTUJI_METRICS_INTERVAL_SEC=15`；3c 另需 CDN DNS + `HUTUJI_CDN_ENABLED=1` |
 | 设计 | `docs/design/high-concurrency-phase3.md`（3a 仓内已落地；3b preflight 已入模板；3c CDN/lifecycle **未生产验证**） |
-| 生产部署（2026-08-30 17:07 CST） | 双机代码+preflight 33 项已 scp；备份 `/root/hutuji-bak-20260830-phase3-4af959d/`；阿里云 mcp+bridge MainPID 723260/723265；京东云 mcp 552649。冒烟阿里云 8533B 公网 200/CRC `a1ca7ce8`。**未配**队列/PG/OSS env，worker 未 enable |
+| 生产部署（2026-08-30 17:07 CST） | 双机代码+preflight 33 项已 scp；备份 `/root/hutuji-bak-20260830-phase3-4af959d/`；阿里云 mcp+bridge MainPID 723260/723265；京东云 mcp 552649。冒烟阿里云 8533B 公网 200/CRC `a1ca7ce8`。停京东云误启 bridge 后复验：阿里云 24/33、京东云 27/33；bridge 仅阿里云双 connected。**未配**队列/PG/OSS env，worker 未 enable |
 | 未完成 | 生产 Redis/OSS/PG 开通与 mcp.env、真实 Redis 模式 bench 300s、3a shadow 48h（需 DSN）、3b breaker enforce、3c CDN CRC 抽验、hub 门禁在本 HEAD 完整一次跑通（pytest 层曾被环境中断） |
 
 ### 写字机 `$1=255`（2026-08-28：NVS → 机型默认已固化并刷 COM13）
