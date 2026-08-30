@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -339,3 +340,24 @@ def test_bench_draw_load_script_smoke():
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PASS" in proc.stdout
+
+
+def test_worker_main_wiring_subprocess():
+    """main() 接线端到端冒烟：缺队列地址必须走 SystemExit 文案退出，
+    不得出现 NameError/Traceback——钉死 2026-08-30 生产事故
+    （main() 误删 loop 创建行，worker 全量 NameError 崩溃回环）。
+    单元测试只调 run_forever，从不经过 main()，故须子进程真起。"""
+    py = ROOT / ".venv" / "Scripts" / "python.exe"
+    env = {k: v for k, v in os.environ.items() if k != "HUTUJI_DRAW_QUEUE_URL"}
+    proc = subprocess.run(
+        [str(py), "-m", "hutuji_mcp.draw_worker"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+    combined = proc.stdout + proc.stderr
+    assert "Traceback" not in combined, combined
+    assert "未配置" in combined, combined

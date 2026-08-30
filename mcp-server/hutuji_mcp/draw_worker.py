@@ -93,6 +93,10 @@ async def run_forever(stop: asyncio.Event | None = None) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    _install_secret_redaction()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     stop = asyncio.Event()
     # 停止语义是「置事件、跑完当前 job、迭代边界退出」；
     # 旧实现 handler 直调 loop.stop 会让 run_until_complete 抛 RuntimeError、
