@@ -37,7 +37,7 @@
 | 部署 | `deploy/hutuji-draw-portal.service`、`deploy/env.draw-portal.example`、`deploy/nginx-draw-portal-snippet.conf` |
 | 探活脚本 | `scripts/probe_device_messaging_token.py`（token 勿入库） |
 | 契约 | `docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md`、`docs/design/conversation-capture.md` |
-| 本批（未部署） | 对话上报 API + `conversation_events`；usage 埋点 + `usage_events`；`draw-admin` 会话/usage 视图；MCP `usage_report.py`；固件 `hutuji_conversation_report.*`（xiaozhi 未提交） |
+| 本批（hub `22e22c2` 已推 main；**生产未部署**） | 对话上报 API + `conversation_events`；usage 埋点 + `usage_events`；`draw-admin` 会话/usage 视图；MCP `usage_report.py`；固件 `hutuji_conversation_report.*`（xiaozhi `0d041c9` 已推，[PR #1](https://github.com/zhuguang-ZFG/xiaozhi-esp32/pull/1)） |
 | 生产 | 阿里云 active；venv 共用 MCP；数据 `/var/lib/hutuji/draw-portal/` |
 
 ### curated 精选库（2026-08-26，代码已合 main / PR #7；灌库未 flip）
@@ -157,9 +157,9 @@
 
 ## 2. Grbl_Esp32（`D:\Users\Grbl_Esp32`）
 
-**工作树脏（2026-08-30 §9-G′ `$` 写保护，未提交）** — 见下条。
+**工作树干净（2026-08-30 §9-G′ `$` 写保护已提交 `40616de` 已推 origin，[PR #1](https://github.com/zhuguang-ZFG/Grbl_Esp32/pull/1)）** — 见下条。
 
-### §9-G′ Golden `$` 写保护（2026-08-30，**未提交 / 未推 origin**）
+### §9-G′ Golden `$` 写保护（2026-08-30，**已提交 `40616de` / 已推 origin**）
 
 | 文件 | 说明 |
 |------|------|
@@ -185,7 +185,7 @@
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
 
-### Grbl `$` 设置指纹 + 对话上报（2026-08-30，**未提交 / 未推 origin**）
+### Grbl `$` 设置指纹 + 对话上报（2026-08-30，**已提交 `0d041c9` / 已推 origin，[PR #1](https://github.com/zhuguang-ZFG/xiaozhi-esp32/pull/1)**）
 
 | 文件 | 说明 |
 |------|------|
@@ -199,7 +199,7 @@
 - **板上 COM14（2026-08-30）**：`build-hil-ws35/xiaozhi.bin` SHA-256 `1555415246ADF3DF4CBD42ADDE53B53DF9C82627745BD78219972CBA56C1BA62`；抓包 `tmp/settings-fp-fixed-com14.log`：`Grbl 设置指纹通过（13 项）`。
 - **首刷 bug**：`Errors/Verbose=Off` 未解析 → 已修并重刷（同 SHA 系增量构建）。
 
-### DRAW-BIND 绑机固件（2026-08-29，**未提交 / 未推 origin**）
+### DRAW-BIND 绑机固件（2026-08-29，**已随 `0d041c9` 入库并推 origin**）
 
 | 文件 | 说明 |
 |------|------|
