@@ -336,3 +336,12 @@
 | `AGENTS.md`、`docs/worktree-inventory.md` | 计数同步 1070→1083（自洽测试 `test_test_count_claims_self_consistent` 同源钉死） |
 | 验证状态 | pytest **1083/1083**（94.02s）；hub 门禁 **PASS exit=0**（2026-08-30，指纹 238/238 重登后，两处变更均对应本批有意编辑）；e2e PASS。**已部署生产**（2026-08-30 22:07 双机，提交 `811426e` 已推 origin）：双机 draw_queue.py 与 HEAD blob SHA-256 `23120277b4a7…50a0c861` 逐位相符、CR=0；阿里云 restart mcp+bridge+draw-worker@{1..8}、京东云仅 mcp；阿里云生产 venv 真 Redis 命名空间冒烟三场景全过（`ATTACH_REPLACE_SMOKE_OK`），bridge-health 双 connected；preflight 阿里云 24/33（9 fail nginx 布局类已知差异）、京东云 28/33（5 fail 热备预期分歧），详见 deployment.md 首条 |
 | 本机运维脚本（不入库） | `tmp/deploy_drawqueue_fix_0830.py`（双机部署 + 真 Redis 命名空间冒烟）、`tmp/preflight_both_0830.py`（双机 preflight 运行器）、`tmp/prod_recon_0830.py`（阿里云生产问题排查：journal/队列/对话/埋点）：按既有决策本机解析 `VPS.txt` 凭据，从未 add/commit/push（`git log --all` 双路径为空取证），同 `tmp/deploy_mcp_delta_0830.py` 先例 |
+
+## 优雅停机批：draw_worker SIGTERM 语义（2026-08-30 晚，22:31 recon 发现项闭环）
+
+| 文件 | 说明 |
+|------|------|
+| `mcp-server/hutuji_mcp/draw_worker.py` | `run_forever(stop=None)` 支持停止事件：循环改「迭代边界观察 stop」，画途中跑完当前付费 job 再退出；`main()` 用 `loop.add_signal_handler(sig, stop.set)` 替代 `loop.stop`（旧路径 `run_until_complete` 抛 RuntimeError → 协程悬挂销毁 → systemd 记 exit=1）。**事故注记**：`0e2fb3d` 首版误删 `_install_secret_redaction()` 与 `loop = asyncio.new_event_loop()` 两行（edit 范围错位），22:57 部署后 worker 全量 NameError 崩溃回环约 4 分钟；`3efec02` 补回并加子进程回归钉死 |
+| `mcp-server/tests/test_draw_queue.py` | 17→20 项：停机后干净返回、画途中置 stop 跑完当前 job、main 接线子进程回归（缺队列地址须 SystemExit 文案、不得 Traceback——防同类误删） |
+| 验证状态 | pytest **1086/1086**；hub 门禁全绿（指纹重登 2 处均为本批有意计数编辑）。**已部署生产**（2026-08-30 23:01，提交 `3efec02` 已推 origin）：双机 draw_worker.py 与 HEAD blob SHA-256 `93230e02d3b7…fa6ff89f` 逐位相符、CR=0；阿里云 restart worker@{1..8} 全 active，京东云仅同步文件（不跑队列不重启）；**优雅停机生产实证**——二次重启（新码对新码）journal 现「收到停止事件，退出消费循环」→ systemd `Succeeded`/`Result=success`/`ExecMainStatus=0`；备份 `/root/hutuji-bak-20260830-worker-graceful/`（备份先行 + 幂等防覆写），详见 deployment.md 首条 |
+| 本机运维脚本（不入库） | `tmp/deploy_worker_graceful_0830.py`（双机部署 + 重启前接线冒烟——空 `HUTUJI_DRAW_QUEUE_URL` 起 `python -m hutuji_mcp.draw_worker` 须见「未配置」且无 Traceback，防 NameError 类事故直达生产）；凭据处理同上节先例 |
