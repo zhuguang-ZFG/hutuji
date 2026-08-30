@@ -804,10 +804,35 @@ def test_update_kb_from_path_uses_given_file(tmp_path, monkeypatch):
         assert Path(file_path) == md
         return {"success": True, "data": {"file_name": "out.md", "file_md5": "abc123"}}
 
-    monkeypatch.setattr(console, "api", fake_api)
-    monkeypatch.setattr(console, "api_upload", fake_upload)
+    monkeypatch.setattr(console, "_api_lib", fake_api)
+    monkeypatch.setattr(console, "_api_upload_lib", fake_upload)
     md5 = console.update_kb_from_path(71153, md)
     assert md5 == "abc123"
+
+
+def test_update_kb_from_path_idempotent_when_doc_exists(tmp_path, monkeypatch, capsys):
+    """内容未变时小智 create 会回「文档已存在」，应视为成功而非 failed。"""
+    md = tmp_path / "out.md"
+    md.write_text("# same\n", encoding="utf-8")
+
+    def fake_api(method, path, body=None):
+        if method == "GET" and "document?" in path:
+            return {"data": {"list": [{"id": 7, "title": "publish_tmp.md"}]}}
+        if method == "POST" and path == "/knowledge-bases/document":
+            raise console.XiaozhiConsoleError(
+                'API 错误 400: {"success":false,"message":"文档已存在"}'
+            )
+        raise AssertionError((method, path))
+
+    def fake_upload(path, file_path):
+        return {"success": True, "data": {"file_name": "out.md", "file_md5": "abc123"}}
+
+    monkeypatch.setattr(console, "_api_lib", fake_api)
+    monkeypatch.setattr(console, "_api_upload_lib", fake_upload)
+    md5 = console.update_kb_from_path(71153, md)
+    assert md5 == "abc123"
+    out = capsys.readouterr().out
+    assert "内容未变" in out
 
 
 def test_update_kb_missing_upload_data_fails_single_line(monkeypatch, tmp_path, capsys):
@@ -816,8 +841,12 @@ def test_update_kb_missing_upload_data_fails_single_line(monkeypatch, tmp_path, 
     （应答形状不符是常态，不是异常）。"""
     monkeypatch.setattr(console, "KNOWLEDGE_BASE_PATH", tmp_path / "knowledge-base.md")
     (tmp_path / "knowledge-base.md").write_text("内容", encoding="utf-8")
-    monkeypatch.setattr(console, "api", lambda method, path, body=None: {"data": {"list": []}})
-    monkeypatch.setattr(console, "api_upload", lambda path, file_path: {"success": True, "data": {}})
+    monkeypatch.setattr(console, "_api_lib", lambda method, path, body=None: {"data": {"list": []}})
+    monkeypatch.setattr(
+        console,
+        "_api_upload_lib",
+        lambda path, file_path: {"success": True, "data": {}},
+    )
 
     with pytest.raises(SystemExit) as exc:
         console.cmd_update_kb("42")
@@ -912,10 +941,10 @@ def test_update_kb_delete_failure_summarizes_parallel_versions(monkeypatch, tmp_
             return {"success": False}
         return {"success": True}
 
-    monkeypatch.setattr(console, "api", fake_api)
+    monkeypatch.setattr(console, "_api_lib", fake_api)
     monkeypatch.setattr(
         console,
-        "api_upload",
+        "_api_upload_lib",
         lambda path, file_path: {
             "success": True,
             "data": {"file_name": "kb.md", "file_md5": "d41d8cd98f00b204e9800998ecf8427e"},
@@ -972,10 +1001,10 @@ def test_update_kb_paginates_all_old_documents(monkeypatch, tmp_path, capsys):
             return {"success": True}
         return {"success": True}
 
-    monkeypatch.setattr(console, "api", fake_api)
+    monkeypatch.setattr(console, "_api_lib", fake_api)
     monkeypatch.setattr(
         console,
-        "api_upload",
+        "_api_upload_lib",
         lambda path, file_path: {
             "success": True,
             "data": {"file_name": "kb.md", "file_md5": "d41d8cd98f00b204e9800998ecf8427e"},

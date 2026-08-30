@@ -49,7 +49,11 @@ $env:PYTHONPATH = (Get-Location)
 
 模板：`deploy/env.kb-admin.example`。
 
-## 生产部署（模板 only）
+## 发布语义
+
+`update_kb_from_path` 先上传再 `POST /knowledge-bases/document`。**内容未变**时小智会回 HTTP 400「文档已存在」——这是幂等成功，不是失败；控制台 JWT 过期才是 401。库路径失败抛 `XiaozhiConsoleError`（不再 `sys.exit`），后台发布记录应记下脱敏后的 `error_summary`。
+
+## 生产部署（阿里云已启用；京东云一期不跑）
 
 1. 将 `kb-admin/` 同步到 `/opt/hutuji/kb-admin/`，建 venv 并 `pip install -r requirements.txt`。
 2. `cp deploy/env.kb-admin.example /etc/hutuji/kb-admin.env`，填实值，`chmod 600`。

@@ -151,7 +151,12 @@ def get_device_token():
     return token
 
 
-def api(method, path, body=None):
+class XiaozhiConsoleError(Exception):
+    """小智控制台库调用方可捕获的运行期错误（CLI 映射为 exit 1）。"""
+
+
+def _api_lib(method, path, body=None):
+    """库路径：失败抛 XiaozhiConsoleError，供 update_kb_from_path 等可捕获场景。"""
     token = get_token()
     url = f"{API_BASE}{path}"
     headers = {"Authorization": f"Bearer {token}"}
@@ -165,20 +170,23 @@ def api(method, path, body=None):
             try:
                 return json.loads(resp.read().decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                # 2xx 但正文非 JSON/非 UTF-8（网关 WAF 页标 200 很常见）：
-                # 与错误路径同口径收成一行，不裸抛 traceback。
-                print(f"API 响应不可解析: {type(exc).__name__}", file=sys.stderr)
-                sys.exit(1)
+                raise XiaozhiConsoleError(
+                    f"API 响应不可解析: {type(exc).__name__}"
+                ) from exc
     except HTTPError as e:
-        # 必须脱敏：控制台 JWT 是敏感凭据（仓规禁止入库 小智控制台token.txt）。
-        # 上游网关/WAF 的错误页常把请求头或 query 回显进正文，裸打印会把 JWT 落进
-        # 终端回滚缓冲与任何日志采集。孪生的 device_api 早已这样做，此处曾漏。
         body_text = _redact_text(e.read().decode(errors="replace"))
-        print(f"API 错误 {e.code}: {body_text}", file=sys.stderr)
-        sys.exit(1)
+        raise XiaozhiConsoleError(f"API 错误 {e.code}: {body_text}") from e
     except URLError as e:
-        # 无此分支时网络错误会裸抛 traceback；只记 reason 的类型名，与 device_api 同口径。
-        print(f"API 网络错误: {type(e.reason).__name__}", file=sys.stderr)
+        raise XiaozhiConsoleError(
+            f"API 网络错误: {type(e.reason).__name__}"
+        ) from e
+
+
+def api(method, path, body=None):
+    try:
+        return _api_lib(method, path, body)
+    except XiaozhiConsoleError as e:
+        print(str(e), file=sys.stderr)
         sys.exit(1)
 
 
@@ -240,9 +248,10 @@ def _parse_device_arguments(tool_name: str, raw: str | None) -> dict:
     return arguments
 
 
-def api_upload(path, file_path):
-    """multipart/form-data 文件上传。"""
+def _api_upload_lib(path, file_path):
+    """库路径：multipart 上传，失败抛 XiaozhiConsoleError。"""
     import mimetypes
+
     token = get_token()
     url = f"{API_BASE}{path}"
     boundary = "----XiaozhiUpload9527"
@@ -267,15 +276,24 @@ def api_upload(path, file_path):
             try:
                 return json.loads(resp.read().decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                print(f"上传响应不可解析: {type(exc).__name__}", file=sys.stderr)
-                sys.exit(1)
+                raise XiaozhiConsoleError(
+                    f"上传响应不可解析: {type(exc).__name__}"
+                ) from exc
     except HTTPError as e:
-        # 与 api/device_api 同口径：上传错误正文可能回显 Authorization 头或能力 URL。
         body_text = _redact_text(e.read().decode(errors="replace"))
-        print(f"上传错误 {e.code}: {body_text}", file=sys.stderr)
-        sys.exit(1)
+        raise XiaozhiConsoleError(f"上传错误 {e.code}: {body_text}") from e
     except URLError as e:
-        print(f"上传网络错误: {type(e.reason).__name__}", file=sys.stderr)
+        raise XiaozhiConsoleError(
+            f"上传网络错误: {type(e.reason).__name__}"
+        ) from e
+
+
+def api_upload(path, file_path):
+    """multipart/form-data 文件上传。"""
+    try:
+        return _api_upload_lib(path, file_path)
+    except XiaozhiConsoleError as e:
+        print(str(e), file=sys.stderr)
         sys.exit(1)
 
 
@@ -363,8 +381,8 @@ def cmd_update_role(agent_id):
     print("✓ 角色提示更新成功")
 
 
-class XiaozhiConsoleError(Exception):
-    """小智控制台库调用方可捕获的运行期错误（CLI 映射为 exit 1）。"""
+def _doc_already_exists_message(message: str) -> bool:
+    return "文档已存在" in message
 
 
 def update_kb_from_path(kb_id: str | int, path: Path) -> str:
@@ -380,7 +398,7 @@ def update_kb_from_path(kb_id: str | int, path: Path) -> str:
     page = 1
     page_size = 50
     while True:
-        docs_result = api(
+        docs_result = _api_lib(
             "GET",
             f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&page={page}&pageSize={page_size}",
         )
@@ -394,7 +412,7 @@ def update_kb_from_path(kb_id: str | int, path: Path) -> str:
     print(f"现有文档 {len(old_docs)} 篇；先上传新文件，成功后再删旧")
 
     print(f"上传 {path.name}...")
-    upload_result = api_upload("/knowledge-bases/upload-file", str(path))
+    upload_result = _api_upload_lib("/knowledge-bases/upload-file", str(path))
     if not upload_result.get("success"):
         message = _redact_text(str(upload_result.get("message", "?")))
         raise XiaozhiConsoleError(f"上传失败: {message}（旧文档保留）")
@@ -405,15 +423,26 @@ def update_kb_from_path(kb_id: str | int, path: Path) -> str:
     file_name = upload_data["file_name"]
     file_md5 = upload_data["file_md5"]
 
-    create_result = api("POST", "/knowledge-bases/document", {
-        "knowledgeBaseId": kb_id_int,
-        "fileName": file_name,
-        "fileMd5": file_md5,
-        "optimizeParse": False,
-    })
+    created = False
+    try:
+        create_result = _api_lib("POST", "/knowledge-bases/document", {
+            "knowledgeBaseId": kb_id_int,
+            "fileName": file_name,
+            "fileMd5": file_md5,
+            "optimizeParse": False,
+        })
+    except XiaozhiConsoleError as exc:
+        if _doc_already_exists_message(str(exc)):
+            print(f"✓ 内容未变，云端文档已是最新 (md5={file_md5[:12]}...)")
+            return file_md5
+        raise
     if not create_result.get("success"):
         message = _redact_text(str(create_result.get("message", "?")))
+        if _doc_already_exists_message(message):
+            print(f"✓ 内容未变，云端文档已是最新 (md5={file_md5[:12]}...)")
+            return file_md5
         raise XiaozhiConsoleError(f"创建文档失败: {message}（旧文档保留）")
+    created = True
     print(f"✓ 新文档已建立 (md5={file_md5[:12]}...)")
 
     delete_failed = []
@@ -421,12 +450,16 @@ def update_kb_from_path(kb_id: str | int, path: Path) -> str:
         doc_id = doc["id"]
         title = doc.get("title", "?")
         print(f"删除旧文档: {title} (id={doc_id})")
-        del_result = api("DELETE", f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&documentId={doc_id}")
+        del_result = _api_lib(
+            "DELETE",
+            f"/knowledge-bases/document?knowledgeBaseId={kb_id_int}&documentId={doc_id}",
+        )
         if isinstance(del_result, dict) and del_result.get("success") is False:
             delete_failed.append(f"{title}(id={doc_id})")
     if delete_failed:
         raise XiaozhiConsoleError(f"旧文档删除失败，新旧并存需人工清理: {delete_failed}")
-    print("✓ 知识库文档替换成功")
+    if created:
+        print("✓ 知识库文档替换成功")
     return file_md5
 
 

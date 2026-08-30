@@ -1,5 +1,7 @@
 # 部署（2026-08-23 起：阿里云主 / 京东云热备；历史章节为京东云口径）
 
+> **2026-08-30 20:09 CST kb-admin 发布幂等修复已上阿里云**：`scripts/xiaozhi_console.py` 与 `kb-admin/kb_admin/static/index.html` 已 scp；`systemctl restart hutuji-kb-admin` 后 `is-active=active`。内容未变再点发布不再记 failed。京东云一期仍不跑 kb-admin。
+
 > **2026-08-30 晚 Phase-1/2 队列 + Phase-3a shadow 在阿里云主节点启用（京东云热备仍不跑队列）**：Redis `127.0.0.1:6379` + `HUTUJI_DRAW_QUEUE_URL` + `hutuji-draw-worker@1..4` enabled/active；`HUTUJI_PG_DSN` 已写、`HUTUJI_BREAKER_ENFORCE=0`。**未开** 3b enforce / 3c OSS/CDN。根因：draw-worker 用 `asyncio.create_subprocess_exec`，旧 systemd 下 `SystemCallFilter` 即显式放行 `mbind`/`clone3` 仍 **SIGSYS syscall=434**，job 卡 `processing`、waiter 295s 超时；MCP `ExecStartPre` 走同步 `subprocess.run` 故生成链 preflight 仍绿。处置：生产 worker unit **去掉 SystemCallFilter**（保留 `MemoryMax=1G` / `ProtectSystem=strict`）；`breaker.list_open_backends` 跳过 `hutuji:breaker:samples:*`。**队列冒烟（2026-08-30 19:04 CST，强制同步、不注入设备 token）**：`画一只猫` curated hit、`SMOKE_ELAPSED 0.9`、`SMOKE_BYTES=9799` / `SMOKE_LINES=431`（样本随精选库 idx 变化，与 17:07 进程内 8533B 不是同一产物）。3a shadow 48h 建议从此时起算，**最早 2026-09-01 19:04 才允许** 写 `HUTUJI_BREAKER_ENFORCE=1`。京东云未写 `HUTUJI_DRAW_QUEUE_URL`、worker 未 enable。preflight 当场阿里云 **23/33**（Phase-3 三条探针 pass；其余 fail 仍为 nginx 布局债等，非本批新引入）。**未宣称出货**。**Redis 假负载 bench（2026-08-30 19:22 CST，阿里云本机 Redis，bench 进程 32 协程 worker、停 systemd worker@1..4 隔离）**：`bench_draw_load.py --backend redis --rps 10 --duration 300 --workers 32 --job-ms 3000` → enqueued=2977 rejected=0 completed=2977 timed_out=0，success_rate=100% PASS；p50=3030ms / p95=3052ms；worker@1..4 已恢复 active。本仓 `2710739` 已 push；`breaker.py` + worker unit 三件套 + bench 脚本由 `git cat-file blob 2710739:` 导出 LF 上机，mcp+bridge 已 restart。
 
 > **2026-08-29 晚 课堂级并发生图闸上线（双机）**：`DrawLimiter` 默认/生产 **并发 8、每秒 4、每分钟 120**；vpype **≤6**（env：`HUTUJI_DRAW_MAX_CONCURRENT` / `_PER_SECOND` / `_PER_MINUTE` / `HUTUJI_VPYPE_MAX_CONCURRENT`）。单进程 uvicorn，**不加多 worker**（每进程各一份内存闸会静默翻倍）。双机 mcp.env 已写、代码已 scp、`hutuji-mcp` 已 restart（阿里云另 restart bridge）。付费 API 费用与 CPU 随并发上升，课堂仍可能顶满——再高须另拍板。
@@ -8,7 +10,7 @@
 
 ## kb-admin（小派售后知识库编辑后台）
 
-一期 FAQ 编辑后台：**未部署生产**（仅仓内模板与代码）。Loopback systemd unit `hutuji-kb-admin`（`:8301`）+ nginx `location /kb-admin/` 反代；编辑真源 SQLite，发布推小智官方云 KB。
+一期 FAQ 编辑后台：**阿里云已启用**（`hutuji-kb-admin` `:8301` + nginx `/kb-admin/`）；京东云一期不跑。编辑真源 SQLite（`/var/lib/hutuji/kb-admin/data.db`），发布推小智官方云 KB `71153`。公网入口 `https://hutuji.donglicao.com/kb-admin/`。
 
 | 模板 | 用途 |
 |------|------|
@@ -16,7 +18,7 @@
 | `deploy/env.kb-admin.example` | `/etc/hutuji/kb-admin.env` 示例 |
 | `deploy/nginx-kb-admin-snippet.conf` | nginx 443 片段（`root_path=/kb-admin`） |
 
-运维细节、本地开发、回滚与 SQLite 日备：`kb-admin/README.md`。规格：`docs/superpowers/specs/2026-08-29-xiaopai-support-kb-admin-design.md`。**禁止**未经用户授权 scp/enable 生产。
+运维细节、本地开发、回滚与 SQLite 日备：`kb-admin/README.md`。规格：`docs/superpowers/specs/2026-08-29-xiaopai-support-kb-admin-design.md`。更新代码须 scp 后 `systemctl restart hutuji-kb-admin`（共用仓内 `scripts/xiaozhi_console.py` 做发布）。
 
 > **2026-08-30 凌晨 draw-admin 运营后台上线（阿里云 `/draw-admin/`）**：`hutuji-draw-admin`（`127.0.0.1:8303`，模板 `deploy/hutuji-draw-admin.service`）**ExecStart 共用 MCP venv**；env `/etc/hutuji/draw-admin.env`（模板 `deploy/env.draw-admin.example`）；nginx 片段 `deploy/nginx-draw-admin-snippet.conf`。公网探针 2026-08-30：`/draw-admin/api/health` 与 `/draw-admin/` **200**。绑机页已加对话采集隐私说明+勾选；运营查看对话写 `admin_audit_log`。
 
