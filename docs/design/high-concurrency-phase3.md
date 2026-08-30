@@ -1,6 +1,6 @@
 # 高并发 Phase-3 设计（观测 / 熔断 / CDN / 任务账本）
 
-> 状态：**3a 仓内已落地（未部署生产）**；3b preflight 探针已入模板；3c 运维文档待生产验证（2026-08-30）。依赖 Phase-1/2 仓内代码（Redis 队列、draw-worker、OSS 产物、单设备限流、对冲降档）**先完成生产验证**后再按本子阶段 rollout。  
+> 状态：**3a 代码已双机部署（`4af959d`，2026-08-30）但默认未开队列/PG/OSS**；breaker 仍 shadow（未写 `HUTUJI_BREAKER_ENFORCE=1`）。3b preflight 探针已入模板并在生产跑过（未配 env 则 pass）；3c CDN **未做**。依赖 Redis+worker 的生产容量验收仍未做。  
 > 前置：`docs/worktree-inventory.md`「高并发 Phase-1/2」条；压测 `mcp-server/scripts/bench_draw_load.py`（假负载，未验证 Redis 生产路径）。  
 > 非目标：改 `protocol.md` v0.5 板间契约、S3 哑管道行为、换纸/运动/Grbl §9 白名单外改动、合并固件。
 

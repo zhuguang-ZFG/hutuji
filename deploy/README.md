@@ -9,7 +9,7 @@
 | 项 | 状态 |
 |----|------|
 | 本目录模板 / 脚本 | ✅ 已预置（空机重建从 `prepare-host.sh` 起） |
-| VPS 实机部署与验收 | ✅ **当前生产代码基线：`b7f88e3`（2026-08-29 晚生产漂移收口；前基线 `befba0a` 为 08-29 上午登记）**：运行时包 `hutuji_mcp/` 全 22 文件由 Git blob 精确导出，CR=0，双机 SHA-256 与 HEAD blob 逐位核对（`LC_ALL=C sort` 对 `git ls-tree HEAD` diff 双机为空）；阿里云主启用 bridge，京东云 bridge 按单 WSS 设计保持 disabled+inactive。阿里云 preflight `pass=21 fail=9 expected=30`，京东云 preflight `pass=25 fail=5 expected=30`，差异为既有 RHEL/Debian 布局与热备拓扑口径；备份与逐轮证据见 `../docs/deployment.md`。 |
+| VPS 实机部署与验收 | ✅ **当前生产代码基线：`4af959d`（2026-08-30 高并发 Phase-1/2/3a 代码；队列/PG/OSS **未启用**；前基线 `b7f88e3` 为 08-29 晚漂移收口）**：15 产物 Git blob 导出 CR=0，双机 SHA-256 与 `4af959d` blob 逐位相符；阿里云 mcp+bridge active（MainPID 723260/723265），京东云 mcp active、bridge **disabled+inactive**（验证中曾发现误为 active 双 connected，已 stop）。阿里云 preflight `pass=24 fail=9 expected=33`，京东云停 bridge 前误测 `31/33`；数字按节点口径读。备份 `/root/hutuji-bak-20260830-phase3-4af959d/`。 |
 > **2026-08-16 安装器脚本已同步（本仓 `a7697b9`）**：仅 `install-from-repo.sh` 适用于生产，LF SHA-256 `d8eec725…75936` 对账一致；运行时服务文件未变、未重启；同步后 preflight `pass=26 fail=0 expected=26`。生产应用基线仍 `1082400`。
 
 
