@@ -27,7 +27,9 @@
 | 设计 | `docs/design/high-concurrency-phase3.md`（3a 仓内已落地；3b preflight 已入模板；3c CDN/lifecycle **未生产验证**） |
 | 生产部署（2026-08-30 17:07 CST） | 双机代码+preflight 33 项已 scp；备份 `/root/hutuji-bak-20260830-phase3-4af959d/`；当时 **未配** 队列/PG/OSS env，worker 未 enable。冒烟阿里云 8533B 公网 200/CRC `a1ca7ce8`。停京东云误启 bridge 后：阿里云 24/33、京东云 27/33 |
 | 生产启用（2026-08-30 19:04 CST，仅阿里云） | Redis + `HUTUJI_DRAW_QUEUE_URL` + worker@1..4；`HUTUJI_PG_DSN` + `HUTUJI_BREAKER_ENFORCE=0`。worker unit 去掉 `SystemCallFilter`（clone3 SIGSYS 实证）。队列冒烟 9799B/431 行/0.9s。京东云仍不跑队列 |
-| 未完成 | 3a shadow 满 48h（起算 19:04）、3b enforce、3c CDN、Redis 模式 bench 10 rps×300s、hub 全量门禁在本 HEAD 一次完整跑通（pytest 层曾被环境中断） |
+| 生产 bench（2026-08-30 19:22 CST） | 阿里云 Redis 假负载：`10 rps×300s`、job-ms=3000、32 bench workers（停 systemd worker 隔离）→ 2977/2977 PASS；证据 `tmp/bench-redis-20260830.log`（本机不入库） |
+| Git | `2710739` 已 push origin/main（worker seccomp 移除 + breaker samples 跳过 + 文档） |
+| 未完成 | 3a shadow 满 48h（起算 19:04）、3b enforce、3c CDN、hub 全量门禁在本 HEAD 一次完整跑通（pytest 层曾被环境中断/600s 超时） |
 
 ### 写字机 `$1=255`（2026-08-28：NVS → 机型默认已固化并刷 COM13）
 | 项 | 说明 |

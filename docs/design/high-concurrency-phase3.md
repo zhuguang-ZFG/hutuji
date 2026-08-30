@@ -1,7 +1,7 @@
 # 高并发 Phase-3 设计（观测 / 熔断 / CDN / 任务账本）
 
-> 状态：**阿里云主节点 2026-08-30 19:04 已开 Redis 队列 + worker + PG shadow**（`4af959d` 代码 + worker 去 seccomp）；breaker 仍 shadow（未写 `HUTUJI_BREAKER_ENFORCE=1`）。京东云热备仍不跑队列。3c CDN **未做**。10 rps×300s Redis bench **未跑**。  
-> 前置：`docs/worktree-inventory.md`「高并发 Phase-1/2」条；压测 `mcp-server/scripts/bench_draw_load.py`（假负载，未验证 Redis 生产路径）。  
+> 状态：**阿里云主节点 2026-08-30 19:04 已开 Redis 队列 + worker + PG shadow**（代码 `2710739`：worker 去 seccomp + breaker samples 跳过）；breaker 仍 shadow（未写 `HUTUJI_BREAKER_ENFORCE=1`）。京东云热备仍不跑队列。3c CDN **未做**。**19:22 Redis bench PASS**（2977/2977、10 rps×300s、假 job 3s）。  
+> 前置：`docs/worktree-inventory.md`「高并发 Phase-1/2」条；压测 `mcp-server/scripts/bench_draw_load.py`（假负载；**2026-08-30 19:22 阿里云 Redis 10 rps×300s PASS**）。  
 > 非目标：改 `protocol.md` v0.5 板间契约、S3 哑管道行为、换纸/运动/Grbl §9 白名单外改动、合并固件。
 
 ## 1. 背景与 Phase-1/2 缺口
@@ -346,7 +346,7 @@ HUTUJI_BENCH_LIVE=1 python scripts/bench_draw_live.py ...  # Phase-3 新脚本�
 - [ ] 3a：生产 shadow 满 48h 且 PG 有 pending/done 行、写入失败不阻断 draw（账本连通已见；满窗未到）  
 - [x] 3b（探针模板）：preflight +3 条件探针已上机（未配 env 仍 pass）；**breaker enforce 未开**  
 - [ ] 3c：公网下载经 CDN，CRC32 与源站一致（抽 10 文件）  
-- [ ] bench：Redis 模式 10 rps × 300s 假负载 PASS  
+- [x] bench：Redis 模式 10 rps × 300s 假负载 PASS（2026-08-30 19:22 CST 阿里云；2977/2977）  
 - [x] 文档：`deployment.md` / `worktree-inventory.md` / `release-readiness.md` 已登记 `4af959d`  
 - [ ] hub 门禁一次完整 pass（本环境 pytest 超 ~25s 被中断；非 contract 462 项 + e2e PASS + docs pass）；**不得**写「可出货 / 联调完成」
 

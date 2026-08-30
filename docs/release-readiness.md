@@ -1,5 +1,5 @@
 # 发布与出货就绪度
-> **2026-08-30 19:04 CST 阿里云队列路径冒烟通过（Phase-1/2 已启用，3a shadow 已写 DSN）**：`hutuji-draw-worker@1..4` 消费 Redis；worker unit 去掉 `SystemCallFilter`（clone3/SIGSYS 实证）；breaker 扫描跳过 samples ZSET。冒烟「画一只猫」0.9s / 9799B / 431 行。`HUTUJI_BREAKER_ENFORCE` 仍为 0。3b 须 shadow 满 48h（起算本条时刻）。3c OSS/CDN 与 10 rps×300s bench **未做**。京东云热备仍不跑队列。代码基线仍含 `4af959d` 包 + 本批 worker/breaker 补丁。**未宣称出货**。
+> **2026-08-30 19:22 CST Redis 假负载 bench PASS + `2710739` 已 push（阿里云主节点）**：bench `10 rps × 300s`、假 job 3s、32 协程 worker（隔离停 systemd worker）→ 2977/2977 完成、0 拒绝、0 超时、100% PASS；p50 3030ms。`breaker.py`/worker unit/bench 脚本 blob 对账上机；mcp+bridge restart。**19:04 队列冒烟**仍有效：「画一只猫」0.9s / 9799B / 431 行。`HUTUJI_BREAKER_ENFORCE=0`；3b 须 shadow 满 48h（起算 19:04，最早 2026-09-01 19:04）。3c OSS/CDN **未做**。京东云热备仍不跑队列。代码基线 `2710739`（`4af959d` + worker 去 seccomp + breaker 扫描修复）。**未宣称出货**。
 
 > **2026-08-30 晚 高并发 Phase-1/2/3a 代码双机发布（本仓 `4af959d`）**：队列/worker/OSS/账本/breaker shadow **代码已上机**，当时 **未写** Redis/PG/OSS env、**未 enable** draw-worker（进程内 asyncio）。15 产物 blob SHA-256 双机逐位相符、CR=0；阿里云 mcp+bridge MainPID 723260/723265 双 connected；京东云 mcp 552649，bridge 已 stop 回 disabled+inactive。冒烟「画一只猫」8533B 公网 200、CRC `a1ca7ce8`；`/mcp` 404。preflight 模板 33 项：阿里云 `pass=24 fail=9`；京东云停 bridge 后复验 `pass=27 fail=6`。该条描述 **17:07 代码发布**；队列启用见上条。
 
@@ -124,7 +124,7 @@
 | 2 | §9 Grbl 小改清单 | ✅ 核心 §9 已有烧录/fz/实机证据；源码后续 `847b564` 不自动等于板上基线 |
 | 3 | 真实语音出图主链 | ✅ 2026-08-17 语音→云端→下载→出图→归位→换纸已有证据 |
 | 4 | Waveshare 预览与屏幕控制 | 🟡 当前源码基线 `72a693a`（在 `cb82edb` 的 π 启动画面 + Grobot/主题统一渐变 + 触摸双检测门 + 点动包线 Y≤190 + 唱歌双工具之上，追加省电门控/退避前段/播报等待信号/预取内联，祖先关系经 `git merge-base --is-ancestor` 实测）已推，对应镜像 `93b61d5b…afa9` 已刷 COM14：全分区 esptool 写入哈希校验通过，host 131/131，三轮画图 HIL 通过。**待验**：完整冷启动日志、π/Grobot 动效与按钮呼吸现场目视、触摸灵敏度体感与误触回归、预览确认/取消与暂停/继续/停止/重画/试笔 HIL、纸面画质目视；另登记 PSRAM 预取接管所有权缺口（源码审查，待独立批次修复） |
-| 5 | MCP / 阿里云运行态 | ✅ 生产 = 阿里云 `47.112.162.80`（2026-08-23 晚割接）；2026-08-30 19:04 起主节点 **Redis 队列 + draw-worker@1..4 + PG shadow** 已启用（`HUTUJI_BREAKER_ENFORCE=0`；OSS/CDN 未开）。队列冒烟「画一只猫」0.9s / 9799B / 431 行。代码含 `4af959d` + worker 去 seccomp + breaker 扫描修复。17:07 进程内冒烟 8533B/CRC `a1ca7ce8` 仍作代码发布证据。preflight 阿里云本轮队列启用后当场 23/33（Phase-3 探针 pass；其余为既有 nginx 布局债）；京东云热备停 bridge 后曾 27/33。真实语音 HIL 与 10 rps×300s bench 未执行 |
+| 5 | MCP / 阿里云运行态 | ✅ 生产 = 阿里云 `47.112.162.80`（2026-08-23 晚割接）；2026-08-30 19:04 起主节点 **Redis 队列 + draw-worker@1..4 + PG shadow** 已启用（`HUTUJI_BREAKER_ENFORCE=0`；OSS/CDN 未开）。队列冒烟「画一只猫」0.9s / 9799B / 431 行；**19:22 Redis bench 2977/2977 PASS**（10 rps×300s 假负载）。代码 `2710739`。17:07 进程内冒烟 8533B/CRC `a1ca7ce8` 仍作代码发布证据。preflight 阿里云队列启用后 23/33；京东云热备停 bridge 后曾 27/33。真实语音 HIL 未执行 |
 | 6 | 断连恢复 `paper_active` abort | 🟡 待复测；不同于已通过的正常换纸中 abort 分流 |
 | 7 | 出货签核 | 🔴 待剩余 HIL、纸面画质、生产与合规签核 |
 | 8 | BLE 只读诊断辅助面 | 🟡 Phase A 当前加固源码（`f1aa0e7`）已完成 COM14 刷机复验：4 分钟/1,683 行稳定性、两轮 6 字节空中包、NVS byte-identical 回滚与默认镜像自证，BLE 专测 18/18、全 host 93/93、默认/启用构建通过。尚未完成 WiFi/Telnet 共存量化门槛（含 BLE-off 基线对照）、功耗/温升与阶段 B 认证 GATT，故不得改为 ✅ |
