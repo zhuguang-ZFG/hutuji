@@ -83,7 +83,8 @@ def _apply_bench_settings(args: argparse.Namespace) -> Settings:
 
 def _install_fake_draw_job(job_ms: float) -> None:
     async def fake_run_draw_job(
-        description: str, public_base_url: str, *, job_id: str | None = None
+        description: str, public_base_url: str, *, job_id: str | None = None,
+        chain_push: bool = True,
     ) -> str:
         await asyncio.sleep(job_ms / 1000.0)
         token = secrets.token_urlsafe(16)[:22]

@@ -42,7 +42,7 @@ from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
 from . import paper_risk
 from .redact import _install_secret_redaction
-from .llm_svg import _CONTROL_CHAR_RE, _sanitize_description, generate_svg
+from .llm_svg import LlmError, _CONTROL_CHAR_RE, _sanitize_description, generate_svg
 from .memory_store import (
     forget as _memory_forget,
     recall as _memory_recall,
@@ -432,7 +432,8 @@ async def _chain_device_draw(url: str, preview_url: str) -> None:
         _report_mcp_tool("draw_push", ok=False, detail=type(exc).__name__)
 
 async def _run_draw_job(
-    description: str, public_base_url: str, *, job_id: str | None = None
+    description: str, public_base_url: str, *, job_id: str | None = None,
+    chain_push: bool = True,
 ) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
     global _draw_last_error
@@ -558,7 +559,7 @@ async def _run_draw_job(
     gcode_name = f"{artifact_base}.gcode"
     preview_name = f"{artifact_base}.png"
     _draw_last_error = None
-    if getattr(settings, "xiaozhi_device_token", ""):
+    if chain_push and getattr(settings, "xiaozhi_device_token", ""):
         asyncio.create_task(
             _chain_device_draw(
                 f"{public_base_url}/files/{gcode_name}",
@@ -576,9 +577,15 @@ async def _run_draw_job(
 
 
 async def _hutuji_draw_via_queue(
-    safe_description: str, public_base_url: str, device_id: str
+    safe_description: str, public_base_url: str, device_id: str, *,
+    force_sync: bool = False, chain_push: bool = True,
 ) -> str:
-    """Redis 队列模式：MCP 只入队/等待，实际生成由 draw-worker 执行。"""
+    """Redis 队列模式：MCP 只入队/等待，实际生成由 draw-worker 执行。
+
+    force_sync=True 供本机内部调用（draw-portal 网页生图）：即使生产开了
+    draw_async 也等待完整结果，不回 accepted；chain_push=False 时完成不推
+    演示设备预览（推送由 portal 页面显式触发）。
+    """
     from .draw_queue import (
         DrawQueueBusyError,
         attach_or_enqueue,
@@ -590,12 +597,13 @@ async def _hutuji_draw_via_queue(
         raise RuntimeError("队列模式未启用")
     try:
         job_id = await attach_or_enqueue(
-            safe_description, public_base_url, device_id=device_id
+            safe_description, public_base_url, device_id=device_id,
+            chain_push=chain_push,
         )
     except DrawQueueBusyError as exc:
         raise DrawLimitError(str(exc)) from exc
 
-    if getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
+    if not force_sync and getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
         return json.dumps({
             "accepted": True,
             "description": safe_description,
@@ -603,7 +611,7 @@ async def _hutuji_draw_via_queue(
             "eta_seconds": 45,
             "note": "生成完成会自动推送到设备预览，无需重复调用",
         }, ensure_ascii=False)
-    if getattr(settings, "draw_async", False):
+    if not force_sync and getattr(settings, "draw_async", False):
         logger.warning("HUTUJI_DRAW_ASYNC 已启用但未配置 HUTUJI_XIAOZHI_DEVICE_TOKEN，回落同步模式")
 
     try:
@@ -644,20 +652,7 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
             safe_description, public_base_url, safe_device_id
         )
 
-    work = _draw_inflight.get(safe_description)
-    if work is not None and work.get_loop() is not asyncio.get_running_loop():
-        # 测试/嵌入调用可能轮换事件循环；生产单 loop 不会走此分支。
-        if work.done() and not work.cancelled():
-            work.exception()
-        if _draw_inflight.get(safe_description) is work:
-            del _draw_inflight[safe_description]
-        work = None
-    if work is None:
-        work = asyncio.create_task(_run_draw_job(safe_description, public_base_url))
-        _draw_inflight[safe_description] = work
-        work.add_done_callback(
-            lambda done, key=safe_description: _forget_draw_inflight(key, done)
-        )
+    work = _draw_inprocess(safe_description, public_base_url, chain_push=True)
 
     # 2026-08-28 异步生成+完成推送（默认关闭）：双真立即 accepted，任务由
     # _draw_inflight 持有生命周期；缺 token 则回落同步并 warning。
@@ -671,6 +666,43 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
     if getattr(settings, "draw_async", False):
         logger.warning("HUTUJI_DRAW_ASYNC 已启用但未配置 HUTUJI_XIAOZHI_DEVICE_TOKEN，回落同步模式")
 
+    return await _await_draw_work(work, log_label="mcp")
+
+
+def _inflight_key_for(safe_description: str, chain_push: bool) -> str:
+    """进程内去重键：chain_push 不同的同名任务不得互相搭车（理由同 draw_queue）。
+
+    语音（True）搭上网页（False）的任务完成时不推设备预览，语音用户干等；
+    反向则网页任务串推到演示设备。与 draw_queue._inflight_material 同口径。
+    """
+    return safe_description if chain_push else safe_description + "\x00nopush"
+
+
+def _draw_inprocess(
+    safe_description: str, public_base_url: str, *, chain_push: bool
+) -> "asyncio.Task[str]":
+    """进程内（无队列）共享任务表登记；同题 waiter 搭同一事务。"""
+    key = _inflight_key_for(safe_description, chain_push)
+    work = _draw_inflight.get(key)
+    if work is not None and work.get_loop() is not asyncio.get_running_loop():
+        # 测试/嵌入调用可能轮换事件循环；生产单 loop 不会走此分支。
+        if work.done() and not work.cancelled():
+            work.exception()
+        if _draw_inflight.get(key) is work:
+            del _draw_inflight[key]
+        work = None
+    if work is None:
+        work = asyncio.create_task(
+            _run_draw_job(safe_description, public_base_url, chain_push=chain_push)
+        )
+        _draw_inflight[key] = work
+        work.add_done_callback(
+            lambda done, k=key: _forget_draw_inflight(k, done)
+        )
+    return work
+
+
+async def _await_draw_work(work: "asyncio.Task[str]", *, log_label: str) -> str:
     # shield 只保护完整事务不被本次 waiter 的取消连带杀死；waiter 在 bridge
     # watchdog 之前明确超时，后续同题重试仍搭同一个任务。
     try:
@@ -678,8 +710,32 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
             asyncio.shield(work), timeout=DRAW_WAITER_DEADLINE_SECONDS
         )
     except asyncio.TimeoutError:
-        logger.warning("绘图生成超时（waiter=%ss）", DRAW_WAITER_DEADLINE_SECONDS)
+        logger.warning("绘图生成超时（%s waiter=%ss）", log_label, DRAW_WAITER_DEADLINE_SECONDS)
         raise DrawTimeoutError("绘图生成超时，请稍后重试") from None
+
+
+async def _draw_internal_sync(description: str) -> str:
+    """draw-portal 网页生图的本机内部入口（/internal/draw）。
+
+    与语音路径同一条生成链，但两点刻意不同：
+    - 强制同步等待完整结果（生产 draw_async 的 accepted 分支不适用于网页：
+      页面要自己拿 preview_url 展示，推送也由买家显式触发）；
+    - chain_push=False：完成时不链式推演示设备（运营 demo 机不该收到买家
+      网页生图的预览）。
+    不计 _report_mcp_tool：portal 侧以 web_generate 自行记账，避免双计。
+    """
+    public_base_url = validate_public_base_url(settings.public_base_url)
+    safe_description = _sanitize_description(description).strip()
+
+    from .draw_queue import queue_enabled
+
+    if queue_enabled():
+        return await _hutuji_draw_via_queue(
+            safe_description, public_base_url, "",
+            force_sync=True, chain_push=False,
+        )
+    work = _draw_inprocess(safe_description, public_base_url, chain_push=False)
+    return await _await_draw_work(work, log_label="internal")
 
 
 @mcp.tool()
@@ -1046,6 +1102,62 @@ async def _bridge_health(request: Request) -> Response:
     return Response(
         content=json.dumps(status, ensure_ascii=True, sort_keys=True, separators=(",", ":")),
         status_code=200 if healthy else 503,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+# ---- /internal/draw：draw-portal 网页生图的本机内部入口（2026-08-31）----
+# 防线与 /mcp 同口径：loopback 对端（nginx 不公网反代本路径）+ 共享密钥头。
+# 密钥复用 HUTUJI_USAGE_INGEST_SECRET（本机 portal 已持有同值），不新增第三套凭据。
+# 未配置密钥时 fail-closed（404），避免「忘了配密钥=门户大开」。
+_INTERNAL_DRAW_MAX_BODY_BYTES = 4 * 1024
+
+
+def _internal_draw_authorized(request: Request) -> bool:
+    client = request.client
+    host = client.host if client is not None else ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if not ip.is_loopback:
+        return False
+    secret = (getattr(settings, "usage_ingest_secret", "") or "").strip()
+    if not secret:
+        return False
+    provided = request.headers.get("x-hutuji-usage-secret", "")
+    return secrets.compare_digest(provided, secret)
+
+
+@app.post("/internal/draw")
+async def _internal_draw(request: Request) -> Response:
+    """本机 portal 的同步生图入口；鉴权失败一律 404（不回显端点存在）。"""
+    if not _internal_draw_authorized(request):
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    body = await request.body()
+    if len(body) > _INTERNAL_DRAW_MAX_BODY_BYTES:
+        raise HTTPException(status_code=400, detail="请求体过大")
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from None
+    description = payload.get("description") if isinstance(payload, dict) else None
+    if not isinstance(description, str) or not description.strip():
+        raise HTTPException(status_code=400, detail="description 必填")
+    try:
+        result = await _draw_internal_sync(description)
+    except LlmError as exc:
+        # 输入类白话（空描述/超长/控制字符），回 400 让页面向用户展示
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except DrawLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
+    except DrawTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from None
+    except (BitmapError, PaperRiskExhaustedError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return Response(
+        content=result,
+        status_code=200,
         media_type="application/json",
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
     )

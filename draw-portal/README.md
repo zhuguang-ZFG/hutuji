@@ -37,7 +37,7 @@ D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
 ## 用户流程要点
 
 1. 登录后**默认进图库网格**（个人作品墙）；绑机收进顶栏「绑机」面板。
-2. 右下角「+」打开上传面板 → 转换 → 「发送到小派」或「保存到图库」。
+2. 右下角「+」打开面板（两个页签）：「上传图片」转换（>4MB 位图本地自动压缩，支持拖拽/粘贴），或「文字生图」——描述一句话转发本机 MCP `/internal/draw`（loopback + 共享密钥），AI 生成单线稿后走同一预览/发送/保存流。
 3. 顶栏四色圆点可切换主题（墨 / 天 / 苔 / 暮），偏好存 `localStorage`。
 4. **须在设备屏点「开始画」**（或说「开始画」）才落笔；`hutuji.draw` 不自动出图。
 5. 设备维护页「绑定呼图账号」→ QR + 6 位码 → 网页确认绑定。
@@ -56,3 +56,7 @@ D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
 | usage | portal 页面动作 + MCP `POST /api/internal/usage` | `usage_events` |
 
 环境：`DRAW_PORTAL_USAGE_INGEST_SECRET` 与 `HUTUJI_USAGE_INGEST_SECRET` **须同值**；MCP 默认 URL `http://127.0.0.1:8302/api/internal/usage`。运营查看：`https://hutuji.donglicao.com/draw-admin/`（8303，阿里云已启）。
+
+## 网页文字生图（2026-08-31）
+
+`POST /api/draw/generate {description}`（登录态）→ portal 持共享密钥调 MCP `POST /internal/draw`（仅 loopback + `X-Hutuji-Usage-Secret`，公网不可达）→ 按文件名契约从 loopback 基址取回 gcode/png 物化进 job 目录 → 与上传流同形发布。配额：成功单按 24h 窗口计 `web_generate` 事件，上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 10），失败不占配额；错误码 400/429 透传白话，504/502 固定文案不回显内部细节。未配密钥该端点 503。

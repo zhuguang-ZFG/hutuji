@@ -40,7 +40,7 @@ from draw_portal.pipeline import copy_saved_preview, process_upload
 from draw_portal.probe import probe_device_token
 from draw_portal.push import _install_capability_pair, publish_job_files, push_for_user_binding
 from draw_portal.store import Store
-
+from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
 
 class RegisterRequestBody(BaseModel):
     email: str
@@ -90,6 +90,10 @@ class UsageIngestBody(BaseModel):
     device_mac: str | None = None
     detail: str | None = Field(default=None, max_length=200)
     ok: bool | None = None
+
+
+class GenerateDrawBody(BaseModel):
+    description: str = Field(min_length=1, max_length=200)
 
 
 _MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -451,6 +455,92 @@ def create_app() -> FastAPI:
             "gcode_url": published.gcode_url,
             "lines": result.lines,
             "bytes": result.bytes,
+        }
+
+    @app.post("/api/draw/generate", dependencies=secured)
+    async def draw_generate(
+        body: GenerateDrawBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        """网页文字生图（2026-08-31）：转发本机 MCP /internal/draw。
+
+        配额按「成功次数」计 24h 窗口（失败不占额——付费失败不该罚买家）；
+        先查后记存在并发超限一单的窄窗，按可接受残余风险处理（日上限是
+        防滥用闸，不是精确计费）。
+        """
+        if not config.usage_ingest_secret:
+            raise HTTPException(status_code=503, detail="生图通道未配置")
+        description = body.description.strip()
+        if not description:
+            raise HTTPException(status_code=400, detail="描述不能为空")
+
+        since = time.time() - 86400
+        used = sum(
+            row["count"]
+            for row in store.usage_counts_for_user_since(user_id, since)
+            if row["event_type"] == "web_generate"
+        )
+        if used >= config.generate_daily_limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来",
+            )
+
+        job = store.create_draw_job(
+            user_id=user_id, source_name=("AI: " + description)[:120]
+        )
+        job_path = _job_dir(config.data_dir, job.id)
+        try:
+            result = await asyncio.to_thread(
+                request_internal_draw,
+                base_url=config.mcp_internal_base_url,
+                secret=config.usage_ingest_secret,
+                description=description,
+                timeout_seconds=config.generate_timeout_seconds,
+            )
+            generated = await asyncio.to_thread(
+                materialize_generated_job,
+                base_url=config.mcp_internal_base_url,
+                result=result,
+                job_dir=job_path,
+            )
+            published = await asyncio.to_thread(
+                publish_job_files,
+                job_dir=job_path,
+                mcp_output_dir=config.mcp_output_dir,
+                public_base_url=config.public_base_url,
+            )
+            store.mark_draw_job_ready(job.id, basename=published.basename)
+        except GenerateError as exc:
+            store.mark_draw_job_failed(job.id, error_summary="GenerateError")
+            # 只透传 400/429 的输入白话；504/502 一律固定文案，防上游细节外泄（2026-08-31 评审裁决）
+            if exc.status in (400, 429):
+                detail = str(exc)
+            elif exc.status == 504:
+                detail = "生图超时，请稍后再试"
+            else:
+                detail = "生图服务暂不可用，请稍后再试"
+            raise HTTPException(status_code=exc.status, detail=detail) from exc
+        except Exception as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=502, detail="生图服务异常") from exc
+
+        _record_portal_usage(
+            store,
+            event_type="web_generate",
+            user_id=user_id,
+            detail=description[:120],
+            ok=True,
+        )
+        return {
+            "status": "ready",
+            "job_id": job.id,
+            "preview_url": published.preview_url,
+            "gcode_url": published.gcode_url,
+            "lines": generated.lines,
+            "bytes": generated.bytes,
+            "pen_lifts": generated.pen_lifts,
+            "description": description,
         }
 
     @app.post("/api/draw/{job_id}/send", dependencies=secured)

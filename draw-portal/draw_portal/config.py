@@ -32,6 +32,21 @@ def _is_loopback_host(host: str) -> bool:
         return host in _LOOPBACK_HOST_NAMES
 
 
+def _load_mcp_internal_base_url() -> str:
+    """网页文字生图调本机 MCP /internal/draw 的基址；只允许 loopback
+    （密钥头绝不能出本机网卡）。"""
+    raw = os.environ.get(
+        "DRAW_PORTAL_MCP_INTERNAL_BASE_URL", "http://127.0.0.1:8300"
+    ).rstrip("/")
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(raw).hostname or "").lower()
+    if not _is_loopback_host(host):
+        raise RuntimeError(
+            f"DRAW_PORTAL_MCP_INTERNAL_BASE_URL 只允许 loopback，当前 {raw!r}"
+        )
+    return raw
+
 @dataclass(frozen=True)
 class Config:
     db_path: Path
@@ -57,6 +72,9 @@ class Config:
     conversation_max_content: int
     provider_cipher_key: bytes | None
     internal_allow_cidrs: tuple[object, ...]
+    mcp_internal_base_url: str
+    generate_daily_limit: int
+    generate_timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -138,6 +156,11 @@ def load_config() -> Config:
         provider_cipher_key=load_provider_cipher_key(),
         internal_allow_cidrs=parse_internal_allow_cidrs(
             os.environ.get("DRAW_PORTAL_INTERNAL_ALLOW_CIDRS", "")
+        ),
+        mcp_internal_base_url=_load_mcp_internal_base_url(),
+        generate_daily_limit=int(os.environ.get("DRAW_PORTAL_GENERATE_DAILY_LIMIT", "10")),
+        generate_timeout_seconds=int(
+            os.environ.get("DRAW_PORTAL_GENERATE_TIMEOUT_SECONDS", "300")
         ),
     )
 

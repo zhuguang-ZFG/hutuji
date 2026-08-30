@@ -633,3 +633,18 @@ Cookie: <session>
 - 不经 draw-portal 向浏览器下发 device_token。
 - 不用 BLE/USB 替代绑机 QR。
 - 一期不做一账号多机、一机多账号。
+
+#### 10.4.8 网页文字生图与 MCP `/internal/draw`（2026-08-31 落地）
+
+| 步骤 | 约定 |
+|------|------|
+| 入口 | `POST /draw-upload/api/draw/generate`（登录态）`{"description": ≤200 字符}` |
+| 转发 | portal 调本机 MCP `POST /internal/draw`（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL`，**仅允许 loopback**，portal 启动强校验） |
+| 鉴权 | 头 `X-Hutuji-Usage-Secret`（`hmac.compare_digest`）；**与 usage ingest 同一密钥值**（mcp.env `HUTUJI_USAGE_INGEST_SECRET` = portal env `DRAW_PORTAL_USAGE_INGEST_SECRET`）。未配密钥 / 非 loopback / 密钥错误一律 404（不落 401 免得探测面暴露） |
+| 生成语义 | 内部端点强制**同步 + 不推送**（`force_sync=True, chain_push=False`）：即使生产开了 `HUTUJI_DRAW_ASYNC=1`，网页单也等完整结果返回，且**不**经全局 device token 推到任何设备（推送由买家显式点「发送到小派」走 §10.4.5）。`_draw_inflight` 以 `(description, chain_push)` 分键，语音单与网页单互不搭车；Redis 队列旧 payload 缺省 `chain_push=true` 向后兼容 |
+| 回包 | `{url, preview_url, lines, bytes, pen_lifts, ttl_seconds}`（同 `hutuji_draw` 同步面）。portal 只取文件名（正则 `draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(gcode\|png)`）从 loopback 基址重拼下载，不经公网回绕；下载限长 512KiB/4MiB（对齐 §5） |
+| 错误 | MCP 侧 400 输入白话 / 429 限流 / 504 超时 / 502 生图失败；portal 只透传 400/429 的 detail，504/502 换固定白话（不回显内部细节，2026-08-31 评审裁决） |
+| 配额 | 成功单记 `web_generate` usage 事件；24h 窗口计数上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 10），超限 429；**失败单不占配额**。check-then-act 并发超发 1–2 单为已知可接受残差 |
+| 公网暴露 | `/internal/*` 不经 nginx 反代（uvicorn 只听 loopback），无需 nginx 变更 |
+
+物化后的 job（`draw.gcode` + `preview.png`）与上传流完全同形，`send`/`save` 零改动；语音链路的异步推送行为不受影响。

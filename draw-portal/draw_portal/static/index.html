@@ -534,18 +534,35 @@
 <div id="upload-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
   <div class="sheet-handle" aria-hidden="true"></div>
   <div class="sheet-head">
-    <h2 id="sheet-title">上传新图</h2>
+    <h2 id="sheet-title">上传 / 生图</h2>
     <button id="btn-close-sheet" class="ghost icon" type="button">关闭</button>
   </div>
   <div class="sheet-body">
-    <p style="margin:0 0 .85rem;color:var(--muted);font-size:.85rem">PNG / JPG / WebP / GIF / BMP / SVG，最大 4MB；线稿效果最佳</p>
-    <label class="upload-zone" id="upload-zone">
-      <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.svg">
-      <strong id="file-label">点击选择图片</strong>
-      <span>选好后点「开始转换」</span>
-    </label>
-    <div class="btn-row" style="margin-top:.85rem">
-      <button id="btn-upload" class="primary" type="button" disabled>开始转换</button>
+    <div class="tabs" role="tablist">
+      <button id="tab-pane-upload" class="tab active" type="button" role="tab" aria-selected="true">上传图片</button>
+      <button id="tab-pane-generate" class="tab" type="button" role="tab" aria-selected="false">文字生图</button>
+    </div>
+    <div id="pane-upload">
+      <p style="margin:0 0 .85rem;color:var(--muted);font-size:.85rem">PNG / JPG / WebP / GIF / BMP / SVG，最大 4MB（超限自动压缩）；线稿效果最佳</p>
+      <label class="upload-zone" id="upload-zone">
+        <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.svg">
+        <strong id="file-label">点击选择，也可拖入 / 粘贴图片</strong>
+        <span>选好后点「开始转换」</span>
+      </label>
+      <img id="local-preview" class="preview hidden" alt="所选图片" style="max-height:150px;margin-top:.7rem">
+      <div class="btn-row" style="margin-top:.85rem">
+        <button id="btn-upload" class="primary" type="button" disabled>开始转换</button>
+      </div>
+    </div>
+    <div id="pane-generate" class="hidden">
+      <p style="margin:0 0 .85rem;color:var(--muted);font-size:.85rem">一句话描述想画的内容，AI 生成单线稿。约需 15~45 秒，期间请勿重复提交（生图按次计费）。</p>
+      <label class="field">
+        <span>想画什么</span>
+        <textarea id="gen-desc" rows="3" maxlength="200" placeholder="例如：一只在钓鱼的简笔画小猫" style="width:100%;resize:vertical"></textarea>
+      </label>
+      <div class="btn-row" style="margin-top:.85rem">
+        <button id="btn-generate" class="primary" type="button">开始生图</button>
+      </div>
     </div>
     <div id="upload-msg" class="msg hidden"></div>
     <img id="job-preview" class="preview hidden" alt="预览">
@@ -562,6 +579,9 @@ const QQ_DOMAINS = new Set(['qq.com', 'foxmail.com', 'vip.qq.com']);
 const THEME_KEY = 'hutuji-draw-theme';
 const THEMES = ['ink', 'sky', 'moss', 'dusk'];
 const THEME_META = { ink: '#1a3a3a', sky: '#1e40af', moss: '#2d4a1c', dusk: '#12151a' };
+let sheetPane = 'upload';
+let pendingFile = null;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 let currentJobId = null;
 let authMode = 'login';
 let sheetOpen = false;
@@ -648,7 +668,7 @@ async function refreshMe() {
     $('logged-in-actions').classList.remove('hidden');
     $('fab-upload').classList.remove('hidden');
     $('user-email').textContent = me.email;
-    $('subtitle').textContent = '点右下角 + 上传新图';
+    $('subtitle').textContent = '点右下角 + 上传或文字生图';
     const b = me.binding || {};
     const el = $('bind-status');
     if (b.bound) {
@@ -681,8 +701,8 @@ async function loadSaved() {
       box.innerHTML = `
         <div class="empty-gallery">
           <strong>还没有作品</strong>
-          <p>点右下角「+」上传线稿，转换后可保存到这里，随时再发到小派。</p>
-          <button type="button" class="primary" id="btn-empty-upload">上传第一张</button>
+          <p>点右下角「+」上传线稿，或直接文字生图；完成后可保存到这里，随时再发到小派。</p>
+          <button type="button" class="primary" id="btn-empty-upload">上传 / 生图第一张</button>
         </div>`;
       const emptyBtn = $('btn-empty-upload');
       if (emptyBtn) emptyBtn.onclick = () => openSheet();
@@ -741,13 +761,69 @@ function validateRegisterInputs() {
 
 function resetUploadForm() {
   currentJobId = null;
+  pendingFile = null;
   $('file').value = '';
-  $('file-label').textContent = '点击选择图片';
+  $('file-label').textContent = '点击选择，也可拖入 / 粘贴图片';
   $('btn-upload').disabled = true;
+  const local = $('local-preview');
+  local.classList.add('hidden');
+  local.removeAttribute('src');
   $('job-preview').classList.add('hidden');
   $('job-preview').removeAttribute('src');
   $('job-actions').classList.add('hidden');
   showMsg($('upload-msg'), '', true);
+}
+
+function setSheetPane(pane) {
+  sheetPane = pane;
+  $('tab-pane-upload').classList.toggle('active', pane === 'upload');
+  $('tab-pane-generate').classList.toggle('active', pane === 'generate');
+  $('tab-pane-upload').setAttribute('aria-selected', pane === 'upload');
+  $('tab-pane-generate').setAttribute('aria-selected', pane === 'generate');
+  $('pane-upload').classList.toggle('hidden', pane !== 'upload');
+  $('pane-generate').classList.toggle('hidden', pane !== 'generate');
+}
+
+// 超过 4MB 的位图先在本地逐级缩小重编码，省流量也避免白等一次 413；
+// SVG 是矢量、体积天然小，不处理（也不该被栅格化）。
+async function maybeDownscale(file) {
+  if (file.size <= MAX_UPLOAD_BYTES) return file;
+  if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name || '')) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    let scale = 1;
+    let blob = null;
+    for (let i = 0; i < 6 && Math.min(bmp.width, bmp.height) * scale > 640; i++) {
+      scale *= 0.8;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bmp.width * scale));
+      canvas.height = Math.max(1, Math.round(bmp.height * scale));
+      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      // 照片类转 jpeg 才压得动；PNG 保留（线稿/透明底）
+      const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92));
+      if (blob && blob.size <= MAX_UPLOAD_BYTES) break;
+    }
+    if (bmp.close) bmp.close();
+    if (!blob || blob.size > MAX_UPLOAD_BYTES) return file; // 压不动，交给后端 413 文案
+    const ext = blob.type === 'image/png' ? '.png' : '.jpg';
+    const name = (file.name || 'image').replace(/\.\w+$/, '') + ext;
+    return new File([blob], name, { type: blob.type });
+  } catch (e) {
+    return file; // 解码失败（如损坏文件）：维持原样，由后端报错
+  }
+}
+
+async function selectFile(f) {
+  if (!f) return;
+  const picked = await maybeDownscale(f);
+  pendingFile = picked;
+  $('file-label').textContent = picked.name +
+    (picked !== f ? '（已压缩 ' + (f.size / 1048576).toFixed(1) + 'MB → ' + (picked.size / 1048576).toFixed(1) + 'MB）' : '');
+  $('btn-upload').disabled = false;
+  const local = $('local-preview');
+  local.src = URL.createObjectURL(f);
+  local.classList.remove('hidden');
 }
 
 document.querySelectorAll('.theme-dot').forEach((btn) => {
@@ -822,14 +898,37 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && sheetOpen) closeSheet();
 });
 
-$('file').onchange = () => {
-  const f = $('file').files[0];
-  $('file-label').textContent = f ? f.name : '点击选择图片';
-  $('btn-upload').disabled = !f;
-};
+$('tab-pane-upload').onclick = () => setSheetPane('upload');
+$('tab-pane-generate').onclick = () => setSheetPane('generate');
+
+$('file').onchange = () => { selectFile($('file').files[0]); };
+
+// 拖拽与粘贴进图（仅在上传面板打开时接管）
+const zone = $('upload-zone');
+zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.style.borderColor = 'var(--accent)'; });
+zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
+zone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  zone.style.borderColor = '';
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) selectFile(f);
+});
+document.addEventListener('paste', (e) => {
+  if (!sheetOpen || sheetPane !== 'upload') return;
+  const f = e.clipboardData && e.clipboardData.files && e.clipboardData.files[0];
+  if (f) selectFile(f);
+});
+
+function showJobResult(data, doneText) {
+  currentJobId = data.job_id;
+  $('job-preview').src = data.preview_url;
+  $('job-preview').classList.remove('hidden');
+  $('job-actions').classList.remove('hidden');
+  showMsg($('upload-msg'), doneText, true);
+}
 
 $('btn-upload').onclick = async () => {
-  const f = $('file').files[0];
+  const f = pendingFile || $('file').files[0];
   if (!f) { showMsg($('upload-msg'), '请选择图片', false); return; }
   const fd = new FormData();
   fd.append('file', f);
@@ -840,15 +939,27 @@ $('btn-upload').onclick = async () => {
     const res = await fetch('/draw-upload/api/draw/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || '上传失败');
-    currentJobId = data.job_id;
-    $('job-preview').src = data.preview_url;
-    $('job-preview').classList.remove('hidden');
-    $('job-actions').classList.remove('hidden');
-    showMsg($('upload-msg'), '转换完成（' + data.lines + ' 行）', true);
+    showJobResult(data, '转换完成（' + data.lines + ' 行）');
   } catch (e) {
     showMsg($('upload-msg'), e.message, false);
   } finally {
     $('btn-upload').disabled = false;
+  }
+};
+
+$('btn-generate').onclick = async () => {
+  const description = $('gen-desc').value.trim();
+  if (!description) { showMsg($('upload-msg'), '先写一句想画的内容', false); return; }
+  $('btn-generate').disabled = true;
+  $('job-actions').classList.add('hidden');
+  showMsg($('upload-msg'), 'AI 正在生图，通常 15~45 秒，请稍候勿重复提交…', true);
+  try {
+    const data = await api('/draw/generate', { method: 'POST', body: JSON.stringify({ description }) });
+    showJobResult(data, '生成完成（' + data.lines + ' 行）。不满意可改描述再生一张');
+  } catch (e) {
+    showMsg($('upload-msg'), e.message, false);
+  } finally {
+    $('btn-generate').disabled = false;
   }
 };
 

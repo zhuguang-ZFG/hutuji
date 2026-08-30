@@ -38,10 +38,16 @@ def memory_queue(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_queue_single_flight_and_worker(memory_queue, monkeypatch):
-    calls: list[str] = []
+    calls: list[tuple[str, bool]] = []
 
-    async def fake_run(description: str, public_base_url: str, *, job_id: str | None = None) -> str:
-        calls.append(description)
+    async def fake_run(
+        description: str,
+        public_base_url: str,
+        *,
+        job_id: str | None = None,
+        chain_push: bool = True,
+    ) -> str:
+        calls.append((description, chain_push))
         return json.dumps({"url": f"{public_base_url}/files/draw_test.gcode"}, ensure_ascii=False)
 
     monkeypatch.setattr("hutuji_mcp.server._run_draw_job", fake_run)
@@ -57,7 +63,7 @@ def test_queue_single_flight_and_worker(memory_queue, monkeypatch):
         result = await draw_queue.wait_result(job_a, timeout=5.0)
         payload = json.loads(result)
         assert payload["url"].endswith("draw_test.gcode")
-        assert calls == ["一只猫"]
+        assert calls == [("一只猫", True)]
 
     asyncio_run(run_case())
 
@@ -153,6 +159,12 @@ class _FakeRedis:
 
     async def delete(self, key):
         self._strings.pop(key, None)
+
+    async def brpop(self, key, timeout=0):
+        items = self._lists.get(key) or []
+        if not items:
+            return None
+        return (key, items.pop())
 
     async def lpush(self, key, value):
         self._lists.setdefault(key, []).insert(0, value)
@@ -299,6 +311,96 @@ def test_worker_stop_mid_job_finishes_current(monkeypatch):
     asyncio_run(draw_worker.run_forever(stop))
     assert finished == ["job"]
 
+
+def test_chain_push_flag_separates_jobs_and_propagates(memory_queue, monkeypatch):
+    """同一描述 chain_push=True/False 是两个独立 job（网页生图不得与语音
+    单飞共享，否则链推演示设备与否取决于谁先入队），且标志原样传到
+    worker 的 _run_draw_job。"""
+    calls: list[tuple[str, bool]] = []
+
+    async def fake_run(
+        description: str,
+        public_base_url: str,
+        *,
+        job_id: str | None = None,
+        chain_push: bool = True,
+    ) -> str:
+        calls.append((description, chain_push))
+        return json.dumps({"url": f"{public_base_url}/files/draw_test.gcode"})
+
+    monkeypatch.setattr("hutuji_mcp.server._run_draw_job", fake_run)
+
+    async def run_case() -> None:
+        voice_a = await draw_queue.attach_or_enqueue("一只猫", "https://hutuji.example")
+        web = await draw_queue.attach_or_enqueue(
+            "一只猫", "https://hutuji.example", chain_push=False
+        )
+        voice_b = await draw_queue.attach_or_enqueue("一只猫", "https://hutuji.example")
+        assert voice_a == voice_b  # 同标志同题搭车
+        assert web != voice_a  # 不同标志必须分开
+
+        from hutuji_mcp.draw_worker import _process_one
+
+        assert await _process_one() is True
+        assert await _process_one() is True
+        assert sorted(calls) == [("一只猫", False), ("一只猫", True)]
+
+        for job_id in (voice_a, web):
+            payload = json.loads(await draw_queue.wait_result(job_id, timeout=5.0))
+            assert payload["url"].endswith("draw_test.gcode")
+
+    asyncio_run(run_case())
+
+
+def test_redis_dequeue_chain_push_defaults_true_for_old_payload(memory_queue, monkeypatch):
+    """旧 payload（2026-08-31 前入队、无 chain_push 字段）反序列化必须回 True，
+    保持语音推送行为；显式 False 原样保留。"""
+    fake = _FakeRedis()
+    backend = _redis_backend(fake, monkeypatch)
+
+    async def run_case() -> None:
+        # brpop 从表尾取（最旧），故旧 payload 放末尾
+        fake._lists[draw_queue.QUEUE_KEY] = [
+            json.dumps({
+                "job_id": "new",
+                "description": "d",
+                "public_base_url": "u",
+                "chain_push": False,
+            }),
+            json.dumps({"job_id": "old", "description": "d", "public_base_url": "u"}),
+        ]
+        legacy = await backend.dequeue(timeout=0)
+        modern = await backend.dequeue(timeout=0)
+        assert legacy is not None and legacy.chain_push is True
+        assert modern is not None and modern.chain_push is False
+
+    asyncio_run(run_case())
+
+
+def test_redis_attach_records_chain_push_and_separates_inflight(memory_queue, monkeypatch):
+    fake = _FakeRedis()
+    backend = _redis_backend(fake, monkeypatch)
+
+    async def run_case() -> None:
+        voice = await backend.attach_or_enqueue("一只猫", "https://hutuji.example")
+        web = await backend.attach_or_enqueue(
+            "一只猫", "https://hutuji.example", chain_push=False
+        )
+        assert voice != web
+        assert fake._strings[draw_queue._inflight_key("一只猫", True)] == voice
+        queued = {
+            json.loads(item)["job_id"]: json.loads(item)
+            for item in fake._lists[draw_queue.QUEUE_KEY]
+        }
+        assert queued[voice]["chain_push"] is True
+        assert queued[web]["chain_push"] is False
+        assert fake._strings[draw_queue._inflight_key("一只猫", False)] == web
+        # 清网页键不得误清语音键
+        await backend.clear_inflight("一只猫", web, chain_push=False)
+        assert draw_queue._inflight_key("一只猫", False) not in fake._strings
+        assert fake._strings[draw_queue._inflight_key("一只猫", True)] == voice
+
+    asyncio_run(run_case())
 
 def test_draw_queue_url_validation():
     with pytest.raises(ValueError, match="HUTUJI_DRAW_QUEUE_URL"):

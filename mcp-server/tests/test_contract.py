@@ -474,6 +474,207 @@ def test_bridge_health_fastapi_route_accepts_loopback_request(
     assert response.status_code == 200
     assert response.json()["proxy_connected"] is True
 
+# ---------- /internal/draw（draw-portal 网页生图本机入口，2026-08-31）----------
+
+
+def _internal_draw_request(body: bytes, *, host="127.0.0.1", secret="s3cr3t"):
+    """构造 /internal/draw 所需的最小 Request 桩（client/headers/body）。"""
+    from types import SimpleNamespace
+
+    async def _body() -> bytes:
+        return body
+
+    headers = {"x-hutuji-usage-secret": secret} if secret is not None else {}
+    return SimpleNamespace(
+        client=SimpleNamespace(host=host), headers=headers, body=_body
+    )
+
+
+def _enable_internal_draw(monkeypatch: pytest.MonkeyPatch, *, secret="s3cr3t") -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        server, "settings", SimpleNamespace(usage_ingest_secret=secret)
+    )
+
+
+def test_internal_draw_auth_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """非 loopback / 未配密钥 / 错密钥一律 404（不回显端点存在）；配对才放行。"""
+    body = json.dumps({"description": "一只猫"}).encode()
+    marker = '{"url": "http://127.0.0.1:8300/files/x.gcode"}'
+
+    async def fake_sync(description: str) -> str:
+        return marker
+
+    monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
+
+    # 未配置密钥：fail-closed
+    _enable_internal_draw(monkeypatch, secret="")
+    no_secret = asyncio.run(server._internal_draw(_internal_draw_request(body)))
+    assert no_secret.status_code == 404
+
+    _enable_internal_draw(monkeypatch)
+    external = asyncio.run(
+        server._internal_draw(_internal_draw_request(body, host="203.0.113.10"))
+    )
+    assert external.status_code == 404
+    wrong = asyncio.run(
+        server._internal_draw(_internal_draw_request(body, secret="wrong"))
+    )
+    assert wrong.status_code == 404
+
+    ok = asyncio.run(server._internal_draw(_internal_draw_request(body)))
+    assert ok.status_code == 200
+    assert ok.body.decode() == marker
+    assert ok.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_internal_draw_validates_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    _enable_internal_draw(monkeypatch)
+
+    async def fake_sync(description: str) -> str:  # 不应被触达
+        raise AssertionError("鉴权后前置校验必须先拦")
+
+    monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
+
+    cases = [
+        json.dumps({"description": "  "}).encode(),  # 空描述
+        json.dumps(["不是 dict"]).encode(),
+        b"{bad json",
+        b"x" * (server._INTERNAL_DRAW_MAX_BODY_BYTES + 1),
+    ]
+    for body in cases:
+        with pytest.raises(HTTPException) as ei:
+            asyncio.run(server._internal_draw(_internal_draw_request(body)))
+        assert ei.value.status_code == 400, body[:40]
+
+
+@pytest.mark.parametrize(
+    "exc_factory, status",
+    [
+        (lambda: server.LlmError("描述不合规"), 400),
+        (lambda: server.DrawLimitError("正忙"), 429),
+        (lambda: server.DrawTimeoutError("超时"), 504),
+        (lambda: server.BitmapError("生图失败"), 502),
+        (lambda: server.PaperRiskExhaustedError("画糊"), 502),
+    ],
+)
+def test_internal_draw_error_mapping(
+    monkeypatch: pytest.MonkeyPatch, exc_factory, status: int
+) -> None:
+    from fastapi import HTTPException
+
+    _enable_internal_draw(monkeypatch)
+
+    async def fake_sync(description: str) -> str:
+        raise exc_factory()
+
+    monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
+
+    body = json.dumps({"description": "一只猫"}).encode()
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(server._internal_draw(_internal_draw_request(body)))
+    assert ei.value.status_code == status
+
+
+def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """生产 draw_async=1 时 /internal/draw 也必须等完整结果（不回 accepted），
+    且以 chain_push=False 入队（不串推演示设备）。"""
+    from types import SimpleNamespace
+
+    from hutuji_mcp import draw_queue
+
+    monkeypatch.setattr(
+        server,
+        "settings",
+        SimpleNamespace(
+            public_base_url="http://127.0.0.1:8300",
+            draw_async=True,
+            xiaozhi_device_token="tok",
+        ),
+    )
+    monkeypatch.setattr(draw_queue, "queue_enabled", lambda: True)
+    captured: dict = {}
+
+    async def fake_attach(desc, url, *, device_id="", chain_push=True):
+        captured.update(desc=desc, device_id=device_id, chain_push=chain_push)
+        return "job-1"
+
+    async def fake_wait(job_id, *, timeout):
+        captured["job_id"] = job_id
+        return '{"url": "http://127.0.0.1:8300/files/x.gcode"}'
+
+    monkeypatch.setattr(draw_queue, "attach_or_enqueue", fake_attach)
+    monkeypatch.setattr(draw_queue, "wait_result", fake_wait)
+
+    result = asyncio.run(server._draw_internal_sync("测试主题"))
+
+    assert "x.gcode" in result  # 拿到的是完整结果而非 accepted
+    assert captured == {
+        "desc": "测试主题",
+        "device_id": "",
+        "chain_push": False,
+        "job_id": "job-1",
+    }
+
+
+def test_draw_inprocess_inflight_separates_chain_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """进程内去重键：同题 chain_push 不同 → 两条任务互不搭车（理由同队列侧）。"""
+    release = asyncio.Event()
+
+    async def fake_job(desc, url, *, chain_push=True):
+        await release.wait()
+        return f"done:{chain_push}"
+
+    monkeypatch.setattr(server, "_run_draw_job", fake_job)
+    server._draw_inflight.clear()
+
+    async def main() -> None:
+        voice = server._draw_inprocess("同题", "http://x", chain_push=True)
+        web = server._draw_inprocess("同题", "http://x", chain_push=False)
+        voice2 = server._draw_inprocess("同题", "http://x", chain_push=True)
+        assert voice is voice2  # 同标志同题搭车
+        assert web is not voice  # 不同标志必须分开
+        release.set()
+        assert await voice == "done:True"
+        assert await web == "done:False"
+
+    try:
+        asyncio.run(main())
+    finally:
+        server._draw_inflight.clear()
+
+
+def test_run_draw_job_chain_push_flag_controls_device_push(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """chain_push=False 的 job 完成时不链推演示设备；默认 True 照旧推。
+    （网页生图串推到运营 demo 机是事故面，钉死。）"""
+    from test_paper_risk import _BASE_URL, _PASS_GCODE, _stub_job
+
+    pushes: list[tuple] = []
+    server_mod, _slot = _stub_job(monkeypatch, tmp_path, [_PASS_GCODE, _PASS_GCODE], [])
+    server_mod.settings.xiaozhi_device_token = "tok"
+
+    async def fake_push(*args, **kwargs):
+        pushes.append(args)
+
+    monkeypatch.setattr(server_mod, "_chain_device_draw", fake_push)
+
+    async def main() -> None:
+        await server_mod._run_draw_job("网页单", _BASE_URL, chain_push=False)
+        await asyncio.sleep(0.05)
+        assert pushes == []
+        await server_mod._run_draw_job("语音单", _BASE_URL, chain_push=True)
+        await asyncio.sleep(0.05)
+        assert len(pushes) == 1
+
+    asyncio.run(main())
+
 
 def _run_guard_under_proxy_headers(
     trusted: str, peer: tuple[str, int], xff: bytes | None
@@ -762,7 +963,7 @@ def test_draw_waiter_has_deadline_before_bridge_watchdog(
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow_job(_description: str, _public_base_url: str) -> str:
+    async def slow_job(_description: str, _public_base_url: str, **_kw) -> str:
         started.set()
         await release.wait()
         return "{}"
@@ -9361,7 +9562,7 @@ def test_draw_async_with_token_returns_accepted_immediately(tmp_path, monkeypatc
     server._draw_last_error = None
     started = asyncio.Event()
     release = asyncio.Event()
-    async def fake_job(desc, url):
+    async def fake_job(desc, url, **_kw):
         started.set()
         await release.wait()
         return json.dumps({"url": f"{url}/files/fake.gcode", "preview_url": f"{url}/files/fake.png", "lines":1,"bytes":1,"pen_lifts":0,"ttl_seconds":600})
@@ -9405,7 +9606,7 @@ def test_draw_async_second_call_reuses_task(tmp_path, monkeypatch):
     server._draw_inflight.clear()
     server._draw_last_error = None
     release = asyncio.Event()
-    async def fake_job(desc, url):
+    async def fake_job(desc, url, **_kw):
         await release.wait()
         return json.dumps({"url": f"{url}/files/fake2.gcode", "preview_url": f"{url}/files/fake2.png", "lines":1,"bytes":1,"pen_lifts":0,"ttl_seconds":600})
     monkeypatch.setattr(server, "_run_draw_job", fake_job)
