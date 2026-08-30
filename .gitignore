@@ -40,6 +40,8 @@ mcp-server/tmp/quickdraw-data/
 mcp-server/tmp/**/*.jsonl
 mcp-server/tmp/curated-data-sync.tgz
 mcp-server/tmp/curated-data/
+# Twemoji CC-BY 4.0 派生矢量留档：本机留档不入库（worktree-inventory 登记），防 git add -A 静默再分发
+mcp-server/tmp/curated-vector-data/
 
 # Superpowers / local git worktrees
 .worktrees/
