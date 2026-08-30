@@ -15,6 +15,8 @@ def build_mcp_settings_payload(
     *,
     draw_limit_overrides: dict[str, int],
     image_backend_raw: dict[str, str],
+    image_racers: list[dict[str, Any]] | None = None,
+    revision: int = 0,
 ) -> dict[str, Any]:
     toggles = default_image_backend_toggles()
     for name in IMAGE_BACKEND_NAMES:
@@ -24,6 +26,10 @@ def build_mcp_settings_payload(
             continue
         toggles[name] = raw.strip() not in ("0", "false", "False")
     return {
-        "draw_limits": {k: draw_limit_overrides[k] for k in DRAW_LIMIT_KEYS if k in draw_limit_overrides},
+        "revision": int(revision),
+        "draw_limits": {
+            k: draw_limit_overrides[k] for k in DRAW_LIMIT_KEYS if k in draw_limit_overrides
+        },
         "image_backends": toggles,
+        "image_racers": list(image_racers or []),
     }

@@ -6,7 +6,23 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
+from draw_portal.internal_client import parse_internal_allow_cidrs
+
 _LOOPBACK_HOST_NAMES = frozenset({"localhost"})
+
+
+def load_provider_cipher_key() -> bytes | None:
+    key_raw = os.environ.get("DRAW_PORTAL_PROVIDER_CIPHER_KEY", "").strip()
+    if not key_raw:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+
+        key_bytes = key_raw.encode("ascii")
+        Fernet(key_bytes)
+        return key_bytes
+    except Exception as exc:
+        raise RuntimeError("DRAW_PORTAL_PROVIDER_CIPHER_KEY 无效") from exc
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -39,6 +55,8 @@ class Config:
     usage_ingest_secret: str
     conversation_retention_days: int
     conversation_max_content: int
+    provider_cipher_key: bytes | None
+    internal_allow_cidrs: tuple[object, ...]
 
 
 @dataclass(frozen=True)
@@ -48,6 +66,7 @@ class AdminConfig:
     admin_password: str
     host: str
     port: int
+    provider_cipher_key: bytes | None
 
 
 def load_config() -> Config:
@@ -116,6 +135,10 @@ def load_config() -> Config:
         conversation_max_content=int(
             os.environ.get("DRAW_PORTAL_CONVERSATION_MAX_CONTENT", "500")
         ),
+        provider_cipher_key=load_provider_cipher_key(),
+        internal_allow_cidrs=parse_internal_allow_cidrs(
+            os.environ.get("DRAW_PORTAL_INTERNAL_ALLOW_CIDRS", "")
+        ),
     )
 
 
@@ -135,4 +158,5 @@ def load_admin_config() -> AdminConfig:
         admin_password=admin_password,
         host=host,
         port=port,
+        provider_cipher_key=load_provider_cipher_key(),
     )

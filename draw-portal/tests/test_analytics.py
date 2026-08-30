@@ -98,7 +98,10 @@ def test_internal_mcp_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     store.apply_draw_limit_patch({"draw_max_concurrent": 5})
     store.apply_image_backend_patch({"sensenova": False})
     client = TestClient(create_app())
-    monkeypatch.setattr("draw_portal.app._is_loopback_client", lambda _host: True)
+    monkeypatch.setattr(
+        "draw_portal.app._is_trusted_mcp_settings_client",
+        lambda _host, _cfg: True,
+    )
 
     denied = client.get("/api/internal/mcp-settings")
     assert denied.status_code == 401
@@ -112,3 +115,5 @@ def test_internal_mcp_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert data["draw_limits"]["draw_max_concurrent"] == 5
     assert data["image_backends"]["sensenova"] is False
     assert data["image_backends"]["agnes"] is True
+    assert "revision" in data
+    assert data["image_racers"] == []

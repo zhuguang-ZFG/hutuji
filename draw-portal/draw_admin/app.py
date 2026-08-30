@@ -14,6 +14,7 @@ from pathlib import Path
 from draw_portal.analytics import retention_cutoff, summarize_usage_rows
 from draw_portal.draw_limits import DRAW_LIMIT_BOUNDS, DRAW_LIMIT_KEYS
 from draw_portal.image_backends import IMAGE_BACKEND_LABELS, IMAGE_BACKEND_NAMES
+from draw_portal.image_providers import PROVIDER_TYPES
 from draw_admin.auth import (
     ADMIN_SESSION_COOKIE,
     clear_admin_session_cookie,
@@ -51,6 +52,39 @@ class ImageBackendsPatchBody(BaseModel):
     fallback: bool | None = None
 
 
+class ImageProviderCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    provider_type: str
+    base_url: str
+    model: str = Field(min_length=1, max_length=128)
+    extra: dict[str, Any] | None = None
+    enabled: bool = True
+    race_weight: int = Field(default=100, ge=1, le=1000)
+    sort_order: int = 0
+
+
+class ImageProviderUpdateBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    provider_type: str | None = None
+    base_url: str | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+    extra: dict[str, Any] | None = None
+    enabled: bool | None = None
+    race_weight: int | None = Field(default=None, ge=1, le=1000)
+    sort_order: int | None = None
+
+
+class ImageProviderKeyBody(BaseModel):
+    api_key: str = Field(min_length=1, max_length=512)
+    label: str | None = Field(default=None, max_length=80)
+
+
+class ImageProviderKeyUpdateBody(BaseModel):
+    api_key: str | None = Field(default=None, min_length=1, max_length=512)
+    label: str | None = Field(default=None, max_length=80)
+    enabled: bool | None = None
+
+
 def _conversation_csv(rows: list[dict[str, Any]]) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -74,8 +108,15 @@ def _conversation_csv(rows: list[dict[str, Any]]) -> bytes:
 
 def create_app() -> FastAPI:
     config = load_admin_config()
-    store = Store(config.db_path)
+    store = Store(config.db_path, provider_cipher_key=config.provider_cipher_key)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    def _require_provider_cipher() -> None:
+        if not config.provider_cipher_key:
+            raise HTTPException(
+                status_code=503,
+                detail="生图通道加密未配置（DRAW_PORTAL_PROVIDER_CIPHER_KEY）",
+            )
 
     def admin_dep(
         draw_admin_session: str | None = Cookie(default=None, alias=ADMIN_SESSION_COOKIE),
@@ -224,6 +265,120 @@ def create_app() -> FastAPI:
             detail=",".join(f"{k}={'on' if v else 'off'}" for k, v in toggles.items())[:200],
         )
         return {"status": "ok", "toggles": toggles}
+
+    @app.get("/api/image-providers", dependencies=secured)
+    def list_image_providers() -> dict[str, Any]:
+        _require_provider_cipher()
+        return {
+            "revision": store.get_image_provider_revision(),
+            "provider_types": list(PROVIDER_TYPES),
+            "items": store.list_image_providers_admin(),
+        }
+
+    @app.post("/api/image-providers", dependencies=secured)
+    def create_image_provider(body: ImageProviderCreateBody) -> dict[str, Any]:
+        _require_provider_cipher()
+        try:
+            item = store.create_image_provider(
+                name=body.name,
+                provider_type=body.provider_type,
+                base_url=body.base_url,
+                model=body.model,
+                extra=body.extra,
+                enabled=body.enabled,
+                race_weight=body.race_weight,
+                sort_order=body.sort_order,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        store.log_admin_action(
+            action="create_image_provider",
+            target_user_id=None,
+            detail=f"id={item['id'][:16]} type={item['provider_type']}",
+        )
+        return {"status": "ok", "item": item, "revision": store.get_image_provider_revision()}
+
+    @app.put("/api/image-providers/{provider_id}", dependencies=secured)
+    def update_image_provider(provider_id: str, body: ImageProviderUpdateBody) -> dict[str, Any]:
+        _require_provider_cipher()
+        patch = body.model_dump(exclude_unset=True)
+        try:
+            item = store.update_image_provider(provider_id, patch=patch)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if item is None:
+            raise HTTPException(status_code=404, detail="通道不存在")
+        store.log_admin_action(
+            action="update_image_provider",
+            target_user_id=None,
+            detail=f"id={provider_id[:16]}",
+        )
+        return {"status": "ok", "item": item, "revision": store.get_image_provider_revision()}
+
+    @app.delete("/api/image-providers/{provider_id}", dependencies=secured)
+    def delete_image_provider(provider_id: str) -> dict[str, str]:
+        _require_provider_cipher()
+        if not store.delete_image_provider(provider_id):
+            raise HTTPException(status_code=404, detail="通道不存在")
+        store.log_admin_action(
+            action="delete_image_provider",
+            target_user_id=None,
+            detail=f"id={provider_id[:16]}",
+        )
+        return {"status": "deleted"}
+
+    @app.post("/api/image-providers/{provider_id}/keys", dependencies=secured)
+    def add_image_provider_key(provider_id: str, body: ImageProviderKeyBody) -> dict[str, Any]:
+        _require_provider_cipher()
+        try:
+            item = store.add_image_provider_key(
+                provider_id,
+                api_key=body.api_key,
+                label=body.label,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if item is None:
+            raise HTTPException(status_code=404, detail="通道不存在")
+        store.log_admin_action(
+            action="add_provider_key",
+            target_user_id=None,
+            detail=f"provider={provider_id[:16]} key={item['id'][:16]}",
+        )
+        return {"status": "ok", "item": item, "revision": store.get_image_provider_revision()}
+
+    @app.put("/api/image-providers/keys/{key_id}", dependencies=secured)
+    def update_image_provider_key(key_id: str, body: ImageProviderKeyUpdateBody) -> dict[str, Any]:
+        _require_provider_cipher()
+        try:
+            item = store.update_image_provider_key(
+                key_id,
+                enabled=body.enabled,
+                api_key=body.api_key,
+                label=body.label,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if item is None:
+            raise HTTPException(status_code=404, detail="key 不存在")
+        store.log_admin_action(
+            action="update_provider_key",
+            target_user_id=None,
+            detail=f"key={key_id[:16]}",
+        )
+        return {"status": "ok", "item": item, "revision": store.get_image_provider_revision()}
+
+    @app.delete("/api/image-providers/keys/{key_id}", dependencies=secured)
+    def delete_image_provider_key(key_id: str) -> dict[str, str]:
+        _require_provider_cipher()
+        if not store.delete_image_provider_key(key_id):
+            raise HTTPException(status_code=404, detail="key 不存在")
+        store.log_admin_action(
+            action="delete_provider_key",
+            target_user_id=None,
+            detail=f"key={key_id[:16]}",
+        )
+        return {"status": "deleted"}
 
     @app.get("/api/users", dependencies=secured)
     def users(limit: int = 100, offset: int = 0) -> dict[str, Any]:

@@ -15,6 +15,7 @@ _CACHE_TTL_SECONDS = 30.0
 _cache_lock = threading.Lock()
 _cache_payload: dict[str, Any] | None = None
 _cache_at: float = 0.0
+_cache_revision: int = -1
 
 _DEFAULT_IMAGE_BACKENDS = {
     "sensenova": True,
@@ -69,15 +70,34 @@ def get_cached_mcp_settings(settings: Any | None = None) -> dict[str, Any]:
 
         settings = live_settings
     now = time.monotonic()
-    global _cache_payload, _cache_at
+    global _cache_payload, _cache_at, _cache_revision
     with _cache_lock:
         if _cache_payload is not None and now - _cache_at < _CACHE_TTL_SECONDS:
             return _cache_payload
     payload = _fetch_remote(settings)
+    revision = 0
+    if isinstance(payload, dict):
+        try:
+            revision = int(payload.get("revision") or 0)
+        except (TypeError, ValueError):
+            revision = 0
     with _cache_lock:
         _cache_payload = payload
         _cache_at = now
+        _cache_revision = revision
     return payload
+
+
+def portal_image_racers(settings: Any | None = None) -> list[dict[str, Any]]:
+    data = get_cached_mcp_settings(settings)
+    racers = data.get("image_racers") if isinstance(data, dict) else None
+    if not isinstance(racers, list) or not racers:
+        return []
+    out: list[dict[str, Any]] = []
+    for item in racers:
+        if isinstance(item, dict) and item.get("provider_type"):
+            out.append(item)
+    return out
 
 
 def effective_draw_limit(settings: Any, name: str, env_default: int) -> int:

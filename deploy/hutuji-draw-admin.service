@@ -8,6 +8,7 @@ Type=simple
 User=hutuji
 Group=hutuji
 WorkingDirectory=/opt/hutuji/draw-portal
+EnvironmentFile=-/etc/hutuji/draw-portal.env
 EnvironmentFile=/etc/hutuji/draw-admin.env
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m uvicorn draw_admin.app:create_app --factory --host 127.0.0.1 --port 8303 --root-path /draw-admin --no-proxy-headers
 Restart=on-failure

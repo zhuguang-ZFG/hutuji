@@ -27,6 +27,7 @@ import sys
 import zlib
 from dataclasses import dataclass
 from io import BytesIO
+from typing import Any
 from urllib.parse import urlsplit
 
 import anyio
@@ -951,6 +952,10 @@ def _siliconflow_api_key() -> str:
     return getattr(settings, "siliconflow_api_key", "").strip()
 
 
+def _sensenova_api_key() -> str:
+    return getattr(settings, "sensenova_api_key", "").strip()
+
+
 def _image_backend_enabled(name: str) -> bool:
     from .portal_settings import image_backend_enabled
 
@@ -1013,20 +1018,64 @@ async def _request_siliconflow_kolors_image_url(
         },
     )
 
+async def _race_dynamic_image_racers(
+    client: httpx.AsyncClient, description: str, racers: list[dict[str, Any]]
+) -> str:
+    from .image_racers import request_racer_image_url
+
+    tasks = {
+        asyncio.create_task(request_racer_image_url(client, description, racer)): str(
+            racer.get("name") or racer.get("id")
+        )
+        for racer in racers
+    }
+    errors: dict[str, BitmapError] = {}
+    pending: set[asyncio.Task] = set(tasks)
+    winner: str | None = None
+    try:
+        while winner is None and pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                label = tasks[task]
+                try:
+                    image_url = task.result()
+                except BitmapError as exc:
+                    logger.info("生图对冲：%s 失败：%s", label, exc)
+                    errors[label] = exc
+                    continue
+                winner = image_url
+                for other in done:
+                    if other is not task and other.done() and not other.cancelled():
+                        other.exception()
+                break
+    finally:
+        rest = [t for t in tasks if not t.done()]
+        for task in rest:
+            task.cancel()
+        if rest:
+            await asyncio.gather(*rest, return_exceptions=True)
+    if winner is None:
+        parts = [f"{name} 失败：{exc}" for name, exc in errors.items()]
+        raise BitmapError("；".join(parts) if parts else "全部动态生图后端均失败")
+    return winner
+
+
 async def _race_image_backends(
     client: httpx.AsyncClient, description: str
 ) -> str:
-    """商汤 / Agnes / imagefree 并发对冲：谁先出 URL 用谁，输家取消并回收。
+    """商汤 / Agnes / imagefree 并发对冲；优先运营后台 image_racers，空则 break-glass env。"""
+    from .portal_settings import portal_image_racers
 
-    2026-08-19 决策（用户拍板，接受付费端点双倍调用费 + imagefree 免费渠道
-    进赛跑）：商汤 U1 Fast 实测延迟 10~37s 方差极大，串行回退最坏 64s，
-    超过小智云 MCP 调用 ~30s 预算。并发后单张图耗时 ≈ min(三侧)。免 key
-    渠道赢的场次会在日志留名；缺 key 的配置闸在赛跑前触发，仍 fail-closed。
-    """
+    dynamic = portal_image_racers(settings)
+    if dynamic:
+        return await _race_dynamic_image_racers(client, description, dynamic)
+
     racers: list[
         tuple[str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
     ] = []
-    if _image_backend_enabled("sensenova"):
+    if _image_backend_enabled("sensenova") and _sensenova_api_key():
         racers.append(("商汤生图", _request_sensenova_image_url))
     if _image_backend_enabled("agnes"):
         racers.append(("Agnes", _request_agnes_image_url))

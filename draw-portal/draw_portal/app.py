@@ -128,19 +128,21 @@ def _record_portal_usage(
 
 
 def _is_loopback_client(host: str) -> bool:
-    if host in {"127.0.0.1", "::1", "localhost"}:
-        return True
-    try:
-        import ipaddress
+    from draw_portal.internal_client import is_loopback_host
 
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    return is_loopback_host(host)
+
+
+def _is_trusted_mcp_settings_client(host: str, config: object) -> bool:
+    from draw_portal.internal_client import is_trusted_internal_client
+
+    allow = getattr(config, "internal_allow_cidrs", ())
+    return is_trusted_internal_client(host, allow_cidrs=allow)
 
 
 def create_app() -> FastAPI:
     config = load_config()
-    store = Store(config.db_path)
+    store = Store(config.db_path, provider_cipher_key=config.provider_cipher_key)
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -699,8 +701,8 @@ def create_app() -> FastAPI:
         if x_hutuji_usage_secret != config.usage_ingest_secret:
             raise HTTPException(status_code=401, detail="unauthorized")
         client_host = request.client.host if request.client else ""
-        if not _is_loopback_client(client_host):
-            raise HTTPException(status_code=403, detail="仅允许 loopback 读取")
+        if not _is_trusted_mcp_settings_client(client_host, config):
+            raise HTTPException(status_code=403, detail="仅允许可信内网或 loopback 读取")
         return store.get_mcp_settings_payload()
 
     @app.delete("/api/draw/saved/{saved_id}", dependencies=secured)

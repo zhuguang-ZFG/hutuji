@@ -310,6 +310,72 @@
       color: var(--soft);
       line-height: 1.45;
     }
+    .provider-card {
+      border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+      border-radius: 12px;
+      padding: 0.85rem;
+      margin-bottom: 0.65rem;
+      background: color-mix(in srgb, var(--card2) 55%, transparent);
+    }
+    .provider-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.55rem;
+    }
+    .provider-head h4 {
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .provider-meta {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+      word-break: break-all;
+    }
+    .provider-meta code {
+      font-size: 0.78rem;
+      color: var(--text);
+    }
+    .provider-actions, .key-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.55rem;
+    }
+    .provider-form-grid {
+      display: grid;
+      gap: 0.55rem;
+    }
+    @media (min-width: 721px) {
+      .provider-form-grid.two-col {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    .key-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 0.45rem;
+      align-items: center;
+      font-size: 0.82rem;
+      padding: 0.35rem 0;
+      border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+    }
+    .key-row:first-child { border-top: 0; }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .badge.off {
+      background: var(--err-soft);
+      color: var(--err);
+    }
     .conv-toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -415,7 +481,7 @@
         <div class="settings-block">
           <h3>生图 API 开关</h3>
           <div id="backend-toggles"></div>
-          <p class="hint-text">仅控制是否参与并发对冲；API key 仍在服务器 <code>mcp.env</code> 中配置，此处不存凭据。</p>
+          <p class="hint-text">仅控制 break-glass 路径（无后台通道时）是否参与对冲；配置了「生图通道」后优先走通道列表，此处开关不再生效。</p>
           <button id="btn-save-backends" class="primary sm" style="margin-top:0.5rem">保存 API 开关</button>
         </div>
         <div class="settings-block">
@@ -428,7 +494,33 @@
     </div>
 
     <div class="card">
-      <h2 class="section-title">用户列表</h2>
+      <h2 class="section-title">生图通道管理</h2>
+      <p class="hint-text">配置 URL、模型与加密存储的 API key；MCP 约 30 秒内拉取。revision: <span id="provider-revision">—</span></p>
+      <p class="hint-text hidden" id="provider-section-msg" style="color:var(--err)"></p>
+      <div class="settings-block" style="margin-bottom:0.75rem">
+        <h3>新建通道</h3>
+        <div class="provider-form-grid two-col" id="provider-create-form">
+          <label class="field"><span>名称</span><input type="text" id="np-name" placeholder="如 Agnes 主通道"></label>
+          <label class="field"><span>类型</span>
+            <select id="np-type" style="width:100%;min-height:var(--tap);padding:0.7rem 0.9rem;border:1px solid var(--line);border-radius:13px;background:var(--bg1);color:var(--text);font:inherit">
+              <option value="agnes">Agnes</option>
+              <option value="sensenova">商汤</option>
+              <option value="siliconflow">硅流</option>
+              <option value="custom_post">自定义 POST</option>
+            </select>
+          </label>
+          <label class="field"><span>Base URL（https）</span><input type="text" id="np-url" placeholder="https://api.example.com/v1"></label>
+          <label class="field"><span>Model</span><input type="text" id="np-model" placeholder="模型 ID"></label>
+          <label class="field"><span>对冲权重</span><input type="number" id="np-weight" min="1" max="1000" value="100"></label>
+          <label class="field"><span>排序</span><input type="number" id="np-sort" value="0"></label>
+          <label class="toggle-row" style="align-self:end"><span>启用</span><input type="checkbox" id="np-enabled" checked></label>
+        </div>
+        <button id="btn-create-provider" class="primary sm" style="margin-top:0.55rem">创建通道</button>
+      </div>
+      <div id="provider-list"></div>
+    </div>
+
+    <div class="card">
       <div class="table-wrap">
         <table>
           <thead>
@@ -552,7 +644,162 @@ async function saveImageBackends() {
   await loadDrawSettings();
 }
 
-function showConvToolbar(userId, sessionId) {
+const PROVIDER_TYPE_LABELS = {
+  agnes: "Agnes",
+  sensenova: "商汤",
+  siliconflow: "硅流",
+  custom_post: "自定义 POST",
+};
+
+function escHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderProviderKeys(providerId, keys) {
+  if (!keys.length) {
+    return '<p class="hint-text" style="margin:0.35rem 0">暂无 key</p>';
+  }
+  return keys.map((k) => `
+    <div class="key-row" data-key-id="${escHtml(k.id)}">
+      <div>${escHtml(k.label || "未命名")} · ${k.has_key ? "已配置" : "无 key"} ${k.enabled ? "" : '<span class="badge off">停用</span>'}</div>
+      <button class="secondary sm" type="button" data-key-toggle="${escHtml(k.id)}" data-enabled="${k.enabled ? "1" : "0"}">${k.enabled ? "停用" : "启用"}</button>
+      <button class="danger sm" type="button" data-key-del="${escHtml(k.id)}">删除</button>
+    </div>`).join("");
+}
+
+function renderProviderList(items) {
+  if (!items.length) {
+    $("provider-list").innerHTML = '<div class="empty-hint" style="padding:0.5rem 0">尚未配置生图通道，将回落 mcp.env break-glass</div>';
+    return;
+  }
+  $("provider-list").innerHTML = items.map((p) => `
+    <article class="provider-card" data-provider-id="${escHtml(p.id)}">
+      <div class="provider-head">
+        <h4>${escHtml(p.name)} <span class="badge">${escHtml(PROVIDER_TYPE_LABELS[p.provider_type] || p.provider_type)}</span>
+          ${p.enabled ? "" : '<span class="badge off">已停用</span>'}</h4>
+      </div>
+      <div class="provider-meta">
+        <div>URL：<code>${escHtml(p.base_url)}</code></div>
+        <div>Model：<code>${escHtml(p.model)}</code> · 权重 ${p.race_weight} · 排序 ${p.sort_order}</div>
+      </div>
+      <div style="margin-top:0.55rem;font-size:0.82rem;color:var(--muted)">API Keys</div>
+      ${renderProviderKeys(p.id, p.keys || [])}
+      <div class="provider-actions">
+        <label class="field" style="flex:1;margin:0"><span>新 key（仅提交时发送，页面不回显）</span>
+          <input type="password" data-new-key="${escHtml(p.id)}" placeholder="sk-…" autocomplete="new-password">
+        </label>
+        <button class="secondary sm" type="button" data-add-key="${escHtml(p.id)}">添加 key</button>
+        <button class="secondary sm" type="button" data-toggle-provider="${escHtml(p.id)}" data-enabled="${p.enabled ? "1" : "0"}">${p.enabled ? "停用通道" : "启用通道"}</button>
+        <button class="danger sm" type="button" data-del-provider="${escHtml(p.id)}">删除通道</button>
+      </div>
+    </article>`).join("");
+
+  $("provider-list").querySelectorAll("[data-add-key]").forEach((btn) => {
+    btn.onclick = () => addProviderKey(btn.dataset.addKey).catch((e) => toast(e.message, true));
+  });
+  $("provider-list").querySelectorAll("[data-toggle-provider]").forEach((btn) => {
+    btn.onclick = () => toggleProvider(btn.dataset.toggleProvider, btn.dataset.enabled !== "1")
+      .catch((e) => toast(e.message, true));
+  });
+  $("provider-list").querySelectorAll("[data-del-provider]").forEach((btn) => {
+    btn.onclick = () => deleteProvider(btn.dataset.delProvider).catch((e) => toast(e.message, true));
+  });
+  $("provider-list").querySelectorAll("[data-key-toggle]").forEach((btn) => {
+    btn.onclick = () => toggleProviderKey(btn.dataset.keyToggle, btn.dataset.enabled !== "1")
+      .catch((e) => toast(e.message, true));
+  });
+  $("provider-list").querySelectorAll("[data-key-del]").forEach((btn) => {
+    btn.onclick = () => deleteProviderKey(btn.dataset.keyDel).catch((e) => toast(e.message, true));
+  });
+}
+
+async function loadImageProviders() {
+  const msgEl = $("provider-section-msg");
+  msgEl.textContent = "";
+  msgEl.classList.add("hidden");
+  try {
+    const data = await api("/image-providers");
+    $("provider-revision").textContent = String(data.revision ?? 0);
+    renderProviderList(data.items || []);
+  } catch (e) {
+    $("provider-revision").textContent = "—";
+    $("provider-list").innerHTML = "";
+    msgEl.textContent = e.message || "无法加载生图通道";
+    msgEl.classList.remove("hidden");
+  }
+}
+
+async function createProvider() {
+  const body = {
+    name: $("np-name").value.trim(),
+    provider_type: $("np-type").value,
+    base_url: $("np-url").value.trim(),
+    model: $("np-model").value.trim(),
+    race_weight: Number($("np-weight").value || 100),
+    sort_order: Number($("np-sort").value || 0),
+    enabled: $("np-enabled").checked,
+  };
+  await api("/image-providers", { method: "POST", body: JSON.stringify(body) });
+  $("np-name").value = "";
+  $("np-url").value = "";
+  $("np-model").value = "";
+  toast("通道已创建");
+  await loadImageProviders();
+}
+
+async function addProviderKey(providerId) {
+  const input = document.querySelector(`input[data-new-key="${providerId}"]`);
+  const apiKey = (input?.value || "").trim();
+  if (!apiKey) {
+    toast("请输入 API key", true);
+    return;
+  }
+  await api(`/image-providers/${providerId}/keys`, {
+    method: "POST",
+    body: JSON.stringify({ api_key: apiKey, label: "后台添加" }),
+  });
+  if (input) input.value = "";
+  toast("Key 已添加");
+  await loadImageProviders();
+}
+
+async function toggleProvider(providerId, enabled) {
+  await api(`/image-providers/${providerId}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+  toast(enabled ? "通道已启用" : "通道已停用");
+  await loadImageProviders();
+}
+
+async function deleteProvider(providerId) {
+  if (!confirm("确定删除该生图通道？关联 key 一并删除。")) return;
+  await api(`/image-providers/${providerId}`, { method: "DELETE" });
+  toast("通道已删除");
+  await loadImageProviders();
+}
+
+async function toggleProviderKey(keyId, enabled) {
+  await api(`/image-providers/keys/${keyId}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+  toast(enabled ? "Key 已启用" : "Key 已停用");
+  await loadImageProviders();
+}
+
+async function deleteProviderKey(keyId) {
+  if (!confirm("确定删除该 key？")) return;
+  await api(`/image-providers/keys/${keyId}`, { method: "DELETE" });
+  toast("Key 已删除");
+  await loadImageProviders();
+}
+
+async function showConvToolbar(userId, sessionId) {
   convUserId = userId;
   const bar = $("conv-toolbar");
   bar.classList.remove("hidden");
@@ -691,11 +938,13 @@ async function enterDash() {
   $("dash-section").classList.remove("hidden");
   await loadStats();
   await loadDrawSettings();
+  await loadImageProviders();
   await loadUsers();
 }
 
 $("btn-save-limits").onclick = () => saveDrawLimits().catch((e) => toast(e.message, true));
 $("btn-save-backends").onclick = () => saveImageBackends().catch((e) => toast(e.message, true));
+$("btn-create-provider").onclick = () => createProvider().catch((e) => toast(e.message, true));
 
 $("btn-admin-login").onclick = async () => {
   $("login-msg").textContent = "";

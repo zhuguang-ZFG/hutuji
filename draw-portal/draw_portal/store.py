@@ -12,7 +12,19 @@ from draw_portal.image_backends import (
     IMAGE_BACKEND_NAMES,
     default_image_backend_toggles,
 )
+from draw_portal.image_providers import (
+    extra_json_from_db,
+    extra_json_to_db,
+    sanitize_key_for_admin,
+    sanitize_provider_for_admin,
+    validate_extra_json,
+    validate_provider_base_url,
+    validate_provider_model,
+    validate_provider_name,
+    validate_provider_type,
+)
 from draw_portal.mcp_settings import build_mcp_settings_payload
+from draw_portal.provider_crypto import decrypt_api_key, encrypt_api_key
 from draw_portal.models import (
     BindSession,
     DeviceBinding,
@@ -135,6 +147,46 @@ CREATE TABLE IF NOT EXISTS platform_settings (
     value TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS image_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider_type TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    model TEXT NOT NULL,
+    extra_json TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    race_weight INTEGER NOT NULL DEFAULT 100,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS image_provider_keys (
+    id TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL REFERENCES image_providers(id) ON DELETE CASCADE,
+    label TEXT,
+    api_key_enc TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    disabled_until REAL,
+    last_used_at REAL,
+    last_error_code INTEGER,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_providers_enabled
+    ON image_providers(enabled, sort_order);
+
+CREATE INDEX IF NOT EXISTS idx_image_provider_keys_provider
+    ON image_provider_keys(provider_id, enabled);
+
+CREATE TABLE IF NOT EXISTS platform_config_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created_at REAL NOT NULL
+);
 """
 
 _USER_MIGRATION_COLUMNS = (
@@ -148,8 +200,9 @@ _USER_MIGRATION_COLUMNS = (
 
 
 class Store:
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, provider_cipher_key: bytes | None = None) -> None:
         self._db_path = db_path
+        self._provider_cipher_key = provider_cipher_key
         db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
@@ -1007,7 +1060,346 @@ class Store:
         return build_mcp_settings_payload(
             draw_limit_overrides=limits,
             image_backend_raw=image_raw,
+            image_racers=self.list_image_racers_for_mcp(),
+            revision=self.get_image_provider_revision(),
         )
+
+    def _require_provider_cipher(self) -> bytes:
+        if not self._provider_cipher_key:
+            raise RuntimeError("DRAW_PORTAL_PROVIDER_CIPHER_KEY 未配置")
+        return self._provider_cipher_key
+
+    def get_image_provider_revision(self) -> int:
+        raw = self._read_platform_settings(("image_providers_revision",))
+        if "image_providers_revision" not in raw:
+            return 0
+        try:
+            return int(raw["image_providers_revision"])
+        except ValueError:
+            return 0
+
+    def _bump_image_provider_revision(self, conn: sqlite3.Connection) -> int:
+        rev = self.get_image_provider_revision() + 1
+        now = time.time()
+        conn.execute(
+            "DELETE FROM platform_settings WHERE key = ?",
+            ("image_providers_revision",),
+        )
+        conn.execute(
+            """
+            INSERT INTO platform_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            ("image_providers_revision", str(rev), now),
+        )
+        conn.execute(
+            """
+            INSERT INTO platform_config_revisions (kind, revision, created_at)
+            VALUES (?, ?, ?)
+            """,
+            ("image_providers", rev, now),
+        )
+        return rev
+
+    def list_image_providers_admin(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM image_providers
+                ORDER BY sort_order ASC, created_at ASC
+                """
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            keys = self.list_image_provider_keys_admin(str(row["id"]))
+            out.append(sanitize_provider_for_admin(dict(row), keys=keys))
+        return out
+
+    def get_image_provider_admin(self, provider_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM image_providers WHERE id = ?",
+                (provider_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        keys = self.list_image_provider_keys_admin(provider_id)
+        return sanitize_provider_for_admin(dict(row), keys=keys)
+
+    def list_image_provider_keys_admin(self, provider_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM image_provider_keys
+                WHERE provider_id = ?
+                ORDER BY created_at ASC
+                """,
+                (provider_id,),
+            ).fetchall()
+        return [sanitize_key_for_admin(dict(r)) for r in rows]
+
+    def create_image_provider(
+        self,
+        *,
+        name: str,
+        provider_type: str,
+        base_url: str,
+        model: str,
+        extra: dict[str, Any] | None = None,
+        enabled: bool = True,
+        race_weight: int = 100,
+        sort_order: int = 0,
+    ) -> dict[str, Any]:
+        self._require_provider_cipher()
+        ptype = validate_provider_type(provider_type)
+        now = time.time()
+        provider_id = uuid.uuid4().hex
+        row = {
+            "name": validate_provider_name(name),
+            "provider_type": ptype,
+            "base_url": validate_provider_base_url(base_url, provider_type=ptype),
+            "model": validate_provider_model(model),
+            "extra_json": extra_json_to_db(validate_extra_json(extra)),
+            "enabled": int(enabled),
+            "race_weight": max(1, min(int(race_weight), 1000)),
+            "sort_order": int(sort_order),
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO image_providers (
+                    id, name, provider_type, base_url, model, extra_json,
+                    enabled, race_weight, sort_order, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    provider_id,
+                    row["name"],
+                    row["provider_type"],
+                    row["base_url"],
+                    row["model"],
+                    row["extra_json"],
+                    row["enabled"],
+                    row["race_weight"],
+                    row["sort_order"],
+                    now,
+                    now,
+                ),
+            )
+            self._bump_image_provider_revision(conn)
+            conn.commit()
+        created = self.get_image_provider_admin(provider_id)
+        assert created is not None
+        return created
+
+    def update_image_provider(
+        self,
+        provider_id: str,
+        *,
+        patch: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        current = self.get_image_provider_admin(provider_id)
+        if current is None:
+            return None
+        ptype = validate_provider_type(
+            str(patch.get("provider_type", current["provider_type"]))
+        )
+        now = time.time()
+        name = validate_provider_name(str(patch.get("name", current["name"])))
+        base_url = validate_provider_base_url(
+            str(patch.get("base_url", current["base_url"])),
+            provider_type=ptype,
+        )
+        model = validate_provider_model(str(patch.get("model", current["model"])))
+        extra = validate_extra_json(patch.get("extra", current.get("extra")))
+        enabled = bool(patch.get("enabled", current["enabled"]))
+        race_weight = max(1, min(int(patch.get("race_weight", current["race_weight"])), 1000))
+        sort_order = int(patch.get("sort_order", current["sort_order"]))
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE image_providers SET
+                    name = ?, provider_type = ?, base_url = ?, model = ?,
+                    extra_json = ?, enabled = ?, race_weight = ?, sort_order = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    ptype,
+                    base_url,
+                    model,
+                    extra_json_to_db(extra),
+                    int(enabled),
+                    race_weight,
+                    sort_order,
+                    now,
+                    provider_id,
+                ),
+            )
+            self._bump_image_provider_revision(conn)
+            conn.commit()
+        return self.get_image_provider_admin(provider_id)
+
+    def delete_image_provider(self, provider_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM image_providers WHERE id = ?",
+                (provider_id,),
+            )
+            if cur.rowcount == 0:
+                return False
+            self._bump_image_provider_revision(conn)
+            conn.commit()
+        return True
+
+    def add_image_provider_key(
+        self,
+        provider_id: str,
+        *,
+        api_key: str,
+        label: str | None = None,
+    ) -> dict[str, Any] | None:
+        if self.get_image_provider_admin(provider_id) is None:
+            return None
+        cipher = self._require_provider_cipher()
+        plain = (api_key or "").strip()
+        if not plain:
+            raise ValueError("api_key 不能为空")
+        now = time.time()
+        key_id = uuid.uuid4().hex
+        enc = encrypt_api_key(cipher, plain)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO image_provider_keys (
+                    id, provider_id, label, api_key_enc, enabled,
+                    disabled_until, last_used_at, last_error_code,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, ?, ?)
+                """,
+                (
+                    key_id,
+                    provider_id,
+                    (label or "")[:80] or None,
+                    enc,
+                    now,
+                    now,
+                ),
+            )
+            self._bump_image_provider_revision(conn)
+            conn.commit()
+        rows = self.list_image_provider_keys_admin(provider_id)
+        for row in rows:
+            if row["id"] == key_id:
+                return row
+        return None
+
+    def update_image_provider_key(
+        self,
+        key_id: str,
+        *,
+        enabled: bool | None = None,
+        api_key: str | None = None,
+        label: str | None = None,
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM image_provider_keys WHERE id = ?",
+                (key_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        now = time.time()
+        enc = str(row["api_key_enc"])
+        if api_key is not None:
+            plain = api_key.strip()
+            if not plain:
+                raise ValueError("api_key 不能为空")
+            enc = encrypt_api_key(self._require_provider_cipher(), plain)
+        new_enabled = int(row["enabled"]) if enabled is None else int(enabled)
+        new_label = row["label"] if label is None else (label[:80] or None)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE image_provider_keys SET
+                    label = ?,
+                    api_key_enc = ?,
+                    enabled = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (new_label, enc, new_enabled, now, key_id),
+            )
+            self._bump_image_provider_revision(conn)
+            conn.commit()
+        provider_id = str(row["provider_id"])
+        for item in self.list_image_provider_keys_admin(provider_id):
+            if item["id"] == key_id:
+                return item
+        return None
+
+    def delete_image_provider_key(self, key_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM image_provider_keys WHERE id = ?",
+                (key_id,),
+            )
+            if cur.rowcount == 0:
+                return False
+            self._bump_image_provider_revision(conn)
+            conn.commit()
+        return True
+
+    def list_image_racers_for_mcp(self) -> list[dict[str, Any]]:
+        if not self._provider_cipher_key:
+            return []
+        now = time.time()
+        cipher = self._provider_cipher_key
+        with self._connect() as conn:
+            providers = conn.execute(
+                """
+                SELECT * FROM image_providers
+                WHERE enabled = 1
+                ORDER BY sort_order ASC, created_at ASC
+                """
+            ).fetchall()
+            out: list[dict[str, Any]] = []
+            for prow in providers:
+                keys = conn.execute(
+                    """
+                    SELECT * FROM image_provider_keys
+                    WHERE provider_id = ? AND enabled = 1
+                    ORDER BY created_at ASC
+                    """,
+                    (str(prow["id"]),),
+                ).fetchall()
+                api_keys: list[str] = []
+                for krow in keys:
+                    if krow["disabled_until"] is not None and float(krow["disabled_until"]) > now:
+                        continue
+                    try:
+                        api_keys.append(
+                            decrypt_api_key(cipher, str(krow["api_key_enc"]))
+                        )
+                    except ValueError:
+                        continue
+                if not api_keys and str(prow["provider_type"]) != "custom_post":
+                    continue
+                extra = extra_json_from_db(prow["extra_json"])
+                out.append(
+                    {
+                        "id": str(prow["id"]),
+                        "name": str(prow["name"]),
+                        "provider_type": str(prow["provider_type"]),
+                        "base_url": str(prow["base_url"]),
+                        "model": str(prow["model"]),
+                        "extra": extra,
+                        "race_weight": int(prow["race_weight"] or 100),
+                        "api_keys": api_keys,
+                    }
+                )
+        return out
 
     def _read_platform_settings(self, keys: tuple[str, ...]) -> dict[str, str]:
         if not keys:
