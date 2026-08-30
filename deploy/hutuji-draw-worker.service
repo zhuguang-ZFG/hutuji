@@ -1,0 +1,26 @@
+[Unit]
+Description=hutuji draw-worker (Redis queue consumer)
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/mcp-server
+Environment=PYTHONPATH=/opt/hutuji/mcp-server
+EnvironmentFile=-/etc/hutuji/mcp.env
+# 与 MCP 共用 venv 与 env；须配置 HUTUJI_DRAW_QUEUE_URL=redis://...
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.draw_worker
+Restart=on-failure
+RestartSec=5
+# 与 hutuji-mcp.service 同口径：限制监听面与系统调用
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hutuji/mcp-server/output
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

@@ -105,6 +105,9 @@ chmod 750 "${MCP_DIR}/output"
 echo "==> systemd units"
 cp "${APP_ROOT}/deploy/hutuji-mcp.service" /etc/systemd/system/
 cp "${APP_ROOT}/deploy/hutuji-cloud-bridge.service" /etc/systemd/system/
+cp "${APP_ROOT}/deploy/hutuji-draw-worker.service" /etc/systemd/system/
+cp "${APP_ROOT}/deploy/hutuji-draw-worker@.service" /etc/systemd/system/
+cp "${APP_ROOT}/deploy/hutuji-draw-worker.target" /etc/systemd/system/
 systemctl daemon-reload
 
 echo "==> nginx 站点（未自动签发证书）"
@@ -124,5 +127,8 @@ fi
 echo "==> 未自动 start。填密钥并放好 TLS 后（首次上线与更新均显式 restart）："
 echo "    systemctl enable hutuji-mcp hutuji-cloud-bridge nginx"
 echo "    systemctl restart hutuji-mcp hutuji-cloud-bridge"
+echo "    # 可选：Redis 队列模式（须 HUTUJI_DRAW_QUEUE_URL=redis://... 写入 mcp.env）"
+echo "    systemctl enable hutuji-draw-worker.target hutuji-draw-worker@{1..8}"
+echo "    systemctl restart hutuji-draw-worker@{1..8}"
 echo "    systemctl start nginx"
 echo "    bash ${APP_ROOT}/deploy/preflight.sh"

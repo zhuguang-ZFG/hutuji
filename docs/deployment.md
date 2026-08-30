@@ -2,6 +2,8 @@
 
 > **2026-08-29 晚 课堂级并发生图闸上线（双机）**：`DrawLimiter` 默认/生产 **并发 8、每秒 4、每分钟 120**；vpype **≤6**（env：`HUTUJI_DRAW_MAX_CONCURRENT` / `_PER_SECOND` / `_PER_MINUTE` / `HUTUJI_VPYPE_MAX_CONCURRENT`）。单进程 uvicorn，**不加多 worker**（每进程各一份内存闸会静默翻倍）。双机 mcp.env 已写、代码已 scp、`hutuji-mcp` 已 restart（阿里云另 restart bridge）。付费 API 费用与 CPU 随并发上升，课堂仍可能顶满——再高须另拍板。
 
+> **2026-08-30 高并发 Phase-3（仓内已落地，未部署生产）**：设计 `docs/design/high-concurrency-phase3.md`。**3a**（默认）：`HUTUJI_PG_DSN` 账本 + `HUTUJI_BREAKER_ENFORCE=0` shadow + `queue_metrics` 日志。**3b**（3a shadow 48h 后）：`HUTUJI_BREAKER_ENFORCE=1` + Redis/worker/PG/OSS 条件探针（`preflight.sh` 模板 **33** 项，未配 env 时探针 return 0 仍计 pass；生产 pass 数仍按节点角色口径读，不得把历史 `21/30`、`25/30` 当 33 项全绿）。**3c**（3b + 真下载抽验后）：CDN CNAME 指 `hutuji.donglicao.com`、OSS lifecycle 600s 与 MCP TTL 对账、公网 CRC 抽 10 文件；`HUTUJI_CDN_ENABLED=1` 仅标记，**不得**把 OSS 签名 URL 直接给设备。Redis 单主 + `hutuji-draw-worker@N` 仅阿里云主消费；京东云热备不消费队列。
+
 ## kb-admin（小派售后知识库编辑后台）
 
 一期 FAQ 编辑后台：**未部署生产**（仅仓内模板与代码）。Loopback systemd unit `hutuji-kb-admin`（`:8301`）+ nginx `location /kb-admin/` 反代；编辑真源 SQLite，发布推小智官方云 KB。

@@ -1534,7 +1534,9 @@ def test_stale_delete_skipped_when_path_swapped_after_read(
         os.utime(replacement, (result[1] + 5, result[1] + 5))
         return result
 
-    monkeypatch.setattr(server, "_read_regular_file", _read_then_swap)
+    from hutuji_mcp import output_store
+
+    monkeypatch.setattr(output_store, "_read_regular_file", _read_then_swap)
     with pytest.raises(HTTPException) as caught:
         asyncio.run(server._serve_file(gcode.name))
 
@@ -3331,6 +3333,11 @@ def test_bitmap_download_failure_does_not_fall_back(
 
     monkeypatch.setattr(bitmap_svg, "settings", _fallback_settings())
     monkeypatch.setattr(bitmap_svg, "_RETRY_DELAYS_SECONDS", (0.0, 0.0))
+    monkeypatch.setattr(
+        bitmap_svg,
+        "_image_backend_enabled",
+        lambda name: name == "agnes",
+    )
     import httpx as _httpx
 
     fallback_calls = 0
@@ -3782,7 +3789,7 @@ def test_delete_output_pair_logs_unlink_failure(
 
     monkeypatch.setattr(Path, "unlink", denied)
     server._delete_output_pair("draw_20260805_120000_abcdefghijklmnopqrstuv")
-    assert "删除过期产物失败" in caplog.text
+    assert "删除产物失败" in caplog.text
     assert "denied" in caplog.text
 
 
@@ -3810,21 +3817,29 @@ def test_cleanup_warning_logs_never_leak_capability_token(
         monkeypatch.undo()
         monkeypatch.setattr(server, "settings", _settings(tmp_path))
 
-        # 站点二：_is_expired 抛 OSError → 跳过该项
-        monkeypatch.setattr(
-            server, "_is_expired", lambda *_a, **_k: (_ for _ in ()).throw(PermissionError("stat"))
-        )
+        # 站点二：cleanup 扫描时 stat 失败 → 跳过该项
+        real_stat = Path.stat
+
+        def stat_fail(self, *args, **kwargs):  # noqa: ANN001, ANN202
+            if self.name.endswith(".gcode"):
+                raise PermissionError("stat")
+            return real_stat(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", stat_fail)
         server._cleanup_expired_outputs()
         monkeypatch.undo()
         monkeypatch.setattr(server, "settings", _settings(tmp_path))
 
         # 站点三：已过期但 unlink 失败
-        monkeypatch.setattr(server, "_is_expired", lambda *_a, **_k: True)
+        gcode = tmp_path / f"{stem}.gcode"
+        old = time.time() - 700
+        os.utime(gcode, (old, old))
         monkeypatch.setattr(Path, "unlink", denied)
         server._cleanup_expired_outputs()
 
-    assert "删除过期产物失败" in caplog.text
+    assert "删除产物失败" in caplog.text
     assert "跳过清理" in caplog.text
+    assert "删除过期产物失败" in caplog.text
     assert token not in caplog.text
     # 结构化脱敏形态：保留时间戳前缀，token 整段变 `*`
     assert f"draw_20260805_120000_*.gcode" in caplog.text
@@ -5486,12 +5501,17 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 30
+    assert preflight.count('\ncheck "') == 33
     # /register（激活码中转）两项必须在列：本机 400/503 判据 + 公网只放 POST 判据。
     assert '/register 拒绝坏形状' in preflight
     assert '/register 只放 POST' in preflight
     # token 看门狗 + 一键换 token 必须在列（JWT 标称 90 天、事件性作废的运维口径）。
     assert 'token 看门狗 cron 与一键换 token 脚本已安装' in preflight
+    # Phase-3 条件探针（未配 env 时函数内 return 0 仍计 pass）
+    assert "check_draw_queue_optional()" in preflight
+    assert "check_pg_ledger_optional()" in preflight
+    assert "check_oss_roundtrip_optional()" in preflight
+    assert "Phase-3 队列：Redis PING + draw-worker@1 active" in preflight
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
     expected = re.search(r"^EXPECTED_CHECKS=(\d+)$", preflight, re.MULTILINE)
@@ -5520,7 +5540,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 30
+    assert len(checks) == 33
     assert min(checks) > init_last
 
 

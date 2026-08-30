@@ -1021,16 +1021,33 @@ async def _request_siliconflow_kolors_image_url(
 async def _race_dynamic_image_racers(
     client: httpx.AsyncClient, description: str, racers: list[dict[str, Any]]
 ) -> str:
+    from . import breaker, job_ledger
     from .image_racers import request_racer_image_url
 
-    tasks = {
-        asyncio.create_task(request_racer_image_url(client, description, racer)): str(
-            racer.get("name") or racer.get("id")
+    cap = getattr(settings, "draw_racer_max", 0) or 0
+    if cap > 0:
+        racers = racers[:cap]
+    filtered: list[dict[str, Any]] = []
+    for racer in racers:
+        backend_id = job_ledger.backend_id_from_label(
+            str(racer.get("name") or racer.get("id") or "racer"),
+            racer=racer,
         )
-        for racer in racers
-    }
+        if breaker.should_skip_backend(backend_id):
+            logger.info("生图对冲：跳过熔断通道 %s", backend_id)
+            continue
+        filtered.append(racer)
+    racers = filtered
+    if not racers:
+        raise BitmapError("生图通道暂不可用，请稍后再试")
+    task_meta: dict[asyncio.Task, tuple[str, str]] = {}
+    for racer in racers:
+        label = str(racer.get("name") or racer.get("id"))
+        backend_id = job_ledger.backend_id_from_label(label, racer=racer)
+        task = asyncio.create_task(request_racer_image_url(client, description, racer))
+        task_meta[task] = (label, backend_id)
     errors: dict[str, BitmapError] = {}
-    pending: set[asyncio.Task] = set(tasks)
+    pending: set[asyncio.Task] = set(task_meta)
     winner: str | None = None
     try:
         while winner is None and pending:
@@ -1038,20 +1055,29 @@ async def _race_dynamic_image_racers(
                 pending, return_when=asyncio.FIRST_COMPLETED
             )
             for task in done:
-                label = tasks[task]
+                label, backend_id = task_meta[task]
+                started = time.monotonic()
                 try:
                     image_url = task.result()
                 except BitmapError as exc:
+                    latency_ms = int((time.monotonic() - started) * 1000)
+                    breaker.record_outcome(
+                        backend_id,
+                        job_ledger.classify_bitmap_error(exc),
+                        latency_ms=latency_ms,
+                    )
                     logger.info("生图对冲：%s 失败：%s", label, exc)
                     errors[label] = exc
                     continue
+                latency_ms = int((time.monotonic() - started) * 1000)
+                breaker.record_outcome(backend_id, "ok", latency_ms=latency_ms)
                 winner = image_url
                 for other in done:
                     if other is not task and other.done() and not other.cancelled():
                         other.exception()
                 break
     finally:
-        rest = [t for t in tasks if not t.done()]
+        rest = [t for t in task_meta if not t.done()]
         for task in rest:
             task.cancel()
         if rest:
@@ -1066,6 +1092,7 @@ async def _race_image_backends(
     client: httpx.AsyncClient, description: str
 ) -> str:
     """商汤 / Agnes / imagefree 并发对冲；优先运营后台 image_racers，空则 break-glass env。"""
+    from . import breaker, job_ledger
     from .portal_settings import portal_image_racers
 
     dynamic = portal_image_racers(settings)
@@ -1073,26 +1100,36 @@ async def _race_image_backends(
         return await _race_dynamic_image_racers(client, description, dynamic)
 
     racers: list[
-        tuple[str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
+        tuple[str, str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
     ] = []
     if _image_backend_enabled("sensenova") and _sensenova_api_key():
-        racers.append(("商汤生图", _request_sensenova_image_url))
+        racers.append(("商汤生图", "sensenova", _request_sensenova_image_url))
     if _image_backend_enabled("agnes"):
-        racers.append(("Agnes", _request_agnes_image_url))
+        racers.append(("Agnes", "agnes", _request_agnes_image_url))
     if _image_backend_enabled("siliconflow") and _siliconflow_api_key():
-        racers.append(("硅流 Schnell", _request_siliconflow_schnell_image_url))
-        racers.append(("硅流可图", _request_siliconflow_kolors_image_url))
+        racers.append(("硅流 Schnell", "siliconflow:schnell", _request_siliconflow_schnell_image_url))
+        racers.append(("硅流可图", "siliconflow:kolors", _request_siliconflow_kolors_image_url))
     if _image_backend_enabled("fallback") and _image_fallback_url():
-        racers.append(("备用端点", _request_fallback_image_url))
+        racers.append(("备用端点", "imagefree", _request_fallback_image_url))
     if not racers:
         raise BitmapError("未启用任何生图后端（请在运营后台或环境变量中配置）")
-    tasks = {
-        asyncio.create_task(fn(client, description)): name
-        for name, fn in racers
+    racers = [
+        (name, backend_id, fn)
+        for name, backend_id, fn in racers
+        if not breaker.should_skip_backend(backend_id)
+    ]
+    if not racers:
+        raise BitmapError("生图通道暂不可用，请稍后再试")
+    cap = getattr(settings, "draw_racer_max", 0) or 0
+    if cap > 0:
+        racers = racers[:cap]
+    task_meta: dict[asyncio.Task, tuple[str, str]] = {
+        asyncio.create_task(fn(client, description)): (name, backend_id)
+        for name, backend_id, fn in racers
     }
     race_t0 = time.monotonic()
     errors: dict[str, BitmapError] = {}
-    pending: set[asyncio.Task] = set(tasks)
+    pending: set[asyncio.Task] = set(task_meta)
     winner: str | None = None
     try:
         while winner is None and pending:
@@ -1100,16 +1137,28 @@ async def _race_image_backends(
                 pending, return_when=asyncio.FIRST_COMPLETED
             )
             for task in done:
+                name, backend_id = task_meta[task]
                 try:
                     image_url = task.result()
                 except BitmapError as exc:
+                    latency_ms = int((time.monotonic() - race_t0) * 1000)
+                    breaker.record_outcome(
+                        backend_id,
+                        job_ledger.classify_bitmap_error(exc),
+                        latency_ms=latency_ms,
+                    )
                     # 对冲期单侧失败属正常波动，记 info；全灭才升级。
-                    logger.info("生图对冲：%s 失败：%s", tasks[task], exc)
-                    errors[tasks[task]] = exc
+                    logger.info("生图对冲：%s 失败：%s", name, exc)
+                    errors[name] = exc
                     continue
+                breaker.record_outcome(
+                    backend_id,
+                    "ok",
+                    latency_ms=int((time.monotonic() - race_t0) * 1000),
+                )
                 winner = image_url
                 logger.info(
-                    "生图对冲：%s 先出图（%.1fs）", tasks[task], time.monotonic() - race_t0
+                    "生图对冲：%s 先出图（%.1fs）", name, time.monotonic() - race_t0
                 )
                 # 同批醒来的其余已完成任务若带异常，标记已取——否则 asyncio
                 # 在 GC 时打 "Task exception was never retrieved" 噪音。
@@ -1118,7 +1167,7 @@ async def _race_image_backends(
                         other.exception()
                 break
     finally:
-        rest = [t for t in tasks if not t.done()]
+        rest = [t for t in task_meta if not t.done()]
         for task in rest:
             task.cancel()
         if rest:

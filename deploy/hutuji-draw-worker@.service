@@ -1,0 +1,26 @@
+[Unit]
+Description=hutuji draw-worker instance %i (Redis queue consumer)
+After=network-online.target redis.service
+Wants=network-online.target
+PartOf=hutuji-draw-worker.target
+
+[Service]
+Type=simple
+User=hutuji
+Group=hutuji
+WorkingDirectory=/opt/hutuji/mcp-server
+Environment=PYTHONPATH=/opt/hutuji/mcp-server
+Environment=HUTUJI_DRAW_WORKER_INSTANCE=%i
+EnvironmentFile=-/etc/hutuji/mcp.env
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.draw_worker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hutuji/mcp-server/output
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=hutuji-draw-worker.target

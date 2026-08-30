@@ -11,6 +11,22 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### 高并发 Phase-1/2 + Phase-3a + 假负载压测（2026-08-30，**未提交 / 未部署生产**）
+
+| 项 | 说明 |
+|----|------|
+| 动机 | 用户拍板峰值 **10 画/秒** 架构 sizing；Phase-1 Redis 队列 + 独立 worker，Phase-2 OSS 产物 / 单设备限流 / 对冲降档 / 多 worker systemd；Phase-3a Postgres 账本 + breaker shadow + queue_metrics |
+| 新增模块 | `mcp-server/hutuji_mcp/{draw_queue,draw_worker,output_store,job_ledger,breaker,queue_metrics}.py` |
+| 修改 | `server.py`（队列入队 + ledger/breaker hooks）、`config.py`、`bitmap_svg.py`（`HUTUJI_DRAW_RACER_MAX` + breaker 采样）、`draw_queue.py`/`draw_worker.py`、`requirements.txt`（+`redis`、`oss2`、`psycopg[binary]`） |
+| 部署模板 | `deploy/hutuji-draw-worker*.service/target`；`deploy/env.mcp.example` 追加队列/OSS/PG/breaker env；`deploy/preflight.sh` **EXPECTED_CHECKS=33**（+3 条件探针） |
+| 压测 | `mcp-server/scripts/bench_draw_load.py`（替身 `_run_draw_job`，不调付费 API）；`tests/test_draw_queue.py` 含 subprocess smoke |
+| 测试 | 本机 pytest 收集 **1068** 项（+19）；Phase-3 专测 `test_breaker.py` 3 / `test_job_ledger.py` 5 / `test_queue_metrics.py` 1；`test_draw_queue.py` 4 + `test_output_store.py` 2 全绿；bench `--rps 10 --duration 5 --workers 4 --job-ms 250` memory PASS |
+| 本机 bench | `--rps 10 --duration 10 --workers 8 --job-ms 250` → success 100% PASS（memory://，早前一轮） |
+| 默认行为 | **未配** `HUTUJI_DRAW_QUEUE_URL` = 现网进程内 asyncio；**未配** `HUTUJI_PG_DSN` = 账本禁用；**默认** `HUTUJI_BREAKER_ENFORCE=0` = shadow 只记事件不过滤 |
+| 推荐上线 env（未验证） | Phase-1/2 同前 + `HUTUJI_PG_DSN=postgresql://…`、`HUTUJI_BREAKER_ENFORCE=0`（3a shadow；3b 稳定 48h 后改 1）、`HUTUJI_METRICS_INTERVAL_SEC=15`；3c 另需 CDN DNS + `HUTUJI_CDN_ENABLED=1` |
+| 设计 | `docs/design/high-concurrency-phase3.md`（3a 仓内已落地；3b preflight 已入模板；3c CDN/lifecycle **未生产验证**） |
+| 未完成 | 生产 Redis/OSS/PG 开通、双机 mcp.env、真实 Redis 模式 bench 300s、3a shadow 48h、3b breaker enforce、3c CDN CRC 抽验、hub 门禁在本 HEAD 完整跑通（pytest 层 collect 计数已对齐 AGENTS.md） |
+
 ### 写字机 `$1=255`（2026-08-28：NVS → 机型默认已固化并刷 COM13）
 | 项 | 说明 |
 |----|------|
@@ -112,7 +128,7 @@
 | `mcp-server/hutuji_mcp/QUICKDRAW-ATTRIBUTION.md` | CC BY 4.0 署名文件 |
 | `mcp-server/hutuji_mcp/{config.py,server.py}`（已修改） | `HUTUJI_QUICKDRAW_DIR` 配置项 + `_run_draw_job` 命中旁路 |
 | `mcp-server/scripts/quickdraw_prep.py` | 数据准备脚本（蓄水池采样、quote 编码、固定种子可复现） |
-| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1049** 项（2026-08-30 +6：`test_draw_limits_config.py` 3、`test_usage_report.py` 2、`test_field_tools.py` 92→93；2026-08-28 塌缩 F 继承 +1（`test_gcode_min_segment.py` 4）；2026-08-28 异步生成+完成推送 +5；2026-08-26 +6；2026-08-27 纸面闸批 +19 后 scribble v2 +1、拒收缓存逐出 +1、Twemoji 矢量源 +4；QD 退役 -5、curated 优先 +2、viewBox 预览 +2；junction 续接 +5：`test_paper_risk.py` 13、`test_bitmap_decimate.py` 13、`test_curated_vector.py` 4、`test_quickdraw.py` 36、`test_curated_server.py` 5、`test_curated.py` 6） |
+| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1068** 项（2026-08-30 高并发 Phase-1/2/3a +19：`test_draw_queue.py` 4、`test_output_store.py` 2、`test_breaker.py` 3、`test_job_ledger.py` 5、`test_queue_metrics.py` 1、`test_portal_settings.py` 4；2026-08-30 +6：`test_draw_limits_config.py` 3、`test_usage_report.py` 2、`test_field_tools.py` 92→93；余下历史批次见 git 历史） |
 | `mcp-server/tmp/quickdraw-data/` | 全量数据产物（2026-08-24 基线 298 类 × 200 条 ≈ 20MiB；2026-08-25 C 组合换装精选版每类 50 条，见 C 组合节）。历史误记「gitignored 目录内」已于 2026-08-24 撤（实测 `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 干跑可见 314 文件）。**决策状态（2026-08-24 用户 advisory 点名）**：本页 `edf68e7` 条目「不新增忽略规则」对**整目录忽略 tmp/** 仍成立——advisory 同文否决整目录方案：AGENTS.md 刷机坑段引用根 `tmp/` 工具（flash_hil_ws35.ps1、reset_wdt_capture.py），整目录忽略会把它们变成只在本机的隐形文件；仅对**数据集本体**开窄例外：`.gitignore` 新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条——后者兜住 qd_smoke/qd_trial/qd_verify 下 4 个散落 .jsonl（同属 CC BY 4.0 素材，入库即构成再分发）。实测 `check-ignore -v` 双向命中正确、`git add -An` 下数据集不可见；mcp-server/tmp/ 剩余可见面 = 12 个实验/工具件（abkit、twoopt_star、capture_resilient.py 等，干跑实测）**仍未忽略**，故**禁止 `git add .`/`git add -A`**，提交必须点名暂存 |
 | `results/local-only/2026-08-24/aliyun-47.112.162.80-inventory.txt` | 阿里云盘点 + Recraft 可达性探测证据 |
 | 验证状态 | hub 门禁 **PASS（2026-08-24，13/13）**；全量 pytest **976/976**、e2e `PASS`；docs 指纹 216/216、外仓引用 212/212；Quick Draw 映射 387 键→298 类、14 个单字孤儿类目均有多字别名且跨类子串碰撞为 0；最长优先 4 个真实碰撞断言通过；服务异步 vpype 转换最多 2 个并发且取消/超时回归通过。**已于 2026-08-24 部署阿里云生产**（3 文件 sha256 对账、双服务重启、ExecStartPre 过、hit 冒烟 0.714s 命中 cat、公网下载逐字节一致、/mcp 404）**并同步京东云热备**（6 产物+数据集 298 文件+env，仅重启 mcp、bridge 保持 disabled，preflight 25/30 其 5 fail 均为热备态预期分歧；详见 `deployment.md` 顶部两条）。**生产量化同日完成**：lookup 类目覆盖 23/23（14 修复类目全 HIT）；6 并发 hit 出图全 OK（墙钟 2.29s、同秒 6 产物、付费日志 0 条）。**仍未执行**：真实语音 HIL、真实使用命中率统计；根 `tmp/` 暂存副本已纳入 `scripts/agent_gate.py` `_REF_SKIP_DIRS`，原 basename 假绿根因已修 |

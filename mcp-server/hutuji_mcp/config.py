@@ -80,6 +80,22 @@ def validate_public_base_url(value: str) -> str:
         raise ValueError("公网 HUTUJI_PUBLIC_BASE_URL 必须使用 HTTPS 默认端口")
     return value.rstrip("/")
 
+
+def _validate_draw_queue_url(raw: str) -> str:
+    value = raw.strip()
+    if not value:
+        return ""
+    if value == "memory://":
+        return value
+    parsed = urlsplit(value)
+    if parsed.scheme not in ("redis", "rediss") or not parsed.hostname:
+        raise ValueError(
+            "HUTUJI_DRAW_QUEUE_URL 须为空、memory:// 或 redis(s):// 且带主机名，"
+            f"当前 {raw!r}"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     # LLM（OpenAI 兼容接口）三件套
@@ -142,6 +158,30 @@ class Settings:
     draw_per_second: int = 4
     draw_per_minute: int = 120
     vpype_max_concurrent: int = 6
+    # Redis 绘图队列（空=进程内 asyncio 任务，与现网一致；redis://=MCP 入队+worker 消费）
+    draw_queue_url: str = ""
+    draw_queue_max_depth: int = 200
+    draw_enqueue_per_second: int = 10
+    draw_per_device_minute: int = 6
+    draw_racer_max: int = 0
+    # 产物存储：local=本机 output_dir；oss=阿里云 OSS（多 worker 共享）
+    output_backend: str = "local"
+    oss_endpoint: str = ""
+    oss_bucket: str = ""
+    oss_access_key_id: str = ""
+    oss_access_key_secret: str = ""
+    oss_prefix: str = "draw"
+    # Phase-3：Postgres 任务账本（空=禁用）
+    pg_dsn: str = ""
+    pg_retention_days: int = 30
+    # Phase-3：生图通道熔断（3a 默认 shadow：breaker_enforce=0 只记事件不过滤）
+    breaker_enforce: bool = False
+    breaker_window_sec: int = 60
+    breaker_fail_ratio: float = 0.5
+    breaker_open_sec: int = 120
+    breaker_consecutive_fail: int = 3
+    metrics_interval_sec: int = 15
+    cdn_enabled: bool = False
     # draw-portal usage 采集（loopback internal API；secret 与 portal 同值）
     usage_ingest_url: str = "http://127.0.0.1:8302/api/internal/usage"
     usage_ingest_secret: str = ""
@@ -224,9 +264,48 @@ class Settings:
             ("draw_per_second", self.draw_per_second, 1, 32),
             ("draw_per_minute", self.draw_per_minute, 1, 600),
             ("vpype_max_concurrent", self.vpype_max_concurrent, 1, 16),
+            ("draw_queue_max_depth", self.draw_queue_max_depth, 1, 2000),
+            ("draw_enqueue_per_second", self.draw_enqueue_per_second, 1, 100),
+            ("draw_per_device_minute", self.draw_per_device_minute, 1, 60),
+            ("draw_racer_max", self.draw_racer_max, 0, 8),
+            ("pg_retention_days", self.pg_retention_days, 1, 365),
+            ("breaker_window_sec", self.breaker_window_sec, 10, 600),
+            ("breaker_open_sec", self.breaker_open_sec, 30, 3600),
+            ("breaker_consecutive_fail", self.breaker_consecutive_fail, 1, 20),
+            ("metrics_interval_sec", self.metrics_interval_sec, 5, 300),
         ):
             if not lo <= value <= hi:
                 raise ValueError(f"{name} 必须在 {lo}..{hi}，当前 {value}")
+        if not 0.0 <= self.breaker_fail_ratio <= 1.0:
+            raise ValueError(
+                f"breaker_fail_ratio 必须在 0..1，当前 {self.breaker_fail_ratio}"
+            )
+        object.__setattr__(self, "pg_dsn", self.pg_dsn.strip())
+        backend = self.output_backend.strip().lower()
+        if backend not in ("local", "oss"):
+            raise ValueError(f"output_backend 必须是 local 或 oss，当前 {self.output_backend!r}")
+        object.__setattr__(self, "output_backend", backend)
+        if backend == "oss":
+            missing = [
+                name
+                for name, val in (
+                    ("HUTUJI_OSS_ENDPOINT", self.oss_endpoint),
+                    ("HUTUJI_OSS_BUCKET", self.oss_bucket),
+                    ("HUTUJI_OSS_ACCESS_KEY_ID", self.oss_access_key_id),
+                    ("HUTUJI_OSS_ACCESS_KEY_SECRET", self.oss_access_key_secret),
+                )
+                if not str(val).strip()
+            ]
+            if missing:
+                raise ValueError("OSS 产物后端必须配置 " + ", ".join(missing))
+        object.__setattr__(self, "oss_prefix", self.oss_prefix.strip().strip("/"))
+        object.__setattr__(self, "oss_access_key_id", self.oss_access_key_id.strip())
+        object.__setattr__(self, "oss_access_key_secret", self.oss_access_key_secret.strip())
+        object.__setattr__(
+            self,
+            "draw_queue_url",
+            _validate_draw_queue_url(self.draw_queue_url),
+        )
 
     @property
     def llm_configured(self) -> bool:
@@ -239,6 +318,14 @@ def _env_int(name: str, default: str) -> int:
         return int(raw)
     except ValueError as exc:
         raise ValueError(f"{name} 必须是整数，当前 {raw!r}") from exc
+
+
+def _env_float(name: str, default: str) -> float:
+    raw = os.environ.get(name, default)
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} 必须是浮点数，当前 {raw!r}") from exc
 
 
 def _resolve_output_dir() -> Path:
@@ -291,6 +378,28 @@ def load_settings() -> Settings:
         draw_per_second=_env_int("HUTUJI_DRAW_PER_SECOND", "4"),
         draw_per_minute=_env_int("HUTUJI_DRAW_PER_MINUTE", "120"),
         vpype_max_concurrent=_env_int("HUTUJI_VPYPE_MAX_CONCURRENT", "6"),
+        draw_queue_url=os.environ.get("HUTUJI_DRAW_QUEUE_URL", ""),
+        draw_queue_max_depth=_env_int("HUTUJI_DRAW_QUEUE_MAX_DEPTH", "200"),
+        draw_enqueue_per_second=_env_int("HUTUJI_DRAW_ENQUEUE_PER_SECOND", "10"),
+        draw_per_device_minute=_env_int("HUTUJI_DRAW_PER_DEVICE_MINUTE", "6"),
+        draw_racer_max=_env_int("HUTUJI_DRAW_RACER_MAX", "0"),
+        output_backend=os.environ.get("HUTUJI_OUTPUT_BACKEND", "local"),
+        oss_endpoint=os.environ.get("HUTUJI_OSS_ENDPOINT", ""),
+        oss_bucket=os.environ.get("HUTUJI_OSS_BUCKET", ""),
+        oss_access_key_id=os.environ.get("HUTUJI_OSS_ACCESS_KEY_ID", ""),
+        oss_access_key_secret=os.environ.get("HUTUJI_OSS_ACCESS_KEY_SECRET", ""),
+        oss_prefix=os.environ.get("HUTUJI_OSS_PREFIX", "draw"),
+        pg_dsn=os.environ.get("HUTUJI_PG_DSN", ""),
+        pg_retention_days=_env_int("HUTUJI_PG_RETENTION_DAYS", "30"),
+        breaker_enforce=os.environ.get("HUTUJI_BREAKER_ENFORCE", "0").strip()
+        in ("1", "true", "TRUE", "yes"),
+        breaker_window_sec=_env_int("HUTUJI_BREAKER_WINDOW_SEC", "60"),
+        breaker_fail_ratio=_env_float("HUTUJI_BREAKER_FAIL_RATIO", "0.5"),
+        breaker_open_sec=_env_int("HUTUJI_BREAKER_OPEN_SEC", "120"),
+        breaker_consecutive_fail=_env_int("HUTUJI_BREAKER_CONSECUTIVE_FAIL", "3"),
+        metrics_interval_sec=_env_int("HUTUJI_METRICS_INTERVAL_SEC", "15"),
+        cdn_enabled=os.environ.get("HUTUJI_CDN_ENABLED", "0").strip()
+        in ("1", "true", "TRUE", "yes"),
         usage_ingest_url=os.environ.get(
             "HUTUJI_USAGE_INGEST_URL", "http://127.0.0.1:8302/api/internal/usage"
         ),

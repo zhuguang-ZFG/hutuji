@@ -87,6 +87,18 @@ def _report_mcp_tool(name: str, *, ok: bool = True, detail: str | None = None) -
 
 class DrawLimitError(RuntimeError):
     """LLM 生成入口超过本进程安全限额。"""
+
+
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
+
+
+def _sanitize_device_id(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    if not _DEVICE_ID_RE.fullmatch(value):
+        raise ValueError("device_id 只允许 1..64 字 ASCII 字母数字及 :_-")
+    return value
 # 云端 MCP bridge 与 mcp-proxy 在 300s 时放弃慢响应；完整事务在 290s 后不再发布
 # 产物，waiter 在 295s 返回。两道边界之间留给云端重试和 bridge 清理。
 DRAW_TRANSACTION_DEADLINE_SECONDS = 290
@@ -215,20 +227,22 @@ def _redact_capability_name(name: str) -> str:
 
 
 def _delete_output_pair(stem: str) -> None:
-    """删除同一产物的 SVG/G-code；文件本就可能只生成了一半。
+    """删除同一产物的 SVG/G-code/PNG；文件本就可能只生成了一半。"""
+    from .output_store import get_output_store
 
-    删除失败（权限/占用）只记录 warning：过期 URL 无论如何统一 404，
-    删除是尽力而为的清理，不能反过来把下载路径变成 500。
-    """
-    for suffix in (".svg", ".gcode", ".png"):
-        try:
-            (settings.output_dir / f"{stem}{suffix}").unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning(
-                "删除过期产物失败 %s：%s",
-                _redact_capability_name(f"{stem}{suffix}"),
-                exc,
-            )
+    get_output_store().delete_stem(stem)
+
+
+def _delete_stale_output_pair(stem: str, read_mtime: float) -> None:
+    """契约复核失败时删除整组产物；路径已被并发替换则跳过以免误删新对象。"""
+    gcode_path = settings.output_dir / f"{stem}.gcode"
+    try:
+        current_mtime = gcode_path.stat().st_mtime
+    except OSError:
+        return
+    if abs(current_mtime - read_mtime) > 1e-3:
+        return
+    _delete_output_pair(stem)
 
 
 def _is_expired(path: Path, *, now: float | None = None) -> bool:
@@ -326,47 +340,10 @@ def _is_regular_capability_file(path: Path) -> bool:
 
 
 def _cleanup_expired_outputs(*, now: float | None = None) -> int:
-    """清除超过 TTL 的 draw_*.svg/gcode/png，返回删除的文件数。
+    """清除超过 TTL 的 draw_*.svg/gcode/png，返回删除的文件数。"""
+    from .output_store import get_output_store
 
-    清理是尽力而为的运维动作：目录不可读、mtime 拿不到、删除被拒
-    （权限/占用/竞态）都只记录 warning 并跳过该项，绝不让 status/draw
-    因清理失败变成 500。
-    """
-    if not settings.output_dir.is_dir():
-        return 0
-    now = time.time() if now is None else now
-    expired_stems: set[str] = set()
-    try:
-        entries = list(settings.output_dir.iterdir())
-    except OSError as exc:
-        logger.warning("清理输出目录失败（iterdir）：%s", exc)
-        return 0
-    for path in entries:
-        if _is_regular_capability_file(path):
-            try:
-                if _is_expired(path, now=now):
-                    expired_stems.add(path.stem)
-            except OSError as exc:
-                # mtime 拿不到（权限/竞态）→ 跳过该项，不穿透
-                logger.warning("跳过清理 %s：%s", _redact_capability_name(path.name), exc)
-                continue
-
-    deleted = 0
-    for stem in expired_stems:
-        for suffix in (".svg", ".gcode", ".png"):
-            path = settings.output_dir / f"{stem}{suffix}"
-            try:
-                path.unlink()
-                deleted += 1
-            except FileNotFoundError:
-                pass
-            except OSError as exc:
-                logger.warning(
-                    "删除过期产物失败 %s：%s",
-                    _redact_capability_name(path.name),
-                    exc,
-                )
-    return deleted
+    return get_output_store().cleanup_expired(now=now)
 
 
 async def _generate_svg_limited(description: str) -> str:
@@ -454,47 +431,51 @@ async def _chain_device_draw(url: str, preview_url: str) -> None:
         logger.warning("设备链式调用异常（%s，回落云端两步）", type(exc).__name__)
         _report_mcp_tool("draw_push", ok=False, detail=type(exc).__name__)
 
-async def _run_draw_job(description: str, public_base_url: str) -> str:
+async def _run_draw_job(
+    description: str, public_base_url: str, *, job_id: str | None = None
+) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
     global _draw_last_error
-    svg_path: Path | None = None
-    gcode_path: Path | None = None
-    preview_path: Path | None = None
+    from . import job_ledger
+    from .output_store import JobPaths, get_output_store
+
+    token = job_ledger.bind_job_id(job_id) if job_id else None
+
+    store = get_output_store()
+    artifact_base: str | None = None
+    stats = None
+    active_paths: JobPaths | None = None
     deadline = time.monotonic() + DRAW_TRANSACTION_DEADLINE_SECONDS
-    async def _persist_draw_outputs(bitmap):
-        """两路（Quick Draw 命中 / 位图对冲）共用的产物面：落盘 + G-code 转换。"""
-        nonlocal svg_path, gcode_path, preview_path
-        base = _new_basename()
-        svg_path = settings.output_dir / f"{base}.svg"
-        gcode_path = settings.output_dir / f"{base}.gcode"
-        preview_path = settings.output_dir / f"{base}.png"
-        # SVG 已被限制到 256KiB；同步落盘很短，并避免取消 to_thread 后后台迟写残留文件。
-        svg_path.write_text(bitmap.svg, encoding="utf-8")
-        preview_path.write_bytes(bitmap.preview_png)
-        gcode_t0 = time.monotonic()
-        stats = await _svg_to_gcode_cached(bitmap.svg, svg_path, gcode_path)
-        logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
-        return stats
+
+    async def _write_bitmap_artifacts(bitmap, base: str) -> tuple[JobPaths, object]:
+        with store.job_workspace(base) as paths:
+            paths.svg_path.write_text(bitmap.svg, encoding="utf-8")
+            paths.preview_path.write_bytes(bitmap.preview_png)
+            gcode_t0 = time.monotonic()
+            job_stats = await _svg_to_gcode_cached(
+                bitmap.svg, paths.svg_path, paths.gcode_path
+            )
+            logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
+            # OSS 模式须在 with 块内 finalize；local 模式 finalize 为空操作。
+            store.finalize_job(paths)
+            return paths, job_stats
 
     try:
-        # R13-SRV-02：清理是 IO 运维动作、不是受控的付费生成工作，不占并发名额
-        # （hutuji_status 同样在 slot 外跑同一清理，并发重复执行幂等无害）。
-        settings.output_dir.mkdir(parents=True, exist_ok=True)
+        store.ensure_ready()
         await asyncio.to_thread(_cleanup_expired_outputs)
         from . import curated as curated_mod
 
-        # QD 退役（2026-08-27 用户拍板）：达标类目（count≥n_min）curated 优先，
-        # 未达直接 AI 链；QD 涂鸦数据留盘作回滚，运行时不再查询。
         bitmap = await asyncio.to_thread(curated_mod.lookup_preferred, description)
         if bitmap is not None:
-            stats = await _persist_draw_outputs(bitmap)
+            if job_id:
+                job_ledger.schedule_route(job_id=job_id, route="curated")
+            base = _new_basename()
+            active_paths, stats = await _write_bitmap_artifacts(bitmap, base)
+            artifact_base = active_paths.base
         else:
+            if job_id:
+                job_ledger.schedule_route(job_id=job_id, route="ai")
             async with _draw_limiter.slot():
-                # 位图路线（2026-08-09 起为现行路线）：文生图 → 中心线描摹 →
-                # 单线 SVG。LLM 直写 SVG 只留给 hutuji_preview_svg 调试用。
-                # 纸面闸（2026-08-27）：§5 validate 后追加画糊风险统计，Reject
-                # 即清理半成品、attempt+1 破缓存整轮重生图；最多 3 轮，耗尽不
-                # 发布废 URL。QD/curated 命中不经闸。
                 last_reject: paper_risk.PaperRiskReject | None = None
                 for attempt in range(MAX_PAPER_RISK_ATTEMPTS):
                     if time.monotonic() >= deadline:
@@ -502,47 +483,56 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
                     bitmap = await generate_bitmap(description, attempt=attempt)
                     if time.monotonic() >= deadline:
                         raise DrawTimeoutError("绘图生成超时，请稍后重试")
-                    stats = await _persist_draw_outputs(bitmap)
-                    gcode_text = gcode_path.read_text(encoding="utf-8")
-                    if not getattr(settings, "paper_risk_gate", True):
-                        # shadow（2026-08-27 用户拍板）：evaluate 照跑只记日志，
-                        # 攒废/好样本指标供重钉阈值；不拒收、不重试。
-                        report = paper_risk.evaluate_gcode(
-                            gcode_text, pen_lifts=stats.pen_lifts
+                    base = _new_basename()
+                    with store.job_workspace(base) as paths:
+                        paths.svg_path.write_text(bitmap.svg, encoding="utf-8")
+                        paths.preview_path.write_bytes(bitmap.preview_png)
+                        gcode_t0 = time.monotonic()
+                        stats = await _svg_to_gcode_cached(
+                            bitmap.svg, paths.svg_path, paths.gcode_path
                         )
-                        logger.info(
-                            "paper_risk shadow short=%.2f lifts=%d gap_p50=%.2f "
-                            "ink=%.1f scribble=%d segs=%d",
-                            report.short_g1_ratio,
-                            report.pen_lifts,
-                            report.travel_gap_p50_mm,
-                            report.ink_span_mm,
-                            report.scribble_core_hits,
-                            report.g1_xy_segments,
-                        )
-                        break
-                    try:
-                        paper_risk.enforce_gcode(
-                            gcode_text, pen_lifts=stats.pen_lifts
-                        )
-                        logger.info(
-                            "paper_risk pass attempt=%d pen_lifts=%d",
-                            attempt, stats.pen_lifts,
-                        )
-                        break
-                    except paper_risk.PaperRiskReject as exc:
-                        last_reject = exc
-                        logger.warning(
-                            "paper_risk reject reason=%s attempt=%d",
-                            exc.reason, attempt,
-                        )
-                        # 拒收位图不得在 TTL 内复售：逐出该 attempt 缓存，下次
-                        # 同题重试真重生（生产实测三轮全命中缓存三次同败）。
-                        evict_bitmap_cache(description, attempt)
-                        for path in (svg_path, gcode_path, preview_path):
-                            if path is not None:
-                                path.unlink(missing_ok=True)
-                        svg_path = gcode_path = preview_path = None
+                        logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
+                        gcode_text = paths.gcode_path.read_text(encoding="utf-8")
+                        if not getattr(settings, "paper_risk_gate", True):
+                            report = paper_risk.evaluate_gcode(
+                                gcode_text, pen_lifts=stats.pen_lifts
+                            )
+                            logger.info(
+                                "paper_risk shadow short=%.2f lifts=%d gap_p50=%.2f "
+                                "ink=%.1f scribble=%d segs=%d",
+                                report.short_g1_ratio,
+                                report.pen_lifts,
+                                report.travel_gap_p50_mm,
+                                report.ink_span_mm,
+                                report.scribble_core_hits,
+                                report.g1_xy_segments,
+                            )
+                            store.finalize_job(paths)
+                            active_paths = paths
+                            artifact_base = paths.base
+                            break
+                        try:
+                            paper_risk.enforce_gcode(
+                                gcode_text, pen_lifts=stats.pen_lifts
+                            )
+                            logger.info(
+                                "paper_risk pass attempt=%d pen_lifts=%d",
+                                attempt,
+                                stats.pen_lifts,
+                            )
+                            store.finalize_job(paths)
+                            active_paths = paths
+                            artifact_base = paths.base
+                            break
+                        except paper_risk.PaperRiskReject as exc:
+                            last_reject = exc
+                            logger.warning(
+                                "paper_risk reject reason=%s attempt=%d",
+                                exc.reason,
+                                attempt,
+                            )
+                            evict_bitmap_cache(description, attempt)
+                            store.abort_job(paths)
                 else:
                     raise PaperRiskExhaustedError(
                         "这张线稿太碎，纸上会画糊，请换个说法再试"
@@ -550,52 +540,84 @@ async def _run_draw_job(description: str, public_base_url: str) -> str:
         if time.monotonic() >= deadline:
             raise DrawTimeoutError("绘图生成超时，请稍后重试")
     except BaseException as exc:
-        # 2026-08-28 fail-visible：只记类型名不记细节，description 已是安全化后文本。
         if isinstance(exc, Exception):
             _draw_last_error = {
                 "description": description,
                 "error_type": type(exc).__name__,
                 "ts": time.time(),
             }
-        # 服务停机取消或生成失败都清理半成品；清理失败不能覆盖原异常。
-        for path in (svg_path, gcode_path, preview_path):
-            if path is not None:
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError as exc2:
-                    logger.warning(
-                        "清理失败产物失败 %s：%s",
-                        _redact_capability_name(path.name),
-                        exc2,
-                    )
+        if active_paths is not None:
+            store.abort_job(active_paths)
         raise
+    finally:
+        if token is not None:
+            job_ledger.reset_job_id(token)
 
-    assert gcode_path is not None
-    assert preview_path is not None
-    # 2026-08-28 成功即清失败可见性，供 status 回 null。
+    assert artifact_base is not None
+    assert stats is not None
+    gcode_name = f"{artifact_base}.gcode"
+    preview_name = f"{artifact_base}.png"
     _draw_last_error = None
-    # P1-3：服务端链式第二步。只在事务唯一完成点触发一次——waiter 取消/重试
-    # 搭车都不会重复触发（重试复用同一任务、同一产物）。失败不阻塞结果。
     if getattr(settings, "xiaozhi_device_token", ""):
         asyncio.create_task(
             _chain_device_draw(
-                f"{public_base_url}/files/{gcode_path.name}",
-                f"{public_base_url}/files/{preview_path.name}",
+                f"{public_base_url}/files/{gcode_name}",
+                f"{public_base_url}/files/{preview_name}",
             )
         )
     return json.dumps({
-        "url": f"{public_base_url}/files/{gcode_path.name}",
-        "preview_url": f"{public_base_url}/files/{preview_path.name}",
+        "url": f"{public_base_url}/files/{gcode_name}",
+        "preview_url": f"{public_base_url}/files/{preview_name}",
         "lines": stats.lines,
         "bytes": stats.bytes,
         "pen_lifts": stats.pen_lifts,
-        # 让调用方能预告链接有效期，而非等到 404 才由设备侧猜测原因。
         "ttl_seconds": settings.output_ttl_seconds,
     }, ensure_ascii=False)
 
 
+async def _hutuji_draw_via_queue(
+    safe_description: str, public_base_url: str, device_id: str
+) -> str:
+    """Redis 队列模式：MCP 只入队/等待，实际生成由 draw-worker 执行。"""
+    from .draw_queue import (
+        DrawQueueBusyError,
+        attach_or_enqueue,
+        queue_enabled,
+        wait_result,
+    )
+
+    if not queue_enabled():
+        raise RuntimeError("队列模式未启用")
+    try:
+        job_id = await attach_or_enqueue(
+            safe_description, public_base_url, device_id=device_id
+        )
+    except DrawQueueBusyError as exc:
+        raise DrawLimitError(str(exc)) from exc
+
+    if getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
+        return json.dumps({
+            "accepted": True,
+            "description": safe_description,
+            "job_id": job_id,
+            "eta_seconds": 45,
+            "note": "生成完成会自动推送到设备预览，无需重复调用",
+        }, ensure_ascii=False)
+    if getattr(settings, "draw_async", False):
+        logger.warning("HUTUJI_DRAW_ASYNC 已启用但未配置 HUTUJI_XIAOZHI_DEVICE_TOKEN，回落同步模式")
+
+    try:
+        return await wait_result(job_id, timeout=DRAW_WAITER_DEADLINE_SECONDS)
+    except asyncio.TimeoutError:
+        from . import job_ledger
+
+        job_ledger.schedule_timed_out(job_id=job_id)
+        logger.warning("绘图生成超时（queue waiter=%ss）", DRAW_WAITER_DEADLINE_SECONDS)
+        raise DrawTimeoutError("绘图生成超时，请稍后重试") from None
+
+
 @mcp.tool()
-async def hutuji_draw(description: str) -> str:
+async def hutuji_draw(description: str, device_id: str = "") -> str:
     """当用户要求「画/绘/写一幅…」时调用：把自然语言变成写字机可执行的单线笔画。
 
     结果分两种。启用 `HUTUJI_DRAW_ASYNC=1` 且配置设备消息 token 时，立即返回
@@ -606,13 +628,21 @@ async def hutuji_draw(description: str) -> str:
     `hutuji.draw`，调用方不要重复推送，否则才把两个地址原样传给设备。用户明确确认后
     再调用 `hutuji.confirm`。地址有效期以 `ttl_seconds` 为准，拿到后立即传递。
     生图通常耗时约 15～45 秒。参数 description 建议为 10～40 字的简短中文主题，最长 200 字。
+    可选 device_id（设备 MAC/序列号，≤64 字）用于单设备限流，省略则只走全局限流。
     好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」；坏例子是长篇故事、填色/写实要求或空话。
     失败时根据错误白话说明，不要编造 URL。"""
 
     _report_mcp_tool("draw")
-    # 即使测试或运行时注入绕过 Settings，也不能返回明文公网能力 URL。
     public_base_url = validate_public_base_url(settings.public_base_url)
     safe_description = _sanitize_description(description).strip()
+    safe_device_id = _sanitize_device_id(device_id)
+
+    from .draw_queue import queue_enabled
+
+    if queue_enabled():
+        return await _hutuji_draw_via_queue(
+            safe_description, public_base_url, safe_device_id
+        )
 
     work = _draw_inflight.get(safe_description)
     if work is not None and work.get_loop() is not asyncio.get_running_loop():
@@ -941,10 +971,26 @@ async def lifespan(app: FastAPI):
     # 挂载的子应用 lifespan 不会自动运行，必须显式拉起 MCP session manager
     settings.output_dir.mkdir(parents=True, exist_ok=True)
     warm = asyncio.create_task(_warm_generation_deps())
+    from .draw_queue import queue_enabled
+    from . import queue_metrics
+
+    metrics_stop = asyncio.Event()
+    metrics_task: asyncio.Task | None = None
+    if queue_enabled():
+        metrics_task = asyncio.create_task(
+            queue_metrics.metrics_loop(metrics_stop, role="mcp")
+        )
     try:
         async with mcp.session_manager.run():
             yield
     finally:
+        metrics_stop.set()
+        if metrics_task is not None:
+            metrics_task.cancel()
+            try:
+                await metrics_task
+            except asyncio.CancelledError:
+                pass
         # `asyncio.to_thread` 起的线程本就取消不掉（cancel 只是不再等它、让异常
         # 无人接管），await 才是诚实收尾。预热 ~3s，只有「刚启动就停机」会等到它。
         await warm
@@ -1012,50 +1058,25 @@ async def _bridge_health(request: Request) -> Response:
 # 区分方法。
 @app.api_route("/files/{name}", methods=["GET", "HEAD"])
 async def _serve_file(name: str):
-    # 只接受带 128-bit 随机 token 的 capability 文件名；旧时间戳名不再公开。
     if not _DRAW_FILE_RE.fullmatch(name):
         raise HTTPException(status_code=404, detail="not found")
-    path = settings.output_dir / name
+    from .output_store import OutputNotFoundError, StaleOutputStoreError, get_output_store
+
+    store = get_output_store()
     try:
-        # 打开句柄后做 fstat 校验：拒 symlink / 硬链接 / 非普通文件，竞态替换
-        # 不会让请求读到新路径的目标；TTL 用已打开对象的 mtime 判断。
-        # `.gcode` 顺带在同一线程里复核 §5 契约（见 _read_verified_output）。
-        data, mtime = await asyncio.to_thread(_read_verified_output, path)
-    except OSError:
-        # detail 与「不存在」不可区分：拒绝原因（symlink/硬链接/竞态）回显会
-        # 泄漏目录内文件属性，统一 404。
+        data, mtime = await asyncio.to_thread(store.read_verified, name)
+    except OutputNotFoundError:
         raise HTTPException(status_code=404, detail="not found") from None
-    except StaleOutputError as exc:
-        # 契约收紧前的旧产物或落盘后被改写：TTL 未到也不能下发。与过期同处置
-        # ——删除同 stem 三件套并统一 404，避免同一 URL 重试仍拿到越界内容。
-        # 删除前用 mtime 复核路径对象未被并发换新（换新则跳过，删了会误删新
-        # 产物）；拿不到 mtime（已被并发删除）同样跳过。
+    except StaleOutputStoreError as exc:
         logger.warning(
             "拒绝下发不再满足 §5 契约的产物 %s：%s",
             _redact_capability_name(name),
             exc,
         )
-        try:
-            unchanged = os.stat(path, follow_symlinks=False).st_mtime == exc.mtime
-        except OSError:
-            unchanged = False
-        if unchanged:
-            _delete_output_pair(path.stem)
+        _delete_stale_output_pair(Path(name).stem, exc.mtime)
         raise HTTPException(status_code=404, detail="not found") from None
     if time.time() - mtime >= settings.output_ttl_seconds:
-        # 删除前复核：_read_regular_file 锁定的是打开时的旧对象，期间同 stem
-        # 路径可能被换成新文件（mtime 变了）。路径已换则跳过删除（删了会误删
-        # 新对象）；mtime 拿不到（已被并发删除）也跳过。删除本身失败由
-        # _delete_output_pair 收窄为 warning。无论哪种情况，统一 404：
-        # detail 与「不存在」不可区分，过期与否是时序信息，回显会泄漏
-        # 「该 token 曾有效」的可探测面（128-bit token 下价值为零，但
-        # 统一口径成本更低，也避免攻击者拿响应差异做枚举侧信道）。
-        try:
-            still_expired = _is_expired(path)
-        except OSError:
-            still_expired = False
-        if still_expired:
-            _delete_output_pair(path.stem)
+        _delete_output_pair(Path(name).stem)
         raise HTTPException(status_code=404, detail="not found")
     crc = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")  # zlib/IEEE 变体，须与 S3 侧一致
     media = (

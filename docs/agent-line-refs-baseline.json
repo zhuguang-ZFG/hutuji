@@ -1,5 +1,5 @@
 {
-  "git_head": "781dcb3683dd9d686a6d14bbdd6eddaed61fc99e",
+  "git_head": "2c72035353c39ffd70d612a6b6dd5fed554d23e4",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -457,8 +457,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:139-141": {
-      "sha8": "3f2ac739",
-      "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1049 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 十六个测试文件职责（当前共 **1049 项**）：`test_contract.py` **606** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **93** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）。",
+      "sha8": "0491ef80",
+      "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1068 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 二十二个测试文件职责（当前共 **1068 项**）：`test_contract.py` **606** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归（含 preflight **33** 项形状钉死）、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **93** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_draw_queue.py` **4** 项（Redis/memory 队列 attach/enqueue/限深/ worker 消费）；`test_output_store.py` **2** 项（本地/OSS 产物读写与 §5 复核）；`test_breaker.py` **3** 项（Phase-3 通道熔断 shadow/enforce）；`test_job_ledger.py` **5** 项（Postgres 账本后台写，无 DSN 禁用）；`test_queue_metrics.py` **1** 项（队列指标 JSON 日志）；`test_portal_settings.py` **4** 项（运营后台 image_racers 下发）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -536,19 +536,19 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:128": {
-      "sha8": "3b5d81f9",
-      "source": "| 双机部署 | 阿里云 + 京东云各 298 个 `.jsonl`、`.bak` 0 个；**全量清单收口**（2026-08-25 advisory 后）：本地 ↔ 两机按 `basename→sha256` map、`LC_ALL=C` 归一化后逐项 diff **零差异（298/298**，覆盖 `-`/`_`/空格混用类目名，取代此前 4 类目抽样结论）；代码 2 文件两机 sha256 亦相同（`27c8cb31…`/`a097617d…`）。旧数据保留为 `/opt/hutuji/quickdraw.old` |",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:108": {
+      "sha8": "29fe370d",
+      "source": "| `tmp/s3-confirm-capture-0829.log` / `tmp/grbl-confirm-capture-0829.log` / `tmp/s3-confirm-tail-0829.log` | 2026-08-29「能预览却画不了」复现抓包（COM14+COM13）；确认→预取复用→streaming→有墨；本机留档不入库 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:92": {
-      "sha8": "5a5e7784",
-      "source": "| `tmp/cap_confirm_hil_0829.py` / `tmp/diag_nodraw_0829.py` / `tmp/cap_s3_nodraw_0829.py` | 同日只读诊断/抓包脚本（不入库） |",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:113": {
+      "sha8": "a5351fa2",
+      "source": "| `memory_user.json`、`.superpowers/sdd/` | 用户记忆 JSON 备份；`.superpowers/sdd/` 为 SDD 工作流本地任务简报/报告/评审 diff（27 个文件）。`.gitignore` 第 44 行注释虽写 “Superpowers”，实际只列 `.worktrees/`，`git check-ignore -v .superpowers/` 实测 exit=1 **未被忽略**，故必须登记；保留本机不入库 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:97": {
-      "sha8": "41683ced",
-      "source": "| `tmp/` | 临时工作目录；2026-08-25 半墨调查新增 `results/local-only/2026-08-25/{tree-redraw-com14,fix-boot-com14,tree-redraw-fixed-com14}.log`（复发抓包 10 次落笔期空窗 230–640ms / 刷机后启动验证 / 修复后复测空窗 max 30ms），gitignored 留本机；**2026-08-25 补登记**构建/取证产物组：`tmp/build-gate-logs/`（19 个 .log/.err）、`tmp/build_ws35.log`、`tmp/build_gate_env.sh`、`tmp/build_instr_{lichuang,ws35}.ps1`、`tmp/build_hil_ws35.ps1`、`tmp/boot_capture.py`、`tmp/zdraw_capture.py`（出图判别取证：出图前 `$#`/`?` + 画线期 `?` 轮询，COM13 只读、dtr/rts=False 铁律），以及 `results/local-only/2026-08-25/grbl-z-baseline-com13-20260825.txt`（COM13 只读 `$`/`$#`/`?` 快照）；**2026-08-29 补登记**门禁/发布暂存组：`tmp/{gate-hub,gate-docs,gate-docs2,gate-docs-2,gate-docs-accept,gate-docs-paper,gate-docs-paper2}.{out,err}`（门禁 stdout/stderr 留档，其中 `gate-hub.{out,err}` 是 2026-08-27 被 `KeyboardInterrupt` 打断的未完成轮，**不可当通过证据**）、`tmp/{fix-refs,fix-refs2,accept-refs,accept-refs2}.{out,err}`（`--fix-line-refs` / `--accept-line-refs` 重登明细留档）、`tmp/{stage-deploy-0829,stage-scripts-0829,deploy-20260829-prompt,deploy-20260829-drift}/`（08-29 两批发布候选暂存）、`tmp/{pubdl_20260829,pubdl_drift_20260829,pub-draw,pub-draw2}.gcode`（公网真下载复核件）、`tmp/{head-deploy-manifest,head-mcp.service,head-bridge.service,node-lima-manifest,node-jdcloud-manifest,head_pkg,prod_pkg}.txt`（双机运行时包逐文件对账清单）、`tmp/dstage/`（`deploy/` 模板暂存副本，含 `.gitignore`/两个 env example/unit/两个安装脚本）、`tmp/inv_head.md`（本页 HEAD 存档另一份副本，与第 8 行提到的 `tmp/inventory_head.md` 同源）、`tmp/gate-hub-final.{out,err}`（提交前末轮 `profile=hub` 完整通过留档，逐轮覆盖同名文件；末轮 exit=0、12 层全 pass、pytest 1043 passed、指纹 238 处全对，精确时间戳以 `results/hutuji_gate_last.json` 为准）、`tmp/gate-backup/hutuji_gate_last.b7f88e30.{json,md}`（重跑前对上一轮 hub 报告的原样备份，防单槽覆盖丢证）、`tmp/preflight-{lima,jdcloud}-0829.txt`（2026-08-29 晚收口后双机 `deploy/preflight.sh` 复跑原文：阿里云 `pass=21 fail=9`（1 项 unit 系 08-23 手调 el8 + 8 项 nginx 判据锁 Debian `sites-*` 布局）、京东云 `pass=25 fail=5`（4 项 bridge 按单 WSS 热备设计不满足 + 1 项公网 `/files` 安全组 hairpin），逐项与部署当时基线相同，无回归）；**2026-08-29 补登记**实机 `$$` 取证组：`tmp/query_grbl_settings.py`（COM13 只读取证脚本，仅发 `$I`/`$$`/`?`，`dtr`/`rts` 恒 `False`，不复位/不运动/不写设置）与 `tmp/grbl-settings-com13-0829.txt`（取证原文落盘：`$130=210.000`/`$131=297.000`/`$132=200`、`$20=$21=$22=0`、固件 `[VER:1.3a.20211103:]`、`[OPT:PHBSW]`、机型 `Custom 3-Axis HR4988`、STA IP、`<Idle|MPos:0.000,0.000,0.000|Bf:249,128|FS:0,0|Pn:0>`），是 `docs/protocol.md` §5 纸面方向定案与 `docs/bringup-sop.md` 第 5 步行程钉死的唯一本机证据；均留本机不入库 |",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:144": {
+      "sha8": "b0107f75",
+      "source": "| 目视验证 | 精选头部 top-3 渲染人眼过样（cat/tree/fish/pig/house 各 3 张）：完整猫脸、可识别鱼形与猪脸；对照随机抽样为抽象涂鸦。**顺序为先渲染过样、再换装真数据** |",
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:1155": {
@@ -1136,7 +1136,7 @@
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> gcode_gen.py:840-843": {
+    "docs/troubleshooting.md -> gcode_gen.py:849-852": {
       "sha8": "8d93d9e1",
       "source": "                        f\"越界（限幅 0~{limit}mm）：{line}\"\n                    )\n\n        # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）。",
       "target": "mcp-server/hutuji_mcp/gcode_gen.py"
@@ -1192,6 +1192,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-30T06:09:07Z",
+  "updated": "2026-08-30T08:24:05Z",
   "version": 1
 }

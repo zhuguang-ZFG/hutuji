@@ -1,0 +1,5 @@
+[Unit]
+Description=hutuji draw-worker fleet (enable instances hutuji-draw-worker@N)
+
+[Install]
+WantedBy=multi-user.target

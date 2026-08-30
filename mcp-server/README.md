@@ -44,8 +44,28 @@ LLM（OpenAI 兼容）文生图 → 位图 → sknw 中心线描摹 → SVG ─�
 | `HUTUJI_OUTPUT_TTL_SECONDS` | `600` | capability 文件有效期；过期下载直接 404 并清理同组产物 |
 | `HUTUJI_XIAOZHI_DEVICE_TOKEN` | （空） | 设备消息 API token；与异步开关同配时，生成完成后服务端自动调用 `hutuji.draw` 推送预览；空值时异步开关回落同步。 |
 | `HUTUJI_DRAW_ASYNC` | `0` | `1` 且已配置设备消息 token 时，`hutuji_draw` 立即返回 `accepted: true`；否则同步等待并返回 `url`/`preview_url`。 |
+| `HUTUJI_DRAW_QUEUE_URL` | （空） | 设 `redis://…` 后 MCP **只入队**，由 `draw_worker` 消费；留空=进程内 asyncio（现网默认）。测试可用 `memory://`（单进程，勿上生产） |
+| `HUTUJI_DRAW_QUEUE_MAX_DEPTH` | `200` | 队列深度上限，满则 `DrawQueueBusyError` |
+| `HUTUJI_DRAW_ENQUEUE_PER_SECOND` | `10` | 全局入队速率（令牌桶/秒） |
+| `HUTUJI_DRAW_PER_DEVICE_MINUTE` | `6` | 单设备（`device_id`）每分钟入队上限；0=不限 |
+| `HUTUJI_DRAW_RACER_MAX` | `0` | 生图对冲 racer 上限；0=不限制 |
+| `HUTUJI_OUTPUT_BACKEND` | `local` | `local` 或 `oss`；多 worker 须 `oss` + 下方 OSS 变量 |
+| `HUTUJI_OSS_*` | （空） | OSS endpoint/bucket/AK/SK/prefix；见 `deploy/env.mcp.example` |
 
-Windows PowerShell 示例：
+## 高并发队列与压测（2026-08-30，仓内未部署）
+
+配 `HUTUJI_DRAW_QUEUE_URL=redis://127.0.0.1:6379/0` 后：
+
+```bash
+# worker（生产：systemctl start hutuji-draw-worker@1 …）
+python -m hutuji_mcp.draw_worker
+
+# 假负载压测（不调 LLM/生图/vpype）
+.venv/Scripts/python scripts/bench_draw_load.py --rps 10 --duration 30 --workers 8 --job-ms 250
+```
+
+worker 数经验：`workers ≥ rps × (job_ms / 1000)`。详见 `scripts/bench_draw_load.py` 文首注释与 `deploy/env.mcp.example`。
+
 
 ```powershell
 $env:HUTUJI_LLM_API_KEY = "sk-xxx"

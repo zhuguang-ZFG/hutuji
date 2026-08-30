@@ -2,7 +2,7 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
-EXPECTED_CHECKS=30
+EXPECTED_CHECKS=33
 PASS=0
 FAIL=0
 
@@ -873,6 +873,82 @@ check "公网 HTTPS:443 /register 只放 POST（POST 坏形状 400/503，GET 403
 # JWT 标称 90 天、作废是事件性的，缺了看门狗就只能靠人记，失效时无感激活
 # 与 KB 同步静默坏掉。
 check "token 看门狗 cron 与一键换 token 脚本已安装" bash -c '[[ -x /opt/hutuji/deploy/xiaozhi-token-watch.sh && -x /opt/hutuji/deploy/refresh-xiaozhi-token.sh ]] && crontab -l 2>/dev/null | grep -q "xiaozhi-token-watch.sh"'
+
+# Phase-3：队列 / 账本 / OSS 探针（未配置对应 env 时判据自动 pass）
+check_draw_queue_optional() {
+  local url=""
+  [[ -f /etc/hutuji/mcp.env ]] || return 0
+  env_value /etc/hutuji/mcp.env HUTUJI_DRAW_QUEUE_URL
+  url="$ENV_VALUE"
+  [[ -n "$url" && "$url" != "memory://" ]] || return 0
+  command -v redis-cli >/dev/null 2>&1 || return 1
+  redis-cli -u "$url" ping | grep -q PONG || return 1
+  systemctl is-active --quiet hutuji-draw-worker@1
+}
+
+check_pg_ledger_optional() {
+  local dsn=""
+  [[ -f /etc/hutuji/mcp.env ]] || return 0
+  env_value /etc/hutuji/mcp.env HUTUJI_PG_DSN
+  dsn="$ENV_VALUE"
+  [[ -n "$dsn" ]] || return 0
+  local py="/opt/hutuji/mcp-server/.venv/bin/python"
+  [[ -x "$py" ]] || return 1
+  "$py" - <<'PY'
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/opt/hutuji/mcp-server")
+os.environ.setdefault("HUTUJI_HOST", "127.0.0.1")
+from hutuji_mcp.config import load_settings
+import psycopg
+
+settings = load_settings()
+if not settings.pg_dsn:
+    raise SystemExit(0)
+with psycopg.connect(settings.pg_dsn, connect_timeout=5) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1")
+        cur.fetchone()
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.draw_jobs')")
+        if cur.fetchone()[0] is None:
+            raise SystemExit(1)
+PY
+}
+
+check_oss_roundtrip_optional() {
+  local backend=""
+  [[ -f /etc/hutuji/mcp.env ]] || return 0
+  env_value /etc/hutuji/mcp.env HUTUJI_OUTPUT_BACKEND
+  backend="${ENV_VALUE,,}"
+  [[ "$backend" == "oss" ]] || return 0
+  local py="/opt/hutuji/mcp-server/.venv/bin/python"
+  [[ -x "$py" ]] || return 1
+  "$py" - <<'PY'
+import os
+import sys
+
+sys.path.insert(0, "/opt/hutuji/mcp-server")
+os.environ.setdefault("HUTUJI_HOST", "127.0.0.1")
+from hutuji_mcp.config import load_settings
+from hutuji_mcp.output_store import get_output_store
+
+settings = load_settings()
+if settings.output_backend != "oss":
+    raise SystemExit(0)
+store = get_output_store()
+if not store.uses_remote:
+    raise SystemExit(1)
+store.ensure_ready()
+print("oss-ready")
+PY
+}
+
+check "Phase-3 队列：Redis PING + draw-worker@1 active（未配队列则 pass）" check_draw_queue_optional
+check "Phase-3 账本：PG SELECT 1 + draw_jobs 表（未配 DSN 则 pass）" check_pg_ledger_optional
+check "Phase-3 OSS：output_store 可初始化（未配 oss 则 pass）" check_oss_roundtrip_optional
 
 echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"
 # 必须全 pass：无 skip 可抵扣，少一项都不放行（漏跑与失败同等对待）。
