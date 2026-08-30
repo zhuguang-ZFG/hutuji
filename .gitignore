@@ -43,6 +43,9 @@ mcp-server/tmp/curated-data/
 # Twemoji CC-BY 4.0 派生矢量留档：本机留档不入库（worktree-inventory 登记），防 git add -A 静默再分发
 mcp-server/tmp/curated-vector-data/
 
+# 本机 rollout 凭据快照（如 tmp/pg-password-*.txt）：仓库卫生硬轨「凭据禁入库」，窄规则防 git add -A
+tmp/*password*
+
 # Superpowers / local git worktrees
 .worktrees/
 
