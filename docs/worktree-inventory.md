@@ -366,3 +366,11 @@
 | `.gitignore` | 窄规则 `tmp/*password*`（finding #1：`tmp/pg-password-20260830-phase3-rollout.txt` 明文 PG 密码此前未被忽略，`git add -A` 会入库；git 历史为空取证从未入库；`check-ignore`+`add -An` 干跑实测生效）。文件留原位不动——6 个本机 rollout 脚本引用该路径，且与 quickdraw/curated「本机留档+窄规则」先例同口径 |
 | `tmp/prod_recon_0830.py`（本机不入库） | finding #2/#3 修复：删除本地手写 token 正则，输出统一走 `hutuji_mcp.redact._redact_secret_text` + 能力 token 打码（同 `scripts/cloud_health_pull.py` 口径）；对话内容同管道过脱敏。实测 `token=abc123`→`<redacted>`、能力文件名打码正常 |
 | 验证状态 | pytest **1087/1087**；hub 门禁全绿（指纹重登 2 处均为本批有意计数编辑）。finding #4（paramiko AutoAddPolicy TOFU）维持既有先例记为已知风险不阻塞；#5 登记面 OK 无动作；#7 评审方未读生产内容，不构成生产结论 |
+
+## 固件双仓评审批（2026-08-31 中午，只读评审，无代码改动）
+
+| 文件 | 说明 |
+|------|------|
+| `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` | xiaozhi `bf0b295^..0d041c9`（27 提交）+ Grbl `e3b1cad^..40616de`（6 提交）评审结论：**1 项 P2**（§9-G′ 写保护长名绕过面，`$X/MaxTravel=200` 可改 `$130`，须补 `kLockedKeys` 长名——后续固件补丁待用户批准）、1 项 P3 治理台账（`agent-edit-allowlist.json` 未含 `GCode.cpp`/`WifiConfig.cpp`/`custom_3axis_hr4988.h` 三个已授权触面）、5 项 P3 观察项；abort 状态机/指纹门禁 fail-closed/CAS 收口/host 测试钉定性均复核通过 |
+| `tmp/review_harvest_{grbl,xiaozhi}review_0831.md`（本机不入库） | 两个评审代理撞 30min 运行上限被杀后的 transcript 分析块收割（131KB/119KB），收尾代理以此为线索复核出报告；主代理逐条裁决记录见 findings 内「裁决推翻/修正」节 |
+| 验证状态 | 只读评审无门禁对象改动；findings 入库后 docs profile 门禁复核通过（见本节提交行）。R1（P2）固件修复与 R2 白名单补录为**后续动作**，本批未执行 |
