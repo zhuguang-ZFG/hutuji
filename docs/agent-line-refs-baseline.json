@@ -1,5 +1,5 @@
 {
-  "git_head": "e1a9333a5b291b973ec7ab7ec0fce4c968749df9",
+  "git_head": "52922fd415b8246ed7c72c9f6dec610db257c86f",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -661,15 +661,25 @@
       "source": "        static const char* kLockedKeys[] = {\n            \"1\", \"3\", \"20\", \"21\", \"22\", \"100\", \"101\", \"110\", \"111\", \"130\", \"131\", \"132\",\n            \"Stepper/IdleTime\", \"Stepper/DirInvert\", \"Limits/Soft\", \"Limits/Hard\", \"Homing/Enable\",\n            \"X/StepsPerMm\", \"Y/StepsPerMm\", \"X/MaxRate\", \"Y/MaxRate\",\n            \"X/MaxTravel\", \"Y/MaxTravel\", \"Z/MaxTravel\",\n            \"Errors/Verbose\", nullptr,\n        };",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/ProtocolDecisionCore.h"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> WifiConfig.cpp:304-316": {
-      "sha8": "b2872d63",
-      "source": "        if (IP_mode != DHCP_MODE) {\n            IPAddress ip(IP), mask(MK), gateway(GW);\n            WiFi.config(ip, gateway, mask);\n        }\n        if (WiFi.begin(SSID.c_str(), (password.length() > 0) ? password.c_str() : NULL)) {\n            // hutuji（2026-08-24 用户点名批准「grbl 不需要省电」，为 §9 清单外文件的用户\n            // 授权例外）：写字机插电工位不需要 WiFi 省电。modem-sleep 下 AP 会把下行帧\n            // （ok 应答）按 DTIM 节拍批化——S3 灌流饿爬实证 457 行 45.3s、send→ok 配对\n            // 中位 80ms（hutuji docs/design/s3-stream-pacing-investigation.md §3）。\n            // 只加监听功耗，不改协议/运动/换纸；设置失败不致命（维持原省电默认）。\n            if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {\n                grbl_send(CLIENT_ALL, \"[MSG:WiFi PS off failed]\\r\\n\");\n            }",
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> WifiConfig.cpp:308-317": {
+      "sha8": "9588dcd5",
+      "source": "        if (WiFi.begin(SSID.c_str(), (password.length() > 0) ? password.c_str() : NULL)) {\n            // hutuji（2026-08-24 用户点名批准「grbl 不需要省电」，为 §9 清单外文件的用户\n            // 授权例外）：写字机插电工位不需要 WiFi 省电。modem-sleep 下 AP 会把下行帧\n            // （ok 应答）按 DTIM 节拍批化——S3 灌流饿爬实证 457 行 45.3s、send→ok 配对\n            // 中位 80ms（hutuji docs/design/s3-stream-pacing-investigation.md §3）。\n            // 只加监听功耗，不改协议/运动/换纸；设置失败不致命（维持原省电默认）。\n            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。\n            if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> WifiConfig.cpp:306-314": {
-      "sha8": "ff2b1abe",
-      "source": "            WiFi.config(ip, gateway, mask);\n        }\n        if (WiFi.begin(SSID.c_str(), (password.length() > 0) ? password.c_str() : NULL)) {\n            // hutuji（2026-08-24 用户点名批准「grbl 不需要省电」，为 §9 清单外文件的用户\n            // 授权例外）：写字机插电工位不需要 WiFi 省电。modem-sleep 下 AP 会把下行帧\n            // （ok 应答）按 DTIM 节拍批化——S3 灌流饿爬实证 457 行 45.3s、send→ok 配对\n            // 中位 80ms（hutuji docs/design/s3-stream-pacing-investigation.md §3）。\n            // 只加监听功耗，不改协议/运动/换纸；设置失败不致命（维持原省电默认）。\n            if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {",
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> WifiConfig.cpp:308-320": {
+      "sha8": "31c3f4dc",
+      "source": "        if (WiFi.begin(SSID.c_str(), (password.length() > 0) ? password.c_str() : NULL)) {\n            // hutuji（2026-08-24 用户点名批准「grbl 不需要省电」，为 §9 清单外文件的用户\n            // 授权例外）：写字机插电工位不需要 WiFi 省电。modem-sleep 下 AP 会把下行帧\n            // （ok 应答）按 DTIM 节拍批化——S3 灌流饿爬实证 457 行 45.3s、send→ok 配对\n            // 中位 80ms（hutuji docs/design/s3-stream-pacing-investigation.md §3）。\n            // 只加监听功耗，不改协议/运动/换纸；设置失败不致命（维持原省电默认）。\n            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。\n            if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {\n                grbl_send(CLIENT_ALL, \"[MSG:WiFi PS off failed]\\r\\n\");\n            }\n            grbl_send(CLIENT_ALL, \"\\n[MSG:Client Started]\\r\\n\");",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
+    },
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> WifiConfig.cpp:314-316": {
+      "sha8": "334213c6",
+      "source": "            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
+    },
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:705-750": {
+      "sha8": "efda6524",
+      "source": "    @app.post(\"/api/device/conversation/report\")\n    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:\n        try:\n            mac = normalize_mac(body.mac)\n            session_id = body.session_id.strip()[:64]\n        except ValueError as exc:\n            raise HTTPException(status_code=400, detail=str(exc)) from exc\n        user_id = store.get_user_id_for_mac(mac)\n        if user_id is None:\n            raise HTTPException(status_code=403, detail=\"设备未绑定呼图账号\")\n        now = time.time()\n        store.purge_conversation_before(\n            retention_cutoff(retention_days=config.conversation_retention_days)\n        )\n        accepted = 0\n        for turn in body.events:\n            try:\n                role = normalize_role(turn.role)\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            content = truncate_conversation_content(\n                turn.content, max_len=config.conversation_max_content\n            )\n            if not content:\n                continue\n            client_ts = turn.client_ts if turn.client_ts is not None else now\n            key = conversation_dedupe_key(\n                device_mac=mac,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n            )\n            if store.insert_conversation_event(\n                dedupe_key=key,\n                device_mac=mac,\n                user_id=user_id,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n                created_at=now,\n            ):\n                accepted += 1\n        return {\"status\": \"ok\", \"accepted\": accepted, \"total\": len(body.events)}\n",
+      "target": "draw-portal/draw_portal/app.py"
     },
     "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_conversation_report.cc:28-38": {
       "sha8": "a67a80f8",
@@ -681,7 +691,12 @@
       "source": "            if (!settings_line_ok_) {\n                ready_.store(true);\n                auth_probe_stage_ = AuthProbeStage::Complete;\n                ESP_LOGE(TAG, \"Grbl 设置指纹不符（$%s）\", GetSettingsMismatchKey().c_str());\n                NotifyCloud(\"写字机参数被改动，请联系卖家恢复后再画\");\n                return true;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:889": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:889-891": {
+      "sha8": "60473fe0",
+      "source": "    // 末项查询故意用 Grbl 扩展名括号语法 `[Errors/Verbose]`（§9-G′ 守卫对象的对应查询\n    // 形态）；应答仍是 `$Errors/Verbose=Off`，由 ParseGrblSettingLine 的 `$` 前缀路径解析，\n    // Off→0 映射见该函数。findings #30 R5：两种语法并存非矛盾，COM14 实机指纹 13 项通过实证。",
+      "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
+    },
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:892": {
       "sha8": "460101e7",
       "source": "    {\"[Errors/Verbose]\", \"Errors/Verbose\", 0.0, true},",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -1262,6 +1277,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-31T04:58:15Z",
+  "updated": "2026-08-31T05:15:23Z",
   "version": 1
 }

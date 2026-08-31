@@ -648,3 +648,15 @@ Cookie: <session>
 | 公网暴露 | `/internal/*` 不经 nginx 反代（uvicorn 只听 loopback），无需 nginx 变更 |
 
 物化后的 job（`draw.gcode` + `preview.png`）与上传流完全同形，`send`/`save` 零改动；语音链路的异步推送行为不受影响。
+
+### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
+
+| 面 | 约定 |
+|----|------|
+| 内容 | **整段会话文本**：`role + content + session_id + MAC`。固件侧 `kMaxContent=500` 截断、环形队列 cap 8 丢最旧、Idle 空闲冲刷、**失败即丢不重试**（`hutuji_conversation_report.cc`） |
+| 传输 | HTTPS `POST /draw-upload/api/device/conversation/report` |
+| 受理 | MAC 归一化后查绑定表，**未绑定呼图账号的 MAC 一律 403**（受理面 = 绑定 MAC 白名单）；role 走归一化白名单，非法 role 400；服务端再按 `DRAW_PORTAL_CONVERSATION_MAX_CONTENT`（默认 500）截断；`conversation_dedupe_key`（MAC+session+role+content+client_ts）幂等去重 |
+| 留存 | `DRAW_PORTAL_CONVERSATION_RETENTION_DAYS`（默认 **90 天**）；每次上报顺带 `purge_conversation_before` 清过期事件——访问时清理，无后台线程（同 §5 TTL 模式） |
+| 消费 | draw-admin 会话视图，运营面可见全部上报文本 |
+
+**明示**：上报内容是用户与设备的完整语音对话文本，不是元数据摘要；购买/部署即接受该面。固件无本地持久化（重启即清），服务端唯一副本在 draw-portal 库内按上表留存。
