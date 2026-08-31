@@ -6,8 +6,8 @@
 
 | # | 仓 | 严重度 | 发现 | 证据（主代理复核） | 处置建议 |
 |---|----|--------|------|--------------------|----------|
-| R1 | Grbl | **P2 真实缺陷** | **§9-G′ 写保护存在长名绕过面**：`ProcessSettings.cpp:513-528` 长名循环以 `getName()`（如 `X/MaxTravel`）匹配后调 `is_hutuji_locked_setting_key(key)`，而锁定清单（`ProtocolDecisionCore.h:364-367`）只有数字名 + `Errors/Verbose`——`$X/MaxTravel=200` 可绕过守卫改写 `$130`。数字名路径（`:532-547`，key=`130`）拦截正常 | 主代理亲读 `ProcessSettings.cpp:490-560` 与 `ProtocolDecisionCore.h:359-374` 确认 | 扩展 `kLockedKeys` 补长名（`Stepper/IdleLockTime`、`X|Y/StepsPerMm`、`X|Y/MaxRate`、`X|Y|Z/MaxTravel`、`Direction/Invert` 等）或改按 `Setting*` 对象判定。缓解：S3 指纹门禁重连时 fail-closed 拒画，会话内静默。属 §9-G′ 后续补丁，须走 fz 门禁 |
-| R2 | Grbl | P3 治理台账 | 机读白名单 `docs/agent-edit-allowlist.json` 的 `grbl_section9_only` 未含三个已授权触面：`GCode.cpp`（§9-F′ 行 protocol.md:514 契约点名 `:1732/:1789`）、`WebUI/WifiConfig.cpp`（0e1b7ed，commit 内记「2026-08-24 用户点名批准」+ `docs/design/s3-stream-pacing-investigation.md` §3）、`Machines/custom_3axis_hr4988.h`（7f48217，release-readiness.md:53 记「用户原话要求进固件」+ fz pass + COM13 已刷） | 主代理查 allowlist JSON 全文 + 三处授权记录 | 把三个文件补入白名单（附授权依据注释）。注：门禁目前只校验该 JSON 存在与关键键，**不**对 Grbl 提交机器执行白名单，故无静默违规，属台账同步 |
+| R1 | Grbl | **P2 真实缺陷（2026-08-31 已修复，Grbl `8f3e7d6`）** | **§9-G′ 写保护存在长名绕过面**：`ProcessSettings.cpp:513-528` 长名循环以 `getName()`（如 `X/MaxTravel`）匹配后调 `is_hutuji_locked_setting_key(key)`，而修复前锁定清单只有数字名 + `Errors/Verbose`——`$X/MaxTravel=200` 可绕过守卫改写 `$130`。数字名路径（`:532-547`，key=`130`）拦截正常 | 主代理亲读 `ProcessSettings.cpp:490-560` 与谓词（修复后 `ProtocolDecisionCore.h:389-406`）确认 | **已修复**：`kLockedKeys` 补 12 个长名（`ProtocolDecisionCore.h:393-399`），并把 `strcasecmp`/`strings.h` 换为本地 ASCII 折叠比较（`:367-387`，附带修复 40616de 引入的宿主 clang 编译断）；g++ 行为测试 40 断言全过，fz standard overall=pass。**板上固件仍是修复前镜像，待下次刷机生效** |
+| R2 | Grbl | P3 治理台账（2026-08-31 已补录） | 机读白名单 `docs/agent-edit-allowlist.json` 的 `grbl_section9_only` 未含三个已授权触面：`GCode.cpp`（§9-F′ 行 protocol.md:514 契约点名 `:1732/:1789`）、`WebUI/WifiConfig.cpp`（0e1b7ed，commit 内记「2026-08-24 用户点名批准」+ `docs/design/s3-stream-pacing-investigation.md` §3）、`Machines/custom_3axis_hr4988.h`（7f48217，release-readiness.md:53 记「用户原话要求进固件」+ fz pass + COM13 已刷） | 主代理查 allowlist JSON 全文 + 三处授权记录 | **已补录**：`GCode.cpp` 并入 `grbl_section9_only`，另两项入新键 `grbl_user_authorized_extras`，`agent_gate.py` 精确契约同步钉死（缺失/篡改判红）；AGENTS.md 硬轨枚举同步 |
 | R4 | Grbl | P3 | 0e1b7ed `esp_wifi_set_ps(WIFI_PS_NONE)` 实际在 `WiFi.begin()` 返回后、`ConnectSTA2AP()` 前调用（`WifiConfig.cpp:306-314`），commit message 称「STA 连上后」有精度偏差；异步先连不保证关联完成 | 主代理亲读 `WifiConfig.cpp:304-316` 确认调用点与授权注释 | 功能正确（esp_wifi_set_ps 可关联前调用）；仅注释措辞问题 |
 | R5 | xiaozhi | P3 | 指纹 golden 末项查询用 `[Errors/Verbose]` 括号语法（`hutuji_recovery_core.h:889`），解析器要求 `$` 前缀应答（`ParseGrblSettingLine` `:896`）；表面矛盾，但 COM14 实机抓包「指纹通过 13 项」（release-readiness.md:18）证明应答即 `$Errors/Verbose=Off` 形态且 `Off→0` 映射正确 | 主代理亲读 recovery_core 876-934 + readiness 证据 | 补一句注释说明「查询括号语法、应答 `$…=Off/On`」消除自读矛盾 |
 | R6 | xiaozhi | P3 隐私面 | 对话上报（0d041c9）：`role+content+session_id+MAC` 经 HTTPS POST 到 `/draw-upload/api/device/conversation/report`；`kMaxContent=500` 截断、环形队列 cap 8 丢最旧、空闲冲刷、失败即丢（`hutuji_conversation_report.cc:28-38,216-238`） | 主代理亲读该文件确认常量与行为 | 有意功能（运营面）；建议在文档明示上报内容=整段会话文本、服务端按绑定 MAC 白名单接受，并确认留存/删除策略 |
@@ -22,7 +22,7 @@
 ## 复核通过的重点面（无缺陷结论，附证据强度）
 
 - **abort/断流归位状态机（fe23b2c…cb7156c 五提交）**：三条路径闭环（纯流式 drain-home / Hold 态 3s 兜底移交 reset / 流错误停止）；`paused_` 冻结闸在任何 quiescence 等待前清除（测试 `test_abort_homes_with_hold_snapshot` 源码序钉死）；G92 快照先于 `SendAbortReset` 且 `HomeAfterAbort` 不重读 MPos。**未发现悬挂路径**。
-- **指纹门禁 fail-closed**：draw/confirm/repeat/manual/pen_test/Run 内重检/断连恢复七处入口全判 `IsSettingsVerified()`；golden 13 项与 protocol §6.1 逐项一致（主代理亲比 Grbl `kLockedKeys` 13 键 = S3 `kGrblSettingGoldens` 13 项 = §6.1 表）。
+- **指纹门禁 fail-closed**：draw/confirm/repeat/manual/pen_test/Run 内重检/断连恢复七处入口全判 `IsSettingsVerified()`；golden 13 项与 protocol §6.1 逐项一致（主代理亲比：评审时 Grbl `kLockedKeys` 13 键 = S3 `kGrblSettingGoldens` 13 项 = §6.1 表；R1 修复后 `kLockedKeys` 扩为 25 键 = 13 数字名 + 12 长名别名，锁定的**逻辑设置集合不变**，S3 指纹侧 13 项不动）。
 - **§9-E′ CAS**：`std::atomic<bool>` + `compare_exchange_strong` test-and-set，四调用者（[ESP910]/M30/M721/BT）全收口，败者回 `MessageFailed(90)` 不碰 GPIO——与 protocol.md:515 描述一致。
 - **AdoptPrefetch（67507c6）**：旧 PSRAM buffer 先释放再接管，测试 `test_prefetch_adopt_frees_old_psram_buffer` 钉死。
 - **host 测试**：行为型（编译运行真 C++ 断言）+ 源码序钉型互补；抽查未发现钉在注释/死代码上的假断言。
@@ -36,3 +36,9 @@
 ## 流程记录
 
 - 两轮评审代理均撞 30 分钟运行上限（`task.maxRuntimeMs=1800000`）被杀；OMP watchdog 本会话对活跃 agent 持续误报 stale（已报 xd://report_issue）；收割-收尾两段式为应对措施，效果验证可行（收尾代理 3m14s/17m46s 完成）。
+
+## 修复批记录（2026-08-31 下午，R1/R2 两项用户批准后执行）
+
+- **R1 修复**：Grbl `8f3e7d6`（`fix/panel-hold-after-align-116687e`）。`kLockedKeys` 由 13 键扩至 25 键（补 12 长名，行号见上表）；`strcasecmp`/`strings.h` 换为本地 ASCII 折叠 `hutuji_key_equals_ignore_case()`——附带修复 `40616de` 引入的宿主编译断（Windows clang/MSVC 目标无 `<strings.h>`，fz protocol_scenarios/native_model/native_units 三层曾全断，2026-08-31 复现于 R1 验证期）。验证：g++ 16.1 行为测试 40 断言全过（长名/数字名/大小写/前后缀/空键）；clang++ 22.1.8 `-fsyntax-only` 过；**fz standard overall=pass**（PATH 前置 LLVM 22.1.8，exit 0；唯一 fail 层 `wokwi_startup` 属 `_soft_fail_ids` 不阻断 overall——云仿真 30s 超时，用的还是修复前 pio 旧镜像）。**注意：COM13/COM14 板上固件仍是修复前镜像，长名守卫要下次刷机才生效。**
+- **R2 补录**：hub 侧提交见 git log。`grbl_section9_only` 并入 `GCode.cpp`；新增 `grbl_user_authorized_extras`（`WebUI/WifiConfig.cpp` + `Machines/custom_3axis_hr4988.h`）；`agent_gate.py` 精确契约（必含键 + 精确等值列表）同步，`test_contract.py:7193` 弱化判红夹具同步。AGENTS.md 硬轨枚举补齐 §9-F′/§9-G′ 归属。
+- **遗留**：R4/R5 注释措辞、R6 上报文档明示未做（均 P3，待用户逐项批准）。

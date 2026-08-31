@@ -76,7 +76,7 @@ ALLOWLIST_REQUIRED_KEYS = [
     "description",
     "decision_count",
     "grbl_section9_only",
-    "grbl_core_headers_restore_only",
+    "grbl_user_authorized_extras",
     "grbl_forbidden_symbols",
     "grbl_forbidden_intents",
     "hub_safe_doc_globs",
@@ -94,8 +94,18 @@ ALLOWLIST_EXACT = {
         "Grbl_Esp32/src/Protocol.cpp",
         "Grbl_Esp32/src/ProtocolDecisionCore.h",
         "Grbl_Esp32/src/ProcessSettings.cpp",
+        "Grbl_Esp32/src/GCode.cpp",
         "Grbl_Esp32/src/WebUI/BTConfig.cpp",
         "Grbl_Esp32/src/WebUI/WebSettings.cpp",
+    ],
+    # findings #30 R2（2026-08-31 用户批准补录）：两个 §9 清单外但有用户点名授权
+    # 记录的触面——WifiConfig.cpp（0e1b7ed commit 内记 2026-08-24 用户点名批准
+    # 「grbl 不需要省电」）、custom_3axis_hr4988.h（7f48217，release-readiness
+    # 记用户原话要求 $1=255 进固件 + fz standard pass）。GCode.cpp 属 §9-F′
+    # 契约命名（protocol.md §9 表），已并入 grbl_section9_only。
+    "grbl_user_authorized_extras": [
+        "Grbl_Esp32/src/WebUI/WifiConfig.cpp",
+        "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h",
     ],
     "grbl_core_headers_restore_only": [
         "Grbl_Esp32/src/LicenseCore.h",
