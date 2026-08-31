@@ -99,7 +99,13 @@ def _ocr(png: bytes) -> str:
     import ddddocr
 
     if not hasattr(_ocr, "_engine"):
-        _ocr._engine = ddddocr.DdddOcr(show_ad=False)  # type: ignore[attr-defined]
+        engine = ddddocr.DdddOcr(show_ad=False)
+        # 2026-08-31 阿里云 selftest 实证：不限字符集会把英文字符误识为
+        # 中文（'子xKc'）；svg-captcha 只用字母数字，限定字符集消除该类失败。
+        engine.set_ranges(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        )
+        _ocr._engine = engine  # type: ignore[attr-defined]
     return _ocr._engine.classification(png)  # type: ignore[attr-defined]
 
 
