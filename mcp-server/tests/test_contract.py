@@ -6144,6 +6144,14 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     assert "ExecStartPre 顺序与模板不一致" in preflight_code
 
 
+def _refresh_script_line_idx(lines: list[str], pred, start: int = 0) -> int:
+    """返回首个满足 pred 的行号；找不到即断言失败（refresh 钩子形状测试专用）。"""
+    for i in range(start, len(lines)):
+        if pred(lines[i]):
+            return i
+    raise AssertionError("refresh 脚本形状漂移：定位行缺失")
+
+
 def test_refresh_token_peer_hook_is_subshell_isolated_under_set_u() -> None:
     """对端同步钩子在 set -euo pipefail 下不许外溢退出码（token churn 防线）。
 
@@ -6171,6 +6179,16 @@ def test_refresh_token_peer_hook_is_subshell_isolated_under_set_u() -> None:
     assert "exit 0" in hook[guard:guard + 300]
     # 钩子块内禁止任何非零退出路径。
     assert "exit 1" not in hook
+    # 行号序钉死位置关系（子串断言的盲区）：source 挪出子壳、或钩子 fi 之后
+    # 追加带 exit 的逻辑时，上面各条照样全绿——必须按行序裁决。
+    lines = script.splitlines()
+    i_env = _refresh_script_line_idx(lines, lambda l: "PEER_ENV=/etc/hutuji/token-peer.env" in l)
+    i_open = _refresh_script_line_idx(lines, lambda l: l.strip() == "(", i_env)
+    i_src = _refresh_script_line_idx(lines, lambda l: '. "$PEER_ENV"' in l, i_open)
+    i_close = _refresh_script_line_idx(lines, lambda l: l.strip().startswith(") || echo"), i_src)
+    i_fi = _refresh_script_line_idx(lines, lambda l: l.strip() == "fi", i_close)
+    i_ok = _refresh_script_line_idx(lines, lambda l: 'echo "OK: token 已更换' in l)
+    assert i_env < i_open < i_src < i_close < i_fi < i_ok
     # 脚本必须收在成功出口：钩子在它之前，任何钩子路径都汇到这里。
     assert script.rstrip().endswith('echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"')
 
@@ -6197,6 +6215,20 @@ def test_refresh_token_kb_admin_interconnect_is_subshell_isolated() -> None:
     assert "unit 不在场，未重启" in kb
     # 块内禁止非零退出路径。
     assert "exit 1" not in kb
+    # 行号序：存在性闸 → 子壳 → 写入 → unit 判定 → 兜底关闭 → fi → 成功出口；
+    # 且最后一个 fi 与成功出口之间不得出现 exit（防钩子后追加带退出的逻辑）。
+    lines = script.splitlines()
+    i_env = _refresh_script_line_idx(lines, lambda l: "KB_ENV=/etc/hutuji/kb-admin.env" in l)
+    i_if = _refresh_script_line_idx(lines, lambda l: 'if [[ -f "$KB_ENV" ]]' in l, i_env)
+    i_open = _refresh_script_line_idx(lines, lambda l: l.strip() == "(", i_if)
+    i_sed = _refresh_script_line_idx(lines, lambda l: 'sed -i "s|^XIAOZHI_TOKEN' in l, i_open)
+    i_cat = _refresh_script_line_idx(lines, lambda l: "systemctl cat hutuji-kb-admin.service" in l, i_sed)
+    i_restart = _refresh_script_line_idx(lines, lambda l: "systemctl restart hutuji-kb-admin" in l, i_cat)
+    i_close = _refresh_script_line_idx(lines, lambda l: l.strip().startswith(") || echo"), i_restart)
+    i_fi = _refresh_script_line_idx(lines, lambda l: l.strip() == "fi", i_close)
+    i_ok = _refresh_script_line_idx(lines, lambda l: 'echo "OK: token 已更换' in l)
+    assert i_env < i_if < i_open < i_sed < i_cat < i_restart < i_close < i_fi < i_ok
+    assert not any(re.search(r"\bexit\b", line) for line in lines[i_fi:i_ok])
 
 
 

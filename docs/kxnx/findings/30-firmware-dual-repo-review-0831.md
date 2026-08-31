@@ -40,5 +40,5 @@
 ## 修复批记录（2026-08-31 下午，R1/R2 两项用户批准后执行）
 
 - **R1 修复**：Grbl `8f3e7d6`（`fix/panel-hold-after-align-116687e`）。`kLockedKeys` 由 13 键扩至 25 键（补 12 长名，行号见上表）；`strcasecmp`/`strings.h` 换为本地 ASCII 折叠 `hutuji_key_equals_ignore_case()`——附带修复 `40616de` 引入的宿主编译断（Windows clang/MSVC 目标无 `<strings.h>`，fz protocol_scenarios/native_model/native_units 三层曾全断，2026-08-31 复现于 R1 验证期）。验证：g++ 16.1 行为测试 40 断言全过（长名/数字名/大小写/前后缀/空键）；clang++ 22.1.8 `-fsyntax-only` 过；**fz standard overall=pass**（PATH 前置 LLVM 22.1.8，exit 0；唯一 fail 层 `wokwi_startup` 属 `_soft_fail_ids` 不阻断 overall——云仿真 30s 超时，用的还是修复前 pio 旧镜像）。**当日已刷 COM13**（pio release，固件 1858432B，SHA-256 `270d8c84…311b60`，Hash of data verified）并经串口 HIL 验证长名/数字名双拒、读与非锁定写不受影响（证据 `results/local-only/2026-08-31/grbl-g-prime-longname-guard-com13.log`）。
-- **R2 补录**：hub 侧提交见 git log。`grbl_section9_only` 并入 `GCode.cpp`；新增 `grbl_user_authorized_extras`（`WebUI/WifiConfig.cpp` + `Machines/custom_3axis_hr4988.h`）；`agent_gate.py` 精确契约（必含键 + 精确等值列表）同步，`test_contract.py:7249` 弱化判红夹具同步。AGENTS.md 硬轨枚举补齐 §9-F′/§9-G′ 归属。
+- **R2 补录**：hub 侧提交见 git log。`grbl_section9_only` 并入 `GCode.cpp`；新增 `grbl_user_authorized_extras`（`WebUI/WifiConfig.cpp` + `Machines/custom_3axis_hr4988.h`）；`agent_gate.py` 精确契约（必含键 + 精确等值列表）同步，`test_contract.py:7281` 弱化判红夹具同步。AGENTS.md 硬轨枚举补齐 §9-F′/§9-G′ 归属。
 - **遗留**：R4/R5/R6 已于 2026-08-31 下午全部处置（用户「全部批准」）；R7 裁决即「无改动」。findings #30 全部条目闭环。
