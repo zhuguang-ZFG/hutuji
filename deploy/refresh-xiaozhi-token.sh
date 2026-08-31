@@ -2,7 +2,8 @@
 # 一键更换小智控制台 JWT（看门狗报警或人工例行刷新时使用）：
 #   /opt/hutuji/deploy/refresh-xiaozhi-token.sh '<new-token>'
 # 无参则交互读取。流程：形状校验 → 线上验证（GET /agents 必须 200）→
-# 备份并原子更新 /etc/hutuji/mcp.env → 重启 hutuji-mcp → /register 探针。
+# 备份并原子更新 /etc/hutuji/mcp.env → 重启 hutuji-mcp → /register 探针
+# → 对端钩子（token-peer.env 在场时）→ kb-admin token 互联（kb-admin.env 在场时）。
 # 退出码：0 成功；1 验证/探针失败；2 用法或形状错误。
 set -euo pipefail
 
@@ -77,5 +78,28 @@ if [[ -f "$PEER_ENV" ]]; then
       echo "WARN: 对端（$PEER_HOST）同步失败，其对端看门狗将报警，需人工补同步" >&2
     fi
   ) || echo "WARN: 对端同步钩子异常退出，已跳过（对端看门狗兜底报警）" >&2
+fi
+# kb-admin token 互联（2026-08-31）：kb-admin.env 持同一控制台 JWT 用于 KB 发布；
+# 重签互踢旧会话后若不同步，KB 发布当场 401「Session expired or logged out」
+# （当日 16:15 实证 83 条 FAQ 发布失败）。仅阿里云装 kb-admin；京东云无该文件
+# 自然跳过。同钩子纪律：子壳隔离，任何失败不外溢退出码。
+KB_ENV=/etc/hutuji/kb-admin.env
+if [[ -f "$KB_ENV" ]]; then
+  (
+    if grep -q '^XIAOZHI_TOKEN=' "$KB_ENV"; then
+      # JWT 只含 base64url 字符，| 作分隔符安全（同 mcp.env 写法）。
+      sed -i "s|^XIAOZHI_TOKEN=.*|XIAOZHI_TOKEN=$NEW|" "$KB_ENV"
+    else
+      printf 'XIAOZHI_TOKEN=%s\n' "$NEW" >> "$KB_ENV"
+    fi
+    chmod 600 "$KB_ENV"
+    # unit 不在场（未装机节点）只写文件不重启；restart 失败由子壳外 || 兜底成 WARN。
+    if systemctl cat hutuji-kb-admin.service >/dev/null 2>&1; then
+      systemctl restart hutuji-kb-admin
+      echo "OK: kb-admin token 已同步并重启"
+    else
+      echo "OK: kb-admin token 已同步（unit 不在场，未重启）"
+    fi
+  ) || echo "WARN: kb-admin token 同步失败，KB 发布将保持 401，需人工补同步" >&2
 fi
 echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"

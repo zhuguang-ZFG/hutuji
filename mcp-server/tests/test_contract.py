@@ -6174,6 +6174,31 @@ def test_refresh_token_peer_hook_is_subshell_isolated_under_set_u() -> None:
     # 脚本必须收在成功出口：钩子在它之前，任何钩子路径都汇到这里。
     assert script.rstrip().endswith('echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"')
 
+def test_refresh_token_kb_admin_interconnect_is_subshell_isolated() -> None:
+    """kb-admin token 互联同样不许外溢退出码（KB 发布 401 防线）。
+
+    kb-admin.env 持同一控制台 JWT 做 KB 发布；2026-08-31 16:15 实证重签互踢旧会话
+    后未同步 → 83 条 FAQ 发布 401「Session expired or logged out」。互联块必须：
+    仅在 kb-admin.env 在场时启用（京东云无此文件自然跳过）、子壳隔离、unit 不在场
+    只写文件不重启、任何失败仅 WARN 不翻盘主流程退出码。
+    """
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "deploy" / "refresh-xiaozhi-token.sh").read_text(encoding="utf-8")
+
+    kb = script[script.index("KB_ENV=/etc/hutuji/kb-admin.env"):script.index('echo "OK: token 已更换')]
+
+    # 存在性闸 + 子壳包裹 + || 兜底。
+    assert 'if [[ -f "$KB_ENV" ]]' in kb
+    assert "(\n" in kb and ") || echo" in kb
+    # 写入目标键正确，与 mcp.env 同款 sed 写法（base64url 无 |，分隔符安全）。
+    assert 'sed -i "s|^XIAOZHI_TOKEN=.*|XIAOZHI_TOKEN=$NEW|"' in kb
+    # unit 不在场只写文件不重启（京东云/未装机节点安全）。
+    assert "systemctl cat hutuji-kb-admin.service" in kb
+    assert "unit 不在场，未重启" in kb
+    # 块内禁止非零退出路径。
+    assert "exit 1" not in kb
+
+
 
 def test_preflight_pins_running_nginx_to_deployed_config() -> None:
     """「配置文件与模板一致」证不到「在跑的 nginx 读了它」。
