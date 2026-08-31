@@ -588,16 +588,27 @@ class _FakeWifiSerial:
     """最小假串口：每次 write 触发下一条预置应答进入缓冲区，read 按 pyserial 语义
     只吐当前可用字节（可少于请求数，fragment_size 可强制分片）。记录打开参数供断言。"""
 
-    def __init__(self, port, timeout, write_timeout, responses, fragment_size=None):
-        self.port = port
-        self.timeout = timeout
-        self.write_timeout = write_timeout
+    def __init__(self, responses, fragment_size=None):
+        # 闭构造形态：脚本先 Serial() 再逐个属性赋值、最后 open()（pyserial 语义）。
+        self.port = None
+        self.baudrate = None
+        self.timeout = None
+        self.write_timeout = None
+        self.dtr = None
+        self.rts = None
+        self.is_open = False
         self._responses = list(responses)
         self._buffer = b""
         # 模拟 TCP/USB 分片：单次 read 最多吐这么多字节（None = 一次全给）。
         self._fragment_size = fragment_size
         self.written: list[bytes] = []
         self.closed = False
+
+    def open(self):
+        self.is_open = True
+
+    def reset_input_buffer(self):
+        self._buffer = b""
 
     @property
     def in_waiting(self) -> int:
@@ -629,9 +640,10 @@ class _FakeWifiSerialModule:
         self._fragment_size = fragment_size
         self.opened: list[_FakeWifiSerial] = []
 
-    def Serial(self, port, baud, timeout=None, write_timeout=None):
-        """名字须与 pyserial 一致，故不按本仓函数命名风格改小写。"""
-        ser = _FakeWifiSerial(port, timeout, write_timeout, self._responses, self._fragment_size)
+    def Serial(self, *args, **kwargs):
+        """名字须与 pyserial 一致，故不按本仓函数命名风格改小写。脚本走闭构造
+        （Serial() 后逐属性赋值再 open()），参数一律忽略。"""
+        ser = _FakeWifiSerial(self._responses, self._fragment_size)
         self.opened.append(ser)
         return ser
 
@@ -662,6 +674,11 @@ def test_wifi_setup_serial_write_is_bounded(monkeypatch):
         "Serial 必须带 write_timeout：无上限的阻塞写会把配网脚本挂死"
     )
     assert fake.opened[0].closed, "退出路径必须关串口"
+    assert fake.opened[0].dtr is False and fake.opened[0].rts is False, (
+        "CH340 板 DTR/RTS 直连 IO0/EN：配网脚本必须恒 False，否则开端口即复位、"
+        "boot banner 冲掉首条命令应答（2026-08-31 新机 COM13 实测中止）"
+    )
+    assert fake.opened[0].is_open, "闭构造后必须显式 open()"
 
 
 def test_wifi_setup_read_assembles_fragmented_response(monkeypatch, capsys):

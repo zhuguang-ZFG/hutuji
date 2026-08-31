@@ -166,7 +166,19 @@ def main() -> int:
         return 1
 
     try:
-        s = serial.Serial(args.port, args.baud, timeout=3, write_timeout=SERIAL_WRITE_TIMEOUT_S)
+        # 闭构造再 open：CH340 板 DTR/RTS 直连 IO0/EN，构造即开会拉起控制线
+        # 触发复位、boot banner 冲掉首条命令应答（2026-08-31 新机 COM13 实测
+        # ESP100 处中止）。与只读查询工具同口径：dtr/rts 恒 False。
+        s = serial.Serial()
+        s.port = args.port
+        s.baudrate = args.baud
+        s.timeout = 3
+        s.write_timeout = SERIAL_WRITE_TIMEOUT_S
+        s.dtr = False
+        s.rts = False
+        s.open()
+        s.dtr = False
+        s.rts = False
     except (serial.SerialException, OSError) as exc:
         # 坏端口/被占用/无权限：白话报错，退出码 1（与既有串口错误口径一致）。
         print(f"无法打开串口 {args.port}：{exc}", file=sys.stderr)
@@ -174,6 +186,8 @@ def main() -> int:
 
     try:
         time.sleep(0.5)
+        # 兜底清缓冲：即便控制线纪律失效吃了复位 banner，也不让它冒充首条命令应答。
+        s.reset_input_buffer()
         failures: list[str] = []
 
         def send_cmd(cmd: str, desc: str) -> bool:
