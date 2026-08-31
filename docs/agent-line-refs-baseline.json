@@ -1,5 +1,5 @@
 {
-  "git_head": "0e017a7fc364e26225b8c505ad31dc04e82f6a4a",
+  "git_head": "25ee3c786ead79d3e10f5acf62900719710d9585",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -457,8 +457,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:139-141": {
-      "sha8": "96fcc72c",
-      "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1127 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 二十三个测试文件职责（当前共 **1127 项**）：`test_contract.py` **618** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归（含 preflight **33** 项形状钉死）、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01、§9-G′ 长名锁表↔§6.1 golden 13 项集合精确相等交叉钉 R17-XREPO-02——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）、`/internal/draw` loopback+共享密钥闸/请求校验/错误映射、chain_push 分键与强制同步）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **94** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏、KB `文档已存在` 幂等）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_draw_queue.py` **23** 项（Redis/memory 队列 attach/enqueue/限深/worker 消费、_decide_attach 决策矩阵、inflight 残留 replace 与 NX 冲突重判回归、worker 优雅停机——stop 事件迭代边界退出/画途中跑完当前 job、main 接线子进程回归、chain_push 标志分键/旧 payload 缺省 True/Redis inflight 双键隔离）；`test_output_store.py` **2** 项（本地/OSS 产物读写与 §5 复核）；`test_breaker.py` **4** 项（Phase-3 通道熔断 shadow/enforce、Redis 扫描跳过 samples ZSET）；`test_job_ledger.py` **5** 项（Postgres 账本后台写，无 DSN 禁用）；`test_queue_metrics.py` **1** 项（队列指标 JSON 日志）；`test_portal_settings.py` **4** 项（运营后台 image_racers 下发）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）；`test_xiaozhi_token_auto.py` **26** 项（控制台 JWT 自动登录器：env 解析/token 形状闸/OCR 形状闸先于登录提交/失败换码重试环/全败抛错/token 只走 argv 不上日志/--selftest 无凭据自检）。",
+      "sha8": "ac17f489",
+      "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1128 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 二十三个测试文件职责（当前共 **1128 项**）：`test_contract.py` **619** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归（含 preflight **33** 项形状钉死）、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01、§9-G′ 长名锁表↔§6.1 golden 13 项集合精确相等交叉钉 R17-XREPO-02——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）、`/internal/draw` loopback+共享密钥闸/请求校验/错误映射、chain_push 分键与强制同步、refresh 对端同步钩子 set -u 子壳隔离形状钉死）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **94** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏、KB `文档已存在` 幂等）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_draw_queue.py` **23** 项（Redis/memory 队列 attach/enqueue/限深/worker 消费、_decide_attach 决策矩阵、inflight 残留 replace 与 NX 冲突重判回归、worker 优雅停机——stop 事件迭代边界退出/画途中跑完当前 job、main 接线子进程回归、chain_push 标志分键/旧 payload 缺省 True/Redis inflight 双键隔离）；`test_output_store.py` **2** 项（本地/OSS 产物读写与 §5 复核）；`test_breaker.py` **4** 项（Phase-3 通道熔断 shadow/enforce、Redis 扫描跳过 samples ZSET）；`test_job_ledger.py` **5** 项（Postgres 账本后台写，无 DSN 禁用）；`test_queue_metrics.py` **1** 项（队列指标 JSON 日志）；`test_portal_settings.py` **4** 项（运营后台 image_racers 下发）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）；`test_xiaozhi_token_auto.py` **26** 项（控制台 JWT 自动登录器：env 解析/token 形状闸/OCR 形状闸先于登录提交/失败换码重试环/全败抛错/token 只走 argv 不上日志/--selftest 无凭据自检）。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -542,8 +542,8 @@
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:175": {
-      "sha8": "8bbc2ddb",
-      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1127** 项（2026-08-30 停机宽限批 +1：worker unit TimeoutStopSec 形状钉死；2026-08-30 优雅停机批 +3：test_draw_queue.py 17→20，worker stop 事件迭代边界退出/画途中跑完当前 job/main 接线子进程回归；2026-08-30 评审修复批 +13：test_draw_queue.py 4→17，_decide_attach 决策矩阵 + Redis inflight 残留 replace/NX 冲突重判回归；此前 2026-08-30 高并发 Phase-1/2/3a +19：`test_draw_queue.py` 4、`test_output_store.py` 2、`test_breaker.py` 4、`test_job_ledger.py` 5、`test_queue_metrics.py` 1、`test_portal_settings.py` 4；2026-08-30 +6：`test_draw_limits_config.py` 3、`test_usage_report.py` 2、`test_field_tools.py` 92→93；2026-08-30 晚 +1：`文档已存在` 幂等；余下历史批次见 git 历史） |",
+      "sha8": "fbbd8222",
+      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1128** 项（2026-08-31 +1：refresh 对端同步钩子 set -u 子壳隔离形状钉死；2026-08-30 停机宽限批 +1：worker unit TimeoutStopSec 形状钉死；2026-08-30 优雅停机批 +3：test_draw_queue.py 17→20，worker stop 事件迭代边界退出/画途中跑完当前 job/main 接线子进程回归；2026-08-30 评审修复批 +13：test_draw_queue.py 4→17，_decide_attach 决策矩阵 + Redis inflight 残留 replace/NX 冲突重判回归；此前 2026-08-30 高并发 Phase-1/2/3a +19：`test_draw_queue.py` 4、`test_output_store.py` 2、`test_breaker.py` 4、`test_job_ledger.py` 5、`test_queue_metrics.py` 1、`test_portal_settings.py` 4；2026-08-30 +6：`test_draw_limits_config.py` 3、`test_usage_report.py` 2、`test_field_tools.py` 92→93；2026-08-30 晚 +1：`文档已存在` 幂等；余下历史批次见 git 历史） |",
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:176": {
@@ -721,7 +721,7 @@
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7193": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7224": {
       "sha8": "06efada8",
       "source": "    assert result[\"status\"] == \"pass\", result",
       "target": "mcp-server/tests/test_contract.py"
@@ -1277,6 +1277,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-08-31T06:53:41Z",
+  "updated": "2026-08-31T08:14:25Z",
   "version": 1
 }

@@ -6144,6 +6144,37 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
     assert "ExecStartPre 顺序与模板不一致" in preflight_code
 
 
+def test_refresh_token_peer_hook_is_subshell_isolated_under_set_u() -> None:
+    """对端同步钩子在 set -euo pipefail 下不许外溢退出码（token churn 防线）。
+
+    refresh 脚本以 `set -euo pipefail` 运行：token-peer.env 缺 PEER_KEY/PEER_HOST
+    或文件内引用未定义变量时，`ssh -i "$PEER_KEY"` 在 `if` 条件里照样触发
+    unbound abort 终止整个脚本——彼时本地重签探针已通过，看门狗却把成功误判为
+    失败、下轮再签造成 token churn（2026-08-31 台架实测旧版 exit=1 且主流程
+    出口不达）。形状钉死四条：子壳包裹（abort 只死子壳进程）、`${VAR:-}` 安全
+    展开、空值早退 exit 0、子壳关闭后 `|| echo WARN` 兜底。无 CI，本测试是
+    「退出码外溢」回归的唯一机器防线。
+    """
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "deploy" / "refresh-xiaozhi-token.sh").read_text(encoding="utf-8")
+
+    assert "set -euo pipefail" in script  # 前提必须仍在，否则本测试失去意义
+    hook = script[script.index("PEER_ENV=/etc/hutuji/token-peer.env"):script.index('echo "OK: token 已更换')]
+
+    # 子壳包裹 + 兜底：unbound abort 只终止子壳，外层 || 接住且仅外溢 WARN。
+    assert "(\n" in hook and ") || echo" in hook
+    # set -u 安全展开先于一切使用；ssh 行自身只引用已归一变量。
+    assert "PEER_KEY=${PEER_KEY:-}" in hook
+    assert "PEER_HOST=${PEER_HOST:-}" in hook
+    # 空值早退必须是 exit 0：缺配置是「没装钩子」，不是失败。
+    guard = hook.index('[[ -z "$PEER_KEY" || -z "$PEER_HOST" ]]')
+    assert "exit 0" in hook[guard:guard + 300]
+    # 钩子块内禁止任何非零退出路径。
+    assert "exit 1" not in hook
+    # 脚本必须收在成功出口：钩子在它之前，任何钩子路径都汇到这里。
+    assert script.rstrip().endswith('echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"')
+
+
 def test_preflight_pins_running_nginx_to_deployed_config() -> None:
     """「配置文件与模板一致」证不到「在跑的 nginx 读了它」。
 
