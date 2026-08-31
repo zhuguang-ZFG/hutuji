@@ -11,14 +11,14 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### 小智控制台登录自动化调研（2026-08-31，纯调研无代码改动）
+### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
 
 | 项 | 说明 |
 |----|------|
 | 动机 | 用户问「控制台 token 过期能否自动获取、账号能否放 VPS」 |
 | 前端证据 | `xiaozhi.me/console` 现行 bundle：`GET /auth/captcha` 返回 **SVG 文本验证码**（svg-captcha 类，cookie `captcha` 键控）；`POST /auth/login` 体 `{username,password,captcha_code}`；登录应答 `data.token`/`data.user`；无 refresh/API key 面 |
 | OCR 可行性实测 | 本机 5 样本：SVG→PNG（resvg-py）→ddddocr，3 全对 1 差大小写 1 错 1 字符（单次约 60–80%，重试环可收敛）；证据 `tmp/tmp_cap_{0..3}.{svg,png}`、`tmp/tmp_captcha_probe.{bin,png}`（本机不入库）；临时 venv `tmp/capocr_venv/` |
-| 结论 | 技术可行：看门狗 401 → 自动登录（OCR 重试 ≤5 轮）→ 复用 `refresh-xiaozhi-token.sh` 写回；安全取舍（主账号口令落 VPS）**待用户拍板**，未实施 |
+| 结论 | 技术可行且**已实施**（同日用户拍板全自动，仓 `ebdcce3` 已推已上阿里云）：看门狗 401 → `deploy/xiaozhi-token-auto.py` OCR 登录（重试 ≤5 轮）→ 复用 `refresh-xiaozhi-token.sh` 写回；凭据 `/etc/hutuji/xiaozhi-login.env`（600，**口令待用户人工填**）；部署脚本 `tmp/deploy_token_auto_0831.py`（不入库）；详见 `docs/deployment.md` 首条 |
 
 ### 网页「文字生图」入口批（2026-08-31，已提交 `30eb2e0` 并双机部署）
 
