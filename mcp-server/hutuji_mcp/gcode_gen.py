@@ -281,8 +281,13 @@ def _vpype_cmd() -> list[str]:
     return [sys.executable, "-m", "vpype_cli"]
 
 
-def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
-    """构造固定 vpype 管线，供同步和可取消异步入口共用。"""
+def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> list[str]:
+    """构造固定 vpype 管线，供同步和可取消异步入口共用。
+
+    normalize=False（写字排版链专用）跳过 layout：文字页版式由 write_text 按
+    190x190mm 自排，layout 的等比缩放会让「字号」随每页内容量漂移（多页字大小不一）。
+    跳过版式后限幅完全交给 validate_gcode 的 X/Y<=190 逐行闸。
+    """
     return _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
@@ -294,8 +299,10 @@ def _vpype_command(svg_path: Path, gcode_path: Path) -> list[str]:
         # 真正危险的只剩两点重合（宽=高=0 → scale=inf → 坐标 inf，由
         # validate_gcode「无法解析」闸 fail-closed）。改 layout 调用方式或升级
         # numpy/vpype 前必须先证明零跨度几何仍被正确处理。
-        "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
-        f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
+        *((
+            "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
+            f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
+        ) if normalize else ()),
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
         "linemerge", "--tolerance", f"{LINEMERGE_TOLERANCE_MM}mm",
         "linesort",
@@ -498,11 +505,11 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
     return _read_generated_gcode(gcode_path)
 
 
-async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path) -> GcodeStats:
+async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normalize: bool = True) -> GcodeStats:
     """可取消地运行 vpype；请求取消或超时都必须回收子进程。"""
     try:
         process = await asyncio.create_subprocess_exec(
-            *_vpype_command(svg_path, gcode_path),
+            *_vpype_command(svg_path, gcode_path, normalize),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -550,10 +557,13 @@ async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path) -> Gco
     return _read_generated_gcode(gcode_path)
 
 
-async def svg_to_gcode_async(svg_path: Path, gcode_path: Path) -> GcodeStats:
-    """可取消地运行 vpype；最多两个子进程并发，取消时仍回收已启动进程。"""
+async def svg_to_gcode_async(svg_path: Path, gcode_path: Path, normalize: bool = True) -> GcodeStats:
+    """可取消地运行 vpype；最多两个子进程并发，取消时仍回收已启动进程。
+
+    normalize=False 仅写字排版链使用（跳过 layout 保字号），其余调用方不得传。
+    """
     async with _vpype_semaphore():
-        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path)
+        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path, normalize)
 
 
 def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:

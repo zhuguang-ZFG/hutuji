@@ -1,0 +1,392 @@
+"""奎享单线字库 → 分页排版 → SVG 文本流。
+
+设计要点（坐标系已实测钉死，勿改）：
+- 字形 Y 轴向上为负（baseline=0，字身主体在负半区），与 SVG「Y 向下」天然同向：
+  svg_y = baseline_y + glyph_y * scale，无需翻转（2026-08-31 如果梦万国库实测：
+  「A」Y[-324,+7]、「g」Y[-224,+145]）。
+- 本地字体全是 v<9，meta 无 top/bottom/advance——em 高与全宽字宽用探针字形实测
+  （默认探针「永」（高）与「国」（宽）），不引 meta.size（方正兰亭=300 与字身 522 不符）。
+- 笔画起笔可为负 X（行书出锋），相邻字墨区轻微交叠属字库设计，advance 用全宽+字距，
+  不做 ink-box 紧贴。
+
+排版规则（中文文章）：
+- 页区 = (190-左右边距) × (190-上下边距) mm（§5 限幅 X/Y≤190 是硬线）
+- \n 分段，段首缩进 2 个全宽字；CJK 任意折行，拉丁按空格折行、长词硬断
+- 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——回退并入上一行末（允许略超宽）
+- 缺字：按半宽空格占位并记入 missing_chars
+- 分页：行写满页高即切页；每页一份独立 SVG（多页 G-code 下发属 S3 侧后续）
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass, field
+
+from .gfont import GfontError, GfontFile, GlyphData, glyph_advance, glyph_to_polylines
+
+# §5 硬限幅（gcode_gen.MAX_X_MM/MAX_Y_MM 同源；此处自守不 import 防循环）
+_PAGE_LIMIT_MM = 190.0
+
+# 行首禁排标点（避头）；行尾禁排开标点（避尾）
+_NO_LINE_START = set("，。！？；：、）】》」』”’…—·～％")
+_NO_LINE_END = set("（【《「『“‘")
+_CJK_RE = re.compile(r"[㐀-鿿豈-﫿＀-￯]")
+
+_PROBE_HEIGHT_CHAR = "永"
+_PROBE_WIDTH_CHAR = "国"
+
+
+class WriteTextError(Exception):
+    """写字排版失败（字体缺失/参数越界/页面溢出前置校验）。"""
+
+
+@dataclass
+class WriteLayout:
+    """排版参数；默认值按 190×190 页区手写字体验定。"""
+
+    size_mm: float = 8.0  # CJK 字高目标（mm）
+    line_spacing: float = 1.6  # 行距倍数（相对 size_mm）
+    char_gap_mm: float = 0.8  # 字距（mm，加在步进后）
+    margin_left_mm: float = 8.0
+    margin_right_mm: float = 8.0
+    margin_top_mm: float = 8.0
+    margin_bottom_mm: float = 8.0
+    paragraph_indent: int = 2  # 段首缩进全宽字数
+
+    def validate(self) -> None:
+        if not 2.0 <= self.size_mm <= 40.0:
+            raise WriteTextError(f"字号越界：{self.size_mm}（允许 2–40mm）")
+        if not 1.0 <= self.line_spacing <= 3.0:
+            raise WriteTextError(f"行距越界：{self.line_spacing}（允许 1.0–3.0）")
+        if not 0.0 <= self.char_gap_mm <= self.size_mm:
+            raise WriteTextError(f"字距越界：{self.char_gap_mm}")
+        for name in ("margin_left_mm", "margin_right_mm", "margin_top_mm", "margin_bottom_mm"):
+            if getattr(self, name) < 0.0:
+                raise WriteTextError(f"页边距非法：{name}={getattr(self, name)}")
+        if self.text_width_mm <= self.size_mm:
+            raise WriteTextError("页宽不足：边距后放不下一个整字")
+        if self.text_height_mm <= self.size_mm * self.line_spacing:
+            raise WriteTextError("页高不足：边距后放不下一行")
+        if not 0 <= self.paragraph_indent <= 8:
+            raise WriteTextError(f"段首缩进越界：{self.paragraph_indent}")
+
+    @property
+    def text_width_mm(self) -> float:
+        return _PAGE_LIMIT_MM - self.margin_left_mm - self.margin_right_mm
+
+    @property
+    def text_height_mm(self) -> float:
+        return _PAGE_LIMIT_MM - self.margin_top_mm - self.margin_bottom_mm
+
+    @property
+    def line_height_mm(self) -> float:
+        return self.size_mm * self.line_spacing
+
+
+@dataclass
+class FontMetrics:
+    """探针实测的字库度量（字体单位制）。"""
+
+    em_height: float  # CJK 字身全高（永 实测 ymax-ymin）
+    full_width: float  # 全宽字墨宽（国 实测 xmax-xmin）
+    baseline_to_top: float  # 基线到字身顶（永 实测 -ymin，正数）
+
+
+def measure_font(font: GfontFile) -> FontMetrics:
+    """v<9 字库无 meta 度量，用探针字形实测；探针缺失即字库不适合排文章。"""
+    height_glyph = font.load_glyph(_PROBE_HEIGHT_CHAR)
+    width_glyph = font.load_glyph(_PROBE_WIDTH_CHAR)
+    if height_glyph is None or width_glyph is None:
+        raise WriteTextError(
+            f"字库缺探针字（{_PROBE_HEIGHT_CHAR}/{_PROBE_WIDTH_CHAR}），不适合文章排版"
+        )
+    ys = [y for chunk in height_glyph.chunks for y in chunk.points[1::2]]
+    xs = [x for chunk in width_glyph.chunks for x in chunk.points[0::2]]
+    if not ys or not xs:
+        raise WriteTextError("探针字形无笔画数据")
+    em_height = max(ys) - min(ys)
+    full_width = max(xs) - min(xs)
+    baseline_to_top = -min(ys)
+    if em_height <= 0 or full_width <= 0 or baseline_to_top <= 0:
+        raise WriteTextError("探针字形度量异常")
+    return FontMetrics(
+        em_height=em_height, full_width=full_width, baseline_to_top=baseline_to_top
+    )
+
+
+@dataclass
+class _PenStroke:
+    """一条落笔路径（页面 SVG 坐标，单位 mm）。"""
+
+    points: list[tuple[float, float]]
+
+
+@dataclass
+class LaidOutPage:
+    strokes: list[_PenStroke] = field(default_factory=list)
+    line_count: int = 0
+
+
+@dataclass
+class LayoutResult:
+    pages: list[LaidOutPage]
+    missing_chars: list[str]
+    truncated: bool  # True = 输入文本未排完（页数已达上限）
+
+
+def _is_cjk(ch: str) -> bool:
+    return bool(_CJK_RE.match(ch))
+
+
+def _tokenize(text: str) -> list[str]:
+    """折行单元：CJK 单字、拉丁连字（字母数字串）、空白、标点各自成元。"""
+    tokens: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch.isspace():
+            tokens.append(ch)
+            i += 1
+        elif _is_cjk(ch):
+            tokens.append(ch)
+            i += 1
+        elif ch.isascii() and ch.isalnum():
+            j = i
+            while j < len(text) and text[j].isascii() and text[j].isalnum():
+                j += 1
+            tokens.append(text[i:j])
+            i = j
+        else:
+            tokens.append(ch)
+            i += 1
+    return tokens
+
+
+class _GlyphCache:
+    """单字取形缓存：一字多页复用；缺字返回 None 并只记一次。"""
+
+    def __init__(self, font: GfontFile):
+        self._font = font
+        self._cache: dict[str, GlyphData | None] = {}
+        self.missing: list[str] = []
+
+    def get(self, ch: str) -> GlyphData | None:
+        if ch not in self._cache:
+            try:
+                self._cache[ch] = self._font.load_glyph(ch)
+            except GfontError:
+                self._cache[ch] = None
+            if self._cache[ch] is None and ch not in self.missing:
+                self.missing.append(ch)
+        return self._cache[ch]
+
+
+def layout_text(
+    text: str,
+    font: GfontFile,
+    metrics: FontMetrics,
+    layout: WriteLayout,
+    max_pages: int = 20,
+) -> LayoutResult:
+    """核心排版：文本 → 分页落笔路径（页面 SVG 坐标，mm）。
+
+    max_pages 是防呆上界（单篇 20 页 A4≈两万字足够）；超出截断并置 truncated。
+    """
+    layout.validate()
+    if not text.strip():
+        raise WriteTextError("文本为空")
+    if max_pages < 1:
+        raise WriteTextError("max_pages 非法")
+
+    scale = layout.size_mm / metrics.em_height
+    full_advance_mm = metrics.full_width * scale + layout.char_gap_mm
+    indent_mm = layout.paragraph_indent * full_advance_mm
+
+    cache = _GlyphCache(font)
+
+    def token_advance_mm(token: str) -> float:
+        if token == " ":
+            return full_advance_mm * 0.5
+        if len(token) == 1 and _is_cjk(token):
+            return full_advance_mm
+        width_units = 0.0
+        for ch in token:
+            if ch.isspace():
+                width_units += metrics.full_width * 0.5
+                continue
+            glyph = cache.get(ch)
+            width_units += (
+                glyph_advance(glyph) if glyph is not None else metrics.full_width * 0.5
+            )
+        return width_units * scale + layout.char_gap_mm * max(1, len(token))
+
+    def emit_glyph(strokes: list[_PenStroke], ch: str, x_origin: float, y_baseline: float) -> None:
+        glyph = cache.get(ch)
+        if glyph is None:
+            return
+        for path in glyph_to_polylines(glyph):
+            pts = [
+                (x_origin + gx * scale, y_baseline + gy * scale) for gx, gy in path
+            ]
+            if len(pts) >= 2:
+                strokes.append(_PenStroke(points=pts))
+
+    pages: list[LaidOutPage] = []
+    page = LaidOutPage()
+    max_lines_per_page = int(layout.text_height_mm // layout.line_height_mm)
+
+    def new_page() -> None:
+        nonlocal page
+        pages.append(page)
+        page = LaidOutPage()
+
+    # 逐段处理；段内折行，段首缩进
+    paragraphs = text.split("\n")
+    truncated = False
+    for para_index, paragraph in enumerate(paragraphs):
+        tokens = _tokenize(paragraph)
+        line_no_on_page = page.line_count
+        x_cursor = layout.margin_left_mm + (indent_mm if paragraph.strip() else 0.0)
+        y_baseline = (
+            layout.margin_top_mm
+            + metrics.baseline_to_top * scale
+            + line_no_on_page * layout.line_height_mm
+        )
+        # 行内暂存：避头标点需要整行回退重组，简化为「行尾溢出时把行首禁排标点并入」
+        line_tokens: list[str] = []
+        line_width = x_cursor - layout.margin_left_mm
+        line_start_x = x_cursor
+
+        def flush_line() -> bool:
+            """把暂存行落版；返回 False 表示页满需切页（调用方判 max_pages）。"""
+            nonlocal x_cursor, y_baseline, line_tokens, line_width, line_start_x
+            x = line_start_x
+            for tok in line_tokens:
+                if tok == "\t":
+                    tok = " "
+                for ch in tok:
+                    if ch.isspace():
+                        x += full_advance_mm * 0.5
+                        continue
+                    emit_glyph(page.strokes, ch, x, y_baseline)
+                    glyph = cache.get(ch)
+                    if len(tok) == 1 and _is_cjk(ch):
+                        x += full_advance_mm
+                    else:
+                        adv_units = (
+                            glyph_advance(glyph)
+                            if glyph is not None
+                            else metrics.full_width * 0.5
+                        )
+                        x += adv_units * scale + layout.char_gap_mm
+            page.line_count += 1
+            line_tokens = []
+            line_width = 0.0
+            line_start_x = layout.margin_left_mm
+            if page.line_count >= max_lines_per_page:
+                return False
+            y_baseline = (
+                layout.margin_top_mm
+                + metrics.baseline_to_top * scale
+                + page.line_count * layout.line_height_mm
+            )
+            x_cursor = layout.margin_left_mm
+            return True
+
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok in ("\r",):
+                i += 1
+                continue
+            adv = token_advance_mm(tok)
+            overflow = line_width + adv > layout.text_width_mm and line_tokens
+            # 避头：闭标点不置行首——超宽也强行并入当前行
+            if overflow and tok not in _NO_LINE_START and tok.strip():
+                if not flush_line():
+                    if len(pages) + 1 >= max_pages:
+                        truncated = True
+                        break
+                    new_page()
+                    y_baseline = layout.margin_top_mm + metrics.baseline_to_top * scale
+                line_start_x = layout.margin_left_mm
+            # 避尾：开标点是本行最后一个且下一个放不下时，随下一 token 走（自然折行已覆盖）
+            line_tokens.append(tok)
+            line_width += adv
+            i += 1
+        if truncated:
+            break
+        if line_tokens and not flush_line():
+            if len(pages) + 1 >= max_pages:
+                truncated = True
+                break
+            new_page()
+        if truncated:
+            break
+    else:
+        # 全部段落排完
+        pass
+
+    if not truncated and (page.strokes or page.line_count > 0 or not pages):
+        pages.append(page)
+    if truncated and page.strokes:
+        pages.append(page)
+
+    return LayoutResult(
+        pages=pages,
+        missing_chars=cache.missing,
+        truncated=truncated,
+    )
+
+
+def page_to_svg(page: LaidOutPage) -> str:
+    """落笔路径 → 单线 SVG（元素白名单内：仅 <svg>/<path>，属性最简）。"""
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
+        f'viewBox="0 0 190 190">'
+    ]
+    for stroke in page.strokes:
+        d = "M" + "L".join(f"{x:.3f},{y:.3f}" for x, y in stroke.points)
+        parts.append(f'<path d="{d}" fill="none" stroke="black" stroke-width="0.3"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
+    """按显示名或文件名词解析字库；name 为空时取目录中字数最多的字库。"""
+    if not fonts_dir or not os.path.isdir(fonts_dir):
+        raise WriteTextError(f"字库目录不可用：{fonts_dir or '(未配置)'}")
+    candidates = [
+        os.path.join(fonts_dir, f)
+        for f in sorted(os.listdir(fonts_dir))
+        if f.lower().endswith(".gfont")
+    ]
+    if not candidates:
+        raise WriteTextError(f"字库目录无 .gfont 文件：{fonts_dir}")
+
+    chosen: str | None = None
+    if name:
+        for path in candidates:
+            if name in os.path.basename(path):
+                chosen = path
+                break
+        if chosen is None:
+            raise WriteTextError(f"找不到字库「{name}」（目录内 {len(candidates)} 个）")
+    else:
+        best_count = -1
+        for path in candidates:
+            try:
+                font = GfontFile.parse(open(path, "rb").read())
+            except GfontError:
+                continue
+            if font.meta.declared_count > best_count:
+                best_count = font.meta.declared_count
+                chosen = path
+        if chosen is None:
+            raise WriteTextError("目录内无可用字库")
+
+    try:
+        return GfontFile.parse(open(chosen, "rb").read())
+    except GfontError as exc:
+        raise WriteTextError(f"字库解析失败：{os.path.basename(chosen)}：{exc}") from exc

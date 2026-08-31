@@ -792,6 +792,104 @@ async def hutuji_preview_svg(description: str) -> str:
     return svg[:2000]
 
 
+_WRITE_TEXT_MAX_CHARS = 5000
+
+# 字库解析缓存：单文件最大 ~10MB（42MB 目录全量），解析一次进程内复用；
+# key 是 (目录, 名字)，目录切换自然隔离。不设 LRU——字库数量以个位数计。
+_gfont_cache: dict[tuple[str, str], object] = {}
+_gfont_metrics_cache: dict[tuple[str, str], object] = {}
+
+
+async def _run_write_job(
+    text: str, font_name: str, size_mm: float, line_spacing: float,
+    char_gap_mm: float, public_base_url: str,
+) -> str:
+    """写字排版事务：奎享单线字库 → 分页 SVG → 无版式 vpype → §5 校验 → 产物。
+
+    不经 DrawLimiter（本地计算，无付费后端）；vpype 并发仍由 gcode_gen 信号量收口。
+    多页时返回 pages 数组；S3 逐页循环下发属 xiaozhi 侧后续（当前 hutuji.draw 单 url）。
+    """
+    from . import write_text
+    from .llm_svg import _validate_svg
+    from .output_store import get_output_store
+
+    cache_key = (settings.gfont_dir, font_name)
+    font = _gfont_cache.get(cache_key)
+    if font is None:
+        font = await asyncio.to_thread(write_text.load_font, settings.gfont_dir, font_name or None)
+        _gfont_cache[cache_key] = font
+    metrics = _gfont_metrics_cache.get(cache_key)
+    if metrics is None:
+        metrics = await asyncio.to_thread(write_text.measure_font, font)
+        _gfont_metrics_cache[cache_key] = metrics
+
+    layout = write_text.WriteLayout(
+        size_mm=size_mm, line_spacing=line_spacing, char_gap_mm=char_gap_mm,
+    )
+    result = await asyncio.to_thread(write_text.layout_text, text, font, metrics, layout)
+
+    store = get_output_store()
+    store.ensure_ready()
+    pages_out: list[dict] = []
+    for page_index, page in enumerate(result.pages):
+        base = _new_basename()
+        svg = write_text.page_to_svg(page)
+        _validate_svg(svg)  # 机器产物同 draw 链口径：一切进管线的 SVG 必过白名单
+        with store.job_workspace(base) as paths:
+            paths.svg_path.write_text(svg, encoding="utf-8")
+            # normalize=False：写字链版式自排，layout 会让字号随内容量漂移
+            stats = await svg_to_gcode_async(
+                paths.svg_path, paths.gcode_path, normalize=False
+            )
+            store.finalize_job(paths)
+        pages_out.append({
+            "page": page_index + 1,
+            "url": f"{public_base_url}/files/{base}.gcode",
+            "preview_url": f"{public_base_url}/files/{base}.svg",
+            "lines": stats.lines,
+            "bytes": stats.bytes,
+            "pen_lifts": stats.pen_lifts,
+            "text_lines": page.line_count,
+        })
+
+    return json.dumps({
+        "pages": pages_out,
+        "total_pages": len(pages_out),
+        "url": pages_out[0]["url"],
+        "preview_url": pages_out[0]["preview_url"],
+        "missing_chars": result.missing_chars,
+        "truncated": result.truncated,
+        "font": font.meta.display_name,
+        "size_mm": layout.size_mm,
+        "ttl_seconds": settings.output_ttl_seconds,
+    }, ensure_ascii=False)
+
+
+@mcp.tool()
+async def hutuji_write(
+    text: str, font: str = "", size_mm: float = 8.0,
+    line_spacing: float = 1.6, char_gap_mm: float = 0.8,
+) -> str:
+    """用奎享手写字库把整段文字写成字（钢笔单线手写体，非画图）。
+
+    用户说「写一封信/写一段话/抄一篇文章」时用；要画图用 hutuji_draw。
+    text 是要写的内容（\\n 分段，段首自动缩进两格，自动折行/分页/标点避头）。
+    font 字库名（留空默认字数最多的手写字库）；size_mm 字高（2–40，默认 8）；
+    line_spacing 行距倍数（默认 1.6）；char_gap_mm 字距（默认 0.8）。
+    返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字。"""
+    _report_mcp_tool("write")
+    from .write_text import WriteTextError
+
+    safe_text = text.strip()
+    if not safe_text:
+        raise WriteTextError("文本为空")
+    if len(safe_text) > _WRITE_TEXT_MAX_CHARS:
+        raise WriteTextError(f"文本超长：{len(safe_text)} 字符（上限 {_WRITE_TEXT_MAX_CHARS}）")
+    public_base_url = validate_public_base_url(settings.public_base_url)
+    return await _run_write_job(
+        safe_text, font.strip(), size_mm, line_spacing, char_gap_mm, public_base_url,
+    )
+
 @mcp.tool()
 async def hutuji_remember(key: str, value: str) -> str:
     """记住用户告诉你的事情（称呼、偏好、约定等）。

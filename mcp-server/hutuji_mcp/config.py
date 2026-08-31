@@ -129,6 +129,9 @@ class Settings:
     # import 期不探测目录存在性（生产目录由部署保证），首次 lookup 惰性确认，
     # 缺失/不可读按 miss 处理——可用性特性不加 fail-closed 面。
     quickdraw_dir: str = ""
+    # 奎享 .gfont 单线字库目录（write_text 排版链的数据根；字体为奎享专有素材，
+    # 不入库，生产经 env 指向本机目录）。空值 = hutuji_write 工具禁用并报清晰错误。
+    gfont_dir: str = ""
     # Curated SVG library (design docs/superpowers/specs/2026-08-26-curated-svg-library-design.md).
     # Empty curated_dir = disabled. curated_replace_qd only takes effect when manifest.ready.
     curated_dir: str = ""
@@ -364,6 +367,7 @@ def load_settings() -> Settings:
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
         siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
         quickdraw_dir=os.environ.get("HUTUJI_QUICKDRAW_DIR", ""),
+        gfont_dir=os.environ.get("HUTUJI_GFONT_DIR", ""),
         curated_dir=os.environ.get("HUTUJI_CURATED_DIR", ""),
         curated_replace_qd=os.environ.get("HUTUJI_CURATED_REPLACE_QD", "0").strip()
         in ("1", "true", "TRUE", "yes"),
