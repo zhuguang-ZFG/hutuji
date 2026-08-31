@@ -394,3 +394,14 @@
 | `tmp/deploy_refresh_hook_fix_0831.py`（本机不入库） | refresh 对端同步钩子双机部署器：`git add` 后取 index blob（LF 纪律）→ 标记断言（防旧版误发）→ 双机备份 + `bash -n` + sha256 相符才替换。本轮复用发布 kb-admin 互联版（标记 `PEER_KEY:-}` 仍在） |
 | `tmp/hook_test/`（本机不入库） | refresh 脚本钩子形状台架：`extract_old.py`（HEAD~1 旧钩子提取，RED 对照）+ `extract_kb.py`（现行钩子+互联段提取）从真脚本抽出打桩 ssh/systemctl 的 `hook_old.sh`/`hook_kb.sh`；bash 场景 t1–t5（set -u 旧版 RED / 新版 GREEN）与 k1–k5（kb 互联：unit 缺席只写文件不重启 / restart 失败仅 WARN 不外溢退出码 / 无 XIAOZHI_TOKEN 行则追加）实测 |
 | 验证状态 | 钩子 + 互联块形状钉死进 `test_contract.py`（1129 项）；kb 互联双机部署完成；hub 门禁 PASS（见本节提交行） |
+
+## 写字排版链批（2026-08-31 深夜，本仓 `be994ba` 已推 origin）
+
+| 文件 | 说明 |
+|---|---|
+| `mcp-server/hutuji_mcp/gfont.py`（新） | 奎享 .gfont 解析器：XXTEA-ish 头解密（密钥同 `kx/app/crates/font_gfont` Rust 参照）、v2–v9 头兼容 + 两个实测变体（方正兰亭 v6 明文头回退、u16 preview 计数）、ZIP 十进制码位字形条目、cubic 24 步细分 |
+| `mcp-server/hutuji_mcp/write_text.py`（新） | 文章排版：探针实测字库度量（em 高/全宽/基线，v<9 字库 meta 无度量）、段首缩进 2 字/标点避头/CJK 任意折行/拉丁按空格/自动分页（页区 190×190 自排，max_pages=20 防呆）、产物仅 `<path>` 单线 SVG 过 `_validate_svg` |
+| `mcp-server/hutuji_mcp/{server,config,gcode_gen}.py` | `hutuji_write` 工具（text/font/size_mm/line_spacing/char_gap_mm → pages[] 产物 URL）；`HUTUJI_GFONT_DIR` 配置（空值禁用；**字体为奎享专有素材不入库**，本机取 kdraw 安装目录）；`svg_to_gcode_async(..., normalize=False)` 跳过 vpype layout——`--fit-to-margins` 实测把内容缩放 1.07× 且随每页内容量漂移，写字链字号保真必须绕开，linemerge/linesort/linesimplify/gwrite/validate_gcode 全量继承 |
+| `mcp-server/tests/test_write_text.py`（新） | **16 项**：合成 v2 明文 gfont 夹具（不引专有字体）解析/度量/折行/避头/分页/缺字/端到端过 §5 校验；全套 **1145** 项 |
+| 验证状态 | hub 门禁 PASS（1145 + e2e + 指纹 255）；真机 HIL（2026-09-01 凌晨）：本地生成 → scp 阿里云 output → 公网双能力地址 200 → `device-call hutuji.draw` → 屏幕确认 → `开始灌流 lines=1021 xy=719` → 720/720 全发 → 页尾归位 → `<Idle>`；M30 换纸报 `error:90 缺纸/卡纸`（疑纸盒未装纸，待用户确认复测）；证据 `results/local-only/2026-08-31/{write-hil-com14.log,write-hil-draw-com14.log}` + 逐台记录同目录；预览 PNG 首版设备白屏（灰度整页细线被缩盒子采样吞没），RGB 内容裁剪加粗版可见，生成器 `tmp/make_write_preview.py`（探针工件不入库） |
+| 后续 | 多页文章的 S3 逐页循环下发（xiaozhi 侧 `hutuji.draw` 单 url 现状）属下一切片；生产部署 `hutuji_write`（代码 scp + 双机 mcp.env 加 `HUTUJI_GFONT_DIR` + 字体文件分发）未执行，用户点名前不动生产 |
