@@ -54,16 +54,28 @@ echo "ok" > /run/hutuji-token-watch.state 2>/dev/null || true
 # （只装阿里云主节点；京东云不装该文件，天然不回推成环）。自动续期重签会
 # 作废旧 token，若不推，对端看门狗下一轮必然 401 报警等人工——本钩子消掉
 # 这个固定噪音。推送失败不翻盘本地成功：对端看门狗会报警兜底。
+# 子壳隔离是硬要求：set -u 下 token-peer.env 缺 PEER_KEY/PEER_HOST 或文件内
+# 引用未定义变量会让 *整个脚本* 以非零退出——而此刻本地重签探针已通过，
+# 看门狗会把成功误判为失败、下轮再签造成 token churn。子壳死掉只影响自身，
+# 外层 || 兜底 echo，钩子任何结果都不翻盘主流程退出码。
 PEER_ENV=/etc/hutuji/token-peer.env
 if [[ -f "$PEER_ENV" ]]; then
-  # shellcheck disable=SC1090
-  . "$PEER_ENV"
-  if ssh -i "$PEER_KEY" -o BatchMode=yes -o ConnectTimeout=10 \
-       -o StrictHostKeyChecking=accept-new \
-       "root@$PEER_HOST" "set-token $NEW" >/dev/null 2>&1; then
-    echo "OK: 对端（$PEER_HOST）token 已同步"
-  else
-    echo "WARN: 对端（$PEER_HOST）同步失败，其对端看门狗将报警，需人工补同步" >&2
-  fi
+  (
+    # shellcheck disable=SC1090
+    . "$PEER_ENV"
+    PEER_KEY=${PEER_KEY:-}
+    PEER_HOST=${PEER_HOST:-}
+    if [[ -z "$PEER_KEY" || -z "$PEER_HOST" ]]; then
+      echo "WARN: $PEER_ENV 缺 PEER_KEY/PEER_HOST，跳过对端同步（对端看门狗兜底报警）" >&2
+      exit 0
+    fi
+    if ssh -i "$PEER_KEY" -o BatchMode=yes -o ConnectTimeout=10 \
+         -o StrictHostKeyChecking=accept-new \
+         "root@$PEER_HOST" "set-token $NEW" >/dev/null 2>&1; then
+      echo "OK: 对端（$PEER_HOST）token 已同步"
+    else
+      echo "WARN: 对端（$PEER_HOST）同步失败，其对端看门狗将报警，需人工补同步" >&2
+    fi
+  ) || echo "WARN: 对端同步钩子异常退出，已跳过（对端看门狗兜底报警）" >&2
 fi
 echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"
