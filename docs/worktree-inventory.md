@@ -11,6 +11,15 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### 小智控制台登录自动化调研（2026-08-31，纯调研无代码改动）
+
+| 项 | 说明 |
+|----|------|
+| 动机 | 用户问「控制台 token 过期能否自动获取、账号能否放 VPS」 |
+| 前端证据 | `xiaozhi.me/console` 现行 bundle：`GET /auth/captcha` 返回 **SVG 文本验证码**（svg-captcha 类，cookie `captcha` 键控）；`POST /auth/login` 体 `{username,password,captcha_code}`；登录应答 `data.token`/`data.user`；无 refresh/API key 面 |
+| OCR 可行性实测 | 本机 5 样本：SVG→PNG（resvg-py）→ddddocr，3 全对 1 差大小写 1 错 1 字符（单次约 60–80%，重试环可收敛）；证据 `tmp/tmp_cap_{0..3}.{svg,png}`、`tmp/tmp_captcha_probe.{bin,png}`（本机不入库）；临时 venv `tmp/capocr_venv/` |
+| 结论 | 技术可行：看门狗 401 → 自动登录（OCR 重试 ≤5 轮）→ 复用 `refresh-xiaozhi-token.sh` 写回；安全取舍（主账号口令落 VPS）**待用户拍板**，未实施 |
+
 ### 网页「文字生图」入口批（2026-08-31，已提交 `30eb2e0` 并双机部署）
 
 | 项 | 说明 |
@@ -18,7 +27,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1100** 项）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1126** 项）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 
