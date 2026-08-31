@@ -24,6 +24,7 @@
       --shadow: 0 12px 32px rgba(26, 36, 32, .08);
       --fab-glow: rgba(31, 111, 102, .35);
       --grain: rgba(26, 36, 32, .03);
+      --surface-2: #e3ece5;
       --theme-meta: #1a3a3a;
     }
     [data-theme="sky"] {
@@ -42,6 +43,7 @@
       --shadow: 0 12px 32px rgba(15, 28, 46, .1);
       --fab-glow: rgba(37, 99, 235, .4);
       --grain: rgba(15, 28, 46, .025);
+      --surface-2: #e6eef9;
       --theme-meta: #1e40af;
     }
     [data-theme="moss"] {
@@ -61,6 +63,7 @@
       --fab-glow: rgba(74, 107, 46, .38);
       --grain: rgba(28, 38, 20, .035);
       --theme-meta: #2d4a1c;
+      --surface-2: #e7eddb;
     }
     [data-theme="dusk"] {
       color-scheme: dark;
@@ -80,6 +83,7 @@
       --fab-glow: rgba(232, 168, 124, .35);
       --grain: rgba(255, 255, 255, .02);
       --theme-meta: #12151a;
+      --surface-2: #2b333f;
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -436,10 +440,10 @@
     </div>
     <div class="top-actions">
       <div class="theme-row" role="group" aria-label="界面主题">
-        <button type="button" class="theme-dot active" data-theme-set="ink" title="墨" aria-label="墨色主题"></button>
-        <button type="button" class="theme-dot" data-theme-set="sky" title="天" aria-label="天空主题"></button>
-        <button type="button" class="theme-dot" data-theme-set="moss" title="苔" aria-label="苔绿主题"></button>
-        <button type="button" class="theme-dot" data-theme-set="dusk" title="暮" aria-label="暮色主题"></button>
+        <button type="button" class="theme-dot active" data-theme-set="ink" title="墨" aria-label="墨色主题" aria-pressed="true"></button>
+        <button type="button" class="theme-dot" data-theme-set="sky" title="天" aria-label="天空主题" aria-pressed="false"></button>
+        <button type="button" class="theme-dot" data-theme-set="moss" title="苔" aria-label="苔绿主题" aria-pressed="false"></button>
+        <button type="button" class="theme-dot" data-theme-set="dusk" title="暮" aria-label="暮色主题" aria-pressed="false"></button>
       </div>
       <div id="logged-in-actions" class="user-row hidden">
         <span class="email-chip" id="user-email"></span>
@@ -458,25 +462,27 @@
         <div class="step active" id="step-1">1. 填写 QQ 邮箱</div>
         <div class="step" id="step-2">2. 验证码确认</div>
       </div>
-      <label class="field">
-        <span>QQ 邮箱 <span class="hint">仅支持 @qq.com / @foxmail.com</span></span>
-        <input id="email" type="email" inputmode="email" autocomplete="username" placeholder="name@qq.com">
-      </label>
-      <label class="field">
-        <span>密码</span>
-        <input id="password" type="password" autocomplete="current-password" placeholder="至少 8 位">
-      </label>
-      <div id="verify-box" class="hidden">
+      <form id="auth-form" novalidate>
         <label class="field">
-          <span>邮箱验证码</span>
-          <input id="verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
+          <span>QQ 邮箱 <span class="hint">仅支持 @qq.com / @foxmail.com</span></span>
+          <input id="email" type="email" inputmode="email" autocomplete="username" placeholder="name@qq.com">
         </label>
-        <button id="btn-verify" class="secondary" type="button">确认验证码并完成注册</button>
-      </div>
-      <div class="btn-row">
-        <button id="btn-login" class="primary" type="button">登录</button>
-        <button id="btn-register" class="secondary hidden" type="button">发送注册验证码</button>
-      </div>
+        <label class="field">
+          <span>密码</span>
+          <input id="password" type="password" autocomplete="current-password" placeholder="至少 8 位">
+        </label>
+        <div id="verify-box" class="hidden">
+          <label class="field">
+            <span>邮箱验证码</span>
+            <input id="verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code">
+          </label>
+          <button id="btn-verify" class="secondary" type="submit">确认验证码并完成注册</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-login" class="primary" type="submit">登录</button>
+          <button id="btn-register" class="secondary hidden" type="submit">发送注册验证码</button>
+        </div>
+      </form>
     </div>
     <div id="auth-msg" class="msg hidden"></div>
   </section>
@@ -500,8 +506,8 @@
           <li>点「绑定呼图账号」→ 扫码或输入绑定码</li>
         </ol>
       </details>
-      <p class="privacy-note" style="margin:.75rem 0 0;padding:.65rem .75rem;border-radius:10px;background:var(--surface-2,#1a2332);font-size:.8rem;line-height:1.55;color:var(--muted)">
-        <strong style="color:var(--text,#e8eef7)">隐私说明：</strong>绑定后，设备与小派的语音对话文本（不含原始录音）会经加密链路上传至呼图云，用于售后排查与产品改进，保留约 90 天。您可在账户设置中解绑以停止新对话采集；解绑不自动删除已入库历史。详见
+      <p class="privacy-note" style="margin:.75rem 0 0;padding:.65rem .75rem;border-radius:10px;background:var(--surface-2);font-size:.8rem;line-height:1.55;color:var(--muted)">
+        <strong style="color:var(--text)">隐私说明：</strong>绑定后，设备与小派的语音对话文本（不含原始录音）会经加密链路上传至呼图云，用于售后排查与产品改进，保留约 90 天。您可在账户设置中解绑以停止新对话采集；解绑不自动删除已入库历史。详见
         <a href="https://hutuji.donglicao.com/draw-upload/" style="color:var(--accent)">呼图云</a> 服务说明。
       </p>
       <label class="field consent" style="margin-top:.65rem;display:flex;gap:.5rem;align-items:flex-start;font-size:.82rem;line-height:1.45">
@@ -585,6 +591,8 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 let currentJobId = null;
 let authMode = 'login';
 let sheetOpen = false;
+// 本地预览 blob URL：不换图/不重置绝不释放，防内存泄漏
+let previewObjectUrl = null;
 
 function applyTheme(name) {
   const theme = THEMES.includes(name) ? name : 'ink';
@@ -592,7 +600,9 @@ function applyTheme(name) {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', THEME_META[theme]);
   document.querySelectorAll('.theme-dot').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.themeSet === theme);
+    const on = btn.dataset.themeSet === theme;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
 }
@@ -715,7 +725,7 @@ async function loadSaved() {
         <div class="shot-thumb"><img src="/draw-upload${it.preview_url}" alt="" loading="lazy"></div>
         <div class="shot-body">
           <div class="shot-title">${escapeHtml(it.title)}</div>
-          <div class="shot-time">${new Date(it.saved_at * 1000).toLocaleString()}</div>
+          <div class="shot-time">${new Date(it.saved_at * 1000).toLocaleString('zh-CN', { hour12: false })}</div>
           <div class="shot-actions">
             <button class="primary" data-send="${it.id}" ${it.has_gcode ? '' : 'disabled'} type="button">发送</button>
             <button class="secondary" data-del="${it.id}" type="button">删除</button>
@@ -724,17 +734,27 @@ async function loadSaved() {
       box.appendChild(card);
     }
     box.querySelectorAll('[data-send]').forEach(btn => btn.onclick = async () => {
+      // 防重：发送=推 G-code 到设备，双击不能变两次下发
+      btn.disabled = true;
       try {
         const r = await api('/draw/saved/' + btn.dataset.send + '/send', { method: 'POST' });
         showMsg($('gallery-msg'), r.status === 'sent'
           ? '已发送。请在设备屏点「开始画」确认出图'
           : ('发送失败：' + r.detail), r.status === 'sent');
       } catch (e) { showMsg($('gallery-msg'), e.message, false); }
+      finally { btn.disabled = false; }
     });
     box.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
       if (!confirm('删除这张作品？')) return;
-      await api('/draw/saved/' + btn.dataset.del, { method: 'DELETE' });
-      await loadSaved();
+      btn.disabled = true;
+      try {
+        await api('/draw/saved/' + btn.dataset.del, { method: 'DELETE' });
+        await loadSaved();
+      } catch (e) {
+        // 此前失败静默：用户以为删掉了，其实还在
+        showMsg($('gallery-msg'), '删除失败：' + e.message, false);
+        btn.disabled = false;
+      }
     });
   } catch (e) {
     $('gallery-count').textContent = '—';
@@ -767,6 +787,7 @@ function resetUploadForm() {
   $('btn-upload').disabled = true;
   const local = $('local-preview');
   local.classList.add('hidden');
+  if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
   local.removeAttribute('src');
   $('job-preview').classList.add('hidden');
   $('job-preview').removeAttribute('src');
@@ -822,7 +843,10 @@ async function selectFile(f) {
     (picked !== f ? '（已压缩 ' + (f.size / 1048576).toFixed(1) + 'MB → ' + (picked.size / 1048576).toFixed(1) + 'MB）' : '');
   $('btn-upload').disabled = false;
   const local = $('local-preview');
-  local.src = URL.createObjectURL(f);
+  // 换图前先释放上一个 blob URL，防泄漏
+  if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); }
+  previewObjectUrl = URL.createObjectURL(f);
+  local.src = previewObjectUrl;
   local.classList.remove('hidden');
 }
 
@@ -833,16 +857,23 @@ document.querySelectorAll('.theme-dot').forEach((btn) => {
 $('tab-login').onclick = () => { setAuthMode('login'); showMsg($('auth-msg'), '', false); };
 $('tab-register').onclick = () => { setAuthMode('register'); showMsg($('auth-msg'), '', false); };
 
-$('btn-login').onclick = async () => {
+// 登录/注册/验证收进具名函数：form submit 统一路由，Enter 与按钮同路；各函数 disabled 期间重入即丢
+async function doLogin() {
+  const btn = $('btn-login');
+  if (btn.disabled) return;
+  btn.disabled = true;
   try {
     await api('/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
     showMsg($('auth-msg'), '登录成功', true);
     await refreshMe();
   } catch (e) { showMsg($('auth-msg'), e.message, false); }
-};
+  finally { btn.disabled = false; }
+}
 
-$('btn-register').onclick = async () => {
-  if (!validateRegisterInputs()) return;
+async function doRegister() {
+  const btn = $('btn-register');
+  if (btn.disabled || !validateRegisterInputs()) return;
+  btn.disabled = true;
   try {
     const r = await api('/auth/register/request', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
     $('verify-box').classList.remove('hidden');
@@ -850,16 +881,29 @@ $('btn-register').onclick = async () => {
     $('step-2').classList.add('active');
     showMsg($('auth-msg'), r.dev_code ? ('验证码已发送（开发模式：' + r.dev_code + '）') : '验证码已发送到 QQ 邮箱', true);
   } catch (e) { showMsg($('auth-msg'), e.message, false); }
-};
+  finally { btn.disabled = false; }
+}
 
-$('btn-verify').onclick = async () => {
-  if (!validateRegisterInputs()) return;
+async function doVerify() {
+  const btn = $('btn-verify');
+  if (btn.disabled || !validateRegisterInputs()) return;
+  btn.disabled = true;
   try {
     await api('/auth/register/verify', { method: 'POST', body: JSON.stringify({ email: $('email').value, code: $('verify-code').value }) });
     showMsg($('auth-msg'), '注册成功', true);
     await refreshMe();
   } catch (e) { showMsg($('auth-msg'), e.message, false); }
-};
+  finally { btn.disabled = false; }
+}
+
+$('auth-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (authMode === 'register') {
+    if (!$('verify-box').classList.contains('hidden')) doVerify(); else doRegister();
+  } else {
+    doLogin();
+  }
+});
 
 $('btn-logout').onclick = async () => {
   await api('/auth/logout', { method: 'POST' });
@@ -871,24 +915,39 @@ $('btn-toggle-bind').onclick = () => {
 };
 
 $('btn-bind').onclick = async () => {
+  const btn = $('btn-bind');
+  if (btn.disabled) return;
   if (!$('bind-consent').checked) {
     showMsg($('bind-msg'), '请先勾选隐私说明同意框', false);
     return;
   }
+  btn.disabled = true;
   try {
     await api('/user/bind/complete', { method: 'POST', body: JSON.stringify({ bind_code: $('bind-code').value }) });
     showMsg($('bind-msg'), '绑定成功', true);
     $('bind-panel').classList.add('hidden');
     await refreshMe();
   } catch (e) { showMsg($('bind-msg'), e.message, false); }
+  finally { btn.disabled = false; }
 };
 
+// 绑定码输入框 Enter = 点「确认绑定」
+$('bind-code').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); $('btn-bind').click(); }
+});
+
 $('btn-unbind').onclick = async () => {
+  const btn = $('btn-unbind');
+  if (btn.disabled) return;
+  // 解绑使设备失去取图通道，属破坏性操作，先确认
+  if (!confirm('解绑后设备将无法取图，确定解绑吗？')) return;
+  btn.disabled = true;
   try {
     await api('/user/bind/unbind', { method: 'POST' });
     showMsg($('bind-msg'), '已解绑', true);
     await refreshMe();
   } catch (e) { showMsg($('bind-msg'), e.message, false); }
+  finally { btn.disabled = false; }
 };
 
 $('fab-upload').onclick = () => openSheet();
@@ -953,12 +1012,20 @@ $('btn-generate').onclick = async () => {
   $('btn-generate').disabled = true;
   $('job-actions').classList.add('hidden');
   showMsg($('upload-msg'), 'AI 正在生图，通常 15~45 秒，请稍候勿重复提交…', true);
+  // 前端 150s 兜底超时（后端生图+描摹上限更长）；30s 无结果时升级提示，防用户以为卡死
+  const ctrl = new AbortController();
+  const slowTimer = setTimeout(() => {
+    showMsg($('upload-msg'), '仍在生成，线条越复杂越久，请继续稍候…', true);
+  }, 30000);
+  const timeout = setTimeout(() => ctrl.abort(), 150000);
   try {
-    const data = await api('/draw/generate', { method: 'POST', body: JSON.stringify({ description }) });
+    const data = await api('/draw/generate', { method: 'POST', body: JSON.stringify({ description }), signal: ctrl.signal });
     showJobResult(data, '生成完成（' + data.lines + ' 行）。不满意可改描述再生一张');
   } catch (e) {
-    showMsg($('upload-msg'), e.message, false);
+    showMsg($('upload-msg'), e.name === 'AbortError' ? '生成超时（150 秒），请换个描述或稍后重试' : e.message, false);
   } finally {
+    clearTimeout(slowTimer);
+    clearTimeout(timeout);
     $('btn-generate').disabled = false;
   }
 };
