@@ -49,4 +49,21 @@ if [[ "$probe" != "400" ]]; then
 fi
 # 清看门狗状态，下一次 cron 重新按有效计。
 echo "ok" > /run/hutuji-token-watch.state 2>/dev/null || true
+
+# 对端同步钩子（2026-08-31）：仅当 /etc/hutuji/token-peer.env 存在时生效
+# （只装阿里云主节点；京东云不装该文件，天然不回推成环）。自动续期重签会
+# 作废旧 token，若不推，对端看门狗下一轮必然 401 报警等人工——本钩子消掉
+# 这个固定噪音。推送失败不翻盘本地成功：对端看门狗会报警兜底。
+PEER_ENV=/etc/hutuji/token-peer.env
+if [[ -f "$PEER_ENV" ]]; then
+  # shellcheck disable=SC1090
+  . "$PEER_ENV"
+  if ssh -i "$PEER_KEY" -o BatchMode=yes -o ConnectTimeout=10 \
+       -o StrictHostKeyChecking=accept-new \
+       "root@$PEER_HOST" "set-token $NEW" >/dev/null 2>&1; then
+    echo "OK: 对端（$PEER_HOST）token 已同步"
+  else
+    echo "WARN: 对端（$PEER_HOST）同步失败，其对端看门狗将报警，需人工补同步" >&2
+  fi
+fi
 echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"
