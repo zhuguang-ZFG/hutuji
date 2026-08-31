@@ -4961,6 +4961,45 @@ def test_firmware_jog_envelope_matches_cloud_limits() -> None:
     assert "kJogStepMm = 1.0f" in text
 
 
+def test_grbl_locked_setting_keys_cover_golden_13() -> None:
+    """R17-XREPO-02：§9-G′ 长名锁表与 §6.1 golden 13 项互为事实源。
+
+    删一条锁表项（如 `"X/MaxTravel"`）今天三层全绿：fz 全仓无此谓词回归、
+    hub full 层 `SECTION9_MARKERS` 只 grep 谓词名存在、本仓此前只有 tmp/
+    一次性 g++ 断言（不入库）。这里解析外仓 `kLockedKeys` 字面量数组，断言
+    与 golden 13 项的 12 数字名 + 13 长名**集合精确相等**——删键、改名、
+    私自加键同红（R13-GC-01/R17-XREPO-01 同款字面量钉死）。映射关系
+    （$1↔Stepper/IdleTime、$20/21/22↔Limits/Soft|Hard、Homing/Enable、
+    $100/$101↔X|Y/StepsPerMm、$110/$111↔X|Y/MaxRate、$130/131/132↔
+    X|Y|Z/MaxTravel，另有 Errors/Verbose 无数字名）已于 2026-08-31 对照
+    `SettingsDefinitions.cpp` 人工核过；该文件的轴名由 `makename(def->name,…)`
+    运行期拼出，非字面量，不纳入机读断言。GRBL_ROOT 缺失则 skip（路径解析
+    与 agent_gate 外仓层同口径）。"""
+    import os
+    import re
+
+    root = Path(os.environ.get("GRBL_ROOT", "D:/Users/Grbl_Esp32"))
+    header = root / "Grbl_Esp32/src/ProtocolDecisionCore.h"
+    if not header.is_file():
+        pytest.skip(f"外仓固件头缺失：{header}")
+
+    text = header.read_text(encoding="utf-8")
+    match = re.search(r"kLockedKeys\[\]\s*=\s*\{(.*?)\};", text, re.S)
+    assert match, "kLockedKeys 数组未找到（表被删或改了形态）"
+    keys = set(re.findall(r'"([^"]+)"', match.group(1)))
+
+    golden_numeric = {"1", "3", "20", "21", "22", "100", "101", "110", "111", "130", "131", "132"}
+    golden_long = {
+        "Stepper/IdleTime", "Stepper/DirInvert",
+        "Limits/Soft", "Limits/Hard", "Homing/Enable",
+        "X/StepsPerMm", "Y/StepsPerMm",
+        "X/MaxRate", "Y/MaxRate",
+        "X/MaxTravel", "Y/MaxTravel", "Z/MaxTravel",
+        "Errors/Verbose",
+    }
+    assert keys == golden_numeric | golden_long
+
+
 def test_arc_full_circle_epsilon_boundary_is_inclusive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
