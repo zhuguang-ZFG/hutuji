@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:14-45`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:16-46`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:484-626`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:501-643`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -313,7 +313,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 工具 | 参数 | 行为 |
 |------|------|------|
-| `hutuji.draw` | `url,preview_url` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:309-339`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内** |
+| `hutuji.draw` | `url,preview_url[,pages]` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:309-339`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内**。`pages`（可选，多页文章）见 §4.2 |
 | `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
 | `hutuji.confirm` | — | 屏幕预览确认出图（「开始画/可以/就这个」）；仅 `awaiting_confirmation` 态有效，等价于点屏幕「开始画」钮 |
@@ -359,6 +359,28 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **先暂停后停止（Hold 态）**：先清 S3 侧 `paused_` 冻结闸（不清则流循环永停在收应答冻结、收口永不发布、任务悬挂——2026-08-28 二轮 HIL 实证），再发 `~` 退出 Grbl Hold 让残余在途段排空（用户已放弃本张，多画几笔无碍），随后与纯流式同一序列；`~` 清不动 Hold（3s 上限）或收口超时（5s）才回落受控 reset（其内仍带 Hold 快照 G92 复原归位）。受限 reset 不再出现在用户停止主路径，只保留给错误恢复/暂停超时/兜底——当日 HIL 实证 abort 后 `[ESP901]` 无应答会打崩 socket（2/2），用户路径绕开该步。
   归位失败不翻盘（机器停稳是主结果），仅分流播报「已停止并回原点」/「已停止」。换纸活动态与断连恢复路径**不适用**：前者不发 `0x18` 不动机械、后者只走固定恢复序列，两条禁令不因本条松动。
 - ⚠️ 上层（云端 LLM / 用户提示语）**不得把 abort 描述为急停**，否则换纸中喊停无反应会被误判为系统故障。
+
+### 4.2 多页文章 `pages`（2026-09-01，写字链，不升协议号）
+
+云端 `hutuji_write`（奎享单线字库排版）一次产出 N 页产物，`_chain_device_draw` 把整份页表
+**一次**推给设备侧 `hutuji.draw`；设备逐页写、每页写完自动换纸再写下一页。协议要点：
+
+- **传输形态**：xiaozhi MCP `Property` 只有 `boolean/integer/string`（无 array），故 `pages` 是
+  **紧凑 JSON 字符串**：`[{"url":"…gcode","preview_url":"…png"},…]`。键序固定 `url` 先、
+  `preview_url` 后——设备侧 `hutuji::ParseArticlePages` 是纯扫描器（不引 cJSON，宿主测试单 TU
+  零依赖），按此序配对。
+- **校验（fail-closed，任一不合整体拒收）**：每条 `url` 过 `IsValidDrawCapabilityUrl(.gcode)`、
+  `preview_url` 过 `.png`（§5 能力地址边界不放宽）；成对出现；同一页的 `url` 与其 `preview_url`
+  之间不得再出现 `"url"` 键（防跨页错配把 A 页 G-code 配到 B 页预览）；值内出现 `\` 即判非法；
+  条数 1..`kArticleMaxPages=20`（与云端 `write_text.max_pages` 同值）。
+- **`pages[0]` 必须等于 `url`/`preview_url`**：否则屏幕预览与实际所写不是同一页。云端两个字段
+  恒同时发（含单页），设备侧不猜。
+- **页循环**（`Job::Run` 单一 while）：`ChangePaperAfterDraw()` **成功之后**才推进页索引，然后
+  释放本页 PSRAM 缓冲 → 下载下一页 → §5.1 校验 → 灌流 → 归位 → `M30`。任一页失败/abort 即整单
+  终止（不跳页续写）。预览只出第 1 页；预取只可能命中第 1 页，后续页 URL 不同自然回落直下载。
+- **`hutuji.status` 增 `page`/`pages`**（1 基当前页 / 总页数）；单页模式两字段**不出现**。
+- **`hutuji.repeat` 语义**：文章重画 = 整篇从第 1 页重来（禁用 PSRAM 快路——留存的只是最后一页），
+  各页在 600s capability TTL 内有效；过期按下载失败如实报错。
 
 ## 5. G-code 文件契约（MCP 服务产出）
 

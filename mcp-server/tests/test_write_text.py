@@ -10,6 +10,7 @@ import asyncio
 import io
 import json
 import struct
+import types
 import zipfile
 
 import pytest
@@ -297,6 +298,86 @@ def test_hutuji_write_end_to_end(tmp_path, monkeypatch):
     ]
     assert min(xs) >= 8.0  # 左边距不被压缩
     assert max(xs) <= 182.0
+
+    # 预览必须是 PNG：设备侧 IsValidDrawCapabilityUrl 硬校验 .png、LvglAllocatedImage
+    # 只解 PNG。首版发 .svg 会在 StartDraw 直接被拒（纸都不动），故此处钉死。
+    assert payload["preview_url"].endswith(".png")
+    preview_path = out_dir / payload["preview_url"].rsplit("/", 1)[-1]
+    assert preview_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert payload["pages"][0]["preview_url"] == payload["preview_url"]
+
+
+def test_page_preview_png_is_visible_rgb_and_survives_empty_page():
+    """预览 PNG 必须 RGB 512² 且真有黑像素——1px 灰度整页细线在设备缩放下白屏
+    （2026-09-01 实机实测），空页仍须出图（否则设备预览校验直接拒）。"""
+    import imageio.v3 as iio
+    import numpy as np
+
+    font, metrics = _fixture_font(), _fixture_metrics()
+    result = write_text.layout_text("永国中", font, metrics, write_text.WriteLayout())
+    img = iio.imread(io.BytesIO(write_text.page_to_preview_png(result.pages[0])))
+    assert img.shape == (512, 512, 3)
+    dark = int((img[..., 0] == 0).sum())
+    assert dark > 200  # 内容包围盒裁剪后笔画应占可观像素，不是零星几点
+
+    blank = iio.imread(io.BytesIO(write_text.page_to_preview_png(write_text.LaidOutPage())))
+    assert blank.shape == (512, 512, 3)
+    assert int((blank == 255).all(axis=2).sum()) == 512 * 512  # 纯白，不抛
+    assert np.array_equal(blank[0, 0], [255, 255, 255])
+
+
+def test_write_chain_push_sends_pages_json_string(tmp_path, monkeypatch):
+    """多页文章链式推送：pages 以紧凑 JSON 字符串传（MCP Property 无 array 类型），
+    键序 url→preview_url 固定（设备侧 ParseArticlePages 按此序扫描），
+    且 arguments.url/preview_url 必须等于 pages[0]——否则用户看的预览与写的内容不同。"""
+    from hutuji_mcp import server
+
+    captured: dict[str, object] = {}
+
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            captured["json"] = json
+            captured["auth"] = headers.get("Authorization", "")
+            return _Resp()
+
+    monkeypatch.setattr(server.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(
+        server, "settings",
+        types.SimpleNamespace(
+            xiaozhi_device_token="tok", xiaozhi_api_base="http://127.0.0.1:1",
+        ),
+    )
+    pages = [
+        {"url": "https://h/files/a.gcode", "preview_url": "https://h/files/a.png"},
+        {"url": "https://h/files/b.gcode", "preview_url": "https://h/files/b.png"},
+    ]
+    asyncio.run(server._chain_device_draw(pages[0]["url"], pages[0]["preview_url"], pages))
+
+    args = captured["json"]["arguments"]
+    assert captured["json"]["name"] == "hutuji.draw"
+    assert args["url"] == pages[0]["url"]
+    assert args["preview_url"] == pages[0]["preview_url"]
+    assert isinstance(args["pages"], str)  # Property 只有 string，不能传 list
+    assert args["pages"].index('"url"') < args["pages"].index('"preview_url"')
+    assert json.loads(args["pages"]) == pages
+    assert " " not in args["pages"]  # 紧凑分隔符，省设备侧解析与传输
+
+    # 单页 draw 链不带 pages（既有契约不变）。
+    captured.clear()
+    asyncio.run(server._chain_device_draw(pages[0]["url"], pages[0]["preview_url"]))
+    assert "pages" not in captured["json"]["arguments"]
 
 
 def test_hutuji_write_rejects_empty_and_overlong(monkeypatch):

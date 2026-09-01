@@ -27,7 +27,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1145** 项，2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；此前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1147** 项，2026-09-01 多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 
@@ -405,3 +405,13 @@
 | `mcp-server/tests/test_write_text.py`（新） | **16 项**：合成 v2 明文 gfont 夹具（不引专有字体）解析/度量/折行/避头/分页/缺字/端到端过 §5 校验；全套 **1145** 项 |
 | 验证状态 | hub 门禁 PASS（1145 + e2e + 指纹 255）；真机 HIL（2026-09-01 凌晨）：本地生成 → scp 阿里云 output → 公网双能力地址 200 → `device-call hutuji.draw` → 屏幕确认 → `开始灌流 lines=1021 xy=719` → 720/720 全发 → 页尾归位 → `<Idle>`；M30 换纸报 `error:90 缺纸/卡纸`（疑纸盒未装纸，待用户确认复测）；证据 `results/local-only/2026-08-31/{write-hil-com14.log,write-hil-draw-com14.log}` + 逐台记录同目录；预览 PNG 首版设备白屏（灰度整页细线被缩盒子采样吞没），RGB 内容裁剪加粗版可见，生成器 `tmp/make_write_preview.py`（探针工件不入库） |
 | 后续 | 多页文章的 S3 逐页循环下发（xiaozhi 侧 `hutuji.draw` 单 url 现状）属下一切片；生产部署 `hutuji_write`（代码 scp + 双机 mcp.env 加 `HUTUJI_GFONT_DIR` + 字体文件分发）未执行，用户点名前不动生产 |
+
+## 多页文章云端配套批（2026-09-01，本仓 `872e874` 已推 origin）
+
+| 文件 | 说明 |
+|---|---|
+| `mcp-server/hutuji_mcp/write_text.py` | 新增 `page_to_preview_png()`：每页笔画（mm 折线）直渲 512² RGB PNG（内容包围盒 +10% 留白、2px 笔、空页全白兜底），替换原 SVG 预览——设备 `IsValidDrawCapabilityUrl(preview, ".png")` 硬性只认 PNG |
+| `mcp-server/hutuji_mcp/server.py` | `_run_write_job` 每页写 `paths.preview_path`（PNG）+ 返回 `.png` preview_url；`_chain_device_draw` 增可选 `pages` 参数（紧凑 JSON 字符串，xiaozhi MCP Property 无 array 类型）；write 完成点链式推 `pages` 页表（第 1 页同时填 url/preview_url） |
+| `docs/protocol.md` | §4 表 `hutuji.draw` 增 `pages`；新增 §4.2 多页文章契约（JSON 字符串形态/fail-closed 校验/`pages[0]`=url·preview_url/页循环/status 增 page·pages/repeat 整篇重来） |
+| `mcp-server/tests/test_write_text.py` | 16→**18 项**（+预览 PNG 可见性/空页全白、+chain_push pages 紧凑 JSON 形状钉死）；全套 **1147** 项 |
+| 验证状态 | 全套 pytest **1147/1147** 通过（计数自洽测试 RED→GREEN）；hub 门禁 PASS（1147 + e2e + 指纹 255，45 处半漂移=外仓多页改动行号位移，35 处 --fix-line-refs 自动 + 9 处人工核对重定位 + 基线重登）；生产部署与真机两页 HIL 未执行 |

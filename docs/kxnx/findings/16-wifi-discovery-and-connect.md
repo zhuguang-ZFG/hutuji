@@ -123,8 +123,8 @@ SSDP 通道 `d.java:27` 则**硬编码 23**，没走机型判断——即 SSDP �
 ```
 
 协议层校验在别处：收到 `[VER:` 只记版本、不置 `ready_`（`hutuji_pipe.cc:724-728`）；`ready_` 要等零位移授权探测完成（`hutuji_pipe.cc:978-986`），
-所有真正会灌流的入口都查 `IsReady()`（确认出图 `hutuji_job.cc:370`、重画 `hutuji_job.cc:819`、
-试笔 `hutuji_job.cc:861`；`StartDraw` 只下载预览，不过确认门进不到灌流）。
+所有真正会灌流的入口都查 `IsReady()`（确认出图 `hutuji_job.cc:387`、重画 `hutuji_job.cc:842`、
+试笔 `hutuji_job.cc:895`；`StartDraw` 只下载预览，不过确认门进不到灌流）。
 **所以不会把错误设备当写字机去出图**——这点是安全的。
 
 **但连接与缓存这一层没有任何协议校验，会自锁**：

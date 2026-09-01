@@ -397,23 +397,33 @@ def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
     if _draw_inflight.get(key) is done:
         del _draw_inflight[key]
     if not done.cancelled():
-
         done.exception()
-async def _chain_device_draw(url: str, preview_url: str) -> None:
+
+
+async def _chain_device_draw(
+    url: str, preview_url: str, pages: list[dict] | None = None
+) -> None:
     """生成完成后经官方设备消息 API 主动调 `hutuji.draw`（2026-08-24 P1-3）。
 
     消灭云端第二步漏调（78/xiaozhi-esp32#1011 多工具漏调：LLM 调完 draw 后
     第二步 hutuji.draw 可能永远不到，纸不动）。尽力而为：任何失败只记日志
     （不记 token、URL 经共享脱敏），draw 结果不受影响——云端两步衔接仍是
     合法回落路径。token 为空 = 禁用。
+
+    pages 非空 = 多页文章（hutuji_write）：设备 MCP Property 只支持
+    boolean/integer/string，故 pages 以紧凑 JSON 字符串传（设备侧
+    `hutuji::ParseArticlePages` 纯扫描解析，键序 url→preview_url 固定）。
     """
     token = getattr(settings, "xiaozhi_device_token", "")
     if not token:
         return
-    payload = {
-        "name": "hutuji.draw",
-        "arguments": {"url": url, "preview_url": preview_url},
-    }
+    arguments: dict[str, str] = {"url": url, "preview_url": preview_url}
+    if pages:
+        arguments["pages"] = json.dumps(
+            [{"url": p["url"], "preview_url": p["preview_url"]} for p in pages],
+            ensure_ascii=False, separators=(",", ":"),
+        )
+    payload = {"name": "hutuji.draw", "arguments": arguments}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -430,6 +440,7 @@ async def _chain_device_draw(url: str, preview_url: str) -> None:
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("设备链式调用异常（%s，回落云端两步）", type(exc).__name__)
         _report_mcp_tool("draw_push", ok=False, detail=type(exc).__name__)
+
 
 async def _run_draw_job(
     description: str, public_base_url: str, *, job_id: str | None = None,
@@ -802,12 +813,13 @@ _gfont_metrics_cache: dict[tuple[str, str], object] = {}
 
 async def _run_write_job(
     text: str, font_name: str, size_mm: float, line_spacing: float,
-    char_gap_mm: float, public_base_url: str,
+    char_gap_mm: float, public_base_url: str, *, chain_push: bool = True,
 ) -> str:
-    """写字排版事务：奎享单线字库 → 分页 SVG → 无版式 vpype → §5 校验 → 产物。
+    """写字排版事务：奎享单线字库 → 分页 SVG+PNG → 无版式 vpype → §5 校验 → 产物。
 
     不经 DrawLimiter（本地计算，无付费后端）；vpype 并发仍由 gcode_gen 信号量收口。
-    多页时返回 pages 数组；S3 逐页循环下发属 xiaozhi 侧后续（当前 hutuji.draw 单 url）。
+    多页时返回 pages 数组，并经 `_chain_device_draw` 把整份 pages 一次推给设备
+    （设备侧逐页下载→灌流→M30 换纸→下一页；见 protocol §10.2）。
     """
     from . import write_text
     from .llm_svg import _validate_svg
@@ -835,8 +847,12 @@ async def _run_write_job(
         base = _new_basename()
         svg = write_text.page_to_svg(page)
         _validate_svg(svg)  # 机器产物同 draw 链口径：一切进管线的 SVG 必过白名单
+        # 预览必须是 PNG：设备侧 IsValidDrawCapabilityUrl 硬校验 .png，且
+        # LvglAllocatedImage 只解 PNG（.svg 会在 StartDraw 就被拒，纸都不会动）。
+        preview_png = await asyncio.to_thread(write_text.page_to_preview_png, page)
         with store.job_workspace(base) as paths:
             paths.svg_path.write_text(svg, encoding="utf-8")
+            paths.preview_path.write_bytes(preview_png)
             # normalize=False：写字链版式自排，layout 会让字号随内容量漂移
             stats = await svg_to_gcode_async(
                 paths.svg_path, paths.gcode_path, normalize=False
@@ -845,13 +861,22 @@ async def _run_write_job(
         pages_out.append({
             "page": page_index + 1,
             "url": f"{public_base_url}/files/{base}.gcode",
-            "preview_url": f"{public_base_url}/files/{base}.svg",
+            "preview_url": f"{public_base_url}/files/{base}.png",
             "lines": stats.lines,
             "bytes": stats.bytes,
             "pen_lifts": stats.pen_lifts,
             "text_lines": page.line_count,
         })
 
+    if chain_push and getattr(settings, "xiaozhi_device_token", ""):
+        # 与 draw 链同口径：链式推送是尽力而为，失败只记日志，返回值不受影响。
+        # pages 恒传（含单页）——设备侧 page[0] 必须与 url/preview_url 一致，
+        # 单页也走同一条解析路径，避免两套语义。
+        asyncio.create_task(
+            _chain_device_draw(
+                pages_out[0]["url"], pages_out[0]["preview_url"], pages_out,
+            )
+        )
     return json.dumps({
         "pages": pages_out,
         "total_pages": len(pages_out),

@@ -352,6 +352,54 @@ def page_to_svg(page: LaidOutPage) -> str:
     parts.append("</svg>")
     return "".join(parts)
 
+# 预览 PNG 几何（2026-09-01 实机实测钉死，勿改小）：整页 190mm 幅面里 1px 灰度细线
+# 在设备预览缩放下会被采样吞没（首版 760² 灰度白屏），故按内容包围盒裁剪放大成
+# RGB 512² 方图 + 2px 方形笔刷。设备侧 LvglAllocatedImage 只解 PNG。
+_PREVIEW_PX = 512
+_PREVIEW_PAD_RATIO = 0.10
+_PREVIEW_STROKE_PX = 2
+
+
+def page_to_preview_png(page: LaidOutPage) -> bytes:
+    """落笔路径 → 预览 PNG 字节（设备 hutuji.draw 的 `.png` 能力地址）。
+
+    纯 numpy 画线 + imageio 落盘，不引描摹链（skimage/sknw）：写字页已是 mm 折线，
+    无需骨架化。空页返回纯白图——预览必须存在，否则设备侧 StartDraw 校验即拒。
+    """
+    try:
+        import imageio.v3 as iio
+        import numpy as np
+    except Exception as exc:  # noqa: BLE001
+        raise WriteTextError(f"预览图依赖不可用（{type(exc).__name__}）") from None
+
+    canvas = np.full((_PREVIEW_PX, _PREVIEW_PX, 3), 255, dtype=np.uint8)
+    xs = [x for stroke in page.strokes for x, _ in stroke.points]
+    ys = [y for stroke in page.strokes for _, y in stroke.points]
+    if not xs:
+        return iio.imwrite("<bytes>", canvas, extension=".png")
+
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    span = max(x1 - x0, y1 - y0, 1.0)
+    pad = span * _PREVIEW_PAD_RATIO
+    scale = _PREVIEW_PX / (span + 2 * pad)
+    half = _PREVIEW_STROKE_PX // 2
+    last = _PREVIEW_PX - 1
+
+    for stroke in page.strokes:
+        pts = stroke.points
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            px0, py0 = (ax - x0 + pad) * scale, (ay - y0 + pad) * scale
+            px1, py1 = (bx - x0 + pad) * scale, (by - y0 + pad) * scale
+            # DDA：步数取两轴像素跨度上界，保证不留断点（笔画多为短段，成本可忽略）
+            steps = int(max(abs(px1 - px0), abs(py1 - py0), 1.0))
+            xi = np.clip(np.linspace(px0, px1, steps + 1).astype(int), 0, last)
+            yi = np.clip(np.linspace(py0, py1, steps + 1).astype(int), 0, last)
+            for dy in range(-half, half + 1):
+                for dx in range(-half, half + 1):
+                    canvas[np.clip(yi + dy, 0, last), np.clip(xi + dx, 0, last)] = 0
+    return iio.imwrite("<bytes>", canvas, extension=".png")
+
 
 def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
     """按显示名或文件名词解析字库；name 为空时取目录中字数最多的字库。"""
