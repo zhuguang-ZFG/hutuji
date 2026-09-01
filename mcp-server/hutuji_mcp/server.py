@@ -844,7 +844,9 @@ async def _run_write_job(
     store.ensure_ready()
     # 错峰 TTL 基准（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，第 i 页
     # 要到 t0 + i×(一页耗时) 才被下载（实测一页 116.3s 灌流 + 8s 换纸）。若所有页
-    # 共用同一个 600s 窗口，第 6 页起必然 404。故把第 i 页产物 mtime 前移
+    # 共用同一个 600s 窗口，第 6 页 404——服务端 HTTP 层已实证（证据见
+    # results/local-only/2026-09-01/ttl-stagger-http-counterfactual.log；设备侧
+    # 真机时序待 HIL）。故把第 i 页产物 mtime 前移
     # i×page_ttl_budget_seconds，使其窗口变成 ttl + i×budget；判定链只读 mtime。
     ttl_base = time.time()
     page_budget = settings.page_ttl_budget_seconds

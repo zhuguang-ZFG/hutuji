@@ -42,7 +42,7 @@ LLM（OpenAI 兼容）文生图 → 位图 → sknw 中心线描摹 → SVG ─�
 | `HUTUJI_HOST` | `127.0.0.1` | uvicorn 监听地址；**只接受 `127.0.0.1` / `::1` / `localhost` 三个值**（大小写不敏感，非集合内一律拒绝，`127.0.0.2` 之类同段地址也拒），非法值在构造 `settings`（import `config` 时）即抛 `ValueError` 拒绝启动。原先只在文档里劝，生产漏配还能静默把 `/mcp` 绑到 `0.0.0.0`；注意 `python -m uvicorn hutuji_mcp.server:app` **不读**本变量，必须显式 `--host 127.0.0.1` |
 | `HUTUJI_PORT` | `8300` | HTTP 端口 |
 | `HUTUJI_OUTPUT_TTL_SECONDS` | `600` | capability 文件有效期；过期下载直接 404 并清理同组产物 |
-| `HUTUJI_PAGE_TTL_BUDGET_SECONDS` | `300` | 多页文章错峰 TTL 的每页预算（限 30..3600）：`hutuji_write` 把第 i 页（i≥1）产物的 created 时刻前移 `i×预算`，使其窗口 = TTL + i×预算（第 1 页不动）。设备逐页串行「下载→灌流→换纸」（源码已核、真机未跑多页），实测一页 ≈125s；共用单个 600s 窗口时按推算第 6 页起将 404（算术推断，待 HIL 实证）。见 `docs/protocol.md` §4.2 |
+| `HUTUJI_PAGE_TTL_BUDGET_SECONDS` | `300` | 多页文章错峰 TTL 的每页预算（限 30..3600）：`hutuji_write` 把第 i 页（i≥1）产物的 created 时刻前移 `i×预算`，使其窗口 = TTL + i×预算（第 1 页不动）。设备逐页串行「下载→灌流→换纸」（源码已核、真机未跑多页），实测一页 ≈125s；共用单个 600s 窗口时第 6 页 404（服务端 HTTP 层已实证，设备侧时序待 HIL）。见 `docs/protocol.md` §4.2 |
 | `HUTUJI_XIAOZHI_DEVICE_TOKEN` | （空） | 设备消息 API token；与异步开关同配时，生成完成后服务端自动调用 `hutuji.draw` 推送预览；空值时异步开关回落同步。 |
 | `HUTUJI_DRAW_ASYNC` | `0` | `1` 且已配置设备消息 token 时，`hutuji_draw` 立即返回 `accepted: true`；否则同步等待并返回 `url`/`preview_url`。 |
 | `HUTUJI_DRAW_QUEUE_URL` | （空） | 设 `redis://…` 后 MCP **只入队**，由 `draw_worker` 消费；留空=进程内 asyncio（现网默认）。测试可用 `memory://`（单进程，勿上生产） |
