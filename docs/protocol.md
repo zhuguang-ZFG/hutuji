@@ -381,7 +381,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - **`hutuji.status` 增 `page`/`pages`**（1 基当前页 / 总页数）；单页模式两字段**不出现**。
 - **错峰 TTL（2026-09-01，云端单侧实现，设备侧不改）**：设备逐页「下载→灌流→换纸」**串行**推进，
   第 i 页要到 `t0 + i×一页耗时` 才被下载（实机实测一页 ≈125s：1021 行灌流 116.3s + 换纸 8s）。
-  若 N 页共用同一个 `output_ttl_seconds`（600s）窗口，第 6 页起必然过期 404。故云端
+  若 N 页共用同一个 `output_ttl_seconds`（600s）窗口，按此推算第 6 页起将过期 404（实测一页耗时 + 窗口的算术推断；多页串行循环源码已核但真机未跑，**待 HIL 实证**）。故云端
   `_run_write_job` 在 `finalize_job(created_at=…)` 把**第 i 页（i≥1）**产物的 created 时刻
   前移 `i × page_ttl_budget_seconds`（默认 300s，env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`，限 30..3600），
   于是第 i 页有效窗口 = `output_ttl_seconds + i × page_ttl_budget_seconds`（20 页末页约 1.75h）。
