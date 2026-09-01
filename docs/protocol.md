@@ -379,8 +379,20 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   释放本页 PSRAM 缓冲 → 下载下一页 → §5.1 校验 → 灌流 → 归位 → `M30`。任一页失败/abort 即整单
   终止（不跳页续写）。预览只出第 1 页；预取只可能命中第 1 页，后续页 URL 不同自然回落直下载。
 - **`hutuji.status` 增 `page`/`pages`**（1 基当前页 / 总页数）；单页模式两字段**不出现**。
+- **错峰 TTL（2026-09-01，云端单侧实现，设备侧不改）**：设备逐页「下载→灌流→换纸」**串行**推进，
+  第 i 页要到 `t0 + i×一页耗时` 才被下载（实机实测一页 ≈125s：1021 行灌流 116.3s + 换纸 8s）。
+  若 N 页共用同一个 `output_ttl_seconds`（600s）窗口，第 6 页起必然过期 404。故云端
+  `_run_write_job` 在 `finalize_job(created_at=…)` 把**第 i 页（i≥1）**产物的 created 时刻
+  前移 `i × page_ttl_budget_seconds`（默认 300s，env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`，限 30..3600），
+  于是第 i 页有效窗口 = `output_ttl_seconds + i × page_ttl_budget_seconds`（20 页末页约 1.75h）。
+  **第 1 页不动时间戳**——窗口仍从写盘时刻起算，单页语义逐字节不变。
+  本地后端靠 `os.utime` 改 mtime（svg/gcode/png 三件同改）；OSS 后端写
+  `x-oss-meta-hutuji-created`，`read_verified`/`cleanup_expired` 都以该元数据为过期真值
+  （`Last-Modified` 恒是上传时刻，只看它会误删靠后页）。文件名格式**不变**
+  （设备侧 `IsValidDrawCapabilityUrl` 正则硬编码，不需固件配合）。
+  副作用：`hutuji_status.latest_ts` 在多页写字任务后可能显示未来时刻（age 为负），属已知记录性偏差。
 - **`hutuji.repeat` 语义**：文章重画 = 整篇从第 1 页重来（禁用 PSRAM 快路——留存的只是最后一页），
-  各页在 600s capability TTL 内有效；过期按下载失败如实报错。
+  各页在上述错峰窗口内有效；过期按下载失败如实报错。
 
 ## 5. G-code 文件契约（MCP 服务产出）
 

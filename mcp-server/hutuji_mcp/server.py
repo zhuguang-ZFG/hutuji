@@ -842,6 +842,12 @@ async def _run_write_job(
 
     store = get_output_store()
     store.ensure_ready()
+    # 错峰 TTL 基准（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，第 i 页
+    # 要到 t0 + i×(一页耗时) 才被下载（实测一页 116.3s 灌流 + 8s 换纸）。若所有页
+    # 共用同一个 600s 窗口，第 6 页起必然 404。故把第 i 页产物 mtime 前移
+    # i×page_ttl_budget_seconds，使其窗口变成 ttl + i×budget；判定链只读 mtime。
+    ttl_base = time.time()
+    page_budget = settings.page_ttl_budget_seconds
     pages_out: list[dict] = []
     for page_index, page in enumerate(result.pages):
         base = _new_basename()
@@ -857,7 +863,11 @@ async def _run_write_job(
             stats = await svg_to_gcode_async(
                 paths.svg_path, paths.gcode_path, normalize=False
             )
-            store.finalize_job(paths)
+            # 第 1 页不动时间戳（保持既有单页语义：窗口从写盘时刻起算）。
+            store.finalize_job(
+                paths,
+                created_at=None if page_index == 0 else ttl_base + page_index * page_budget,
+            )
         pages_out.append({
             "page": page_index + 1,
             "url": f"{public_base_url}/files/{base}.gcode",

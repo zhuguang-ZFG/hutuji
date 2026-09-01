@@ -131,8 +131,21 @@ class LocalOutputStore:
             self.abort_job(paths)
             raise
 
-    def finalize_job(self, paths: JobPaths) -> None:
-        return
+    def finalize_job(self, paths: JobPaths, *, created_at: float | None = None) -> None:
+        """本地后端 finalize 仅在需要错峰 TTL 时改 mtime（protocol §4.2）。
+
+        `created_at` 为 None 时保持原语义（空操作，mtime = 写盘时刻）。多页文章把
+        第 i 页的 created_at 前移，使公开窗口按页顺延；TTL 判定全链只读 mtime
+        （`_serve_file`、`_is_expired_mtime`、`cleanup_expired`），故无需第二份状态。
+        """
+        if created_at is None:
+            return
+        for path in (paths.svg_path, paths.gcode_path, paths.preview_path):
+            try:
+                os.utime(path, (created_at, created_at))
+            except OSError as exc:
+                # 改不动时间戳只意味着该页回落到默认窗口，不该让整单失败。
+                logger.warning("设置产物时间戳失败 %s：%s", _redact_name(path.name), exc)
 
     def abort_job(self, paths: JobPaths) -> None:
         self.delete_stem(paths.base)
@@ -238,9 +251,9 @@ class OssOutputStore:
                 preview_path=root / f"{base}.png",
             )
 
-    def finalize_job(self, paths: JobPaths) -> None:
+    def finalize_job(self, paths: JobPaths, *, created_at: float | None = None) -> None:
         bucket = self._get_bucket()
-        created = str(time.time())
+        created = str(time.time() if created_at is None else created_at)
         for path in (paths.svg_path, paths.gcode_path, paths.preview_path):
             data = path.read_bytes()
             bucket.put_object(
@@ -266,6 +279,26 @@ class OssOutputStore:
             except (TypeError, ValueError, OverflowError):
                 pass
         return time.time()
+
+    def _created_meta(self, key: str, *, fallback: float) -> float:
+        """读对象自带的 created 元数据；head 失败或无该头则回落 fallback。
+
+        错峰 TTL 的真值只在这个元数据里；head 抛错时回落到 list 给的上传时刻
+        （可能误删靠后的页），故失败必记一行 warning 供定位。
+        """
+        try:
+            head = self._get_bucket().head_object(key)
+        except Exception as exc:
+            logger.warning("OSS 读取产物元数据失败 %s：%s", _redact_name(key.rsplit("/", 1)[-1]), exc)
+            return fallback
+        headers = dict(getattr(head, "headers", None) or {})
+        raw = headers.get("x-oss-meta-hutuji-created")
+        if not raw:
+            return fallback
+        try:
+            return float(raw)
+        except ValueError:
+            return fallback
 
     def read_verified(self, name: str) -> tuple[bytes, float]:
         bucket = self._get_bucket()
@@ -306,6 +339,12 @@ class OssOutputStore:
                     ts = float(mtime)
                 else:
                     ts = mtime.timestamp()
+                if not _is_expired_mtime(ts, now=now):
+                    continue
+                # list 只给上传时刻；错峰 TTL 的真值在 x-oss-meta-hutuji-created
+                # （read_verified 也只认它）。仅对「看起来已过期」的对象补一次
+                # head_object，避免整目录逐个多一次请求。
+                ts = self._created_meta(obj.key, fallback=ts)
                 if _is_expired_mtime(ts, now=now):
                     try:
                         bucket.delete_object(obj.key)

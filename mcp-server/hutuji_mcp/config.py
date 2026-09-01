@@ -132,6 +132,12 @@ class Settings:
     # 奎享 .gfont 单线字库目录（write_text 排版链的数据根；字体为奎享专有素材，
     # 不入库，生产经 env 指向本机目录）。空值 = hutuji_write 工具禁用并报清晰错误。
     gfont_dir: str = ""
+    # 多页文章每页 TTL 预算（protocol §4.2）：`hutuji_write` 产出 N 页时，第 i 页
+    # 的 mtime 前移 i×本值，使其公开窗口变成 output_ttl_seconds + i×本值。设备
+    # 逐页「下载→灌流→换纸」串行推进，第 i 页要到 t0+i×(写一页+换纸) 才被下载；
+    # 单一 600s 窗口下第 6 页起必然 404（实测一页 116.3s 灌流 + 8s 换纸）。
+    # 300s = 实测单页 124s 的 2.4 倍余量，覆盖设备重试与用户暂停。
+    page_ttl_budget_seconds: int = 300
     # Curated SVG library (design docs/superpowers/specs/2026-08-26-curated-svg-library-design.md).
     # Empty curated_dir = disabled. curated_replace_qd only takes effect when manifest.ready.
     curated_dir: str = ""
@@ -276,6 +282,9 @@ class Settings:
             ("breaker_open_sec", self.breaker_open_sec, 30, 3600),
             ("breaker_consecutive_fail", self.breaker_consecutive_fail, 1, 20),
             ("metrics_interval_sec", self.metrics_interval_sec, 5, 300),
+            # 下界 30s：小于换纸+一页灌流就等于没有预算；上界 3600s 挡住
+            # 「20 页把最后一页续命到十几小时」的 capability 窗口失控。
+            ("page_ttl_budget_seconds", self.page_ttl_budget_seconds, 30, 3600),
         ):
             if not lo <= value <= hi:
                 raise ValueError(f"{name} 必须在 {lo}..{hi}，当前 {value}")
@@ -378,6 +387,7 @@ def load_settings() -> Settings:
         host=os.environ.get("HUTUJI_HOST", "127.0.0.1"),
         port=_env_int("HUTUJI_PORT", "8300"),
         output_ttl_seconds=_env_int("HUTUJI_OUTPUT_TTL_SECONDS", "600"),
+        page_ttl_budget_seconds=_env_int("HUTUJI_PAGE_TTL_BUDGET_SECONDS", "300"),
         draw_max_concurrent=_env_int("HUTUJI_DRAW_MAX_CONCURRENT", "8"),
         draw_per_second=_env_int("HUTUJI_DRAW_PER_SECOND", "4"),
         draw_per_minute=_env_int("HUTUJI_DRAW_PER_MINUTE", "120"),

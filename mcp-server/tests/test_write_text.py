@@ -10,6 +10,7 @@ import asyncio
 import io
 import json
 import struct
+import time
 import types
 import zipfile
 
@@ -305,6 +306,60 @@ def test_hutuji_write_end_to_end(tmp_path, monkeypatch):
     preview_path = out_dir / payload["preview_url"].rsplit("/", 1)[-1]
     assert preview_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert payload["pages"][0]["preview_url"] == payload["preview_url"]
+
+
+def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
+    """多页文章错峰 TTL（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，
+    实测一页 ≈125s（116.3s 灌流 + 8s 换纸）。若所有页共用同一个 600s 窗口，
+    第 6 页起必然 404。故第 i 页 mtime 前移 i×page_ttl_budget_seconds；
+    第 1 页必须不动（保持既有单页语义：窗口从写盘时刻起算），
+    且 _serve_file 对未来 mtime 的页必须照常 200（now-mtime 为负 → 未过期）。
+    """
+    from hutuji_mcp import server
+    from hutuji_mcp.config import Settings
+
+    font_dir = tmp_path / "fonts"
+    font_dir.mkdir()
+    (font_dir / "test.gfont").write_bytes(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国中"})
+    )
+    out_dir = (tmp_path / "out").resolve()
+    out_dir.mkdir()
+    patched = Settings(
+        llm_base_url="http://127.0.0.1:1", llm_api_key="", llm_model="", output_dir=out_dir,
+        public_base_url="http://127.0.0.1:8300", host="127.0.0.1", port=8300,
+        output_ttl_seconds=600, gfont_dir=str(font_dir), page_ttl_budget_seconds=300,
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._gfont_cache.clear()
+    server._gfont_metrics_cache.clear()
+
+    # 字号 40mm × 行距 3.0 → 每页仅 1 行（页高 174 / 行高 120），一行 4 字即逐页
+    started = time.time()
+    payload = json.loads(
+        asyncio.run(
+            server.hutuji_write("永国中" * 6, size_mm=40.0, line_spacing=3.0)
+        )
+    )
+    assert payload["total_pages"] >= 3
+
+    mtimes = []
+    for page in payload["pages"]:
+        stem = page["url"].rsplit("/", 1)[-1][: -len(".gcode")]
+        trio = [out_dir / f"{stem}{suffix}" for suffix in (".svg", ".gcode", ".png")]
+        per_page = {p.stat().st_mtime for p in trio}
+        assert max(per_page) - min(per_page) < 1.0  # 三个后缀同窗口
+        mtimes.append(trio[1].stat().st_mtime)
+
+    assert started - 1.0 <= mtimes[0] <= time.time() + 1.0  # 第 1 页 = 写盘时刻
+    for i in range(1, len(mtimes)):
+        assert abs((mtimes[i] - mtimes[0]) - i * 300.0) < 5.0
+
+    # 末页 mtime 在未来，仍须可下载
+    last = payload["pages"][-1]["url"].rsplit("/", 1)[-1]
+    resp = asyncio.run(server._serve_file(last))
+    assert resp.status_code == 200
+    assert resp.headers["X-Hutuji-CRC32"]
 
 
 def test_page_preview_png_is_visible_rgb_and_survives_empty_page():
