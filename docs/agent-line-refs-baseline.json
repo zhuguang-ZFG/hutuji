@@ -1,5 +1,5 @@
 {
-  "git_head": "0c634828bdf055b27b1bf38342a09099efbf1147",
+  "git_head": "f268a0eee0328f7035dde3e00c8274d84ae2a480",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -456,7 +456,7 @@
       "source": "- `mcp-server/hutuji_mcp/quickdraw.py` — Quick Draw 本地缓存（2026-08-24 落地）：`lookup()` 命中即免付费生图，复用位图路线产物面；数据根走 `HUTUJI_QUICKDRAW_DIR`，类目映射 `quickdraw_categories.json`（v4：**402 别名键 → 298 官方在册类目**，已对账 categories.txt；与数据目录 298 个 `.jsonl` 双向零差；2026-08-25 v4 两项：`_PREFIX_RE` 增 11 个礼貌备择 + 循环剥离 ≤3 刀（请画/帮我画+单字名词此前全 miss），补 15 个「小X」口语变体（小树/小花等，实机 HIL 实证「画一棵小树」miss 走付费 AI 链）；圣诞树/松树经 GCS 404 实证非官方类目不收）；署名 `QUICKDRAW-ATTRIBUTION.md`。；2026-08-25 C 组合：质量路由 _QD_STYLE_RE 默认 AI 链、简笔风才查 QD；数据换装精选版每类 50 条（quickdraw_curate.py 三因子质量分），原始 200 条/类本地备份",
       "target": "AGENTS.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:140-142": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:142-144": {
       "sha8": "28b4f5a5",
       "source": "- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1147 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。\n- 二十四个测试文件职责（当前共 **1147 项**）：`test_contract.py` **620** 项（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归（含 preflight **33** 项形状钉死）、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01、§9-G′ 长名锁表↔§6.1 golden 13 项集合精确相等交叉钉 R17-XREPO-02——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）、`/internal/draw` loopback+共享密钥闸/请求校验/错误映射、chain_push 分键与强制同步、refresh 对端同步钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **94** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏、KB `文档已存在` 幂等）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **13** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_draw_queue.py` **23** 项（Redis/memory 队列 attach/enqueue/限深/worker 消费、_decide_attach 决策矩阵、inflight 残留 replace 与 NX 冲突重判回归、worker 优雅停机——stop 事件迭代边界退出/画途中跑完当前 job、main 接线子进程回归、chain_push 标志分键/旧 payload 缺省 True/Redis inflight 双键隔离）；`test_output_store.py` **2** 项（本地/OSS 产物读写与 §5 复核）；`test_breaker.py` **4** 项（Phase-3 通道熔断 shadow/enforce、Redis 扫描跳过 samples ZSET）；`test_job_ledger.py` **5** 项（Postgres 账本后台写，无 DSN 禁用）；`test_queue_metrics.py` **1** 项（队列指标 JSON 日志）；`test_portal_settings.py` **4** 项（运营后台 image_racers 下发）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_curated.py` **6** 项、`test_curated_gate.py` **4** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **5** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v3、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）；`test_xiaozhi_token_auto.py` **26** 项（控制台 JWT 自动登录器：env 解析/token 形状闸/OCR 形状闸先于登录提交/失败换码重试环/全败抛错/token 只走 argv 不上日志/--selftest 无凭据自检）。`test_write_text.py` **18** 项（奎享 .gfont 解析：v2/v5/v6 头/十进制码位条目/cubic 细分/坏版本坏 ZIP 拒绝；排版：折行/避头/缩进/分页/缺字/字号保真无版式管线；hutuji_write 端到端过 §5 校验与空文/超长闸；`page_to_preview_png` 每页 RGB 预览（可见性/空页全白）、write chain_push pages 紧凑 JSON 形状钉死——`pages[0]` 必须等于 url/preview_url）。",
       "target": "AGENTS.md"
@@ -711,12 +711,22 @@
       "source": "| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1050` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1050` 自此降级为 fast-path advisory（只负责 web 侧 `\"busy\"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |",
       "target": "docs/protocol.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:19": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:18": {
+      "sha8": "dce1ec3a",
+      "source": "> **2026-08-30 中午 GitHub 三仓已 push + 固件 PR 已开（hub `781dcb3`/main；xiaozhi `0d041c9`→[PR #1](https://github.com/zhuguang-ZFG/xiaozhi-esp32/pull/1)；Grbl `40616de`→[PR #1](https://github.com/zhuguang-ZFG/Grbl_Esp32/pull/1)）**：hub 含 draw-admin/analytics/usage 埋点与 §6.1/§9-G′ 文档。**MCP 运行时**（`server.py`/`config.py`/`usage_report.py`/`bitmap_svg.py`/`gcode_gen.py`）2026-08-30 12:24 双机 LF blob SHA-256 与 HEAD 逐位相符并已 restart `hutuji-mcp`（阿里云另 restart `hutuji-cloud-bridge`）；`781dcb3` 相对 `22e22c2` 仅文档差，无新增 MCP 字节。hub **`--profile hub` 门禁 pass**（`781dcb3`，2026-08-30 14:09Z，`results/hutuji_gate_last.md` exit=0；1049 pytest 分批实跑全绿 + e2e PASS；计数漂移修复：`AGENTS.md`/inventory 1043→1049 + `test_field_tools` 93 + 新增 `test_draw_limits_config`/`test_usage_report`，`agent-line-refs-baseline.json` 已 `--accept-line-refs`）。阿里云 preflight **21/30**（nginx 专用日志/ACL/兜底 301 等为既有 RHEL 布局债，非本批 MCP restart 回归）；公网 `/files` 真下 G-code **200** 仍绿。fz `standard` 本机 fail 为 MinGW `limits.h` 头链冲突（`protocol_sim`/`hardware_sim` 已通过），与 §9-G′ 无直接因果。**未宣称出货**。",
+      "target": "docs/release-readiness.md"
+    },
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:20": {
       "sha8": "37af662b",
       "source": "> **2026-08-30 上午 Grbl `$` 指纹门禁 + 写保护（三仓已刷实机；hub 文档已同步）**：协议 §6.1 / §9-G′。S3 连接后授权探测通过 → 逐项只读 golden（13 项，含 `[Errors/Verbose]`；Grbl 单查回 `Off` 已映射为 0）→ `grbl_settings_ok=true` 才 ready。COM14 抓包 `tmp/settings-fp-fixed-com14.log`（gitignore）：`Grbl 设置指纹通过（13 项）`；镜像 SHA-256 `1555415246ADF3DF4CBD42ADDE53B53DF9C82627745BD78219972CBA56C1BA62`（`build-hil-ws35/xiaozhi.bin`）。Grbl COM13 刷入 `7069D20E95DDF58DA8B4C15650FC115D636B8CD2783D2B5DE20956E76405C4E1`；写保护实锤 `$130=200`→`error:5`，`$130` 只读仍 `210.000`（`tmp/test_grbl_write_lock_com13.py`）。fz 门禁 host SIL 层见上条。未宣称出货。",
       "target": "docs/release-readiness.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:54": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:38": {
+      "sha8": "b846b5a8",
+      "source": "> **2026-08-28 晚 Grbl `$1=255` 页尾/换纸失能守卫闭环（Grbl `2cecd2d` 已提交；COM13 已刷；用户确认正常）**：根因=商业固件在 **M30 页尾**（`GCode.cpp`）与 **换纸 abort/进纸超时/卡纸**（`PaperSystem.cpp`）无条件 `motors_set_disable(true)`，绕过 NVS `$1=255` 常使能 → 弹簧笔架抬笔 → 画完或下一页「没墨/电机不使能」。修复=`stepper_idle_lock_time==0xff` 时 M30 跳过失能；换纸失败/abort 改 `paper_finish_xyz_after_fault()`（常使能机显式恢复 enable）；换纸成功仍 `:1047` 恢复。构建 `pio run -e release` SUCCESS；`firmware.bin` 1858112B SHA-256 `12275654…429A5`；COM13 upload `Hash of data verified`。证据 `results/local-only/2026-08-28/grbl-m30-enable-hil-monitor.log`（21:54 feeder timeout 曾触发旧路径失能）；**用户 2026-08-28 晚确认「好了没问题了」**。S3 无需改。~~「M30 页尾强制失能…与 `$1=255` 无关」~~ **【supersede】** 本条。",
+      "target": "docs/release-readiness.md"
+    },
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:55": {
       "sha8": "3f107c13",
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
@@ -725,6 +735,11 @@
       "sha8": "06efada8",
       "source": "    assert result[\"status\"] == \"pass\", result",
       "target": "mcp-server/tests/test_contract.py"
+    },
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:242": {
+      "sha8": "218f3480",
+      "source": "- **2026-08-23 烧录 `fb2b3b5`（COM13，用户批准后执行）**：`pio run -e release` 重建 SUCCESS（仅重编 PaperSystem.cpp/WebSettings.cpp，与 E′ 触碰面一致；新 bin 1857936 字节，取代 08-15 旧镜像）→ `pio run -t upload --upload-port COM13` app-only `0x10000`，esptool `Hash of data verified`，RTS 硬复位。启动自证 `results/local-only/2026-08-23/fb2b3b5-com13-boot.log`（抓取脚本 `tmp/cap_fb2b3b5_com13.py`）：`Grbl_ESP32 Ver 1.3a`、paper system vM716 ready、`[License] Authorized (restored from NVS)`、连上 `ChinaNet-jJmz` 获 `192.168.1.13`、HTTP/TELNET:23 起来，无崩溃重启。**矛盾待澄清**：本次启动自报 ChipID（efuse MAC）`0000FC7742C63C94`，与 §2 上文 08-22 记录的 `00002C876AE9BFB4` 不一致（本地证据文件中检索不到后者出处），COM 号漂移或多台写字机皆有可能——物理身份需用户确认；可确认的是「今天 COM13 这块板」已跑 `fb2b3b5` 且授权/.13 网络身份正常。物理并发复现（E′ 的 HIL）仍未做。**wokwi 同日登记**：复跑 `run_wokwi_smoke.py`（新镜像已就位）失败根因为 Wokwi 免费版月度 CI 配额耗尽（`API Error: ... Free plan monthly CI minute quota`，serial 0 行），属外部阻塞非固件回归；该可选层本月不可跑，不阻断产品门禁。",
+      "target": "docs/worktree-inventory.md"
     },
     "docs/protocol.md -> Custom/paper_system.cpp:182": {
       "sha8": "315ec785",
@@ -1006,19 +1021,19 @@
       "source": "        // GPIO34: 3.3V=NoP(无纸), 0V=HavP(有纸)",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/release-readiness.md -> application.cc:1165": {
-      "sha8": "a38ef1c0",
-      "source": "        return false;",
+    "docs/release-readiness.md -> application.cc:1193": {
+      "sha8": "6a10b9cc",
+      "source": "void Application::SendMcpMessage(const std::string& payload) {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
-    "docs/release-readiness.md -> application.cc:545": {
+    "docs/release-readiness.md -> application.cc:554": {
       "sha8": "6f66d874",
       "source": "    protocol_->OnAudioChannelClosed([this, &board]() {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
-    "docs/release-readiness.md -> application.cc:914": {
-      "sha8": "11944b1c",
-      "source": "            // Return to idle so the device is not stuck in the connecting",
+    "docs/release-readiness.md -> application.cc:936": {
+      "sha8": "9db5f6db",
+      "source": "#if CONFIG_SEND_WAKE_WORD_DATA",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
     "docs/release-readiness.md -> audio_service.cc:790": {
@@ -1277,6 +1292,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-01T05:55:38Z",
+  "updated": "2026-09-01T06:58:50Z",
   "version": 1
 }

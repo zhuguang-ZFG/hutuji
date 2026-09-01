@@ -316,7 +316,7 @@
 | 仓库 | 实时 HEAD 命令 | 已知状态 |
 |---|---|---|
 | hutuji | `git rev-parse --short HEAD` | 本仓 HEAD 以左列命令现取（08-29 起为 docs-only 证据登记提交，与 `origin/main` 同步；此处不钉 SHA 防自指陈旧）；**生产现役应用基线 `b7f88e3`**（2026-08-29 晚生产漂移收口并复验：运行时包 `hutuji_mcp/` 全 22 文件与 HEAD blob SHA-256 双机逐位相符、CR=0，见 deployment.md 首条；前基线 `befba0a` 为 08-29 上午登记）：冒烟「画一只猫」curated hit 零付费（不注入设备 token 故不推屏），公网真下载 8923B SHA 相符、`/mcp` 404，双服务 active（阿里云 mcp+bridge MainPID 422803/422823，京东云仅 mcp MainPID 359004）。**已关闭的滞后登记**：`preview_url` 白名单 2026-08-24 `55a8d0a` 已修；`c2cdbd4` 之后 13 个服务端 commit 已于 08-28 `34b44d4` 全部部署，两处登记均已关闭。 |
-| xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | `72a693a` 已推 `feat/hutuji-usb-pipe`（origin 实际此前已到 `4ce8b59`，本条仅推 `72a693a`）；工作树干净；板上当时 `93b61d5b…afa9`（= `72a693a` 内容）三轮画图 HIL 通过；host 131/131（2026-08-28 起板上为 `c3cf3d7`，host 已 137/137，见 §3）。2026-08-23 全链审计登记：`hutuji_job.cc` 预取接管在上一张成功且预取命中时不释放旧 G-code PSRAM（重复新画累积泄漏），修复待独立批次，见 §3 工作树条。 |
+| xiaozhi-esp32 | `git -C D:/Users/xiaozhi-esp32 rev-parse --short HEAD` | **`2f06a67`** 已推 `feat/hutuji-usb-pipe`（2026-09-01 多页文章设备侧批 + lichuang-dev 构建假绿修复，见本文尾）；工作树干净（构建工件已移入被忽略的 `tmp/`）；host **145/145**；两套 release 真编译通过（lichuang-dev zip SHA-256 `04a81463…c3b0`、waveshare 3.5 `4ad35683…b7a69`）但**未刷机**——本轮 COM14 不在串口枚举内。板上仍为 `c3cf3d7` 内容（2026-08-28 用户照片确认），不含多页文章支持。2026-08-23 全链审计登记的 `hutuji_job.cc` 预取 PSRAM 泄漏已由 `67507c6` 修复（见 §3）。 |
 | Grbl_Esp32 | `git -C D:/Users/Grbl_Esp32 rev-parse --short HEAD` | **`2cecd2d`**（§9-F′ M30/换纸 `$1=255` 守卫 + `7f48217` 机型默认）；COM13 板上 SHA `12275654…429A5`（2026-08-28 晚）；用户确认使能/出图正常 |
 | fz | `git -C D:/Users/zhugu/fz rev-parse --short HEAD` | `c2bf1a3`；2 个用户实验文件保留；门禁须走 clang 路径（见 §2）；wokwi 可选层 2026-08-23 起受免费 CI 配额阻塞，非固件回归（见 §2） |
 
@@ -404,9 +404,9 @@
 | `mcp-server/hutuji_mcp/{server,config,gcode_gen}.py` | `hutuji_write` 工具（text/font/size_mm/line_spacing/char_gap_mm → pages[] 产物 URL）；`HUTUJI_GFONT_DIR` 配置（空值禁用；**字体为奎享专有素材不入库**，本机取 kdraw 安装目录）；`svg_to_gcode_async(..., normalize=False)` 跳过 vpype layout——`--fit-to-margins` 实测把内容缩放 1.07× 且随每页内容量漂移，写字链字号保真必须绕开，linemerge/linesort/linesimplify/gwrite/validate_gcode 全量继承 |
 | `mcp-server/tests/test_write_text.py`（新） | **16 项**：合成 v2 明文 gfont 夹具（不引专有字体）解析/度量/折行/避头/分页/缺字/端到端过 §5 校验；全套 **1145** 项 |
 | 验证状态 | hub 门禁 PASS（1145 + e2e + 指纹 255）；真机 HIL（2026-09-01 凌晨）：本地生成 → scp 阿里云 output → 公网双能力地址 200 → `device-call hutuji.draw` → 屏幕确认 → `开始灌流 lines=1021 xy=719` → 720/720 全发 → 页尾归位 → `<Idle>`；M30 换纸报 `error:90 缺纸/卡纸`（疑纸盒未装纸，待用户确认复测）；证据 `results/local-only/2026-08-31/{write-hil-com14.log,write-hil-draw-com14.log}` + 逐台记录同目录；预览 PNG 首版设备白屏（灰度整页细线被缩盒子采样吞没），RGB 内容裁剪加粗版可见，生成器 `tmp/make_write_preview.py`（探针工件不入库） |
-| 后续 | 多页文章的 S3 逐页循环下发（xiaozhi 侧 `hutuji.draw` 单 url 现状）属下一切片；生产部署 `hutuji_write`（代码 scp + 双机 mcp.env 加 `HUTUJI_GFONT_DIR` + 字体文件分发）未执行，用户点名前不动生产 |
+| 后续 | 多页文章的 S3 逐页循环下发已由 xiaozhi `2f06a67` 落地（见本文尾「多页文章设备侧批」，源码已推、未刷机）；生产部署 `hutuji_write`（代码 scp + 双机 mcp.env 加 `HUTUJI_GFONT_DIR` + 字体文件分发）未执行，用户点名前不动生产 |
 
-## 多页文章云端配套批（2026-09-01，本仓 `872e874` 已推 origin）
+## 多页文章云端配套批（2026-09-01，本仓 `f268a0e` 已推 origin）
 
 | 文件 | 说明 |
 |---|---|
@@ -415,3 +415,15 @@
 | `docs/protocol.md` | §4 表 `hutuji.draw` 增 `pages`；新增 §4.2 多页文章契约（JSON 字符串形态/fail-closed 校验/`pages[0]`=url·preview_url/页循环/status 增 page·pages/repeat 整篇重来） |
 | `mcp-server/tests/test_write_text.py` | 16→**18 项**（+预览 PNG 可见性/空页全白、+chain_push pages 紧凑 JSON 形状钉死）；全套 **1147** 项 |
 | 验证状态 | 全套 pytest **1147/1147** 通过（计数自洽测试 RED→GREEN）；hub 门禁 PASS（1147 + e2e + 指纹 255，45 处半漂移=外仓多页改动行号位移，35 处 --fix-line-refs 自动 + 9 处人工核对重定位 + 基线重登）；生产部署与真机两页 HIL 未执行 |
+
+## 多页文章设备侧批 + lichuang-dev 构建假绿修复（2026-09-01，xiaozhi `2f06a67` 已推 `feat/hutuji-usb-pipe`）
+
+| 文件（外仓 `D:/Users/xiaozhi-esp32`） | 说明 |
+|---|---|
+| `main/boards/lichuang-dev/hutuji_recovery_core.h` | `ParseArticlePages` 纯扫描器（零 cJSON——宿主测试单 TU 编纯头）；`kArticleMaxPages = 20`；键序校验、值内 `\` 拒收、非法输入整体拒收（`json.find` 宽匹配会跨页错配，宁严勿宽） |
+| `main/boards/lichuang-dev/hutuji_job.{h,cc}` | 多页成员 `article_pages_`/`article_index_` + `std::atomic<size_t> article_page_/article_total_`（0=非文章模式不出字段——`StatusJson` 是 const 不持 `stream_mutex_`）；`StartDraw` 在 `busy_` 前解析并校验 `pages.front()` 与 url/preview_url 一致；`Run` 在 `ChangePaperAfterDraw` 成功后翻页 + `ReleaseBuffer()` + `repeat_mode_` 复位 + `paper_change_notified_ = false`，翻页播报缓冲 96 字节（48 字节把中文截成半个字）；`RequestRepeat` 对文章禁快路、整篇从第 1 页重来 |
+| `main/boards/lichuang-dev/lichuang_dev_board.cc`、`main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc` | 两板型各注册 `Property("pages", kPropertyTypeString, "")` 并把 pages 传进共享 `hutuji::Job` 单例 |
+| `main/application.cc` | **构建假绿根因修复**：`boards/lichuang-dev/*.cc` 在 lichuang-dev 上走板级 glob 全量链入（含 `hutuji_conversation_report.cc`），但会话上报的 include/调用点只守 waveshare 宏 → lichuang-dev release 编译报 `'hutuji' has not been declared`。改用 `HUTUJI_CONVERSATION_REPORT_ENABLED` 覆盖两板型；激活码中转仍只守 waveshare（其源只在 waveshare 显式 CMake 列表内） |
+| `scripts/tests/test_hutuji_recovery_core.py` | 144→**145 项**：新增 `test_conversation_report_guard_covers_every_board_that_links_it`（守卫宏必须同时覆盖两板型 + 两处调用点都在宏下 + 两板都调 `InitConversationReport`，回退 `application.cc` 到 HEAD 取 RED→GREEN 实测）；此前 3 项文章相关用例保留 |
+| 构建证据 | **`release.py` 假绿已定性**：`releases/v2.4.0_<board>.zip` 已存在即跳过 set-target/build/merge-bin 并打 `RELEASE_RC=0`，此前 5.3s「构建成功」实为复用旧 zip、零编译。真实 env 为 `IDF_TOOLS_PATH=C:\Users\zhugu\.espressif`（**不是** `C:\Espressif\tools`——该路径无 `tools.json`），`export.bat` 前须把 `…\python_env\idf6.0_py3.13_env\Scripts` 与 `C:\Program Files\Git\cmd` 前置进 PATH（否则 export 走 `__error_missing_requirements`，且该标签在文件内不存在）。本轮两套真编译：lichuang-dev 1980 个编译单元、`build/xiaozhi.bin` 3,038,096B、zip SHA-256 `04a81463…c3b0`；waveshare/esp32-s3-touch-lcd-3.5 1982 个编译单元、`build/xiaozhi.bin` 3,036,784B SHA-256 `f01650dd…a2f0`、zip SHA-256 `4ad35683…b7a69`（旧 08-20 包改名 `…pre-20260820.zip` 备份）。两次日志均含 `application.cc.obj` 与 `boards/lichuang-dev/hutuji_job.cc.obj`，二进制内可检出多页播报字符串。板型选择经 `release.py waveshare/esp32-s3-touch-lcd-3.5`（manufacturer 子目录必须带前缀，裸板名会「no config.json，skipping」） |
+| 验证状态 | 宿主测试 **145/145**（30.6s，`D:/Users/hutuji/mcp-server/.venv/Scripts/python.exe -m pytest scripts/tests/ -q`）；hub 门禁 PASS（1147 + e2e + 指纹 255/255）；**未刷机、未真机两页 HIL**——COM14（S3）本轮不在枚举串口列表内（只有 COM13 CH340 + 两个蓝牙口），刷机须用户接回 S3 |
