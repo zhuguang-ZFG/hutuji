@@ -2,6 +2,13 @@
 # 上线前/变更后本机冒烟（不打印密钥、不访问公网 MCP）。
 set -euo pipefail
 
+# 新增判据前先答「双机是否都能过」：本脚本无 skip（见下），一条在主节点或热备缺
+# 前提就红的判据会把整份报告永久钉在 fail。依赖可选 env 的能力面必须照 Phase-3
+# 的 check_draw_queue_optional / check_pg_ledger_optional / check_oss_roundtrip_optional
+# 体例写：env 缺失即 return 0 计 pass。特例记录：HUTUJI_GFONT_DIR（hutuji_write
+# 单线字库）**故意不加探针**——字体是奎享专有素材不入库、双机均未配置，无条件
+# 探针必然常红。改下面这个数还要同步 test_contract.py 的形状断言（该数与真实
+# 判据条数、与判据名清单长度三方对账）。
 EXPECTED_CHECKS=33
 PASS=0
 FAIL=0

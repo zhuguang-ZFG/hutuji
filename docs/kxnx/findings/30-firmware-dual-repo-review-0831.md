@@ -16,7 +16,7 @@
 ## 裁决推翻/修正的代理论断
 
 - Grbl 代理把白名单未同步判 **P1**——主代理降 P3：三个触面全部有授权记录（commit 内/契约行/readiness），且该机读文件当前不对 Grbl 提交机器执行，无实际违规。
-- Grbl 代理 O4「6 提交均无 fz 宣称」不准确：`7f48217` 有 fz standard pass（release-readiness.md:57）；`2cecd2d`/`40616de` 各有 COM13/COM14 刷机+实机证据（release-readiness.md:40、release-readiness.md:20）；`fb2b3b5` 有 08-23 COM13 烧录启动自证（worktree-inventory.md:246）。
+- Grbl 代理 O4「6 提交均无 fz 宣称」不准确：`7f48217` 有 fz standard pass（release-readiness.md:57）；`2cecd2d`/`40616de` 各有 COM13/COM14 刷机+实机证据（release-readiness.md:40、release-readiness.md:20）；`fb2b3b5` 有 08-23 COM13 烧录启动自证（worktree-inventory.md:265）。
 - xiaozhi 代理 F1（abort 兜底移交 reset）判 P2——主代理降 P3：两条兜底路径经验证存在且行为正确，属设计确认非缺陷。
 
 ## 复核通过的重点面（无缺陷结论，附证据强度）

@@ -904,14 +904,14 @@ async def _run_write_job(
 
 @mcp.tool()
 async def hutuji_write(
-    text: str, font: str = "", size_mm: float = 8.0,
+    text: str, font: str = "", size_mm: float = 12.0,
     line_spacing: float = 1.6, char_gap_mm: float = 0.8,
 ) -> str:
     """用奎享手写字库把整段文字写成字（钢笔单线手写体，非画图）。
 
     用户说「写一封信/写一段话/抄一篇文章」时用；要画图用 hutuji_draw。
     text 是要写的内容（\\n 分段，段首自动缩进两格，自动折行/分页/标点避头）。
-    font 字库名（留空默认字数最多的手写字库）；size_mm 字高（2–40，默认 8）；
+    font 字库名（留空默认字数最多的手写字库）；size_mm 字高（2–40，默认 12）；
     line_spacing 行距倍数（默认 1.6）；char_gap_mm 字距（默认 0.8）。
     返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字。"""
     _report_mcp_tool("write")
