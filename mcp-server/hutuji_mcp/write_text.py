@@ -45,7 +45,7 @@ class WriteTextError(Exception):
 class WriteLayout:
     """排版参数；默认值按 190×190 页区手写字体验定。"""
 
-    size_mm: float = 12.0  # CJK 字高目标（mm）；2026-09-02 用户实测 8mm 在 190mm 页面上过小，默认上调
+    size_mm: float = 12.0  # CJK 字高目标（mm）；2026-09-02 用户反馈 8mm 在 190mm 页面上过小，默认上调
     line_spacing: float = 1.6  # 行距倍数（相对 size_mm）
     char_gap_mm: float = 0.8  # 字距（mm，加在步进后）
     margin_left_mm: float = 8.0
