@@ -11,6 +11,17 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### hutuji_write 生产上线 + 字体分发（2026-09-02 晚，双机已部署，用户拍板「字体你搞」）
+
+| 项 | 说明 |
+|----|------|
+| 动作 | 6 个代码文件（`30eb2e0`→HEAD delta：`server.py`/`config.py`/`gcode_gen.py`/`output_store.py` + 新 `gfont.py`/`write_text.py`）`git cat-file blob HEAD:` 导出 CR=0、双机 SHA-256 与本地 blob 逐位相符、远端 py_compile 过；9 个 `.gfont` 从本机 kdraw 安装目录 scp 双机 `/opt/hutuji/gfonts/`（本机/阿里云/京东云三方逐文件 SHA-256 全符）；双机 `mcp.env` 追加 `HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`（备份 `.bak.20260902-write`，600 保持）；阿里云 restart mcp+bridge+worker@{1..8}，京东云仅 mcp（bridge 保持 disabled 热备态）；备份 `/root/hutuji-bak-20260902-write/`（双机同名） |
+| 冒烟 | 双机本机链（免费零付费，`chain_push=False` 不触设备）：`永国中，你好，写字机。` → 1 页 350 行 7855B 42 抬笔无缺字，自动选「如果梦万国库」，`size_mm=12.0` 新默认生效；阿里云公网真下载 200/7855B 字节级相符，京东云 loopback `/files` 200 逐字节相符 |
+| preflight | 阿里云 **24/33**（9 fail 与 nginx 布局基线逐项相符）、京东云 **28/33**（5 fail 全为热备预期分歧）——双机口径不变，零新增 fail |
+| 新观察 | 8/8 worker 收 SIGTERM 后均日志「退出消费循环」却无一自行退出，全部撑满 `TimeoutStopSec=300` 被 SIGKILL 才重启——与 08-30 登记「空闲 worker 干净退出」矛盾；`draw_worker.py` 不在本批 delta（生产该文件仍为 08-31 版），疑似退出路径悬挂点（metrics task await 或账本线程），待立项排查 |
+| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；worker 退出悬挂根因 |
+| 证据 | 详见 `docs/deployment.md` 首条（逐文件 SHA-256、MainPID、冒烟返回 JSON 全文） |
+
 ### hutuji_write 默认字高 8→12mm（2026-09-02，已提交 `1a7f9d1` 并推 origin）
 
 | 项 | 说明 |
@@ -18,7 +29,7 @@
 | 动机 | 用户反馈观感「字体太小」：8mm 字高在 190×190 页区占比小、笔尖细（0.5mm 级），且语音场景云端模型基本不显式传 `size_mm`——默认值就是真实出字大小 |
 | 改动 | `mcp-server/hutuji_mcp/server.py`：`hutuji_write` 签名默认 `size_mm 8.0→12.0`，docstring「默认 8→12」；`mcp-server/hutuji_mcp/write_text.py`：`WriteLayout.size_mm` 默认同步 12.0（两处默认必须一致，否则工具面与排版面脱节）。边界 2–40 / 行距 1.6 / 字距 0.8 / 边距 8 均不动；调用方显式传参不受影响；行为变更仅此一处 |
 | 容量影响 | 字步进 8.8→12.8mm：每行约 19→13 字（首行缩进后约 11）；行高 12.8→19.2mm：每页约 13→9 行。长文章页数约翻倍；错峰 TTL 预算 300s/页与 §5 校验不受影响 |
-| 验证状态 | `test_write_text.py` **19/19** 通过（改前已全仓 grep 核实无任何测试钉死 8.0 默认：既有用例全部显式传 10/20/40）；hub 门禁 **overall=pass exit=0**（HEAD `65561660`：pytest **1150/1150**、e2e `PASS`、指纹 258/258）。**未执行**：生产双机 `hutuji_write` 尚未启用（字体分发未决），新默认仅本机与后续部署生效 |
+| 验证状态 | `test_write_text.py` **19/19** 通过（改前已全仓 grep 核实无任何测试钉死 8.0 默认：既有用例全部显式传 10/20/40）；hub 门禁 **overall=pass exit=0**（pytest **1150/1150**、e2e `PASS`、指纹 258/258）。~~新默认仅本机与后续部署生效~~（2026-09-02 晚追记：已随生产上线批双机部署，见本页「hutuji_write 生产上线」小节与 `docs/deployment.md` 首条） |
 
 ### env 模板补 `HUTUJI_GFONT_DIR` 注释块 + preflight 新增判据纪律注释（2026-09-01，已提交 `1a7f9d1` 并推 origin）
 
@@ -26,9 +37,9 @@
 |----|------|
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
-| 未决 | 字体文件仅存于本机 kdraw 安装目录，用户 2026-09-01 复核确认本仓零 .gfont；生产 `hutuji_write` 启用阻塞在素材授权/分发决策，而非 env 配置。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用两轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行，同法收口。当前落点：findings #28 → 本页 `:194`（387 别名键）/`:198`（**34 项** 测试计数）/`:199`（quickdraw-data），findings #30 → `:265`（08-23 COM13 烧录自证）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
-| 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。**未执行**：任何生产动作（双机 mcp.env 未加该变量、字体未分发）、设备侧两页错峰 TTL 真机 HIL |
+| 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点：findings #28 → 本页 `:205`（387 别名键）/`:209`（**34 项** 测试计数）/`:210`（quickdraw-data），findings #30 → `:276`（08-23 COM13 烧录自证）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
 
@@ -427,7 +438,7 @@
 | `mcp-server/hutuji_mcp/{server,config,gcode_gen}.py` | `hutuji_write` 工具（text/font/size_mm/line_spacing/char_gap_mm → pages[] 产物 URL）；`HUTUJI_GFONT_DIR` 配置（空值禁用；**字体为奎享专有素材不入库**，本机取 kdraw 安装目录）；`svg_to_gcode_async(..., normalize=False)` 跳过 vpype layout——`--fit-to-margins` 实测把内容缩放 1.07× 且随每页内容量漂移，写字链字号保真必须绕开，linemerge/linesort/linesimplify/gwrite/validate_gcode 全量继承 |
 | `mcp-server/tests/test_write_text.py`（新） | **16 项**：合成 v2 明文 gfont 夹具（不引专有字体）解析/度量/折行/避头/分页/缺字/端到端过 §5 校验；全套 **1145** 项 |
 | 验证状态 | hub 门禁 PASS（1145 + e2e + 指纹 255）；真机 HIL（2026-09-01 凌晨）：本地生成 → scp 阿里云 output → 公网双能力地址 200 → `device-call hutuji.draw` → 屏幕确认 → `开始灌流 lines=1021 xy=719` → 720/720 全发 → 页尾归位 → `<Idle>`；M30 换纸报 `error:90 缺纸/卡纸`（疑纸盒未装纸，待用户确认复测）；证据 `results/local-only/2026-08-31/{write-hil-com14.log,write-hil-draw-com14.log}` + 逐台记录同目录；预览 PNG 首版设备白屏（灰度整页细线被缩盒子采样吞没），RGB 内容裁剪加粗版可见，生成器 `tmp/make_write_preview.py`（探针工件不入库） |
-| 后续 | 多页文章的 S3 逐页循环下发已由 xiaozhi `2f06a67` 落地（见本文尾「多页文章设备侧批」，源码已推、未刷机）；生产部署 `hutuji_write`（代码 scp + 双机 mcp.env 加 `HUTUJI_GFONT_DIR` + 字体文件分发）未执行，用户点名前不动生产 |
+| 后续 | 多页文章的 S3 逐页循环下发已由 xiaozhi `2f06a67` 落地（见本文尾「多页文章设备侧批」，源码已推、已刷 waveshare 3.5）；~~生产部署 `hutuji_write` 未执行~~（2026-09-02 晚已执行：代码 6 文件双机 SHA-256 逐位相符 + 双机 mcp.env 加 `HUTUJI_GFONT_DIR` + 9 个 `.gfont` 字体三方校验分发，冒烟/preflight 全过，见本页顶部「hutuji_write 生产上线」小节） |
 
 ## 多页文章云端配套批（2026-09-01，本仓 `f268a0e` 已推 origin）
 
