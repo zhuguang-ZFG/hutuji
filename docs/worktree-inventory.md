@@ -11,7 +11,7 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### hutuji_write 默认字高 8→12mm（2026-09-02，本仓未提交）
+### hutuji_write 默认字高 8→12mm（2026-09-02，已提交 `1a7f9d1`，未推 origin）
 
 | 项 | 说明 |
 |----|------|
@@ -20,14 +20,14 @@
 | 容量影响 | 字步进 8.8→12.8mm：每行约 19→13 字（首行缩进后约 11）；行高 12.8→19.2mm：每页约 13→9 行。长文章页数约翻倍；错峰 TTL 预算 300s/页与 §5 校验不受影响 |
 | 验证状态 | `test_write_text.py` **19/19** 通过（改前已全仓 grep 核实无任何测试钉死 8.0 默认：既有用例全部显式传 10/20/40）；hub 门禁 **overall=pass exit=0**（HEAD `65561660`：pytest **1150/1150**、e2e `PASS`、指纹 258/258）。**未执行**：生产双机 `hutuji_write` 尚未启用（字体分发未决），新默认仅本机与后续部署生效 |
 
-### env 模板补 `HUTUJI_GFONT_DIR` 注释块 + preflight 新增判据纪律注释（2026-09-01，本仓未提交）
+### env 模板补 `HUTUJI_GFONT_DIR` 注释块 + preflight 新增判据纪律注释（2026-09-01，已提交 `1a7f9d1`，未推 origin）
 
 | 项 | 说明 |
 |----|------|
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
-| 未决 | 字体文件仅存于本机 kdraw 安装目录，用户 2026-09-01 复核确认本仓零 .gfont；生产 `hutuji_write` 启用阻塞在素材授权/分发决策，而非 env 配置。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。**提交本身也未决**：本会话用户从未要求提交（评审建议的「提交本批」不等于用户点名），故 6 个文件连同基线 diff 一律留在工作树，按本仓纪律待用户点名后再 `git add` 点名文件 |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用两轮都落到空锚点/歧义，逐条核对后手改为 `:190`（quickdraw-data 行）。终态：findings #28 → 本页 `:185`（387 别名键）/`:189`（**34 项** 测试计数）/`:190`（quickdraw-data），findings #30 → `:256`（08-23 COM13 烧录自证）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 未决 | 字体文件仅存于本机 kdraw 安装目录，用户 2026-09-01 复核确认本仓零 .gfont；生产 `hutuji_write` 启用阻塞在素材授权/分发决策，而非 env 配置。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库，未推 origin） |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用两轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行，同法收口。当前落点：findings #28 → 本页 `:194`（387 别名键）/`:198`（**34 项** 测试计数）/`:199`（quickdraw-data），findings #30 → `:265`（08-23 COM13 烧录自证）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。**未执行**：任何生产动作（双机 mcp.env 未加该变量、字体未分发）、设备侧两页错峰 TTL 真机 HIL |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
