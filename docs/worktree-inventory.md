@@ -18,8 +18,8 @@
 | 动作 | 6 个代码文件（`30eb2e0`→HEAD delta：`server.py`/`config.py`/`gcode_gen.py`/`output_store.py` + 新 `gfont.py`/`write_text.py`）`git cat-file blob HEAD:` 导出 CR=0、双机 SHA-256 与本地 blob 逐位相符、远端 py_compile 过；9 个 `.gfont` 从本机 kdraw 安装目录 scp 双机 `/opt/hutuji/gfonts/`（本机/阿里云/京东云三方逐文件 SHA-256 全符）；双机 `mcp.env` 追加 `HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`（备份 `.bak.20260902-write`，600 保持）；阿里云 restart mcp+bridge+worker@{1..8}，京东云仅 mcp（bridge 保持 disabled 热备态）；备份 `/root/hutuji-bak-20260902-write/`（双机同名） |
 | 冒烟 | 双机本机链（免费零付费，`chain_push=False` 不触设备）：`永国中，你好，写字机。` → 1 页 350 行 7855B 42 抬笔无缺字，自动选「如果梦万国库」，`size_mm=12.0` 新默认生效；阿里云公网真下载 200/7855B 字节级相符，京东云 loopback `/files` 200 逐字节相符 |
 | preflight | 阿里云 **24/33**（9 fail 与 nginx 布局基线逐项相符）、京东云 **28/33**（5 fail 全为热备预期分歧）——双机口径不变，零新增 fail |
-| 新观察 | 8/8 worker 收 SIGTERM 后均日志「退出消费循环」却无一自行退出，全部撑满 `TimeoutStopSec=300` 被 SIGKILL 才重启——与 08-30 登记「空闲 worker 干净退出」矛盾；`draw_worker.py` 不在本批 delta（生产该文件仍为 08-31 版），疑似退出路径悬挂点（metrics task await 或账本线程），待立项排查 |
-| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；worker 退出悬挂根因 |
+| 新观察 | 8/8 worker 收 SIGTERM 后消费循环 4s 内退出，但进程又挂 **267–298s** 才消失（全 exit 0「Succeeded」、无 SIGKILL——初报「撑满 300s 被 SIGKILL」有误）；对照组定界「worker 独有 × 服役时长相关」（45h 同龄 mcp/bridge 秒退、新 worker 与隔离复现三轮秒退），`draw_worker.py` 不在本批 delta。已排除 daemon 线程/metrics task/journald/Redis 系统级嫌疑。取证陷阱 `deploy/worker-hang-watch.sh` 已装阿里云 cron（deactivating>25s 即 py-spy dump 全栈 → `/root/worker-hang-dumps/`），待下次老化 restart 自然捕获 |
+| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；worker 悬挂栈捕获（陷阱已装，等自然触发） |
 | 证据 | 详见 `docs/deployment.md` 首条（逐文件 SHA-256、MainPID、冒烟返回 JSON 全文） |
 
 ### hutuji_write 默认字高 8→12mm（2026-09-02，已提交 `1a7f9d1` 并推 origin）
