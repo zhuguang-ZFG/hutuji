@@ -21,6 +21,7 @@
 | 验证状态 | `test_write_text.py` **19/19** 通过（改前已全仓 grep 核实无任何测试钉死 8.0 默认：既有用例全部显式传 10/20/40）；hub 门禁 **overall=pass exit=0**（HEAD `65561660`：pytest **1150/1150**、e2e `PASS`、指纹 258/258）。**未执行**：生产双机 `hutuji_write` 尚未启用（字体分发未决），新默认仅本机与后续部署生效 |
 
 ### env 模板补 `HUTUJI_GFONT_DIR` 注释块 + preflight 新增判据纪律注释（2026-09-01，已提交 `1a7f9d1` 并推 origin）
+
 | 项 | 说明 |
 |----|------|
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
