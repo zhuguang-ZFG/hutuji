@@ -11,7 +11,7 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### draw-worker 悬挂根因修复（2026-09-03 上午，仓内已修已测，未部署）
+### draw-worker 悬挂根因修复（2026-09-03 上午定位修复，午间已部署双机）
 
 | 项 | 说明 |
 |----|------|
@@ -22,7 +22,7 @@
 | 测试 | `test_draw_queue.py` +2（干净路径必须 `os._exit(0)` / 错误路径绝不硬退出），23→25；全套 **1152**；AGENTS.md 两处总数与分项同步 1150→1152 |
 | 已排除嫌疑 | job_ledger/usage_report daemon 线程（daemon 不拦退出）、metrics task（取消安全）、系统级 journald/Redis（mcp 秒退证伪）、cgroup 残余（无）、系统级 CPU/IO 争抢（mcp/bridge 秒退证伪） |
 | 取证陷阱 | `deploy/worker-hang-watch.sh` 保留在阿里云 cron（deactivating>25s → py-spy dump `/root/worker-hang-dumps/`），待修复版生产 restart 实证秒退后拆除 |
-| 部署状态 | **未部署**：等用户点名后随下一部署批上阿里云（`git cat-file blob` + SHA-256 逐位相符 + py_compile + 备份纪律）；京东云不跑队列仅同步文件 |
+| 部署状态 | **已部署（2026-09-03 午，见 `docs/deployment.md` 首条）**：单文件 `draw_worker.py` 双机落盘 SHA-256 `f5d55e4e…` 与 HEAD blob 逐位相符、py_compile 过、备份 `/root/hutuji-bak-20260903-worker-exit/`；阿里云 restart worker@{1..8}+mcp+bridge，京东云文件+mcp restart；preflight 回基线（阿里云 24/33、京东云 28/33，零新增 fail）。**修复版实证未完成**：本次停的是旧代码内存态进程（~15h 工龄，单实例 10–18s，与换出深度区间一致），新代码进程的老化 stop 才给判决——取证陷阱 cron 保留至彼时拆除 |
 | 附带发现 | 商汤生图 API 当前返回 429、imagefree 备用端点 401（复现 job 日志实证；Agnes 主链正常出图，对冲链按设计工作） |
 
 ### hutuji_write 生产上线 + 字体分发（2026-09-02 晚，双机已部署，用户拍板「字体你搞」）
@@ -33,7 +33,7 @@
 | 冒烟 | 双机本机链（免费零付费，`chain_push=False` 不触设备）：`永国中，你好，写字机。` → 1 页 350 行 7855B 42 抬笔无缺字，自动选「如果梦万国库」，`size_mm=12.0` 新默认生效；阿里云公网真下载 200/7855B 字节级相符，京东云 loopback `/files` 200 逐字节相符 |
 | preflight | 阿里云 **24/33**（9 fail 与 nginx 布局基线逐项相符）、京东云 **28/33**（5 fail 全为热备预期分歧）——双机口径不变，零新增 fail |
 | 新观察 | 8/8 worker 收 SIGTERM 后消费循环 4s 内退出，但进程又挂 **267–298s** 才消失（全 exit 0「Succeeded」、无 SIGKILL——初报「撑满 300s 被 SIGKILL」有误）。**2026-09-03 上午已定位并修复，见本页顶部「draw-worker 悬挂根因修复」小节** |
-| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；修复版生产部署与 restart 实证（仓内已修，未部署） |
+| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；修复版 worker 老化后 stop 实证（新代码已于 2026-09-03 午部署，实证等下次 restart） |
 | 证据 | 详见 `docs/deployment.md` 首条（逐文件 SHA-256、MainPID、冒烟返回 JSON 全文） |
 
 ### hutuji_write 默认字高 8→12mm（2026-09-02，已提交 `1a7f9d1` 并推 origin）
