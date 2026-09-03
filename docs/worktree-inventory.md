@@ -11,17 +11,17 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### 错峰 TTL 改按页行数估时（2026-09-03 晚 advisory 阻塞修复，当日 18:0x 已双机部署）
+### 错峰 TTL 改按页行数估时 + 一次性确认补贴（2026-09-03 晚两轮 advisory 修复，当日 17:57 / 18:31 两批双机部署）
 
 | 项 | 说明 |
 |----|------|
 | 动机 | advisory 复核实锤：统一 300s/页预算建在 124s/页样本模型上（1021 行短文本页），而 12mm 满页实测 10597 行/1708 抬笔（`twopage_run` 取证），按 8.8 行/s ≈ 20 分钟；设备取第 2 页 ≈t0+1212s，旧窗口 t0+900s 即关——首次多页 HIL 必在第 2 页 404，正是错峰要防的故障 |
-| 修复 | `_run_write_job` 错峰从「i×统一预算」改「Σ 前序页估时」：`est_j = (lines_j/8.8 + 8)×2`，模块常量 `WRITE_PAGE_LINES_PER_SECOND/WRITE_PAGE_CHANGE_SECONDS/WRITE_PAGE_TIME_MARGIN`（钉实测证据，不走 env）；第 1 页不动时间戳语义不变；`finalize_job`/OSS 元数据链路未动 |
+| 修复 | `_run_write_job` 错峰从「i×统一预算」改「Σ 前序页估时」：`est_j = (lines_j/8.8 + 8)×2`，模块常量 `WRITE_PAGE_LINES_PER_SECOND/WRITE_PAGE_CHANGE_SECONDS/WRITE_PAGE_TIME_MARGIN`（钉实测证据，不走 env）；第二轮 advisory 追加一次性确认补贴 `WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS=600`（第四常量）：`t0` 到人按「确认」的等待无上界、与页大小无关，稀疏两页确认延迟 >12 分钟第 2 页必 404；多页各页（含第 1 页——确认延迟卡的是第 1 页首次下载本身）统一前移补贴，只加一次不按页乘；单页文章不动时间戳语义不变；`finalize_job`/OSS 元数据链路未动 |
 | 拆除 | `config.py` `page_ttl_budget_seconds` 字段 + 校验项 + env 解析全拆（生产双机 mcp.env 从未设置该值，拆除无运行面影响）；README env 表行、`deploy/env.mcp.example` 同步改为常量说明；AGENTS.md 配置面同步 |
-| 测试 | `test_write_text.py` 错峰断言改公式钉死（按返回页行数复算期望前移量，退回统一预算立即红）+ 常量安全方向钉死（率上调/余量下调/换纸下调即红）；测试总数不变（改写非新增），全套 **1156** |
+| 测试 | `test_write_text.py` 错峰断言改「补贴+公式」双钉死（第 1 页带补贴断言；按返回页行数复算期望前移量，差值中补贴抵消恰好钉死「只加一次、不按页乘」；退回统一预算立即红）+ 常量安全方向钉死（率上调/余量下调/换纸下调/补贴下调即红）；测试总数不变（改写非新增），全套 **1156** |
 | 契约 | `docs/protocol.md` §4.2 错峰条目重写（公式、证据、窗口诚实边界：满密度 20 页末页窗口十余小时 = 物理总时长+余量的必然映射）；readiness 文首新条目 + 09-01 旧条目标记 supersede |
 | 速度口径更正 | 12mm 满页文字 ≈20 分钟/页（旧对外口径 125s/页是短文本单页样本，低估约 10×）；3–5 页短文 ≈45–80 分钟物理书写 |
-| 部署状态 | **已部署（2026-09-03 18:0x，见 `docs/deployment.md` 首条）**：与 pages_arg 同批双机上线（server.py/config.py/write_text.py 三文件 + 京东云顺带收口 breaker.py 旧漂移），双机冒烟页窗口前移量与公式逐位相符，preflight 双机回基线 |
+| 部署状态 | **两批均已部署（见 `docs/deployment.md` 首两条）**：17:57 批与 pages_arg 同批双机上线（server.py/config.py/write_text.py 三文件 + 京东云顺带收口 breaker.py 旧漂移）；18:31 批确认补贴 server.py 单文件双机上线（阿里云 mcp+bridge、京东云 mcp，worker/portal 未涉未动）。双机冒烟：第 1 页 mtime=t0+~602（补贴生效）、page2 差值=est₁ 逐位相符（补贴一次性实证）、preflight 双机回基线 |
 
 ### 京东云 portal 热备 + 设备 token 看门狗（2026-09-03 下午，双机已部署）
 
@@ -35,7 +35,7 @@
 | preflight | 京东云回基线 **28/33**（5 fail = bridge×4 + 公网真下载 DNS 指阿里云，均热备预期）；阿里云未动运行态（仅 deploy/ 镜像同步） |
 | 测试 | `test_contract.py` +2：看门狗形态（探针形状/状态机/节流/刻意无 auto/token 不出现在 logger·echo）+ 模板携带 portal location；620→622，全套 **1156** |
 
-### write 链 pages_arg 透传件（2026-09-03 下午修，当日 18:0x 已随错峰批双机部署）
+### write 链 pages_arg 透传件（2026-09-03 下午修，当日 17:57 已随错峰批双机部署）
 
 | 项 | 说明 |
 |----|------|
@@ -43,7 +43,7 @@
 | 修复 | ① `_pages_argument()` 序列化单源（`server.py`），链式推送与返回值共用，物理上消灭漂移可能；② 返回值新增 `pages_arg` 字段（未配 token 时也在——正是回落场景）；③ docstring 补「服务端自动推送、不要重复推送、回落时 pages_arg 一字不改透传、missing_chars/truncated 如实告知、确认后 hutuji.confirm」全链指引；④ protocol §4.2 增「两步回落透传」条目；⑤ 顺带修正 `write_text.py` max_pages 注释容量口径（12mm 默认 ≈117 字/页，20 页 ≈2300 字先到页数闸，原文「≈两万字」是旧 8mm 口径） |
 | 测试 | `test_write_text.py` +2：端到端钉「返回值 pages_arg == 链式推送实际发出 pages 逐字节一致」（含无 token 时 pages_arg 仍在）；19→21，全套 **1154**；计数自洽测试 RED→GREEN 实证（先红 inventory 1152≠1154，改后绿） |
 | 设备侧 | **零改动**——`pages` 参数格式、键序、校验全部未动，纯云端返回值新增字段 |
-| 部署状态 | **已部署（2026-09-03 18:0x，见 `docs/deployment.md` 首条）**：与错峰估时同批双机上线；生产冒烟实证 pages_arg 与顶层 url 一致 |
+| 部署状态 | **已部署（2026-09-03 17:57，见 `docs/deployment.md` 首条）**：与错峰估时同批双机上线；生产冒烟实证 pages_arg 与顶层 url 一致 |
 
 ### draw-worker 悬挂根因修复（2026-09-03 上午定位修复，午间已部署双机）
 
