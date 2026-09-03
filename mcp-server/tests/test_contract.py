@@ -6231,6 +6231,69 @@ def test_refresh_token_kb_admin_interconnect_is_subshell_isolated() -> None:
     assert not any(re.search(r"\bexit\b", line) for line in lines[i_fi:i_ok])
 
 
+def test_device_token_watch_shape() -> None:
+    """设备 token 看门狗形态钉死（2026-09-03 上线，双机 cron 每小时）。
+
+    `HUTUJI_XIAOZHI_DEVICE_TOKEN`（设备「主题配置」URL token）每次打开控制台该
+    面板即重新签发并作废旧 token（2026-08-28 实证），作废后链式推送静默失能：
+    主节点退化为两步衔接、热备节点到切换当天才暴露。控制台 JWT 看门狗
+    （xiaozhi-token-watch.sh）只覆盖 `HUTUJI_XIAOZHI_TOKEN`，设备 token 此前任何
+    节点都无检测。本看门狗只检测+报警——设备 token 不走 /auth/login，无程序化
+    重签路径，故**刻意不接** xiaozhi-token-auto 自动续期分支。
+    探针语义（2026-09-03 阿里云实证）：真 token 调只读 hutuji.status → 200；
+    坏 token → HTTP 401（auth 在云端先于设备路由判定，与设备在线状态无关）。
+    """
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "deploy" / "xiaozhi-device-token-watch.sh").read_text(encoding="utf-8")
+
+    # 无 -e：curl/grep 失败由显式分支处理（与 JWT 看门狗同口径）。
+    assert "set -uo pipefail" in script
+    assert "set -e" not in script.splitlines()[8:20]
+    # 凭据来源与探针形状：只读 hutuji.status，禁换会触机/出声的工具。
+    assert "ENV_FILE=/etc/hutuji/mcp.env" in script
+    assert 'TOKEN=$(get_env HUTUJI_XIAOZHI_DEVICE_TOKEN)' in script
+    assert "/messaging/device/tools/call" in script
+    assert '\'{"name":"hutuji.status","arguments":{}}\'' in script
+    # 状态机三面：200→ok、401/403→invalid+exit 1、其余→unknown 不翻转。
+    assert 'if [[ "$code" == "200" ]]' in script
+    assert 'if [[ "$code" == "401" || "$code" == "403" ]]' in script
+    assert 'echo "invalid" > "$STATE_FILE"' in script
+    assert 'echo "unknown" > "$STATE_FILE"' in script
+    assert "exit 1" in script
+    # 未配 token = 链式推送未启用，静默退出（与 JWT 看门狗同口径）。
+    assert '[[ -n "$TOKEN" ]] || exit 0' in script
+    # 持续失效 6h 节流续报（cron 每小时一拍，防 journald 刷屏）。
+    assert "21600" in script
+    # 刻意不接自动续期：设备 token 无程序化重签路径，照搬 JWT 的 auto 分支是假绿。
+    assert "xiaozhi-token-auto" not in script
+    assert "xiaozhi-login.env" not in script
+    # token 只出现在赋值、存在性判空与 Authorization 头三处；logger/echo 永不携带。
+    token_lines = [l for l in script.splitlines() if "$TOKEN" in l]
+    assert len(token_lines) == 2, token_lines
+    assert not any("logger" in l or "echo" in l for l in token_lines)
+
+
+def test_nginx_template_carries_portal_location() -> None:
+    """nginx 模板必须携带 /draw-upload/ location（京东云热备网页入口防线）。
+
+    2026-09-03 portal 热备补齐京东云后，模板与京东云现役配置逐字节一致
+    （LF 归一化 md5 对账），preflight「运行中 nginx conf 与固定部署模板一致」
+    层以模板为准——模板若丢该 location，下次按模板重建/对账时热备网页入口
+    静默消失。模板口径与片段（nginx-draw-portal-snippet.conf）同源：只插
+    443 server 块兜底之前，不动任何 limit_req key/zone。
+    """
+    root = Path(__file__).resolve().parents[2]
+    nginx = (root / "deploy" / "nginx-hutuji.conf").read_text(encoding="utf-8")
+
+    assert nginx.count("location /draw-upload/ {") == 1
+    assert "proxy_pass http://127.0.0.1:8302/;" in nginx
+    # 该 location 必须落在 443 server 块内（:80 块是隧道回源/301 面，不放 portal）。
+    i_443 = nginx.index("listen 443 ssl http2;")
+    i_80 = nginx.index("listen 80;")
+    i_portal = nginx.index("location /draw-upload/ {")
+    assert i_443 < i_portal < i_80
+
+
 
 def test_preflight_pins_running_nginx_to_deployed_config() -> None:
     """「配置文件与模板一致」证不到「在跑的 nginx 读了它」。
