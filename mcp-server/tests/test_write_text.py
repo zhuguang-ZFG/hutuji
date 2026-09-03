@@ -308,6 +308,111 @@ def test_hutuji_write_end_to_end(tmp_path, monkeypatch):
     assert payload["pages"][0]["preview_url"] == payload["preview_url"]
 
 
+def test_write_pages_arg_matches_chain_push_byte_for_byte(tmp_path, monkeypatch):
+    """`pages_arg` 透传件与链式推送实际发送的 pages 字符串逐字节一致。
+
+    设备幂等重入要求「完全相同参数」（protocol §4.2）：两步回落时云端若把
+    pages_arg 原样透传给 hutuji.draw，必须与链式推送发出的是同一份字节，
+    否则被当成新任务 busy 拒绝。两处共用 `_pages_argument` 序列化单源，
+    本测试钉死「返回值 pages_arg == 链式推送 pages」这一可观察契约。
+    """
+    from hutuji_mcp import server
+    from hutuji_mcp.config import Settings
+
+    font_dir = tmp_path / "fonts"
+    font_dir.mkdir()
+    (font_dir / "test.gfont").write_bytes(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国中"})
+    )
+    out_dir = (tmp_path / "out").resolve()
+    out_dir.mkdir()
+    patched = Settings(
+        llm_base_url="http://127.0.0.1:1", llm_api_key="", llm_model="", output_dir=out_dir,
+        public_base_url="http://127.0.0.1:8300", host="127.0.0.1", port=8300,
+        output_ttl_seconds=600, gfont_dir=str(font_dir), page_ttl_budget_seconds=300,
+        xiaozhi_device_token="tok",
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._gfont_cache.clear()
+    server._gfont_metrics_cache.clear()
+
+    pushed: dict[str, str] = {}
+
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            pushed.update(json["arguments"])
+            return _Resp()
+
+    monkeypatch.setattr(server.httpx, "AsyncClient", _Client)
+
+    async def _run() -> dict:
+        payload = json.loads(
+            await server.hutuji_write("永国中" * 6, size_mm=40.0, line_spacing=3.0)
+        )
+        for _ in range(100):
+            if pushed:
+                break
+            await asyncio.sleep(0.01)  # 等 fire-and-forget 链式推送落桩
+        return payload
+
+    payload = asyncio.run(_run())
+    assert payload["total_pages"] >= 3  # 多页，pages 语义才有分歧面
+    assert pushed["pages"]  # 链式推送确实发出去了
+    assert payload["pages_arg"] == pushed["pages"]  # 逐字节一致
+    assert pushed["url"] == payload["url"]
+    assert pushed["preview_url"] == payload["preview_url"]
+
+    # pages_arg 形态钉死：紧凑无空格、键序 url→preview_url、页数一致、
+    # 首页与顶层 url/preview_url 相同（protocol §4.2 硬契约）。
+    arg = payload["pages_arg"]
+    assert " " not in arg
+    assert arg.index('"url"') < arg.index('"preview_url"')
+    parsed = json.loads(arg)
+    assert len(parsed) == payload["total_pages"]
+    assert parsed[0] == {"url": payload["url"], "preview_url": payload["preview_url"]}
+
+
+def test_write_pages_arg_present_without_chain_push(tmp_path, monkeypatch):
+    """未配 device token（无链式推送）时 pages_arg 仍必须在返回值里——
+    它服务的正是「推送没发、云端自己两步衔接」的回落场景。"""
+    from hutuji_mcp import server
+    from hutuji_mcp.config import Settings
+
+    font_dir = tmp_path / "fonts"
+    font_dir.mkdir()
+    (font_dir / "test.gfont").write_bytes(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国中"})
+    )
+    out_dir = (tmp_path / "out").resolve()
+    out_dir.mkdir()
+    patched = Settings(
+        llm_base_url="http://127.0.0.1:1", llm_api_key="", llm_model="", output_dir=out_dir,
+        public_base_url="http://127.0.0.1:8300", host="127.0.0.1", port=8300,
+        output_ttl_seconds=600, gfont_dir=str(font_dir),
+        xiaozhi_device_token="",  # 空 = 链式推送禁用
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    server._gfont_cache.clear()
+    server._gfont_metrics_cache.clear()
+
+    payload = json.loads(asyncio.run(server.hutuji_write("永国中，永国")))
+    assert json.loads(payload["pages_arg"]) == [
+        {"url": payload["url"], "preview_url": payload["preview_url"]}
+    ]
+
+
 def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
     """多页文章错峰 TTL（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，
     实测一页 ≈125s（116.3s 灌流 + 8s 换纸）。若所有页共用同一个 600s 窗口，

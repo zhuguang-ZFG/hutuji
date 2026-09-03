@@ -191,7 +191,9 @@ def layout_text(
 ) -> LayoutResult:
     """核心排版：文本 → 分页落笔路径（页面 SVG 坐标，mm）。
 
-    max_pages 是防呆上界（单篇 20 页 A4≈两万字足够）；超出截断并置 truncated。
+    max_pages 是防呆上界（与设备侧 kArticleMaxPages 同值）；超出截断并置 truncated。
+    实际容量随字号走：默认 12mm 字高约 117 字/页 → 20 页 ≈2300 字先到页数闸，
+    `server._WRITE_TEXT_MAX_CHARS=5000` 只在更小字号下才可能先触发。
     """
     layout.validate()
     if not text.strip():

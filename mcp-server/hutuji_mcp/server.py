@@ -400,6 +400,20 @@ def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
         done.exception()
 
 
+def _pages_argument(pages: list[dict]) -> str:
+    """设备侧 `hutuji.draw` 的 pages 参数：紧凑 JSON 字符串，键序 url→preview_url
+    （设备 `ParseArticlePages` 纯扫描器按此序解析，protocol §4.2）。
+
+    链式推送与 `hutuji_write` 返回值的 `pages_arg` 共用这一个序列化点——
+    设备幂等重入要求「完全相同参数」，两处各写一份 json.dumps 迟早漂移成
+    不同字节，两步回落时云端透传的 pages 会被当成新任务而 busy 拒绝。
+    """
+    return json.dumps(
+        [{"url": p["url"], "preview_url": p["preview_url"]} for p in pages],
+        ensure_ascii=False, separators=(",", ":"),
+    )
+
+
 async def _chain_device_draw(
     url: str, preview_url: str, pages: list[dict] | None = None
 ) -> None:
@@ -419,10 +433,7 @@ async def _chain_device_draw(
         return
     arguments: dict[str, str] = {"url": url, "preview_url": preview_url}
     if pages:
-        arguments["pages"] = json.dumps(
-            [{"url": p["url"], "preview_url": p["preview_url"]} for p in pages],
-            ensure_ascii=False, separators=(",", ":"),
-        )
+        arguments["pages"] = _pages_argument(pages)
     payload = {"name": "hutuji.draw", "arguments": arguments}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -894,6 +905,11 @@ async def _run_write_job(
         "total_pages": len(pages_out),
         "url": pages_out[0]["url"],
         "preview_url": pages_out[0]["preview_url"],
+        # 两步回落透传件：链式推送未配置/失败时，调用方若要自调设备侧
+        # hutuji.draw，必须把本字段原样（一字不改）作为 pages 参数传入——
+        # 设备幂等谓词要求「完全相同参数」，与链式推送同一序列化点产出，
+        # 任何重组都会变成不同参数而被 busy 拒绝（多页回落失效根因）。
+        "pages_arg": _pages_argument(pages_out),
         "missing_chars": result.missing_chars,
         "truncated": result.truncated,
         "font": font.meta.display_name,
@@ -913,7 +929,12 @@ async def hutuji_write(
     text 是要写的内容（\\n 分段，段首自动缩进两格，自动折行/分页/标点避头）。
     font 字库名（留空默认字数最多的手写字库）；size_mm 字高（2–40，默认 12）；
     line_spacing 行距倍数（默认 1.6）；char_gap_mm 字距（默认 0.8）。
-    返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字。"""
+    返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字，
+    truncated=true 表示超长被截断——两者都要如实告知用户。服务端在完成点会
+    自动链式调用设备侧 hutuji.draw 推送预览（含全部页），调用方不要重复推送；
+    仅在自动推送未生效时才自调设备侧 hutuji.draw，且多页必须把返回里的
+    pages_arg 字段一字不改地作为 pages 参数透传（设备按完全相同参数判幂等，
+    自己重组 JSON 会被 busy 拒绝）。用户明确确认后再调 hutuji.confirm。"""
     _report_mcp_tool("write")
     from .write_text import WriteTextError
 

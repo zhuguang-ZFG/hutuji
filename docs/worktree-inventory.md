@@ -11,6 +11,16 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### write 链 pages_arg 透传件（2026-09-03 下午，仓内已修已测，未部署）
+
+| 项 | 说明 |
+|----|------|
+| 动机 | 用户点名复查写字链发现的代码级缺陷：设备幂等重入要求**完全相同参数**（protocol §4.2），而链式推送失败走两步回落时，云端 LLM 需从 `hutuji_write` 返回值重组 `pages`——返回的是含 lines/bytes/pen_lifts 多余字段的对象数组，LLM 几乎不可能产出与链式推送逐字节相同的紧凑字符串 → 参数不同 → busy 拒绝，多页回落实际不可用；且 `hutuji_write` docstring 无「不要重复推送」指引 |
+| 修复 | ① `_pages_argument()` 序列化单源（`server.py`），链式推送与返回值共用，物理上消灭漂移可能；② 返回值新增 `pages_arg` 字段（未配 token 时也在——正是回落场景）；③ docstring 补「服务端自动推送、不要重复推送、回落时 pages_arg 一字不改透传、missing_chars/truncated 如实告知、确认后 hutuji.confirm」全链指引；④ protocol §4.2 增「两步回落透传」条目；⑤ 顺带修正 `write_text.py` max_pages 注释容量口径（12mm 默认 ≈117 字/页，20 页 ≈2300 字先到页数闸，原文「≈两万字」是旧 8mm 口径） |
+| 测试 | `test_write_text.py` +2：端到端钉「返回值 pages_arg == 链式推送实际发出 pages 逐字节一致」（含无 token 时 pages_arg 仍在）；19→21，全套 **1154**；计数自洽测试 RED→GREEN 实证（先红 inventory 1152≠1154，改后绿） |
+| 设备侧 | **零改动**——`pages` 参数格式、键序、校验全部未动，纯云端返回值新增字段 |
+| 部署状态 | **未部署**：等用户点名后随下一部署批（单文件 `server.py`，delta 核对→SHA-256→py_compile→备份→restart mcp） |
+
 ### draw-worker 悬挂根因修复（2026-09-03 上午定位修复，午间已部署双机）
 
 | 项 | 说明 |
@@ -71,7 +81,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1152** 项，2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1154** 项，2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 
