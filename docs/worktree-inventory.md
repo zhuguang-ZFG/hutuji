@@ -11,7 +11,7 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### 错峰 TTL 改按页行数估时（2026-09-03 晚，advisory 阻塞修复，仓内已修已测，未部署）
+### 错峰 TTL 改按页行数估时（2026-09-03 晚 advisory 阻塞修复，当日 18:0x 已双机部署）
 
 | 项 | 说明 |
 |----|------|
@@ -21,7 +21,7 @@
 | 测试 | `test_write_text.py` 错峰断言改公式钉死（按返回页行数复算期望前移量，退回统一预算立即红）+ 常量安全方向钉死（率上调/余量下调/换纸下调即红）；测试总数不变（改写非新增），全套 **1156** |
 | 契约 | `docs/protocol.md` §4.2 错峰条目重写（公式、证据、窗口诚实边界：满密度 20 页末页窗口十余小时 = 物理总时长+余量的必然映射）；readiness 文首新条目 + 09-01 旧条目标记 supersede |
 | 速度口径更正 | 12mm 满页文字 ≈20 分钟/页（旧对外口径 125s/页是短文本单页样本，低估约 10×）；3–5 页短文 ≈45–80 分钟物理书写 |
-| 部署状态 | **未部署**：与 pages_arg（`dee19cf`）合并进下一部署批（server.py+config.py 两文件 delta），等用户点名 |
+| 部署状态 | **已部署（2026-09-03 18:0x，见 `docs/deployment.md` 首条）**：与 pages_arg 同批双机上线（server.py/config.py/write_text.py 三文件 + 京东云顺带收口 breaker.py 旧漂移），双机冒烟页窗口前移量与公式逐位相符，preflight 双机回基线 |
 
 ### 京东云 portal 热备 + 设备 token 看门狗（2026-09-03 下午，双机已部署）
 
@@ -35,7 +35,7 @@
 | preflight | 京东云回基线 **28/33**（5 fail = bridge×4 + 公网真下载 DNS 指阿里云，均热备预期）；阿里云未动运行态（仅 deploy/ 镜像同步） |
 | 测试 | `test_contract.py` +2：看门狗形态（探针形状/状态机/节流/刻意无 auto/token 不出现在 logger·echo）+ 模板携带 portal location；620→622，全套 **1156** |
 
-### write 链 pages_arg 透传件（2026-09-03 下午，仓内已修已测，未部署）
+### write 链 pages_arg 透传件（2026-09-03 下午修，当日 18:0x 已随错峰批双机部署）
 
 | 项 | 说明 |
 |----|------|
@@ -43,7 +43,7 @@
 | 修复 | ① `_pages_argument()` 序列化单源（`server.py`），链式推送与返回值共用，物理上消灭漂移可能；② 返回值新增 `pages_arg` 字段（未配 token 时也在——正是回落场景）；③ docstring 补「服务端自动推送、不要重复推送、回落时 pages_arg 一字不改透传、missing_chars/truncated 如实告知、确认后 hutuji.confirm」全链指引；④ protocol §4.2 增「两步回落透传」条目；⑤ 顺带修正 `write_text.py` max_pages 注释容量口径（12mm 默认 ≈117 字/页，20 页 ≈2300 字先到页数闸，原文「≈两万字」是旧 8mm 口径） |
 | 测试 | `test_write_text.py` +2：端到端钉「返回值 pages_arg == 链式推送实际发出 pages 逐字节一致」（含无 token 时 pages_arg 仍在）；19→21，全套 **1154**；计数自洽测试 RED→GREEN 实证（先红 inventory 1152≠1154，改后绿） |
 | 设备侧 | **零改动**——`pages` 参数格式、键序、校验全部未动，纯云端返回值新增字段 |
-| 部署状态 | **未部署**：等用户点名后随下一部署批（单文件 `server.py`，delta 核对→SHA-256→py_compile→备份→restart mcp） |
+| 部署状态 | **已部署（2026-09-03 18:0x，见 `docs/deployment.md` 首条）**：与错峰估时同批双机上线；生产冒烟实证 pages_arg 与顶层 url 一致 |
 
 ### draw-worker 悬挂根因修复（2026-09-03 上午定位修复，午间已部署双机）
 
