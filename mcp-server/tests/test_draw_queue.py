@@ -311,6 +311,51 @@ def test_worker_stop_mid_job_finishes_current(monkeypatch):
     asyncio_run(draw_worker.run_forever(stop))
     assert finished == ["job"]
 
+def test_worker_main_hard_exits_after_clean_stop(monkeypatch):
+    """干净停机路径必须以 os._exit(0) 收尾，跳过 Py_FinalizeEx 全堆遍历。
+    钉死 2026-09-02 生产事故根因：8/8 worker 堆被换出后，终结化逐页换回
+    拖 267–298s。若 main() 回到自然 return，本测试失败。"""
+    from hutuji_mcp import draw_worker
+
+    class _HardExit(Exception):
+        pass
+
+    exits: list[int] = []
+
+    def _fake_exit(code: int) -> None:
+        exits.append(code)
+        raise _HardExit  # os._exit 不返回；用异常模拟终止
+
+    async def _ok_run_forever(stop=None):
+        return None
+
+    monkeypatch.setattr(draw_worker.os, "_exit", _fake_exit)
+    monkeypatch.setattr(draw_worker.logging, "shutdown", lambda: None)
+    monkeypatch.setattr(draw_worker, "run_forever", _ok_run_forever)
+    with pytest.raises(_HardExit):
+        draw_worker.main()
+    assert exits == [0]
+
+
+def test_worker_main_error_path_never_hard_exits(monkeypatch):
+    """run_forever 抛错（含 SystemExit 未配置队列）时必须走解释器正常退出，
+    不得被 os._exit(0) 吞掉错误码——配合 test_worker_main_wiring_subprocess
+    钉死「缺队列地址 exit 1 + 文案」语义不被硬退出破坏。"""
+    from hutuji_mcp import draw_worker
+
+    exits: list[int] = []
+    monkeypatch.setattr(draw_worker.os, "_exit", lambda code: exits.append(code))
+    monkeypatch.setattr(draw_worker.logging, "shutdown", lambda: None)
+
+    async def _boom(stop=None):
+        raise SystemExit("HUTUJI_DRAW_QUEUE_URL 未配置，draw-worker 无法启动")
+
+    monkeypatch.setattr(draw_worker, "run_forever", _boom)
+    with pytest.raises(SystemExit):
+        draw_worker.main()
+    assert exits == []
+
+
 
 def test_chain_push_flag_separates_jobs_and_propagates(memory_queue, monkeypatch):
     """同一描述 chain_push=True/False 是两个独立 job（网页生图不得与语音

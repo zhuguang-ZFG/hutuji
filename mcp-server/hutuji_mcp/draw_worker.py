@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 
 from .config import settings
 from .draw_queue import get_backend, queue_enabled
@@ -112,6 +113,22 @@ def main() -> None:
         loop.run_until_complete(run_forever(stop))
     finally:
         loop.close()
+
+    # 干净停机跳过 Py_FinalizeEx：解释器终结化（GC 遍历/模块拆解）要读写整个堆，
+    # 而跑过付费描摹的 worker 堆 HWM ~300MB，空闲数小时后基本整体被换出到
+    # /www/swap 与 /swapfile（ROTA=1 云盘）——终结化须把这些页逐页换回。
+    # 2026-09-02 22:01 生产实证：8/8 worker 消费循环 4s 内退出，进程却又挂
+    # 267–298s（state=D、maj_flt 持续上升、VmSwap 同步回落）才消失，全部 exit 0；
+    # 同 swap 状态改发 SIGKILL 则 0.1s 消失（内核直接丢 swap 槽，不读盘）。
+    # 隔离复现同构：174MB 换出的单进程 TERM 比无换出慢 ~7s，8 进程并发
+    # 1.2GB 换出时 +47s，py-spy 显示主线程处于无 Python 帧的 C 层活跃态。
+    # 这里没有必须在终结化里做的事：日志逐行已 flush（下方再 shutdown 兜底），
+    # Redis/PG 连接由内核回收，job_ledger/usage 线程本就是 daemon 不等其收尾。
+    # 异常路径（含 SystemExit 未配置队列）不走到这里，保持解释器正常退出语义。
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

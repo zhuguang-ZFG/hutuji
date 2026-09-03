@@ -11,6 +11,20 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### draw-worker 悬挂根因修复（2026-09-03 上午，仓内已修已测，未部署）
+
+| 项 | 说明 |
+|----|------|
+| 根因 | **解释器终结化（Py_FinalizeEx）遇深度换出堆**：worker 跑过付费描摹后堆 HWM ~300MB（skimage/sknw/numpy），生产机 RAM 1870MB + swap 常驻已用 1.3GB（`vm.swappiness=10`），空闲 45h 的堆被逐页换出；终结化的 GC 遍历/模块拆解要读写整个堆 → 被迫把全部换出页从云盘 swap 逐页换回，8 进程并发换入 + mcp 同时重启自检抢 I/O → 2026-09-02 22:01 重启时 8/8 worker 停机日志后挂 267–298s（全 exit 0、无 SIGKILL） |
+| 复现矩阵（生产空闲实例 db15 同构实跑，取证脚本 `tmp/repro_swap_exit*.sh` 不入库） | 未修版压出 162MB → 10–12s（py-spy 主线程 D 态无 Python 帧、maj_flt +21K 爬升、VmSwap 同步回落）；8 进程压出 1.2GB 并发 → 46.8s（并发放大成立）；同状态 SIGKILL → **0.1s**（内核直接丢 swap 槽不读盘，反证耗时全在终结化读页）；**修复版压出 164MB → 3.03s**（≈BRPOP ≤5s 窗口内即退） |
+| 判决性验证 | 影子包 `/tmp/pkg0903`（符号链接 + 补丁文件）：`os._exit(7)` 变异实测退出码=**7**，证明补丁路径真执行（首轮验证曾因 `python -m` 把 cwd 排在 PYTHONPATH 前而误跑未修代码，已修正并记录此坑）；`python -m` 的 cwd 优先规则 = 复现实验必须 `cd` 到影子包目录 |
+| 修复 | `draw_worker.py` `main()`：`run_until_complete` 干净返回后 `logging.shutdown()` + stdout/stderr flush + `os._exit(0)`，跳过 Py_FinalizeEx。worker 无外部终结化义务：Redis/PG 连接内核回收、job_ledger/usage 线程本就 daemon（自然退出同样被掐断）；异常路径（含缺队列地址 SystemExit）不经过此路，退出码语义不变 |
+| 测试 | `test_draw_queue.py` +2（干净路径必须 `os._exit(0)` / 错误路径绝不硬退出），23→25；全套 **1152**；AGENTS.md 两处总数与分项同步 1150→1152 |
+| 已排除嫌疑 | job_ledger/usage_report daemon 线程（daemon 不拦退出）、metrics task（取消安全）、系统级 journald/Redis（mcp 秒退证伪）、cgroup 残余（无）、系统级 CPU/IO 争抢（mcp/bridge 秒退证伪） |
+| 取证陷阱 | `deploy/worker-hang-watch.sh` 保留在阿里云 cron（deactivating>25s → py-spy dump `/root/worker-hang-dumps/`），待修复版生产 restart 实证秒退后拆除 |
+| 部署状态 | **未部署**：等用户点名后随下一部署批上阿里云（`git cat-file blob` + SHA-256 逐位相符 + py_compile + 备份纪律）；京东云不跑队列仅同步文件 |
+| 附带发现 | 商汤生图 API 当前返回 429、imagefree 备用端点 401（复现 job 日志实证；Agnes 主链正常出图，对冲链按设计工作） |
+
 ### hutuji_write 生产上线 + 字体分发（2026-09-02 晚，双机已部署，用户拍板「字体你搞」）
 
 | 项 | 说明 |
@@ -18,8 +32,8 @@
 | 动作 | 6 个代码文件（`30eb2e0`→HEAD delta：`server.py`/`config.py`/`gcode_gen.py`/`output_store.py` + 新 `gfont.py`/`write_text.py`）`git cat-file blob HEAD:` 导出 CR=0、双机 SHA-256 与本地 blob 逐位相符、远端 py_compile 过；9 个 `.gfont` 从本机 kdraw 安装目录 scp 双机 `/opt/hutuji/gfonts/`（本机/阿里云/京东云三方逐文件 SHA-256 全符）；双机 `mcp.env` 追加 `HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`（备份 `.bak.20260902-write`，600 保持）；阿里云 restart mcp+bridge+worker@{1..8}，京东云仅 mcp（bridge 保持 disabled 热备态）；备份 `/root/hutuji-bak-20260902-write/`（双机同名） |
 | 冒烟 | 双机本机链（免费零付费，`chain_push=False` 不触设备）：`永国中，你好，写字机。` → 1 页 350 行 7855B 42 抬笔无缺字，自动选「如果梦万国库」，`size_mm=12.0` 新默认生效；阿里云公网真下载 200/7855B 字节级相符，京东云 loopback `/files` 200 逐字节相符 |
 | preflight | 阿里云 **24/33**（9 fail 与 nginx 布局基线逐项相符）、京东云 **28/33**（5 fail 全为热备预期分歧）——双机口径不变，零新增 fail |
-| 新观察 | 8/8 worker 收 SIGTERM 后消费循环 4s 内退出，但进程又挂 **267–298s** 才消失（全 exit 0「Succeeded」、无 SIGKILL——初报「撑满 300s 被 SIGKILL」有误）；对照组定界「worker 独有 × 服役时长相关」（45h 同龄 mcp/bridge 秒退、新 worker 与隔离复现三轮秒退），`draw_worker.py` 不在本批 delta。已排除 daemon 线程/metrics task/journald/Redis 系统级嫌疑。取证陷阱 `deploy/worker-hang-watch.sh` 已装阿里云 cron（deactivating>25s 即 py-spy dump 全栈 → `/root/worker-hang-dumps/`），待下次老化 restart 自然捕获 |
-| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；worker 悬挂栈捕获（陷阱已装，等自然触发） |
+| 新观察 | 8/8 worker 收 SIGTERM 后消费循环 4s 内退出，但进程又挂 **267–298s** 才消失（全 exit 0「Succeeded」、无 SIGKILL——初报「撑满 300s 被 SIGKILL」有误）。**2026-09-03 上午已定位并修复，见本页顶部「draw-worker 悬挂根因修复」小节** |
+| 未做 | 语音/设备链真实 `hutuji.write` 触机 HIL（需用户在 192.168.1.13 装纸在场）；修复版生产部署与 restart 实证（仓内已修，未部署） |
 | 证据 | 详见 `docs/deployment.md` 首条（逐文件 SHA-256、MainPID、冒烟返回 JSON 全文） |
 
 ### hutuji_write 默认字高 8→12mm（2026-09-02，已提交 `1a7f9d1` 并推 origin）
@@ -57,7 +71,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1150** 项，2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1152** 项，2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 
