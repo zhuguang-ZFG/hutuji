@@ -384,12 +384,15 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   释放本页 PSRAM 缓冲 → 下载下一页 → §5.1 校验 → 灌流 → 归位 → `M30`。任一页失败/abort 即整单
   终止（不跳页续写）。预览只出第 1 页；预取只可能命中第 1 页，后续页 URL 不同自然回落直下载。
 - **`hutuji.status` 增 `page`/`pages`**（1 基当前页 / 总页数）；单页模式两字段**不出现**。
-- **错峰 TTL（2026-09-01，云端单侧实现，设备侧不改）**：设备逐页「下载→灌流→换纸」**串行**推进，
-  第 i 页要到 `t0 + i×一页耗时` 才被下载（实机实测一页 ≈125s：1021 行灌流 116.3s + 换纸 8s）。
+- **错峰 TTL（2026-09-01 落地；2026-09-03 改为按页行数估时，云端单侧实现，设备侧不改）**：设备逐页「下载→灌流→换纸」**串行**推进，
+  第 i 页要到 `t0 + Σ(前序页实际耗时)` 才被下载。页耗时按行数折算：实机实测 **8.8 行/s**（1021 行灌流 116.3s）+ 换纸 8s；
+  注意 12mm 满页实测 10597 行 ≈ **20 分钟**（2026-09-01 服务端取证 `twopage_run`），原「一页 ≈125s」是短文本单页样本，不代表满页。
   若 N 页共用同一个 `output_ttl_seconds`（600s）窗口，第 6 页 404——**服务端 HTTP 层已实证**（`results/local-only/2026-09-01/ttl-stagger-http-counterfactual.log`：真 uvicorn + 真 `GET /files/`，第 i 页 mtime 倒推到 age=i×125s，不错峰组 1–5 页 200 / 第 6 页 404，错峰组 6 页全 200）；**设备侧真机时序仍待 HIL**。故云端
   `_run_write_job` 在 `finalize_job(created_at=…)` 把**第 i 页（i≥1）**产物的 created 时刻
-  前移 `i × page_ttl_budget_seconds`（默认 300s，env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`，限 30..3600），
-  于是第 i 页有效窗口 = `output_ttl_seconds + i × page_ttl_budget_seconds`（20 页末页约 1.75h）。
+  前移到 `t0 + Σ_{j<i} est_j`，`est_j = (lines_j / 8.8 + 8) × 2`（`server.py` 的 `WRITE_PAGE_LINES_PER_SECOND`/`WRITE_PAGE_CHANGE_SECONDS`/`WRITE_PAGE_TIME_MARGIN`
+  三个模块常量，钉实测证据，不走 env；×2 余量覆盖设备重试与用户暂停）——旧版统一 300s/页预算（env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`）建在 124s/页模型上，
+  满页文章第 2 页必 404（2026-09-03 复核数字实锤），已拆除。
+  于是第 i 页有效窗口关闭于 `t0 + Σ_{j<i} est_j + output_ttl_seconds`（满密度 20 页末页窗口十余小时——这是物理总时长（≈7h）加余量的必然映射，URL 为 128-bit 不可猜 capability，窗口长度不改变其不可猜性）。
   **第 1 页不动时间戳**——窗口仍从写盘时刻起算，单页语义逐字节不变。
   本地后端靠 `os.utime` 改 mtime（svg/gcode/png 三件同改）；OSS 后端写
   `x-oss-meta-hutuji-created`，`read_verified`/`cleanup_expired` 都以该元数据为过期真值

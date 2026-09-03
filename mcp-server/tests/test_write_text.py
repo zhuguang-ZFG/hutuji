@@ -329,7 +329,7 @@ def test_write_pages_arg_matches_chain_push_byte_for_byte(tmp_path, monkeypatch)
     patched = Settings(
         llm_base_url="http://127.0.0.1:1", llm_api_key="", llm_model="", output_dir=out_dir,
         public_base_url="http://127.0.0.1:8300", host="127.0.0.1", port=8300,
-        output_ttl_seconds=600, gfont_dir=str(font_dir), page_ttl_budget_seconds=300,
+        output_ttl_seconds=600, gfont_dir=str(font_dir),
         xiaozhi_device_token="tok",
     )
     monkeypatch.setattr(server, "settings", patched)
@@ -412,11 +412,12 @@ def test_write_pages_arg_present_without_chain_push(tmp_path, monkeypatch):
         {"url": payload["url"], "preview_url": payload["preview_url"]}
     ]
 
-
 def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
     """多页文章错峰 TTL（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，
-    实测一页 ≈125s（116.3s 灌流 + 8s 换纸）。若所有页共用同一个 600s 窗口，
-    第 6 页起必然 404。故第 i 页 mtime 前移 i×page_ttl_budget_seconds；
+    页耗时按行数折算（2026-09-01 真机实测 8.8 行/s + 换纸 8s，12mm 满页 10597 行
+    ≈ 20 分钟）。旧的统一 300s/页预算建在 124s/页模型上，满页文章第 2 页必 404
+    （2026-09-03 advisory 复核实锤数字）。故第 i 页 mtime 前移到
+    t0 + Σ_{j<i}（lines_j/8.8 + 8）× 2（余量覆盖设备重试与用户暂停）；
     第 1 页必须不动（保持既有单页语义：窗口从写盘时刻起算），
     且 _serve_file 对未来 mtime 的页必须照常 200（now-mtime 为负 → 未过期）。
     """
@@ -433,7 +434,7 @@ def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
     patched = Settings(
         llm_base_url="http://127.0.0.1:1", llm_api_key="", llm_model="", output_dir=out_dir,
         public_base_url="http://127.0.0.1:8300", host="127.0.0.1", port=8300,
-        output_ttl_seconds=600, gfont_dir=str(font_dir), page_ttl_budget_seconds=300,
+        output_ttl_seconds=600, gfont_dir=str(font_dir),
     )
     monkeypatch.setattr(server, "settings", patched)
     server._gfont_cache.clear()
@@ -457,8 +458,20 @@ def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
         mtimes.append(trio[1].stat().st_mtime)
 
     assert started - 1.0 <= mtimes[0] <= time.time() + 1.0  # 第 1 页 = 写盘时刻
+    # 逐页公式钉死：第 i 页前移量 = Σ_{j<i}（lines_j/率 + 换纸）× 余量，与每页
+    # 实际行数挂钩；退回统一预算（与行数脱钩）此处立即红。
+    cumulative = 0.0
     for i in range(1, len(mtimes)):
-        assert abs((mtimes[i] - mtimes[0]) - i * 300.0) < 5.0
+        prev_lines = payload["pages"][i - 1]["lines"]
+        cumulative += (
+            prev_lines / server.WRITE_PAGE_LINES_PER_SECOND
+            + server.WRITE_PAGE_CHANGE_SECONDS
+        ) * server.WRITE_PAGE_TIME_MARGIN
+        assert abs((mtimes[i] - mtimes[0]) - cumulative) < 5.0
+    # 只允许带新实机计时证据的反向调整（每次调整必须改断言并附证据）。
+    assert server.WRITE_PAGE_LINES_PER_SECOND <= 8.8
+    assert server.WRITE_PAGE_CHANGE_SECONDS >= 8.0
+    assert server.WRITE_PAGE_TIME_MARGIN >= 2.0
 
     # 末页 mtime 在未来，仍须可下载
     last = payload["pages"][-1]["url"].rsplit("/", 1)[-1]

@@ -11,6 +11,18 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### 错峰 TTL 改按页行数估时（2026-09-03 晚，advisory 阻塞修复，仓内已修已测，未部署）
+
+| 项 | 说明 |
+|----|------|
+| 动机 | advisory 复核实锤：统一 300s/页预算建在 124s/页样本模型上（1021 行短文本页），而 12mm 满页实测 10597 行/1708 抬笔（`twopage_run` 取证），按 8.8 行/s ≈ 20 分钟；设备取第 2 页 ≈t0+1212s，旧窗口 t0+900s 即关——首次多页 HIL 必在第 2 页 404，正是错峰要防的故障 |
+| 修复 | `_run_write_job` 错峰从「i×统一预算」改「Σ 前序页估时」：`est_j = (lines_j/8.8 + 8)×2`，模块常量 `WRITE_PAGE_LINES_PER_SECOND/WRITE_PAGE_CHANGE_SECONDS/WRITE_PAGE_TIME_MARGIN`（钉实测证据，不走 env）；第 1 页不动时间戳语义不变；`finalize_job`/OSS 元数据链路未动 |
+| 拆除 | `config.py` `page_ttl_budget_seconds` 字段 + 校验项 + env 解析全拆（生产双机 mcp.env 从未设置该值，拆除无运行面影响）；README env 表行、`deploy/env.mcp.example` 同步改为常量说明；AGENTS.md 配置面同步 |
+| 测试 | `test_write_text.py` 错峰断言改公式钉死（按返回页行数复算期望前移量，退回统一预算立即红）+ 常量安全方向钉死（率上调/余量下调/换纸下调即红）；测试总数不变（改写非新增），全套 **1156** |
+| 契约 | `docs/protocol.md` §4.2 错峰条目重写（公式、证据、窗口诚实边界：满密度 20 页末页窗口十余小时 = 物理总时长+余量的必然映射）；readiness 文首新条目 + 09-01 旧条目标记 supersede |
+| 速度口径更正 | 12mm 满页文字 ≈20 分钟/页（旧对外口径 125s/页是短文本单页样本，低估约 10×）；3–5 页短文 ≈45–80 分钟物理书写 |
+| 部署状态 | **未部署**：与 pages_arg（`dee19cf`）合并进下一部署批（server.py+config.py 两文件 delta），等用户点名 |
+
 ### 京东云 portal 热备 + 设备 token 看门狗（2026-09-03 下午，双机已部署）
 
 | 项 | 说明 |

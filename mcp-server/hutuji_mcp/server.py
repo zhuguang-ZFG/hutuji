@@ -816,6 +816,15 @@ async def hutuji_preview_svg(description: str) -> str:
 
 _WRITE_TEXT_MAX_CHARS = 5000
 
+# 写字页耗时折算（错峰 TTL 用，protocol §4.2）：2026-09-01 真机实测 1021 行
+# 灌流 116.3s ≈ 8.8 行/s、面板换纸全 8 步 8s；12mm 满页实测 10597 行 ≈ 20 分钟。
+# 三个数都钉实测证据，改动必须带新的实机计时，不许凭手感调。
+WRITE_PAGE_LINES_PER_SECOND = 8.8
+WRITE_PAGE_CHANGE_SECONDS = 8.0
+# 估时余量 ×2：覆盖设备重试、用户暂停与单点实测外推方差。窗口过宽只是
+# capability URL 活得久；过紧就是后续页 404（旧 124s/页模型的实测事故面）。
+WRITE_PAGE_TIME_MARGIN = 2.0
+
 # 字库解析缓存：单文件最大 ~10MB（42MB 目录全量），解析一次进程内复用；
 # key 是 (目录, 名字)，目录切换自然隔离。不设 LRU——字库数量以个位数计。
 _gfont_cache: dict[tuple[str, str], object] = {}
@@ -854,13 +863,15 @@ async def _run_write_job(
     store = get_output_store()
     store.ensure_ready()
     # 错峰 TTL 基准（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，第 i 页
-    # 要到 t0 + i×(一页耗时) 才被下载（实测一页 116.3s 灌流 + 8s 换纸）。若所有页
-    # 共用同一个 600s 窗口，第 6 页 404——服务端 HTTP 层已实证（证据见
-    # results/local-only/2026-09-01/ttl-stagger-http-counterfactual.log；设备侧
-    # 真机时序待 HIL）。故把第 i 页产物 mtime 前移
-    # i×page_ttl_budget_seconds，使其窗口变成 ttl + i×budget；判定链只读 mtime。
+    # 要到 t0 + Σ(前序页实际耗时) 才被下载。页耗时按行数折算：2026-09-01 真机实测
+    # 1021 行灌流 116.3s ≈ 8.8 行/s、换纸 8s；12mm 满页实测 10597 行 ≈ 20 分钟。
+    # 旧版统一 300s/页预算建在 124s/页模型上，满页文章第 2 页必 404
+    # （2026-09-03 advisory 复核数字实锤）。故第 i 页产物 mtime 前移到
+    # t0 + Σ_{j<i} est_j（est_j = lines_j/8.8 + 8，再乘 2 倍余量覆盖设备重试、
+    # 用户暂停与单点实测外推方差——窗口过宽只是 capability URL 活得久，
+    # 过紧就是第 i 页 404）；判定链只读 mtime。
     ttl_base = time.time()
-    page_budget = settings.page_ttl_budget_seconds
+    cumulative = 0.0  # 第 i 页下载时刻 ≈ t0 + Σ_{j<i} 页 j 估时
     pages_out: list[dict] = []
     for page_index, page in enumerate(result.pages):
         base = _new_basename()
@@ -876,11 +887,15 @@ async def _run_write_job(
             stats = await svg_to_gcode_async(
                 paths.svg_path, paths.gcode_path, normalize=False
             )
-            # 第 1 页不动时间戳（保持既有单页语义：窗口从写盘时刻起算）。
+            # 第 1 页不动时间戳（保持既有单页语义：窗口从写盘时刻起算）；
+            # 第 i 页按前序页估时累计前移（见上文错峰注释）。
             store.finalize_job(
                 paths,
-                created_at=None if page_index == 0 else ttl_base + page_index * page_budget,
+                created_at=None if page_index == 0 else ttl_base + cumulative,
             )
+        cumulative += (
+            stats.lines / WRITE_PAGE_LINES_PER_SECOND + WRITE_PAGE_CHANGE_SECONDS
+        ) * WRITE_PAGE_TIME_MARGIN
         pages_out.append({
             "page": page_index + 1,
             "url": f"{public_base_url}/files/{base}.gcode",
