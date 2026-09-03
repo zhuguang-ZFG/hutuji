@@ -415,10 +415,11 @@ def test_write_pages_arg_present_without_chain_push(tmp_path, monkeypatch):
 def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
     """多页文章错峰 TTL（protocol §4.2）：设备逐页「下载→灌流→换纸」串行推进，
     页耗时按行数折算（2026-09-01 真机实测 8.8 行/s + 换纸 8s，12mm 满页 10597 行
-    ≈ 20 分钟）。旧的统一 300s/页预算建在 124s/页模型上，满页文章第 2 页必 404
-    （2026-09-03 advisory 复核实锤数字）。故第 i 页 mtime 前移到
-    t0 + Σ_{j<i}（lines_j/8.8 + 8）× 2（余量覆盖设备重试与用户暂停）；
-    第 1 页必须不动（保持既有单页语义：窗口从写盘时刻起算），
+    ≈ 20 分钟）；另加一次性确认补贴 600s——t0 到人按「确认」开画的等待无上界、
+    与页大小无关，稀疏页单靠 2× 余量只有几分钟绝对量（est₁≈248s 时确认延迟
+    >12 分钟第 2 页必 404，2026-09-03 advisory 复核实锤）。故第 i 页 mtime 前移到
+    t0 + 补贴 + Σ_{j<i}（lines_j/8.8 + 8）× 2（第 1 页同样带补贴：确认延迟卡住
+    的是第 1 页首次下载本身）；单页文章不动时间戳（保持既有单页语义），
     且 _serve_file 对未来 mtime 的页必须照常 200（now-mtime 为负 → 未过期）。
     """
     from hutuji_mcp import server
@@ -457,9 +458,12 @@ def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
         assert max(per_page) - min(per_page) < 1.0  # 三个后缀同窗口
         mtimes.append(trio[1].stat().st_mtime)
 
-    assert started - 1.0 <= mtimes[0] <= time.time() + 1.0  # 第 1 页 = 写盘时刻
-    # 逐页公式钉死：第 i 页前移量 = Σ_{j<i}（lines_j/率 + 换纸）× 余量，与每页
-    # 实际行数挂钩；退回统一预算（与行数脱钩）此处立即红。
+    # 第 1 页也带一次性确认补贴（多页语义）：mtime ≈ 写盘时刻 + 补贴。
+    allowance = server.WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS
+    assert started + allowance - 1.0 <= mtimes[0] <= time.time() + allowance + 1.0
+    # 逐页公式钉死：第 i 页相对第 1 页的前移量 = Σ_{j<i}（lines_j/率 + 换纸）× 余量，
+    # 与每页实际行数挂钩；补贴在差值中抵消——恰好钉死它「只加一次、不按页乘」；
+    # 退回统一预算（与行数脱钩）或退回按页乘补贴，此处立即红。
     cumulative = 0.0
     for i in range(1, len(mtimes)):
         prev_lines = payload["pages"][i - 1]["lines"]
@@ -472,6 +476,7 @@ def test_write_multipage_staggers_output_ttl(tmp_path, monkeypatch):
     assert server.WRITE_PAGE_LINES_PER_SECOND <= 8.8
     assert server.WRITE_PAGE_CHANGE_SECONDS >= 8.0
     assert server.WRITE_PAGE_TIME_MARGIN >= 2.0
+    assert allowance >= 600.0
 
     # 末页 mtime 在未来，仍须可下载
     last = payload["pages"][-1]["url"].rsplit("/", 1)[-1]

@@ -388,12 +388,14 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   第 i 页要到 `t0 + Σ(前序页实际耗时)` 才被下载。页耗时按行数折算：实机实测 **8.8 行/s**（1021 行灌流 116.3s）+ 换纸 8s；
   注意 12mm 满页实测 10597 行 ≈ **20 分钟**（2026-09-01 服务端取证 `twopage_run`），原「一页 ≈125s」是短文本单页样本，不代表满页。
   若 N 页共用同一个 `output_ttl_seconds`（600s）窗口，第 6 页 404——**服务端 HTTP 层已实证**（`results/local-only/2026-09-01/ttl-stagger-http-counterfactual.log`：真 uvicorn + 真 `GET /files/`，第 i 页 mtime 倒推到 age=i×125s，不错峰组 1–5 页 200 / 第 6 页 404，错峰组 6 页全 200）；**设备侧真机时序仍待 HIL**。故云端
-  `_run_write_job` 在 `finalize_job(created_at=…)` 把**第 i 页（i≥1）**产物的 created 时刻
-  前移到 `t0 + Σ_{j<i} est_j`，`est_j = (lines_j / 8.8 + 8) × 2`（`server.py` 的 `WRITE_PAGE_LINES_PER_SECOND`/`WRITE_PAGE_CHANGE_SECONDS`/`WRITE_PAGE_TIME_MARGIN`
-  三个模块常量，钉实测证据，不走 env；×2 余量覆盖设备重试与用户暂停）——旧版统一 300s/页预算（env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`）建在 124s/页模型上，
-  满页文章第 2 页必 404（2026-09-03 复核数字实锤），已拆除。
-  于是第 i 页有效窗口关闭于 `t0 + Σ_{j<i} est_j + output_ttl_seconds`（满密度 20 页末页窗口十余小时——这是物理总时长（≈7h）加余量的必然映射，URL 为 128-bit 不可猜 capability，窗口长度不改变其不可猜性）。
-  **第 1 页不动时间戳**——窗口仍从写盘时刻起算，单页语义逐字节不变。
+  `_run_write_job` 在 `finalize_job(created_at=…)` 把多页文章**各页（含第 1 页；单页文章不动、保持写盘时刻语义）**产物的 created 时刻
+  前移到 `t0 + 600 + Σ_{j<i} est_j`，`est_j = (lines_j / 8.8 + 8) × 2`（`server.py` 的 `WRITE_PAGE_LINES_PER_SECOND`/`WRITE_PAGE_CHANGE_SECONDS`/`WRITE_PAGE_TIME_MARGIN`/`WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS`
+  四个模块常量，钉实测证据，不走 env；×2 余量覆盖设备重试与用户暂停）——旧版统一 300s/页预算（env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`）建在 124s/页模型上，
+  满页文章第 2 页必 404（2026-09-03 复核数字实锤），已拆除。**一次性确认补贴 600s**（2026-09-03 advisory 复核追加）：`t0` 是云端生成完成时刻，
+  第 1 页要等人在屏幕上按「确认」才开画，这段等待无上界且与页大小无关——稀疏两页 est₁≈248s 时确认延迟 >12 分钟第 2 页必 404；补贴只加一次不按页乘
+  （确认延迟本来就只发生一次），含第 1 页是因为确认延迟卡住的是第 1 页首次下载本身。
+  于是第 i 页有效窗口关闭于 `t0 + 600 + Σ_{j<i} est_j + output_ttl_seconds`（满密度 20 页末页窗口十余小时——这是物理总时长（≈7h）加余量的必然映射，URL 为 128-bit 不可猜 capability，窗口长度不改变其不可猜性）。
+  **单页文章不动时间戳**——窗口仍从写盘时刻起算，单页语义逐字节不变（确认延迟超过 TTL 导致单页 404 属既有行为，确认屏当场可见、可即时重试，与画到一半的后续页 404 不同级）。
   本地后端靠 `os.utime` 改 mtime（svg/gcode/png 三件同改）；OSS 后端写
   `x-oss-meta-hutuji-created`，`read_verified`/`cleanup_expired` 都以该元数据为过期真值
   （`Last-Modified` 恒是上传时刻，只看它会误删靠后页）。文件名格式**不变**

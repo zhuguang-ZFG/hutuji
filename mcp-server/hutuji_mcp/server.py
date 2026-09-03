@@ -824,6 +824,12 @@ WRITE_PAGE_CHANGE_SECONDS = 8.0
 # 估时余量 ×2：覆盖设备重试、用户暂停与单点实测外推方差。窗口过宽只是
 # capability URL 活得久；过紧就是后续页 404（旧 124s/页模型的实测事故面）。
 WRITE_PAGE_TIME_MARGIN = 2.0
+# 确认等待一次性补贴（2026-09-03 advisory 复核实锤）：t0 是云端生成完成时刻，但第 1 页
+# 要等人在屏幕上按「确认」才开画——这段等待无上界且与页大小无关（语音下单后走开是
+# 本产品常态用法）。2× 余量按页耗时缩放，对稀疏页只有几分钟绝对量：稀疏两页
+# est₁≈248s，确认延迟 >12 分钟第 2 页必 404。故每页（含第 1 页）统一再前移这一个
+# 常量——只加一次不按页乘（按页乘会把窗口无限放大，且确认延迟本来就只发生一次）。
+WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS = 600.0
 
 # 字库解析缓存：单文件最大 ~10MB（42MB 目录全量），解析一次进程内复用；
 # key 是 (目录, 名字)，目录切换自然隔离。不设 LRU——字库数量以个位数计。
@@ -867,11 +873,14 @@ async def _run_write_job(
     # 1021 行灌流 116.3s ≈ 8.8 行/s、换纸 8s；12mm 满页实测 10597 行 ≈ 20 分钟。
     # 旧版统一 300s/页预算建在 124s/页模型上，满页文章第 2 页必 404
     # （2026-09-03 advisory 复核数字实锤）。故第 i 页产物 mtime 前移到
-    # t0 + Σ_{j<i} est_j（est_j = lines_j/8.8 + 8，再乘 2 倍余量覆盖设备重试、
-    # 用户暂停与单点实测外推方差——窗口过宽只是 capability URL 活得久，
-    # 过紧就是第 i 页 404）；判定链只读 mtime。
+    # t0 + 确认补贴 + Σ_{j<i} est_j（est_j = lines_j/8.8 + 8，再乘 2 倍余量覆盖
+    # 设备重试、用户暂停与单点实测外推方差——窗口过宽只是 capability URL 活得久，
+    # 过紧就是第 i 页 404）；确认补贴是一次性常量：t0 到人按「确认」开画的等待
+    # 无上界、与页大小无关，稀疏页单靠 2× 余量只有几分钟绝对量（est₁≈248s 时
+    # 确认延迟 >12 分钟第 2 页必 404）。判定链只读 mtime。
     ttl_base = time.time()
-    cumulative = 0.0  # 第 i 页下载时刻 ≈ t0 + Σ_{j<i} 页 j 估时
+    multi_page = len(result.pages) > 1
+    cumulative = WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS  # 一次性，不按页乘
     pages_out: list[dict] = []
     for page_index, page in enumerate(result.pages):
         base = _new_basename()
@@ -887,11 +896,11 @@ async def _run_write_job(
             stats = await svg_to_gcode_async(
                 paths.svg_path, paths.gcode_path, normalize=False
             )
-            # 第 1 页不动时间戳（保持既有单页语义：窗口从写盘时刻起算）；
-            # 第 i 页按前序页估时累计前移（见上文错峰注释）。
+            # 单页保持写盘时刻语义（既有行为）；多页连第 1 页也带确认补贴——
+            # 确认延迟卡住的是第 1 页的首次下载本身，只补贴后续页等于没建模。
             store.finalize_job(
                 paths,
-                created_at=None if page_index == 0 else ttl_base + cumulative,
+                created_at=ttl_base + cumulative if multi_page else None,
             )
         cumulative += (
             stats.lines / WRITE_PAGE_LINES_PER_SECOND + WRITE_PAGE_CHANGE_SECONDS
