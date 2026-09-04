@@ -4891,7 +4891,8 @@ def test_gwrite_profile_matches_production_shape() -> None:
     profile = tomllib.loads(toml_path.read_text(encoding="utf-8"))["gwrite"]["hutuji"]
 
     assert profile["unit"] == "mm"
-    assert profile["vertical_flip"] is True
+    # Y 不翻转（2026-09-04 定案）：SVG 顶=机器 Y 小=原点侧起笔，对齐奎享产物首笔 Y≈1.1
+    assert profile["vertical_flip"] is False
     # 头：G21/G90/F8000 + 两次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路发送）
     assert profile["document_start"] == "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
     assert profile["document_start"].count("G1G90 Z0.0F10000") == 2
@@ -4906,6 +4907,34 @@ def test_gwrite_profile_matches_production_shape() -> None:
         assert "G92" not in profile[key], f"{key} 不得含 G92（校验器会拒）"
         assert "M" not in profile[key], f"{key} 不得含 M 码（笔控纯 Z 运动）"
         assert "X0Y0" not in profile[key].replace(" ", ""), f"{key} 不得回原点"
+
+
+def test_svg_to_gcode_svg_top_draws_near_origin(tmp_path: Path) -> None:
+    """方向钉：SVG 顶部内容必须先画在 Y 小（原点侧），翻转回归会被本测试当场抓住。
+
+    证据：奎享 kdraw 真实产物首笔 `G0 X-2.205Y1.092`（近原点起画）；
+    2026-09-04 用户纸面实测 flip=true 时首笔在 Y≈182 远端、方向不对。
+    """
+    from hutuji_mcp import gcode_gen
+
+    svg = tmp_path / "orient.svg"
+    # 两条横线：顶线(y=8)与底线(y=180)用不同 X 段区分；Y 顺序即纸面先后顺序
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
+        'viewBox="0 0 190 190">'
+        '<path d="M10,8L50,8" fill="none" stroke="black"/>'
+        '<path d="M100,180L140,180" fill="none" stroke="black"/></svg>',
+        encoding="utf-8",
+    )
+    gcode = tmp_path / "orient.gcode"
+    gcode_gen.svg_to_gcode(svg, gcode, normalize=False)
+    ys = [
+        float(m.group(1))
+        for m in re.finditer(r"^G1 X[\d.]+Y([\d.]+)F8000$", gcode.read_text(), re.M)
+    ]
+    assert len(ys) == 2
+    assert ys[0] < 20, f"SVG 顶线必须落在原点侧 Y 小，实测 {ys[0]}"
+    assert ys[1] > 170, f"SVG 底线必须落在远端 Y 大，实测 {ys[1]}"
 
 
 def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:
