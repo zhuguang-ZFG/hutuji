@@ -4794,13 +4794,17 @@ def test_vpype_pipeline_normalizes_layout(tmp_path: Path, monkeypatch) -> None:
     assert cmd[cmd.index("layout") + 1] == "--fit-to-margins"
     # 边距与画布必须钉死：只断言「有 layout」的话，改成 0 边距照样全绿
     assert cmd[cmd.index("layout") + 2] == f"{gcode_gen.LAYOUT_MARGIN_MM:.0f}mm"
-    assert cmd[cmd.index("layout") + 3] == (
+    # 横版页（X 长）必须显式 --landscape：vpype layout 默认强制竖版会把 277x190
+    # 换成 190x277，内容 Y 越出限幅（2026-09-04 轴反转后全套 layout 测试实锤）
+    if gcode_gen.MAX_X_MM > gcode_gen.MAX_Y_MM:
+        assert cmd[cmd.index("layout") + 3] == "--landscape"
+    assert cmd[cmd.index("layout") + 3 + (1 if gcode_gen.MAX_X_MM > gcode_gen.MAX_Y_MM else 0)] == (
         f"{gcode_gen.MAX_X_MM:.0f}x{gcode_gen.MAX_Y_MM:.0f}mm"
     )
 
 
 def test_svg_to_gcode_upscales_and_centers_tiny_drawing(tmp_path: Path) -> None:
-    """角落小图必须被等比放大并居中：10mm 方块 → 宽 170mm、X 边距 10/180、垂直居中。"""
+    """角落小图必须被等比放大并居中：10mm 方块 → 放大到版式区短边 170mm、水平垂直双居中。"""
     from hutuji_mcp import gcode_gen
 
     svg = tmp_path / "tiny.svg"
@@ -4813,9 +4817,9 @@ def test_svg_to_gcode_upscales_and_centers_tiny_drawing(tmp_path: Path) -> None:
     gcode_gen.svg_to_gcode(svg, gcode)
 
     min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
-    assert min_x == pytest.approx(gcode_gen.LAYOUT_MARGIN_MM, abs=0.5)
-    assert max_x == pytest.approx(gcode_gen.MAX_X_MM - gcode_gen.LAYOUT_MARGIN_MM, abs=0.5)
+    # 版式区 257×170：方形受短边 Y 限放大到 170mm，水平居中于 277 版心
     assert max_x - min_x == pytest.approx(170.0, abs=1.0), "小图必须被放大"
+    assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
     assert (min_y + max_y) / 2 == pytest.approx(gcode_gen.MAX_Y_MM / 2, abs=1.0)
 
 
@@ -4873,7 +4877,7 @@ def test_svg_to_gcode_layout_handles_vertical_line(tmp_path: Path) -> None:
 
     min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
     assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
-    assert max_y - min_y == pytest.approx(257.0, abs=2.0), "竖线必须被拉满到边距内（Y 长边 277−2×10）"
+    assert max_y - min_y == pytest.approx(170.0, abs=2.0), "竖线必须被拉满到边距内"
 
 
 def test_gwrite_profile_matches_production_shape() -> None:
@@ -4975,8 +4979,8 @@ def test_firmware_jog_envelope_matches_cloud_limits() -> None:
     from hutuji_mcp import gcode_gen
 
     # 云端侧钉死 §5 硬边界（行为测试之外的显式锚点）。
-    assert gcode_gen.MAX_X_MM == 190.0
-    assert gcode_gen.MAX_Y_MM == 277.0
+    assert gcode_gen.MAX_X_MM == 277.0
+    assert gcode_gen.MAX_Y_MM == 190.0
 
     root = Path(os.environ.get("XIAOZHI_ROOT", "D:/Users/xiaozhi-esp32"))
     header = root / "main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -5195,9 +5199,9 @@ def test_gcode_rejects_radius_mode_arc_out_of_bounds() -> None:
 
 
     补住 R 模式 major 弧的包围盒限幅路径——这条路径此前零测试。弦长 5mm 充足，
-    负 R=40 让圆心落到弦左侧、major 弧向右凸到 X=222.5，越过 190 限幅。
+    负 R=40 让圆心落到弦左侧、major 弧向右凸到 X=309.5，越过 277 限幅。
     """
-    text = _minimal_gcode("G0 X185 Y100 F8000\nG2 X180 Y100 R-40 F8000\n")
+    text = _minimal_gcode("G0 X272 Y100 F8000\nG2 X267 Y100 R-40 F8000\n")
     with pytest.raises(GcodeError, match="包围盒"):
         validate_gcode(text)
 
@@ -5262,9 +5266,9 @@ def test_gcode_rejects_nonproduction_motion_shape(line: str) -> None:
 # 圆弧：端点在界内不代表整条弧在界内——弧中途会凸到象限点。
 # 每例都先用 G0 给出起点，否则校验器会以「起点未知」拒绝。
 def test_arc_bulge_outside_limit_is_rejected() -> None:
-    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=280 > 277。
+    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=195 > 190。
     只看端点会放行这条弧，实机就是撞机。"""
-    text = _minimal_gcode("G0 X100 Y270 F8000\nG2 X120 Y270 I10 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y185 F8000\nG2 X120 Y185 I10 J0 F8000\n")
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)
 
@@ -5300,7 +5304,7 @@ def test_arc_with_inconsistent_radius_is_rejected() -> None:
 
 def test_near_full_circle_arc_checks_all_quadrants() -> None:
     """#8 浮点精度：起终点几乎重合的圆弧应按整圆算包围盒，不能退化为点。
-    圆心 (100,100)，半径 95 → X 最大 195 > 190（X 限幅），必须拦住。"""
+    圆心 (100,100)，半径 95 → Y 最大 195 > 190（Y 限幅），必须拦住。"""
     text = _minimal_gcode("G0 X100 Y5 F8000\nG2 X100.0001 Y5 I0 J95 F8000\n")
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(text)
@@ -5441,21 +5445,21 @@ def test_vpype_cmd_fallback_module_is_importable(
 
 
 def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:
-    """#9 容差对称：190.5mm 不应放行（旧 +1.0mm 容差会放行）。"""
+    """#9 容差对称：277.5mm 不应放行（旧 +1.0mm 容差会放行）。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X190.5 Y5 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X277.5 Y5 F8000\n"))
 
 
 def test_coordinate_at_boundary_passes() -> None:
-    """X=190 和 Y=190 恰好在各自界内。"""
-    validate_gcode(_minimal_gcode("G1 X190 Y190 F8000\n"))
+    """X=277 和 Y=190 恰好在各自界内。"""
+    validate_gcode(_minimal_gcode("G1 X277 Y190 F8000\n"))
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        "G1 X190.0001 Y5 F8000\n",
-        "G1 X5 Y277.0001 F8000\n",
+        "G1 X277.0001 Y5 F8000\n",
+        "G1 X5 Y190.0001 F8000\n",
         "G1 X-0.0001 Y5 F8000\n",
         "G1 X5 Y-0.0001 F8000\n",
     ],
@@ -5473,10 +5477,10 @@ def test_explicit_z_requires_exact_production_pen_position(z: str) -> None:
         validate_gcode(_minimal_gcode(f"G1G90 Z{z}F10000\n"))
 
 
-def test_y_over_277mm_rejected() -> None:
-    """Y=277.5 超出 Y 轴限幅 277mm（2026-09-04 长边放宽后仍须守住）。"""
+def test_y_over_190mm_rejected() -> None:
+    """Y=190.5 超出 Y 轴限幅 190mm。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X5 Y277.5 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X5 Y190.5 F8000\n"))
 
 
 @pytest.mark.parametrize(
@@ -5554,9 +5558,9 @@ def test_inherited_modal_g0_origin_is_rejected() -> None:
 
 
 def test_inherited_modal_arc_checks_bounding_box() -> None:
-    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 25mm 凸到 Y=290 > 277，必须拒。"""
+    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 25mm 凸到 Y=195，必须拒。"""
     text = _minimal_gcode(
-        "G0 X100 Y265 F8000\nG2 X120 Y265 I10 J0 F8000\nX170 Y265 I25 J0 F8000\n"
+        "G0 X100 Y170 F8000\nG2 X120 Y170 I10 J0 F8000\nX170 Y170 I25 J0 F8000\n"
     )
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)

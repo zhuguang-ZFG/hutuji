@@ -334,7 +334,7 @@ def _reject_g92(_output_dir: Path) -> dict[str, Any]:
 def _reject_out_of_bounds(_output_dir: Path) -> dict[str, Any]:
     return _expect_rejected(
         "reject_out_of_bounds",
-        _minimal_gcode("G1 X191 Y0 F8000\n"),
+        _minimal_gcode("G1 X278 Y0 F8000\n"),
         ["docs/protocol.md §5"],
     )
 

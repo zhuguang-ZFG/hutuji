@@ -58,14 +58,14 @@ def _vpype_semaphore() -> asyncio.Semaphore:
         _vpype_semaphores[loop] = weakref.ref(semaphore)
     return semaphore
 
-# 坐标限幅：A4 纸 210×297mm，四周留 10mm 边距 ⇒ X≤190、Y≤277。
-# 轴向真值以实机 `$$`（2026-08-29）为准：$130=210（X 短边行程）、$131=297（Y 长边行程）。
-# 2026-09-04 用户纸面实测「长度没用满」拍板放宽 Y：190 → 277（=297−2×10 边距，
-# 仍在物理行程内）；X 维持 190 不动（$130=210 ⇒ 190+余量已是正确保守值）。
-# 旧注释「Y 收紧 190 因 277 超 Y 物理行程」建立在 Y 行程=210 的误判上，已被 $$ 证伪。
+# 坐标限幅：A4 纸 210×297mm，四周留 10mm 边距 ⇒ X≤277、Y≤190。
+# 轴向真值（2026-09-04 用户实机确认）：X 为长边（297 方向）、Y 为宽边（210 方向）——
+# 与用户 08-21 口径一致；`$$` 读到的 $130=210/$131=297 是厂商配置值，与物理轴角色
+# 相反（无限位开关，配置值不进安全链；MCP 本限幅是唯一防线）。同日先按 `$$` 数值
+# 把 277 放到 Y，用户实机判定后反转到 X——以用户物理观察为准。
 # 改这里必须同步 xiaozhi `hutuji_recovery_core.h` 的 kJogEnvelopeMax*Mm（R17-XREPO-01 互钉）。
-MAX_X_MM = 190.0
-MAX_Y_MM = 277.0
+MAX_X_MM = 277.0
+MAX_Y_MM = 190.0
 # 布局归一化边距：LLM 无视 prompt 的「居中留边」（2026-08-09 画质探针实测六组
 # 题材 bbox 占画布 1.8%~85.5% 乱飞，star 缩到角落、house 顶到硬边零边距），
 # 构图必须由确定性几何兜底：vpype layout 把内容等比缩放并居中到
@@ -73,7 +73,7 @@ MAX_Y_MM = 277.0
 # 两个容差才是最终毫米几何上的绝对值（排在其后会随放大倍数失真）。
 LAYOUT_MARGIN_MM = 10.0
 # 仅用于派生几何：圆弧三角函数浮点误差，以及 G0 近原点的保守换纸保护。
-# 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤190、Y≤277、Z∈{0,5} 是硬边界。
+# 用户显式输入的 X/Y/Z 不得套此容差；§5 的 X≤277、Y≤190、Z∈{0,5} 是硬边界。
 _GEOMETRY_EPS_MM = 0.01
 # 正 R 圆弧的最小弦长：低于此值的弧起终点近乎重合，几何上是「近整圆」歧义
 #（解出的圆心贴在弦中点旁，正 R 取 minor 一侧圆心会让包围盒退化成弦点而绕过
@@ -288,8 +288,8 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
     """构造固定 vpype 管线，供同步和可取消异步入口共用。
 
     normalize=False（写字排版链专用）跳过 layout：文字页版式由 write_text 按
-    190x190mm 自排，layout 的等比缩放会让「字号」随每页内容量漂移（多页字大小不一）。
-    跳过版式后限幅完全交给 validate_gcode 的 X/Y<=190 逐行闸。
+    277x190mm 自排，layout 的等比缩放会让「字号」随每页内容量漂移（多页字大小不一）。
+    跳过版式后限幅完全交给 validate_gcode 的 X/Y<=277/190 逐行闸。
     """
     return _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
@@ -302,8 +302,12 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
         # 真正危险的只剩两点重合（宽=高=0 → scale=inf → 坐标 inf，由
         # validate_gcode「无法解析」闸 fail-closed）。改 layout 调用方式或升级
         # numpy/vpype 前必须先证明零跨度几何仍被正确处理。
+        # 277x190 是横版页：vpype layout 默认强制竖版（portrait enforced）会把尺寸
+        # 换成 190x277，内容 Y 越出 190 限幅被 validate_gcode 整单拒（2026-09-04 轴反转
+        # 后全套 layout 测试实锤）；X 长于 Y 时必须显式 --landscape。
         *((
             "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
+            *(("--landscape",) if MAX_X_MM > MAX_Y_MM else ()),
             f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
         ) if normalize else ()),
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数

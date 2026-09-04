@@ -321,7 +321,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | `hutuji.resume` | — | 恢复之前暂停的绘图，继续 PSRAM 缓存的行流 |
 | `hutuji.repeat` | — | 用 §5.1 PSRAM 缓存把上一张再画一遍（不重新下载） |
 | `hutuji.pen_test` | — | 笔测试：落笔停 1 秒再抬笔；不动纸、不进换纸路径 |
-| `hutuji.manual` | `action` | 语音手动控制（2026-08-24 新增，复用屏幕手动面板机制）：`jog_x+/jog_x-/jog_y+/jog_y-` 按步距点动（`jog_step_1/jog_step_10` 切 1/10mm，NVS 持久）、`pen_up/pen_down` 抬落笔（落笔先 `G92 Z0` 校准再 `Z5.0`）、`home` 回原点（`G1G90 X0Y0F8000`，不触发换纸）。仅 settled 态（idle/done/error/aborted）可用，期间状态 `manual`，完成设备播报；点动前强制新鲜 `?` 坐标 + `DecideJog` 包线判定（与 §5 限幅同源 190/277，fail-closed）。语音白名单拒绝维护动作 `set_origin/unlock/motor_off/reset`（仅屏幕入口） |
+| `hutuji.manual` | `action` | 语音手动控制（2026-08-24 新增，复用屏幕手动面板机制）：`jog_x+/jog_x-/jog_y+/jog_y-` 按步距点动（`jog_step_1/jog_step_10` 切 1/10mm，NVS 持久）、`pen_up/pen_down` 抬落笔（落笔先 `G92 Z0` 校准再 `Z5.0`）、`home` 回原点（`G1G90 X0Y0F8000`，不触发换纸）。仅 settled 态（idle/done/error/aborted）可用，期间状态 `manual`，完成设备播报；点动前强制新鲜 `?` 坐标 + `DecideJog` 包线判定（与 §5 限幅同源 277/190，fail-closed）。语音白名单拒绝维护动作 `set_origin/unlock/motor_off/reset`（仅屏幕入口） |
 | `hutuji.sing` / `hutuji.stop_song` | `url,title` / — | 唱歌（与绘图解耦），契约见 §10.2 |
 
 - 任务完成/失败经 `Application::SendMcpMessage` **设备侧主动推送**；同步查询走 `hutuji.status`。
@@ -442,10 +442,10 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **实机 `$$` 取证（2026-08-29，只读）**：CH340 `COM13` 上以 `tmp/query_grbl_settings.py` 仅发 `$I`/`$$`/`?`（`dtr`/`rts` 恒 `False`，不复位、不运动、不写设置），耗时 8.19s，落盘 `tmp/grbl-settings-com13-0829.txt`（`tmp/` 未入库，已登记 `docs/worktree-inventory.md`）。固件自证：`[VER:1.3a.20211103:]`、`[OPT:PHBSW]`、`[MSG:Using machine:Custom 3-Axis HR4988]`、`[MSG:Mode=STA:SSID=…:Status=Connected:IP=192.168.1.13:…]`、`[MSG:No BT]`；关键设置 `$1=255`（步进常励，配合 §5 短段地板）、`$3=7`、`$100=$101=100`、`$110=$111=12000`；状态行 `<Idle|MPos:0.000,0.000,0.000|Bf:249,128|FS:0,0|Pn:0>`（`Pn:` 空 = 无任何限位/探针触发，与无限位开关一致）。
   - **纸面方向（口径冲突已定性）**：2026-08-21 用户口径称 A4「X 为长边（297）、Y 为宽边（210）」，**与实机固件相反**——`$$` 实测 X 行程 210、Y 行程 297。故该口径**不作为行程真值**，只可能是机械安装/放纸方向的描述；**任何据此对调 `$130/$131` 或抬高 X 限幅的改动一律不做**。
   - **出图方向（2026-09-04 定案）**：SVG 顶（y 小）→ 机器 Y 小 = **原点侧起笔**，profile `vertical_flip = false`；文章/图的首笔落在 Y≈8 近原点处，行序向 Y+ 推进。证据：用户纸面实测 flip=true 首笔翻在 Y≈182 远端、方向不对；奎享 kdraw 真实产物（缓存 `2..10.gcode` 同一内容）首笔 `G0 X-2.205Y1.092` 同为近原点起画。回归钉 `test_svg_to_gcode_svg_top_draws_near_origin` + profile 字面量钉。
-  - **X 上限维持 190 不放宽**：抬到 277 的前置条件（实机 `$$` 证明 `$130=297`）已被实机证伪，`$130=210` ⇒ X 物理行程仅 210，190 + 10mm 余量是正确保守值。放宽须重新取证并同步 R17-XREPO-01 的 `hutuji_recovery_core.h` 点动包线。
-  - **Y 上限 190→277（2026-09-04 定案）**：用户纸面实测「长度没用满」拍板；`$131=297`（Y 长边行程）已取证，277=297−2×10 边距仍在物理行程内。旧「Y 收紧 190」建立在 Y 行程=210 的误判上，已被 `$$` 证伪。同步面：`gcode_gen.MAX_Y_MM`、write_text `_PAGE_HEIGHT_MM`、grbl_sim `_MAX_Y_MM`、xiaozhi `kJogEnvelopeMaxYMm`（R17-XREPO-01 互钉）。注意：板上 S3 固件点动包线仍 190，重刷前点动到 190–277 区段会被固件拒——语音/文件出图不受此限。
-  - **可用画幅（现行）**：≤ **190×277mm**，坐标须落在
-    `0 ≤ X ≤ 190`、`0 ≤ Y ≤ 277`。
+  - **轴角色定案（2026-09-04 用户实机确认）：X 为长边（297 方向）、Y 为宽边（210 方向）**——与用户 08-21 口径一致。`$$` 读到的 `$130=210/$131=297` 是厂商配置值，与物理轴角色相反：本机无限位开关、软限位关闭（`$20=0`），配置行程不进任何安全链，MCP 限幅是唯一防线，故不对调 `$130/$131`（无安全收益且 §9-G′ 锁表只读）。同日中午曾按 `$$` 数值把 277 放到 Y，用户实机判定后当日反转到 X——**轴向争议以用户物理观察为最终裁决**。
+  - **X 上限 190→277、Y 维持 190（2026-09-04 定案）**：用户纸面实测「长度没用满」拍板。X 277=297−2×10 边距。同步面：`gcode_gen.MAX_X_MM`（vpype layout 须 `--landscape`，其默认强制竖版会把 277x190 换成 190x277）、write_text `_PAGE_WIDTH_MM`、grbl_sim `_MAX_X_MM`、xiaozhi `kJogEnvelopeMaxXMm`（R17-XREPO-01 互钉）。注意：板上 S3 固件点动包线仍 190，重刷前点动到 190–277 区段会被固件拒——语音/文件出图不受此限。再放宽任何一轴须重新取证并同步点动包线。
+  - **可用画幅（现行）**：≤ **277×190mm**，坐标须落在
+    `0 ≤ X ≤ 277`、`0 ≤ Y ≤ 190`。
   - **越界处理 = 拒绝生成 + 明确告知用户**，**不得裁剪 / 不得缩放后静默出图**：任一坐标超界 → MCP 不产出文件，向云端回明确原因（超界轴 + 实际值 + 上限），由用户决定改小内容或换尺寸。
   - 理由：裁剪会把「越界」变成一张**静默残缺**的画（与 §5.1 静默截断同类失败——用户拿到看似完成实则缺一块的纸）；拒绝把失败前移到落笔之前，**零废纸**。自动缩放同理否决：改变用户预期的构图属于静默篡改。
   - MCP 生成端应在**输出前**统一做一次全量坐标扫描（含圆弧 `G2/G3` 的包围盒，不只是端点），越界即整单拒绝。
@@ -496,7 +496,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ### 6.1 Grbl `$` 设置指纹（2026-08-30）
 
-奎享 / ESP3D WebUI 可经 Telnet 改写 `$` 并持久化到 NVS，会绕过 MCP 侧 X/Y≤190mm 安全限幅（例：把 `$130/$131` 改小）。S3 在**授权探测之后、置 `ready=true` 之前**逐项只读查询 golden 表；Grbl 侧对同表项**拒绝写入**（`Error::SettingDisabled`=5）。`$RST=$` 出厂恢复 SOP 不受影响。
+奎享 / ESP3D WebUI 可经 Telnet 改写 `$` 并持久化到 NVS，会绕过 MCP 侧 X≤277/Y≤190mm 安全限幅（例：把 `$130/$131` 改小）。S3 在**授权探测之后、置 `ready=true` 之前**逐项只读查询 golden 表；Grbl 侧对同表项**拒绝写入**（`Error::SettingDisabled`=5）。`$RST=$` 出厂恢复 SOP 不受影响。
 
 **Golden 表（2026-08-29 COM13 实机 `$$` + `[Errors/Verbose]` 只读取证）**：
 
@@ -565,7 +565,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | D′ | `WebUI/BTConfig.cpp`（`begin()`） | 经典蓝牙启动成功后 `esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9)`（GRBL_PAPER_SYSTEM 守卫内，失败只记消息不阻断） | 2026-08-15 用户决策：IDF 默认发射功率上限仅 P3=+3dBm（`esp_bt.h:331`），拉满 +9dBm 改善 BT 链路质量。纯射频参数，不碰数据面/换纸/运动/授权；§8「不用蓝牙走正式数据链路」不变 |
 | F′ | `GCode.cpp:1732`、`:1789`、`PaperSystem.cpp:708-714`、`:837`、`:959`、`:1047-1049` | **`$1=255` 常使能守卫**：M30 页尾与换纸 abort/进纸超时/卡纸不得无条件失能 XYZ；`paper_finish_xyz_after_fault()` 在 `$1≠255` 时仍立即失能、在 `$1=255` 时显式 `motors_set_disable(false)` 恢复（含 M30 已失能的残留）；换纸成功路径仍恢复使能 | 商业固件在 M30 与 `PaperAuto-2` feeder timeout 等处硬编码 `motors_set_disable(true)`，弹簧笔架在「逻辑 Z 仍可能为 5」时失能抬笔 → 下一页没墨。2026-08-28 COM13 刷机 + 用户确认修复后正常 |
 | E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1050` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1050` 自此降级为 fast-path advisory（只负责 web 侧 `"busy"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |
-| G′ | `ProtocolDecisionCore.h`、`ProcessSettings.cpp`（`is_hutuji_locked_setting_key` → `SettingDisabled`） | **Golden `$` 写保护**：Telnet/WebUI 对 `$1/$3/$20-22/$100/$101/$110/$111/$130/$131/$132`/`Errors/Verbose` 的写入统一回 `Error::SettingDisabled`(5)，数字名与长名（`X/MaxTravel` 等 12 个）双形态同锁；S3 侧只读指纹见 §6.1 | 奎享/WebUI 可改 `$130/$131` 行程，绕过 MCP X/Y≤190mm 安全限幅；2026-08-29 实机 golden 见 §6.1；2026-08-31 长名形态补锁（findings #30 R1） |
+| G′ | `ProtocolDecisionCore.h`、`ProcessSettings.cpp`（`is_hutuji_locked_setting_key` → `SettingDisabled`） | **Golden `$` 写保护**：Telnet/WebUI 对 `$1/$3/$20-22/$100/$101/$110/$111/$130/$131/$132`/`Errors/Verbose` 的写入统一回 `Error::SettingDisabled`(5)，数字名与长名（`X/MaxTravel` 等 12 个）双形态同锁；S3 侧只读指纹见 §6.1 | 奎享/WebUI 可改 `$130/$131` 行程，绕过 MCP X≤277/Y≤190mm 安全限幅；2026-08-29 实机 golden 见 §6.1；2026-08-31 长名形态补锁（findings #30 R1） |
 
 > **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:131`/`:233`、`System.cpp:314`、`WebSettings.cpp:1050`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
 > **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1055` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:191`、`WebSettings.cpp:167`），且 M30 路径看不到它，换不来任何 S3 可见收益。

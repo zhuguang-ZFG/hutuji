@@ -189,7 +189,8 @@ def test_layout_single_line_positions():
 
 def test_layout_wraps_at_text_width():
     font, metrics = _fixture_font(), _fixture_metrics()
-    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    # 页宽放宽到 261 后，用右边距 95 锁回 174mm 测试行宽（点位构造与本测试机制无关）
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, margin_right_mm=95.0)
     # 页宽 174mm，全宽步进 10mm → 首行缩进后放 15 字，次行 17 字
     result = write_text.layout_text("永" * 40, font, metrics, layout)
     assert result.pages[0].line_count >= 3
@@ -199,7 +200,7 @@ def test_layout_wraps_at_text_width():
 
 def test_layout_punctuation_never_starts_line():
     font, metrics = _fixture_font(), _fixture_metrics()
-    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, margin_right_mm=95.0)
     # 构造「。」恰落在折行点：首行缩进 20mm 后每字 10mm，页宽 174 → 第 16 字溢出
     text = "永" * 15 + "。" + "国" * 10
     result = write_text.layout_text(text, font, metrics, layout)
@@ -224,7 +225,7 @@ def test_layout_open_punct_never_ends_line():
         _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国《"})
     )
     metrics = write_text.measure_font(font)
-    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, margin_right_mm=95.0)
     result = write_text.layout_text("永" * 14 + "《" + "国" * 5, font, metrics, layout)
     page = result.pages[0]
     assert page.line_count == 2
@@ -238,22 +239,22 @@ def test_layout_open_punct_never_ends_line():
 
 
 def test_layout_kinsoku_merge_never_exceeds_page_limit():
-    """避头并入不得越 §5 页限：连续闭标点（。」）在满行会把墨迹顶出 190mm 硬线，
-    被 validate_gcode 整单拒绝（功能性失败，非外观）。并入前须判 x_end≤190，
-    超限则避头让位、标点照常折行。
-    构造：首行 15 字（缩进 20+150=170），次行 17 字满（170，墨区至 178）；
-    。并入（8+170+10=188≤190），」再并入将墨至 198>190 → 必须折到第三行行首。"""
+    """避头并入不得越 §5 页限：连续闭标点在满行会把墨迹顶出 277mm 硬线（2026-09-04
+    页宽放宽后），被 validate_gcode 整单拒绝（功能性失败，非外观）。并入前须判
+    x_end≤_PAGE_WIDTH_MM，超限则避头让位、标点照常折行。
+    构造（261mm 行宽、10mm 步进）：首行缩进后 24 字（260mm）满，次行 25 字（250mm）；
+    。并入次行末（墨至 278>277）与 」并入（墨至 288>277）都越限 → 两字折到第三行。"""
     font = gfont.GfontFile.parse(
         _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国。」"})
     )
     metrics = write_text.measure_font(font)
     layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
-    result = write_text.layout_text("永" * 32 + "。" + "」", font, metrics, layout)
+    result = write_text.layout_text("永" * 49 + "。" + "」", font, metrics, layout)
     page = result.pages[0]
     assert page.line_count == 3
-    # 全页墨迹右沿不得越 190（§5 限幅真值）；旧行为 198 → 整单 422 的事故面
-    assert max(x for s in page.strokes for x, _ in s.points) <= 190.0
-    # 。并入次行（墨至 188）；」折到第三行行首 X=8
+    # 全页墨迹右沿不得越 277（§5 限幅真值）
+    assert max(x for s in page.strokes for x, _ in s.points) <= 277.0
+    # 。随避头折到第三行行首 X=8（并入会墨至 278 越限）
     line3 = [s for s in page.strokes if all(y > 34.0 for _, y in s.points)]
     assert line3
     assert min(x for x, _ in line3[0].points) == pytest.approx(8.0, abs=0.01)
@@ -262,7 +263,8 @@ def test_layout_kinsoku_merge_never_exceeds_page_limit():
 def test_layout_paginates_and_reports_missing():
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout(
-        size_mm=20.0, line_spacing=1.5, margin_top_mm=237.0, margin_bottom_mm=0.0
+        size_mm=20.0, line_spacing=1.5, margin_top_mm=150.0, margin_bottom_mm=0.0,
+        margin_right_mm=95.0,  # 锁回 174mm 测试行宽，保住 6/8 字容量点位
     )
     # 页高 40mm、行高 30mm → 一页一行；首行缩进后容量 6 字、续行 8 字，15 字 → 3 页
     result = write_text.layout_text("永国中" * 4 + "永国龘", font, metrics, layout)
@@ -629,7 +631,7 @@ def test_layout_hard_breaks_overlong_latin_token():
     墨迹顶出 §5 页限被 validate_gcode 整单拒绝（2026-09-04 实测 60 个 x 墨至 288mm）。"""
     font = _fixture_font()
     metrics = _fixture_metrics()
-    layout = write_text.WriteLayout(paragraph_indent=0)
+    layout = write_text.WriteLayout(paragraph_indent=0, margin_right_mm=95.0)
     result = write_text.layout_text("A" * 60, font, metrics, layout)
     # 每行恰 25 字（夹具 A 步进 6.8mm，174/6.8=25）：旧行为 1 行越界 288mm；
     # guard 误放 overflow 之后曾退化成「每字一行」——行数必须精确钉 3
@@ -767,17 +769,17 @@ def test_heading_long_title_wraps_centered():
     """长标题折行后每个视觉行都各自居中。"""
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout()
-    # 18mm 全宽步进 18.8mm：174/18.8 = 9 字/行；14 字标题折 2 行
-    title = "中" * 14
+    # 18mm 全宽步进 18.8mm：261/18.8 = 13 字/行；20 字标题折 13+7 两行
+    title = "中" * 20
     res = write_text.layout_text(title + "\n永国中文", font, metrics, layout, headings={0})
     page = res.pages[0]
     bands = _line_x_starts(page)
     center_x = layout.margin_left_mm + layout.text_width_mm / 2
-    # 前两个行带都是标题行（9 字满行 + 5 字余行），均居中
+    # 前两个行带都是标题行（13 字满行 + 7 字余行），均居中
     assert (bands[0][1] + bands[0][2]) / 2 == pytest.approx(center_x, abs=1.0)
     assert (bands[1][1] + bands[1][2]) / 2 == pytest.approx(center_x, abs=1.0)
-    # 满行宽 ≈ 9*18.8=169.2 → offset≈2.4；余行 5*18.8=94 → offset=40
-    assert bands[1][1] - bands[0][1] == pytest.approx(40 - 2.4, abs=1.0)
+    # 满行墨宽 ≈ 13*18.8-0.8=243.6 → 左沿≈8+8.7；余行 7*18.8-0.8=130.8 → 左沿≈8+65.1
+    assert bands[1][1] - bands[0][1] == pytest.approx(65.1 - 8.7, abs=1.0)
 
 
 def test_heading_size_validation():
