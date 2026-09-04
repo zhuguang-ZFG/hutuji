@@ -12,8 +12,9 @@
 排版规则（中文文章）：
 - 页区 = (190-左右边距) × (190-上下边距) mm（§5 限幅 X/Y≤190 是硬线）
 - \n 分段，段首缩进 2 个全宽字；CJK 任意折行，拉丁按空格折行、长词硬断
-- 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——回退并入上一行末（允许略超宽）
-- 缺字：按半宽空格占位并记入 missing_chars
+- 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——并入上一行末，但以 §5 页限（190mm）为上界，超限让位折行
+- 避尾：行尾禁「（【《「『“‘」等开标点——弹出随下一行行首
+- 空段：连续 \n 不产出空行（空白段被跳过），段间距只有缩进一种表达——省纸取向的显式取舍
 - 分页：行写满页高即切页；每页一份独立 SVG（多页 G-code 下发属 S3 侧后续）
 """
 
@@ -304,16 +305,36 @@ def layout_text(
                 continue
             adv = token_advance_mm(tok)
             overflow = line_width + adv > layout.text_width_mm and line_tokens
-            # 避头：闭标点不置行首——超宽也强行并入当前行
-            if overflow and tok not in _NO_LINE_START and tok.strip():
-                if not flush_line():
-                    if len(pages) + 1 >= max_pages:
-                        truncated = True
-                        break
-                    new_page()
-                    y_baseline = layout.margin_top_mm + metrics.baseline_to_top * scale
-                line_start_x = layout.margin_left_mm
-            # 避尾：开标点是本行最后一个且下一个放不下时，随下一 token 走（自然折行已覆盖）
+            # 避头：闭标点不置行首、并入当前行末——但并入后墨迹不得越 §5 页限
+            # （190mm 硬线）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
+            # 被 validate_gcode 整单拒绝（2026-09-04 测试实锤：无上限时墨至 198mm）。
+            # 超限则避头让位、照常折行——标点行首是外观妥协，越界是整篇写不出。
+            merge_into_line = (
+                tok in _NO_LINE_START
+                and layout.margin_left_mm + line_width + adv <= _PAGE_LIMIT_MM
+            )
+            if overflow and not merge_into_line and tok.strip():
+                # 避尾：开标点不得收行尾——弹出暂存行尾的开标点，随新行同行首
+                # （tokenize 把开标点独立成元，无此回退它会留守行尾；旧注释声称
+                # 「自然折行已覆盖」不实，2026-09-04 测试实锤旧行为墨至行尾 178）。
+                carried: list[str] = []
+                carried_adv = 0.0
+                while line_tokens and line_tokens[-1] in _NO_LINE_END:
+                    carried.insert(0, line_tokens.pop())
+                    carried_adv += token_advance_mm(carried[0])
+                line_width -= carried_adv
+                if line_tokens:
+                    if not flush_line():
+                        if len(pages) + 1 >= max_pages:
+                            truncated = True
+                            break
+                        new_page()
+                        y_baseline = layout.margin_top_mm + metrics.baseline_to_top * scale
+                    line_start_x = layout.margin_left_mm
+                # 病态输入（整行全是开标点）不 flush，carried 落回本行继续
+                if carried:
+                    line_tokens.extend(carried)
+                    line_width += carried_adv
             line_tokens.append(tok)
             line_width += adv
             i += 1

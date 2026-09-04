@@ -216,6 +216,49 @@ def test_layout_punctuation_never_starts_line():
     assert first_stroke_min_x == pytest.approx(8.0, abs=0.01)
 
 
+def test_layout_open_punct_never_ends_line():
+    """避尾：开标点不得收行尾——恰满行时弹出随下一行行首（与避头对偶）。
+    构造「《」恰为行尾最后一元：首行缩进 20mm 后每字 10mm，14 字+《=170≤174 放下，
+    次字 180>174 溢出；无避尾时《墨区落在首行尾（右缘 178），修复后《须在次行行首。"""
+    font = gfont.GfontFile.parse(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国《"})
+    )
+    metrics = write_text.measure_font(font)
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    result = write_text.layout_text("永" * 14 + "《" + "国" * 5, font, metrics, layout)
+    page = result.pages[0]
+    assert page.line_count == 2
+    line1 = [s for s in page.strokes if all(y <= 18.0 for _, y in s.points)]
+    line2 = [s for s in page.strokes if all(y > 18.0 for _, y in s.points)]
+    assert line1 and line2
+    # 首行 14 字墨区右沿 = 28+14×10=168；《若留守行尾则右沿 178（旧行为，此处立即红）
+    assert max(x for s in line1 for x, _ in s.points) == pytest.approx(168.0, abs=0.01)
+    # 次行以《起头：首笔 X=左边距 8.0
+    assert min(x for x, _ in line2[0].points) == pytest.approx(8.0, abs=0.01)
+
+
+def test_layout_kinsoku_merge_never_exceeds_page_limit():
+    """避头并入不得越 §5 页限：连续闭标点（。」）在满行会把墨迹顶出 190mm 硬线，
+    被 validate_gcode 整单拒绝（功能性失败，非外观）。并入前须判 x_end≤190，
+    超限则避头让位、标点照常折行。
+    构造：首行 15 字（缩进 20+150=170），次行 17 字满（170，墨区至 178）；
+    。并入（8+170+10=188≤190），」再并入将墨至 198>190 → 必须折到第三行行首。"""
+    font = gfont.GfontFile.parse(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国。」"})
+    )
+    metrics = write_text.measure_font(font)
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    result = write_text.layout_text("永" * 32 + "。" + "」", font, metrics, layout)
+    page = result.pages[0]
+    assert page.line_count == 3
+    # 全页墨迹右沿不得越 190（§5 限幅真值）；旧行为 198 → 整单 422 的事故面
+    assert max(x for s in page.strokes for x, _ in s.points) <= 190.0
+    # 。并入次行（墨至 188）；」折到第三行行首 X=8
+    line3 = [s for s in page.strokes if all(y > 34.0 for _, y in s.points)]
+    assert line3
+    assert min(x for x, _ in line3[0].points) == pytest.approx(8.0, abs=0.01)
+
+
 def test_layout_paginates_and_reports_missing():
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout(
@@ -251,6 +294,21 @@ def test_load_font_dir_errors(tmp_path):
     (tmp_path / "only.gfont").write_bytes(_build_v2_font({"永": (_BOX_POINTS, _BOX_VERBS)}))
     with pytest.raises(WriteTextError, match="找不到字库"):
         write_text.load_font(str(tmp_path), "不存在")
+
+
+def test_load_font_default_picks_most_complete(tmp_path):
+    """空名默认选字数最多的字库（2026-09-04 用户指令钉死：字体库要选最全的）。
+    生产对账（本机 9 个真字库）：declared_count 与 ZIP 实际条目数逐一相等；
+    如果梦万国库 12806 为最大，且 ASCII 62/62、拼音声调字符 25/25 全覆盖——
+    混写/带调拼音都依赖默认命中最全字库，退回「取第一个」此处立即红。"""
+    (tmp_path / "aaa_small.gfont").write_bytes(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国"})
+    )
+    (tmp_path / "zzz_big.gfont").write_bytes(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国中文字"})
+    )
+    font = write_text.load_font(str(tmp_path), None)
+    assert font.meta.declared_count == 5  # 文件名排序小的只有 2 字；按字数选大
 
 
 def test_hutuji_write_end_to_end(tmp_path, monkeypatch):
