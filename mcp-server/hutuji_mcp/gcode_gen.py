@@ -482,9 +482,14 @@ def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     return validate_gcode(text, total_bytes=len(raw))
 
 
-def svg_to_gcode(svg_path: Path, gcode_path: Path) -> GcodeStats:
-    """跑 vpype 管线生成 G-code，随后做 §5 合同校验。"""
-    cmd = _vpype_command(svg_path, gcode_path)
+def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True) -> GcodeStats:
+    """跑 vpype 管线生成 G-code，随后做 §5 合同校验。
+
+    normalize=False 仅写字/表格排版链使用（跳过 layout 保字号，与
+    svg_to_gcode_async 同约定）；其余调用方不得传。portal 文档导入是同步
+    调用方，表格/文章页版式由 table_layout/write_text 自排。
+    """
+    cmd = _vpype_command(svg_path, gcode_path, normalize)
     proc = None
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,

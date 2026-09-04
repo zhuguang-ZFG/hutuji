@@ -389,8 +389,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   注意 12mm 满页实测 10597 行 ≈ **20 分钟**（2026-09-01 服务端取证 `twopage_run`），原「一页 ≈125s」是短文本单页样本，不代表满页。
   若 N 页共用同一个 `output_ttl_seconds`（600s）窗口，第 6 页 404——**服务端 HTTP 层已实证**（`results/local-only/2026-09-01/ttl-stagger-http-counterfactual.log`：真 uvicorn + 真 `GET /files/`，第 i 页 mtime 倒推到 age=i×125s，不错峰组 1–5 页 200 / 第 6 页 404，错峰组 6 页全 200）；**设备侧真机时序仍待 HIL**。故云端
   `_run_write_job` 在 `finalize_job(created_at=…)` 把多页文章**各页（含第 1 页；单页文章不动、保持写盘时刻语义）**产物的 created 时刻
-  前移到 `t0 + 600 + Σ_{j<i} est_j`，`est_j = (lines_j / 8.8 + 8) × 2`（`server.py` 的 `WRITE_PAGE_LINES_PER_SECOND`/`WRITE_PAGE_CHANGE_SECONDS`/`WRITE_PAGE_TIME_MARGIN`/`WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS`
-  四个模块常量，钉实测证据，不走 env；×2 余量覆盖设备重试与用户暂停）——旧版统一 300s/页预算（env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`）建在 124s/页模型上，
+  前移到 `t0 + 600 + Σ_{j<i} est_j`，`est_j = (lines_j / 8.8 + 8) × 2`（常量同源 `hutuji_mcp/article_pages.py` 的 `WRITE_PAGE_LINES_PER_SECOND`/`WRITE_PAGE_CHANGE_SECONDS`/`WRITE_PAGE_TIME_MARGIN`/`WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS`
+  ——2026-09-04 起从 server.py 下沉为独立叶子模块（server.py 保留同名 import 别名），portal 文档导入错峰共用；钉实测证据，不走 env；×2 余量覆盖设备重试与用户暂停）——旧版统一 300s/页预算（env `HUTUJI_PAGE_TTL_BUDGET_SECONDS`）建在 124s/页模型上，
   满页文章第 2 页必 404（2026-09-03 复核数字实锤），已拆除。**一次性确认补贴 600s**（2026-09-03 advisory 复核追加）：`t0` 是云端生成完成时刻，
   第 1 页要等人在屏幕上按「确认」才开画，这段等待无上界且与页大小无关——稀疏两页 est₁≈248s 时确认延迟 >12 分钟第 2 页必 404；补贴只加一次不按页乘
   （确认延迟本来就只发生一次），含第 1 页是因为确认延迟卡住的是第 1 页首次下载本身。
@@ -401,6 +401,10 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   （`Last-Modified` 恒是上传时刻，只看它会误删靠后页）。文件名格式**不变**
   （设备侧 `IsValidDrawCapabilityUrl` 正则硬编码，不需固件配合）。
   副作用：`hutuji_status.latest_ts` 在多页写字任务后可能显示未来时刻（age 为负），属已知记录性偏差。
+- **pages 的第二生产者（2026-09-04，draw-portal 文档导入）**：portal 传图页接受 Word/Excel/PPT/CSV/TXT——docx/pptx/txt 抽文字走
+  write_text 文章链「写出」，xlsx/csv 走 table_layout 表格链「画出」（格线+格内字同页笔画，格线是 `<path>` 折线非 `<line>`，同过 §5 闸）。
+  每页独立 capability pair（`draw_…_<token>.{gcode,png}`，`_DRAW_FILE_RE` 不变），发送时 portal 用同一 `pages_argument()`（article_pages.py，键序/紧凑格式单源）
+  组 `pages` 参数整篇下发；错峰 TTL 用同一 `page_ttl_offsets()` 按页行数估时。设备侧零改动——门户多页与语音写字多页共享本节全部契约。
 - **`hutuji.repeat` 语义**：文章重画 = 整篇从第 1 页重来（禁用 PSRAM 快路——留存的只是最后一页），
   各页在上述错峰窗口内有效；过期按下载失败如实报错。
 

@@ -75,6 +75,7 @@ class Config:
     mcp_internal_base_url: str
     generate_daily_limit: int
     generate_timeout_seconds: int
+    gfont_dir: str  # 奎享 .gfont 字库目录（文档导入排版用）；空 = 文档导入禁用
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,10 @@ def load_config() -> Config:
         generate_timeout_seconds=int(
             os.environ.get("DRAW_PORTAL_GENERATE_TIMEOUT_SECONDS", "300")
         ),
+        gfont_dir=(
+            os.environ.get("DRAW_PORTAL_GFONT_DIR")
+            or os.environ.get("HUTUJI_GFONT_DIR", "")
+        ).strip(),
     )
 
 

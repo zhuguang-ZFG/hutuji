@@ -60,3 +60,13 @@ D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
 ## 网页文字生图（2026-08-31）
 
 `POST /api/draw/generate {description}`（登录态）→ portal 持共享密钥调 MCP `POST /internal/draw`（仅 loopback + `X-Hutuji-Usage-Secret`，公网不可达）→ 按文件名契约从 loopback 基址取回 gcode/png 物化进 job 目录 → 与上传流同形发布。配额：成功单按 24h 窗口计 `web_generate` 事件，上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 10），失败不占配额；错误码 400/429 透传白话，504/502 固定文案不回显内部细节。未配密钥该端点 503。
+
+## 文档导入（2026-09-04）
+
+「上传图片」页签同时接受 **Word（.docx）/ Excel（.xlsx）/ PPT（.pptx）/ CSV / TXT**（同 4MB 上限）：
+
+- docx / pptx / txt → 抽文字走 `write_text` 文章链**写出**（与语音 `hutuji_write` 同参数同字库）；docx 内嵌表格只抽文字不画框线（v1 取舍）
+- xlsx / csv → `table_layout` 表格链**画出**：格线 + 格内字同页笔画；列宽优先用文件自报 `<col width>`（奎享 `getColumnWidthInPixels` 同源），无则按内容测量；支持横向合并格、跨页自动重复表头、超宽自动缩字号（地板 3.5mm，再不行明确报错）；隐藏工作表跳过
+- 多页：上限 20 页（设备 `kArticleMaxPages`），超限截断并在响应带 `truncated: true`；发送时整篇经 `hutuji.draw` 的 `pages` 参数下发（protocol §4.2，设备零改动），TTL 按页行数错峰（与语音写字链同一 `article_pages.page_ttl_offsets`）
+- 解析/排版在 `hutuji_mcp`（`doc_ingest`/`table_layout`，纯 stdlib 解析：DOCTYPE/实体/加密/超限一律 400 具体原因）；需要 `DRAW_PORTAL_GFONT_DIR`（或复用 `HUTUJI_GFONT_DIR`）指向 .gfont 字库目录，**未配置时文档上传回 503**（图片/SVG 上传不受影响）
+- 防滥用：ZIP 条目数/单部件 32MB/加密/DOCTYPE 拒绝；总文字 5000 字符、表格 500 行 × 24 列、单元格 40 字符封顶

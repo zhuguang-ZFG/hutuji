@@ -36,9 +36,15 @@ from draw_portal.email_verify import (
 )
 from draw_portal.models import normalize_bind_code, normalize_email, normalize_mac, normalize_registration_email
 from draw_portal.passwords import hash_password, verify_password
-from draw_portal.pipeline import copy_saved_preview, process_upload
+from draw_portal.pipeline import copy_saved_preview, process_upload, process_upload_doc
 from draw_portal.probe import probe_device_token
-from draw_portal.push import _install_capability_pair, publish_job_files, push_for_user_binding
+from draw_portal.push import (
+    _install_capability_pair,
+    publish_doc_pages,
+    publish_job_files,
+    push_for_user_binding,
+)
+from draw_portal.upload_kinds import detect_upload_kind
 from draw_portal.store import Store
 from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
 
@@ -97,6 +103,8 @@ class GenerateDrawBody(BaseModel):
 
 
 _MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+# 文档导入种类（detect_upload_kind 可能返回）；走 doc_ingest→排版→多页链
+_DOC_UPLOAD_KINDS = frozenset({"docx", "xlsx", "pptx", "csv", "txt"})
 _MAX_VERIFY_ATTEMPTS = 8
 
 
@@ -420,6 +428,67 @@ def create_app() -> FastAPI:
         job_path = _job_dir(config.data_dir, job.id)
 
         try:
+            kind = detect_upload_kind(raw, content_type, filename)
+        except ValueError as exc:
+            # DocIngestError（ValueError 子类）的消息是用户可读的具体原因；
+            # 用类名判别避免此处 import hutuji_mcp——位图/SVG 路径不该被
+            # hutuji_mcp 缺失（本地 dev 无 PYTHONPATH）波及。
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            detail = str(exc)[:120] if type(exc).__name__ == "DocIngestError" else "不支持的文件格式"
+            raise HTTPException(status_code=400, detail=detail) from None
+
+        if kind in _DOC_UPLOAD_KINDS:
+            from hutuji_mcp.doc_ingest import DocIngestError
+            from hutuji_mcp.write_text import WriteTextError
+            if not config.gfont_dir:
+                store.mark_draw_job_failed(job.id, error_summary="DocImportNotConfigured")
+                raise HTTPException(status_code=503, detail="文档导入未配置（服务端缺字库目录）")
+            try:
+                result = await asyncio.to_thread(
+                    process_upload_doc, raw, kind, job_path, gfont_dir=config.gfont_dir
+                )
+                published_pages = await asyncio.to_thread(
+                    publish_doc_pages,
+                    job_dir=job_path,
+                    mcp_output_dir=config.mcp_output_dir,
+                    public_base_url=config.public_base_url,
+                )
+                # basename 单值化决策：job 主键 = 第 1 页；整篇页表在 pages.json
+                store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+            except (DocIngestError, WriteTextError) as exc:
+                store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+                raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+            except Exception as exc:
+                store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+                raise HTTPException(status_code=422, detail="文档转换失败") from exc
+
+            _record_portal_usage(
+                store,
+                event_type="web_upload",
+                user_id=user_id,
+                detail=f"doc:{kind}:{source_name[:100]}",
+                ok=True,
+            )
+            first = published_pages[0]
+            return {
+                "status": "ready",
+                "job_id": job.id,
+                "preview_url": first.preview_url,
+                "gcode_url": first.gcode_url,
+                "lines": result.lines,
+                "bytes": result.bytes,
+                "pages": [
+                    {"url": p.gcode_url, "preview_url": p.preview_url}
+                    for p in published_pages
+                ],
+                "page_count": result.page_count,
+                "doc_kind": result.kind,
+                "doc_mode": result.mode,
+                "truncated": result.truncated,
+                "missing_chars": result.missing_chars,
+            }
+
+        try:
             result = await asyncio.to_thread(
                 process_upload,
                 raw,
@@ -436,7 +505,7 @@ def create_app() -> FastAPI:
             store.mark_draw_job_ready(job.id, basename=published.basename)
         except ValueError:
             store.mark_draw_job_failed(job.id, error_summary="UnsupportedFormat")
-            raise HTTPException(status_code=400, detail="不支持的文件格式")
+            raise HTTPException(status_code=400, detail="不支持的文件格式") from None
         except Exception as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
             raise HTTPException(status_code=422, detail="图片转换失败") from exc
@@ -551,13 +620,35 @@ def create_app() -> FastAPI:
         if job.status != "ready":
             raise HTTPException(status_code=400, detail="任务未就绪")
         binding = _require_binding(user_id)
-        gcode_url, preview_url = _publish_from_job(job_id)
+        job_path = _job_dir(config.data_dir, job_id)
+        pages_arg: str | None = None
+        if (job_path / "pages.json").is_file():
+            # 多页文档整篇重发：每页重新发布刷 TTL（含错峰），pages 序列化
+            # 单源 hutuji_mcp.article_pages.pages_argument（设备纯扫描器，
+            # 幂等重入要求字节级一致，protocol §4.2）。
+            from hutuji_mcp.article_pages import pages_argument
+
+            published_pages = publish_doc_pages(
+                job_dir=job_path,
+                mcp_output_dir=config.mcp_output_dir,
+                public_base_url=config.public_base_url,
+            )
+            urls = [
+                {"url": p.gcode_url, "preview_url": p.preview_url}
+                for p in published_pages
+            ]
+            gcode_url, preview_url = urls[0]["url"], urls[0]["preview_url"]
+            if len(urls) > 1:
+                pages_arg = pages_argument(urls)
+        else:
+            gcode_url, preview_url = _publish_from_job(job_id)
         ok, summary = push_for_user_binding(
             api_base=config.xiaozhi_api_base,
             token_cipher_key=config.token_cipher_key,
             device_token_enc=binding.device_token_enc,
             gcode_url=gcode_url,
             preview_url=preview_url,
+            pages_arg=pages_arg,
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())

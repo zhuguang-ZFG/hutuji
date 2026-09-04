@@ -11,6 +11,17 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### 文档导入（Word/Excel/PPT/CSV/TXT → 写出/画表格）经 draw-portal 传图页（2026-09-04，用户原话「三种全做」）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户原话：「可以实现导入表格或者word 或者ppt实现写出来或者画出来吗？？」+「三种全做」+ 后续「可以参考奎享逆向」（列宽/合并格/隐藏表口径对齐 `D:/Users/kxnx` 反编译 `excel/c/b.java`，findings/25） |
+| 范围 | 新增 `mcp-server/hutuji_mcp/{doc_ingest,table_layout,article_pages}.py`；改 `server.py`（WRITE_PAGE_* 与 `_pages_argument` 下沉 article_pages、保留别名）、`gcode_gen.py`（同步 `svg_to_gcode` 收 `normalize=`）、`write_text.py` 未动；portal 侧 `upload_kinds/pipeline/push/config/app/index.html` + `deploy/env.draw-portal.example` |
+| 语义 | docx/pptx/txt → 文章链「写出」（write_text 同参数）；xlsx/csv → 表格链「画出」（格线折线笔画+格内字，同过 §5 闸）；job 主 basename 恒 = 第 1 页，整篇页表存 job_dir `pages.json`（无 DB 迁移）；发送时 `publish_doc_pages` 逐页重发布 + `page_ttl_offsets` 错峰 + `pages_argument` 单源序列化 |
+| 测试 | mcp-server `test_doc_ingest.py` 26 项 + `test_table_layout.py` 11 项（含真 vpype normalize=False 端到端）；draw-portal `tests/` 41 项（新增 `test_doc_upload.py` 7 项端点路由/错误映射/整篇发送 pages 参数钉死）；门禁 hub 层不覆盖 portal 测试，单独跑 |
+| 部署状态 | 待部署：双机 portal + 新模块 + `/etc/hutuji/draw-portal.env` 补 `DRAW_PORTAL_GFONT_DIR`（回来补登记 `docs/deployment.md` 并把 readiness 行更新为已部署证据） |
+
+
 
 ### 故障处理审计收口：长词硬断 + 空白段跳过 + 字库 IO 收窄 + breaker 故障隔离（2026-09-04 傍晚，审计发现 + 用户拍板「统一修复」）
 
@@ -23,7 +34,7 @@
 | W2 | 截断边界 carried 开标点丢弃属预期行为：补注释钉死「truncated=True 如实上报，不为半个标点单独续页」 |
 | W3 breaker | ① 状态 JSON 损坏旧静默按 closed → 补 warning（`get_state`/`list_open_backends` 两处）；② **Redis 掉线会砸付费生成主链**（`record_outcome`/`is_open` 裸传 ConnectionError）——store 交互包 try/except 故障隔离：失败只告警、按无闸放行（可用性优先；账本事件独立于熔断存储照常入队） |
 | 测试 | `test_write_text.py` 24→28（长词硬断精确行数钉死/空白段跳过/扫描跳过读失败/具名字库读失败映射）、`test_breaker.py` 4→7（损坏 JSON 告警、record_outcome 存储故障存活、enforce 下 is_open fail-open）；计数三处同步（AGENTS.md×2 + 本文件 rollup），全套 **1166** |
-| 部署状态 | 待部署：门禁绿后双机上线 write_text.py + breaker.py（回来补登记到 `docs/deployment.md`） |
+| 部署状态 | **已部署（2026-09-04 17:57，见 `docs/deployment.md` 首条，提交 `42b05a5` 登记）**：write_text.py + breaker.py 双机上线（sha 逐位相符、py_compile 过；阿里云 mcp+bridge+worker@{1..8}、京东云 mcp 重启）；冒烟默认字库 3 行页 max X=180.6mm、missing 空；preflight 双机回基线（24/33、28/33） |
 
 ### 排版避头并入加 190 上限 + 避尾补齐 + 默认最全字库钉死（2026-09-04 下午，advisory + 用户指令）
 
@@ -129,7 +140,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1166** 项（2026-09-04 故障收口批 +7：test_write_text.py 24→28——长词硬断/空白段跳过/字库读失败收窄×2；test_breaker.py 4→7——损坏 JSON 告警/record_outcome 存储故障存活/enforce 下 is_open fail-open），2026-09-03 热备/看门狗批 +2：设备 token 看门狗形态钉死 + nginx 模板携带 portal location（test_contract.py 620→622）；2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1203** 项（2026-09-04 文档导入批 +37：test_doc_ingest.py 26 + test_table_layout.py 11；2026-09-04 故障收口批 +7：test_write_text.py 24→28——长词硬断/空白段跳过/字库读失败收窄×2；test_breaker.py 4→7——损坏 JSON 告警/record_outcome 存储故障存活/enforce 下 is_open fail-open），2026-09-03 热备/看门狗批 +2：设备 token 看门狗形态钉死 + nginx 模板携带 portal location（test_contract.py 620→622）；2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 

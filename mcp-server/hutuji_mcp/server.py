@@ -54,6 +54,14 @@ from .activation_relay import (
     UpstreamError as RelayUpstreamError,
     bind_device,
 )
+from .article_pages import (
+    ARTICLE_MAX_PAGES,
+    WRITE_PAGE_CHANGE_SECONDS,
+    WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS,
+    WRITE_PAGE_LINES_PER_SECOND,
+    WRITE_PAGE_TIME_MARGIN,
+    pages_argument as _pages_argument,
+)
 
 # 保持默认 streamable_http_path="/mcp"，子应用挂到根（/files 先注册优先匹配），
 # 避免 Mount("/mcp") 对裸 /mcp 产生 307 跳转（POST 桥接器不一定跟随重定向）
@@ -400,18 +408,8 @@ def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
         done.exception()
 
 
-def _pages_argument(pages: list[dict]) -> str:
-    """设备侧 `hutuji.draw` 的 pages 参数：紧凑 JSON 字符串，键序 url→preview_url
-    （设备 `ParseArticlePages` 纯扫描器按此序解析，protocol §4.2）。
-
-    链式推送与 `hutuji_write` 返回值的 `pages_arg` 共用这一个序列化点——
-    设备幂等重入要求「完全相同参数」，两处各写一份 json.dumps 迟早漂移成
-    不同字节，两步回落时云端透传的 pages 会被当成新任务而 busy 拒绝。
-    """
-    return json.dumps(
-        [{"url": p["url"], "preview_url": p["preview_url"]} for p in pages],
-        ensure_ascii=False, separators=(",", ":"),
-    )
+# `_pages_argument` 序列化单源已下沉到 article_pages.py（portal 文档导入共用，
+# portal 进程没有 mcp 依赖、import 不了本模块）——本文件经顶部 import 别名持有。
 
 
 async def _chain_device_draw(
@@ -816,20 +814,9 @@ async def hutuji_preview_svg(description: str) -> str:
 
 _WRITE_TEXT_MAX_CHARS = 5000
 
-# 写字页耗时折算（错峰 TTL 用，protocol §4.2）：2026-09-01 真机实测 1021 行
-# 灌流 116.3s ≈ 8.8 行/s、面板换纸全 8 步 8s；12mm 满页实测 10597 行 ≈ 20 分钟。
-# 三个数都钉实测证据，改动必须带新的实机计时，不许凭手感调。
-WRITE_PAGE_LINES_PER_SECOND = 8.8
-WRITE_PAGE_CHANGE_SECONDS = 8.0
-# 估时余量 ×2：覆盖设备重试、用户暂停与单点实测外推方差。窗口过宽只是
-# capability URL 活得久；过紧就是后续页 404（旧 124s/页模型的实测事故面）。
-WRITE_PAGE_TIME_MARGIN = 2.0
-# 确认等待一次性补贴（2026-09-03 advisory 复核实锤）：t0 是云端生成完成时刻，但第 1 页
-# 要等人在屏幕上按「确认」才开画——这段等待无上界且与页大小无关（语音下单后走开是
-# 本产品常态用法）。2× 余量按页耗时缩放，对稀疏页只有几分钟绝对量：稀疏两页
-# est₁≈248s，确认延迟 >12 分钟第 2 页必 404。故每页（含第 1 页）统一再前移这一个
-# 常量——只加一次不按页乘（按页乘会把窗口无限放大，且确认延迟本来就只发生一次）。
-WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS = 600.0
+# WRITE_PAGE_* 错峰 TTL 常量与 `pages_argument` 同源在 article_pages.py（实测
+# 证据注释随常量在那里）；本模块顶部 import 持有同名别名，test_write_text 的
+# `server.WRITE_PAGE_*` 引用不变。
 
 # 字库解析缓存：单文件最大 ~10MB（42MB 目录全量），解析一次进程内复用；
 # key 是 (目录, 名字)，目录切换自然隔离。不设 LRU——字库数量以个位数计。
@@ -864,7 +851,7 @@ async def _run_write_job(
     layout = write_text.WriteLayout(
         size_mm=size_mm, line_spacing=line_spacing, char_gap_mm=char_gap_mm,
     )
-    result = await asyncio.to_thread(write_text.layout_text, text, font, metrics, layout)
+    result = await asyncio.to_thread(write_text.layout_text, text, font, metrics, layout, max_pages=ARTICLE_MAX_PAGES)
 
     store = get_output_store()
     store.ensure_ready()

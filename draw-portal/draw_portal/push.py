@@ -29,12 +29,16 @@ def _install_capability_pair(
     mcp_output_dir: Path,
     public_base_url: str,
     basename: str | None = None,
+    mtime_offset: float = 0.0,
 ) -> PublishResult:
     """写入 MCP output/ 并生成公网 URL。
 
     必须刷新 mtime：MCP `/files/` 按磁盘 mtime 判 600s TTL。
     `shutil.copy2` 会保留图库旧 mtime，导致「图库重发」立刻被当过期 404，
     设备预览下载失败后清屏（用户感知：预览没完成就退出）。
+
+    mtime_offset 用于多页文档错峰 TTL（protocol §4.2）：第 i 页 mtime 前移
+    估时（未来 mtime，服务端 _serve_file 容忍），公式同源 hutuji_mcp.article_pages。
     """
     if not gcode_src.is_file() or not png_src.is_file():
         raise FileNotFoundError("job 产物不完整")
@@ -44,7 +48,7 @@ def _install_capability_pair(
     png_dst = mcp_output_dir / f"{base}.png"
     shutil.copyfile(gcode_src, gcode_dst)
     shutil.copyfile(png_src, png_dst)
-    now = time.time()
+    now = time.time() + mtime_offset
     os.utime(gcode_dst, (now, now))
     os.utime(png_dst, (now, now))
     prefix = public_base_url.rstrip("/")
@@ -53,6 +57,38 @@ def _install_capability_pair(
         preview_url=f"{prefix}/files/{base}.png",
         basename=base,
     )
+
+
+def publish_doc_pages(
+    *,
+    job_dir: Path,
+    mcp_output_dir: Path,
+    public_base_url: str,
+) -> list[PublishResult]:
+    """多页文档整篇发布：每页独立 capability pair，mtime 按页估时错峰。
+
+    页估时（行数→秒）公式唯一来源是 hutuji_mcp.article_pages.page_ttl_offsets
+    （语音 hutuji_write 与网页文档导入共用，防两链漂移出不同 TTL 窗口）。
+    返回按页序；[0] 即第 1 页（job 主 basename）。
+    """
+    import json
+
+    from hutuji_mcp.article_pages import page_ttl_offsets
+
+    meta = json.loads((job_dir / "pages.json").read_text(encoding="utf-8"))
+    offsets = page_ttl_offsets(meta["page_lines"])
+    results: list[PublishResult] = []
+    for i, offset in enumerate(offsets, start=1):
+        results.append(
+            _install_capability_pair(
+                gcode_src=job_dir / "pages" / f"page_{i:03d}.gcode",
+                png_src=job_dir / "pages" / f"page_{i:03d}.png",
+                mcp_output_dir=mcp_output_dir,
+                public_base_url=public_base_url,
+                mtime_offset=offset,
+            )
+        )
+    return results
 
 
 def publish_job_files(
@@ -76,17 +112,20 @@ def push_draw_to_device(
     device_token: str,
     gcode_url: str,
     preview_url: str,
+    pages_arg: str | None = None,
 ) -> tuple[bool, str]:
     import json
     from urllib.error import HTTPError, URLError
     from urllib.request import Request, urlopen
 
     url = f"{api_base.rstrip('/')}/messaging/device/tools/call"
+    # pages 键序/紧凑格式由 hutuji_mcp.article_pages.pages_argument 生成
+    # （设备 ParseArticlePages 纯扫描器，protocol §4.2）；多页文档才带。
+    arguments: dict[str, str] = {"url": gcode_url, "preview_url": preview_url}
+    if pages_arg:
+        arguments["pages"] = pages_arg
     body = json.dumps(
-        {
-            "name": "hutuji.draw",
-            "arguments": {"url": gcode_url, "preview_url": preview_url},
-        },
+        {"name": "hutuji.draw", "arguments": arguments},
         ensure_ascii=False,
     ).encode("utf-8")
     req = Request(
@@ -116,6 +155,7 @@ def push_for_user_binding(
     device_token_enc: str,
     gcode_url: str,
     preview_url: str,
+    pages_arg: str | None = None,
 ) -> tuple[bool, str]:
     token = decrypt_token(token_cipher_key, device_token_enc)
     return push_draw_to_device(
@@ -123,4 +163,5 @@ def push_for_user_binding(
         device_token=token,
         gcode_url=gcode_url,
         preview_url=preview_url,
+        pages_arg=pages_arg,
     )
