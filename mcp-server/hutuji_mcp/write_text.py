@@ -189,6 +189,7 @@ def layout_text(
     metrics: FontMetrics,
     layout: WriteLayout,
     max_pages: int = 20,
+    headings: set[int] | None = None,
 ) -> LayoutResult:
     """核心排版：文本 → 分页落笔路径（页面 SVG 坐标，mm）。
 
@@ -244,16 +245,27 @@ def layout_text(
         pages.append(page)
         page = LaidOutPage()
 
-    # 逐段处理；段内折行，段首缩进
+    # 逐段处理；段内折行，段首缩进（标题段免缩进 + 段前后各加一行空距）
+    heading_set = headings or set()
     paragraphs = text.split("\n")
     truncated = False
-    for paragraph in paragraphs:
+    for para_idx, paragraph in enumerate(paragraphs):
         # 空白段（零字符或纯空格/制表）整段跳过不产空行——省纸取向的显式取舍
         if not paragraph.strip():
             continue
+        is_heading = para_idx in heading_set
+        if is_heading and page.line_count > 0:
+            # 段前空一行；页首不加。空距 + 标题本身至少 1 行要同框，否则先切页
+            if page.line_count + 2 > max_lines_per_page:
+                if len(pages) + 1 >= max_pages:
+                    truncated = True
+                    break
+                new_page()
+            else:
+                page.line_count += 1
         tokens = _tokenize(paragraph)
         line_no_on_page = page.line_count
-        x_cursor = layout.margin_left_mm + indent_mm
+        x_cursor = layout.margin_left_mm + (0.0 if is_heading else indent_mm)
         y_baseline = (
             layout.margin_top_mm
             + metrics.baseline_to_top * scale
@@ -358,6 +370,10 @@ def layout_text(
                 truncated = True
                 break
             new_page()
+        # 标题段后空一行：页底不加（下段反正切页）；+2 须给下段首行留位，
+        # 否则幻象行把 line_count 顶到上限，下段首行 y 会算出页外
+        if is_heading and page.line_count + 2 <= max_lines_per_page:
+            page.line_count += 1
         if truncated:
             break
     else:

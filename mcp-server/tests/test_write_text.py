@@ -684,3 +684,80 @@ def test_load_font_named_read_failure_maps_to_write_text_error(tmp_path, monkeyp
     monkeypatch.setattr(write_text, "_read_font_bytes", boom)
     with pytest.raises(WriteTextError, match="字库"):
         write_text.load_font(str(tmp_path), "x字库")
+
+
+def _line_x_starts(page):
+    """每行首字 x：按 baseline y 聚类（box 字形 y∈[baseline-100*scale, baseline]）。"""
+    from collections import defaultdict
+
+    rows = defaultdict(list)
+    for stroke in page.strokes:
+        for x, y in stroke.points:
+            rows[round(y)].append(x)
+    bands = sorted(rows)
+    merged = []  # (band_top_y, min_x)
+    for y in bands:
+        if merged and y - merged[-1][0] <= 20:
+            merged[-1][1].append(min(rows[y]))
+            continue
+        merged.append([y, [min(rows[y])]])
+    return [(band[0], min(band[1])) for band in merged]
+
+
+def test_heading_no_indent_with_gaps():
+    """标题段免段首缩进 + 段前后各空一行；正文缩进不变。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout()
+    res = write_text.layout_text(
+        "中文字\n永国中文\n中文字\n永国中文",
+        font, metrics, layout, headings={0, 2},
+    )
+    page = res.pages[0]
+    bands = _line_x_starts(page)
+    # 标题/正文交替 4 段；标题行首 x ≈ 页边距，正文行首 x = 页边距 + 2 全宽
+    full = metrics.full_width * (layout.size_mm / metrics.em_height) + layout.char_gap_mm
+    assert bands[0][1] == pytest.approx(layout.margin_left_mm, abs=1.0)
+    assert bands[1][1] == pytest.approx(layout.margin_left_mm + 2 * full, abs=1.0)
+    assert bands[2][1] == pytest.approx(layout.margin_left_mm, abs=1.0)
+    # 行高 = size*1.6；段后空行拉大 band 间距
+    line_h = layout.line_height_mm
+    assert bands[1][0] - bands[0][0] == pytest.approx(2 * line_h, abs=2.0)  # 标题段后空行
+    assert bands[2][0] - bands[1][0] == pytest.approx(2 * line_h, abs=2.0)  # 标题段前空行
+    assert bands[3][0] - bands[2][0] == pytest.approx(2 * line_h, abs=2.0)  # 标题段后空行
+    assert page.line_count == 7  # 4 行内容 + 3 行空距（首行页首无前距）
+
+
+def test_heading_at_page_top_no_pre_gap():
+    font, metrics = _fixture_font(), _fixture_metrics()
+    res = write_text.layout_text("中文字\n永国中文", font, metrics, write_text.WriteLayout(), headings={0})
+    page = res.pages[0]
+    bands = _line_x_starts(page)
+    assert bands[0][0] == pytest.approx(8, abs=2)  # 标题贴页首，无前距
+    assert page.line_count == 3  # 标题 + 段后空行 + 正文
+
+
+def test_heading_near_page_bottom_moves_to_next_page():
+    """标题与其首行须同框：空距放不下时整标题切下页（不栏尾孤标题）。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout()
+    max_lines = int(layout.text_height_mm // layout.line_height_mm)
+    # 填满到只剩 1 行：正文段每行一字一段
+    filler = "\n".join(["永"] * (max_lines - 1))
+    res = write_text.layout_text(filler + "\n中文字\n永国中文", font, metrics, layout, headings={max_lines - 1})
+    assert len(res.pages) == 2
+    assert not res.truncated
+    # 第二页首行即标题（贴页首，无段前空距）
+    bands2 = _line_x_starts(res.pages[1])
+    assert bands2[0][1] == pytest.approx(layout.margin_left_mm, abs=1.0)
+
+
+def test_no_headings_behavior_unchanged():
+    """headings=None 与空集行为逐行一致（回归闸：语音写字链不受影响）。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    text = "中文字\n永国中文\n中文字"
+    a = write_text.layout_text(text, font, metrics, write_text.WriteLayout())
+    b = write_text.layout_text(text, font, metrics, write_text.WriteLayout(), headings=set())
+    assert a.pages[0].line_count == b.pages[0].line_count == 3
+    assert [[s.points for s in p.strokes] for p in a.pages] == [
+        [s.points for s in p.strokes] for p in b.pages
+    ]

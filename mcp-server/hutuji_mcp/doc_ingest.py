@@ -88,6 +88,9 @@ class ParsedDoc:
     kind: str  # docx | xlsx | pptx | csv | txt
     mode: str  # "article" | "tables"
     paragraphs: list[str] = field(default_factory=list)  # article 模式
+    # 标题段下标（paragraphs 的 0 基索引）：docx 的 w:pStyle（Heading*/标题*/Title）
+    # 与 pptx 的 title/ctrTitle 占位符检出；排版层对标题段免段首缩进 + 段前后加距。
+    headings: set[int] = field(default_factory=set)
     tables: list[ParsedTable] = field(default_factory=list)  # tables 模式
     total_chars: int = 0
 
@@ -199,14 +202,165 @@ def sniff_doc_kind(raw: bytes, filename: str, content_type: str) -> str | None:
 # ---------------------------------------------------------------- docx / txt
 
 
-def _docx_paragraphs(root: ET.Element) -> list[str]:
+# 内置标题样式 styleId：英文 "Heading1"…/"Title"/"Subtitle"，中文 Word 是
+# "1"…"9"/"标题"…（styleId 无空格）。宽匹配只认已知形态，防自定义样式误中。
+_HEADING_STYLE_RE = re.compile(
+    r"^(heading[1-9]|title|subtitle|[1-9]|标题[1-9]?|标题.*)$", re.IGNORECASE
+)
+
+
+def _is_heading_style(style_val: str) -> bool:
+    return bool(_HEADING_STYLE_RE.match((style_val or "").strip()))
+
+
+# ---------------------------------------------------------------- docx 编号
+
+
+_CJK_DIGITS = "零一二三四五六七八九"
+
+
+def _cjk_counter(n: int) -> str:
+    """chineseCounting 系：1..99 中文计数，超出回退十进制串。"""
+    if n <= 0 or n > 99:
+        return str(n)
+    if n < 10:
+        return _CJK_DIGITS[n]
+    if n == 10:
+        return "十"
+    if n < 20:
+        return "十" + _CJK_DIGITS[n % 10]
+    return _CJK_DIGITS[n // 10] + "十" + (_CJK_DIGITS[n % 10] if n % 10 else "")
+
+
+def _roman(n: int) -> str:
+    out = ""
+    for val, sym in ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")):
+        while n >= val:
+            out += sym
+            n -= val
+    return out or "i"
+
+
+def _fmt_counter(fmt: str, n: int) -> str:
+    if fmt in ("chineseCountingThousand", "chineseCounting", "chineseLegalSimplified"):
+        return _cjk_counter(n)
+    if fmt == "lowerLetter":
+        return chr(ord("a") + (n - 1) % 26)
+    if fmt == "upperLetter":
+        return chr(ord("A") + (n - 1) % 26)
+    if fmt == "lowerRoman":
+        return _roman(n)
+    if fmt == "upperRoman":
+        return _roman(n).upper()
+    return str(n)  # decimal 与未知格式同退十进制
+
+
+def _docx_numbering(zf: zipfile.ZipFile) -> dict[int, dict[int, tuple[str, str]]]:
+    """numbering.xml → numId → {ilvl: (numFmt, lvlText)}；部件缺失/损坏 → 空（不编号）。"""
+    if "word/numbering.xml" not in zf.namelist():
+        return {}
+    root = _parse_xml_part(zf, "word/numbering.xml")
+    abstracts: dict[str, dict[int, tuple[str, str]]] = {}
+    for an in root.iter(f"{_W}abstractNum"):
+        aid = an.get(f"{_W}abstractNumId")
+        lvls: dict[int, tuple[str, str]] = {}
+        for lvl in an.iter(f"{_W}lvl"):
+            try:
+                ilvl = int(lvl.get(f"{_W}ilvl") or 0)
+            except ValueError:
+                continue
+            fmt_el = lvl.find(f"{_W}numFmt")
+            txt_el = lvl.find(f"{_W}lvlText")
+            lvls[ilvl] = (
+                fmt_el.get(f"{_W}val") if fmt_el is not None else "decimal",
+                txt_el.get(f"{_W}val") if txt_el is not None else "%1.",
+            )
+        if aid is not None:
+            abstracts[aid] = lvls
+    out: dict[int, dict[int, tuple[str, str]]] = {}
+    for num in root.iter(f"{_W}num"):
+        nid = num.get(f"{_W}numId")
+        ref = num.find(f"{_W}abstractNumId")
+        if nid is not None and ref is not None:
+            lvls = abstracts.get(ref.get(f"{_W}val") or "")
+            if lvls:
+                try:
+                    out[int(nid)] = lvls
+                except ValueError:
+                    continue
+    return out
+
+
+class _ListCounters:
+    """逐段推进的编号状态：numId → 各级计数；浅级出现即重置更深级（Word 语义）。"""
+
+    def __init__(self, numbering: dict[int, dict[int, tuple[str, str]]]):
+        self._numbering = numbering
+        self._counts: dict[int, dict[int, int]] = {}
+
+    def prefix_for(self, p: ET.Element) -> str:
+        ppr = p.find(f"{_W}pPr")
+        if ppr is None:
+            return ""
+        numpr = ppr.find(f"{_W}numPr")
+        if numpr is None:
+            return ""
+        nid_el = numpr.find(f"{_W}numId")
+        try:
+            nid = int(nid_el.get(f"{_W}val") or "") if nid_el is not None else 0
+        except ValueError:
+            return ""
+        ilvl_el = numpr.find(f"{_W}ilvl")
+        try:
+            ilvl = int(ilvl_el.get(f"{_W}val") or 0) if ilvl_el is not None else 0
+        except ValueError:
+            ilvl = 0
+        lvls = self._numbering.get(nid)
+        if not lvls:
+            return ""
+        level = min(ilvl, 2)  # 更深层级按第 3 级格式处理（排版链无层级表达）
+        fmt, lvl_text = lvls.get(level, lvls.get(0, ("decimal", "%1.")))
+        counts = self._counts.setdefault(nid, {})
+        counts[level] = counts.get(level, 0) + 1
+        for deeper in [k for k in counts if k > level]:
+            del counts[deeper]
+        if fmt == "bullet":
+            return (lvl_text or "•") + " "
+        text = lvl_text
+        for k in range(1, 10):
+            token = f"%{k}"
+            if token in text:
+                sub_fmt = lvls.get(k - 1, (fmt,))[0]
+                text = text.replace(token, _fmt_counter(sub_fmt, counts.get(k - 1, 0) or 1))
+        # 编号与正文的间隔按书写惯例：ASCII 收尾（"1."）补空格，CJK 顿号等不补
+        return text + (" " if text and text[-1].isascii() else "")
+
+
+def _docx_paragraphs(root: ET.Element, zf: zipfile.ZipFile) -> tuple[list[str], set[int]]:
     """document.xml 全量 w:p 按文档序抽文字；w:br/w:cr 切段，w:tab 归一为空格。
 
     内嵌表格（w:tbl）的单元格段落会被 iter 按文档序一并抽出——网格结构丢失
-    是 v1 显式取舍（见模块 docstring）。
+    是 v1 显式取舍（见模块 docstring）。列表段前缀编号（numbering.xml 还原），
+    标题段（pStyle 命中内置标题样式）记入 headings 供排版层免缩进加距。
     """
+    counters = _ListCounters(_docx_numbering(zf))
     paras: list[str] = []
+    headings: set[int] = set()
+
+    def _emit(text: str, is_heading: bool) -> None:
+        if text.strip():
+            if is_heading:
+                headings.add(len(paras))
+            paras.append(text)
+
     for p in root.iter(f"{_W}p"):
+        ppr = p.find(f"{_W}pPr")
+        style = ""
+        if ppr is not None:
+            style_el = ppr.find(f"{_W}pStyle")
+            style = style_el.get(f"{_W}val") if style_el is not None else ""
+        is_heading = _is_heading_style(style or "")
+        prefix = counters.prefix_for(p)
         buf: list[str] = []
         for node in p.iter():
             if node.tag == f"{_W}t":
@@ -214,28 +368,28 @@ def _docx_paragraphs(root: ET.Element) -> list[str]:
             elif node.tag == f"{_W}tab":
                 buf.append(" ")
             elif node.tag in (f"{_W}br", f"{_W}cr"):
-                text = "".join(buf)
-                if text.strip():
-                    paras.append(text)
+                _emit(prefix + "".join(buf) if prefix else "".join(buf), is_heading)
+                prefix = ""  # 编号只加在段的首个物理行
                 buf = []
         text = "".join(buf)
-        if text.strip():
-            paras.append(text)
-    return paras
+        _emit(prefix + text if prefix else text, is_heading)
+    return paras, headings
 
 
 def _parse_docx(raw: bytes) -> ParsedDoc:
     zf = _open_ooxml(raw)
     try:
         root = _parse_xml_part(zf, "word/document.xml")
+        paras, headings = _docx_paragraphs(root, zf)
     finally:
         zf.close()
-    paras = _docx_paragraphs(root)
     if not paras:
         raise DocIngestError("文档没有可写出的文字")
     total = sum(len(p) for p in paras)
     _check_total_chars(total)
-    return ParsedDoc(kind="docx", mode="article", paragraphs=paras, total_chars=total)
+    return ParsedDoc(
+        kind="docx", mode="article", paragraphs=paras, headings=headings, total_chars=total
+    )
 
 
 def _parse_txt(raw: bytes) -> ParsedDoc:
@@ -275,18 +429,23 @@ def _parse_pptx(raw: bytes) -> ParsedDoc:
     try:
         pres = _parse_xml_part(zf, "ppt/presentation.xml")
         rels = _rels_map(zf, "ppt/_rels/presentation.xml.rels")
-        slides: list[list[str]] = []
+        slides: list[list[tuple[str, bool]]] = []
         # 放映顺序以 presentation.xml 的 sldIdLst 为准（不是文件名数字序）
         for sld_id in pres.iter(f"{_P}sldId"):
             target = rels.get(sld_id.get(f"{_R}id") or "", "")
             if not target:
                 continue
             slide = _parse_xml_part(zf, _join_part("ppt", target))
-            paras: list[str] = []
-            for ap in slide.iter(f"{_A}p"):
-                text = "".join(t.text or "" for t in ap.iter(f"{_A}t")).strip()
-                if text:
-                    paras.append(text)
+            paras: list[tuple[str, bool]] = []
+            # 按形状遍历：占位符类型（p:ph@type=title/ctrTitle）在 sp 级，
+            # 标题形状里的段落即标题——PPT 标题/正文层级由此保留
+            for sp in slide.iter(f"{_P}sp"):
+                ph = sp.find(f"{_P}nvSpPr/{_P}nvPr/{_P}ph")
+                is_title = ph is not None and (ph.get("type") or "body") in ("title", "ctrTitle")
+                for ap in sp.iter(f"{_A}p"):
+                    text = "".join(t.text or "" for t in ap.iter(f"{_A}t")).strip()
+                    if text:
+                        paras.append((text, is_title))
             if paras:
                 slides.append(paras)
     finally:
@@ -294,13 +453,20 @@ def _parse_pptx(raw: bytes) -> ParsedDoc:
     if not slides:
         raise DocIngestError("幻灯片没有可写出的文字")
     paragraphs: list[str] = []
+    headings: set[int] = set()
     for i, paras in enumerate(slides):
         if len(slides) > 1:
+            headings.add(len(paragraphs))
             paragraphs.append(f"—— 第 {i + 1} 页 ——")
-        paragraphs.extend(paras)
+        for text, is_title in paras:
+            if is_title:
+                headings.add(len(paragraphs))
+            paragraphs.append(text)
     total = sum(len(p) for p in paragraphs)
     _check_total_chars(total)
-    return ParsedDoc(kind="pptx", mode="article", paragraphs=paragraphs, total_chars=total)
+    return ParsedDoc(
+        kind="pptx", mode="article", paragraphs=paragraphs, headings=headings, total_chars=total
+    )
 
 
 # ---------------------------------------------------------------- xlsx / csv

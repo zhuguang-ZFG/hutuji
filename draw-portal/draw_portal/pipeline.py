@@ -67,10 +67,12 @@ def process_upload_doc(raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str) 
     font = write_text.load_font(gfont_dir, None)
     metrics = write_text.measure_font(font)
     if doc.mode == "article":
-        # 与语音写字链同参数（WriteLayout 默认值即生产值）
+        # 与语音写字链同参数（WriteLayout 默认值即生产值）；标题段（docx pStyle /
+        # pptx title 占位符检出）免段首缩进 + 段前后加距（2026-09-04 用户拍板）
         laid = write_text.layout_text(
             "\n".join(doc.paragraphs), font, metrics, write_text.WriteLayout(),
             max_pages=ARTICLE_MAX_PAGES,
+            headings=doc.headings or None,
         )
     else:
         # 表格：8mm 字号/1.25 行距/0.5 字距——190mm 页区塞下常见成绩表的
@@ -80,7 +82,6 @@ def process_upload_doc(raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str) 
             write_text.WriteLayout(size_mm=8.0, line_spacing=1.25, char_gap_mm=0.5),
             max_pages=ARTICLE_MAX_PAGES,
         )
-
     pages_dir = job_dir / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
     page_lines: list[int] = []

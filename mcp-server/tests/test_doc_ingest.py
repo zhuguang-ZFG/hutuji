@@ -342,3 +342,120 @@ def test_csv_col_cap():
     wide = ",".join(["c"] * 30).encode()
     with pytest.raises(DocIngestError, match="列数超限"):
         parse_document(wide, "csv")
+
+
+# ---------------------------------------------------------------- 编号与标题
+
+
+def _numbering_xml(fmt: str = "decimal", lvl_text: str = "%1.") -> str:
+    return (
+        f'<w:numbering xmlns:w="{_W_NS}">'
+        f'<w:abstractNum w:abstractNumId="2"><w:lvl w:ilvl="0">'
+        f'<w:numFmt w:val="{fmt}"/><w:lvlText w:val="{lvl_text}"/></w:lvl>'
+        f'<w:lvl w:ilvl="1"><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%2)"/></w:lvl>'
+        f"</w:abstractNum>"
+        f'<w:num w:numId="3"><w:abstractNumId w:val="2"/></w:num></w:numbering>'
+    )
+
+
+def _list_para(text: str, num_id: int = 3, ilvl: int = 0) -> str:
+    return (
+        f'<w:p><w:pPr><w:numPr><w:ilvl w:val="{ilvl}"/><w:numId w:val="{num_id}"/>'
+        f"</w:numPr></w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>"
+    )
+
+
+def test_docx_list_numbering_decimal():
+    raw = _zip(
+        {
+            "word/numbering.xml": _numbering_xml(),
+            "word/document.xml": (
+                f'<w:document xmlns:w="{_W_NS}"><w:body>'
+                + _list_para("甲") + _list_para("乙") + _list_para("丙")
+                + "</w:body></w:document>"
+            ),
+        }
+    )
+    doc = parse_document(raw, "docx")
+    assert doc.paragraphs == ["1. 甲", "2. 乙", "3. 丙"]
+
+
+def test_docx_list_bullet_and_nested_reset():
+    raw = _zip(
+        {
+            "word/numbering.xml": _numbering_xml(fmt="bullet", lvl_text="•"),
+            "word/document.xml": (
+                f'<w:document xmlns:w="{_W_NS}"><w:body>'
+                + _list_para("甲") + _list_para("子项", ilvl=1) + _list_para("乙")
+                + _list_para("又一子项", ilvl=1)
+                + "</w:body></w:document>"
+            ),
+        }
+    )
+    doc = parse_document(raw, "docx")
+    # bullet 用 lvlText 原样；子项用 lvl1 的 lowerLetter；浅级出现重置深级计数
+    assert doc.paragraphs == ["• 甲", "a) 子项", "• 乙", "a) 又一子项"]
+
+
+def test_docx_list_chinese_counting():
+    raw = _zip(
+        {
+            "word/numbering.xml": _numbering_xml(fmt="chineseCountingThousand", lvl_text="%1、"),
+            "word/document.xml": (
+                f'<w:document xmlns:w="{_W_NS}"><w:body>'
+                + _list_para("甲") + _list_para("乙")
+                + "</w:body></w:document>"
+            ),
+        }
+    )
+    assert parse_document(raw, "docx").paragraphs == ["一、甲", "二、乙"]
+
+
+def test_docx_list_without_numbering_part():
+    # 无 numbering.xml：编号引用静默失效（不报错不瞎编）
+    raw = _docx(_list_para("甲"))
+    assert parse_document(raw, "docx").paragraphs == ["甲"]
+
+
+def test_docx_heading_styles_detected():
+    raw = _docx(
+        '<w:p><w:pPr><w:pStyle w:val="1"/></w:pPr><w:r><w:t>标题一</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>正文</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>二级</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>题名</w:t></w:r></w:p>'
+        '<w:p><w:pPr><w:pStyle w:val="自定义蓝色"/></w:pPr><w:r><w:t>非标题</w:t></w:r></w:p>'
+    )
+    doc = parse_document(raw, "docx")
+    assert doc.headings == {0, 2, 3}
+
+
+def test_pptx_title_placeholder_marked_heading():
+    P, A = _P_NS, _A_NS
+    slide = (
+        f'<p:sld xmlns:p="{P}" xmlns:a="{A}"><p:cSld><p:spTree>'
+        f'<p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>'
+        f'<p:txBody><a:p><a:r><a:t>页标题</a:t></a:r></a:p></p:txBody></p:sp>'
+        f'<p:sp><p:nvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+        f'<p:txBody><a:p><a:r><a:t>正文要点</a:t></a:r></a:p></p:txBody></p:sp>'
+        f"</p:spTree></p:cSld></p:sld>"
+    )
+    raw = _zip(
+        {
+            "ppt/presentation.xml": (
+                f'<p:presentation xmlns:p="{P}" xmlns:r="{_R_NS}">'
+                f'<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>'
+            ),
+            "ppt/_rels/presentation.xml.rels": (
+                f'<Relationships xmlns="{_PR_NS}">'
+                f'<Relationship Id="rId1" Target="slides/slide1.xml"/></Relationships>'
+            ),
+            "ppt/slides/slide1.xml": slide,
+        }
+    )
+    doc = parse_document(raw, "pptx")
+    assert doc.paragraphs == ["页标题", "正文要点"]
+    assert doc.headings == {0}
+
+
+def test_txt_csv_have_no_headings():
+    assert parse_document("标题\n正文".encode(), "txt").headings == set()
