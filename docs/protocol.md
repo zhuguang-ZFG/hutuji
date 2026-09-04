@@ -405,7 +405,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   write_text 文章链「写出」，xlsx/csv 走 table_layout 表格链「画出」（格线+格内字同页笔画，格线是 `<path>` 折线非 `<line>`，同过 §5 闸）。
   每页独立 capability pair（`draw_…_<token>.{gcode,png}`，`_DRAW_FILE_RE` 不变），发送时 portal 用同一 `pages_argument()`（article_pages.py，键序/紧凑格式单源）
   组 `pages` 参数整篇下发；错峰 TTL 用同一 `page_ttl_offsets()` 按页行数估时。设备侧零改动——门户多页与语音写字多页共享本节全部契约。
-  2026-09-04 补：docx 标题样式（w:pStyle 内置 Heading/标题/Title）与 pptx title 占位符检出的标题段**免段首缩进 + 段前后各空一行**；
+  2026-09-04 补：docx 标题样式（w:pStyle 内置 Heading/标题/Title）与 pptx title 占位符检出的标题段**18mm 放大落墨（占 2 正文行带）+ 逐视觉行居中 + 免段首缩进 + 段前后各空一行**；
   docx 列表经 numbering.xml 还原编号前缀（decimal/字母/罗马/中文计数/bullet，嵌套按 Word 浅级重置语义，仅前 3 级）。
 - **`hutuji.repeat` 语义**：文章重画 = 整篇从第 1 页重来（禁用 PSRAM 快路——留存的只是最后一页），
   各页在上述错峰窗口内有效；过期按下载失败如实报错。

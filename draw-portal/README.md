@@ -65,7 +65,7 @@ D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
 
 「上传图片」页签同时接受 **Word（.docx）/ Excel（.xlsx）/ PPT（.pptx）/ CSV / TXT**（同 4MB 上限）：
 
-- docx / pptx / txt → 抽文字走 `write_text` 文章链**写出**（与语音 `hutuji_write` 同参数同字库）；标题段（docx 标题样式 / pptx 标题占位符）免缩进 + 段前后空行，列表编号（1. / • / 一、等）自动还原；docx 内嵌表格只抽文字不画框线（v1 取舍）
+- docx / pptx / txt → 抽文字走 `write_text` 文章链**写出**（与语音 `hutuji_write` 同参数同字库）；标题段（docx 标题样式 / pptx 标题占位符）18mm 放大 + 居中 + 免缩进 + 段前后空行，列表编号（1. / • / 一、等）自动还原；docx 内嵌表格只抽文字不画框线（v1 取舍）
 - xlsx / csv → `table_layout` 表格链**画出**：格线 + 格内字同页笔画；列宽优先用文件自报 `<col width>`（奎享 `getColumnWidthInPixels` 同源），无则按内容测量；支持横向合并格、跨页自动重复表头、超宽自动缩字号（地板 3.5mm，再不行明确报错）；隐藏工作表跳过
 - 多页：上限 20 页（设备 `kArticleMaxPages`），超限截断并在响应带 `truncated: true`；发送时整篇经 `hutuji.draw` 的 `pages` 参数下发（protocol §4.2，设备零改动），TTL 按页行数错峰（与语音写字链同一 `article_pages.page_ttl_offsets`）
 - 解析/排版在 `hutuji_mcp`（`doc_ingest`/`table_layout`，纯 stdlib 解析：DOCTYPE/实体/加密/超限一律 400 具体原因）；需要 `DRAW_PORTAL_GFONT_DIR`（或复用 `HUTUJI_GFONT_DIR`）指向 .gfont 字库目录，**未配置时文档上传回 503**（图片/SVG 上传不受影响）

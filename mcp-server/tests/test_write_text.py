@@ -687,25 +687,22 @@ def test_load_font_named_read_failure_maps_to_write_text_error(tmp_path, monkeyp
 
 
 def _line_x_starts(page):
-    """每行首字 x：按 baseline y 聚类（box 字形 y∈[baseline-100*scale, baseline]）。"""
-    from collections import defaultdict
-
-    rows = defaultdict(list)
+    """每行首字 x 与行带顶 y：按 y 聚类（box 字形 y∈[baseline-100*scale, baseline]）。"""
+    rows = {}
     for stroke in page.strokes:
         for x, y in stroke.points:
-            rows[round(y)].append(x)
-    bands = sorted(rows)
-    merged = []  # (band_top_y, min_x)
-    for y in bands:
-        if merged and y - merged[-1][0] <= 20:
-            merged[-1][1].append(min(rows[y]))
+            rows.setdefault(round(y), []).append(x)
+    bands = []
+    for y in sorted(rows):
+        if bands and y - bands[-1][0] <= 20:
+            bands[-1][1].extend(rows[y])
             continue
-        merged.append([y, [min(rows[y])]])
-    return [(band[0], min(band[1])) for band in merged]
+        bands.append([y, list(rows[y])])
+    return [(band[0], min(band[1]), max(band[1])) for band in bands]
 
 
-def test_heading_no_indent_with_gaps():
-    """标题段免段首缩进 + 段前后各空一行；正文缩进不变。"""
+def test_heading_centered_larger_with_gaps():
+    """标题段：18mm 放大 + 水平居中 + 免缩进 + 段前后各空一行；正文行不变。"""
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout()
     res = write_text.layout_text(
@@ -714,41 +711,79 @@ def test_heading_no_indent_with_gaps():
     )
     page = res.pages[0]
     bands = _line_x_starts(page)
-    # 标题/正文交替 4 段；标题行首 x ≈ 页边距，正文行首 x = 页边距 + 2 全宽
-    full = metrics.full_width * (layout.size_mm / metrics.em_height) + layout.char_gap_mm
-    assert bands[0][1] == pytest.approx(layout.margin_left_mm, abs=1.0)
-    assert bands[1][1] == pytest.approx(layout.margin_left_mm + 2 * full, abs=1.0)
-    assert bands[2][1] == pytest.approx(layout.margin_left_mm, abs=1.0)
-    # 行高 = size*1.6；段后空行拉大 band 间距
+    assert len(bands) == 4
+    center_x = layout.margin_left_mm + layout.text_width_mm / 2  # 95
+    body_first_x = layout.margin_left_mm + 2 * (
+        metrics.full_width * (layout.size_mm / metrics.em_height) + layout.char_gap_mm
+    )
+    for i, (top, lo, hi) in enumerate(bands):
+        if i in (0, 2):  # 标题行：居中（左右缘关于版心对称）且字身放大
+            assert (lo + hi) / 2 == pytest.approx(center_x, abs=1.0)
+            assert hi - lo > 3 * layout.size_mm  # 3 字标题墨宽明显超正文字号步进
+        else:  # 正文行：段首缩进 2 全宽，顶左缘
+            assert lo == pytest.approx(body_first_x, abs=1.0)
+    # 行带顶 y：标题行字身 18mm（顶=基线-18），正文 12mm；行距 19.2
+    base_top = layout.margin_top_mm + metrics.baseline_to_top * (
+        layout.size_mm / metrics.em_height
+    )  # 第 0 行基线
     line_h = layout.line_height_mm
-    assert bands[1][0] - bands[0][0] == pytest.approx(2 * line_h, abs=2.0)  # 标题段后空行
-    assert bands[2][0] - bands[1][0] == pytest.approx(2 * line_h, abs=2.0)  # 标题段前空行
-    assert bands[3][0] - bands[2][0] == pytest.approx(2 * line_h, abs=2.0)  # 标题段后空行
-    assert page.line_count == 7  # 4 行内容 + 3 行空距（首行页首无前距）
+    # 标题0 占行带 [0,2) 顶=base_top-18；正文1 在第 3 行带（2+段后空1）顶=base_top+3*lh-12
+    assert bands[0][0] == pytest.approx(base_top - layout.heading_size_mm, abs=0.6)
+    assert bands[1][0] == pytest.approx(base_top + 3 * line_h - layout.size_mm, abs=0.6)
+    # 标题2 前空一行：正文1 占行带 3，标题2 行带 5（3+1+段前空1）
+    assert bands[2][0] == pytest.approx(base_top + 5 * line_h - layout.heading_size_mm, abs=0.6)
+    assert page.line_count == 9  # 2+1（空）+1+1（空）+2+1（空）+1
 
 
 def test_heading_at_page_top_no_pre_gap():
     font, metrics = _fixture_font(), _fixture_metrics()
-    res = write_text.layout_text("中文字\n永国中文", font, metrics, write_text.WriteLayout(), headings={0})
+    res = write_text.layout_text(
+        "中文字\n永国中文", font, metrics, write_text.WriteLayout(), headings={0}
+    )
     page = res.pages[0]
     bands = _line_x_starts(page)
-    assert bands[0][0] == pytest.approx(8, abs=2)  # 标题贴页首，无前距
-    assert page.line_count == 3  # 标题 + 段后空行 + 正文
+    base_top = 8 + metrics.baseline_to_top * 0.12
+    assert bands[0][0] == pytest.approx(base_top - 18.0, abs=0.6)  # 贴页首，无段前空距
+    assert page.line_count == 4  # 标题 2 行带 + 段后空 1 + 正文 1
 
 
 def test_heading_near_page_bottom_moves_to_next_page():
-    """标题与其首行须同框：空距放不下时整标题切下页（不栏尾孤标题）。"""
+    """标题与其行带须同框：空距放不下时整标题切下页（不栏尾孤标题）。"""
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout()
     max_lines = int(layout.text_height_mm // layout.line_height_mm)
-    # 填满到只剩 1 行：正文段每行一字一段
     filler = "\n".join(["永"] * (max_lines - 1))
-    res = write_text.layout_text(filler + "\n中文字\n永国中文", font, metrics, layout, headings={max_lines - 1})
+    res = write_text.layout_text(
+        filler + "\n中文字\n永国中文", font, metrics, layout, headings={max_lines - 1}
+    )
     assert len(res.pages) == 2
     assert not res.truncated
-    # 第二页首行即标题（贴页首，无段前空距）
     bands2 = _line_x_starts(res.pages[1])
-    assert bands2[0][1] == pytest.approx(layout.margin_left_mm, abs=1.0)
+    center_x = layout.margin_left_mm + layout.text_width_mm / 2
+    assert (bands2[0][1] + bands2[0][2]) / 2 == pytest.approx(center_x, abs=1.0)
+
+
+def test_heading_long_title_wraps_centered():
+    """长标题折行后每个视觉行都各自居中。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout()
+    # 18mm 全宽步进 18.8mm：174/18.8 = 9 字/行；14 字标题折 2 行
+    title = "中" * 14
+    res = write_text.layout_text(title + "\n永国中文", font, metrics, layout, headings={0})
+    page = res.pages[0]
+    bands = _line_x_starts(page)
+    center_x = layout.margin_left_mm + layout.text_width_mm / 2
+    # 前两个行带都是标题行（9 字满行 + 5 字余行），均居中
+    assert (bands[0][1] + bands[0][2]) / 2 == pytest.approx(center_x, abs=1.0)
+    assert (bands[1][1] + bands[1][2]) / 2 == pytest.approx(center_x, abs=1.0)
+    # 满行宽 ≈ 9*18.8=169.2 → offset≈2.4；余行 5*18.8=94 → offset=40
+    assert bands[1][1] - bands[0][1] == pytest.approx(40 - 2.4, abs=1.0)
+
+
+def test_heading_size_validation():
+    layout = write_text.WriteLayout(heading_size_mm=50.0)
+    with pytest.raises(write_text.WriteTextError, match="标题字号"):
+        layout.validate()
 
 
 def test_no_headings_behavior_unchanged():

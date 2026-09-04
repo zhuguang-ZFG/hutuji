@@ -14,19 +14,19 @@
 - \n 分段，段首缩进 2 个全宽字；CJK 任意折行，拉丁按空格折行、长词硬断
 - 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——并入上一行末，但以 §5 页限（190mm）为上界，超限让位折行
 - 避尾：行尾禁「（【《「『“‘」等开标点——弹出随下一行行首
-- 空段：连续 \n 不产出空行（空白段被跳过），段间距只有缩进一种表达——省纸取向的显式取舍
+- 空段：连续 \n 不产出空行（空白段被跳过）；普通段间距只有缩进一种表达——省纸取向的显式取舍
+- 标题段（headings 参数，文档导入链检出）：18mm 放大落墨（占 heading_rows 个正文行带）、
+  逐视觉行水平居中、免段首缩进、段前后各空一行（页首/页底/切页后不加）；行网格恒按正文字号
 - 分页：行写满页高即切页；每页一份独立 SVG（多页 G-code 下发属 S3 侧后续）
 """
 
-from __future__ import annotations
-
+import math
 import os
 import re
 from dataclasses import dataclass, field
 
 from .gfont import GfontError, GfontFile, GlyphData, glyph_advance, glyph_to_polylines
 
-# §5 硬限幅（gcode_gen.MAX_X_MM/MAX_Y_MM 同源；此处自守不 import 防循环）
 _PAGE_LIMIT_MM = 190.0
 
 # 行首禁排标点（避头）；行尾禁排开标点（避尾）
@@ -54,6 +54,12 @@ class WriteLayout:
     margin_top_mm: float = 8.0
     margin_bottom_mm: float = 8.0
     paragraph_indent: int = 2  # 段首缩进全宽字数
+    heading_size_mm: float = 18.0  # 标题字号（1.5×正文，2026-09-04 用户拍板标题须放大）；行高按行距倍数折算成整数行带
+
+    @property
+    def heading_rows(self) -> int:
+        """标题行占用的正文行数（标题行高向上取整，最少 1 行）。"""
+        return max(1, math.ceil(self.heading_size_mm * self.line_spacing / self.line_height_mm))
 
     def validate(self) -> None:
         if not 2.0 <= self.size_mm <= 40.0:
@@ -62,6 +68,8 @@ class WriteLayout:
             raise WriteTextError(f"行距越界：{self.line_spacing}（允许 1.0–3.0）")
         if not 0.0 <= self.char_gap_mm <= self.size_mm:
             raise WriteTextError(f"字距越界：{self.char_gap_mm}")
+        if not 2.0 <= self.heading_size_mm <= 40.0:
+            raise WriteTextError(f"标题字号越界：{self.heading_size_mm}（允许 2–40mm）")
         for name in ("margin_left_mm", "margin_right_mm", "margin_top_mm", "margin_bottom_mm"):
             if getattr(self, name) < 0.0:
                 raise WriteTextError(f"页边距非法：{name}={getattr(self, name)}")
@@ -203,7 +211,10 @@ def layout_text(
     if max_pages < 1:
         raise WriteTextError("max_pages 非法")
 
-    scale = layout.size_mm / metrics.em_height
+    # 行网格（y 基线/行计数）恒按正文字号走；标题段只在落墨与横向步进上切大字号，
+    # 竖向占 heading_rows 个正文行带——行计数语义不被标题搞混，分页/容量闸全部照旧
+    base_scale = layout.size_mm / metrics.em_height
+    scale = base_scale
     full_advance_mm = metrics.full_width * scale + layout.char_gap_mm
     indent_mm = layout.paragraph_indent * full_advance_mm
 
@@ -244,8 +255,7 @@ def layout_text(
         nonlocal page
         pages.append(page)
         page = LaidOutPage()
-
-    # 逐段处理；段内折行，段首缩进（标题段免缩进 + 段前后各加一行空距）
+    # 逐段处理；段内折行，段首缩进（标题段：放大居中、免缩进、段前后各加一行空距）
     heading_set = headings or set()
     paragraphs = text.split("\n")
     truncated = False
@@ -254,9 +264,13 @@ def layout_text(
         if not paragraph.strip():
             continue
         is_heading = para_idx in heading_set
+        # 标题段切大字号落墨/步进（竖向行网格不变，见上方 base_scale 注释）
+        scale = layout.heading_size_mm / metrics.em_height if is_heading else base_scale
+        full_advance_mm = metrics.full_width * scale + layout.char_gap_mm
+        heading_rows = layout.heading_rows if is_heading else 1
         if is_heading and page.line_count > 0:
-            # 段前空一行；页首不加。空距 + 标题本身至少 1 行要同框，否则先切页
-            if page.line_count + 2 > max_lines_per_page:
+            # 段前空一行；页首不加。空距 + 标题整行带要同框，否则先切页（不栏尾孤标题）
+            if page.line_count + 1 + heading_rows > max_lines_per_page:
                 if len(pages) + 1 >= max_pages:
                     truncated = True
                     break
@@ -268,7 +282,7 @@ def layout_text(
         x_cursor = layout.margin_left_mm + (0.0 if is_heading else indent_mm)
         y_baseline = (
             layout.margin_top_mm
-            + metrics.baseline_to_top * scale
+            + metrics.baseline_to_top * base_scale
             + line_no_on_page * layout.line_height_mm
         )
         # 行内暂存：避头标点需要整行回退重组，简化为「行尾溢出时把行首禁排标点并入」
@@ -279,6 +293,7 @@ def layout_text(
         def flush_line() -> bool:
             """把暂存行落版；返回 False 表示页满需切页（调用方判 max_pages）。"""
             nonlocal x_cursor, y_baseline, line_tokens, line_width, line_start_x
+            stroke_base = len(page.strokes)
             x = line_start_x
             for tok in line_tokens:
                 if tok == "\t":
@@ -298,7 +313,22 @@ def layout_text(
                             else metrics.full_width * 0.5
                         )
                         x += adv_units * scale + layout.char_gap_mm
-            page.line_count += 1
+            if is_heading:
+                # 标题逐视觉行水平居中：按落墨 bbox 对版心平移（advance 盒含侧轴承/字距，
+                # 真实字体墨比盒窄，按盒居中视觉偏左——2026-09-04 生产冒烟实测偏 6.4mm）。
+                # 墨宽 ≥ 行宽（长词硬断撑满）不平移——居中不得把墨推出 §5 限幅
+                ink = [pt for s in page.strokes[stroke_base:] for pt in s.points]
+                if ink:
+                    xs = [p[0] for p in ink]
+                    ink_lo, ink_hi = min(xs), max(xs)
+                    if ink_hi - ink_lo < layout.text_width_mm:
+                        offset = (layout.margin_left_mm + layout.text_width_mm / 2.0) - (ink_lo + ink_hi) / 2.0
+                        offset = min(offset, layout.margin_left_mm + layout.text_width_mm - ink_hi)
+                        offset = max(offset, layout.margin_left_mm - ink_lo)
+                        if offset:
+                            for s in page.strokes[stroke_base:]:
+                                s.points = [(px + offset, py) for px, py in s.points]
+            page.line_count += heading_rows
             line_tokens = []
             line_width = 0.0
             line_start_x = layout.margin_left_mm
@@ -306,7 +336,7 @@ def layout_text(
                 return False
             y_baseline = (
                 layout.margin_top_mm
-                + metrics.baseline_to_top * scale
+                + metrics.baseline_to_top * base_scale
                 + page.line_count * layout.line_height_mm
             )
             x_cursor = layout.margin_left_mm
@@ -354,7 +384,7 @@ def layout_text(
                             truncated = True
                             break
                         new_page()
-                        y_baseline = layout.margin_top_mm + metrics.baseline_to_top * scale
+                        y_baseline = layout.margin_top_mm + metrics.baseline_to_top * base_scale
                     line_start_x = layout.margin_left_mm
                 # 病态输入（整行全是开标点）不 flush，carried 落回本行继续
                 if carried:
@@ -370,9 +400,10 @@ def layout_text(
                 truncated = True
                 break
             new_page()
-        # 标题段后空一行：页底不加（下段反正切页）；+2 须给下段首行留位，
-        # 否则幻象行把 line_count 顶到上限，下段首行 y 会算出页外
-        if is_heading and page.line_count + 2 <= max_lines_per_page:
+        # 标题段后空一行：仅当标题行仍在当前页（新页 line_count=0 不空——否则页首白送一行）；
+        # 页底不加（下段反正切页）；+2 须给下段首行留位，否则幻象行把 line_count 顶到上限，
+        # 下段首行 y 会算出页外
+        if is_heading and 0 < page.line_count and page.line_count + 2 <= max_lines_per_page:
             page.line_count += 1
         if truncated:
             break
