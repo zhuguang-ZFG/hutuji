@@ -959,6 +959,110 @@ async def hutuji_write(
         safe_text, font.strip(), size_mm, line_spacing, char_gap_mm, public_base_url,
     )
 
+# 笔顺数据模块级缓存（同 _gfont_cache 口径：import 期不探测目录，首次调用惰性加载）
+_stroke_data_cache: dict[str, object] = {}
+
+# 一次教学的汉字上限：教学页每字一页起，小孩注意力/纸张消耗都有限
+_TEACH_MAX_CHARS = 20
+
+
+async def _run_teach_job(
+    text: str, public_base_url: str, *, chain_push: bool = True,
+) -> str:
+    """笔顺教学事务：标准笔顺中心线 → 渐显面板页 → 无版式 vpype → §5 校验 → 产物。
+
+    与 _run_write_job 同一产物面/错峰 TTL/链式推送口径；不经 DrawLimiter
+    （本地数据，无付费后端）；vpype 并发仍由 gcode_gen 信号量收口。
+    """
+    from . import stroke_order, write_text
+    from .llm_svg import _validate_svg
+    from .output_store import get_output_store
+
+    if not settings.stroke_dir:
+        raise stroke_order.StrokeOrderError("笔顺数据未配置（HUTUJI_STROKE_DIR 为空）")
+    data = _stroke_data_cache.get(settings.stroke_dir)
+    if data is None:
+        data = await asyncio.to_thread(stroke_order.StrokeData.load, settings.stroke_dir)
+        _stroke_data_cache[settings.stroke_dir] = data
+
+    result = await asyncio.to_thread(
+        stroke_order.layout_teach, text, data, ARTICLE_MAX_PAGES,
+    )
+
+    store = get_output_store()
+    store.ensure_ready()
+    ttl_base = time.time()
+    multi_page = len(result.pages) > 1
+    cumulative = WRITE_PAGE_CONFIRM_ALLOWANCE_SECONDS
+    pages_out: list[dict] = []
+    for page_index, page in enumerate(result.pages):
+        base = _new_basename()
+        svg = write_text.page_to_svg(page)
+        _validate_svg(svg)  # 机器产物同 draw 链口径：一切进管线的 SVG 必过白名单
+        preview_png = await asyncio.to_thread(write_text.page_to_preview_png, page)
+        with store.job_workspace(base) as paths:
+            paths.svg_path.write_text(svg, encoding="utf-8")
+            paths.preview_path.write_bytes(preview_png)
+            stats = await svg_to_gcode_async(
+                paths.svg_path, paths.gcode_path, normalize=False
+            )
+            store.finalize_job(
+                paths,
+                created_at=ttl_base + cumulative if multi_page else None,
+            )
+        cumulative += (
+            stats.lines / WRITE_PAGE_LINES_PER_SECOND + WRITE_PAGE_CHANGE_SECONDS
+        ) * WRITE_PAGE_TIME_MARGIN
+        pages_out.append({
+            "page": page_index + 1,
+            "url": f"{public_base_url}/files/{base}.gcode",
+            "preview_url": f"{public_base_url}/files/{base}.png",
+            "lines": stats.lines,
+            "bytes": stats.bytes,
+            "pen_lifts": stats.pen_lifts,
+        })
+
+    if chain_push and getattr(settings, "xiaozhi_device_token", ""):
+        asyncio.create_task(
+            _chain_device_draw(
+                pages_out[0]["url"], pages_out[0]["preview_url"], pages_out,
+            )
+        )
+    return json.dumps({
+        "pages": pages_out,
+        "total_pages": len(pages_out),
+        "url": pages_out[0]["url"],
+        "preview_url": pages_out[0]["preview_url"],
+        "pages_arg": _pages_argument(pages_out),
+        "missing_chars": result.missing_chars,
+        "truncated": result.truncated,
+        "ttl_seconds": settings.output_ttl_seconds,
+    }, ensure_ascii=False)
+
+
+@mcp.tool()
+async def hutuji_teach(text: str) -> str:
+    """教小孩写汉字：按国家规范笔顺把汉字一笔一笔分解写出来（田字格渐显面板）。
+
+    用户说「教小孩写字/笔顺/这个字怎么写/分解笔画/写字课」时用；写整段文章用
+    hutuji_write，画图用 hutuji_draw。text 是要教的汉字（空格忽略，一次最多 20 字，
+    每字一页：首行成形大字 + 逐笔渐显面板，第 k 格 = 前 k 笔）。
+    返回分页产物 URL 数组；missing_chars 列缺字（不在笔顺数据内），
+    truncated=true 表示超页截断——两者都要如实告知用户。服务端在完成点会自动
+    链式调用设备侧 hutuji.draw 推送预览（含全部页），调用方不要重复推送；
+    仅在自动推送未生效时才自调设备侧 hutuji.draw，且多页必须把返回里的
+    pages_arg 字段一字不改地作为 pages 参数透传。用户明确确认后再调 hutuji.confirm。"""
+    _report_mcp_tool("teach")
+    from .stroke_order import StrokeOrderError
+
+    safe_text = text.strip()
+    if not safe_text:
+        raise StrokeOrderError("文本为空")
+    if len(safe_text) > _TEACH_MAX_CHARS:
+        raise StrokeOrderError(f"一次最多教 {_TEACH_MAX_CHARS} 个字（收到 {len(safe_text)}）")
+    public_base_url = validate_public_base_url(settings.public_base_url)
+    return await _run_teach_job(safe_text, public_base_url)
+
 @mcp.tool()
 async def hutuji_remember(key: str, value: str) -> str:
     """记住用户告诉你的事情（称呼、偏好、约定等）。

@@ -132,6 +132,10 @@ class Settings:
     # 奎享 .gfont 单线字库目录（write_text 排版链的数据根；字体为奎享专有素材，
     # 不入库，生产经 env 指向本机目录）。空值 = hutuji_write 工具禁用并报清晰错误。
     gfont_dir: str = ""
+    # 汉字标准笔顺中心线数据目录（stroke_order 教学链数据根；hanzi-writer-data
+    # 衍生 strokes.jsonl，不入库，生产经 env 指向本机目录）。空值 = hutuji_teach
+    # 工具禁用并报清晰错误。
+    stroke_dir: str = ""
     # 多页文章错峰 TTL 改为按页行数估时（protocol §4.2）：2026-09-03 起不再用
     # 统一每页预算——124s/页模型对 12mm 满页（10597 行 ≈ 20 分钟）必在第 2 页 404。
     # 折算率与余量是 server.py 的 WRITE_PAGE_* 常量，钉实测证据，不走 env。
@@ -371,6 +375,7 @@ def load_settings() -> Settings:
         siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
         quickdraw_dir=os.environ.get("HUTUJI_QUICKDRAW_DIR", ""),
         gfont_dir=os.environ.get("HUTUJI_GFONT_DIR", ""),
+        stroke_dir=os.environ.get("HUTUJI_STROKE_DIR", ""),
         curated_dir=os.environ.get("HUTUJI_CURATED_DIR", ""),
         curated_replace_qd=os.environ.get("HUTUJI_CURATED_REPLACE_QD", "0").strip()
         in ("1", "true", "TRUE", "yes"),
