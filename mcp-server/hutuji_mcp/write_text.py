@@ -10,7 +10,7 @@
   不做 ink-box 紧贴。
 
 排版规则（中文文章）：
-- 页区 = (190-左右边距) × (190-上下边距) mm（§5 限幅 X/Y≤190 是硬线）
+- 页区 = (190-左右边距) × (277-上下边距) mm（§5 限幅 X≤190/Y≤277 是硬线；Y 长边 2026-09-04 放宽）
 - \n 分段，段首缩进 2 个全宽字；CJK 任意折行，拉丁按空格折行、长词硬断
 - 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——并入上一行末，但以 §5 页限（190mm）为上界，超限让位折行
 - 避尾：行尾禁「（【《「『“‘」等开标点——弹出随下一行行首
@@ -27,7 +27,9 @@ from dataclasses import dataclass, field
 
 from .gfont import GfontError, GfontFile, GlyphData, glyph_advance, glyph_to_polylines
 
-_PAGE_LIMIT_MM = 190.0
+# §5 硬限幅分轴（gcode_gen.MAX_X_MM/MAX_Y_MM 同源；此处自守不 import 防循环）
+_PAGE_WIDTH_MM = 190.0   # X 短边：$130=210 − 2×10 边距
+_PAGE_HEIGHT_MM = 277.0  # Y 长边：$131=297 − 2×10 边距（2026-09-04 用户拍板放宽）
 
 # 行首禁排标点（避头）；行尾禁排开标点（避尾）
 _NO_LINE_START = set("，。！？；：、）】》」』”’…—·～％")
@@ -82,11 +84,11 @@ class WriteLayout:
 
     @property
     def text_width_mm(self) -> float:
-        return _PAGE_LIMIT_MM - self.margin_left_mm - self.margin_right_mm
+        return _PAGE_WIDTH_MM - self.margin_left_mm - self.margin_right_mm
 
     @property
     def text_height_mm(self) -> float:
-        return _PAGE_LIMIT_MM - self.margin_top_mm - self.margin_bottom_mm
+        return _PAGE_HEIGHT_MM - self.margin_top_mm - self.margin_bottom_mm
 
     @property
     def line_height_mm(self) -> float:
@@ -364,7 +366,7 @@ def layout_text(
             # 超限则避头让位、照常折行——标点行首是外观妥协，越界是整篇写不出。
             merge_into_line = (
                 tok in _NO_LINE_START
-                and layout.margin_left_mm + line_width + adv <= _PAGE_LIMIT_MM
+                and layout.margin_left_mm + line_width + adv <= _PAGE_WIDTH_MM
             )
             if overflow and not merge_into_line and tok.strip():
                 # 避尾：开标点不得收行尾——弹出暂存行尾的开标点，随新行同行首
@@ -426,8 +428,8 @@ def layout_text(
 def page_to_svg(page: LaidOutPage) -> str:
     """落笔路径 → 单线 SVG（元素白名单内：仅 <svg>/<path>，属性最简）。"""
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
-        f'viewBox="0 0 190 190">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" '
+        f'viewBox="0 0 190 277">'
     ]
     for stroke in page.strokes:
         d = "M" + "L".join(f"{x:.3f},{y:.3f}" for x, y in stroke.points)

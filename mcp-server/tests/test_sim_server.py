@@ -503,7 +503,7 @@ def test_stdio_mcp_initialize_list_and_call() -> None:
         ("G20", "error:20"),
         ("G1 X191 Y10 F8000", "error:20"),  # 越出 §5 契约值 190
         ("G1 X-1 Y10 F8000", "error:20"),   # 负 X：本机无限位开关，MCP 限幅唯一防线
-        ("G1 X10 Y191 F8000", "error:20"),
+        ("G1 X10 Y278 F8000", "error:20"),  # 越出 §5 契约值 277
         ("G1G90 Z7.0F10000", "error:20"),   # Z 只允许 0/5
         ("G1 X1 Y1 F0", "error:20"),
         ("G1 X1 Y1 F-1", "error:20"),
@@ -532,7 +532,7 @@ def test_grbl_sim_contract_boundary_rejects_forbidden_lines(line: str, expected:
         "G1G90 Z5.0F10000",
         "G0 X5.5Y3.2F8000",
         "G1 X10.0Y10.0F8000",
-        "G0 X190Y190F8000",       # 契约边界值允许
+        "G0 X190Y277F8000",       # 契约边界值允许（Y 长边 277）
         "G1 X0Y190F8000",
         "G2 X10 Y10 I5 J0 F8000",  # 圆弧白名单内；包围盒不建模（validate_gcode 覆盖）
         "G1 X10 Y10 F8000 ;move",  # 行内注释剥离

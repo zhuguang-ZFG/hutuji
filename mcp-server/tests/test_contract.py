@@ -4873,7 +4873,7 @@ def test_svg_to_gcode_layout_handles_vertical_line(tmp_path: Path) -> None:
 
     min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
     assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
-    assert max_y - min_y == pytest.approx(170.0, abs=2.0), "竖线必须被拉满到边距内"
+    assert max_y - min_y == pytest.approx(257.0, abs=2.0), "竖线必须被拉满到边距内（Y 长边 277−2×10）"
 
 
 def test_gwrite_profile_matches_production_shape() -> None:
@@ -4976,7 +4976,7 @@ def test_firmware_jog_envelope_matches_cloud_limits() -> None:
 
     # 云端侧钉死 §5 硬边界（行为测试之外的显式锚点）。
     assert gcode_gen.MAX_X_MM == 190.0
-    assert gcode_gen.MAX_Y_MM == 190.0
+    assert gcode_gen.MAX_Y_MM == 277.0
 
     root = Path(os.environ.get("XIAOZHI_ROOT", "D:/Users/xiaozhi-esp32"))
     header = root / "main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -5262,9 +5262,9 @@ def test_gcode_rejects_nonproduction_motion_shape(line: str) -> None:
 # 圆弧：端点在界内不代表整条弧在界内——弧中途会凸到象限点。
 # 每例都先用 G0 给出起点，否则校验器会以「起点未知」拒绝。
 def test_arc_bulge_outside_limit_is_rejected() -> None:
-    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=195 > 190。
+    """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=280 > 277。
     只看端点会放行这条弧，实机就是撞机。"""
-    text = _minimal_gcode("G0 X100 Y185 F8000\nG2 X120 Y185 I10 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y270 F8000\nG2 X120 Y270 I10 J0 F8000\n")
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)
 
@@ -5455,7 +5455,7 @@ def test_coordinate_at_boundary_passes() -> None:
     "body",
     [
         "G1 X190.0001 Y5 F8000\n",
-        "G1 X5 Y190.0001 F8000\n",
+        "G1 X5 Y277.0001 F8000\n",
         "G1 X-0.0001 Y5 F8000\n",
         "G1 X5 Y-0.0001 F8000\n",
     ],
@@ -5473,10 +5473,10 @@ def test_explicit_z_requires_exact_production_pen_position(z: str) -> None:
         validate_gcode(_minimal_gcode(f"G1G90 Z{z}F10000\n"))
 
 
-def test_y_over_190mm_rejected() -> None:
-    """Y=190.5 超出 Y 轴限幅 190mm。"""
+def test_y_over_277mm_rejected() -> None:
+    """Y=277.5 超出 Y 轴限幅 277mm（2026-09-04 长边放宽后仍须守住）。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X5 Y190.5 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X5 Y277.5 F8000\n"))
 
 
 @pytest.mark.parametrize(
@@ -5554,9 +5554,9 @@ def test_inherited_modal_g0_origin_is_rejected() -> None:
 
 
 def test_inherited_modal_arc_checks_bounding_box() -> None:
-    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 25mm 凸到 Y=195，必须拒。"""
+    """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 25mm 凸到 Y=290 > 277，必须拒。"""
     text = _minimal_gcode(
-        "G0 X100 Y170 F8000\nG2 X120 Y170 I10 J0 F8000\nX170 Y170 I25 J0 F8000\n"
+        "G0 X100 Y265 F8000\nG2 X120 Y265 I10 J0 F8000\nX170 Y265 I25 J0 F8000\n"
     )
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)

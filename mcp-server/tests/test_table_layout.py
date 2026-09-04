@@ -119,7 +119,7 @@ def test_pagination_repeats_header(font_and_metrics):
     assert not res.truncated
     for page in res.pages:
         x0, x1, y0, y1 = _bbox(page)
-        assert x1 <= 190.0 and y1 <= 190.0
+        assert x1 <= 190.0 and y1 <= 277.0  # §5 页限：X 短边 190 / Y 长边 277
     # 续页首行是表头（重复表头决策）：第 2 页 line_count 含表头 1 行
     assert res.pages[1].line_count >= 2
 

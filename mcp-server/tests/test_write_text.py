@@ -262,7 +262,7 @@ def test_layout_kinsoku_merge_never_exceeds_page_limit():
 def test_layout_paginates_and_reports_missing():
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout(
-        size_mm=20.0, line_spacing=1.5, margin_top_mm=150.0, margin_bottom_mm=0.0
+        size_mm=20.0, line_spacing=1.5, margin_top_mm=237.0, margin_bottom_mm=0.0
     )
     # 页高 40mm、行高 30mm → 一页一行；首行缩进后容量 6 字、续行 8 字，15 字 → 3 页
     result = write_text.layout_text("永国中" * 4 + "永国龘", font, metrics, layout)
@@ -637,7 +637,7 @@ def test_layout_hard_breaks_overlong_latin_token():
     total_strokes = sum(len(p.strokes) for p in result.pages)
     assert total_strokes == 60  # 拆字不丢字：每个 A 一条三角笔画
     max_x = max(x for p in result.pages for s in p.strokes for x, _ in s.points)
-    assert max_x <= write_text._PAGE_LIMIT_MM  # §5 硬线（旧行为约 288mm）
+    assert max_x <= write_text._PAGE_WIDTH_MM  # §5 硬线（旧行为约 288mm）
     assert max_x <= layout.margin_left_mm + layout.text_width_mm
 
 
