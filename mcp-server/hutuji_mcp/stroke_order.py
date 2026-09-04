@@ -55,7 +55,7 @@ class StrokeData:
         out: dict[str, list[list[tuple[int, int]]]] = {}
         with path.open(encoding="utf-8") as fh:
             for line in fh:
-                line = line.rstrip("\n")
+                line = line.rstrip("\r\n")  # 兼容 Windows 本机手改/CRLF 数据
                 if not line:
                     continue
                 ch, payload = line.split("\t", 1)

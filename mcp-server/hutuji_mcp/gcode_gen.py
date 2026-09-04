@@ -476,16 +476,24 @@ def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     except (OSError, UnicodeDecodeError) as exc:
         logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
         raise GcodeError("vpype 转换未产出 G-code 文件") from None
-    # 落笔短段地板：写回磁盘，保证 /files 下载字节与校验口径一致。
+    # 落笔短段地板 + 弧拟合：写回磁盘，保证 /files 下载字节与校验口径一致。
+    # 顺序：先塌缩（短段地板 1.0mm，保证拟合输入的最小段长），再拟合（弧/直线
+    # 覆盖连续折线）。弧拟合只砍行数不改几何（终点逐点取原顶点，容差 0.02mm
+    # 叠加在 linesimplify 0.05 之后），2026-09-05 提速批：113ms/行传输瓶颈下
+    # 行数 ≈ 时间，字库曲线 24 步细分压成 1~3 条 G2/G3。
+    # 惰性 import：arc_fit 反向复用本模块的 _WORD_RE 等解析器，顶层互引成环。
+    from hutuji_mcp.arc_fit import fit_gcode_arcs
+
     collapsed = _collapse_short_pen_down_segments(text)
-    if collapsed != text:
+    fitted = fit_gcode_arcs(collapsed)
+    if fitted != text:
         try:
-            gcode_path.write_bytes(collapsed.encode("utf-8"))
+            gcode_path.write_bytes(fitted.encode("utf-8"))
         except OSError as exc:
-            logger.error("落笔短段塌缩后写回失败：%s", exc, exc_info=True)
-            raise GcodeError("G-code 落笔短段塌缩写回失败") from None
-        text = collapsed
-        raw = collapsed.encode("utf-8")
+            logger.error("落笔短段塌缩/弧拟合后写回失败：%s", exc, exc_info=True)
+            raise GcodeError("G-code 后处理写回失败") from None
+        text = fitted
+        raw = fitted.encode("utf-8")
     return validate_gcode(text, total_bytes=len(raw))
 
 

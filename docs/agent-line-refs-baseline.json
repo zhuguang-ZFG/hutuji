@@ -1,5 +1,5 @@
 {
-  "git_head": "bde425c36c1e8af8c43c27cf729199d9fbd211c9",
+  "git_head": "55e56ebb921f7c543a63a22730b5c091061af8fd",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -451,14 +451,14 @@
       "source": "#      窗口持续填充 planner，避免笔画期间因 WiFi 往返空档失能。当前保持奎享原值\n#      F10000，不采用未经证明的 F1000/F300 降速方案。2026-07-29 同文件中先画的\n#      F300/F1500 线无墨，后画的 F10000/F1500 线出墨且均匀；落笔速度与先后顺序\n#      尚未解耦，不能据此宣称 F10000 是唯一根因。详见 docs/troubleshooting.md。",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:116": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:117": {
       "sha8": "373590ce",
       "source": "- `mcp-server/hutuji_mcp/quickdraw.py` — Quick Draw 本地缓存（2026-08-24 落地）：`lookup()` 命中即免付费生图，复用位图路线产物面；数据根走 `HUTUJI_QUICKDRAW_DIR`，类目映射 `quickdraw_categories.json`（v4：**402 别名键 → 298 官方在册类目**，已对账 categories.txt；与数据目录 298 个 `.jsonl` 双向零差；2026-08-25 v4 两项：`_PREFIX_RE` 增 11 个礼貌备择 + 循环剥离 ≤3 刀（请画/帮我画+单字名词此前全 miss），补 15 个「小X」口语变体（小树/小花等，实机 HIL 实证「画一棵小树」miss 走付费 AI 链）；圣诞树/松树经 GCS 404 实证非官方类目不收）；署名 `QUICKDRAW-ATTRIBUTION.md`。；2026-08-25 C 组合：质量路由 _QD_STYLE_RE 默认 AI 链、简笔风才查 QD；数据换装精选版每类 50 条（quickdraw_curate.py 三因子质量分），原始 200 条/类本地备份",
       "target": "AGENTS.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:144-146": {
-      "sha8": "881b0cff",
-      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1225 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:145-147": {
+      "sha8": "5f2435e6",
+      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1234 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -1231,7 +1231,7 @@
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> gcode_gen.py:871-874": {
+    "docs/troubleshooting.md -> gcode_gen.py:879-882": {
       "sha8": "8d93d9e1",
       "source": "                        f\"越界（限幅 0~{limit}mm）：{line}\"\n                    )\n\n        # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）。",
       "target": "mcp-server/hutuji_mcp/gcode_gen.py"
@@ -1287,6 +1287,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-04T16:42:40Z",
+  "updated": "2026-09-04T17:35:43Z",
   "version": 1
 }
