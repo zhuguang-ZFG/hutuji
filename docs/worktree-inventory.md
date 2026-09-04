@@ -19,7 +19,7 @@
 | 范围 | 新增 `mcp-server/hutuji_mcp/{doc_ingest,table_layout,article_pages}.py`；改 `server.py`（WRITE_PAGE_* 与 `_pages_argument` 下沉 article_pages、保留别名）、`gcode_gen.py`（同步 `svg_to_gcode` 收 `normalize=`）、`write_text.py` 未动；portal 侧 `upload_kinds/pipeline/push/config/app/index.html` + `deploy/env.draw-portal.example` |
 | 语义 | docx/pptx/txt → 文章链「写出」（write_text 同参数）；xlsx/csv → 表格链「画出」（格线折线笔画+格内字，同过 §5 闸）；job 主 basename 恒 = 第 1 页，整篇页表存 job_dir `pages.json`（无 DB 迁移）；发送时 `publish_doc_pages` 逐页重发布 + `page_ttl_offsets` 错峰 + `pages_argument` 单源序列化 |
 | 测试 | mcp-server `test_doc_ingest.py` 26 项 + `test_table_layout.py` 11 项（含真 vpype normalize=False 端到端）；draw-portal `tests/` 41 项（新增 `test_doc_upload.py` 7 项端点路由/错误映射/整篇发送 pages 参数钉死）；门禁 hub 层不覆盖 portal 测试，单独跑 |
-| 部署状态 | **已部署（2026-09-04 19:35，见 `docs/deployment.md` 首条）**：11 文件双机 SHA 逐位相符、双机 draw-portal.env 幂等补 `DRAW_PORTAL_GFONT_DIR`；生产冒烟双机 SMOKE PASS（docx 813 行 / xlsx 表格 334 行 G-code，真字库真 vpype）；preflight 回基线 24/33、28/33。**20:10 追加**：标题/编号批 `4637b56` 双机上线（列表编号还原）。**21:35 再追加**：标题放大居中批 `f3247f9` 双机上线（18mm 放大+落墨居中 95.0 实证，冒烟 SMOKE PASS 双机逐位相同、preflight 回基线）。真实设备 HIL 未执行 |
+| 部署状态 | **已部署（2026-09-04 19:35，见 `docs/deployment.md` 首条）**：11 文件双机 SHA 逐位相符、双机 draw-portal.env 幂等补 `DRAW_PORTAL_GFONT_DIR`；生产冒烟双机 SMOKE PASS（docx 813 行 / xlsx 表格 334 行 G-code，真字库真 vpype）；preflight 回基线 24/33、28/33。**20:10 追加**：标题/编号批 `4637b56` 双机上线（列表编号还原）。**21:35 再追加**：标题放大居中批 `f3247f9` 双机上线（18mm 放大+落墨居中 95.0 实证，冒烟 SMOKE PASS 双机逐位相同、preflight 回基线）。**21:55 再追加**：Y 方向定案批 `b05f81f` 双机上线（关 vertical_flip，首笔 Y=8.0 原点侧冒烟实证；用户纸面复验待做）。真实设备 HIL 未执行 |
 
 
 
