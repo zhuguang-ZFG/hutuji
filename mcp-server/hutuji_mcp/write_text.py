@@ -247,10 +247,13 @@ def layout_text(
     # 逐段处理；段内折行，段首缩进
     paragraphs = text.split("\n")
     truncated = False
-    for para_index, paragraph in enumerate(paragraphs):
+    for paragraph in paragraphs:
+        # 空白段（零字符或纯空格/制表）整段跳过不产空行——省纸取向的显式取舍
+        if not paragraph.strip():
+            continue
         tokens = _tokenize(paragraph)
         line_no_on_page = page.line_count
-        x_cursor = layout.margin_left_mm + (indent_mm if paragraph.strip() else 0.0)
+        x_cursor = layout.margin_left_mm + indent_mm
         y_baseline = (
             layout.margin_top_mm
             + metrics.baseline_to_top * scale
@@ -304,6 +307,14 @@ def layout_text(
                 i += 1
                 continue
             adv = token_advance_mm(tok)
+            # 长词硬断：单 token（长 URL/英文串）宽度超整行时逐字切分——旧行为
+            # 整词独占一行把墨迹顶出 §5 页限被 validate_gcode 整单拒绝
+            # （2026-09-04 实测 60 个 x 墨至 288mm）。必须先切再算 overflow：
+            # 否则未断的整条长尾先把单字行头冲成「每字一行」的病态排版
+            if len(tok) > 1 and adv > layout.text_width_mm:
+                tokens.insert(i + 1, tok[1:])
+                tok = tok[0]
+                adv = token_advance_mm(tok)
             overflow = line_width + adv > layout.text_width_mm and line_tokens
             # 避头：闭标点不置行首、并入当前行末——但并入后墨迹不得越 §5 页限
             # （190mm 硬线）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
@@ -326,6 +337,8 @@ def layout_text(
                 if line_tokens:
                     if not flush_line():
                         if len(pages) + 1 >= max_pages:
+                            # 截断边界上 carried 开标点随未排文本一起丢弃——
+                            # truncated=True 已如实上报，不为半个标点单独续页
                             truncated = True
                             break
                         new_page()
@@ -424,6 +437,12 @@ def page_to_preview_png(page: LaidOutPage) -> bytes:
     return iio.imwrite("<bytes>", canvas, extension=".png")
 
 
+def _read_font_bytes(path: str) -> bytes:
+    """读字库文件字节；独立成函数让 OSError 归一收窄、测试可注入故障。"""
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
 def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
     """按显示名或文件名词解析字库；name 为空时取目录中字数最多的字库。"""
     if not fonts_dir or not os.path.isdir(fonts_dir):
@@ -448,8 +467,9 @@ def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
         best_count = -1
         for path in candidates:
             try:
-                font = GfontFile.parse(open(path, "rb").read())
-            except GfontError:
+                font = GfontFile.parse(_read_font_bytes(path))
+            except (GfontError, OSError):
+                # 坏文件/读失败跳过——目录扫描要尽力找出可用字库
                 continue
             if font.meta.declared_count > best_count:
                 best_count = font.meta.declared_count
@@ -458,6 +478,6 @@ def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
             raise WriteTextError("目录内无可用字库")
 
     try:
-        return GfontFile.parse(open(chosen, "rb").read())
-    except GfontError as exc:
-        raise WriteTextError(f"字库解析失败：{os.path.basename(chosen)}：{exc}") from exc
+        return GfontFile.parse(_read_font_bytes(chosen))
+    except (GfontError, OSError) as exc:
+        raise WriteTextError(f"字库读取或解析失败：{os.path.basename(chosen)}：{exc}") from exc

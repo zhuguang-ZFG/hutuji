@@ -623,3 +623,64 @@ def test_hutuji_write_rejects_empty_and_overlong(monkeypatch):
         asyncio.run(server.hutuji_write("   "))
     with pytest.raises(WriteTextError, match="文本超长"):
         asyncio.run(server.hutuji_write("字" * 5001))
+
+def test_layout_hard_breaks_overlong_latin_token():
+    """单 token 超整行宽（长 URL/英文串）逐字硬断折行。旧行为整词独占一行、
+    墨迹顶出 §5 页限被 validate_gcode 整单拒绝（2026-09-04 实测 60 个 x 墨至 288mm）。"""
+    font = _fixture_font()
+    metrics = _fixture_metrics()
+    layout = write_text.WriteLayout(paragraph_indent=0)
+    result = write_text.layout_text("A" * 60, font, metrics, layout)
+    # 每行恰 25 字（夹具 A 步进 6.8mm，174/6.8=25）：旧行为 1 行越界 288mm；
+    # guard 误放 overflow 之后曾退化成「每字一行」——行数必须精确钉 3
+    assert result.pages[0].line_count == 3
+    total_strokes = sum(len(p.strokes) for p in result.pages)
+    assert total_strokes == 60  # 拆字不丢字：每个 A 一条三角笔画
+    max_x = max(x for p in result.pages for s in p.strokes for x, _ in s.points)
+    assert max_x <= write_text._PAGE_LIMIT_MM  # §5 硬线（旧行为约 288mm）
+    assert max_x <= layout.margin_left_mm + layout.text_width_mm
+
+
+def test_layout_skips_blank_and_whitespace_paragraphs():
+    """空段与纯空白段（空格/制表）都整段跳过、不产空行——省纸取向。"""
+    font = _fixture_font()
+    metrics = _fixture_metrics()
+    result = write_text.layout_text("中\n \n\t\n\n文", font, metrics, write_text.WriteLayout())
+    assert result.pages[0].line_count == 2  # 旧行为纯空白段各占一行
+    total_strokes = sum(len(p.strokes) for p in result.pages)
+    assert total_strokes == 2
+
+
+def test_load_font_default_scan_skips_unreadable(tmp_path, monkeypatch):
+    """默认（字数最多）扫描遇到读失败的文件跳过而非裸抛 OSError。"""
+    small = tmp_path / "a小字库.gfont"
+    big = tmp_path / "b大字库.gfont"
+    small.write_bytes(
+        _build_v2_font({"永": (_BOX_POINTS, _BOX_VERBS), "国": (_BOX_POINTS, _BOX_VERBS)})
+    )
+    big.write_bytes(
+        _build_v2_font({ch: (_BOX_POINTS, _BOX_VERBS) for ch in "永国中文字"})
+    )
+    real_read = write_text._read_font_bytes
+
+    def flaky(path: str) -> bytes:
+        if str(path).endswith("b大字库.gfont"):
+            raise OSError("模拟读失败")
+        return real_read(path)
+
+    monkeypatch.setattr(write_text, "_read_font_bytes", flaky)
+    font = write_text.load_font(str(tmp_path))
+    assert font.meta.declared_count == 2
+
+
+def test_load_font_named_read_failure_maps_to_write_text_error(tmp_path, monkeypatch):
+    (tmp_path / "x字库.gfont").write_bytes(
+        _build_v2_font({"永": (_BOX_POINTS, _BOX_VERBS)})
+    )
+
+    def boom(path: str) -> bytes:
+        raise OSError("模拟读失败")
+
+    monkeypatch.setattr(write_text, "_read_font_bytes", boom)
+    with pytest.raises(WriteTextError, match="字库"):
+        write_text.load_font(str(tmp_path), "x字库")

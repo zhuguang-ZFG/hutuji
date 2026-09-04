@@ -12,6 +12,19 @@
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
 
+### 故障处理审计收口：长词硬断 + 空白段跳过 + 字库 IO 收窄 + breaker 故障隔离（2026-09-04 傍晚，审计发现 + 用户拍板「统一修复」）
+
+| 项 | 说明 |
+|----|------|
+| 动机 | MCP 服务故障处理全面审计结论：核心路径合适（fail-closed/窄异常/取消语义/资源回收均有测试钉死），排版链 2 缺陷 + 工程面 3 弱点待修；用户拍板统一修复 |
+| D1 长词硬断 | docstring 虚称「长词硬断」实测从未实现：单 token（长 URL/英文串）超行宽时独占一行、墨迹顶出 §5 页限（实测 60 个 x 墨至 **288mm**）被 `validate_gcode` 整单拒绝。实现：`adv` 计算后立即逐字切分（`tokens.insert(i+1, tok[1:])` 尾回队），**必须先切再算 overflow**——首版误放 overflow 检查之后，未断长尾先把单字行头冲成「每字一行」病态（实测 60 字排成 3 页 27 行），测试用精确行数钉死防退化。修复后真字库实证：60 字 1 页 2 行、max X=177.8mm |
+| D2 空白段跳过 | docstring 称空段跳过，纯空格/制表段实际仍占一整行（空 flush 也增 line_count）；修为段循环头部 `paragraph.strip()` 判空整段 continue，顺带去掉段落枚举冗余与恒真条件 |
+| W1 字库 IO | `load_font` 两处 `open(...).read()` 裸抛 OSError 且未用 with 关句柄；抽 `_read_font_bytes()` 独立函数（可注入故障），扫描循环与终选解析统一 `except (GfontError, OSError)`——扫描跳过坏文件继续选最全，终选映射 `WriteTextError`（用户可读白话） |
+| W2 | 截断边界 carried 开标点丢弃属预期行为：补注释钉死「truncated=True 如实上报，不为半个标点单独续页」 |
+| W3 breaker | ① 状态 JSON 损坏旧静默按 closed → 补 warning（`get_state`/`list_open_backends` 两处）；② **Redis 掉线会砸付费生成主链**（`record_outcome`/`is_open` 裸传 ConnectionError）——store 交互包 try/except 故障隔离：失败只告警、按无闸放行（可用性优先；账本事件独立于熔断存储照常入队） |
+| 测试 | `test_write_text.py` 24→28（长词硬断精确行数钉死/空白段跳过/扫描跳过读失败/具名字库读失败映射）、`test_breaker.py` 4→7（损坏 JSON 告警、record_outcome 存储故障存活、enforce 下 is_open fail-open）；计数三处同步（AGENTS.md×2 + 本文件 rollup），全套 **1166** |
+| 部署状态 | 待部署：门禁绿后双机上线 write_text.py + breaker.py（回来补登记到 `docs/deployment.md`） |
+
 ### 排版避头并入加 190 上限 + 避尾补齐 + 默认最全字库钉死（2026-09-04 下午，advisory + 用户指令）
 
 | 项 | 说明 |
@@ -116,7 +129,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1159** 项，2026-09-03 热备/看门狗批 +2：设备 token 看门狗形态钉死 + nginx 模板携带 portal location（test_contract.py 620→622）；2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1166** 项（2026-09-04 故障收口批 +7：test_write_text.py 24→28——长词硬断/空白段跳过/字库读失败收窄×2；test_breaker.py 4→7——损坏 JSON 告警/record_outcome 存储故障存活/enforce 下 is_open fail-open），2026-09-03 热备/看门狗批 +2：设备 token 看门狗形态钉死 + nginx 模板携带 portal location（test_contract.py 620→622）；2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 

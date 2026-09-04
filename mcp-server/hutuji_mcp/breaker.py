@@ -94,6 +94,7 @@ class RedisBreakerStore:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
+            logger.warning("breaker 状态 JSON 损坏按 closed 处理 backend=%s", backend_id)
             return {"state": "closed"}
         return data if isinstance(data, dict) else {"state": "closed"}
 
@@ -116,6 +117,7 @@ class RedisBreakerStore:
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
+                logger.warning("breaker 状态 JSON 损坏跳过 key=%s", str(key))
                 continue
             if data.get("state") in ("open", "half_open"):
                 open_ids.append(str(key).removeprefix(BREAKER_PREFIX))
@@ -229,9 +231,19 @@ def _cached_is_open(backend_id: str) -> bool:
         entry = _cache.get(backend_id)
         if entry and now - entry.at < 0.1:
             return entry.state.get("state") in ("open", "half_open")
-    store = get_store()
-    evaluated = _evaluate_state(backend_id, store, now=time.time())
-    store.set_state(backend_id, evaluated)
+    try:
+        store = get_store()
+        evaluated = _evaluate_state(backend_id, store, now=time.time())
+        store.set_state(backend_id, evaluated)
+    except Exception as exc:
+        # 熔断存储（Redis）故障不得砸付费生成主链：按 closed 放行（可用性
+        # 优先），告警日志让运维发现掉线——enforce 期丢的是保护不是出图
+        logger.warning(
+            "breaker 状态读取失败按 closed 放行 backend=%s（%s）",
+            backend_id,
+            type(exc).__name__,
+        )
+        return False
     with _cache_lock:
         _cache[backend_id] = _CacheEntry(evaluated, now)
     if evaluated.get("state") == "open" and not breaker_enforce_enabled():
@@ -259,18 +271,31 @@ def record_outcome(
     from . import job_ledger
 
     now = time.time()
-    store = get_store()
-    store.record_sample(backend_id, outcome, now=now)
-    evaluated = _evaluate_state(backend_id, store, now=now)
-    store.set_state(backend_id, evaluated)
-    with _cache_lock:
-        _cache[backend_id] = _CacheEntry(evaluated, time.monotonic())
+    try:
+        store = get_store()
+        store.record_sample(backend_id, outcome, now=now)
+        evaluated = _evaluate_state(backend_id, store, now=now)
+        store.set_state(backend_id, evaluated)
+    except Exception as exc:
+        # 熔断存储（Redis）故障不得砸付费生成主链：样本/状态丢失只告警，
+        # 按无闸放行——账本事件独立于熔断存储，照常入队
+        logger.warning(
+            "breaker 记录失败按放行处理 backend=%s（%s）",
+            backend_id,
+            type(exc).__name__,
+        )
+        evaluated = None
+    if evaluated is not None:
+        with _cache_lock:
+            _cache[backend_id] = _CacheEntry(evaluated, time.monotonic())
     job_ledger.schedule_backend_event(
         backend_id=backend_id,
         outcome=outcome,
         latency_ms=latency_ms,
         job_id=job_id,
     )
+    if evaluated is None:
+        return
     if evaluated.get("state") == "open" and not breaker_enforce_enabled():
         logger.info(
             "breaker shadow backend=%s outcome=%s state=open enforce=0",
