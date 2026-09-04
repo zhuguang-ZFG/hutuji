@@ -361,8 +361,8 @@ def layout_text(
                 adv = token_advance_mm(tok)
             overflow = line_width + adv > layout.text_width_mm and line_tokens
             # 避头：闭标点不置行首、并入当前行末——但并入后墨迹不得越 §5 页限
-            # （190mm 硬线）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
-            # 被 validate_gcode 整单拒绝（2026-09-04 测试实锤：无上限时墨至 198mm）。
+            # （277mm 硬线）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
+            # 被 validate_gcode 整单拒绝（2026-09-04 测试实锤：无上限时墨至 288mm）。
             # 超限则避头让位、照常折行——标点行首是外观妥协，越界是整篇写不出。
             merge_into_line = (
                 tok in _NO_LINE_START
