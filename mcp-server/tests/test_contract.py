@@ -4895,8 +4895,9 @@ def test_gwrite_profile_matches_production_shape() -> None:
     profile = tomllib.loads(toml_path.read_text(encoding="utf-8"))["gwrite"]["hutuji"]
 
     assert profile["unit"] == "mm"
-    # Y 不翻转（2026-09-04 定案）：SVG 顶=机器 Y 小=原点侧起笔，对齐奎享产物首笔 Y≈1.1
-    assert profile["vertical_flip"] is False
+    # Y 翻转开（2026-09-06 定案，supersede 09-04）：墙上竖装实机恒等映射为真镜像，
+    # flip_y 后头往右歪即正常左→右横读；几何证据链见 toml 注释与 protocol §5
+    assert profile["vertical_flip"] is True
     # 头：G21/G90/F8000 + 两次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路发送）
     assert profile["document_start"] == "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
     assert profile["document_start"].count("G1G90 Z0.0F10000") == 2
@@ -4913,16 +4914,20 @@ def test_gwrite_profile_matches_production_shape() -> None:
         assert "X0Y0" not in profile[key].replace(" ", ""), f"{key} 不得回原点"
 
 
-def test_svg_to_gcode_svg_top_draws_near_origin(tmp_path: Path) -> None:
-    """方向钉：SVG 顶部内容必须先画在 Y 小（原点侧），翻转回归会被本测试当场抓住。
+def test_svg_to_gcode_svg_top_draws_far_side(tmp_path: Path) -> None:
+    """方向钉：SVG 顶部内容必须落在机器 Y 大侧（vertical_flip=true，2026-09-06 定案）。
 
-    证据：奎享 kdraw 真实产物首笔 `G0 X-2.205Y1.092`（近原点起画）；
-    2026-09-04 用户纸面实测 flip=true 时首笔在 Y≈182 远端、方向不对。
+    证据：当日 teach「上」字页用户纸面双 bit 实测——单笔格（X 最小）在墙上最上
+    （机器 X+ 朝房间下）、示范格（Y 最小）在左手边（Y+ 朝房间右）；恒等映射在该
+    象限为真镜像（左歪头读每行右→左），开 flip_y（整页 y→190−y）后头往右歪即
+    正常左→右横读。supersede 2026-09-04「近原点起笔」定案（证据取自图画，翻转
+    不可辨朝向）。翻转回归（回到 false 或 flip 轴错）会被本测试当场抓住。
     """
     from hutuji_mcp import gcode_gen
 
     svg = tmp_path / "orient.svg"
-    # 两条横线：顶线(y=8)与底线(y=180)用不同 X 段区分；Y 顺序即纸面先后顺序
+    # 两条横线：顶线(y=8)与底线(y=180)用不同 X 段区分；页面 190 高，flip 后
+    # y→190−y：顶线落到 Y≈182（机器 Y 大侧）、底线落到 Y≈10。
     svg.write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
         'viewBox="0 0 190 190">'
@@ -4937,8 +4942,8 @@ def test_svg_to_gcode_svg_top_draws_near_origin(tmp_path: Path) -> None:
         for m in re.finditer(r"^G1 X[\d.]+Y([\d.]+)F8000$", gcode.read_text(), re.M)
     ]
     assert len(ys) == 2
-    assert ys[0] < 20, f"SVG 顶线必须落在原点侧 Y 小，实测 {ys[0]}"
-    assert ys[1] > 170, f"SVG 底线必须落在远端 Y 大，实测 {ys[1]}"
+    assert ys[0] > 170, f"SVG 顶线经 flip 必须落在 Y 大侧，实测 {ys[0]}"
+    assert ys[1] < 20, f"SVG 底线经 flip 必须落在 Y 小侧，实测 {ys[1]}"
 
 
 def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:

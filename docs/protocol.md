@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:627-630` 与 `hutuji_recovery_core.h:1084-1166`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:627-630` 与 `hutuji_recovery_core.h:1089-1171`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:501-643`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:521-663`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -449,7 +449,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - **坐标范围与越界策略（拒绝，不裁剪）**：实机 A4 行程 **已由 2026-08-29 实机 `$$` 取证确认**为 `$130=210.000`、`$131=297.000`（`$132=200.000`），且**无限位开关**（`$20=$21=$22=0`，归位/软限位均不可用）；越界可能直接撞机，限幅责任 100% 在 MCP 生成端。
   - **实机 `$$` 取证（2026-08-29，只读）**：CH340 `COM13` 上以 `tmp/query_grbl_settings.py` 仅发 `$I`/`$$`/`?`（`dtr`/`rts` 恒 `False`，不复位、不运动、不写设置），耗时 8.19s，落盘 `tmp/grbl-settings-com13-0829.txt`（`tmp/` 未入库，已登记 `docs/worktree-inventory.md`）。固件自证：`[VER:1.3a.20211103:]`、`[OPT:PHBSW]`、`[MSG:Using machine:Custom 3-Axis HR4988]`、`[MSG:Mode=STA:SSID=…:Status=Connected:IP=192.168.1.13:…]`、`[MSG:No BT]`；关键设置 `$1=255`（步进常励，配合 §5 短段地板）、`$3=7`、`$100=$101=100`、`$110=$111=12000`；状态行 `<Idle|MPos:0.000,0.000,0.000|Bf:249,128|FS:0,0|Pn:0>`（`Pn:` 空 = 无任何限位/探针触发，与无限位开关一致）。
   - **纸面方向（口径冲突已定性）**：2026-08-21 用户口径称 A4「X 为长边（297）、Y 为宽边（210）」，**与实机固件相反**——`$$` 实测 X 行程 210、Y 行程 297。故该口径**不作为行程真值**，只可能是机械安装/放纸方向的描述；**任何据此对调 `$130/$131` 或抬高 X 限幅的改动一律不做**。
-  - **出图方向（2026-09-04 定案）**：SVG 顶（y 小）→ 机器 Y 小 = **原点侧起笔**，profile `vertical_flip = false`；文章/图的首笔落在 Y≈8 近原点处，行序向 Y+ 推进。证据：用户纸面实测 flip=true 首笔翻在 Y≈182 远端、方向不对；奎享 kdraw 真实产物（缓存 `2..10.gcode` 同一内容）首笔 `G0 X-2.205Y1.092` 同为近原点起画。回归钉 `test_svg_to_gcode_svg_top_draws_near_origin` + profile 字面量钉。
+  - **出图方向（2026-09-06 定案，supersede 2026-09-04）**：profile `vertical_flip = true`（整页 y→190−y）。实机为墙上竖装，当日 teach「上」字页用户纸面双 bit 实测：单笔格（X 最小）在墙上最上 ⇒ 机器 X+ 朝房间下；示范格（Y 最小）在左手边 ⇒ 机器 Y+ 朝房间右。该象限下恒等映射（y→y）是**真镜像**——字头朝房间左、行行进朝房间下，头往左歪读每行从右往左；开 flip_y 后字头朝房间右、行行进不变，头往右歪（或纸取下逆时针转 90°）即正常左→右横读、行序自上而下（视觉映射行列式由 −1 变 +1，180° 旋转 det 不变治不了镜像）。09-04「不得开 flip」定案的证据取自图画（翻转不可辨朝向），且当时否的是「首笔翻到 Y≈182 远端」这一**起笔角**而非可读性，被今日文字纸面证据取代；用户「从原点从左往右起写」的完整诉求 = B 案（轴对调 + 竖版 190 重排），已拍板**先 A 后 B**，B 另行排期。回归钉 `test_svg_to_gcode_svg_top_draws_far_side` + profile 字面量钉。
   - **轴角色定案（2026-09-04 用户实机确认）：X 为长边（297 方向）、Y 为宽边（210 方向）**——与用户 08-21 口径一致。`$$` 读到的 `$130=210/$131=297` 是厂商配置值，与物理轴角色相反：本机无限位开关、软限位关闭（`$20=0`），配置行程不进任何安全链，MCP 限幅是唯一防线，故不对调 `$130/$131`（无安全收益且 §9-G′ 锁表只读）。同日中午曾按 `$$` 数值把 277 放到 Y，用户实机判定后当日反转到 X——**轴向争议以用户物理观察为最终裁决**。
   - **X 上限 190→277、Y 维持 190（2026-09-04 定案）**：用户纸面实测「长度没用满」拍板。X 277=297−2×10 边距。同步面：`gcode_gen.MAX_X_MM`（vpype layout 须 `--landscape`，其默认强制竖版会把 277x190 换成 190x277）、write_text `_PAGE_WIDTH_MM`、grbl_sim `_MAX_X_MM`、xiaozhi `kJogEnvelopeMaxXMm`（R17-XREPO-01 互钉）。注意：板上 S3 固件点动包线仍 190，重刷前点动到 190–277 区段会被固件拒——语音/文件出图不受此限。再放宽任何一轴须重新取证并同步点动包线。
   - **可用画幅（现行）**：≤ **277×190mm**，坐标须落在
