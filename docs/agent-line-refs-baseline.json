@@ -1,5 +1,5 @@
 {
-  "git_head": "84d644d6b59475923dd54349aff148f5482948ee",
+  "git_head": "1a44a10a26d590acd21b98ce8a00f9802c5fe261",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -351,7 +351,7 @@
       "source": "\n        // 按队首行类型选 timeout（§3：超时含义是「最老那条等了 timeout」）\n        // c_line 队首对应 spans[lines_sent_]：FIFO + 每次 pop 即 ++lines_sent_，\n        // 换纸行不在 c_line 但同样 ++lines_sent_，索引始终对齐。\n        std::string_view front_sv = LineAt(spans[lines_sent_]);\n        uint32_t timeout = kOkTimeoutMs;\n        {\n            std::string front_line(front_sv);\n            if (LooksLikePlannerSyncLine(front_line))\n                timeout = kPlannerSyncOkTimeoutMs;\n            else if (LooksLikeMotionLine(front_line))\n                timeout = kMotionOkTimeoutMs;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:3253-3259": {
+    "docs/kxnx/findings/17-reconnect-resend-hazard.md -> hutuji_job.cc:3261-3267": {
       "sha8": "008dab73",
       "source": "\n            // 进度屏显 250ms 节流：UpdateDisplayProgress 已走 Application::Schedule\n            // 回主任务（见该函数注释，灌流路径零 UI 阻塞），节流保留为的是约束\n            // 主任务队列流量（≤4 条/秒）。历史：2026-08-24 插桩实证每 ok 一次的\n            // SetStatus 在 LVGL 锁上阻塞 ~60ms/行（68.8s/1151 行，证据\n            // results/local-only/2026-08-24/hil-instr-cat-com14-v4.log 在本机），\n            // 当时只节流未出灌流路径，lichuang 全脸动画下单次锁等待仍达",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -581,9 +581,9 @@
       "source": "            paused_recv_ms = 0;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:3267-3283": {
-      "sha8": "e520c5c8",
-      "source": "            TickType_t now = xTaskGetTickCount();\n            if ((now - last_notify_tick) >= pdMS_TO_TICKS(5000)) {\n                last_notify_tick = now;\n                // R21-F05：进度播报只留百分比——机器坐标/行号对最终用户是噪声\n                // （坐标仍在串口逐行日志可查）。5s 节流不变。\n                // 2026-08-27 半墨复发实锤：Notify 的 cJSON+MQTT/TLS 发布在灌流环内\n                // 同步执行，单次数百 ms（96% 那次撞 700ms 停顿）；planner 缓冲对\n                // ~2mm 碎段只顶 ~250ms；$1=25 时代饿穿即失能→弹簧抬笔→整段丢墨（$1=255 已消灭此失效模式，注释留作历史机理）。\n                // 与 e623aec 屏显同款处理：Schedule 回主任务，灌流环只付入队成本。\n                int pct = lines_total_ > 0 ? static_cast<int>(lines_sent_ * 100 / lines_total_) : 0;\n                char buf[64];\n                snprintf(buf, sizeof(buf), \"出图进度: %d%%\", pct);\n                std::string text(buf);\n                Application::GetInstance().Schedule([this, text]() { Notify(text); });\n            }\n        } else if (wr == WaitResult::Failed) {\n            // error 只丢坏行；character-counting 已灌入 RX 的后续行仍会执行。",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:3275-3291": {
+      "sha8": "e344ad87",
+      "source": "            TickType_t now = xTaskGetTickCount();\n            if ((now - last_notify_tick) >= pdMS_TO_TICKS(5000)) {\n                last_notify_tick = now;\n                // R21-F05：进度播报只留百分比——机器坐标/行号对最终用户是噪声\n                // （坐标仍在串口逐行日志可查）。5s 节流不变。\n                // 2026-08-27 半墨复发实锤：Notify 的 cJSON+MQTT/TLS 发布在灌流环内\n                // 同步执行，单次数百 ms（96% 那次撞 700ms 停顿）；planner 缓冲对\n                // ~2mm 碎段只顶 ~250ms；$1=25 时代饿穿即失能→弹簧抬笔→整段丢墨（$1=255 已消灭此失效模式，注释留作历史机理）。\n                // 与 e623aec 屏显同款处理：Schedule 回主任务，灌流环只付入队成本。\n                int pct = lines_total_ > 0 ? static_cast<int>(lines_sent_ * 100 / lines_total_) : 0;\n                char buf[64];\n                snprintf(buf, sizeof(buf), \"出图进度: %d%%\", pct);\n                std::string text(buf);\n                // 2026-09-06 死会话闸门：音频通道已关（长 job 超云端会话 TTL 被\n                // goodbye）时，播报没人听得到，唯一效果是云端对死会话回 goodbye\n                // 制造 churn（当日满页写字实证 46 次 goodbye + 页尾 180 次 IDLE1\n                // 看门狗）；通道活着时行为不变。屏显进度走另一条路不受影响。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:430": {
@@ -721,7 +721,7 @@
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7409": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7417": {
       "sha8": "47db0d82",
       "source": "def test_gate_rejects_weakened_edit_allowlist(",
       "target": "mcp-server/tests/test_contract.py"
@@ -1016,7 +1016,7 @@
       "source": "        // GPIO34: 3.3V=NoP(无纸), 0V=HavP(有纸)",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/release-readiness.md -> application.cc:1201": {
+    "docs/release-readiness.md -> application.cc:1205": {
       "sha8": "6a10b9cc",
       "source": "void Application::SendMcpMessage(const std::string& payload) {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
@@ -1026,7 +1026,7 @@
       "source": "    protocol_->OnAudioChannelClosed([this, &board]() {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
-    "docs/release-readiness.md -> application.cc:944": {
+    "docs/release-readiness.md -> application.cc:948": {
       "sha8": "9db5f6db",
       "source": "#if CONFIG_SEND_WAKE_WORD_DATA",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
@@ -1231,7 +1231,7 @@
       "source": "  - **圆弧限幅依赖逐行位置跟踪**：包围盒要起点，故校验器逐行维护当前 XY；首个定位指令之前出现 `G2/G3` 一律拒（不猜 `(0,0)`）。且**中途 `G91` 相对坐标一律拒**——位置跟踪假定全程 `G90`，一旦切相对模式，此后每个圆弧起点都错、包围盒静默失真。回归见 `test_arc_*` / `test_mid_file_g91_is_rejected`。",
       "target": "docs/protocol.md"
     },
-    "docs/troubleshooting.md -> gcode_gen.py:879-882": {
+    "docs/troubleshooting.md -> gcode_gen.py:943-946": {
       "sha8": "8d93d9e1",
       "source": "                        f\"越界（限幅 0~{limit}mm）：{line}\"\n                    )\n\n        # 更新当前位置（G90 绝对；本 profile 不产 G91，故不处理相对模式）。",
       "target": "mcp-server/hutuji_mcp/gcode_gen.py"
@@ -1266,7 +1266,7 @@
       "source": "                    vTaskDelay(pdMS_TO_TICKS(2000));\n                    continue;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/troubleshooting.md -> hutuji_job.cc:3253-3259": {
+    "docs/troubleshooting.md -> hutuji_job.cc:3261-3267": {
       "sha8": "008dab73",
       "source": "\n            // 进度屏显 250ms 节流：UpdateDisplayProgress 已走 Application::Schedule\n            // 回主任务（见该函数注释，灌流路径零 UI 阻塞），节流保留为的是约束\n            // 主任务队列流量（≤4 条/秒）。历史：2026-08-24 插桩实证每 ok 一次的\n            // SetStatus 在 LVGL 锁上阻塞 ~60ms/行（68.8s/1151 行，证据\n            // results/local-only/2026-08-24/hil-instr-cat-com14-v4.log 在本机），\n            // 当时只节流未出灌流路径，lichuang 全脸动画下单次锁等待仍达",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
@@ -1297,6 +1297,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-05T11:59:56Z",
+  "updated": "2026-09-05T13:53:16Z",
   "version": 1
 }
