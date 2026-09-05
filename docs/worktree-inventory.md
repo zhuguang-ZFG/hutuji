@@ -11,6 +11,19 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### 出图速度 HIL 判决实验夜场（2026-09-05 晚，机器时间，结论未最终定案）
+
+| 项 | 说明 |
+|----|------|
+| 范围 | 本仓零代码改动；xiaozhi 仓未动（HEAD 仍 `5e90cd3`）。只新增取证脚本与证据日志 |
+| 新脚本（tmp/，gitignored） | `tmp/cap_bf_serial_0905.py`（COM13 只读 `?` 轮询 6.7Hz 抓 Bf/MPos/FS，dtr/rts=False）、`tmp/cap_speed_com14_0906.py`（COM14 全量日志落盘）、`tmp/gen_s1_s4_0906.py`（S1 共线 200 行/S4 单动 50mm 判决包生成+串口/Telnet 发送器，含 Telnet 抢槽重试环）、`tmp/cat_floor_0906.py`（真实 gcode 运动地板分解，含 G2/G3 弧长与 junction deviation 块链仿真） |
+| 证据（results/local-only/2026-09-05/，gitignored） | `hil-speed-com14.log`（COM14 全量，含两次同页灌流与埋点直方图）、`bf-watch-com13-121023.log`（Bf 第一段 12:10–12:42；第二段 cap-bf3 在 hub 监督进程 stdout，文件待 Ctrl+C 落盘）、`tmp/cat_124322.{svg,gcode}`（生产 SVG 拉回本地经 svg_to_gcode 确定性重生成，343 行与实流一致） |
+| 实测结论（S4/S1/双跑） | S4 串口 50mm 单动 1.03s → A′（$$ 失真）排除；S1 串口 200 行 3.17s（ok 齐 0.66s=3.2ms/行）→ D（Grbl 逐行失速）排除；同一张 343 行猫页 ON 变体（日志压制）灌流两次：发送段 26s/25s；运动地板按真实 gcode 算 25.0s（绘制 15.5+Z 3.4+G0 6.1）——**灌流段贴运动地板，残差 ~1s 级**；页尾归位/纸态段另有 7–8 次 1000ms 应答超时（≈8s/页纯等待，独立可行动项） |
+| Bf 轨迹关键读数 | 6.7Hz 采样下 planner 全程未满（Bf 最低 100，多数 200–249）；曾抓到 0.15s 内 Bf 249→174（75 块）——**经 fable Round-5 纠正并本地复核定案：这不是 75 行 ok 爆发（在途上限 32 行，物理不可能），而是一条 G3 弧被 $12=0.002 切成数十根弦逐块入 planner（每弦 plan_buffer_line+recalc ≈2ms）**，「telnet 快路径」证据不成立；稳态 ok 节拍 ~73ms/行（埋点直方图 ok 延迟均 1387–1455ms、在途 17–32 行窗口顶满）。两端 TCP_NODELAY 均已源码确认（xiaozhi `hutuji_pipe.cc` setsockopt / Grbl `TelnetServer.cpp:94` setNoDelay）。**fable 否决延迟 ACK/Nagle 归因**（双端 NODELAY + lwIP quick-ack 每 2 段即 ACK + 双向捎带，互锁不成立）；候选收敛为「ok 在执行时而非入 planner 时送达」的未知队列（Grbl→S3 TX 方向或 fork 内 loopTask 每行写路径） |
+| 心跳发现 | S3 的 `?` 探活是**静默触发**（`hutuji_pipe.cc:250` recv 超时分支才发），灌流期间 ok 流不断 → 全程不发 `?` → 今晚数据无灌流期 `?` RTT（fable 指定的 C/D 判别字段）；灌流 25s 内 Grbl 状态报告零到达属预期行为非扣留证据。Bf 第二字段在全部采样点 = 1200（telnet RX 空，但无灌流中采样）。判别改由明日 PC-telnet 对照实验注入 150ms 周期 `?` 取得 |
+| 会诊状态 | fable Round-5 已收齐（通道两次挂起后第三次成功）：纠正两处误读（弧爆发/猫页残差≈0）、否决延迟 ACK 归因、给出「?」RTT 判别表（5–30ms→D loopTask 逐行服务器；≈1.4s→C TCP；请求快但回包与 ok 同批→Grbl→S3 TX 方向）、写字页 58ms/行残差若明日复现则锁定「loopTask 每行固定开销」（WiFiClient::write 等可写/Telnet_Server::write 末尾 wait(0)/每行状态报告写），并指出合包吞 ok 旧案更可能是 S3 解析器按 recv 边界计数的 bug 而非协议问题（值得回头查） |
+| 明日待办（判决） | ① 先用今天固件状态经 S3 重跑写字页前 1000 行——113ms/行若消失则整套 TCP 议题无回报（fable 预测矩阵：健康≈47s / Grbl 固定开销≈110s）；② PC→Grbl telnet 三文件对照（S1 200 行 + 猫页 343 行 + 写字页 1000 行），PC 侧 TCP_NODELAY + 150ms 周期 `?` + 同字段记录 + Wireshark 抓包，S3 物理离线（含 WebUI 页全关）；③ S3→PC 假 Grbl + Wireshark（零固件改动，可先跑）；④ 页尾超时等待（8s/页）立项修复——fable 指出这是猫页 26s 里的 30–50%，收益大于全部 TCP 议题 |
+
 ### 文档导入（Word/Excel/PPT/CSV/TXT → 写出/画表格）经 draw-portal 传图页（2026-09-04，用户原话「三种全做」）
 
 | 项 | 说明 |
