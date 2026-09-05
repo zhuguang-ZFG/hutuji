@@ -10,9 +10,10 @@
   不做 ink-box 紧贴。
 
 排版规则（中文文章）：
-- 页区 = (277-左右边距) × (190-上下边距) mm（§5 限幅 X≤277/Y≤190 是硬线；X 长边 2026-09-04 用户实机确认）
+- 页区 = (190-左右边距) × (277-上下边距) mm（竖版 B 案：宽 190mm 阅读方向、高 277mm 行推进；
+  转置由 gcode_gen 在 G-code 层做机器 X:=SVG y、Y:=SVG x，墙上站直横读）
 - \n 分段，段首缩进 2 个全宽字；CJK 任意折行，拉丁按空格折行、长词硬断
-- 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——并入上一行末，但以 §5 页限（277mm）为上界，超限让位折行
+- 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——并入上一行末，但以页宽（190mm）为上界，超限让位折行
 - 避尾：行尾禁「（【《「『“‘」等开标点——弹出随下一行行首
 - 空段：连续 \n 不产出空行（空白段被跳过）；普通段间距只有缩进一种表达——省纸取向的显式取舍
 - 标题段（headings 参数，文档导入链检出）：18mm 放大落墨（占 heading_rows 个正文行带）、
@@ -28,8 +29,11 @@ from dataclasses import dataclass, field
 from .gfont import GfontError, GfontFile, GlyphData, glyph_advance, glyph_to_polylines
 
 # §5 硬限幅分轴（gcode_gen.MAX_X_MM/MAX_Y_MM 同源；此处自守不 import 防循环）
-_PAGE_WIDTH_MM = 277.0   # X 长边：297 − 2×10 边距（2026-09-04 用户实机确认 X 长 Y 宽）
-_PAGE_HEIGHT_MM = 190.0  # Y 宽边：210 − 2×10 边距
+# 竖版 B 案（2026-09-06 用户拍板「不要横着写，要竖着写」）：机器墙上竖装，撰写页
+# 宽=190mm（SVG x 阅读方向）、高=277mm（SVG y 行推进方向）。gcode_gen 在 G-code 层
+# 做转置（机器 X:=SVG y、Y:=SVG x），所以本文件只管竖版撰写页几何。
+_PAGE_WIDTH_MM = 190.0   # 竖版页宽：210 − 2×10 边距（SVG x 阅读方向向右）
+_PAGE_HEIGHT_MM = 277.0  # 竖版页高：297 − 2×10 边距（SVG y 行推进向下）
 
 # 行首禁排标点（避头）；行尾禁排开标点（避尾）
 _NO_LINE_START = set("，。！？；：、）】》」』”’…—·～％")
@@ -361,7 +365,7 @@ def layout_text(
                 adv = token_advance_mm(tok)
             overflow = line_width + adv > layout.text_width_mm and line_tokens
             # 避头：闭标点不置行首、并入当前行末——但并入后墨迹不得越 §5 页限
-            # （277mm 硬线）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
+            # （190mm 硬线，竖版撰写页宽）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
             # 被 validate_gcode 整单拒绝（2026-09-04 测试实锤：无上限时墨至 288mm）。
             # 超限则避头让位、照常折行——标点行首是外观妥协，越界是整篇写不出。
             merge_into_line = (
@@ -428,8 +432,8 @@ def layout_text(
 def page_to_svg(page: LaidOutPage) -> str:
     """落笔路径 → 单线 SVG（元素白名单内：仅 <svg>/<path>，属性最简）。"""
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="277mm" height="190mm" '
-        f'viewBox="0 0 277 190">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" '
+        f'viewBox="0 0 190 277">'
     ]
     for stroke in page.strokes:
         d = "M" + "L".join(f"{x:.3f},{y:.3f}" for x, y in stroke.points)

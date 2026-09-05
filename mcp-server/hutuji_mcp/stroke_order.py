@@ -9,7 +9,7 @@ ARPHICPL.TXT 随数据目录分发）。与奎享 .gfont 字库笔画的关键�
 本模块翻转成页面 y 向下。每个字按全部笔画的联合包围盒等比缩放居中进格子，
 全字所有面板共用同一变换（渐显不跳动）。
 
-页面版式（277×190 横版，与 §5 限幅同源）：首行大字（全笔成形 30mm 田字格）
+页面版式（190×277 竖版，与 §5 限幅同源）：首行大字（全笔成形 30mm 田字格）
 + 渐显面板（第 k 格 = 前 k 笔，田字格 + 格右下角中文步序数字）；放不下的面板
 续页（续页无大字头）。可读性优先于省纸：每字起新页。
 """
@@ -24,17 +24,17 @@ from .write_text import LaidOutPage, LayoutResult, _PenStroke
 
 _GRID_UNITS = 1024.0  # 源数据坐标幅面
 
-# 版式常量（mm，277×190 页）
+# 版式常量（mm，190×277 竖版）
 _MARGIN_MM = 8.0
 _HEADER_CELL_MM = 30.0  # 首行大字格
 _HEADER_STRIP_MM = 36.0  # 大字格 + 下方余白
 _PANEL_GAP_MM = 3.0
 _PANEL_CELL_MM = 34.0  # 渐显格子固定尺寸（再大纸张利用率低，再小笔画挤）
-_PANEL_COLS_MAX = 6
+_PANEL_COLS_MAX = 5  # 竖版页宽 190：5 格×34 + 4 间隙×3 = 182 ≤ 190
 _LABEL_SIZE_MM = 6.0  # 步序数字尺寸
 
-_PAGE_W_MM = 277.0
-_PAGE_H_MM = 190.0
+_PAGE_W_MM = 190.0
+_PAGE_H_MM = 277.0
 
 
 class StrokeOrderError(Exception):

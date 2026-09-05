@@ -65,7 +65,7 @@ def test_layout_progressive_panels_and_bounds(tmp_path):
     xs = [x for s in page.strokes for x, _ in s.points]
     ys = [y for s in page.strokes for _, y in s.points]
     assert min(xs) >= 0 and min(ys) >= 0
-    assert max(xs) <= 277.0 and max(ys) <= 190.0  # §5 硬线
+    assert max(xs) <= 190.0 and max(ys) <= 277.0  # §5 硬线
     # 面板格数 = 笔数：每个面板一个田字格外框（4 边 1 笔），外框数 = 1（大字）+4（面板）
     frames = [s for s in page.strokes if len(s.points) == 5 and s.points[0] == s.points[-1]]
     assert len(frames) == 5
@@ -102,17 +102,14 @@ def test_layout_missing_chars_and_empty(tmp_path):
 
 
 def test_layout_paginates_many_strokes(tmp_path):
-    """龘 21 笔：首页 6 列×3 行=18 格 → 3 格续页；续页无大字头。"""
+    """龘 21 笔：竖版 5 列×6 行=30 格 ≥ 21 → 全在一页。"""
     data = StrokeData.load(str(_write_fixture(tmp_path)))
     res = stroke_order.layout_teach("龘", data)
-    assert len(res.pages) == 2
+    assert len(res.pages) == 1
     assert not res.truncated
     frames_p1 = [s for s in res.pages[0].strokes
                  if len(s.points) == 5 and s.points[0] == s.points[-1]]
-    frames_p2 = [s for s in res.pages[1].strokes
-                 if len(s.points) == 5 and s.points[0] == s.points[-1]]
-    assert len(frames_p1) == 1 + 18  # 大字 + 18 面板
-    assert len(frames_p2) == 3  # 续页 3 面板，无大字
+    assert len(frames_p1) == 1 + 21  # 大字 + 21 面板（全在一页）
 
 
 def test_layout_step_labels_present(tmp_path):
@@ -158,7 +155,7 @@ def test_hutuji_teach_end_to_end(tmp_path, monkeypatch):
         name = p["url"].rsplit("/", 1)[-1]
         stats = validate_gcode((out_dir / name).read_text(encoding="utf-8"))
         assert stats.lines > 10
-        # 教学页无版式管线：X 可超 190（横版 277 页宽）但不得越 277
+        # 竖版转置后 G-code X = SVG y（≤277），Y = SVG x（≤190）
         xs = [float(m.group(1)) for m in re.finditer(r"X(-?[\d.]+)", (out_dir / name).read_text())]
         assert max(xs) <= 277.0
 

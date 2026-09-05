@@ -4794,12 +4794,12 @@ def test_vpype_pipeline_normalizes_layout(tmp_path: Path, monkeypatch) -> None:
     assert cmd[cmd.index("layout") + 1] == "--fit-to-margins"
     # 边距与画布必须钉死：只断言「有 layout」的话，改成 0 边距照样全绿
     assert cmd[cmd.index("layout") + 2] == f"{gcode_gen.LAYOUT_MARGIN_MM:.0f}mm"
-    # 横版页（X 长）必须显式 --landscape：vpype layout 默认强制竖版会把 277x190
-    # 换成 190x277，内容 Y 越出限幅（2026-09-04 轴反转后全套 layout 测试实锤）
-    if gcode_gen.MAX_X_MM > gcode_gen.MAX_Y_MM:
-        assert cmd[cmd.index("layout") + 3] == "--landscape"
-    assert cmd[cmd.index("layout") + 3 + (1 if gcode_gen.MAX_X_MM > gcode_gen.MAX_Y_MM else 0)] == (
-        f"{gcode_gen.MAX_X_MM:.0f}x{gcode_gen.MAX_Y_MM:.0f}mm"
+    # 竖版撰写页（B 案 2026-09-06）：layout 目标 = PAGE_AUTHOR_*（190x277），页宽 < 页高
+    # 时 vpype 默认竖版正是所需，不得再带 --landscape（带了会强制换回横版 277x190，
+    # 转置后 Y=撰写 x 越出 190 限幅被整单拒）。
+    assert "--landscape" not in cmd, f"竖版页不得加 --landscape：{cmd}"
+    assert cmd[cmd.index("layout") + 3] == (
+        f"{gcode_gen.PAGE_AUTHOR_WIDTH_MM:.0f}x{gcode_gen.PAGE_AUTHOR_HEIGHT_MM:.0f}mm"
     )
 
 
@@ -4876,8 +4876,12 @@ def test_svg_to_gcode_layout_handles_vertical_line(tmp_path: Path) -> None:
     gcode_gen.svg_to_gcode(svg, gcode)
 
     min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
-    assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
-    assert max_y - min_y == pytest.approx(170.0, abs=2.0), "竖线必须被拉满到边距内"
+    # B 案转置后：撰写系的竖线（x 恒定、y 长）变成 G-code 里沿机器 X 的长线
+    # （X=撰写 y），机器 Y 恒等于撰写 x（居中 = 页宽 190 的一半）。
+    assert (min_y + max_y) / 2 == pytest.approx(gcode_gen.PAGE_AUTHOR_WIDTH_MM / 2, abs=1.0)
+    assert max_x - min_x == pytest.approx(
+        gcode_gen.PAGE_AUTHOR_HEIGHT_MM - 2 * gcode_gen.LAYOUT_MARGIN_MM, abs=2.0
+    ), "竖线必须被拉满到边距内（转置后落在机器 X 方向）"
 
 
 def test_gwrite_profile_matches_production_shape() -> None:
@@ -4895,9 +4899,10 @@ def test_gwrite_profile_matches_production_shape() -> None:
     profile = tomllib.loads(toml_path.read_text(encoding="utf-8"))["gwrite"]["hutuji"]
 
     assert profile["unit"] == "mm"
-    # Y 翻转开（2026-09-06 定案，supersede 09-04）：墙上竖装实机恒等映射为真镜像，
-    # flip_y 后头往右歪即正常左→右横读；几何证据链见 toml 注释与 protocol §5
-    assert profile["vertical_flip"] is True
+    # 方向配置（2026-09-06 晚 B 案定案）：flip 回 false，transpose_xy=true 接管——
+    # 竖版撰写 190x277 + G-code 转置（机器 X:=SVG y），墙上竖装站直横读
+    assert profile["vertical_flip"] is False
+    assert profile["transpose_xy"] is True
     # 头：G21/G90/F8000 + 两次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路发送）
     assert profile["document_start"] == "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
     assert profile["document_start"].count("G1G90 Z0.0F10000") == 2
@@ -4914,20 +4919,19 @@ def test_gwrite_profile_matches_production_shape() -> None:
         assert "X0Y0" not in profile[key].replace(" ", ""), f"{key} 不得回原点"
 
 
-def test_svg_to_gcode_svg_top_draws_far_side(tmp_path: Path) -> None:
-    """方向钉：SVG 顶部内容必须落在机器 Y 大侧（vertical_flip=true，2026-09-06 定案）。
+def test_svg_to_gcode_transposes_xy_for_wall_portrait(tmp_path: Path) -> None:
+    """方向钉（B 案 2026-09-06 晚，supersede 当日两次 flip 定案）：transpose_xy=true 时
+    产出 G-code 必须满足 机器 X=撰写 y、机器 Y=撰写 x（竖版页站直横读、起笔落原点角）。
 
-    证据：当日 teach「上」字页用户纸面双 bit 实测——单笔格（X 最小）在墙上最上
-    （机器 X+ 朝房间下）、示范格（Y 最小）在左手边（Y+ 朝房间右）；恒等映射在该
-    象限为真镜像（左歪头读每行右→左），开 flip_y（整页 y→190−y）后头往右歪即
-    正常左→右横读。supersede 2026-09-04「近原点起笔」定案（证据取自图画，翻转
-    不可辨朝向）。翻转回归（回到 false 或 flip 轴错）会被本测试当场抓住。
+    证据：当日 teach「上」字页用户纸面双 bit 实测（机器 X+ 朝房间下、Y+ 朝房间右、
+    原点墙面左上）；转置在撰写系内是反射（det −1），与竖装奇象限相消成正常横读。
+    转置被拆除/轴搞反/flip 复活都会被本测试当场抓住。
     """
     from hutuji_mcp import gcode_gen
 
     svg = tmp_path / "orient.svg"
-    # 两条横线：顶线(y=8)与底线(y=180)用不同 X 段区分；页面 190 高，flip 后
-    # y→190−y：顶线落到 Y≈182（机器 Y 大侧）、底线落到 Y≈10。
+    # 两条横线（撰写系）：顶线 y=8、x∈[10,50]；底线 y=180、x∈[100,140]。
+    # 转置后：顶线 → G-code X=8、Y∈[10,50]；底线 → X=180、Y∈[100,140]。
     svg.write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
         'viewBox="0 0 190 190">'
@@ -4937,13 +4941,17 @@ def test_svg_to_gcode_svg_top_draws_far_side(tmp_path: Path) -> None:
     )
     gcode = tmp_path / "orient.gcode"
     gcode_gen.svg_to_gcode(svg, gcode, normalize=False)
-    ys = [
-        float(m.group(1))
-        for m in re.finditer(r"^G1 X[\d.]+Y([\d.]+)F8000$", gcode.read_text(), re.M)
+    moves = [
+        (float(m.group(1)), float(m.group(2)))
+        for m in re.finditer(r"^G1 X([\d.]+)Y([\d.]+)F8000$", gcode.read_text(), re.M)
     ]
-    assert len(ys) == 2
-    assert ys[0] > 170, f"SVG 顶线经 flip 必须落在 Y 大侧，实测 {ys[0]}"
-    assert ys[1] < 20, f"SVG 底线经 flip 必须落在 Y 小侧，实测 {ys[1]}"
+    assert len(moves) == 2
+    # 机器 X = 撰写 y（顶线 y=8 → X=8 原点侧；底线 y=180 → X=180 远端）
+    assert moves[0][0] == pytest.approx(8.0, abs=0.01)
+    assert moves[1][0] == pytest.approx(180.0, abs=0.01)
+    # 机器 Y = 撰写 x（两条线的 Y 段分别等于撰写的 x 段）
+    assert moves[0][1] == pytest.approx(50.0, abs=0.01)
+    assert moves[1][1] == pytest.approx(140.0, abs=0.01)
 
 
 def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:

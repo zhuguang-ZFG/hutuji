@@ -66,6 +66,13 @@ def _vpype_semaphore() -> asyncio.Semaphore:
 # 改这里必须同步 xiaozhi `hutuji_recovery_core.h` 的 kJogEnvelopeMax*Mm（R17-XREPO-01 互钉）。
 MAX_X_MM = 277.0
 MAX_Y_MM = 190.0
+# 撰写页（SVG 坐标系）= 竖版 190 宽 × 277 高（B 案，2026-09-06 晚用户拍板「不要横着写，
+# 要竖着写」）：墙上竖装实机当日纸面双 bit 实测 X+ 朝房间下、Y+ 朝房间右、原点墙面左上；
+# G-code 层转置（_transpose_gcode_xy：机器 X:=SVG y、Y:=SVG x）把竖版页映成墙面正读——
+# 撰写 x→房间右（从左往右写）、y→房间下（行序自上而下）、页左上角起笔恰落原点角。
+# 转置后机器 X=SVG y≤277、Y=SVG x≤190，§5 物理限幅（上面的 MAX_*）不变且自动满足。
+PAGE_AUTHOR_WIDTH_MM = 190.0
+PAGE_AUTHOR_HEIGHT_MM = 277.0
 # 布局归一化边距：LLM 无视 prompt 的「居中留边」（2026-08-09 画质探针实测六组
 # 题材 bbox 占画布 1.8%~85.5% 乱飞，star 缩到角落、house 顶到硬边零边距），
 # 构图必须由确定性几何兜底：vpype layout 把内容等比缩放并居中到
@@ -288,8 +295,8 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
     """构造固定 vpype 管线，供同步和可取消异步入口共用。
 
     normalize=False（写字排版链专用）跳过 layout：文字页版式由 write_text 按
-    277x190mm 自排，layout 的等比缩放会让「字号」随每页内容量漂移（多页字大小不一）。
-    跳过版式后限幅完全交给 validate_gcode 的 X/Y<=277/190 逐行闸。
+    竖版 190x277mm 自排（B 案 2026-09-06，撰写页常量 PAGE_AUTHOR_*），layout 的
+    等比缩放会让「字号」随每页内容量漂移（多页字大小不一）。
     """
     return _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
@@ -302,13 +309,14 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
         # 真正危险的只剩两点重合（宽=高=0 → scale=inf → 坐标 inf，由
         # validate_gcode「无法解析」闸 fail-closed）。改 layout 调用方式或升级
         # numpy/vpype 前必须先证明零跨度几何仍被正确处理。
-        # 277x190 是横版页：vpype layout 默认强制竖版（portrait enforced）会把尺寸
-        # 换成 190x277，内容 Y 越出 190 限幅被 validate_gcode 整单拒（2026-09-04 轴反转
-        # 后全套 layout 测试实锤）；X 长于 Y 时必须显式 --landscape。
+        # 撰写页 = 竖版 190x277（B 案 2026-09-06，常量注释见 PAGE_AUTHOR_*）：
+        # vpype layout 默认强制竖版——现在竖版正是所需，页宽 < 页高时不加
+        # --landscape（加了会强制换回横版 277x190，转置后 Y=SVG x 越出 190 被
+        # validate_gcode 整单拒）。内容归一化到 (190-2m)x(277-2m) 居中。
         *((
             "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
-            *(("--landscape",) if MAX_X_MM > MAX_Y_MM else ()),
-            f"{MAX_X_MM:.0f}x{MAX_Y_MM:.0f}mm",
+            *(("--landscape",) if PAGE_AUTHOR_WIDTH_MM > PAGE_AUTHOR_HEIGHT_MM else ()),
+            f"{PAGE_AUTHOR_WIDTH_MM:.0f}x{PAGE_AUTHOR_HEIGHT_MM:.0f}mm",
         ) if normalize else ()),
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
         "linemerge", "--tolerance", f"{LINEMERGE_TOLERANCE_MM}mm",
@@ -460,6 +468,58 @@ def _collapse_short_pen_down_segments(
     return body
 
 
+# 转置匹配行：本管线的运动行恒为完整 XY 对（gwrite 模板 + 塌缩写回都成双）。
+_TRANSPOSE_PAIR_RE = re.compile(r"X(-?\d+(?:\.\d+)?)(\s*)Y(-?\d+(?:\.\d+)?)")
+_transpose_xy_cache: bool | None = None
+
+
+def _transpose_xy_enabled() -> bool:
+    """读生产 profile 的 `transpose_xy`（B 案竖版转置开关，模块级缓存）。
+
+    gwrite 不认识该键（`config.get` 取用，未知键静默忽略），纯供本模块自读——
+    方向配置全部留在 hutuji_gwrite.toml 一个文件里。进程内缓存一次：.py/toml
+    变更的生产部署本来就伴随服务重启（deploy 规程）。
+    """
+    global _transpose_xy_cache
+    if _transpose_xy_cache is None:
+        import tomllib
+
+        cfg = tomllib.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+        _transpose_xy_cache = bool(cfg.get("gwrite", {}).get("hutuji", {}).get("transpose_xy", False))
+    return _transpose_xy_cache
+
+
+def _transpose_gcode_xy(text: str) -> str:
+    """逐行 X↔Y 词值互换（B 案竖版转置：机器 X:=撰写 y、Y:=撰写 x）。
+
+    插入点在塌缩之后、弧拟合之前——流中只有 G0/G1（模板恒带完整 XY 对），
+    弧由弧拟合在转置后几何上生成，方向天然正确，无需处理 G2/G3 的 I/J 与
+    旋向互换。fail-closed：任何只带单轴词（模态 X/Y 行）的行会让静默互换
+    变成几何损坏，整单拒绝。换行风格原样保留（同塌缩的字节口径纪律）。
+    """
+    out: list[str] = []
+    for raw in text.splitlines(keepends=True):
+        stripped = raw.strip()
+        if not stripped:
+            out.append(raw)
+            continue
+        words = _WORD_RE.findall(stripped.upper())
+        n_x = sum(1 for letter, _ in words if letter == "X")
+        n_y = sum(1 for letter, _ in words if letter == "Y")
+        if n_x == 0 and n_y == 0:
+            out.append(raw)
+            continue
+        if n_x != 1 or n_y != 1:
+            raise GcodeError(f"竖版转置拒绝模态/多值 XY 行：{stripped[:60]}")
+        swapped, n_sub = _TRANSPOSE_PAIR_RE.subn(r"X\g<3>\g<2>Y\g<1>", stripped, count=1)
+        if n_sub != 1:
+            raise GcodeError(f"竖版转置无法互换 XY 行：{stripped[:60]}")
+        out.append(
+            swapped + ("\r\n" if raw.endswith("\r\n") else "\n" if raw.endswith("\n") else "")
+        )
+    return "".join(out)
+
+
 def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     """读取 vpype 成功退出后的产物，并统一成合同错误。
 
@@ -485,7 +545,11 @@ def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     from hutuji_mcp.arc_fit import fit_gcode_arcs
 
     collapsed = _collapse_short_pen_down_segments(text)
-    fitted = fit_gcode_arcs(collapsed)
+    # B 案竖版转置（toml `transpose_xy`）：塌缩后、弧拟合前——流中只有 G0/G1
+    # 完整 XY 对，弧由拟合在转置后几何上生成（旋向天然正确）。转置在撰写系
+    # 内部是反射（det −1），恰与墙上竖装的奇象限相消，纸面站直横读。
+    transposed = _transpose_gcode_xy(collapsed) if _transpose_xy_enabled() else collapsed
+    fitted = fit_gcode_arcs(transposed)
     if fitted != text:
         try:
             gcode_path.write_bytes(fitted.encode("utf-8"))

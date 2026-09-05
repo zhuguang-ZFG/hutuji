@@ -102,7 +102,7 @@ def test_single_page_bounds_and_shared_borders(font_and_metrics):
     assert len(res.pages) == 1
     page = res.pages[0]
     x0, x1, y0, y1 = _bbox(page)
-    assert x0 >= 0 and x1 <= 190.0 and y0 >= 0 and y1 <= 190.0
+    assert x0 >= 0 and x1 <= 190.0 and y0 >= 0 and y1 <= 277.0
     # 3 行共享边框：横线 = 顶 1 + 每行底 3 = 4（不是 2×3+1=7）
     assert len(_horizontals(page)) == 4
     # 2 列 → 每行 3 条竖线，3 行共 9
@@ -119,7 +119,7 @@ def test_pagination_repeats_header(font_and_metrics):
     assert not res.truncated
     for page in res.pages:
         x0, x1, y0, y1 = _bbox(page)
-        assert x1 <= 277.0 and y1 <= 190.0  # §5 页限：X 长边 277 / Y 宽边 190
+        assert x1 <= 190.0 and y1 <= 277.0  # §5 页限
     # 续页首行是表头（重复表头决策）：第 2 页 line_count 含表头 1 行
     assert res.pages[1].line_count >= 2
 
