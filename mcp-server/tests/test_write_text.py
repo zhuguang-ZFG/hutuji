@@ -315,6 +315,34 @@ def test_load_font_default_picks_most_complete(tmp_path):
     assert font.meta.declared_count == 5  # 文件名排序小的只有 2 字；按字数选大
 
 
+def test_load_font_default_prefers_handwriting_pick(tmp_path):
+    """2026-09-06 用户拍板默认改「手写感」blood8真迹_xiongzai——即使字数更少也优先。"""
+    (tmp_path / "blood8真迹_xiongzai_blood8.gfont").write_bytes(
+        _build_v2_font({"永": (_BOX_POINTS, _BOX_VERBS), "国": (_BOX_POINTS, _BOX_VERBS)})
+    )
+    (tmp_path / "z如果梦万国库.gfont").write_bytes(
+        _build_v2_font(
+            {
+                "永": (_BOX_POINTS, _BOX_VERBS),
+                "国": (_BOX_POINTS, _BOX_VERBS),
+                "中": (_BOX_POINTS, _BOX_VERBS),
+            }
+        )
+    )
+    font = write_text.load_font(str(tmp_path), None)
+    assert font.meta.declared_count == 2  # 偏好命中 2 字库而非 3 字库
+
+
+def test_load_font_preference_falls_back_when_missing_or_broken(tmp_path):
+    """偏好文件缺席/损坏时回落「字数最多」——默认链永不因偏好文件问题瘫痪。"""
+    (tmp_path / "blood8真迹_xiongzai_blood8.gfont").write_bytes(b"broken")
+    (tmp_path / "a可用.gfont").write_bytes(
+        _build_v2_font({"永": (_BOX_POINTS, _BOX_VERBS), "国": (_BOX_POINTS, _BOX_VERBS)})
+    )
+    font = write_text.load_font(str(tmp_path), None)
+    assert font.meta.declared_count == 2
+
+
 def test_hutuji_write_end_to_end(tmp_path, monkeypatch):
     """工具全链：合成字库 → 排版 → 无版式 vpype → §5 校验 → 产物 URL。"""
     from hutuji_mcp import server

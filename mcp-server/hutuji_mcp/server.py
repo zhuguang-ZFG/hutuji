@@ -939,7 +939,7 @@ async def hutuji_write(
 
     用户说「写一封信/写一段话/抄一篇文章」时用；要画图用 hutuji_draw。
     text 是要写的内容（\\n 分段，段首自动缩进两格，自动折行/分页/标点避头）。
-    font 字库名（留空默认字数最多的手写字库）；size_mm 字高（2–40，默认 12）；
+    font 字库名（留空默认 blood8 真迹手写体，无该库时回目录内字数最多者）；
     line_spacing 行距倍数（默认 1.6）；char_gap_mm 字距（默认 0.8）。
     返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字，
     truncated=true 表示超长被截断——两者都要如实告知用户。写入前文本统一

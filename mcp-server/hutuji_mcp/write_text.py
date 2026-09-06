@@ -589,8 +589,14 @@ def _read_font_bytes(path: str) -> bytes:
         return fh.read()
 
 
+# 默认字库偏好（2026-09-06 用户拍板「手写感」）：优先 blood8 真迹 xiongzai 变体
+# （8625 字、工整行楷）；文件缺席/损坏时回落「目录内字数最多」（2026-09-04 指令）。
+_DEFAULT_FONT_PREFERENCE = ("blood8真迹_xiongzai",)
+
+
 def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
-    """按显示名或文件名词解析字库；name 为空时取目录中字数最多的字库。"""
+    """按显示名或文件名词解析字库；name 为空时按 _DEFAULT_FONT_PREFERENCE 优先、
+    否则取目录中字数最多的字库。"""
     if not fonts_dir or not os.path.isdir(fonts_dir):
         raise WriteTextError(f"字库目录不可用：{fonts_dir or '(未配置)'}")
     candidates = [
@@ -610,6 +616,19 @@ def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
         if chosen is None:
             raise WriteTextError(f"找不到字库「{name}」（目录内 {len(candidates)} 个）")
     else:
+        # 先按偏好名单命中（偏好文件须能正常解析，坏文件不进）
+        for preferred in _DEFAULT_FONT_PREFERENCE:
+            for path in candidates:
+                if preferred in os.path.basename(path):
+                    try:
+                        GfontFile.parse(_read_font_bytes(path))
+                    except (GfontError, OSError):
+                        continue
+                    chosen = path
+                    break
+            if chosen is not None:
+                break
+    if chosen is None and not name:
         best_count = -1
         for path in candidates:
             try:
