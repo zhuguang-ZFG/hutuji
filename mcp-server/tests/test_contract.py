@@ -6167,6 +6167,9 @@ def test_preflight_pins_running_systemd_units_to_templates() -> None:
         "/opt/hutuji/deploy/hutuji-mcp.service",
         "/etc/hutuji/mcp.env",
         "/opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml",
+        # t2s_table.tsv 是 hutuji_write 繁→简归一的包内数据件（2026-09-06 批次），
+        # find *.py 收不到它；漏传时服务降级不炸，但「文件新进程旧」必须红
+        "/opt/hutuji/mcp-server/hutuji_mcp/t2s_table.tsv",
         # DEP-01：依赖约束（范围钉、无 lockfile）变更漏 restart 时，进程内旧树与
         # 磁盘新 venv 分叉而探针全绿；requirements.txt 必须在比较集内。
         "/opt/hutuji/mcp-server/requirements.txt",

@@ -19,9 +19,9 @@
 **保留 LcdDisplay 全部布局/顶栏/预览/字幕，只把 grobot 画布换成 emoji_image_ 播 GIF。**
 
 - 新 CMake 开关 `HUTUJI_ELECTRONBOT_FACE`（非 Kconfig；waveshare-3.5 板分支默认 ON，`-D=OFF` 回退 grobot，其它板不受影响）：SetupUI 在 grobot 分支内改走「建 EmojiCollection + 显示 emoji_image_」；情绪名走既有 21 名集合（`grobot_eyes.cc kNames` 同源），未知名回落 neutral。
-- 资产嵌入固件（C 数组，不入 assets 分区）：mp4 → ffmpeg 240×240@12fps 灰度 GIF，6 循环段 + 眨眼 2 + 静态帧 1 = **180.4KB**（纯黑白平色 LZW 友好）；app 分区余量 1.07MB 可纳。
-- 情绪映射：兴奋→happy/laughing/funny/loving/delicious/silly/confident/cool；难过→sad/crying；愤怒→angry；惊恐→shocked/surprised；不屑→thinking/confused/kissy/embarrassed；静态→neutral/relaxed/sleepy + 眨眼偶发（blink_once/blink_twice 轮换，4–6s 随机）。
-- 暂停钩子：`SetGrobotEyesPaused` 保持方法名与调用点（hutuji_job 两处），内部扩展为「grobot 在则停眼睛 timer；electronbot 模式则停 gif_controller_ 并冻结当前帧，恢复时重放当前情绪」。
+- 资产嵌入固件（C 数组，不入 assets 分区）：mp4 → ffmpeg 256×256@15fps 灰度 GIF，6 循环段 + 眨眼 2 + 静态帧 1 = **240.3KB**（纯黑白平色 LZW 友好）；分区面：partitions/v2/16m.csv 的 ota_0/ota_1 各 0x3f0000（4128KB），本批镜像实测 3,219,552B（余 ~876KB）。
+- 情绪映射：兴奋→happy/laughing/funny/loving/delicious/silly/confident/cool；难过→sad/crying；愤怒→angry；惊恐→shocked/surprised；不屑→thinking/confused/kissy/embarrassed/winking；静态→neutral/relaxed/sleepy + 眨眼偶发（blink_once 单段，5s 一拍）。
+- 暂停钩子：`SetGrobotEyesPaused` 保持方法名与调用点（hutuji_job 两处）；electronbot 模式下 Pause/Resume 冻结在当前帧（零重分配——neutral/blink 常驻控制器 Stop 倒带不释放，情绪循环段随情绪在 gif_controller_ 上换）；暂停期 SetEmotion 只记录不播放，恢复时按最新情绪重放。
 - SetStatus 不动 listening/speaking 的眼睛特化（那是 grobot 专有能力），electronbot 模式下 speaking 由 LLM 情绪流驱动。
 - 资产形态修正（转换时发现）：neutral 静态帧也用**单帧 GIF**（3.3KB），不用 PNG——`LvglRawImage` 以 `LV_COLOR_FORMAT_RAW_ALPHA` 交给 LVGL 图片解码器链，PNG 依赖 `LV_USE_PNG/LODEPNG` 开关，而 gifdec（`display/lvgl_display/gif/`）恒定链接。全资产统一 GIF 后无解码器开关面。
 

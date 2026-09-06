@@ -748,9 +748,8 @@ def test_heading_centered_larger_with_gaps():
     bands = _line_x_starts(page)
     assert len(bands) == 4
     center_x = layout.margin_left_mm + layout.text_width_mm / 2  # 95
-    body_first_x = layout.margin_left_mm + 2 * (
-        metrics.full_width * (layout.size_mm / metrics.em_height) + layout.char_gap_mm
-    )
+    # 缩进与 indent_mm 同源（字号+字距）；夹具方框下旧墨宽口径数值巧合相同
+    body_first_x = layout.margin_left_mm + 2 * (layout.size_mm + layout.char_gap_mm)
     for i, (top, lo, hi) in enumerate(bands):
         if i in (0, 2):  # 标题行：居中（左右缘关于版心对称）且字身放大
             assert (lo + hi) / 2 == pytest.approx(center_x, abs=1.0)
@@ -910,6 +909,19 @@ def test_latin_digits_advance_half_em_not_ink_residue():
     starts = sorted({round(min(px for px, _ in s.points), 3) for s in page.strokes})
     assert len(starts) == 2
     assert starts[1] - starts[0] == pytest.approx(layout.size_mm * 0.5, abs=0.01)
+
+
+def test_t2s_missing_table_degrades_to_passthrough(monkeypatch, caplog):
+    """映射表缺失/读坏（部署漏传 tsv）降级为不归一，不把 hutuji_write 整条炸掉。"""
+    from pathlib import Path
+
+    from hutuji_mcp import t2s
+
+    monkeypatch.setattr(t2s, "_TABLE_PATH", Path("不存在的目录/t2s_table.tsv"))
+    monkeypatch.setattr(t2s, "_t2s", None)
+    with caplog.at_level("WARNING", logger="hutuji_mcp.t2s"):
+        assert t2s.to_simplified("劉蘭於個") == "劉蘭於個"  # 原文透传
+    assert any("不做繁→简" in r.message for r in caplog.records)
 
 
 def test_wide_latin_digit_advances_by_ink_edge():

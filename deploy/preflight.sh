@@ -345,6 +345,9 @@ check_mcp_prestart_and_restart() {
     /opt/hutuji/deploy/hutuji-mcp.service
     /etc/hutuji/mcp.env
     /opt/hutuji/mcp-server/hutuji_mcp/hutuji_gwrite.toml
+    # t2s_table.tsv 是 hutuji_write 繁→简归一的包内数据件：漏传时服务侧虽降级
+    # 不炸（t2s._load 告警回落空表），但「文件比进程新」同义于漏部署，入比较集
+    /opt/hutuji/mcp-server/hutuji_mcp/t2s_table.tsv
     # 依赖约束也必须在比较集内（DEP-01）：requirements 全是范围钉（>=x,<y、无
     # lockfile），重装即可能升级依赖树。改了它却漏 restart 时进程内仍是旧树，
     # 而生成链/位图链探针用磁盘上的新 venv 真跑反而绿——「文件对但跑的不对」。
