@@ -11,6 +11,14 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### v10 固件刷机（2026-09-06 12:4x，xiaozhi `8a96608` 已推 origin）
+
+| 项 | 说明 |
+|----|------|
+| 范围 | 本仓零代码改动；xiaozhi `8a96608`（v9「一直在下载中 5.5 分钟」回归修复：job 活跃期暂停 grobot 眼睛动画 + 非 Speaking 态 drain 等待 3s 封顶）刷入 COM14 |
+| 证据 | 镜像 `build-instr-lichuang/xiaozhi.bin` 3,039,568B SHA-256 `d379135e…6d1`；5×Hash verified + watchdog-reset；boot 20s 297 行无 crash、指纹 13 项通过、Grbl Idle；host 153/153 |
+| 待办 | 用户重写长文验证下载不再卡死；桌宠表情替换（FaceScout 调研进行中，用户拍板「不用这个眼镜了」） |
+
 ### 写字「字叠字+简繁混杂」云端修复批（2026-09-06，用户纸面实证投诉）
 
 | 项 | 说明 |
