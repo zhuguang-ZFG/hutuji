@@ -103,9 +103,14 @@ ALLOWLIST_EXACT = {
     # 「grbl 不需要省电」）、custom_3axis_hr4988.h（7f48217，release-readiness
     # 记用户原话要求 $1=255 进固件 + fz standard pass）。GCode.cpp 属 §9-F′
     # 契约命名（protocol.md §9 表），已并入 grbl_section9_only。
+    # 2026-09-06 用户批准（「同意修复」）：371a3c4 删 src/Limits.h 把 limits_* 全部
+    # 声明一并删除致固件 release 构建断（pio RED 实证），按评审方案 A 以
+    # grbl_limits.h 复活声明 + 改指 Grbl.h:51（Grbl.h 原为唯一 includer）。
     "grbl_user_authorized_extras": [
         "Grbl_Esp32/src/WebUI/WifiConfig.cpp",
         "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h",
+        "Grbl_Esp32/src/Grbl.h",
+        "Grbl_Esp32/src/grbl_limits.h",
     ],
     "grbl_core_headers_restore_only": [
         "Grbl_Esp32/src/LicenseCore.h",

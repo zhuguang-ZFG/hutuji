@@ -14,7 +14,9 @@
   ],
   "grbl_user_authorized_extras": [
     "Grbl_Esp32/src/WebUI/WifiConfig.cpp",
-    "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h",
+    "Grbl_Esp32/src/Grbl.h",
+    "Grbl_Esp32/src/grbl_limits.h"
   ],
   "grbl_core_headers_restore_only": [
     "Grbl_Esp32/src/LicenseCore.h",

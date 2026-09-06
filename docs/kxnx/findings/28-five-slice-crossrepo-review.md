@@ -34,13 +34,13 @@ Grbl 侧 0x18 在换纸阻塞期**能**触发停机，链路完整：
 
 ### 1.2 S3 侧却恒答「无法即停」
 
-`hutuji_job.cc:480` `Job::RequestAbort()` 内两处 paper_active 分支：
+`hutuji_job.cc:489` `Job::RequestAbort()` 内两处 paper_active 分支：
 
-- `hutuji_job.cc:520-522`（首次 paper_active 快照后早退）
-- `hutuji_job.cc:533-535`（stream_mutex_ 下二次复核）
+- `hutuji_job.cc:529-531`（首次 paper_active 快照后早退）
+- `hutuji_job.cc:542-544`（stream_mutex_ 下二次复核）
 
 两处均 `Notify("写字机正在换纸，无法即停；换纸完成后任务将停止")` 并直接返回，
-**不发 0x18**。而 S3 本身有该能力：`hutuji_job.cc:1283` 已在用 `pipe.SendRealtime(0x18)`
+**不发 0x18**。而 S3 本身有该能力：`hutuji_job.cc:1292` 已在用 `pipe.SendRealtime(0x18)`
 （仅 worker 路径用）。
 
 ### 1.3 切片 C 的建议动作被证伪
@@ -92,12 +92,12 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 - 奎享 `machine/f/b.java:55-75`：窗口准入循环内**无任何 UI 调用**。窗口上界取
   `this.b.g()`（抽象方法，`machine/c.java:46` 声明；Grbl 实现
   `machine/grbl/a.java:312-313` 返回 **100**），判据含 `+1L`（换行符）且**严格小于**。
-- 我方 `hutuji_job.cc:3254-3255`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
-  `need = line.size() + 1`（`hutuji_job.cc:3038-3040` 维护 `c_line`/`c_line_bytes_sum`）。
+- 我方 `hutuji_job.cc:3263-3264`：`c_line_bytes_sum + need < kWindow || c_line.empty()`，
+  `need = line.size() + 1`（`hutuji_job.cc:3047-3049` 维护 `c_line`/`c_line_bytes_sum`）。
   **不变量同构**；`kWindow` = `hutuji_recovery_core.h:17` `kStreamWindowBytes = 512`
-  经 `hutuji_job.cc:122` 转名。
-- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:3433` 注释 +
-  `hutuji_job.cc:3441` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
+  经 `hutuji_job.cc:131` 转名。
+- 我方灌流循环内确有屏显调用，但已 250ms 节流（`hutuji_job.cc:3442` 注释 +
+  `hutuji_job.cc:3450` 判据）——即 2026-08-24 喂流结案的修复本身。**2026-08-25
   更新**：节流在 lichuang-dev 全脸动画下不足（单次 LVGL 锁等待 230–640ms 致半墨
   复发），已根治——SetStatus 经 `Application::Schedule` 出灌流路径（xiaozhi
   `e623aec`），窗口循环现与奎享同态（无阻塞 UI 调用），见
@@ -106,11 +106,11 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 ### 4.2 error 后的处置：fail-fast vs 状态兜底续跑
 
 - 奎享 `machine/f/b.java:136-155`：error 路径清 `c`/`d` 双队列、`e = 0`，**fail-fast**。
-- 我方 `hutuji_job.cc:3489-3505`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
-  已执行完，靠状态兜底释放整窗续跑（上限 `hutuji_job.cc:101` `kMaxOkFallback = 3`），
+- 我方 `hutuji_job.cc:3498-3514`：ok 超时后若 `ConfirmInFlightDoneByStatus` 确认在途
+  已执行完，靠状态兜底释放整窗续跑（上限 `hutuji_job.cc:110` `kMaxOkFallback = 3`），
   并在释放前 `DrainResponses()` 防迟到 ok 错配。
 - 我方多出的是**迟到 ok 容错**，源于 WiFi Telnet 传输（奎享该路径是串口）。
-  abort 侧亦有同口径 quiesce（`hutuji_job.cc:3339-3348`）。**有意差异，无动作。**
+  abort 侧亦有同口径 quiesce（`hutuji_job.cc:3348-3357`）。**有意差异，无动作。**
 
 ## 五、仓库卫生（切片 E · 已修文档 + 窄规则封堵）
 
@@ -127,7 +127,7 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
   引用的奎享行号在三层（越界 / 外仓 / 指纹）全部不可见，是**人工维护的死引用**。
 - **KXNX_ROOT 纳入门禁的量化**：Python 实测 `decompiled_full/` 单树索引下 125 条去重
   引用 → **88 唯一命中 / 33 重名 / 4 缺失**；重名与缺失由既有 skip 语义安全跳过，
-  不会像 inkscape 那样退化成假绿（`scripts/agent_gate.py:887` `_EXTERNAL_REPOS` 注释
+  不会像 inkscape 那样退化成假绿（`scripts/agent_gate.py:892` `_EXTERNAL_REPOS` 注释
   记的正是该坑）。**但**：① 改门禁属评审范围外的行为变更；② 即便纳入，仍需先给
   `.java` 开扩展名白名单，两步都会扩大判红面。故仅登记为候选。
 - **basename 唯一性破裂 → 本仓引用假绿（本轮已修根因）**：根 `tmp/` 的部署/发布暂存副本此前不在 `_REF_SKIP_DIRS`，导致裸 basename 行号引用因同名多份被三层静默跳过；`scripts/agent_gate.py` 现将 `tmp` 纳入跳过目录，并由 `test_gate_repo_index_skips_tmp_staging_copies` 回归钉死。本文原 5 处引用已先路径限定并登记指纹；本轮根因修复后，后续暂存副本不再污染 basename 唯一性。若未来引用暂存树内文件，仍应使用明确路径或按散文式「文件名 第 NNN 行」说明。
