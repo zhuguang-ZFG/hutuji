@@ -41,6 +41,7 @@ from .usage_report import record_tool_usage
 from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
 from . import paper_risk
+from . import t2s
 from .redact import _install_secret_redaction
 from .llm_svg import LlmError, _CONTROL_CHAR_RE, _sanitize_description, generate_svg
 from .memory_store import (
@@ -941,15 +942,17 @@ async def hutuji_write(
     font 字库名（留空默认字数最多的手写字库）；size_mm 字高（2–40，默认 12）；
     line_spacing 行距倍数（默认 1.6）；char_gap_mm 字距（默认 0.8）。
     返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字，
-    truncated=true 表示超长被截断——两者都要如实告知用户。服务端在完成点会
-    自动链式调用设备侧 hutuji.draw 推送预览（含全部页），调用方不要重复推送；
-    仅在自动推送未生效时才自调设备侧 hutuji.draw，且多页必须把返回里的
-    pages_arg 字段一字不改地作为 pages 参数透传（设备按完全相同参数判幂等，
-    自己重组 JSON 会被 busy 拒绝）。用户明确确认后再调 hutuji.confirm。"""
+    truncated=true 表示超长被截断——两者都要如实告知用户。写入前文本统一
+    繁→简规范化（云端文章常混入繁体，纸面简繁混杂难看），不必自己转换。
+    服务端在完成点会自动链式调用设备侧 hutuji.draw 推送预览（含全部页），
+    调用方不要重复推送；仅在自动推送未生效时才自调设备侧 hutuji.draw，且
+    多页必须把返回里的 pages_arg 字段一字不改地作为 pages 参数透传（设备按
+    完全相同参数判幂等，自己重组 JSON 会被 busy 拒绝）。用户明确确认后再调
+    hutuji.confirm。"""
     _report_mcp_tool("write")
     from .write_text import WriteTextError
 
-    safe_text = text.strip()
+    safe_text = t2s.to_simplified(text.strip())
     if not safe_text:
         raise WriteTextError("文本为空")
     if len(safe_text) > _WRITE_TEXT_MAX_CHARS:

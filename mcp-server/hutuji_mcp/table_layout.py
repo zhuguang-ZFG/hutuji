@@ -57,9 +57,10 @@ def _span_map(table: ParsedTable) -> dict[int, dict[int, int]]:
 class _CellFont:
     """格内文字测量/落笔：公式与 write_text.layout_text 内部一致（字符级）。
 
-    CJK 一律按全宽步进（metrics.full_width×scale+gap）——与 write_text 的
-    token_advance_mm 同口径；v<9 字库 glyph_advance 是墨宽不是步进宽，逐字量
-    会把同列汉字量得忽宽忽窄（2026-09-04 实测：张 5.84 / 语 3.47mm）。
+    CJK 一律按字身步进（size_mm+gap）——与 write_text.token_advance_mm 同口径；
+    2026-09-06 前用「国」墨宽×scale 当全宽（0.70~0.88em），步进系统性短缺致
+    相邻字墨区相撞（用户纸面实证重叠）。v<9 字库 glyph_advance 是墨宽不是
+    步进宽，逐字量会把同列汉字量得忽宽忽窄（2026-09-04 实测：张 5.84 / 语 3.47mm）。
     """
 
     def __init__(self, font, metrics: FontMetrics, size_mm: float, char_gap_mm: float):
@@ -67,7 +68,7 @@ class _CellFont:
         self._metrics = metrics
         self.scale = size_mm / metrics.em_height
         self.char_gap_mm = char_gap_mm
-        self.full_advance_mm = metrics.full_width * self.scale + char_gap_mm
+        self.full_advance_mm = size_mm + char_gap_mm
         self._cache: dict[str, GlyphData | None] = {}
         self.missing: set[str] = set()
 
@@ -85,7 +86,27 @@ class _CellFont:
         if ch.isspace():
             return self._metrics.full_width * 0.5 * self.scale + self.char_gap_mm
         if _is_cjk(ch):
-            return self.full_advance_mm
+            # 与 write_text.cjk_slot_units 同式：em 与（本字墨右缘+全库 CJK 左越界）取大，
+            # 宽右缘字后随出锋字不撞（如果梦「来」墨右缘 398 units、陈继世墨宽 1.16em）
+            glyph = self._glyph(ch)
+            slot_units = self._metrics.em_height
+            if glyph is not None:
+                xs = [x for chunk in glyph.chunks for x in chunk.points[0::2]]
+                if xs:
+                    slot_units = max(
+                        slot_units, max(xs) + self._metrics.cjk_left_overhang
+                    )
+            return slot_units * self.scale + self.char_gap_mm
+        if ch.isascii() and ch.isalnum():
+            # 与 write_text 同口径：拉丁/数字半 em 地板 +（墨右缘+全库拉丁左越界）
+            # 保底（glyph_advance 是墨宽残值会叠字；如果梦「2」槽内需盖下一字出锋）
+            floor_units = self._metrics.em_height * 0.5
+            glyph = self._glyph(ch)
+            if glyph is not None:
+                xs = [x for chunk in glyph.chunks for x in chunk.points[0::2]]
+                if xs:
+                    floor_units = max(floor_units, max(xs) + self._metrics.latin_left_overhang)
+            return floor_units * self.scale + self.char_gap_mm
         glyph = self._glyph(ch)
         units = glyph_advance(glyph) if glyph is not None else self._metrics.full_width * 0.5
         return units * self.scale + self.char_gap_mm

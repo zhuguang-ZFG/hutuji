@@ -635,9 +635,12 @@ def test_layout_hard_breaks_overlong_latin_token():
     metrics = _fixture_metrics()
     layout = write_text.WriteLayout(paragraph_indent=0, margin_right_mm=8.0)
     result = write_text.layout_text("A" * 60, font, metrics, layout)
-    # 每行恰 25 字（夹具 A 步进 6.8mm，174/6.8=25）：旧行为 1 行越界 288mm；
-    # guard 误放 overflow 之后曾退化成「每字一行」——行数必须精确钉 3
-    assert result.pages[0].line_count == 3
+    # 夹具「A」三角墨宽满 em（x∈[-50,+50]）：2026-09-06 步进修复后拉丁槽 =
+    # 墨右缘+全库拉丁左越界 = 100 units；默认字号 12mm 下槽宽 12.8mm（旧的半 em
+    # 口径 6.8mm 会让相邻 A 墨区重叠 5.2mm——正是本批修的叠字 bug）。
+    # 174/12.8=13 字/行，60 字 = 13×4+8 = 5 行；旧行为 1 行越界 288mm，
+    # guard 误放 overflow 之后曾退化「每字一行」——行数精确钉 5
+    assert result.pages[0].line_count == 5
     total_strokes = sum(len(p.strokes) for p in result.pages)
     assert total_strokes == 60  # 拆字不丢字：每个 A 一条三角笔画
     max_x = max(x for p in result.pages for s in p.strokes for x, _ in s.points)
@@ -801,3 +804,145 @@ def test_no_headings_behavior_unchanged():
     assert [[s.points for s in p.strokes] for p in a.pages] == [
         [s.points for s in p.strokes] for p in b.pages
     ]
+
+
+def test_t2s_maps_traditional_singles_and_keeps_rest():
+    """繁→简逐字映射：命中的换字，简体与非汉字原样（云端文章混入繁体的收口）。"""
+    from hutuji_mcp import t2s
+
+    assert t2s.to_simplified("劉胡蘭，女，於1932年出生於山西省文水縣。") == (
+        "刘胡兰，女，于1932年出生于山西省文水县。"
+    )
+    assert t2s.to_simplified("已经是简体 abc 123。") == "已经是简体 abc 123。"
+    assert t2s.to_simplified("") == ""
+
+
+# 宽墨字库夹具：高探针「永」100×100 方框，宽探针「国」墨宽只 70（同真行书库：国墨宽
+# 0.70em），「中」墨宽满 100em。旧口径拿「国」墨宽当全宽 → 步进 0.7em 撑不住 1.0em 的字。
+_NARROW_BOX_POINTS = [15.0, -100.0, 85.0, -100.0, 85.0, 0.0, 15.0, 0.0]
+
+
+def _wide_ink_font() -> gfont.GfontFile:
+    return gfont.GfontFile.parse(
+        _build_v2_font(
+            {
+                "永": (_BOX_POINTS, _BOX_VERBS),
+                "国": (_NARROW_BOX_POINTS, _BOX_VERBS),
+                "中": (_BOX_POINTS, _BOX_VERBS),
+            }
+        )
+    )
+
+
+def test_cjk_advance_is_size_plus_gap_not_probe_ink_width():
+    """相邻 CJK 字墨区不得交叠：步进按字号（字身 em）+ 字距，不按「国」墨宽。
+
+    旧口径 full_width(国)*scale + gap 在宽探针窄于 em 的字库上系统性短缺
+    （2026-09-06 用户纸面实证「字重叠到一起」，如果梦万国库 0.70em 复现）。
+    """
+    font = _wide_ink_font()
+    metrics = write_text.measure_font(font)
+    assert metrics.full_width < metrics.em_height  # 夹具前提：宽探针窄于字身
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.8)
+    page = write_text.layout_text("中中中", font, metrics, layout).pages[0]
+
+    xs = sorted(px for stroke in page.strokes for px, _ in stroke.points)
+    # 每字 4 个不同 x 值中的 2 个 distinct（方框），按字聚类取每字墨区左右缘
+    assert len(page.strokes) == 3  # 一字一方框 = 一条折线
+    boxes = [
+        (
+            min(px for px, _ in stroke.points),
+            max(px for px, _ in stroke.points),
+        )
+        for stroke in page.strokes
+    ]
+    for left, right in boxes:
+        assert right - left == pytest.approx(layout.size_mm, abs=0.01)  # 墨宽满 em
+    for prev, nxt in zip(boxes, boxes[1:]):
+        assert nxt[0] - prev[1] == pytest.approx(layout.char_gap_mm, abs=0.01)
+
+
+def test_latin_digits_advance_half_em_not_ink_residue():
+    """拉丁/数字按半 em 步进：v<9 字库 glyph_advance 是墨宽残值，「1932」会叠成一团。"""
+    font = gfont.GfontFile.parse(
+        _build_v2_font(
+            {
+                "永": (_BOX_POINTS, _BOX_VERBS),
+                "国": (_BOX_POINTS, _BOX_VERBS),
+                # 数字墨宽只 40（窄字），glyph_advance=40 是墨宽残值；
+                # 旧口径按残值步进 → 同文本「19」二字只隔 4mm、与墨宽相抵即重叠。
+                "1": ([0.0, -80.0, 40.0, 0.0], [0, 1]),
+                "9": ([0.0, -80.0, 40.0, 0.0], [0, 1]),
+            }
+        )
+    )
+    metrics = write_text.measure_font(font)
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    page = write_text.layout_text("19", font, metrics, layout).pages[0]
+    starts = sorted({round(min(px for px, _ in s.points), 3) for s in page.strokes})
+    assert len(starts) == 2
+    assert starts[1] - starts[0] == pytest.approx(layout.size_mm * 0.5, abs=0.01)
+
+
+def test_wide_latin_digit_advances_by_ink_edge():
+    """墨宽超半 em 的宽拉丁字（如果梦「2」实测 0.69em）按墨右缘步进，不越槽撞下一字。"""
+    font = gfont.GfontFile.parse(
+        _build_v2_font(
+            {
+                "永": (_BOX_POINTS, _BOX_VERBS),
+                "国": (_BOX_POINTS, _BOX_VERBS),
+                "2": ([0.0, -80.0, 69.0, 0.0], [0, 1]),  # 墨右缘 69 > 半 em 50
+                "9": ([0.0, -80.0, 40.0, 0.0], [0, 1]),
+            }
+        )
+    )
+    metrics = write_text.measure_font(font)
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0)
+    page = write_text.layout_text("29", font, metrics, layout).pages[0]
+    starts = sorted({round(min(px for px, _ in s.points), 3) for s in page.strokes})
+    assert len(starts) == 2
+    # 「2」步进 = 墨右缘 69 units × 0.1 = 6.9mm；半 em 口径只有 5mm（越槽 1.9mm）
+    assert starts[1] - starts[0] == pytest.approx(6.9, abs=0.01)
+
+
+def test_t2s_output_is_fully_simplified():
+    """表内链式映射（薴→苧→苎）必须一次到底：输出再过一遍不得再变。"""
+    from hutuji_mcp import t2s
+
+    table = t2s._load()
+    assert t2s.to_simplified("薴") == "苎"
+    assert [(k, v) for k, v in table.items() if table.get(v, v) != v] == []
+
+
+def test_hutuji_write_normalizes_traditional_input(tmp_path, monkeypatch):
+    """繁体输入落到只收简体字形的字库仍不缺字：规范化在长度闸与排版之前生效。"""
+    from hutuji_mcp import server
+    from hutuji_mcp.config import Settings
+
+    font_dir = tmp_path / "fonts"
+    font_dir.mkdir()
+    (font_dir / "test.gfont").write_bytes(
+        _build_v2_font(
+            {
+                "永": (_BOX_POINTS, _BOX_VERBS),
+                "国": (_BOX_POINTS, _BOX_VERBS),
+                "中": (_BOX_POINTS, _BOX_VERBS),
+                "文": (_BOX_POINTS, _BOX_VERBS),
+                "，": (_COMMA_POINTS, _COMMA_VERBS),
+            }
+        )
+    )
+    out_dir = (tmp_path / "out").resolve()
+    out_dir.mkdir()
+    monkeypatch.setattr(server, "settings", Settings(
+        llm_base_url="http://127.0.0.1:1", llm_api_key="", llm_model="", output_dir=out_dir,
+        public_base_url="http://127.0.0.1:8300", host="127.0.0.1", port=8300,
+        output_ttl_seconds=600, gfont_dir=str(font_dir),
+    ))
+    server._gfont_cache.clear()
+    server._gfont_metrics_cache.clear()
+
+    payload = json.loads(asyncio.run(server.hutuji_write("中國，中文")))
+    assert payload["missing_chars"] == []
+    gcode = (out_dir / payload["url"].rsplit("/", 1)[-1]).read_text(encoding="utf-8")
+    validate_gcode(gcode)  # §5 契约不抛即过

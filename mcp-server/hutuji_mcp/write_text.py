@@ -6,8 +6,11 @@
   「A」Y[-324,+7]、「g」Y[-224,+145]）。
 - 本地字体全是 v<9，meta 无 top/bottom/advance——em 高与全宽字宽用探针字形实测
   （默认探针「永」（高）与「国」（宽）），不引 meta.size（方正兰亭=300 与字身 522 不符）。
-- 笔画起笔可为负 X（行书出锋），相邻字墨区轻微交叠属字库设计，advance 用全宽+字距，
-  不做 ink-box 紧贴。
+- CJK 步进 = 字号（字身 em）+ 字距，不用「国」墨宽当全宽（2026-09-06 实证：行书库
+  国墨宽仅 0.70em、印刷体 0.88em，按墨宽走步进系统性短缺 → 相邻字墨区相撞）。
+  行书出锋起笔仍可为负 X，装饰笔画的轻微越格属字库设计，不做 per-glyph ink-box 变宽
+  （变宽会毁掉汉字方格对齐；越格严重的字库靠调大 char_gap_mm 兜）。
+- 文本入口的繁→简规范化在 server.hutuji_write 做（t2s 模块），本模块只管排版。
 
 排版规则（中文文章）：
 - 页区 = (190-左右边距) × (277-上下边距) mm（竖版 B 案：宽 190mm 阅读方向、高 277mm 行推进；
@@ -106,6 +109,36 @@ class FontMetrics:
     em_height: float  # CJK 字身全高（永 实测 ymax-ymin）
     full_width: float  # 全宽字墨宽（国 实测 xmax-xmin）
     baseline_to_top: float  # 基线到字身顶（永 实测 -ymin，正数）
+    # 分组左越界（负 min-x 的绝对值上限，0=无越界）：拉丁槽位与拉丁→CJK 边界补偿用。
+    # 2026-09-06 审计实证：如果梦「年」左越界 227 units（12mm 字号下 5.2mm），
+    # 「1932年」的数字槽（半 em）根本盖不住，2→年 纸面相撞 1.94mm。
+    cjk_left_overhang: float = 0.0
+    latin_left_overhang: float = 0.0
+    # 逐字槽位公式见 layout_text.cjk_slot_units / latin_advance_units。
+
+
+# 左越界探针集：高频 CJK 抽样 + 全 ASCII 字母数字；只量在库字形
+_CJK_OVERHANG_PROBES = "的一是不了人我在有他这中大来上国个年到说们为子和" + "永国中文字"
+_LATIN_OVERHANG_PROBES = tuple(
+    chr(c) for c in range(ord("0"), ord("9") + 1)
+) + tuple(chr(c) for c in range(ord("a"), ord("z") + 1)) + tuple(
+    chr(c) for c in range(ord("A"), ord("Z") + 1)
+)
+
+
+def _probe_extents_units(font: GfontFile, probes) -> tuple[float, float]:
+    """扫探针字形，返回（左越界上限, 墨右缘上限）；无命中字形则双 0。"""
+    overhang = 0.0
+    right_edge = 0.0
+    for ch in probes:
+        glyph = font.load_glyph(ch)
+        if glyph is None:
+            continue
+        xs = [x for chunk in glyph.chunks for x in chunk.points[0::2]]
+        if xs:
+            overhang = max(overhang, -min(xs))
+            right_edge = max(right_edge, max(xs))
+    return overhang, right_edge
 
 
 def measure_font(font: GfontFile) -> FontMetrics:
@@ -125,8 +158,14 @@ def measure_font(font: GfontFile) -> FontMetrics:
     baseline_to_top = -min(ys)
     if em_height <= 0 or full_width <= 0 or baseline_to_top <= 0:
         raise WriteTextError("探针字形度量异常")
+    cjk_overhang, _ = _probe_extents_units(font, _CJK_OVERHANG_PROBES)
+    latin_overhang, _ = _probe_extents_units(font, _LATIN_OVERHANG_PROBES)
     return FontMetrics(
-        em_height=em_height, full_width=full_width, baseline_to_top=baseline_to_top
+        em_height=em_height,
+        full_width=full_width,
+        baseline_to_top=baseline_to_top,
+        cjk_left_overhang=cjk_overhang,
+        latin_left_overhang=latin_overhang,
     )
 
 
@@ -221,26 +260,71 @@ def layout_text(
     # 竖向占 heading_rows 个正文行带——行计数语义不被标题搞混，分页/容量闸全部照旧
     base_scale = layout.size_mm / metrics.em_height
     scale = base_scale
-    full_advance_mm = metrics.full_width * scale + layout.char_gap_mm
+    # CJK 网格 = 字身 em（字号本身）+ 字距；逐字槽位见 cjk_slot_units。
+    # 2026-09-06 前用「国」墨宽×scale 作全宽——行书库该比 0.70em、印刷体 0.88em，
+    # 步进系统性短缺 → 相邻字墨区相撞（用户纸面实证「有字重叠到一起」，两字体
+    # 本地复现）。full_width 探针仍留给拉丁缺字回退/空格折算用。
+    full_advance_mm = layout.size_mm + layout.char_gap_mm
     indent_mm = layout.paragraph_indent * full_advance_mm
 
     cache = _GlyphCache(font)
+
+    def cjk_slot_units(ch: str) -> float:
+        """CJK 逐字槽位（字库单位）：em 与（本字墨右缘+全库 CJK 左越界上限）取大。
+
+        字库字形不以 [0,em] 为界（如果梦「来」墨跨 [-180,398]，宽字墨宽达
+        1.11em）；em 网格只保普通字对，宽右缘字后随大左越界字必撞（探针实测
+        是→是 需 571>522、来→和 需 661>522）。槽位按本字右缘预留全库最大
+        左越界——窄字留在 em 网格，宽字局部放宽；逐字无关上下文，测量/落墨
+        同式，折行不错位。缺字形回落 em。
+        """
+        glyph = cache.get(ch)
+        if glyph is None:
+            return metrics.em_height
+        xs = [x for chunk in glyph.chunks for x in chunk.points[0::2]]
+        if not xs:
+            return metrics.em_height
+        return max(metrics.em_height, max(xs) + metrics.cjk_left_overhang)
 
     def token_advance_mm(token: str) -> float:
         if token == " ":
             return full_advance_mm * 0.5
         if len(token) == 1 and _is_cjk(token):
-            return full_advance_mm
+            return cjk_slot_units(token) * scale + layout.char_gap_mm
         width_units = 0.0
         for ch in token:
             if ch.isspace():
                 width_units += metrics.full_width * 0.5
+                continue
+            if ch.isascii() and ch.isalnum():
+                # v<9 字库拉丁/数字无可靠 advance（glyph_advance 是墨宽残值），
+                # 半 em 地板 + 墨右缘/拉丁左越界保底，见 latin_advance_units
+                width_units += latin_advance_units(ch)
                 continue
             glyph = cache.get(ch)
             width_units += (
                 glyph_advance(glyph) if glyph is not None else metrics.full_width * 0.5
             )
         return width_units * scale + layout.char_gap_mm * max(1, len(token))
+
+    def latin_advance_units(ch: str) -> float:
+        """拉丁/数字步进（字库单位）：半 em 与（墨右缘+拉丁左越界）取大。
+
+        v<9 字库无拉丁 advance，glyph_advance 是墨宽残值（近 0 或偏小）；
+        半 em 对窄字符够，但宽墨字符会越槽——注意如果梦万国库「2」撞「年」
+        的真因不是「2」太宽（墨右缘仅 153 units），而是「年」左越界 227
+        units 把墨伸进数字槽（2026-09-06 样本审计实证，纸面相撞 1.94mm）。
+        槽内预留全字库拉丁左越界覆盖拉丁内部相邻；后随 CJK 大左越界的边界
+        补偿在 flush_line 前瞻另加。缺字形回落半 em。
+        """
+        floor = metrics.em_height * 0.5
+        glyph = cache.get(ch)
+        if glyph is None:
+            return floor
+        xs = [x for chunk in glyph.chunks for x in chunk.points[0::2]]
+        if not xs:
+            return floor
+        return max(floor, max(xs) + metrics.latin_left_overhang)
 
     def emit_glyph(strokes: list[_PenStroke], ch: str, x_origin: float, y_baseline: float) -> None:
         glyph = cache.get(ch)
@@ -272,7 +356,7 @@ def layout_text(
         is_heading = para_idx in heading_set
         # 标题段切大字号落墨/步进（竖向行网格不变，见上方 base_scale 注释）
         scale = layout.heading_size_mm / metrics.em_height if is_heading else base_scale
-        full_advance_mm = metrics.full_width * scale + layout.char_gap_mm
+        full_advance_mm = (layout.heading_size_mm if is_heading else layout.size_mm) + layout.char_gap_mm
         heading_rows = layout.heading_rows if is_heading else 1
         if is_heading and page.line_count > 0:
             # 段前空一行；页首不加。空距 + 标题整行带要同框，否则先切页（不栏尾孤标题）
@@ -301,24 +385,33 @@ def layout_text(
             nonlocal x_cursor, y_baseline, line_tokens, line_width, line_start_x
             stroke_base = len(page.strokes)
             x = line_start_x
-            for tok in line_tokens:
-                if tok == "\t":
-                    tok = " "
-                for ch in tok:
-                    if ch.isspace():
-                        x += full_advance_mm * 0.5
-                        continue
-                    emit_glyph(page.strokes, ch, x, y_baseline)
-                    glyph = cache.get(ch)
-                    if len(tok) == 1 and _is_cjk(ch):
-                        x += full_advance_mm
-                    else:
-                        adv_units = (
-                            glyph_advance(glyph)
-                            if glyph is not None
-                            else metrics.full_width * 0.5
-                        )
-                        x += adv_units * scale + layout.char_gap_mm
+            flat = [ch for tok in line_tokens for ch in (" " if tok == "\t" else tok)]
+            for idx, ch in enumerate(flat):
+                if ch.isspace():
+                    x += full_advance_mm * 0.5
+                    continue
+                emit_glyph(page.strokes, ch, x, y_baseline)
+                glyph = cache.get(ch)
+                nxt = flat[idx + 1] if idx + 1 < len(flat) else None
+                if _is_cjk(ch):
+                    x += cjk_slot_units(ch) * scale + layout.char_gap_mm
+                elif ch.isascii() and ch.isalnum():
+                    # 与 token_advance_mm 同口径：半 em 地板 + 墨右缘/拉丁左越界保底；
+                    # 后随 CJK 时加其左越界补偿（「1932年」数字槽盖不住「年」的出锋，
+                    # 2026-09-06 审计 2→年 撞 1.94mm）。测量侧不算这笔边界补偿——
+                    # 满行尾遇拉丁→CJK 交界最多比测量宽出 cjk_left_overhang×scale，
+                    # 仍在 8mm 右边距内，不触 §5 页限。
+                    boundary = (
+                        metrics.cjk_left_overhang if nxt is not None and _is_cjk(nxt) else 0.0
+                    )
+                    x += (latin_advance_units(ch) + boundary) * scale + layout.char_gap_mm
+                else:
+                    adv_units = (
+                        glyph_advance(glyph)
+                        if glyph is not None
+                        else metrics.full_width * 0.5
+                    )
+                    x += adv_units * scale + layout.char_gap_mm
             if is_heading:
                 # 标题逐视觉行水平居中：按落墨 bbox 对版心平移（advance 盒含侧轴承/字距，
                 # 真实字体墨比盒窄，按盒居中视觉偏左——2026-09-04 生产冒烟实测偏 6.4mm）。
