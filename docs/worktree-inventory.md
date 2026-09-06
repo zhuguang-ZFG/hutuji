@@ -11,7 +11,23 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### kawaii 桌宠脸批（2026-09-06 15:0x，xiaozhi `ac819f7` 已推已刷 COM14；supersede 下条 ElectronBot 批）
+### kawaii→Eilik 调参批（2026-09-06 晚，xiaozhi `3b88132`；已刷 COM14）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户截图否决旧色/比例 + 拍板「方案 1」往 Eilik 靠；accent 圈选活泼淡青 |
+| 范围 | `kawaii_face/lvgl_kawaii_face.{c,h}`（黑底无眼白、淡青虹膜、铺满父盒）；`lcd_display.cc`（脸盒 312×232、kawaii accent `0xB4F0FF`、`AccentDriftTimerCb` 不再用 π 渐变覆盖）；`scripts/tests/test_kawaii_face.py` + recovery AccentDrift 钉 |
+| 证据 | 镜像 SHA-256 `F4CE4FC6…E468`；host kawaii 8/8；刷机 Hash verified + watchdog |
+| 待办 | 用户口头确认最终按钮色；情绪/写字冻结完整 HIL |
+
+### TLS 连接复用批（2026-09-06 晚，xiaozhi `531f5b7`；已刷 COM14，多页 HIL 待复验）
+
+| 项 | 说明 |
+|----|------|
+| 范围 | `hutuji_job.{h,cc}` Acquire/ReleaseFetchClient；`patches/esp-ml307-*.patch` + README；nginx keepalive 1800s 见 hutuji `f360ad0` |
+| 证据 | 见 `docs/release-readiness.md` 文首 TLS 条目；启动横幅与两页 HIL 待复验 |
+
+### kawaii 桌宠脸批（2026-09-06 15:0x，xiaozhi `ac819f7` 已推已刷 COM14；supersede 下条 ElectronBot 批；晚间 Eilik 调参见上节）
 
 | 项 | 说明 |
 |----|------|
@@ -19,7 +35,7 @@
 | 范围 | xiaozhi：`main/boards/lichuang-dev/kawaii_face/`（lvgl_kawaii_face.c/.h vendored d58e1c8 + LICENSE + 三补丁）、`lcd_display.{h,cc}`（kawaii 分支/映射表/暂停钩子/字幕路由复用）、`CMakeLists.txt`（HUTUJI_KAWAII_FACE）、`scripts/tests/test_kawaii_face.py`（7 钉，替掉 test_electronbot_face.py）；electronbot_face* 三文件删除 |
 | 证据 | 镜像 3,047,840B；boot `Kawaii face initialized` + 指纹 13 项 + 22s 无 crash；host 160/160；ElectronBot 取证留档 `tmp/electronbot_emoji/` + `tmp/gen_electronbot_face_0906.py` + `tmp/kawaii_face/`（上游原件） |
 | 许可 | MIT（上游 LICENSE 已随 vendor 入库）——ElectronBot 的 GPLv3 出货隐患随换脸消除 |
-| 待办 | 用户目视验收（各情绪/写字冻结）；Eilik 式风格的进一步调参（如需） |
+| 待办 | 用户目视验收（各情绪/写字冻结）；晚间 Eilik 调参已落地见上节 |
 
 ### ElectronBot 桌宠脸换脸批（2026-09-06 13:35，xiaozhi `ec8c367` 已推已刷 COM14）
 

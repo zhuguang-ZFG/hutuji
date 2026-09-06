@@ -1,6 +1,8 @@
 # ElectronBot 桌宠脸替换 Grobot 眼睛（2026-09-06）
 
 > **2026-09-06 同日 supersede：本文 ElectronBot GIF 脸方案已由 kawaii 桌宠脸取代**（用户见过 ElectronBot 实物后否决，指明要 Eilik 式大眼+嘴桌宠感；Eilik 本体为 Energize Lab 闭源商业产品、素材不可得，2026-09-06 anysearch 实证）。最终落地 = `lvgl_kawaii_face@d58e1c8`（MIT，程序绘制眼/眉/嘴/腮红、17 情绪、自动眨眼）vendor 进 `main/boards/lichuang-dev/kawaii_face/` + 三本地补丁（`face_animation_set_paused` 暂停 API、画布 SPIRAM 优先、header `extern "C"`），接线面与本文定案相同（保留 LcdDisplay/预览/字幕/暂停钩子语义），xiaozhi `ac819f7`。本文保留作为资产管线与否决路线的证据链（EAF/AAF 转换、EmoteDisplay 否决、GIF 内存账）；ElectronBot 资产（`tmp/electronbot_emoji/`）与再生脚本留档 hutuji 仓 tmp/。
+>
+> **2026-09-06 晚再调参（方案 1）**：在同一 kawaii 实现上往 Eilik 外观靠——黑底无眼白、淡青虹膜/主题 accent `#B4F0FF`、脸盒铺满 312×232；并修 `AccentDriftTimerCb` 在 KAWAII 下误用 π 品牌渐变覆盖按钮色的问题。证据见 `docs/release-readiness.md` 文首与 `docs/worktree-inventory.md`「kawaii→Eilik 调参批」。
 
 ## 背景与授权
 
