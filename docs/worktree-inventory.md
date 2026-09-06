@@ -20,7 +20,7 @@
 | 范围 | `write_text.py`（CJK 逐字槽位 `cjk_slot_units`、拉丁槽墨右缘+越界保底、flush 前瞻边界补偿、`FontMetrics` 增 `cjk_left_overhang`/`latin_left_overhang` 探针字段）；`table_layout.py` 同口径；新模块 `t2s.py` + `t2s_table.tsv`（OpenCC TSCharacters 3222 对 + 加载期传递闭包，Apache-2.0）；`server.py` `hutuji_write` 入口繁→简规范化；`tests/test_write_text.py` 34→40 |
 | 本地取证（tmp/overlap_check/，gitignored） | 三字库样张 `final5_*.png`（修复后残余交叠归零审计 + 渲染目检）、`final_*`/`fixed2_*`/`sample_*` 过程件、SVG/G-code 行距审计脚本输出 |
 | 验证 | pytest **1240/1240**（计数自洽钉同步）；e2e PASS；三字库宽字压力串残余交叠审计归零 |
-| 部署状态 | **未部署**（待 commit → 双机 scp → preflight）；真机重写验收未执行 |
+| 部署状态 | **已部署（2026-09-06 12:15，`81201a0`，见 `docs/deployment.md` 首条）**：5 文件双机 SHA 逐位相符、CR=0、备份 `/root/hutuji-bak-20260906-overlap/`；阿里云 mcp+bridge+portal+worker@{1..8}、京东云 mcp 全 active；生产冒烟繁体输入 missing=[]、475 行一页、预览目检无叠字；preflight 24/33、28/33 回基线。真机重写验收未执行 |
 
 ### 出图速度 HIL 判决实验夜场（2026-09-05 晚，机器时间，结论未最终定案）
 
