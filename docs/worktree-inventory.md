@@ -11,6 +11,16 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### kawaii 桌宠脸批（2026-09-06 15:0x，xiaozhi `ac819f7` 已推已刷 COM14；supersede 下条 ElectronBot 批）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户实物否决 ElectronBot 白眼睛 + Eilik 截图指明风格 + 「换啊」；Eilik 闭源不可得已实证告知 |
+| 范围 | xiaozhi：`main/boards/lichuang-dev/kawaii_face/`（lvgl_kawaii_face.c/.h vendored d58e1c8 + LICENSE + 三补丁）、`lcd_display.{h,cc}`（kawaii 分支/映射表/暂停钩子/字幕路由复用）、`CMakeLists.txt`（HUTUJI_KAWAII_FACE）、`scripts/tests/test_kawaii_face.py`（7 钉，替掉 test_electronbot_face.py）；electronbot_face* 三文件删除 |
+| 证据 | 镜像 3,047,840B；boot `Kawaii face initialized` + 指纹 13 项 + 22s 无 crash；host 160/160；ElectronBot 取证留档 `tmp/electronbot_emoji/` + `tmp/gen_electronbot_face_0906.py` + `tmp/kawaii_face/`（上游原件） |
+| 许可 | MIT（上游 LICENSE 已随 vendor 入库）——ElectronBot 的 GPLv3 出货隐患随换脸消除 |
+| 待办 | 用户目视验收（各情绪/写字冻结）；Eilik 式风格的进一步调参（如需） |
+
 ### ElectronBot 桌宠脸换脸批（2026-09-06 13:35，xiaozhi `ec8c367` 已推已刷 COM14）
 
 | 项 | 说明 |
