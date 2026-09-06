@@ -659,6 +659,9 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
     生图通常耗时约 15～45 秒。参数 description 建议为 10～40 字的简短中文主题，最长 200 字。
     可选 device_id（设备 MAC/序列号，≤64 字）用于单设备限流，省略则只走全局限流。
     好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」；坏例子是长篇故事、填色/写实要求或空话。
+    预览由服务端自动推上设备屏幕；给用户的回复只说一句简短确认（如「好的，
+    预览马上出现在屏幕上」），不要复述产物细节——设备要等播报结束才开始
+    下载预览，播报越长用户等得越久。
     失败时根据错误白话说明，不要编造 URL。"""
 
     _report_mcp_tool("draw")
@@ -682,7 +685,7 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
             "accepted": True,
             "description": safe_description,
             "eta_seconds": 45,
-            "note": "生成完成会自动推送到设备预览，无需重复调用",
+            "note": "生成完成会自动推送到设备预览，无需重复调用；回复用户只说一句话简短确认，不要复述细节——设备等播报结束才下载预览，播报越长预览越慢",
         }, ensure_ascii=False)
     if getattr(settings, "draw_async", False):
         logger.warning("HUTUJI_DRAW_ASYNC 已启用但未配置 HUTUJI_XIAOZHI_DEVICE_TOKEN，回落同步模式")
@@ -927,6 +930,10 @@ async def _run_write_job(
         "font": font.meta.display_name,
         "size_mm": layout.size_mm,
         "ttl_seconds": settings.output_ttl_seconds,
+        # 语音体感关键：设备侧 WaitForAudioOutputIdle 要等 LLM 播报结束才下载
+        # 预览（功放+WiFi 叠峰防 VSYS 掉压，2026-09-06 HIL 定性），复述越长
+        # 预览越慢，故 note 明示「只说一句」。
+        "note": "预览已自动推送到设备屏幕；回复用户只说一句简短确认（如「写好了，预览在屏幕上」），不要复述页数/字数——设备等播报结束才下载预览，说得越长预览越慢",
     }, ensure_ascii=False)
 
 
@@ -948,7 +955,9 @@ async def hutuji_write(
     调用方不要重复推送；仅在自动推送未生效时才自调设备侧 hutuji.draw，且
     多页必须把返回里的 pages_arg 字段一字不改地作为 pages 参数透传（设备按
     完全相同参数判幂等，自己重组 JSON 会被 busy 拒绝）。用户明确确认后再调
-    hutuji.confirm。"""
+    hutuji.confirm。给用户的回复只说一句简短确认（如「写好了，预览已在屏
+    幕上」），不要复述页数/字数/字体——设备要等播报结束才开始下载预览，
+    播报越长预览出现越晚。"""
     _report_mcp_tool("write")
     from .write_text import WriteTextError
 
@@ -1040,6 +1049,7 @@ async def _run_teach_job(
         "missing_chars": result.missing_chars,
         "truncated": result.truncated,
         "ttl_seconds": settings.output_ttl_seconds,
+        "note": "预览已自动推送到设备屏幕；回复用户只说一句简短确认，不要复述细节——设备等播报结束才下载预览，说得越长预览越慢",
     }, ensure_ascii=False)
 
 
@@ -1054,7 +1064,10 @@ async def hutuji_teach(text: str) -> str:
     truncated=true 表示超页截断——两者都要如实告知用户。服务端在完成点会自动
     链式调用设备侧 hutuji.draw 推送预览（含全部页），调用方不要重复推送；
     仅在自动推送未生效时才自调设备侧 hutuji.draw，且多页必须把返回里的
-    pages_arg 字段一字不改地作为 pages 参数透传。用户明确确认后再调 hutuji.confirm。"""
+    pages_arg 字段一字不改地作为 pages 参数透传。用户明确确认后再调
+    hutuji.confirm。给用户的回复只说一句简短确认（如「笔顺面板已推到屏幕
+    上」），不要复述细节——设备要等播报结束才开始下载预览，播报越长面板
+    出现越晚。"""
     _report_mcp_tool("teach")
     from .stroke_order import StrokeOrderError
 

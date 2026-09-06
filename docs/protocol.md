@@ -380,6 +380,11 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   字节（多字段、键序、空白）而被 busy 拒绝。故 `hutuji_write` 返回值含 `pages_arg` 字段：
   与链式推送同一序列化点（`_pages_argument()`）产出的紧凑字符串，回落时**一字不改**透传
   为 `pages` 参数；未配 device token 时该字段也在（正是它服务的场景）。
+- **语音播报引导 `note`（2026-09-06）**：`hutuji_draw` accepted 返回、`hutuji_write`/`hutuji_teach`
+  完成返回新增 `note` 字段，与三者工具 docstring 注入同一条引导——给用户的回复只说一句简短确认、
+  不复述产物细节。依据：设备侧预览下载有 `WaitForAudioOutputIdle` 门（功放+WiFi 叠峰防 VSYS 掉压，
+  2026-09-06 HIL 定性），LLM 播报越长预览出现越晚（17:22 实测：复述细节后 preview-on-screen 40s+）。
+  设备侧不消费该字段；现有测试按键取值、不钉键集，1243 项全绿不受影响。
 - **页循环**（`Job::Run` 单一 while）：`ChangePaperAfterDraw()` **成功之后**才推进页索引，然后
   释放本页 PSRAM 缓冲 → 下载下一页 → §5.1 校验 → 灌流 → 归位 → `M30`。任一页失败/abort 即整单
   终止（不跳页续写）。预览只出第 1 页；预取只可能命中第 1 页，后续页 URL 不同自然回落直下载。
