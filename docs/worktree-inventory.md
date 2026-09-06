@@ -11,6 +11,16 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
+### ElectronBot 桌宠脸换脸批（2026-09-06 13:35，xiaozhi `ec8c367` 已推已刷 COM14）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户原话「不用这个眼镜了，在github找桌宠表情吧」+「不用考虑许可，哪个最好」→ 拍板 ElectronBot 表情 |
+| 范围 | xiaozhi：新增 `electronbot_face.{h,cc}`（EmojiCollection 子类+21 情绪名映射）、`electronbot_face_assets.h`（8 资产 180KB 嵌入）、`lcd_display.{h,cc}`（SetupUI 换脸分支/SetEmotion 分支/暂停钩子双路径/眨眼定时器/字幕条公共方法）、`CMakeLists.txt`（waveshare-3.5 默认开+可 -D=OFF 回退）、`scripts/tests/test_electronbot_face.py` 7 钉；hutuji：`docs/design/face-electronbot-0906.md`、取证 `tmp/electronbot_emoji/`（原 mp4 + 帧图 + GIF）、再生脚本 `tmp/gen_electronbot_face_0906.py` |
+| 证据 | 镜像 SHA-256 `99746921…d137`；boot 日志 ElectronBot face initialized、指纹 13 项、25s 无 crash；host 161/161 |
+| 许可风险 | 上游 ElectronBot 仓 GPLv3、素材作者 oooooohmygosh 无独立条款；用户口头豁免，**商业出货前必须在合规签核重新点名** |
+| 待办 | 用户目视验收（表情切换/写字冻结/审美）；FaceScout 报告已归档 `tmp/face-scout-0906.md` |
+
 ### v10 固件刷机（2026-09-06 12:4x，xiaozhi `8a96608` 已推 origin）
 
 | 项 | 说明 |
