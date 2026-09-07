@@ -126,7 +126,7 @@ def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         })(),
     )
     monkeypatch.setattr(
-        "draw_portal.app.push_for_user_binding",
+        "draw_portal.app.push_draw_self_heal",
         lambda **kwargs: (True, "ok"),
     )
 

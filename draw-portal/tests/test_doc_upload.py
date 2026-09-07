@@ -196,7 +196,7 @@ def test_send_multipage_uses_pages_argument(tmp_path: Path, monkeypatch: pytest.
     _patch_doc_pipeline(monkeypatch)
     pushed: dict = {}
     monkeypatch.setattr(
-        "draw_portal.app.push_for_user_binding",
+        "draw_portal.app.push_draw_self_heal",
         lambda **kwargs: (pushed.update(kwargs), (True, "ok"))[1],
     )
 
@@ -242,7 +242,7 @@ def test_send_single_page_has_no_pages_argument(
     monkeypatch.setattr("draw_portal.app.process_upload", fake_pipeline)
     pushed: dict = {}
     monkeypatch.setattr(
-        "draw_portal.app.push_for_user_binding",
+        "draw_portal.app.push_draw_self_heal",
         lambda **kwargs: (pushed.update(kwargs), (True, "ok"))[1],
     )
 

@@ -826,6 +826,16 @@ class Store:
             )
             conn.commit()
 
+    def update_binding_token(self, user_id: str, *, device_token_enc: str) -> None:
+        """push 401 自愈重铸 messaging token 后回写（announce 上报值不可信，
+        2026-09-07 绑定表惊现 test-token 占位导致全量推送 401）。"""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE device_bindings SET device_token_enc = ? WHERE user_id = ?",
+                (device_token_enc, user_id),
+            )
+            conn.commit()
+
     def create_saved_preview(
         self,
         *,

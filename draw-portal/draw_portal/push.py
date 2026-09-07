@@ -180,3 +180,104 @@ def push_for_user_binding(
         preview_url=preview_url,
         pages_arg=pages_arg,
     )
+
+# ---------------------------------------------------------------------------
+# messaging token 终身自治（2026-09-07 用户原话「其他的全部自动化」）
+#
+# 背景：设备 announce 上报的 token 不可信（可能是 NVS websocket.token 或历史
+# 占位 test-token），且控制台「主题配置」面板每次打开都重签作废旧 token——
+# 绑定表里的 messaging JWT 天然会过期。自愈策略：
+#   1) 绑定时尽量现场铸新（bind_complete 调 mint_messaging_token）；
+#   2) 推送撞 401/403 时铸新 → 回写绑定表 → 重试一次（push_draw_self_heal）。
+# 控制台 JWT 来源：/etc/hutuji/kb-admin.env 的 XIAOZHI_TOKEN（token-auto 已
+# 自动续期，单一真值源），或 env DRAW_PORTAL_XIAOZHI_TOKEN 显式覆盖。
+# 签发端点 = 官方控制台 POST /agents/generate-messaging-token {macAddress}。
+# ---------------------------------------------------------------------------
+
+_KB_ADMIN_ENV_PATH = Path("/etc/hutuji/kb-admin.env")
+
+
+def load_console_token() -> str:
+    """控制台（purpose=login）JWT：env 优先，kb-admin.env 兜底；找不到回 ''。"""
+    token = os.environ.get("DRAW_PORTAL_XIAOZHI_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        for line in _KB_ADMIN_ENV_PATH.read_text(encoding="utf-8").splitlines():
+            if line.startswith("XIAOZHI_TOKEN="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def mint_messaging_token(*, api_base: str, mac: str, timeout: int = 15) -> str:
+    """用控制台 JWT 现场签发设备 messaging JWT；任何失败回 ''（调用方降级）。"""
+    import json as _json
+    from urllib.error import HTTPError as _HTTPError, URLError as _URLError
+    from urllib.request import Request as _Request, urlopen as _urlopen
+
+    console_token = load_console_token()
+    if not console_token:
+        return ""
+    req = _Request(
+        f"{api_base.rstrip('/')}/agents/generate-messaging-token",
+        data=_json.dumps({"macAddress": mac}).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {console_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with _urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return ""
+            payload = _json.loads(resp.read().decode("utf-8", "replace"))
+    except (_HTTPError, _URLError, ValueError, OSError):
+        return ""
+    token = payload.get("token")
+    return token if isinstance(token, str) else ""
+
+
+def push_draw_self_heal(
+    *,
+    api_base: str,
+    token_cipher_key: bytes,
+    device_mac: str,
+    device_token_enc: str,
+    gcode_url: str,
+    preview_url: str,
+    pages_arg: str | None = None,
+    on_token_minted=None,
+) -> tuple[bool, str]:
+    """推送 + 401/403 自愈：铸新 messaging token → 回调回写 → 重试一次。
+
+    on_token_minted(new_enc)：由调用方把新 token（已加密）写回绑定表。
+    """
+    ok, summary = push_for_user_binding(
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        device_token_enc=device_token_enc,
+        gcode_url=gcode_url,
+        preview_url=preview_url,
+        pages_arg=pages_arg,
+    )
+    if ok or summary not in ("HTTP 401", "HTTP 403"):
+        return ok, summary
+    fresh = mint_messaging_token(api_base=api_base, mac=device_mac)
+    if not fresh:
+        return False, summary + "（自愈失败：控制台 token 不可用）"
+    from draw_portal.crypto import encrypt_token
+
+    new_enc = encrypt_token(token_cipher_key, fresh)
+    if on_token_minted is not None:
+        on_token_minted(new_enc)
+    ok2, summary2 = push_draw_to_device(
+        api_base=api_base,
+        device_token=fresh,
+        gcode_url=gcode_url,
+        preview_url=preview_url,
+        pages_arg=pages_arg,
+    )
+    return (True, "hutuji.draw ok（token 已自愈）") if ok2 else (False, summary2)

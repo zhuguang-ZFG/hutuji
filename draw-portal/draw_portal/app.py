@@ -44,6 +44,7 @@ from draw_portal.push import (
     _install_capability_pair,
     publish_doc_pages,
     publish_job_files,
+    push_draw_self_heal,
     push_for_user_binding,
     push_tool_call,
 )
@@ -562,6 +563,24 @@ def create_app() -> FastAPI:
             arguments=arguments,
             timeout=15,
         )
+        if not ok and result in ("HTTP 401", "HTTP 403"):
+            # 与 draw_send 同一自愈：铸新 messaging token → 回写绑定表 → 重试
+            from draw_portal.push import mint_messaging_token
+
+            fresh = mint_messaging_token(api_base=config.xiaozhi_api_base, mac=binding.device_mac)
+            if fresh:
+                from draw_portal.crypto import encrypt_token
+
+                store.update_binding_token(
+                    user_id, device_token_enc=encrypt_token(config.token_cipher_key, fresh)
+                )
+                ok, result = push_tool_call(
+                    api_base=config.xiaozhi_api_base,
+                    device_token=fresh,
+                    name=tool,
+                    arguments=arguments,
+                    timeout=15,
+                )
         if not ok:
             return {"status": "error", "detail": result}
         # 设备工具回包是 JSON 字符串（hutuji.status 等）或 started/true；原样透传给前端解析
@@ -883,13 +902,15 @@ def create_app() -> FastAPI:
                 pages_arg = pages_argument(urls)
         else:
             gcode_url, preview_url = _publish_from_job(job_id)
-        ok, summary = push_for_user_binding(
+        ok, summary = push_draw_self_heal(
             api_base=config.xiaozhi_api_base,
             token_cipher_key=config.token_cipher_key,
+            device_mac=binding.device_mac,
             device_token_enc=binding.device_token_enc,
             gcode_url=gcode_url,
             preview_url=preview_url,
             pages_arg=pages_arg,
+            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc),
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())
@@ -1016,12 +1037,14 @@ def create_app() -> FastAPI:
             public_base_url=config.public_base_url,
         )
 
-        ok, summary = push_for_user_binding(
+        ok, summary = push_draw_self_heal(
             api_base=config.xiaozhi_api_base,
             token_cipher_key=config.token_cipher_key,
+            device_mac=binding.device_mac,
             device_token_enc=binding.device_token_enc,
             gcode_url=published.gcode_url,
             preview_url=published.preview_url,
+            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc),
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())
