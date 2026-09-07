@@ -655,7 +655,7 @@
 | 验证 | 三补丁「`git apply -R` → 干净树 `--check` → apply 恢复」全循环实测通过；镜像 `build-instr-lichuang/xiaozhi.bin` 3,048,832B SHA-256 `367EEE2412E1B91CEC5BF67A62DAA9F25016875EA4B2B349F02E8436E6810F4F` 已刷 COM14（18:20，`Hash of data verified` + watchdog 复位；启动横幅待下次重启核对）。云端配套：nginx 1800s 双机 + preflight 对账恢复一致（hub 仓 `deploy/nginx-hutuji.conf` 已同步模板） |
 | 待办 | ① 用户断电重启后 grep 捕获日志 `Compile time`/`ELF file SHA256` 对 `xiaozhi.elf` 核对镜像身份；② 语音两页文章 HIL：`Reusing existing connection` 日志 + 页 2 下载成功 + 堆日志对比；③ xiaozhi 仓本批提交并推远端 |
 
-## 双仓评审修复批（2026-09-06 深夜，评审后续；两外仓各 1 提交未推远端）
+## 双仓评审修复批（2026-09-06 深夜，评审后续；两外仓提交 2026-09-07 已推远端）
 
 | 项 | 内容 |
 |---|---|
@@ -663,4 +663,4 @@
 | xiaozhi `80b0336`（分支 feat/hutuji-usb-pipe） | `sdkconfig.defaults.esp32s3` 钉 `CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y` + `main/boards/lichuang-dev/hutuji_job.cc` 顶部编译期 `#error` 断言（WiFi TX 双层防漂移同款）。host 165/165 通过；g++ 预处理双态实证断言有效；**未刷板**（旗标本就在生成 sdkconfig 里，重建后行为无变化预期，随下次刷机顺带） |
 | 本仓同批改动 | `docs/agent-edit-allowlist.json` extras +2（`Grbl_Esp32/src/Grbl.h`、`Grbl_Esp32/src/grbl_limits.h`，授权=2026-09-06 用户「同意修复」）；`scripts/agent_gate.py` `ALLOWLIST_EXACT` 同步；`AGENTS.md` 硬规则例外清单同步 |
 | 验证 | 评审前置 hub 门禁 PASS（pytest 1243、e2e PASS、指纹 260/260、外仓引用 245/245）；本批文档改动后 hub 门禁复跑结果见 readiness 门禁状态行 |
-| 待办 | ① Grbl `3a6ee4e` 与 xiaozhi `80b0336` 推远端；② 待刷板项累积：TLS 复用批镜像横幅核对 + 本次 EXT_MEM 重建镜像随下次刷机顺带；③ 评审遗留 minor/nit 与残留风险清单随评审会话提交信息（30 轮验收前 nginx `limit_conn` 与 paper risk 行级闸为硬项） |
+| 待办 | ① 待刷板项累积：TLS 复用批镜像横幅核对 + 本次 EXT_MEM 重建镜像随下次刷机顺带；② 评审遗留 minor/nit 与残留风险清单随评审会话提交信息（30 轮验收前 nginx `limit_conn` 与 paper risk 行级闸为硬项）。三仓推送已于 2026-09-07 完成：hub `90d23e0..457a86c`、xiaozhi `531f5b7..80b0336`、Grbl `8047d29..3a6ee4e` |
