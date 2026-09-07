@@ -674,7 +674,7 @@
 | `mcp-server/tests/test_write_text.py` | RED→GREEN 回归钉 2 例（43→45）：Tab/空格同文落版逐点一致 + 单行；拉丁→CJK 边界满行交界不越右边距（stash 旧码复跑双双 RED，预测失败形态逐字命中） |
 | 计数同步 | AGENTS.md 1243→1250、test_contract 623→628、test_write_text 43→45；inventory 汇总行同批；`test_test_count_claims_self_consistent` RED→GREEN |
 | 验证 | 全量 pytest 1250/1250；hub 门禁 PASS（docs 锚点/复活/禁语/白名单/防漂移/矩阵/行号/指纹 260/260/外仓引用 247/247/pytest/e2e 全绿）；指纹半漂移 2 处人工核对后重登（finding#28 → AGENTS.md:145-147 计数行内容合法演进；finding#30 → test_contract.py:7451 签名行纯移动 7421→7451） |
-| 待办 | ② paper risk 行级闸 ✅（调查批，结论不加闸，见下节）；③ nginx `limit_conn` ✅（双机部署，见末节）；④ HIL 准备清单——均为「都做」登记硬项 |
+| 待办 | ② paper risk 行级闸 ✅（调查批，结论不加闸，见下节）；③ nginx `limit_conn` ✅（双机部署，见末节）；④ HIL 准备清单 ✅（`docs/hil-checklist-0907.md`）——「都做」四项清零 |
 
 ## paper risk 行级闸调查批（2026-09-07，mcp-server 侧；用户「都做」第 ② 项——结论：**不加闸**，已证伪）
 
@@ -689,7 +689,7 @@
 | 代码改动 | 仅 `paper_risk.py` 模块 docstring 增「2026-09-07 结构性复核」段（防下轮重推）；逻辑零改动 |
 | 证据脚本 | `tmp/calib_prisk_0907.py` + `tmp/calib_prisk_out/`（9 好 + 涂鸦球 SVG/gcode，不入库） |
 | 验证 | 全量 pytest 复跑见提交记录（计数回 1250：AGENTS.md/inventory 同步回退） |
-| 待办 | ③ nginx `limit_conn` ✅（见末节）；④ HIL 准备清单 |
+| 待办 | ③ nginx `limit_conn` ✅（见末节）；④ HIL 准备清单 ✅（见末节） |
 
 ## nginx `limit_conn` 双机部署批（2026-09-07 午，本仓 `ba0d77f`；用户「都做」第 ③ 项——✅ 已上线）
 
@@ -701,4 +701,4 @@
 | 验证 | 双机 `nginx -t` 绿 → `systemctl restart nginx`（zone 变更 reload 静默丢弃）→ is-active + 最老 worker 存活数秒 + 近 3 分钟 `[emerg]`=0 → preflight 回基线（阿里云 24/33 九 fail 全为既有布局类、京东云 28/33 热备预期；阿里云公网 443 /files 真下与 /mcp 404 均 pass） |
 | 未验证 | 21+ 并发在途连接触发 503 的行为面（需慢请求夹具）；配置级证据 + 标准 ngx_http_limit_conn_module 视为充分 |
 | 文档 | deployment.md 首条 + release-readiness 当日条 + AGENTS.md 增「双节点 nginx 布局不同源」段（禁整份覆盖阿里云、sed 地址行首锚定、京东 enabled 普通文件三处同写） |
-| 待办 | ④ HIL 准备清单（「都做」最后一项） |
+| 待办 | ④ HIL 准备清单 ✅ `docs/hil-checklist-0907.md`（A 纸面三项 / B abort+paper_active / C 设备复验 / D 速度夜场 / E 30 轮编排 / F 收尾）；「都做」四项全部清零 |
