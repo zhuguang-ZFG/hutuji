@@ -520,7 +520,7 @@ def _transpose_gcode_xy(text: str) -> str:
     return "".join(out)
 
 
-def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
+def _read_generated_gcode(gcode_path: Path, on_raw_text=None) -> GcodeStats:
     """读取 vpype 成功退出后的产物，并统一成合同错误。
 
     **必须按字节读**，不能用 `read_text()`：后者走 universal newlines，把 CRLF 塌成
@@ -536,6 +536,11 @@ def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     except (OSError, UnicodeDecodeError) as exc:
         logger.error("vpype 返回 0 但未产出可读 G-code 文件：%s", exc, exc_info=True)
         raise GcodeError("vpype 转换未产出 G-code 文件") from None
+    # 塌缩前原文回调：paper_risk 闸的标定面是 vpype 原文（08-26/27 样本），
+    # 1.0mm 地板会让塌缩后文本的短段指标结构性惰性；pen_lifts 对塌缩/转置/
+    # 弧拟合不变，闸可用终稿 stats.pen_lifts 评原文。成功解码即发一次。
+    if on_raw_text is not None:
+        on_raw_text(text)
     # 落笔短段地板 + 弧拟合：写回磁盘，保证 /files 下载字节与校验口径一致。
     # 顺序：先塌缩（短段地板 1.0mm，保证拟合输入的最小段长），再拟合（弧/直线
     # 覆盖连续折线）。弧拟合只砍行数不改几何（终点逐点取原顶点，容差 0.02mm
@@ -561,7 +566,7 @@ def _read_generated_gcode(gcode_path: Path) -> GcodeStats:
     return validate_gcode(text, total_bytes=len(raw))
 
 
-def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True) -> GcodeStats:
+def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None) -> GcodeStats:
     """跑 vpype 管线生成 G-code，随后做 §5 合同校验。
 
     normalize=False 仅写字/表格排版链使用（跳过 layout 保字号，与
@@ -586,10 +591,10 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True) -> Gc
     if proc.returncode != 0:
         logger.error("vpype 转换失败（exit %d）：%s", proc.returncode, proc.stderr[-500:])
         raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）")
-    return _read_generated_gcode(gcode_path)
+    return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text)
 
 
-async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normalize: bool = True) -> GcodeStats:
+async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None) -> GcodeStats:
     """可取消地运行 vpype；请求取消或超时都必须回收子进程。"""
     try:
         process = await asyncio.create_subprocess_exec(
@@ -638,16 +643,16 @@ async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normal
         tail = stderr.decode("utf-8", errors="replace")[-500:]
         logger.error("vpype 转换失败（exit %d）：%s", process.returncode, tail)
         raise GcodeError(f"vpype 转换失败（exit {process.returncode}）")
-    return _read_generated_gcode(gcode_path)
+    return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text)
 
 
-async def svg_to_gcode_async(svg_path: Path, gcode_path: Path, normalize: bool = True) -> GcodeStats:
+async def svg_to_gcode_async(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None) -> GcodeStats:
     """可取消地运行 vpype；最多两个子进程并发，取消时仍回收已启动进程。
 
     normalize=False 仅写字排版链使用（跳过 layout 保字号），其余调用方不得传。
     """
     async with _vpype_semaphore():
-        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path, normalize)
+        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path, normalize, on_raw_text=on_raw_text)
 
 
 def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:

@@ -901,7 +901,7 @@ def test_draw_uses_normalized_injected_public_origin(
     async def fake_generate_svg(_description: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
-    async def fake_svg_to_gcode(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_svg_to_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -932,7 +932,7 @@ def test_draw_result_includes_ttl_seconds(
     async def fake_bitmap(_desc: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -994,7 +994,7 @@ def test_draw_returns_matching_png_preview_capability(
     async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -1033,7 +1033,7 @@ def _stub_draw_pipeline(monkeypatch, stem: str) -> None:
     async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -1174,7 +1174,7 @@ def test_draw_reuses_gcode_content_for_same_svg(
                   "draw_20260819_120001_bbbbbbbbbbbbbbbbbbbbbb"])
     converts = 0
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         nonlocal converts
         converts += 1
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
@@ -1216,7 +1216,7 @@ def test_draw_does_not_cache_failed_gcode(
                   "draw_20260819_120003_dddddddddddddddddddddd"])
     converts = 0
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         nonlocal converts
         converts += 1
         if converts == 1:
@@ -1844,7 +1844,7 @@ def test_draw_limit_covers_vpype_conversion(
         both_started = asyncio.Event()
         release = asyncio.Event()
 
-        async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+        async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
             nonlocal started
             started += 1
             if started == 2:
@@ -1901,7 +1901,7 @@ def test_draw_cancelled_retries_share_one_job_and_limiter_slot(
         await release.wait()
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         nonlocal convert_calls
         convert_calls += 1
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
@@ -1986,7 +1986,7 @@ def test_draw_cancellation_removes_partial_outputs(
     async def exercise() -> None:
         started = asyncio.Event()
 
-        async def fake_convert(_svg_path: Path, gcode_path: Path) -> None:
+        async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> None:
             gcode_path.write_text("partial", encoding="utf-8")
             started.set()
             await asyncio.Event().wait()
@@ -2077,7 +2077,7 @@ def test_hutuji_draw_uses_bitmap_route(
     async def fake_llm(_desc: str) -> str:
         raise AssertionError("draw 不得走 LLM 直写路线")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -4638,7 +4638,7 @@ def test_svg_to_gcode_async_limits_subprocess_concurrency(
 
     stats = gcode_gen.GcodeStats(lines=1, bytes=1, pen_lifts=0)
     monkeypatch.setattr(gcode_gen.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
-    monkeypatch.setattr(gcode_gen, "_read_generated_gcode", lambda _path: stats)
+    monkeypatch.setattr(gcode_gen, "_read_generated_gcode", lambda _path, **_kw: stats)
 
     async def exercise() -> None:
         tasks = [
@@ -9921,7 +9921,7 @@ def test_draw_async_without_token_falls_back_sync(tmp_path, monkeypatch, caplog)
     server._draw_last_error = None
     async def fake_bitmap(_desc, **_kw):
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
-    async def fake_gcode(_svg_path: Path, gcode_path: Path):
+    async def fake_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None):
         gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
         return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
     monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
@@ -9980,7 +9980,7 @@ def test_draw_last_error_recorded_and_cleared(tmp_path, monkeypatch):
     from pathlib import Path
     async def ok_bitmap(_desc, **_kw):
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
-    async def ok_gcode(_svg_path: Path, gcode_path: Path):
+    async def ok_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None):
         gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
         return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
     monkeypatch.setattr(server, "generate_bitmap", ok_bitmap)

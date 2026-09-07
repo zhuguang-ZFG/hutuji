@@ -372,23 +372,39 @@ _gcode_cache_clock = time.monotonic
 
 
 async def _svg_to_gcode_cached(svg: str, svg_path: Path, gcode_path: Path):
+    """返回 (stats, raw_text)：raw_text 是塌缩/转置/弧拟合前的 vpype 原文，
+    paper_risk 闸的标定面（08-26/27 样本）。缓存随条目存原文，命中不重跑。"""
     key = hashlib.sha256(svg.encode("utf-8")).hexdigest()
     now = _gcode_cache_clock()
     hit = _gcode_cache.get(key)
     if hit is not None:
-        created, payload, stats = hit
+        created, payload, stats, raw_text = hit
         if now - created < _GCODE_CACHE_TTL_SECONDS:
             _gcode_cache.move_to_end(key)
             logger.info("G-code 内容缓存命中")
             gcode_path.write_bytes(payload)
-            return stats
+            return stats, raw_text
         del _gcode_cache[key]
-    stats = await svg_to_gcode_async(svg_path, gcode_path)
-    _gcode_cache[key] = (_gcode_cache_clock(), gcode_path.read_bytes(), stats)
+    raw_holder: list[str] = []
+    stats = await svg_to_gcode_async(
+        svg_path, gcode_path, on_raw_text=raw_holder.append
+    )
+    # 回调在 _read_generated_gcode 成功解码后必发一次；stub 不发时退化为终稿
+    raw_text = (
+        raw_holder[0]
+        if raw_holder
+        else gcode_path.read_bytes().decode("utf-8")
+    )
+    _gcode_cache[key] = (
+        _gcode_cache_clock(),
+        gcode_path.read_bytes(),
+        stats,
+        raw_text,
+    )
     _gcode_cache.move_to_end(key)
     while len(_gcode_cache) > _GCODE_CACHE_MAX_ENTRIES:
         _gcode_cache.popitem(last=False)
-    return stats
+    return stats, raw_text
 
 
 # 同题云端重试的完整 draw 事务表。小智云约 35s 会放弃慢调用并重试；若事务归
@@ -474,7 +490,7 @@ async def _run_draw_job(
             paths.svg_path.write_text(bitmap.svg, encoding="utf-8")
             paths.preview_path.write_bytes(bitmap.preview_png)
             gcode_t0 = time.monotonic()
-            job_stats = await _svg_to_gcode_cached(
+            job_stats, _raw = await _svg_to_gcode_cached(
                 bitmap.svg, paths.svg_path, paths.gcode_path
             )
             logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
@@ -510,14 +526,14 @@ async def _run_draw_job(
                         paths.svg_path.write_text(bitmap.svg, encoding="utf-8")
                         paths.preview_path.write_bytes(bitmap.preview_png)
                         gcode_t0 = time.monotonic()
-                        stats = await _svg_to_gcode_cached(
+                        stats, raw_gcode_text = await _svg_to_gcode_cached(
                             bitmap.svg, paths.svg_path, paths.gcode_path
                         )
                         logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
-                        gcode_text = paths.gcode_path.read_text(encoding="utf-8")
+                        # 闸吃塌缩前 vpype 原文（标定面），pen_lifts 对后处理不变
                         if not getattr(settings, "paper_risk_gate", True):
                             report = paper_risk.evaluate_gcode(
-                                gcode_text, pen_lifts=stats.pen_lifts
+                                raw_gcode_text, pen_lifts=stats.pen_lifts
                             )
                             logger.info(
                                 "paper_risk shadow short=%.2f lifts=%d gap_p50=%.2f "
@@ -535,7 +551,7 @@ async def _run_draw_job(
                             break
                         try:
                             paper_risk.enforce_gcode(
-                                gcode_text, pen_lifts=stats.pen_lifts
+                                raw_gcode_text, pen_lifts=stats.pen_lifts
                             )
                             logger.info(
                                 "paper_risk pass attempt=%d pen_lifts=%d",

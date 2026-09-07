@@ -209,7 +209,7 @@
 | 动机 | 用户拍板「都做」：draw-portal 补「文字→AI 生图」入口 + 传图页体验优化 |
 | MCP 侧 | `server.py`：`POST /internal/draw`（loopback + `hmac.compare_digest` 共享密钥，未配/外网/错钥一律 404；400 校验、错误映射 400/429/504/502、nosniff）；`_run_draw_job` 加 `chain_push` 形参（False 时不经全局 token 推设备）；`_draw_inflight` 以 `(description, chain_push)` 分键（`\x00nopush` material）；`draw_queue.py` Redis payload 带 `chain_push`（旧 payload 缺省 True）；契约 `docs/protocol.md` §10.4.8 |
 | portal 侧 | 新增 `draw_portal/generate.py`（`request_internal_draw`/`materialize_generated_job`，`_DRAW_FILE_RE` 文件名闸 + 下载限长 512KiB/4MiB）；`app.py` `POST /api/draw/generate`（503 未配密钥 / 400 空描述 / 429 配额 / 400·429 透传 detail、504·502 固定白话）；`config.py` +3 env（`DRAW_PORTAL_MCP_INTERNAL_BASE_URL` loopback 强校验 / `_GENERATE_DAILY_LIMIT` 默认 10 / `_GENERATE_TIMEOUT_SECONDS` 默认 300）；`index.html` sheet 双页签 + 生图表单；传图 UX：>4MB 位图本地 canvas 降压缩、拖拽/粘贴进图、选后本地缩略图、空图库文案 |
-| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1250** 项（2026-09-07 双仓评审 minor 修复批 +7：test_contract.py 623→628（竖版转置正例互换 + fail-closed 四态拒绝矩阵）；test_write_text.py 43→45（Tab/空格测量同价、拉丁→CJK 边界避让计入行宽测量））（2026-09-06 t2s 韧性批 +1：test_write_text.py 42→43，映射表缺失降级）（2026-09-06 默认字体批 +2：test_write_text.py 40→42，blood8_xiongzai 偏好命中/回落）（2026-09-06 字重叠修复批 +6：test_write_text.py 34→40，步进契约/拉丁半步进+宽字墨右缘/繁简归一/t2s 幂等）（2026-09-05 弧拟合批 +9：新增 test_arc_fit.py，G2/G3 拟合 + 急回折 342° 整圆事故钉死）（2026-09-05 笔顺教学批 +8：新增 test_stroke_order.py）（2026-09-04 Y 方向定案批 +1：test_contract.py 622→623；2026-09-04 标题放大居中批 +2：test_write_text.py 32→34；2026-09-04 文档标题/编号批 +11：test_doc_ingest.py 26→33 + test_write_text.py 28→32；2026-09-04 文档导入批 +37：test_doc_ingest.py 26 + test_table_layout.py 11；2026-09-04 故障收口批 +7：test_write_text.py 24→28——长词硬断/空白段跳过/字库读失败收窄×2；test_breaker.py 4→7——损坏 JSON 告警/record_outcome 存储故障存活/enforce 下 is_open fail-open），2026-09-03 热备/看门狗批 +2：设备 token 看门狗形态钉死 + nginx 模板携带 portal location（test_contract.py 620→622）；2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
+| 测试 | mcp `test_draw_queue.py` 20→23、`test_contract.py` 607→617（全套 **1253** 项（2026-09-07 双仓评审 minor 修复批 +7：test_contract.py 623→628（竖版转置正例互换 + fail-closed 四态拒绝矩阵）；test_write_text.py 43→45（Tab/空格测量同价、拉丁→CJK 边界避让计入行宽测量））（2026-09-06 t2s 韧性批 +1：test_write_text.py 42→43，映射表缺失降级）（2026-09-06 默认字体批 +2：test_write_text.py 40→42，blood8_xiongzai 偏好命中/回落）（2026-09-06 字重叠修复批 +6：test_write_text.py 34→40，步进契约/拉丁半步进+宽字墨右缘/繁简归一/t2s 幂等）（2026-09-05 弧拟合批 +9：新增 test_arc_fit.py，G2/G3 拟合 + 急回折 342° 整圆事故钉死）（2026-09-05 笔顺教学批 +8：新增 test_stroke_order.py）（2026-09-04 Y 方向定案批 +1：test_contract.py 622→623；2026-09-04 标题放大居中批 +2：test_write_text.py 32→34；2026-09-04 文档标题/编号批 +11：test_doc_ingest.py 26→33 + test_write_text.py 28→32；2026-09-04 文档导入批 +37：test_doc_ingest.py 26 + test_table_layout.py 11；2026-09-04 故障收口批 +7：test_write_text.py 24→28——长词硬断/空白段跳过/字库读失败收窄×2；test_breaker.py 4→7——损坏 JSON 告警/record_outcome 存储故障存活/enforce 下 is_open fail-open），2026-09-03 热备/看门狗批 +2：设备 token 看门狗形态钉死 + nginx 模板携带 portal location（test_contract.py 620→622）；2026-09-03 pages_arg 透传批 +2：透传件与链式推送 pages 逐字节一致/无 token 时仍在返回值（test_write_text.py 19→21）；2026-09-03 worker 干净停机批 +2：干净路径 os._exit(0) 跳过终结化/错误路径不硬退出（test_draw_queue.py 23→25）；2026-09-01 错峰 TTL 批 +3：test_output_store.py 2→4、test_write_text.py 18→19；同日多页云端配套批 +2：预览 PNG 可见性/空页兜底、chain_push pages JSON 形状；此前 2026-08-31 写字排版批 +16：test_write_text.py gfont 解析/排版/端到端；再前 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死）；portal 新增 `tests/test_generate.py` **12 项**（503/配额/透传分级/物化清半成品），portal 全套 32 |
 | 本机联调（不入库） | `tmp/stub_internal_draw_0831.py`（stub MCP /internal/draw+/files）、`tmp/strip_prefix_proxy_0831.py`（8400 剥前缀模拟 nginx）、`tmp/smtp_sink_0831.py`（25 端口 SMTP 黑洞）、`tmp/big_noisy_0831.bmp`（15MB 压缩验证件）、`tmp/portal-e2e-0831/`（SQLite+job 产物）。浏览器实测：注册→登录→文字生图 200+预览加载+保存图库✅、SVG 上传转换 14 行✅、15MB BMP 本地压到 1.3MB 绕过 413（噪声图 BitmapError 正常失败）✅ |
 | 部署（已完成 01:48 CST） | 脚本 `tmp/deploy_web_generate_0831.py`（不入库）：8 产物 HEAD blob 导出 CR=0、双机 SHA-256 逐位相符、备份 `/root/hutuji-bak-20260831-web-generate/`；阿里云 restart mcp+bridge+worker@{1..8}+portal 全 active，京东云仅 mcp；阿里云本机无钥/错钥 `/internal/draw` 均 404、公网 404、portal 未登录 401；证据条见 `docs/deployment.md` 顶部 |
 
@@ -674,9 +674,9 @@
 | `mcp-server/tests/test_write_text.py` | RED→GREEN 回归钉 2 例（43→45）：Tab/空格同文落版逐点一致 + 单行；拉丁→CJK 边界满行交界不越右边距（stash 旧码复跑双双 RED，预测失败形态逐字命中） |
 | 计数同步 | AGENTS.md 1243→1250、test_contract 623→628、test_write_text 43→45；inventory 汇总行同批；`test_test_count_claims_self_consistent` RED→GREEN |
 | 验证 | 全量 pytest 1250/1250；hub 门禁 PASS（docs 锚点/复活/禁语/白名单/防漂移/矩阵/行号/指纹 260/260/外仓引用 247/247/pytest/e2e 全绿）；指纹半漂移 2 处人工核对后重登（finding#28 → `AGENTS.md` 第 145-147 行计数行内容合法演进；finding#30 → `test_contract.py` 第 7451 行签名行纯移动 7421→7451） |
-| 待办 | ② paper risk 行级闸 ✅（调查批，结论不加闸，见下节）；③ nginx `limit_conn` ✅（双机部署，见末节）；④ HIL 准备清单 ✅（`docs/hil-checklist-0907.md`）——「都做」四项清零 |
+| 待办 | ② paper risk 行级闸 ✅（调查批+下午输入面修复：闸改吃塌缩前原文 v2.1，见下节）；③ nginx `limit_conn` ✅（双机部署，见末节）；④ HIL 准备清单 ✅（`docs/hil-checklist-0907.md`）——「都做」四项清零 |
 
-## paper risk 行级闸调查批（2026-09-07，mcp-server 侧；用户「都做」第 ② 项——结论：**不加闸**，已证伪）
+## paper risk 行级闸调查批（2026-09-07，mcp-server 侧；用户「都做」第 ② 项——结论：行级新指标**不加**（塌缩后无信号）；**但发现 v2 输入面漂移**——闸自 08-28 地板起吃塌缩后文本致短段两项脱靶，当日下午修复为吃塌缩前原文（`paper_risk` v2.1，阈值不动），pytest 1253 绿，未部署生产）
 
 | 项 | 内容 |
 |---|---|
@@ -690,6 +690,16 @@
 | 证据脚本 | `tmp/calib_prisk_0907.py` + `tmp/calib_prisk_out/`（9 好 + 涂鸦球 SVG/gcode，不入库） |
 | 验证 | 全量 pytest 复跑见提交记录（计数回 1250：AGENTS.md/inventory 同步回退） |
 | 待办 | ③ nginx `limit_conn` ✅（见末节）；④ HIL 准备清单 ✅（见末节） |
+| 待办 | ⑤ limit_conn `/draw-upload/` 放宽 50 ✅（`d68a572`，双机上线，见末节「⑤ 晚补强」）——顾问复检项清零 |
+
+## ⑤ limit_conn `/draw-upload/` 50 晚补强（2026-09-07 晚，本仓 `d68a572`——✅ 双机已上线）
+
+| 项 | 内容 |
+|---|---|
+| 起因 | 顾问复检：server 级 20 圈进 `/draw-upload/` 同步长请求（150s AbortController + DrawLimiter 8 并发外排队在途），课堂 NAT 30+ 学生顶破 20 被 503；/files、/register 快请求维持 20 |
+| 改动 | 模板 location 内 `limit_conn hutuji_conn 50;` + 注释取值依据；AGENTS.md 137 行补 per-location 口径；inventory 676 行引用改非活指针（基线重登 260） |
+| 部署 | 京东三处同写 SHA 相符；阿里 gray conf `/draw-upload/` 块内插一行（+1 行 SHA 相符）；双机 `nginx -t` 绿、restart、worker 0–1s、error.log 晚于 T0 `[emerg]`=0；公网 portal 200、`/mcp` 404 |
+| 脚本 | `tmp/deploy_nginx_limitconn_0907b.py`（不入库）；前备 `tmp/nginx_live_0907/`、`{BAK}/jd-b`、`{BAK}/ali-b` |
 
 ## nginx `limit_conn` 双机部署批（2026-09-07 午，本仓 `ba0d77f`；用户「都做」第 ③ 项——✅ 已上线）
 

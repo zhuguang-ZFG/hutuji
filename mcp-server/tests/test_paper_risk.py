@@ -30,7 +30,7 @@ def _gcode(strokes: list[list[tuple[float, float]]]) -> str:
 
 
 def test_version_constant() -> None:
-    assert paper_risk.PAPER_RISK_GATE_VERSION == "2"
+    assert paper_risk.PAPER_RISK_GATE_VERSION == "2.1"
 
 
 def test_pass_long_continuous_stroke() -> None:
@@ -172,7 +172,7 @@ def _stub_job(monkeypatch, tmp_path, gcode_queue, attempts, gate=True):
         text = gcode_queue.pop(0)
         gcode_path.write_text(text, encoding="utf-8")
         lifts = text.count("G1G90 Z0.0F10000")
-        return SimpleNamespace(lines=10, bytes=len(text), pen_lifts=lifts)
+        return SimpleNamespace(lines=10, bytes=len(text), pen_lifts=lifts), text
 
     monkeypatch.setattr(server, "_svg_to_gcode_cached", fake_gcode)
     slot_spy = _SlotSpy()
@@ -248,7 +248,7 @@ def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
 
     async def fake_gcode(svg, svg_path, gcode_path):
         gcode_path.write_text(_REJECT_GCODE, encoding="utf-8")
-        return SimpleNamespace(lines=10, bytes=10, pen_lifts=45)
+        return SimpleNamespace(lines=10, bytes=10, pen_lifts=45), _REJECT_GCODE
 
     monkeypatch.setattr(server, "_svg_to_gcode_cached", fake_gcode)
     monkeypatch.setattr(
@@ -289,3 +289,90 @@ def test_draw_job_gate_disabled_single_attempt(monkeypatch, tmp_path, caplog):
     assert payload["url"].endswith(".gcode")
     shadow = [r.getMessage() for r in caplog.records if "paper_risk shadow" in r.getMessage()]
     assert shadow, "shadow 模式必须照记指标日志"
+
+
+_STAR_SVG = __import__("pathlib").Path(__file__).with_name("test_star.svg")
+
+
+def _dense_zigzag_svg() -> str:
+    """0.25 步进 / 0.15 振幅的 800 段锯齿带：vpype layout ×1.285 后段长
+    ≈0.37mm（<0.5 短段），塌缩后合并为长段——原文/终稿信号反差的构造体。"""
+    pts = " ".join(
+        f"L {i * 0.25:.2f} {0.15 if i % 2 else 0.0:.2f}" for i in range(1, 801)
+    )
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="1mm" '
+        'viewBox="0 0 200 1"><path d="M 0.00 0.00 ' + pts + '" '
+        'fill="none" stroke="black" stroke-width="0.1"/></svg>'
+    )
+
+
+def test_gate_evaluates_pre_collapse_text(tmp_path):
+    """闸输入 = 塌缩前 vpype 原文（标定面）：同一产物原文短段比 ≈1 必拒、
+    塌缩后终稿短段比 ~1/N 不拒——输入面若退回终稿本测试即红。"""
+    from hutuji_mcp import gcode_gen
+
+    svg_path = tmp_path / "zig.svg"
+    svg_path.write_text(_dense_zigzag_svg(), encoding="utf-8")
+    gcode_path = tmp_path / "zig.gcode"
+    raw_holder: list[str] = []
+    stats = gcode_gen.svg_to_gcode(
+        svg_path, gcode_path, on_raw_text=raw_holder.append
+    )
+    assert len(raw_holder) == 1, "on_raw_text 必须在成功解码后恰好发一次"
+    raw_report = paper_risk.evaluate_gcode(
+        raw_holder[0], pen_lifts=stats.pen_lifts
+    )
+    final_report = paper_risk.evaluate_gcode(
+        gcode_path.read_text(encoding="utf-8"), pen_lifts=stats.pen_lifts
+    )
+    assert raw_report.short_g1_ratio > paper_risk.MAX_SHORT_G1_RATIO
+    assert final_report.short_g1_ratio < paper_risk.MAX_SHORT_G1_RATIO, (
+        "塌缩地板若失效，本对照不再成立（那时闸吃哪份都有信号）"
+    )
+    with pytest.raises(paper_risk.PaperRiskReject):
+        paper_risk.enforce_gcode(raw_holder[0], pen_lifts=stats.pen_lifts)
+    paper_risk.enforce_gcode(
+        gcode_path.read_text(encoding="utf-8"), pen_lifts=stats.pen_lifts
+    )
+
+
+def test_gate_pre_collapse_good_sample_star_passes(tmp_path):
+    """好样本在原文面上照样过闸：test_star 长连续段，五项指标全绿。"""
+    from hutuji_mcp import gcode_gen
+
+    gcode_path = tmp_path / "star.gcode"
+    raw_holder: list[str] = []
+    stats = gcode_gen.svg_to_gcode(
+        _STAR_SVG, gcode_path, on_raw_text=raw_holder.append
+    )
+    report = paper_risk.enforce_gcode(raw_holder[0], pen_lifts=stats.pen_lifts)
+    assert report.reason is None
+
+
+def test_gcode_cache_hit_returns_cached_raw(monkeypatch, tmp_path):
+    """缓存命中不重跑 vpype 且返回同一原文（闸对命中产物仍吃原文）。"""
+    from hutuji_mcp import server
+
+    calls: list[int] = []
+    real = server.svg_to_gcode_async
+
+    async def spy(*a, **kw):
+        calls.append(1)
+        return await real(*a, **kw)
+
+    monkeypatch.setattr(server, "svg_to_gcode_async", spy)
+    server._gcode_cache.clear()
+    svg = _STAR_SVG.read_text(encoding="utf-8")
+    svg_path = tmp_path / "a.svg"
+    svg_path.write_text(svg, encoding="utf-8")
+    gcode_path = tmp_path / "a.gcode"
+    stats1, raw1 = asyncio.run(
+        server._svg_to_gcode_cached(svg, svg_path, gcode_path)
+    )
+    stats2, raw2 = asyncio.run(
+        server._svg_to_gcode_cached(svg, svg_path, gcode_path)
+    )
+    assert len(calls) == 1, "命中不得重跑 vpype"
+    assert raw1 == raw2 and stats1.pen_lifts == stats2.pen_lifts
+    server._gcode_cache.clear()
