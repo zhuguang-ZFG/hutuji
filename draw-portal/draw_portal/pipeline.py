@@ -213,8 +213,10 @@ def process_upload(
     kind = detect_upload_kind(raw, content_type, filename)
     if kind == "svg":
         return process_upload_svg(raw, job_dir)
-    ct = (content_type or "").split(";")[0].strip().lower()
-    if ct in {"image/png", "image/jpeg", "image/jpg"}:
+    # 描摹只吃 PNG 魔数（trace_bitmap_to_polylines 开头硬闸）；JPEG 直传会在闸上炸
+    # BitmapError（2026-09-07 iPhone 拍照 422「图片转换失败」实证）。按魔数判定，
+    # 不信客户端 content_type。
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
         return process_upload_png(raw, job_dir)
     return process_upload_png(normalize_raster_to_png(raw), job_dir)
 
