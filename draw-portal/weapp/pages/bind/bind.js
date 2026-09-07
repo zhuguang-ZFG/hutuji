@@ -30,7 +30,9 @@ Page({
     });
   },
 
-  doBind(force) {
+  // 儿童友好核心：「无效或已过期」多半是设备 announce 还在路上（固件 3s 重试环），
+  // 静默重试而非报错——孩子只需要「等一下」，永远不该看到技术性失败。
+  doBind(force, retried) {
     if (this.data.submitting || this.data.code.length !== 6) return;
     this.setData({ submitting: true });
     api
@@ -41,27 +43,48 @@ Page({
       .then((res) => {
         this.setData({ submitting: false, step: "bound", macSuffix: res.mac_suffix || "" });
         wx.showToast({ title: "绑定成功", icon: "success" });
+        // 孩子不该还要点「返回」——自动回首页
+        setTimeout(() => {
+          wx.switchTab({ url: "/pages/index/index", fail: () => {} });
+        }, 1500);
       })
       .catch((err) => {
-        this.setData({ submitting: false });
         if (err.status === 409) {
+          this.setData({ submitting: false });
           // 设备绑在别的账号（如网页版邮箱账号）：在场持有屏显码即可强制换绑
           wx.showModal({
-            title: "设备已被绑定",
-            content: "这台写字机绑在其他账号下，换绑到当前账号？",
+            title: "换绑到当前账号？",
+            content: "这台写字机之前绑过别的账号，换绑后那边就不能控制它了",
             confirmText: "换绑",
+            cancelText: "不换",
             success: (r) => {
-              if (r.confirm) this.doBind(true);
+              if (r.confirm) this.doBind(true, 0);
             },
           });
           return;
         }
         const d = err.detail || "";
-        if (/pending|等待|设备/.test(d) || err.status === 404) {
-          // 会话存在但设备尚未 announce → 进入等待态轮询
-          this.setData({ step: "waiting" });
+        if (/无效|已过期|pending|等待|设备/.test(d) || err.status === 404 || err.status === 400) {
+          // 设备 announce 在途（固件最长 ~10 分钟重试环）：静默重试 15 次×2s
+          const n = (retried || 0) + 1;
+          if (n <= 15) {
+            this.setData({ step: "waiting" });
+            setTimeout(() => {
+              this.setData({ submitting: false });
+              this.doBind(force, n);
+            }, 2000);
+            return;
+          }
+          this.setData({ submitting: false, step: "input" });
+          wx.showModal({
+            title: "没连上写字机",
+            content: "请确认写字机已联网，再扫一次屏幕上的二维码",
+            showCancel: false,
+            confirmText: "知道了",
+          });
           return;
         }
+        this.setData({ submitting: false });
         wx.showModal({ title: "绑定失败", content: d || "请重试", showCancel: false });
       });
   },

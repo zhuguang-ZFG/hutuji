@@ -1,7 +1,7 @@
 <view class="page">
   <view class="card" wx:if="{{step === 'scan'}}">
     <view class="card-title">给写字机连家里 WiFi</view>
-    <view class="card-sub">写字机屏幕进入「配网模式」后会显示二维码（长按开机键或语音「重新配网」）</view>
+    <view class="card-sub">对写字机说「配网」，屏幕出现二维码后扫它</view>
     <button class="btn-primary block-btn" bindtap="onScanAp">扫屏幕配网码</button>
     <view class="divider">
       <view class="divider-line"></view>
@@ -11,14 +11,31 @@
     <button class="btn-ghost block-btn" bindtap="onManualAp">手动输入设备热点名</button>
   </view>
 
-  <view class="card" wx:if="{{step === 'creds'}}">
-    <view class="card-title">填入家里 WiFi</view>
-    <view class="card-sub">设备热点：{{apSsid || "（未填）"}}</view>
+  <view class="card" wx:if="{{step === 'manual'}}">
+    <view class="card-title">输入设备热点名</view>
+    <view class="card-sub">写字机屏幕「配网模式」上显示的热点名</view>
     <input class="field" placeholder="设备热点名（屏幕上有）" value="{{apSsid}}" bindinput="onApInput" />
-    <input class="field" placeholder="家里 WiFi 名称" value="{{homeSsid}}" bindinput="onSsidInput" />
-    <input class="field" placeholder="家里 WiFi 密码" password value="{{homePassword}}" bindinput="onPwdInput" />
-    <button class="btn-primary block-btn" bindtap="onStart">一键配网</button>
+    <button class="btn-primary block-btn" bindtap="onStart">下一步</button>
     <view class="muted hint">配网时手机会先连到设备热点，断网几十秒属正常</view>
+  </view>
+
+  <view class="card" wx:if="{{step === 'aps'}}">
+    <view class="card-title">点选家里 WiFi</view>
+    <view class="card-sub">以下是写字机搜到的附近 WiFi</view>
+    <view class="ap-item" wx:for="{{apList}}" wx:key="ssid" data-ssid="{{item.ssid}}" bindtap="onPickAp">
+      <text class="ap-ssid">{{item.ssid}}</text>
+      <text class="ap-rssi">{{item.authmode === 0 ? '开放' : '🔒'}}</text>
+    </view>
+    <button class="btn-ghost block-btn" bindtap="onManualSsid">找不到？手输 WiFi 名</button>
+  </view>
+
+  <view class="card" wx:if="{{step === 'creds'}}">
+    <view class="card-title">输入 WiFi 密码</view>
+    <view class="card-sub">家里 WiFi：{{homeSsid || "（未选）"}}</view>
+    <input class="field" wx:if="{{!wifiLocked}}" placeholder="家里 WiFi 名称" value="{{homeSsid}}" bindinput="onSsidInput" />
+    <input class="field" placeholder="家里 WiFi 密码" password value="{{homePassword}}" bindinput="onPwdInput" focus="{{wifiLocked}}" />
+    <button class="btn-primary block-btn" bindtap="onSubmitCreds">一键配网</button>
+    <view class="muted hint">配网时手机连着设备热点，断网几十秒属正常</view>
   </view>
 
   <view class="card" wx:if="{{step === 'working'}}">

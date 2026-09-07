@@ -59,3 +59,22 @@
 .block-btn {
   margin-top: 16rpx;
 }
+
+.ap-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 28rpx 24rpx;
+  border-bottom: 1rpx solid #eee;
+  font-size: 32rpx;
+}
+.ap-item:active {
+  background: #f0f7f5;
+}
+.ap-ssid {
+  color: #1a1a2e;
+}
+.ap-rssi {
+  color: #8a8a99;
+  font-size: 26rpx;
+}

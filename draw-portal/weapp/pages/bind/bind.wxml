@@ -29,11 +29,10 @@
   </view>
 
   <view class="card" wx:if="{{step === 'waiting'}}">
-    <view class="title">等待设备确认</view>
+    <view class="title">正在连接写字机…</view>
     <view class="meta">绑定码：{{code}}</view>
-    <view class="meta">请在写字机屏幕/语音上确认绑定（10 分钟内有效）</view>
-    <button class="btn primary" bindtap="onRefresh">我已确认，刷新状态</button>
-    <button class="btn ghost" bindtap="onReset">重新输入绑定码</button>
+    <view class="meta">写字机联网确认后会自动完成，请稍等</view>
+    <button class="btn ghost" bindtap="onReset">重新扫码</button>
   </view>
 
   <view class="card" wx:if="{{step === 'bound'}}">

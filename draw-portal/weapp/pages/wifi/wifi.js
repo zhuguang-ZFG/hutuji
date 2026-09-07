@@ -3,10 +3,12 @@
 // 设备上家网。回退路径：浏览器连热点开 http://192.168.4.1
 Page({
   data: {
-    step: "scan", // scan → creds → working → done
+    step: "scan", // scan → manual → (连热点+扫列表) → aps → creds → working → done
     apSsid: "",
     homeSsid: "",
     homePassword: "",
+    apList: [],
+    wifiLocked: false, // 从设备扫描列表点选的 WiFi 不允许改名
     log: "",
   },
 
@@ -28,23 +30,28 @@ Page({
   onScanAp() {
     wx.scanCode({
       success: (res) => {
-        const m = /WIFI:T:[^;]*;S:([^;]*);/.exec(res.result || "");
-        if (!m) {
+        const raw = String(res.result || "").trim();
+        // 标准 WIFI 码（设备屏：WIFI:T:nopass;S:<ssid>;;）；兼容扫出纯热点名/带空格变体
+        const m = /WIFI:T:[^;]*;S:([^;]*);/i.exec(raw);
+        const ssid = m ? m[1] : (/^[\x20-\x7e]{1,32}$/.test(raw) && raw.indexOf("http") !== 0 ? raw : "");
+        if (!ssid) {
           wx.showModal({
-            title: "不是配网二维码",
-            content: "请扫写字机屏幕上「配网模式」的二维码，或改用手动输入热点名",
+            title: "没认出这个码",
+            content: "扫到的是：" + (raw.slice(0, 40) || "（空）") + "。请扫写字机屏幕上「配网模式」的二维码，或改用手动输入热点名",
             showCancel: false,
           });
           return;
         }
-        this.setData({ apSsid: m[1], step: "creds" });
+        // 扫到设备热点名 → 直接开始（连热点→扫列表→点选）
+        this.setData({ apSsid: ssid });
+        this.onStart();
       },
       fail: () => {},
     });
   },
 
   onManualAp() {
-    this.setData({ step: "creds" });
+    this.setData({ step: "manual" });
   },
 
   onApInput(e) {
@@ -59,9 +66,10 @@ Page({
     this.setData({ homePassword: e.detail.value });
   },
 
+  // 儿童友好：连上设备热点后自动 /scan 拿设备搜到的 WiFi 列表，孩子点选+只输密码
   onStart() {
-    if (!this.data.apSsid || !this.data.homeSsid) {
-      wx.showToast({ title: "热点名和家里 WiFi 名都要填", icon: "none" });
+    if (!this.data.apSsid) {
+      wx.showToast({ title: "先扫设备配网码或填热点名", icon: "none" });
       return;
     }
     this.setData({ step: "working", log: "" });
@@ -69,12 +77,12 @@ Page({
     wx.connectWifi({
       SSID: this.data.apSsid,
       success: () => {
-        this.appendLog("已连上设备热点，下发家里 WiFi 凭据…");
-        setTimeout(() => this.submitCreds(), 1500);
+        this.appendLog("已连上设备热点，读取附近 WiFi…");
+        setTimeout(() => this.scanAps(), 1500);
       },
       fail: (err) => {
         this.appendLog("连热点失败：" + (err.errMsg || ""));
-        this.setData({ step: "creds" });
+        this.setData({ step: "manual" });
         wx.showModal({
           title: "连不上设备热点",
           content:
@@ -85,6 +93,86 @@ Page({
         });
       },
     });
+  },
+
+  // TCP GET /scan → {aps:[{ssid,rssi,authmode}]}；失败回落手输
+  scanAps() {
+    const http =
+      "GET /scan HTTP/1.1\r\nHost: 192.168.4.1\r\nConnection: close\r\n\r\n";
+    const tcp = wx.createTCPSocket();
+    let got = "";
+    let finished = false;
+    const finish = (list) => {
+      if (finished) return;
+      finished = true;
+      try {
+        tcp.close();
+      } catch (e) {}
+      if (list && list.length) {
+        this.appendLog("找到 " + list.length + " 个 WiFi，点选家里的");
+        this.setData({ step: "aps", apList: list });
+      } else {
+        this.appendLog("读不到列表，改手输 WiFi 名");
+        this.setData({ step: "creds" });
+      }
+    };
+    const timer = setTimeout(() => finish(null), 10000);
+    tcp.onConnect(() => {
+      tcp.write(http);
+    });
+    tcp.onMessage((res) => {
+      got += res.message ? String(res.message) : "";
+      const i = got.indexOf("\r\n\r\n");
+      if (i < 0) return;
+      const body = got.slice(i + 4);
+      if (body.indexOf("]}") < 0) return; // JSON 未齐
+      clearTimeout(timer);
+      try {
+        const j = JSON.parse(body);
+        const aps = (j.aps || [])
+          .filter((a) => a && a.ssid)
+          .sort((a, b) => (b.rssi || 0) - (a.rssi || 0));
+        finish(aps);
+      } catch (e) {
+        finish(null);
+      }
+    });
+    tcp.onClose(() => {
+      clearTimeout(timer);
+      if (!finished) {
+        try {
+          const i = got.indexOf("\r\n\r\n");
+          const j = JSON.parse(got.slice(i + 4));
+          finish((j.aps || []).filter((a) => a && a.ssid));
+        } catch (e) {
+          finish(null);
+        }
+      }
+    });
+    tcp.onError(() => {
+      clearTimeout(timer);
+      finish(null);
+    });
+    tcp.connect({ address: "192.168.4.1", port: 80, timeout: 8 });
+  },
+
+  onPickAp(e) {
+    const ssid = e.currentTarget.dataset.ssid || "";
+    this.setData({ homeSsid: ssid, wifiLocked: true, step: "creds" });
+  },
+
+  onManualSsid() {
+    this.setData({ homeSsid: "", wifiLocked: false, step: "creds" });
+  },
+
+  onSubmitCreds() {
+    if (!this.data.homeSsid) {
+      wx.showToast({ title: "先选家里 WiFi", icon: "none" });
+      return;
+    }
+    this.setData({ step: "working" });
+    this.appendLog("下发家里 WiFi 凭据…");
+    this.submitCreds();
   },
 
   submitCreds() {
@@ -142,6 +230,6 @@ Page({
   },
 
   onRestart() {
-    this.setData({ step: "scan", log: "" });
+    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, homeSsid: "", homePassword: "", apSsid: "" });
   },
 });

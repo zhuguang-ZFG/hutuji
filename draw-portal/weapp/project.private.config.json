@@ -1,0 +1,9 @@
+{
+  "description": "本地私有配置：强制普通编译（启动页=app.json 首页），避免上传继承残留自定义编译模式启动页",
+  "condition": {
+    "miniprogram": {
+      "current": -1,
+      "list": []
+    }
+  }
+}
