@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import sqlite3
 import time
 import uuid
@@ -196,6 +197,7 @@ _USER_MIGRATION_COLUMNS = (
     ("banned_at", "REAL"),
     ("ban_reason", "TEXT"),
     ("admin_note", "TEXT"),
+    ("wx_openid", "TEXT"),
 )
 
 
@@ -249,6 +251,7 @@ class Store:
             banned_at=row["banned_at"],
             ban_reason=row["ban_reason"],
             admin_note=row["admin_note"],
+            wx_openid=row["wx_openid"] if "wx_openid" in row.keys() else None,
         )
 
     @staticmethod
@@ -399,6 +402,48 @@ class Store:
         with self._connect() as conn:
             conn.execute("DELETE FROM email_verifications WHERE email = ?", (email,))
             conn.commit()
+
+    def get_user_by_openid(self, openid: str) -> User | None:
+        """微信小程序登录：openid 唯一定位用户（2026-09-07）。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE wx_openid = ?", (openid,)
+            ).fetchone()
+        return self._row_user(row) if row else None
+
+    def create_wx_user(self, openid: str) -> User:
+        """微信用户首登建档：email 用不可登录占位符（UNIQUE 约束需要值），
+        密码哈希置为随机不可用值——微信用户不走邮箱密码路径。"""
+        now = time.time()
+        user = User(
+            id=str(uuid.uuid4()),
+            email=f"wx_{openid[:16]}@wx.local",
+            password_hash=secrets.token_hex(32),
+            created_at=now,
+            status="active",
+            email_verified_at=now,
+            wx_openid=openid,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (
+                    id, email, password_hash, created_at, status,
+                    email_verified_at, wx_openid
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user.id,
+                    user.email,
+                    user.password_hash,
+                    user.created_at,
+                    user.status,
+                    user.email_verified_at,
+                    user.wx_openid,
+                ),
+            )
+            conn.commit()
+        return user
 
     def get_user_by_email(self, email: str) -> User | None:
         with self._connect() as conn:

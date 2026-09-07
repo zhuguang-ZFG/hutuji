@@ -21,6 +21,8 @@ class User:
     banned_at: float | None = None
     ban_reason: str | None = None
     admin_note: str | None = None
+    # 微信小程序登录（2026-09-07）：wx_openid 非空即微信用户，email 为占位符
+    wx_openid: str | None = None
 
 
 @dataclass(frozen=True)

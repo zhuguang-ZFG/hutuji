@@ -76,6 +76,9 @@ class Config:
     generate_daily_limit: int
     generate_timeout_seconds: int
     gfont_dir: str  # 奎享 .gfont 字库目录（文档导入排版用）；空 = 文档导入禁用
+    # 微信小程序（2026-09-07）：两项同配才启用 /api/auth/wx-login，空=禁用
+    wx_appid: str = ""
+    wx_secret: str = ""
 
 
 @dataclass(frozen=True)
@@ -148,6 +151,8 @@ def load_config() -> Config:
         .lower()
         in {"1", "true", "yes"},
         usage_ingest_secret=os.environ.get("DRAW_PORTAL_USAGE_INGEST_SECRET", "").strip(),
+        wx_appid=os.environ.get("DRAW_PORTAL_WX_APPID", "").strip(),
+        wx_secret=os.environ.get("DRAW_PORTAL_WX_SECRET", "").strip(),
         conversation_retention_days=int(
             os.environ.get("DRAW_PORTAL_CONVERSATION_RETENTION_DAYS", "90")
         ),

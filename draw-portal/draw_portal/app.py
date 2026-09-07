@@ -58,6 +58,12 @@ class RegisterVerifyBody(BaseModel):
     code: str = Field(min_length=4, max_length=8)
 
 
+class WxLoginBody(BaseModel):
+    """微信小程序静默登录：wx.login 的 code 换会话（2026-09-07）。"""
+
+    code: str = Field(min_length=1, max_length=256)
+
+
 class LoginBody(BaseModel):
     email: str
     password: str
@@ -150,6 +156,44 @@ def _is_trusted_mcp_settings_client(host: str, config: object) -> bool:
 
     allow = getattr(config, "internal_allow_cidrs", ())
     return is_trusted_internal_client(host, allow_cidrs=allow)
+
+
+class _WxLoginError(Exception):
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+def _wx_code2session(config: Any, code: str) -> str:
+    """微信 code2Session（stdlib，5s 超时）。只回 openid；errcode 全量映射 502/401。"""
+    import json as _json
+    import urllib.parse as _parse
+    import urllib.request as _request
+
+    url = (
+        "https://api.weixin.qq.com/sns/jscode2session?"
+        + _parse.urlencode(
+            {
+                "appid": config.wx_appid,
+                "secret": config.wx_secret,
+                "js_code": code,
+                "grant_type": "authorization_code",
+            }
+        )
+    )
+    try:
+        with _request.urlopen(_request.Request(url), timeout=5) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        raise _WxLoginError(502, "微信登录服务不可用，请稍后再试") from None
+    if data.get("errcode"):
+        # 40029 code 无效 / 40226 高风险用户 / 45011 频率限制：统一 401 让前端重走 wx.login
+        raise _WxLoginError(401, "微信登录态失效，请重试") from None
+    openid = data.get("openid")
+    if not isinstance(openid, str) or not openid:
+        raise _WxLoginError(502, "微信登录响应异常") from None
+    return openid
 
 
 def create_app() -> FastAPI:
@@ -260,6 +304,31 @@ def create_app() -> FastAPI:
             status_code=410,
             detail="请使用 /auth/register/request 与 /auth/register/verify",
         )
+
+    @app.post("/api/auth/wx-login")
+    def wx_login(body: WxLoginBody, response: Response) -> dict[str, Any]:
+        """微信小程序登录：code → code2Session → openid → upsert 用户 → 发同款会话。
+
+        复用网页端全部会话/配额/绑定逻辑（同一 cookie）；两项 env 未配即 503。
+        """
+        if not config.wx_appid or not config.wx_secret:
+            raise HTTPException(status_code=503, detail="小程序登录未配置")
+        try:
+            openid = _wx_code2session(config, body.code.strip())
+        except _WxLoginError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+        user = store.get_user_by_openid(openid)
+        created = user is None
+        if created:
+            user = store.create_wx_user(openid)
+        if user.status == "banned":
+            raise HTTPException(status_code=403, detail="账号已封禁")
+        store.touch_last_login(user.id, when=time.time())
+        set_session_cookie(response, secret=config.session_secret, user_id=user.id)
+        return {
+            "status": "ok",
+            "user": {"wx": True, "created": created},
+        }
 
     @app.post("/api/auth/login")
     def login(body: LoginBody, response: Response) -> dict[str, str]:
