@@ -673,7 +673,7 @@
 | `mcp-server/tests/test_contract.py` | 竖版转置直接单测 5 例（623→628）：正例 XY 成对互换且非运动行原样、fail-closed 四态拒绝矩阵（模态 X/Y、同行双 X、行内 X 后无 Y 等 → `GcodeError`） |
 | `mcp-server/tests/test_write_text.py` | RED→GREEN 回归钉 2 例（43→45）：Tab/空格同文落版逐点一致 + 单行；拉丁→CJK 边界满行交界不越右边距（stash 旧码复跑双双 RED，预测失败形态逐字命中） |
 | 计数同步 | AGENTS.md 1243→1250、test_contract 623→628、test_write_text 43→45；inventory 汇总行同批；`test_test_count_claims_self_consistent` RED→GREEN |
-| 验证 | 全量 pytest 1250/1250；hub 门禁 PASS（docs 锚点/复活/禁语/白名单/防漂移/矩阵/行号/指纹 260/260/外仓引用 247/247/pytest/e2e 全绿）；指纹半漂移 2 处人工核对后重登（finding#28 → AGENTS.md:145-147 计数行内容合法演进；finding#30 → test_contract.py:7451 签名行纯移动 7421→7451） |
+| 验证 | 全量 pytest 1250/1250；hub 门禁 PASS（docs 锚点/复活/禁语/白名单/防漂移/矩阵/行号/指纹 260/260/外仓引用 247/247/pytest/e2e 全绿）；指纹半漂移 2 处人工核对后重登（finding#28 → `AGENTS.md` 第 145-147 行计数行内容合法演进；finding#30 → `test_contract.py` 第 7451 行签名行纯移动 7421→7451） |
 | 待办 | ② paper risk 行级闸 ✅（调查批，结论不加闸，见下节）；③ nginx `limit_conn` ✅（双机部署，见末节）；④ HIL 准备清单 ✅（`docs/hil-checklist-0907.md`）——「都做」四项清零 |
 
 ## paper risk 行级闸调查批（2026-09-07，mcp-server 侧；用户「都做」第 ② 项——结论：**不加闸**，已证伪）

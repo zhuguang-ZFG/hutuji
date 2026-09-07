@@ -1,5 +1,5 @@
 {
-  "git_head": "7b222c10aaf98c2d222cc5645e607f2c85ec47e0",
+  "git_head": "0d594da47cd625cbb65d1d4115b4141dc2561a3e",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1291,11 +1291,6 @@
       "source": "        return;\n    }\n    auth_probe_stage_ = AuthProbeStage::Failed;\n    ESP_LOGE(TAG, \"%s失败: %s，重试额度已耗尽，等待连接重建\", what, reason);\n    // 用户可感知的死角：连接活着但永不 ready。给云端一条可读解释。\n    NotifyCloud(\"写字机授权探测多次失败（可能停在暂停/保持状态），请检查写字机后重试\");\n}\n\nvoid Pipe::ResetSettingsFingerprintState() {\n    settings_verified_.store(false);\n    settings_query_index_ = 0;\n    settings_line_ok_ = false;\n    {\n        std::lock_guard<std::mutex> lock(settings_mismatch_mutex_);\n        settings_mismatch_key_.clear();\n    }\n}\n\nvoid Pipe::RecordSettingsMismatch(const std::string& key) {\n    std::lock_guard<std::mutex> lock(settings_mismatch_mutex_);\n    if (settings_mismatch_key_.empty()) {\n        settings_mismatch_key_ = key;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/worktree-inventory.md -> AGENTS.md:145-147": {
-      "sha8": "5b17c20c",
-      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1250 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
-      "target": "AGENTS.md"
-    },
     "docs/worktree-inventory.md -> TelnetServer.cpp:94": {
       "sha8": "70a49c94",
       "source": "        _telnetserver->setNoDelay(true);",
@@ -1305,13 +1300,8 @@
       "sha8": "8b306820",
       "source": "                    if (++silent_polls >= kSilentPollLimit) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
-    },
-    "docs/worktree-inventory.md -> test_contract.py:7451": {
-      "sha8": "41c11ee2",
-      "source": "    tmp_path: Path, monkeypatch: pytest.MonkeyPatch",
-      "target": "mcp-server/tests/test_contract.py"
     }
   },
-  "updated": "2026-09-07T02:04:10Z",
+  "updated": "2026-09-07T02:16:49Z",
   "version": 1
 }
