@@ -9,7 +9,7 @@
 >
 > **hutuji 状态勘误（2026-07-30）**：上面这段「逐行等 ok」已过时。S3 自
 > `15f73c9` 起就是 character-counting 窗口化，窗口 `kWindow = 512` 字节
-> ≈ 21 行在飞（`hutuji_job.cc:130-131`），奎享这套机制已落地。剩下的差异只是介质：
+> ≈ 21 行在飞（`hutuji_job.cc:133-134`），奎享这套机制已落地。剩下的差异只是介质：
 > 奎享支持三条传输通道：USB 串口（`machine/b/f.java`，jssc 事件驱动，我们 COM3 实测往返 ~6ms）、
 > WiFi TCP（`machine/b/d.java`，Socket → port 23，与 hutuji Telnet 同构）、
 > **蓝牙 SPP**（固件侧 `CLIENT_BT` + `BluetoothSerial`，商业上位机无线流式出图的主路径，
