@@ -692,6 +692,7 @@
 | 待办 | ③ nginx `limit_conn` ✅（见末节）；④ HIL 准备清单 ✅（见末节） |
 | 待办 | ⑤ limit_conn `/draw-upload/` 放宽 50 ✅（`d68a572`，双机上线，见末节「⑤ 晚补强」）——顾问复检项清零 |
 | 待办 | ⑥ paper risk v2.1 + curated_gate v4 输入面修复 ✅ 双机生产（`da87440`/`f4485e3`；shadow 模式不拒收；enforce 硬前提 = 30 轮样本重标定 lifts/gap，见 readiness 定序） |
+| 登记 | HIL 日证据（gitignored 本机留存）：`results/local-only/2026-09-07/`——b1-abort-on-paper（§8.5 四判据）、c1-multipage-tls（页 2 单发下载 + 三次握手证复用未生效）、preview-blank-probe（Waveshare 白屏探针 + 预解码修复取证串口全程）；xiaozhi `0898476` 修复已推，板上现役镜像 = HEAD+0898476 |
 
 ## ⑤ limit_conn `/draw-upload/` 50 晚补强（2026-09-07 晚，本仓 `d68a572`——✅ 双机已上线）
 
