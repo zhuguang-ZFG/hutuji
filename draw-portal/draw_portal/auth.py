@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import HTTPException, Response
 
 SESSION_COOKIE = "draw_portal_session"
+SESSION_HEADER = "x-session"  # 微信小程序真机无 cookie 罐，会话值同 HMAC blob 经头发（2026-09-07）
 _SESSION_TTL_SECONDS = 7 * 24 * 3600
 
 

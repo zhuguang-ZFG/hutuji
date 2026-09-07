@@ -21,7 +21,9 @@ from draw_portal.analytics import (
     usage_event_type,
 )
 from draw_portal.auth import (
+    SESSION_HEADER,
     SESSION_COOKIE,
+    _encode_session as _encode_session_value,
     clear_session_cookie,
     require_user_id,
     set_session_cookie,
@@ -204,8 +206,13 @@ def create_app() -> FastAPI:
 
     def user_dep(
         draw_portal_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+        x_session: str | None = Header(default=None),
     ) -> str:
-        user_id = require_user_id(config.session_secret, draw_portal_session)
+        # 网页端走 cookie；小程序真机 cookie 罐不可靠（iOS/Android 常丢 Set-Cookie、
+        # 重启不持久），会话值经 x-session 头发送（auth.SESSION_HEADER，2026-09-07）。
+        user_id = require_user_id(
+            config.session_secret, draw_portal_session or x_session
+        )
         user = store.get_user(user_id)
         if user is None:
             raise HTTPException(status_code=401, detail="未登录")
@@ -324,10 +331,12 @@ def create_app() -> FastAPI:
         if user.status == "banned":
             raise HTTPException(status_code=403, detail="账号已封禁")
         store.touch_last_login(user.id, when=time.time())
+        session_value = _encode_session_value(config.session_secret, user.id)
         set_session_cookie(response, secret=config.session_secret, user_id=user.id)
         return {
             "status": "ok",
             "user": {"wx": True, "created": created},
+            "session": session_value,  # 小程序无 cookie 罐，存 storage 经 x-session 头回带
         }
 
     @app.post("/api/auth/login")

@@ -23,12 +23,14 @@ App({
               data: { code: res.code },
             })
             .then((data) => {
+              api.setSession(data.session || "");
               wx.setStorageSync("session_ok", true);
               this.globalData.user = data.user || null;
               resolve(this.globalData.user);
             })
             .catch(() => {
               wx.removeStorageSync("session_ok");
+              wx.removeStorageSync("session_token");
               this.globalData.user = null;
               resolve(null);
             });
