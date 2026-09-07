@@ -20,6 +20,21 @@ docs/superpowers/specs/2026-08-27-ai-bitmap-paper-quality-design.md §2.2）：
 
 只读 G-code 文本做统计，不改 §5 契约、不碰 Grbl/xiaozhi、不改 vpype 容差。
 QD / curated 命中路径不经本闸（库内样本质量自有入库门槛）。
+
+2026-09-07 结构性复核（评审「行级闸」诉求的取证结论，勿再重推）：
+本闸评估的是**塌缩后**文本——`gcode_gen._collapse_short_pen_down_segments`
+（地板 1.0mm，2026-08-28 上线）保证每笔除末点 flush 外落笔段恒 ≥1.0mm，
+故 <0.5mm 短段每笔至多 1 个：`short_g1_ratio` 封顶 ~1/N、`scribble_core`
+的短段中点近乎绝迹，两项对现管线产物结构性惰性（保留无害，属纵深防御）；
+活指标是 `pen_lifts` / `travel_gap_p50` / `ink_span_mm`。「局部画糊被全文件
+平均稀释」类行级闸**在现管线无可抓信号**，已逐项证伪：①段长信号被塌缩
+消灭（0.45mm×40 涂鸦笔塌成 13×1.35mm+0.45mm 尾，逐笔短段比 0.071，结构
+上限 1/N，任何 ≥0.8 阈值不可达）；②最坏情形密集涂鸦球经位图链实心色块
+转轮廓环 + 排线簇抑制后仅余 9 笔良性碎片（15mm 窗墨长 52.7mm）；③密度类
+阈值无分离带——好侧 curated 现管线产物 15mm 窗墨长达 332.7mm（violin）、
+逐笔长/跨比达 5.0（test_star 凹形轮廓固有 >1），被中和后的涂鸦残留
+（~53mm）远在好侧分布之下，阈带为空；④细密纹理类（千级短笔）由活指标
+`pen_lifts≤40` 兜住。证据脚本 `tmp/calib_prisk_0907.py`（不入库）。
 """
 from __future__ import annotations
 

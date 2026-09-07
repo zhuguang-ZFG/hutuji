@@ -674,4 +674,19 @@
 | `mcp-server/tests/test_write_text.py` | RED→GREEN 回归钉 2 例（43→45）：Tab/空格同文落版逐点一致 + 单行；拉丁→CJK 边界满行交界不越右边距（stash 旧码复跑双双 RED，预测失败形态逐字命中） |
 | 计数同步 | AGENTS.md 1243→1250、test_contract 623→628、test_write_text 43→45；inventory 汇总行同批；`test_test_count_claims_self_consistent` RED→GREEN |
 | 验证 | 全量 pytest 1250/1250；hub 门禁 PASS（docs 锚点/复活/禁语/白名单/防漂移/矩阵/行号/指纹 260/260/外仓引用 247/247/pytest/e2e 全绿）；指纹半漂移 2 处人工核对后重登（finding#28 → AGENTS.md:145-147 计数行内容合法演进；finding#30 → test_contract.py:7451 签名行纯移动 7421→7451） |
-| 待办 | ② paper risk 行级闸（设计+实现）；③ nginx `limit_conn` 双机部署；④ HIL 准备清单——均为「都做」登记硬项 |
+| 待办 | ② paper risk 行级闸 ✅（调查批，结论不加闸，见下节）；③ nginx `limit_conn` 双机部署；④ HIL 准备清单——均为「都做」登记硬项 |
+
+## paper risk 行级闸调查批（2026-09-07，mcp-server 侧；用户「都做」第 ② 项——结论：**不加闸**，已证伪）
+
+| 项 | 内容 |
+|---|---|
+| 结论 | 「局部画糊被全文件平均稀释逃逸」的行级闸在**当前管线无可抓信号**，不加指标、不改阈值、版本维持 `"2"`。评审诉求基于塌缩前心智模型，被四条独立证据证伪；中途曾实现逐笔短段比 v3 并误用塌缩前样本「标定」，被结构核查推翻后整体回退 |
+| 证据 ① 结构性 | 本闸评估塌缩后文本：`_collapse_short_pen_down_segments`（1.0mm 地板，08-28 上线）使每笔除末点 flush 外落笔段恒 ≥1.0mm——0.45mm×40 涂鸦笔塌成 13×1.35mm+0.45mm 尾（逐笔 <0.5mm 比 0.071，结构上限 1/N，≥0.8 阈值不可达）；v2 的 `short_g1_ratio`/`scribble_core` 同样结构性惰性（保留作纵深防御，无害），活指标为 `pen_lifts`/`travel_gap_p50`/`ink_span_mm` |
+| 证据 ② 上游中和 | 最坏情形合成密集涂鸦球（6000 步随机游走 260px 盘 + 干净大圆）走真离线描摹链：实心色块转轮廓环 + 排线簇抑制后仅余 9 笔良性碎片（最大 bbox 14.5mm，15mm 窗墨长 52.7mm），密集墨迹根本到不了 G-code |
+| 证据 ③ 无分离带 | 9 张 curated 矢量 + test_star 走现管线（vpype→塌缩→弧拟合）：好侧 15mm 窗墨长最高 332.7mm（violin）、逐笔长/跨比最高 5.0（test_star 凹形轮廓固有 >1）；被中和的涂鸦残留 ~53mm 远在好侧分布之下——任何不冤枉好图的阈值也抓不到残留，阈带为空 |
+| 证据 ④ 纹理类有主 | 细密纹理（千级短笔）由活指标 `pen_lifts≤40` 兜住（fur 样本 3500 笔即远超上限） |
+| 附带观察 | 400×400px/6px 交叉排线 PNG 的 `trace_bitmap_to_polylines`（sknw 建图）>12 分钟未出结果被杀——生产上这类图会在 draw 期限内 stall 到 DrawTimeoutError，非本批范围，登记备查 |
+| 代码改动 | 仅 `paper_risk.py` 模块 docstring 增「2026-09-07 结构性复核」段（防下轮重推）；逻辑零改动 |
+| 证据脚本 | `tmp/calib_prisk_0907.py` + `tmp/calib_prisk_out/`（9 好 + 涂鸦球 SVG/gcode，不入库） |
+| 验证 | 全量 pytest 复跑见提交记录（计数回 1250：AGENTS.md/inventory 同步回退） |
+| 待办 | ③ nginx `limit_conn` 双机部署；④ HIL 准备清单 |
