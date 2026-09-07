@@ -35,7 +35,7 @@ def test_prep_fixture_fills_category_and_manifest(tmp_path: Path):
     assert (tmp_path / "cat" / "000.svg").exists()
     assert manifest == json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["gate_version"] == prep.GATE_VERSION
-    assert prep.GATE_VERSION == "3"
+    assert prep.GATE_VERSION == "4"
     assert manifest["categories"]["cat"]["count"] >= 3
     assert manifest["ready"] is False
     assert (audit_dir / "cat.txt").read_text(encoding="utf-8").count("\n") == 3

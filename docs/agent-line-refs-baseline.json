@@ -1,5 +1,5 @@
 {
-  "git_head": "d68a5725c6e2184249020f880f416e3d22bfb253",
+  "git_head": "5cbc80b34a3e3f7d036da07f6810f2ceb256b752",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -462,8 +462,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:145-147": {
-      "sha8": "52192624",
-      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1253 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
+      "sha8": "b0dbc602",
+      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1254 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -1302,6 +1302,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-07T03:00:59Z",
+  "updated": "2026-09-07T04:48:28Z",
   "version": 1
 }

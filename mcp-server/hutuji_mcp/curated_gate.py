@@ -11,7 +11,9 @@ from .llm_svg import _validate_svg
 # 2026-08-26 supersede（用户口径）：抬笔次数不是「画不成」判据，硬拒无产品意义。
 # 入库硬闸只拦画不出/会卡死的产物：SVG 注入、vpype/§5、过碎短段、无墨迹、行数爆炸。
 # gate_version=3：相对 v1(≤25)/v2(≤35) 取消抬笔硬上限。
-GATE_VERSION = "3"
+# gate_version=4：_ink_checks 输入面改回塌缩前 vpype 原文（与 paper_risk
+# 2.1 同根因——1.0mm 塌缩地板让终稿短段比结构封顶 ~1/N，0.35 硬闸停火）。
+GATE_VERSION = "4"
 MAX_G1_LINES = 800
 MAX_SVG_BYTES = 256 * 1024
 MAX_SHORT_G1_RATIO = 0.35
@@ -77,8 +79,9 @@ def gate_svg(svg: str, *, work_dir: Path) -> GcodeStats:
     svg_path = work_dir / "gate.svg"
     gcode_path = work_dir / "gate.gcode"
     svg_path.write_text(svg, encoding="utf-8")
+    holder: list[str] = []
     try:
-        svg_to_gcode(svg_path, gcode_path)
+        svg_to_gcode(svg_path, gcode_path, on_raw_text=holder.append)
     except Exception as exc:  # noqa: BLE001
         raise GateReject(f"vpype: {exc}") from exc
     text = gcode_path.read_text(encoding="utf-8")
@@ -88,5 +91,6 @@ def gate_svg(svg: str, *, work_dir: Path) -> GcodeStats:
         raise GateReject(f"validate_gcode: {exc}") from exc
     if stats.lines > MAX_G1_LINES:
         raise GateReject(f"lines: {stats.lines} > {MAX_G1_LINES}")
-    _ink_checks(text)
+    # 过碎判定吃塌缩前原文（0.35 阈值的 08-26 标定面）；行数/§5 仍按终稿
+    _ink_checks(holder[0] if holder else text)
     return stats
