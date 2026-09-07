@@ -7,7 +7,6 @@ Page({
     sending: false,
     uploading: false,
     job: null,
-    uploadJob: null,
     quotaLeft: null,
     binding: null,
   },
@@ -85,9 +84,6 @@ Page({
     this.sendJob(this.data.job.jobId);
   },
 
-  onSendUpload() {
-    this.sendJob(this.data.uploadJob.jobId);
-  },
 
   sendJob(jobId) {
     if (this.data.sending) return;
@@ -139,11 +135,15 @@ Page({
         api
           .uploadFile("/api/draw/upload", file.path, "file")
           .then((data) => {
+            // 与 AI 生成同一预览卡：预览图 + 行数 + 发送钮（此前只存 jobId 不存 preview_url，
+            // 用户看不到转换效果——2026-09-07「转换后没有预览」实证）
             this.setData({
               uploading: false,
-              uploadJob: {
+              job: {
                 jobId: data.job_id,
-                sourceName: data.source_name || file.name,
+                previewUrl: data.preview_url,
+                gcodeUrl: data.gcode_url,
+                lines: data.lines,
               },
             });
             wx.showToast({ title: "转换完成", icon: "success" });
@@ -181,9 +181,11 @@ Page({
           .then((data) => {
             this.setData({
               uploading: false,
-              uploadJob: {
+              job: {
                 jobId: data.job_id,
-                sourceName: data.source_name || "拍照图片",
+                previewUrl: data.preview_url,
+                gcodeUrl: data.gcode_url,
+                lines: data.lines,
               },
             });
             wx.showToast({ title: "转换完成", icon: "success" });

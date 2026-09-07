@@ -56,17 +56,7 @@
     <button class="btn-ghost block-btn" bindtap="onPickFile" loading="{{uploading}}" disabled="{{uploading}}">
       {{uploading ? "转换中…" : "选择文件"}}
     </button>
-    <view class="upload-ready" wx:if="{{uploadJob}}">
-      <view class="chip">就绪：{{uploadJob.sourceName}}</view>
-      <button
-        class="btn-primary block-btn"
-        bindtap="onSendUpload"
-        loading="{{sending}}"
-        disabled="{{sending}}"
-      >
-        发送到写字机
-      </button>
-    </view>
+    <view class="muted hint" wx:if="{{uploading}}">转换中，照片约 5-15 秒</view>
   </view>
 
   <view class="card bind-card" wx:if="{{!binding}}">
