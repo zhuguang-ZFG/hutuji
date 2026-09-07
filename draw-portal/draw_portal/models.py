@@ -23,6 +23,10 @@ class User:
     admin_note: str | None = None
     # 微信小程序登录（2026-09-07）：wx_openid 非空即微信用户，email 为占位符
     wx_openid: str | None = None
+    # 微信资料（2026-09-07 用户要求「获取用户名和手机号」）：昵称/手机号/头像相对路径
+    nickname: str | None = None
+    phone: str | None = None
+    avatar_path: str | None = None
 
 
 @dataclass(frozen=True)

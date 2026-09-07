@@ -1,0 +1,90 @@
+/** 全局主题：品牌藏青 #1A1A2E / 主色青 #2E6E65 / 米纸底 #F6F1E6 / 设备瞳色点缀 #B4F0FF */
+page {
+  background: #F6F1E6;
+  color: #1A1A2E;
+  font-size: 28rpx;
+  --brand: #1A1A2E;
+  --primary: #2E6E65;
+  --accent: #B4F0FF;
+  --paper: #F6F1E6;
+  --danger: #B3403A;
+}
+
+.card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin: 24rpx;
+  box-shadow: 0 6rpx 24rpx rgba(26, 26, 46, 0.07);
+}
+
+.card-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.card-sub {
+  font-size: 24rpx;
+  color: #8A8A99;
+  margin-bottom: 20rpx;
+}
+
+.btn-primary {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-radius: 999rpx !important;
+  font-size: 30rpx !important;
+}
+
+.btn-primary::after {
+  border: none;
+}
+
+.btn-ghost {
+  background: #fff !important;
+  color: var(--primary) !important;
+  border: 2rpx solid var(--primary) !important;
+  border-radius: 999rpx !important;
+  font-size: 30rpx !important;
+}
+
+.btn-ghost::after {
+  border: none;
+}
+
+.btn-danger-ghost {
+  background: #fff !important;
+  color: var(--danger) !important;
+  border: 2rpx solid var(--danger) !important;
+  border-radius: 999rpx !important;
+  font-size: 30rpx !important;
+}
+
+.btn-danger-ghost::after {
+  border: none;
+}
+
+.chip {
+  display: inline-block;
+  padding: 6rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  background: #EEF6F4;
+  color: var(--primary);
+}
+
+.chip.warn {
+  background: #FBF3E4;
+  color: #9A6B1A;
+}
+
+.chip.err {
+  background: #F9E9E8;
+  color: var(--danger);
+}
+
+.muted {
+  color: #8A8A99;
+  font-size: 24rpx;
+}

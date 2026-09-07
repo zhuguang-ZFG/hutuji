@@ -18,12 +18,12 @@ Page({
     api
       .request("/api/draw/saved")
       .then((data) => {
-        const jobs = (data.jobs || []).map((j) => ({
-          jobId: j.job_id,
-          previewUrl: j.preview_url,
-          sourceName: j.source_name || "作品",
-          lines: j.lines || "-",
-          createdAt: (j.created_at || "").replace("T", " ").slice(0, 16),
+        // 收藏列表契约：{items:[{id,title,saved_at,preview_url}]}，发送走 saved/{id}/send
+        const jobs = (data.items || []).map((it) => ({
+          savedId: it.id,
+          previewUrl: api.BASE_URL + it.preview_url,
+          sourceName: it.title || "作品",
+          createdAt: String(it.saved_at || "").replace("T", " ").slice(0, 16),
         }));
         this.setData({ jobs, loading: false });
         if (done) done();
@@ -39,14 +39,14 @@ Page({
   },
 
   onSend(e) {
-    const jobId = e.currentTarget.dataset.id;
+    const savedId = e.currentTarget.dataset.id;
     wx.showModal({
       title: "发送到写字机",
       content: "写字机屏幕出现预览后点「开始画」",
       success: (res) => {
         if (!res.confirm) return;
         api
-          .request(`/api/draw/${jobId}/send`, { method: "POST" })
+          .request(`/api/draw/saved/${savedId}/send`, { method: "POST" })
           .then((r) => {
             if (r.status === "sent") {
               wx.showToast({ title: "已发送", icon: "success" });

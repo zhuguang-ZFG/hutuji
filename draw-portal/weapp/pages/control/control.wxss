@@ -1,0 +1,68 @@
+.status-row {
+  display: flex;
+  gap: 16rpx;
+  margin-bottom: 8rpx;
+}
+
+.dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+  margin: 24rpx 0;
+}
+
+.dpad-row {
+  display: flex;
+  gap: 16rpx;
+}
+
+.dpad-btn {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 32rpx;
+  background: #1A1A2E;
+  color: #B4F0FF;
+  font-size: 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+
+.dpad-btn::after {
+  border: none;
+}
+
+.dpad-btn.spacer {
+  background: transparent;
+}
+
+.dpad-btn.home {
+  background: #2E6E65;
+  color: #fff;
+  font-size: 26rpx;
+}
+
+.dpad-btn[disabled] {
+  opacity: 0.4;
+}
+
+.row-btns {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 12rpx;
+}
+
+.half {
+  flex: 1;
+}
+
+.third {
+  flex: 1;
+}
+
+.block-btn {
+  margin-top: 16rpx;
+}

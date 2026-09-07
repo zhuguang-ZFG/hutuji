@@ -1,0 +1,64 @@
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+
+.avatar-btn {
+  padding: 0;
+  background: transparent;
+  line-height: 1;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 50%;
+}
+
+.avatar.placeholder {
+  background: #E8E4DA;
+  color: #8A8A99;
+  font-size: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.nick-input {
+  font-size: 34rpx;
+  font-weight: 600;
+  border-bottom: 2rpx solid #E8E4DA;
+  padding: 8rpx 0;
+}
+
+.phone-btn {
+  align-self: flex-start;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 8rpx;
+}
+
+.block-btn {
+  margin-top: 16rpx;
+}
+
+.footer-note {
+  text-align: center;
+  margin: 40rpx 0;
+}

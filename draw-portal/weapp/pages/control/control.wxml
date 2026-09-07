@@ -1,0 +1,64 @@
+<view class="page">
+  <view class="card" wx:if="{{!bound}}">
+    <view class="card-title">还没绑定写字机</view>
+    <view class="card-sub">绑定后才能控制设备</view>
+    <button class="btn-primary block-btn" bindtap="onGoBind">去绑定</button>
+  </view>
+
+  <block wx:if="{{bound}}">
+    <view class="card status-card">
+      <view class="status-row">
+        <view class="chip {{status && status.connected ? '' : 'err'}}">
+          {{status ? (status.connected ? "已连接" : "未连接") : "查询中…"}}
+        </view>
+        <view class="chip warn" wx:if="{{status && status.state}}">{{status.state}}</view>
+        <view class="chip" wx:if="{{status && status.pages > 0}}">第 {{status.page}}/{{status.pages}} 页</view>
+      </view>
+      <view class="muted" wx:if="{{status && status.last_line}}">最近应答：{{status.last_line}}</view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">点动</view>
+      <view class="card-sub">步距 {{step}}mm · 点中间回原点</view>
+      <view class="dpad">
+        <view class="dpad-row">
+          <view class="dpad-btn spacer"></view>
+          <button class="dpad-btn" bindtap="onJog" data-dir="jog_y+" disabled="{{!!busyAction}}">前</button>
+          <view class="dpad-btn spacer"></view>
+        </view>
+        <view class="dpad-row">
+          <button class="dpad-btn" bindtap="onJog" data-dir="jog_x-" disabled="{{!!busyAction}}">左</button>
+          <button class="dpad-btn home" bindtap="onHome" disabled="{{!!busyAction}}">原点</button>
+          <button class="dpad-btn" bindtap="onJog" data-dir="jog_x+" disabled="{{!!busyAction}}">右</button>
+        </view>
+        <view class="dpad-row">
+          <view class="dpad-btn spacer"></view>
+          <button class="dpad-btn" bindtap="onJog" data-dir="jog_y-" disabled="{{!!busyAction}}">后</button>
+          <view class="dpad-btn spacer"></view>
+        </view>
+      </view>
+      <button class="btn-ghost block-btn" bindtap="onStepToggle">步距切换为 {{step === 10 ? 1 : 10}}mm</button>
+    </view>
+
+    <view class="card">
+      <view class="card-title">笔</view>
+      <view class="row-btns">
+        <button class="btn-ghost third" bindtap="onPen" data-action="pen_up" disabled="{{!!busyAction}}">抬笔</button>
+        <button class="btn-ghost third" bindtap="onPen" data-action="pen_down" disabled="{{!!busyAction}}">落笔</button>
+        <button class="btn-ghost third" bindtap="onPenTest" disabled="{{!!busyAction}}">试笔</button>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">任务</view>
+      <view class="row-btns">
+        <button class="btn-ghost half" bindtap="onJobAction" data-tool="hutuji.pause" disabled="{{!!busyAction}}">暂停</button>
+        <button class="btn-ghost half" bindtap="onJobAction" data-tool="hutuji.resume" disabled="{{!!busyAction}}">继续</button>
+      </view>
+      <view class="row-btns">
+        <button class="btn-ghost half" bindtap="onJobAction" data-tool="hutuji.repeat" disabled="{{!!busyAction}}">再画一张</button>
+        <button class="btn-danger-ghost half" bindtap="onStop" disabled="{{!!busyAction}}">停止</button>
+      </view>
+    </view>
+  </block>
+</view>

@@ -1,38 +1,38 @@
 <view class="page">
-  <view class="card">
-    <view class="title">画点什么</view>
+  <view class="card hero">
+    <view class="hero-title">想画点什么？</view>
     <textarea
       class="desc-input"
-      placeholder="描述要画的内容，例如：一只简笔画小猫"
+      placeholder="一句话描述，例如：一只简笔画小猫"
       value="{{description}}"
       bindinput="onDescInput"
       maxlength="200"
       auto-height
     />
-    <view class="quota" wx:if="{{quotaLeft !== null}}">
-      今日剩余生图 {{quotaLeft}} 次
+    <view class="hero-foot">
+      <view class="chip" wx:if="{{quotaLeft !== null}}">今日还可生图 {{quotaLeft}} 次</view>
+      <button
+        class="btn-primary hero-btn"
+        bindtap="onGenerate"
+        loading="{{generating}}"
+        disabled="{{generating || !description}}"
+      >
+        {{generating ? "生成中（约 10-60 秒）" : "生成图画"}}
+      </button>
     </view>
-    <button
-      class="btn primary"
-      bindtap="onGenerate"
-      loading="{{generating}}"
-      disabled="{{generating || !description}}"
-    >
-      {{generating ? "生成中（约 10-60 秒）…" : "生成图画"}}
-    </button>
   </view>
 
   <view class="card" wx:if="{{job}}">
-    <view class="title">预览</view>
+    <view class="card-title">预览</view>
     <image
       class="preview"
       src="{{job.previewUrl}}"
       mode="aspectFit"
       bindtap="onPreviewTap"
     />
-    <view class="meta">约 {{job.lines}} 行笔画</view>
+    <view class="muted center-text">约 {{job.lines}} 行笔画 · 点图放大</view>
     <button
-      class="btn primary"
+      class="btn-primary block-btn"
       bindtap="onSend"
       loading="{{sending}}"
       disabled="{{sending}}"
@@ -41,29 +41,37 @@
     </button>
   </view>
 
-  <view class="card" wx:if="{{binding === null}}">
-    <view class="title">绑定写字机</view>
-    <view class="meta">还没有绑定设备</view>
-    <button class="btn" bindtap="onGoBind">去绑定</button>
-  </view>
-  <view class="card" wx:if="{{binding}}">
-    <view class="title">已绑定设备</view>
-    <view class="meta">设备尾号 {{binding.macSuffix}}</view>
+  <view class="card">
+    <view class="card-title">拍照 / 相册绘图</view>
+    <view class="card-sub">拍一张画稿或照片，转成单线笔画写画</view>
+    <view class="row-btns">
+      <button class="btn-ghost half" bindtap="onTakePhoto" data-source="camera" disabled="{{uploading}}">拍照</button>
+      <button class="btn-ghost half" bindtap="onTakePhoto" data-source="album" disabled="{{uploading}}">从相册选</button>
+    </view>
   </view>
 
   <view class="card">
-    <view class="title">上传文档/图片</view>
-    <button class="btn" bindtap="onPickFile">选择文件（图片/Word/Excel/PPT/PDF）</button>
-    <view class="meta" wx:if="{{uploading}}">转换中…</view>
-    <view class="meta" wx:if="{{uploadJob}}">就绪：{{uploadJob.sourceName}}</view>
-    <button
-      wx:if="{{uploadJob}}"
-      class="btn primary"
-      bindtap="onSendUpload"
-      loading="{{sending}}"
-      disabled="{{sending}}"
-    >
-      发送到写字机
+    <view class="card-title">文档 / 文件</view>
+    <view class="card-sub">Word / Excel / PPT / 图片 / SVG，写出或画出</view>
+    <button class="btn-ghost block-btn" bindtap="onPickFile" loading="{{uploading}}" disabled="{{uploading}}">
+      {{uploading ? "转换中…" : "选择文件"}}
     </button>
+    <view class="upload-ready" wx:if="{{uploadJob}}">
+      <view class="chip">就绪：{{uploadJob.sourceName}}</view>
+      <button
+        class="btn-primary block-btn"
+        bindtap="onSendUpload"
+        loading="{{sending}}"
+        disabled="{{sending}}"
+      >
+        发送到写字机
+      </button>
+    </view>
+  </view>
+
+  <view class="card bind-card" wx:if="{{!binding}}">
+    <view class="card-title">还没绑定写字机</view>
+    <view class="card-sub">扫码或输码，10 秒绑好</view>
+    <button class="btn-primary block-btn" bindtap="onGoBind">去绑定</button>
   </view>
 </view>

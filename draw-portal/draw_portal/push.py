@@ -106,28 +106,21 @@ def publish_job_files(
     )
 
 
-def push_draw_to_device(
+def push_tool_call(
     *,
     api_base: str,
     device_token: str,
-    gcode_url: str,
-    preview_url: str,
-    pages_arg: str | None = None,
+    name: str,
+    arguments: dict[str, str],
+    timeout: int = 30,
 ) -> tuple[bool, str]:
+    """经小智设备消息 API 调设备侧 MCP 工具（tools/call 通用面）。"""
     import json
     from urllib.error import HTTPError, URLError
     from urllib.request import Request, urlopen
 
     url = f"{api_base.rstrip('/')}/messaging/device/tools/call"
-    # pages 键序/紧凑格式由 hutuji_mcp.article_pages.pages_argument 生成
-    # （设备 ParseArticlePages 纯扫描器，protocol §4.2）；多页文档才带。
-    arguments: dict[str, str] = {"url": gcode_url, "preview_url": preview_url}
-    if pages_arg:
-        arguments["pages"] = pages_arg
-    body = json.dumps(
-        {"name": "hutuji.draw", "arguments": arguments},
-        ensure_ascii=False,
-    ).encode("utf-8")
+    body = json.dumps({"name": name, "arguments": arguments}, ensure_ascii=False).encode("utf-8")
     req = Request(
         url,
         data=body,
@@ -138,14 +131,36 @@ def push_draw_to_device(
         method="POST",
     )
     try:
-        with urlopen(req, timeout=30) as resp:
+        with urlopen(req, timeout=timeout) as resp:
             if resp.status != 200:
                 return False, f"HTTP {resp.status}"
-            return True, "hutuji.draw ok"
+            return True, resp.read().decode("utf-8", "replace")
     except HTTPError as exc:
         return False, f"HTTP {exc.code}"
     except URLError as exc:
         return False, f"网络 {type(exc.reason).__name__}"
+
+
+def push_draw_to_device(
+    *,
+    api_base: str,
+    device_token: str,
+    gcode_url: str,
+    preview_url: str,
+    pages_arg: str | None = None,
+) -> tuple[bool, str]:
+    # pages 键序/紧凑格式由 hutuji_mcp.article_pages.pages_argument 生成
+    # （设备 ParseArticlePages 纯扫描器，protocol §4.2）；多页文档才带。
+    arguments: dict[str, str] = {"url": gcode_url, "preview_url": preview_url}
+    if pages_arg:
+        arguments["pages"] = pages_arg
+    ok, result = push_tool_call(
+        api_base=api_base,
+        device_token=device_token,
+        name="hutuji.draw",
+        arguments=arguments,
+    )
+    return (True, "hutuji.draw ok") if ok else (False, result)
 
 
 def push_for_user_binding(

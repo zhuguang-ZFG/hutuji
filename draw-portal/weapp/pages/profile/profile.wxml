@@ -1,0 +1,51 @@
+<view class="page">
+  <view class="card profile-card">
+    <button class="avatar-btn" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
+      <image wx:if="{{me && me.avatar_url}}" class="avatar" src="{{me.avatar_url}}" mode="aspectFill" />
+      <view wx:else class="avatar placeholder">+</view>
+    </button>
+    <view class="profile-fields">
+      <input
+        class="nick-input"
+        type="nickname"
+        placeholder="微信昵称"
+        value="{{nicknameDraft}}"
+        bindinput="onNickInput"
+        bindblur="onSaveNick"
+      />
+      <button
+        wx:if="{{!me || !me.phone}}"
+        class="btn-ghost phone-btn"
+        open-type="getPhoneNumber"
+        bind:getphonenumber="onGetPhone"
+      >
+        绑定手机号
+      </button>
+      <view wx:else class="chip">{{me.phone}}</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">设备</view>
+    <block wx:if="{{me && me.binding && me.binding.bound}}">
+      <view class="status-row">
+        <view class="chip">已绑定</view>
+        <view class="muted">设备尾号 {{me.binding.macSuffix || me.binding.deviceMac}}</view>
+      </view>
+    </block>
+    <block wx:else>
+      <view class="card-sub">绑定后才能发送任务和控制写字机</view>
+    </block>
+    <button class="btn-primary block-btn" bindtap="onGoBind">
+      {{me && me.binding && me.binding.bound ? "换绑 / 查看" : "去绑定"}}
+    </button>
+  </view>
+
+  <view class="card">
+    <view class="card-title">网络</view>
+    <view class="card-sub">新写字机或换了 WiFi 时，一键把设备连上家里网络</view>
+    <button class="btn-ghost block-btn" bindtap="onGoWifi">一键配网</button>
+  </view>
+
+  <view class="muted footer-note">小派写字机 · v0.1.1</view>
+</view>

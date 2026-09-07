@@ -1,12 +1,15 @@
 <view class="page">
-  <view class="empty" wx:if="{{!jobs.length && !loading}}">还没有作品，去首页画一个</view>
-  <view class="card" wx:for="{{jobs}}" wx:key="jobId">
+  <view class="empty card" wx:if="{{!jobs.length && !loading}}">
+    <view class="empty-text">还没有收藏的作品</view>
+    <view class="muted">去首页画一个，或拍张照片试试</view>
+  </view>
+  <view class="card work" wx:for="{{jobs}}" wx:key="savedId">
     <image class="thumb" src="{{item.previewUrl}}" mode="aspectFill" bindtap="onPreview" data-url="{{item.previewUrl}}" />
     <view class="info">
       <view class="name">{{item.sourceName}}</view>
-      <view class="meta">{{item.createdAt}} · {{item.lines}} 行</view>
+      <view class="muted">{{item.createdAt}}</view>
     </view>
-    <button class="btn small" size="mini" bindtap="onSend" data-id="{{item.jobId}}">发送</button>
+    <button class="btn-ghost send-btn" size="mini" bindtap="onSend" data-id="{{item.savedId}}">发送</button>
   </view>
-  <view class="empty" wx:if="{{loading}}">加载中…</view>
+  <view class="muted empty" wx:if="{{loading}}">加载中…</view>
 </view>

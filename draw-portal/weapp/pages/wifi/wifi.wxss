@@ -1,0 +1,61 @@
+.field {
+  background: #F6F1E6;
+  border-radius: 16rpx;
+  padding: 22rpx;
+  font-size: 30rpx;
+  margin-bottom: 16rpx;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 28rpx 0;
+}
+
+.divider-line {
+  flex: 1;
+  height: 2rpx;
+  background: #E8E4DA;
+}
+
+.divider-text {
+  padding: 0 20rpx;
+  font-size: 24rpx;
+  color: #8A8A99;
+}
+
+.log {
+  background: #1A1A2E;
+  color: #B4F0FF;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  font-size: 24rpx;
+  font-family: monospace;
+  white-space: pre-line;
+  margin-top: 16rpx;
+}
+
+.hint {
+  margin-top: 16rpx;
+}
+
+.center-text {
+  text-align: center;
+}
+
+.success-badge {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: #2E6E65;
+  color: #fff;
+  font-size: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16rpx;
+}
+
+.block-btn {
+  margin-top: 16rpx;
+}

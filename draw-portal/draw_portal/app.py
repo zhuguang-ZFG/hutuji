@@ -45,6 +45,7 @@ from draw_portal.push import (
     publish_doc_pages,
     publish_job_files,
     push_for_user_binding,
+    push_tool_call,
 )
 from draw_portal.upload_kinds import detect_upload_kind
 from draw_portal.store import Store
@@ -79,6 +80,85 @@ class BindAnnounceBody(BaseModel):
 
 class BindCompleteBody(BaseModel):
     bind_code: str
+    force: bool = False  # 设备已绑他人时强制换绑（授权证据=屏显 bind_code 在场持有）
+
+
+class WxProfileBody(BaseModel):
+    nickname: str = Field(min_length=1, max_length=32)
+
+
+class WxPhoneBody(BaseModel):
+    code: str = Field(min_length=1, max_length=128)
+
+
+class DeviceControlBody(BaseModel):
+    tool: str = Field(min_length=1, max_length=32)
+    action: str | None = None
+
+
+# 设备控制白名单：与固件 IsVoiceAllowedAction 同源（语音不开放的维护动作这里同样不放）
+_MANUAL_ACTION_WHITELIST = frozenset({
+    "jog_x+", "jog_x-", "jog_y+", "jog_y-",
+    "jog_step_1", "jog_step_10",
+    "pen_up", "pen_down", "home",
+})
+_CONTROL_TOOL_WHITELIST = frozenset({
+    "hutuji.pen_test", "hutuji.status", "hutuji.confirm", "hutuji.abort",
+    "hutuji.pause", "hutuji.resume", "hutuji.repeat",
+})
+_WX_ACCESS_TOKEN_CACHE: dict[str, Any] = {"token": None, "expires_at": 0.0}
+
+
+def _wx_access_token(config: Any) -> str:
+    """小程序 access_token 进程内缓存（官方有效期 7200s，提前 300s 续）。"""
+    import json as _json
+    import urllib.parse as _parse
+    import urllib.request as _req
+
+    now = time.time()
+    if _WX_ACCESS_TOKEN_CACHE["token"] and _WX_ACCESS_TOKEN_CACHE["expires_at"] > now + 300:
+        return _WX_ACCESS_TOKEN_CACHE["token"]
+    qs = _parse.urlencode(
+        {"grant_type": "client_credential", "appid": config.wx_appid, "secret": config.wx_secret}
+    )
+    try:
+        with _req.urlopen("https://api.weixin.qq.com/cgi-bin/token?" + qs, timeout=5) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        raise _WxLoginError(502, "微信服务不可用，请稍后再试") from None
+    token = data.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise _WxLoginError(502, "微信 access_token 获取失败")
+    _WX_ACCESS_TOKEN_CACHE["token"] = token
+    _WX_ACCESS_TOKEN_CACHE["expires_at"] = now + int(data.get("expires_in", 7200))
+    return token
+
+
+def _wx_phone_number(config: Any, code: str) -> str:
+    """getPhoneNumber 的 code → 手机号（纯数字，不带区号前缀）。"""
+    import json as _json
+    import urllib.request as _req
+
+    token = _wx_access_token(config)
+    body = _json.dumps({"code": code}).encode("utf-8")
+    req = _req.Request(
+        f"https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token={token}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with _req.urlopen(req, timeout=5) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        raise _WxLoginError(502, "微信手机号服务不可用，请稍后再试") from None
+    if data.get("errcode"):
+        raise _WxLoginError(401, "手机号授权已过期，请重新点击授权")
+    info = data.get("phone_info") or {}
+    phone = info.get("purePhoneNumber") or info.get("phoneNumber")
+    if not isinstance(phone, str) or not phone:
+        raise _WxLoginError(502, "微信手机号响应异常")
+    return phone
 
 
 class SavePreviewBody(BaseModel):
@@ -357,11 +437,6 @@ def create_app() -> FastAPI:
         set_session_cookie(response, secret=config.session_secret, user_id=user.id)
         return {"status": "ok"}
 
-    @app.post("/api/auth/logout", dependencies=secured)
-    def logout(response: Response) -> dict[str, str]:
-        clear_session_cookie(response)
-        return {"status": "ok"}
-
     @app.get("/api/auth/me", dependencies=secured)
     def me(user_id: str = Depends(user_dep)) -> dict[str, Any]:
         user = store.get_user(user_id)
@@ -370,6 +445,10 @@ def create_app() -> FastAPI:
         binding = store.get_binding_for_user(user_id)
         return {
             "email": user.email,
+            "wx": user.wx_openid is not None,
+            "nickname": user.nickname,
+            "phone": user.phone,
+            "avatar_url": f"/api/auth/avatar/{user.id}" if user.avatar_path else None,
             "binding": store.binding_status_dict(binding),
         }
 
@@ -413,6 +492,81 @@ def create_app() -> FastAPI:
             "mac_suffix": mac[-5:],
         }
 
+    @app.post("/api/auth/wx-profile", dependencies=secured)
+    def wx_profile(body: WxProfileBody, user_id: str = Depends(user_dep)) -> dict[str, str]:
+        nickname = body.nickname.strip()[:32]
+        if not nickname:
+            raise HTTPException(status_code=400, detail="昵称不能为空")
+        user = store.get_user(user_id)
+        store.set_user_profile(user_id, nickname=nickname, avatar_path=user.avatar_path if user else None)
+        return {"status": "ok"}
+
+    @app.post("/api/auth/wx-avatar", dependencies=secured)
+    async def wx_avatar(file: UploadFile = File(...), user_id: str = Depends(user_dep)) -> dict[str, str]:
+        raw = await file.read()
+        if len(raw) > 2 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="头像不能超过 2MB")
+        kind = detect_upload_kind(raw, file.content_type or "", file.filename or "")
+        if kind != "raster":
+            raise HTTPException(status_code=400, detail="头像只支持图片")
+        ext = "png" if raw[:4] == b"\x89PNG" else "jpg"
+        avatar_dir = config.data_dir / "avatars"
+        avatar_dir.mkdir(parents=True, exist_ok=True)
+        rel = f"{user_id}.{ext}"
+        (avatar_dir / rel).write_bytes(raw)
+        user = store.get_user(user_id)
+        store.set_user_profile(user_id, nickname=user.nickname if user else None, avatar_path=rel)
+        return {"status": "ok"}
+
+    @app.get("/api/auth/avatar/{uid}")
+    def auth_avatar(uid: str) -> FileResponse:
+        # 头像半公开（uid 不可枚举）：只服务白名单后缀，不落 404 之外的内部细节
+        for ext in ("png", "jpg"):
+            path = config.data_dir / "avatars" / f"{uid}.{ext}"
+            if path.is_file() and path.parent.resolve() == (config.data_dir / "avatars").resolve():
+                return FileResponse(path, media_type=f"image/{'jpeg' if ext == 'jpg' else 'png'}")
+        raise HTTPException(status_code=404, detail="不存在")
+
+    @app.post("/api/auth/wx-phone", dependencies=secured)
+    def wx_phone(body: WxPhoneBody, user_id: str = Depends(user_dep)) -> dict[str, str]:
+        if not config.wx_appid or not config.wx_secret:
+            raise HTTPException(status_code=503, detail="小程序登录未配置")
+        try:
+            phone = _wx_phone_number(config, body.code.strip())
+        except _WxLoginError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+        store.set_user_phone(user_id, phone)
+        return {"status": "ok", "phone": phone}
+
+    @app.post("/api/device/control", dependencies=secured)
+    def device_control(body: DeviceControlBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        tool = body.tool.strip()
+        action = (body.action or "").strip()
+        if tool == "hutuji.manual":
+            if action not in _MANUAL_ACTION_WHITELIST:
+                raise HTTPException(status_code=400, detail="不支持的手动动作")
+            arguments: dict[str, str] = {"action": action}
+        elif tool in _CONTROL_TOOL_WHITELIST:
+            if action:
+                raise HTTPException(status_code=400, detail="该工具不接受 action")
+            arguments = {}
+        else:
+            raise HTTPException(status_code=400, detail="不支持的控制工具")
+        ok, result = push_tool_call(
+            api_base=config.xiaozhi_api_base,
+            device_token=decrypt_token(config.token_cipher_key, binding.device_token_enc),
+            name=tool,
+            arguments=arguments,
+            timeout=15,
+        )
+        if not ok:
+            return {"status": "error", "detail": result}
+        # 设备工具回包是 JSON 字符串（hutuji.status 等）或 started/true；原样透传给前端解析
+        return {"status": "ok", "result": result}
+
     @app.post("/api/user/bind/complete", dependencies=secured)
     def bind_complete(body: BindCompleteBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         try:
@@ -420,6 +574,15 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         now = time.time()
+        # 先偷看不消费：跨账号冲突要 409 且不烧掉会话，用户一键确认后同码强制换绑
+        peek = store.get_bind_session(code)
+        if peek is None or peek.consumed_at is not None or peek.expires_at < now:
+            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
+        other_user = store.get_user_id_for_mac(peek.device_mac)
+        if other_user is not None and other_user != user_id:
+            if not body.force:
+                raise HTTPException(status_code=409, detail="该设备已绑定其他账号，确认后可强制换绑")
+            store.delete_binding_for_mac(peek.device_mac)
         session = store.consume_bind_session(code, now=now)
         if session is None:
             raise HTTPException(status_code=400, detail="bind_code 无效或已过期")

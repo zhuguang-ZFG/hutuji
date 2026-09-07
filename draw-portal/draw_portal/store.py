@@ -198,6 +198,9 @@ _USER_MIGRATION_COLUMNS = (
     ("ban_reason", "TEXT"),
     ("admin_note", "TEXT"),
     ("wx_openid", "TEXT"),
+    ("nickname", "TEXT"),
+    ("phone", "TEXT"),
+    ("avatar_path", "TEXT"),
 )
 
 
@@ -252,6 +255,9 @@ class Store:
             ban_reason=row["ban_reason"],
             admin_note=row["admin_note"],
             wx_openid=row["wx_openid"] if "wx_openid" in row.keys() else None,
+            nickname=row["nickname"] if "nickname" in row.keys() else None,
+            phone=row["phone"] if "phone" in row.keys() else None,
+            avatar_path=row["avatar_path"] if "avatar_path" in row.keys() else None,
         )
 
     @staticmethod
@@ -444,6 +450,19 @@ class Store:
             )
             conn.commit()
         return user
+
+    def set_user_profile(self, user_id: str, *, nickname: str | None, avatar_path: str | None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET nickname = ?, avatar_path = ? WHERE id = ?",
+                (nickname, avatar_path, user_id),
+            )
+            conn.commit()
+
+    def set_user_phone(self, user_id: str, phone: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET phone = ? WHERE id = ?", (phone, user_id))
+            conn.commit()
 
     def get_user_by_email(self, email: str) -> User | None:
         with self._connect() as conn:
@@ -714,6 +733,15 @@ class Store:
     def delete_binding_for_user(self, user_id: str) -> bool:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM device_bindings WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def delete_binding_for_mac(self, device_mac: str) -> bool:
+        """按设备 MAC 删绑定（不限用户）——仅 bind_complete 的 force 换绑路径调用，
+        前置授权证据 = 调用方持有未消费、未过期的设备屏显 bind_code（持有即在场证明）。"""
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM device_bindings WHERE device_mac = ?", (mac,))
             conn.commit()
             return cur.rowcount > 0
 

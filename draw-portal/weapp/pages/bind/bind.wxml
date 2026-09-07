@@ -1,9 +1,15 @@
 <view class="page">
   <view class="card" wx:if="{{step === 'input'}}">
     <view class="title">绑定写字机</view>
-    <view class="steps">
-      <view class="step">1. 对写字机说「绑定」或按设备绑定入口，屏幕会显示 6 位绑定码</view>
-      <view class="step">2. 在下方输入绑定码</view>
+    <view class="subtitle">对写字机说「绑定」，屏幕出现二维码后：</view>
+    <button class="btn scan" bindtap="onScanBind">
+      <text class="scan-icon">⌗</text>
+      扫码一键绑定
+    </button>
+    <view class="divider">
+      <view class="divider-line"></view>
+      <view class="divider-text">或手动输入</view>
+      <view class="divider-line"></view>
     </view>
     <input
       class="code-input"
@@ -26,13 +32,14 @@
     <view class="title">等待设备确认</view>
     <view class="meta">绑定码：{{code}}</view>
     <view class="meta">请在写字机屏幕/语音上确认绑定（10 分钟内有效）</view>
-    <button class="btn" bindtap="onRefresh">我已确认，刷新状态</button>
-    <button class="btn" bindtap="onReset">重新输入绑定码</button>
+    <button class="btn primary" bindtap="onRefresh">我已确认，刷新状态</button>
+    <button class="btn ghost" bindtap="onReset">重新输入绑定码</button>
   </view>
 
   <view class="card" wx:if="{{step === 'bound'}}">
-    <view class="title">绑定成功</view>
-    <view class="meta">设备尾号 {{macSuffix}}</view>
+    <view class="success-badge">✓</view>
+    <view class="title center">绑定成功</view>
+    <view class="meta center">设备尾号 {{macSuffix}}</view>
     <button class="btn primary" bindtap="onBack">返回首页</button>
     <button class="btn danger" bindtap="onUnbind">解绑设备</button>
   </view>

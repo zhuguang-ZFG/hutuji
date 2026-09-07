@@ -1,50 +1,46 @@
 .page {
-  padding: 24rpx;
-  background: #F6F1E6;
   min-height: 100vh;
+  padding-bottom: 40rpx;
 }
-.card {
+
+.work {
   display: flex;
   align-items: center;
-  background: #fff;
-  border-radius: 20rpx;
-  padding: 20rpx;
-  margin-bottom: 20rpx;
+  gap: 24rpx;
 }
+
 .thumb {
   width: 160rpx;
   height: 160rpx;
-  border-radius: 12rpx;
+  border-radius: 16rpx;
   background: #F6F1E6;
   flex-shrink: 0;
 }
+
 .info {
   flex: 1;
-  margin: 0 20rpx;
-  overflow: hidden;
+  min-width: 0;
 }
+
 .name {
-  font-size: 28rpx;
-  font-weight: bold;
-  color: #1A1A2E;
-  white-space: nowrap;
+  font-size: 30rpx;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.meta {
-  font-size: 24rpx;
-  color: #999;
-  margin-top: 8rpx;
-}
-.btn.small {
-  background: #2E6E65;
-  color: #fff;
-  font-size: 26rpx;
+
+.send-btn {
   flex-shrink: 0;
 }
+
 .empty {
   text-align: center;
-  color: #999;
-  font-size: 28rpx;
-  padding: 120rpx 0;
+  padding: 60rpx 32rpx;
+}
+
+.empty-text {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
 }

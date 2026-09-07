@@ -160,6 +160,46 @@ Page({
     });
   },
 
+  // 拍照/相册绘图：chooseMedia → 压缩 → 走 /api/draw/upload（同传图链）
+  onTakePhoto(e) {
+    if (this.data.uploading) return;
+    const source = (e.currentTarget.dataset.source || "camera") === "album" ? ["album"] : ["camera"];
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ["image"],
+      sourceType: source,
+      sizeType: ["compressed"],
+      success: (res) => {
+        const file = res.tempFiles[0];
+        if (file.size > 10 * 1024 * 1024) {
+          wx.showToast({ title: "照片过大，请重拍", icon: "none" });
+          return;
+        }
+        this.setData({ uploading: true });
+        api
+          .uploadFile("/api/draw/upload", file.tempFilePath, "file")
+          .then((data) => {
+            this.setData({
+              uploading: false,
+              uploadJob: {
+                jobId: data.job_id,
+                sourceName: data.source_name || "拍照图片",
+              },
+            });
+            wx.showToast({ title: "转换完成", icon: "success" });
+          })
+          .catch((err) => {
+            this.setData({ uploading: false });
+            wx.showModal({
+              title: "上传失败",
+              content: err.detail || "图片转换失败，换一张试试",
+              showCancel: false,
+            });
+          });
+      },
+    });
+  },
+
   onGoBind() {
     wx.navigateTo({ url: "/pages/bind/bind" });
   },
