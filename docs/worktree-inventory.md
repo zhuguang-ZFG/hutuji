@@ -691,6 +691,7 @@
 | 验证 | 上午批 pytest 1250 绿。下午批：新回归 4 例（paper_risk 锯齿原文必拒/终稿不拒对照、test_star 过闸、缓存命中同原文；curated_gate 密集锯齿 RED→GREEN 实证），全量 pytest 1254 绿 + hub 门禁 PASS；生产 shadow 真样本 short=0.06（0.35 阈值下健康） |
 | 待办 | ③ nginx `limit_conn` ✅（见末节）；④ HIL 准备清单 ✅（见末节） |
 | 待办 | ⑤ limit_conn `/draw-upload/` 放宽 50 ✅（`d68a572`，双机上线，见末节「⑤ 晚补强」）——顾问复检项清零 |
+| 待办 | ⑥ paper risk v2.1 + curated_gate v4 输入面修复 ✅ 双机生产（`da87440`/`f4485e3`；shadow 模式不拒收；enforce 硬前提 = 30 轮样本重标定 lifts/gap，见 readiness 定序） |
 
 ## ⑤ limit_conn `/draw-upload/` 50 晚补强（2026-09-07 晚，本仓 `d68a572`——✅ 双机已上线）
 
