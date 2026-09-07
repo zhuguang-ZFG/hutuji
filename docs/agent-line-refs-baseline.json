@@ -1,5 +1,5 @@
 {
-  "git_head": "75e082950698ae8bf7585fbdcd6c1c81b4e54ff5",
+  "git_head": "04d2f43591732178003cbb2cedbfd3650bc6f3ec",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -36,7 +36,7 @@
       "source": "        if (!http->Open(\"GET\", url)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/agent-handoff.md -> nginx-hutuji.conf:123": {
+    "docs/agent-handoff.md -> nginx-hutuji.conf:132": {
       "sha8": "fd837018",
       "source": "    # 能服务 /files/，否则公网经隧道下载会撞下方 301 自指坏环（S3 不跟随 301）。",
       "target": "deploy/nginx-hutuji.conf"
@@ -1312,6 +1312,6 @@
       "target": "mcp-server/tests/test_contract.py"
     }
   },
-  "updated": "2026-09-07T01:43:54Z",
+  "updated": "2026-09-07T01:47:04Z",
   "version": 1
 }
