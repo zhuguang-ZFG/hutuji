@@ -36,13 +36,44 @@ class DocPipelineResult:
 
 
 def normalize_raster_to_png(raw: bytes) -> bytes:
-    """WebP/GIF/BMP/PNG/JPEG 统一为 PNG 字节。"""
+    """WebP/GIF/BMP/PNG/JPEG 统一为 PNG 字节。
+
+    照片类栅格（近白像素占比 <0.5）走 Canny 边缘提取转单线稿，
+    人像/场景相似度远优于亮度阈值+骨架化（2026-09-07 用户人像实证：
+    阈值链输出不成形轮廓，Canny σ2.2 输出可辨识人脸+口罩+帽子）。
+    参照 Inkscape trace bitmap CANNY 模式与奎享 EdgeTab 的行业共识。
+    """
     import imageio.v3 as iio
 
     arr = iio.imread(raw)
+    if _looks_like_photo(arr):
+        arr = _photo_to_line_art(arr)
     buf = io.BytesIO()
     iio.imwrite(buf, arr, extension=".png")
     return buf.getvalue()
+
+
+def _looks_like_photo(arr) -> bool:
+    """照片 vs 线稿：线稿近白像素占比高（>0.5），照片充满中间调。"""
+    import numpy as np
+    from skimage import color
+
+    rgb = arr[..., :3] if arr.ndim == 3 else np.stack([arr] * 3, axis=-1)
+    gray = color.rgb2gray(rgb)
+    return float((gray > 0.9).mean()) < 0.5
+
+
+def _photo_to_line_art(arr):
+    """照片 → 黑线白底 PNG 图（uint8）：CLAHE 对比度归一 → Canny → 去斑点。"""
+    import numpy as np
+    from skimage import color, exposure, feature, morphology, util
+
+    rgb = arr[..., :3] if arr.ndim == 3 else np.stack([arr] * 3, axis=-1)
+    gray = color.rgb2gray(rgb)
+    g = exposure.equalize_adapthist(gray, clip_limit=0.02)
+    edges = feature.canny(g, sigma=2.2, low_threshold=0.10, high_threshold=0.20)
+    edges = morphology.remove_small_objects(edges, max_size=16)
+    return util.img_as_ubyte(1.0 - edges.astype(float))
 
 
 def process_upload_doc(raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str) -> DocPipelineResult:
