@@ -287,7 +287,9 @@ def layout_text(
         return max(metrics.em_height, max(xs) + metrics.cjk_left_overhang)
 
     def token_advance_mm(token: str) -> float:
-        if token == " ":
+        # Tab 与空格同价：flush_line 把 "\t" 折成 " " 落版（全宽半步、无字距），
+        # 测量必须同口径，否则 Tab 行折行点与墨迹错位（旧口径 5.0mm 低压 6.4mm）
+        if token in (" ", "\t"):
             return full_advance_mm * 0.5
         if len(token) == 1 and _is_cjk(token):
             return cjk_slot_units(token) * scale + layout.char_gap_mm
@@ -315,7 +317,7 @@ def layout_text(
         的真因不是「2」太宽（墨右缘仅 153 units），而是「年」左越界 227
         units 把墨伸进数字槽（2026-09-06 样本审计实证，纸面相撞 1.94mm）。
         槽内预留全字库拉丁左越界覆盖拉丁内部相邻；后随 CJK 大左越界的边界
-        补偿在 flush_line 前瞻另加。缺字形回落半 em。
+        补偿在 flush_line 前瞻另加（折行测量同口径，见下方 token 交界补偿）。
         """
         floor = metrics.em_height * 0.5
         glyph = cache.get(ch)
@@ -398,9 +400,8 @@ def layout_text(
                 elif ch.isascii() and ch.isalnum():
                     # 与 token_advance_mm 同口径：半 em 地板 + 墨右缘/拉丁左越界保底；
                     # 后随 CJK 时加其左越界补偿（「1932年」数字槽盖不住「年」的出锋，
-                    # 2026-09-06 审计 2→年 撞 1.94mm）。测量侧不算这笔边界补偿——
-                    # 满行尾遇拉丁→CJK 交界最多比测量宽出 cjk_left_overhang×scale，
-                    # 仍在 8mm 右边距内，不触 §5 页限。
+                    # 2026-09-06 审计 2→年 撞 1.94mm）。测量侧在折行循环按 token
+                    # 交界同口径计入同一笔补偿——两侧不等宽折行点就会与墨迹错位。
                     boundary = (
                         metrics.cjk_left_overhang if nxt is not None and _is_cjk(nxt) else 0.0
                     )
@@ -456,6 +457,14 @@ def layout_text(
                 tokens.insert(i + 1, tok[1:])
                 tok = tok[0]
                 adv = token_advance_mm(tok)
+            # 拉丁→CJK 边界补偿与 flush_line 同口径计入测量：行末字符是拉丁/数字
+            # 且本 token 以 CJK 起笔时，落墨会在拉丁槽后追加 cjk_left_overhang 避让
+            # （「1932年」2→年 纸面相撞 1.94mm 的修复）。测量若不算这笔，满行尾
+            # 交界的折行点比真实墨位窄 cjk_left_overhang×scale，行宽判决与墨迹错位。
+            # tokenize 保证拉丁连字/CJK 单字各自成元，边界只出现在 token 交界。
+            prev_ch = line_tokens[-1][-1] if line_tokens else ""
+            if prev_ch.isascii() and prev_ch.isalnum() and _is_cjk(tok[0]):
+                adv += metrics.cjk_left_overhang * scale
             overflow = line_width + adv > layout.text_width_mm and line_tokens
             # 避头：闭标点不置行首、并入当前行末——但并入后墨迹不得越 §5 页限
             # （190mm 硬线，竖版撰写页宽）：连续闭标点（。」/！」在中文常见）在满行会把右缘顶出限幅，
@@ -608,6 +617,9 @@ def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
         raise WriteTextError(f"字库目录无 .gfont 文件：{fonts_dir}")
 
     chosen: str | None = None
+    # 选中即持有所解析对象直接返回：偏好/字数两路此前在扫描时解析一次、
+    # 返回前又整份重解析（多 MB 字库每请求白付 1 次完整解密+ZIP 遍历）
+    chosen_font: GfontFile | None = None
     if name:
         for path in candidates:
             if name in os.path.basename(path):
@@ -621,7 +633,7 @@ def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
             for path in candidates:
                 if preferred in os.path.basename(path):
                     try:
-                        GfontFile.parse(_read_font_bytes(path))
+                        chosen_font = GfontFile.parse(_read_font_bytes(path))
                     except (GfontError, OSError):
                         continue
                     chosen = path
@@ -639,9 +651,12 @@ def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
             if font.meta.declared_count > best_count:
                 best_count = font.meta.declared_count
                 chosen = path
+                chosen_font = font
         if chosen is None:
             raise WriteTextError("目录内无可用字库")
 
+    if chosen_font is not None:
+        return chosen_font
     try:
         return GfontFile.parse(_read_font_bytes(chosen))
     except (GfontError, OSError) as exc:

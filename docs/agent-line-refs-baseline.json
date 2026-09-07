@@ -1,5 +1,5 @@
 {
-  "git_head": "90d23e04fcb61fd1f1e3b3ce38f387748b1468eb",
+  "git_head": "3f970276bcbb82cbff8ae58bbcca7e2a588591eb",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -462,8 +462,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:145-147": {
-      "sha8": "0ec993d7",
-      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1243 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
+      "sha8": "5b17c20c",
+      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1250 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -726,7 +726,7 @@
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7421": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7451": {
       "sha8": "41c11ee2",
       "source": "    tmp_path: Path, monkeypatch: pytest.MonkeyPatch",
       "target": "mcp-server/tests/test_contract.py"
@@ -1302,6 +1302,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-06T16:00:23Z",
+  "updated": "2026-09-07T00:54:47Z",
   "version": 1
 }

@@ -198,6 +198,53 @@ def test_layout_wraps_at_text_width():
     assert max(xs) <= 190.0 - 8.0 + 1e-6  # 不越右边距
 
 
+def test_layout_tab_matches_space_width():
+    """Tab 与空格同价：测量与落版一致（修复前测量 5.5mm/落版 5.25mm，满行处折行错位）。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    # text_width=36.9：「中中 文」测量 36.75 恰好一行放下；Tab 若按全宽半步+整字距
+    # （37.0）测量会把「文」挤到第二行——两种空白必须落出完全相同的版。
+    layout = write_text.WriteLayout(
+        size_mm=10.0, char_gap_mm=0.5, paragraph_indent=0, margin_right_mm=145.1
+    )
+    tab = write_text.layout_text("中中\t文", font, metrics, layout)
+    space = write_text.layout_text("中中 文", font, metrics, layout)
+    tab_points = [[s.points for s in page.strokes] for page in tab.pages]
+    space_points = [[s.points for s in page.strokes] for page in space.pages]
+    assert tab.pages[0].line_count == 1
+    assert tab_points == space_points
+
+
+def test_layout_latin_cjk_boundary_counts_overhang_in_wrap():
+    """拉丁→CJK 边界避让计入行宽测量：漏算时满行尾交界墨迹越出右边距（「1932年」修复的测量侧）。"""
+    # 「年」墨区 x∈[-40,60]（左越界 40 单位，探针集命中 → cjk_left_overhang=40）；
+    # 「A」三角墨区 x∈[-50,50] → latin_left_overhang=50，逐字槽=max(50, 50+50)=100。
+    overhang_box = [-40.0, -100.0, 60.0, -100.0, 60.0, 0.0, -40.0, 0.0]
+    font = gfont.GfontFile.parse(
+        _build_v2_font(
+            {
+                "永": (_BOX_POINTS, _BOX_VERBS),
+                "国": (_BOX_POINTS, _BOX_VERBS),
+                "年": (overhang_box, _BOX_VERBS),
+                "A": (_TRIANGLE_POINTS, _TRIANGLE_VERBS),
+            }
+        )
+    )
+    metrics = write_text.measure_font(font)
+    assert metrics.cjk_left_overhang == pytest.approx(40.0)
+    assert metrics.latin_left_overhang == pytest.approx(50.0)
+    # size=10/gap=0.5：「A年」一对落版 25mm（A 10.5 + 避让 4 + 年 10.5），5 对末字墨缘 120.5。
+    # 页宽 110：测量漏 4mm/对时 5×21=105≤110 不折行、墨迹越界；计入后 5×25=125>110 提前折行。
+    layout = write_text.WriteLayout(
+        size_mm=10.0, char_gap_mm=0.5, paragraph_indent=0, margin_right_mm=72.0
+    )
+    result = write_text.layout_text("A年" * 5, font, metrics, layout)
+    assert result.pages[0].line_count == 2
+    ink_right = max(
+        x for page in result.pages for s in page.strokes for x, _ in s.points
+    )
+    assert ink_right <= 190.0 - 72.0 + 1e-6
+
+
 def test_layout_punctuation_never_starts_line():
     font, metrics = _fixture_font(), _fixture_metrics()
     layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, margin_right_mm=8.0)

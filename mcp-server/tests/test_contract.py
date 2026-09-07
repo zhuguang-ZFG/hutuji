@@ -4954,6 +4954,36 @@ def test_svg_to_gcode_transposes_xy_for_wall_portrait(tmp_path: Path) -> None:
     assert moves[1][1] == pytest.approx(140.0, abs=0.01)
 
 
+def test_transpose_gcode_xy_swaps_pairs_and_preserves_lines() -> None:
+    """转置正例钉：完整 XY 对互换、无 XY 行与空行原样、CRLF 风格保留。
+    互换公式错（值串错位/词序拼反）会被逐字节比对当场抓住。"""
+    from hutuji_mcp import gcode_gen
+
+    text = "G21\r\nG90\r\nG0 X10.5Y20.25F8000\r\nG1G90 Z5.0F10000\r\nG1 X1Y2F8000"
+    out = gcode_gen._transpose_gcode_xy(text)
+    assert out == (
+        "G21\r\nG90\r\nG0 X20.25Y10.5F8000\r\nG1G90 Z5.0F10000\r\nG1 X2Y1F8000"
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_line",
+    [
+        "G1 X10.0\n",  # 模态 Y 缺席：静默互换会把上行残留 Y 当本行值，几何损坏
+        "G1 Y5.0\n",  # 模态 X 缺席，同上
+        "G1 X1.0 X2.0 Y3.0\n",  # 同行多值 X：互换哪个无定义
+        "G1 Y5.0 X3.0\n",  # Y 前 X 后：配对正则构不成唯一互换，fail-closed
+    ],
+)
+def test_transpose_gcode_xy_rejects_modal_or_multi_xy(bad_line: str) -> None:
+    """fail-closed 钉：任何只带单轴词或 XY 非唯一成对的行必须整单拒绝。
+    放行=静默几何损坏（转置把缺省轴当不变量写回），比拒单危险得多。"""
+    from hutuji_mcp import gcode_gen
+
+    with pytest.raises(gcode_gen.GcodeError, match="竖版转置"):
+        gcode_gen._transpose_gcode_xy(bad_line)
+
+
 def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:
     """R13-GC-03：toml 与校验器必须互为事实源——只改 toml 的 F 值（不碰
     gcode_gen.py）时，真实产物会在 draw 时整单自拒且 preflight 全绿（与
