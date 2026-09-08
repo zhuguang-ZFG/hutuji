@@ -714,6 +714,20 @@ Cookie: <session>
 
 物化后的 job（`draw.gcode` + `preview.png`）与上传流完全同形，`send`/`save` 零改动；语音链路的异步推送行为不受影响。
 
+#### 10.4.9 照片两段式：Canny 先回 + 魔搭 i2i 精修（2026-09-08 落地 hub `6d20f9b`）
+
+| 面 | 约定 |
+|----|------|
+| 触发 | `POST /draw-upload/api/draw/upload` 位图经 `is_photo_raster`（近白像素占比 <0.5 判照片）且 portal 配 `HUTUJI_MODELSCOPE_TOKEN`；线稿/SVG/未配 token 走原单段，`refined=null` |
+| 第一段（同步） | Canny 线稿照常同步返回，响应加 `refined={"status":"pending"}`；用户立即可用线稿版发送 |
+| 第二段（后台） | portal 后台任务：原始照片（`normalize_raster_to_png(line_art=False)` 保中间调，**不是** Canny 输出）→ 魔搭 `Qwen/Qwen-Image-Edit-2509` i2i（`POST api-inference.modelscope.cn/v1/images/generations` 字段 `image_url`；轮询 `GET /v1/tasks/{id}` 头 `X-ModelScope-Task-Type: image_generation`）→ 精修位图走**同一条**描摹/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id` |
+| 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
+| 失败口径 | i2i 任何失败只置 `refined=failed` 并记异常类型名（不回显上游正文/凭据），**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError |
+| 发送 | refined job 是普通 job，`POST .../draw/{refined_job_id}/send` 走 §10.4.5 原路径，无特殊分支 |
+| 明确不做 | v1 不做微信订阅消息推送（需模板申请），用页内轮询；不改 §5 闸任何参数；i2i 提示词固定线稿导向，不对用户开放 |
+
+合规面：照片会传输给第三方 AI 服务（魔搭 ModelScope，国内）生成线稿——小程序《用户隐私保护指引》上架前须补此条款（用户 MP 后台动作）；grok/NewAPI 通道因出境+未备案已排除。魔搭 t2i（`Qwen/Qwen-Image`）与 TCB 混元（`hunyuan-image`，`HUTUJI_TCB_IMAGE_URL`+`HUTUJI_TCB_API_KEY` 同配同空）同时作为对冲池 t2i racer 进 `bitmap_svg`（与商汤/agnes/imagefree/硅流同构），默认启用、portal 运营后台可关。
+
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
 | 面 | 约定 |
