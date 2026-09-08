@@ -90,24 +90,34 @@ Page({
     }
     this.setData({ step: "working", log: "" });
     this.appendLog("连接设备热点 " + this.data.apSsid + " …");
-    wx.connectWifi({
-      SSID: this.data.apSsid,
+    // 官方要求先 startWifi（缺省报 errCode 12000 not init）；
+    // password 是文档必填项，开放热点传空串，省略在 iOS 上直接 fail
+    wx.startWifi({
       success: () => {
-        this.appendLog("已连上设备热点，读取附近 WiFi…");
-        setTimeout(() => this.scanAps(), 1500);
-      },
-      fail: (err) => {
-        this.appendLog("连热点失败：" + (err.errMsg || ""));
-        this.setData({ step: "manual" });
-        wx.showModal({
-          title: "连不上设备热点",
-          content:
-            "可以改用浏览器配网：手机 WiFi 设置里手动连接「" +
-            this.data.apSsid +
-            "」，浏览器打开 192.168.4.1 填家里 WiFi",
-          showCancel: false,
+        wx.connectWifi({
+          SSID: this.data.apSsid,
+          password: "",
+          success: () => {
+            this.appendLog("已连上设备热点，读取附近 WiFi…");
+            setTimeout(() => this.scanAps(), 1500);
+          },
+          fail: (err) => this.onConnectFail(err),
         });
       },
+      fail: (err) => this.onConnectFail(err),
+    });
+  },
+
+  onConnectFail(err) {
+    this.appendLog("连热点失败：" + (err.errMsg || ""));
+    this.setData({ step: "manual" });
+    wx.showModal({
+      title: "连不上设备热点",
+      content:
+        "可以改用浏览器配网：手机 WiFi 设置里手动连接「" +
+        this.data.apSsid +
+        "」，浏览器打开 192.168.4.1 填家里 WiFi",
+      showCancel: false,
     });
   },
 
