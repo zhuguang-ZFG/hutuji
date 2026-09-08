@@ -1,4 +1,27 @@
+"""固件 OTA 业务：查版本 / 发起升级 / 读会话；busy 与错板闸。"""
 from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Callable
+
+from draw_portal.crypto import decrypt_token, encrypt_token
+from draw_portal.firmware_catalog import (
+    build_bin_url,
+    load_catalog,
+    plan_check,
+    recommended_for_board,
+)
+from draw_portal.mcp_result import unwrap_tool_text
+from draw_portal.models import DeviceBinding
+from draw_portal.push import mint_messaging_token, push_tool_call
+from draw_portal.store import Store
+
+logger = logging.getLogger(__name__)
+
+# 设备侧只受理不下载；短于画图推送即可
+_OTA_START_TIMEOUT = 20
+_STATUS_TIMEOUT = 15
 
 
 def assert_upgrade_allowed(
@@ -13,3 +36,337 @@ def assert_upgrade_allowed(
     if board != manifest_board:
         return "board_mismatch"
     return None
+
+
+def _parse_status_dict(raw: str) -> dict[str, Any]:
+    text = unwrap_tool_text(raw)
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _push_healed(
+    *,
+    api_base: str,
+    token_cipher_key: bytes,
+    binding: DeviceBinding,
+    store: Store,
+    name: str,
+    arguments: dict[str, str],
+    timeout: int,
+    on_token_minted: Callable[[str], None] | None = None,
+) -> tuple[bool, str]:
+    token = decrypt_token(token_cipher_key, binding.device_token_enc)
+    ok, result = push_tool_call(
+        api_base=api_base,
+        device_token=token,
+        name=name,
+        arguments=arguments,
+        timeout=timeout,
+    )
+    if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
+        fresh = mint_messaging_token(api_base=api_base, mac=binding.device_mac)
+        if fresh:
+            enc = encrypt_token(token_cipher_key, fresh)
+            store.update_binding_token(binding.user_id, device_token_enc=enc)
+            if on_token_minted:
+                on_token_minted(enc)
+            ok, result = push_tool_call(
+                api_base=api_base,
+                device_token=fresh,
+                name=name,
+                arguments=arguments,
+                timeout=timeout,
+            )
+    return ok, result
+
+
+def _fetch_device_status(
+    *,
+    api_base: str,
+    token_cipher_key: bytes,
+    binding: DeviceBinding,
+    store: Store,
+) -> tuple[bool, dict[str, Any], str]:
+    ok, raw = _push_healed(
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        binding=binding,
+        store=store,
+        name="hutuji.status",
+        arguments={},
+        timeout=_STATUS_TIMEOUT,
+    )
+    if not ok:
+        return False, {}, raw
+    return True, _parse_status_dict(raw), raw
+
+
+def check_firmware(
+    *,
+    store: Store,
+    binding: DeviceBinding,
+    catalog_path: str,
+    api_base: str,
+    token_cipher_key: bytes,
+    board_fallback: str | None = None,
+) -> dict[str, Any]:
+    if not catalog_path:
+        return {
+            "update_available": False,
+            "current": None,
+            "latest": None,
+            "notes": "",
+            "reason": "check_failed",
+            "detail": "固件目录未配置",
+        }
+    try:
+        catalog = load_catalog(catalog_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("firmware catalog load failed: %s", type(exc).__name__)
+        return {
+            "update_available": False,
+            "current": None,
+            "latest": None,
+            "notes": "",
+            "reason": "check_failed",
+            "detail": "固件目录不可用",
+        }
+
+    ok, status, err = _fetch_device_status(
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        binding=binding,
+        store=store,
+    )
+    if not ok:
+        return {
+            "update_available": False,
+            "current": None,
+            "latest": None,
+            "notes": "",
+            "reason": "check_failed",
+            "detail": err,
+        }
+
+    board = str(status.get("board") or board_fallback or "").strip()
+    current = str(status.get("firmware_version") or "").strip()
+    if not board or not current:
+        return {
+            "update_available": False,
+            "current": current or None,
+            "latest": None,
+            "notes": "",
+            "reason": "check_failed",
+            "detail": "设备未上报 board/firmware_version",
+            "board": board or None,
+            "device_state": status.get("state"),
+        }
+
+    plan = plan_check(board=board, current_version=current, catalog=catalog)
+    plan["board"] = board
+    plan["device_state"] = status.get("state")
+    return plan
+
+
+def start_upgrade(
+    *,
+    store: Store,
+    binding: DeviceBinding,
+    catalog_path: str,
+    public_base: str,
+    signing_secret: str,
+    api_base: str,
+    token_cipher_key: bytes,
+    board_fallback: str | None = None,
+) -> dict[str, Any]:
+    plan = check_firmware(
+        store=store,
+        binding=binding,
+        catalog_path=catalog_path,
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        board_fallback=board_fallback,
+    )
+    if plan.get("reason") == "check_failed":
+        return {"status": "error", "detail": plan.get("detail") or "check_failed"}
+    if not plan.get("update_available"):
+        return {
+            "status": "error",
+            "detail": plan.get("reason") or "up_to_date",
+        }
+
+    board = str(plan.get("board") or "")
+    catalog = load_catalog(catalog_path)
+    entry = recommended_for_board(catalog, board)
+    if entry is None:
+        return {"status": "error", "detail": "board_mismatch"}
+
+    ok, status, err = _fetch_device_status(
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        binding=binding,
+        store=store,
+    )
+    if not ok:
+        return {"status": "error", "detail": err}
+
+    job_state = str(status.get("state") or "")
+    device_board = str(status.get("board") or board_fallback or "").strip()
+    reject = assert_upgrade_allowed(
+        job_state=job_state,
+        board=device_board,
+        manifest_board=board,
+    )
+    if reject:
+        return {"status": "error", "detail": reject}
+
+    version = str(entry.get("version") or plan.get("latest") or "")
+    sha256 = str(entry.get("sha256") or "")
+    relpath = str(entry.get("relpath") or "")
+    if not version or not relpath:
+        return {"status": "error", "detail": "check_failed"}
+
+    url = build_bin_url(
+        public_base,
+        relpath,
+        secret=signing_secret or None,
+    )
+    store.upsert_firmware_ota_session(
+        user_id=binding.user_id,
+        device_mac=binding.device_mac,
+        state="upgrading",
+        progress=0,
+        reason=None,
+        target_version=version,
+    )
+
+    ok, result = _push_healed(
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        binding=binding,
+        store=store,
+        name="hutuji.ota_start",
+        arguments={
+            "url": url,
+            "version": version,
+            "board": board,
+            "sha256": sha256,
+        },
+        timeout=_OTA_START_TIMEOUT,
+    )
+    if not ok:
+        store.upsert_firmware_ota_session(
+            user_id=binding.user_id,
+            device_mac=binding.device_mac,
+            state="failed",
+            progress=0,
+            reason="check_failed",
+            target_version=version,
+        )
+        return {"status": "error", "detail": result}
+
+    # 设备若立即以 reason token 拒升（busy 等），会话回退
+    text = unwrap_tool_text(result)
+    try:
+        payload = json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        payload = {}
+    if isinstance(payload, dict):
+        device_reason = payload.get("reason") or payload.get("detail")
+        if device_reason in {
+            "busy",
+            "board_mismatch",
+            "check_failed",
+            "download_failed",
+            "verify_failed",
+            "write_failed",
+        }:
+            store.upsert_firmware_ota_session(
+                user_id=binding.user_id,
+                device_mac=binding.device_mac,
+                state="failed",
+                progress=0,
+                reason=str(device_reason),
+                target_version=version,
+            )
+            return {"status": "error", "detail": str(device_reason)}
+
+    return {"status": "started", "target_version": version, "board": board}
+
+
+def get_ota_status(
+    *,
+    store: Store,
+    binding: DeviceBinding,
+    api_base: str,
+    token_cipher_key: bytes,
+) -> dict[str, Any]:
+    session = store.get_firmware_ota_session(binding.user_id)
+    out: dict[str, Any] = {
+        "state": session.state if session else "idle",
+        "progress": session.progress if session else 0,
+        "reason": session.reason if session else None,
+        "target_version": session.target_version if session else None,
+        "updated_at": session.updated_at if session else None,
+    }
+
+    ok, status, _err = _fetch_device_status(
+        api_base=api_base,
+        token_cipher_key=token_cipher_key,
+        binding=binding,
+        store=store,
+    )
+    if ok:
+        ota = status.get("ota")
+        if isinstance(ota, dict):
+            out["ota"] = ota
+            # 合并设备进度到会话（不覆盖 portal 的 upgrading 起始态，除非设备给出终态）
+            device_state = str(ota.get("state") or "").strip().lower()
+            progress = ota.get("progress")
+            reason = ota.get("reason")
+            if session and device_state in {
+                "ok",
+                "failed",
+                "rolled_back",
+                "up_to_date",
+            }:
+                store.upsert_firmware_ota_session(
+                    user_id=binding.user_id,
+                    device_mac=binding.device_mac,
+                    state=device_state if device_state != "up_to_date" else "ok",
+                    progress=int(progress) if isinstance(progress, (int, float)) else session.progress,
+                    reason=str(reason) if reason else device_state,
+                    target_version=session.target_version,
+                )
+                session = store.get_firmware_ota_session(binding.user_id)
+                if session:
+                    out.update(
+                        {
+                            "state": session.state,
+                            "progress": session.progress,
+                            "reason": session.reason,
+                            "target_version": session.target_version,
+                            "updated_at": session.updated_at,
+                        }
+                    )
+            elif session and isinstance(progress, (int, float)):
+                store.upsert_firmware_ota_session(
+                    user_id=binding.user_id,
+                    device_mac=binding.device_mac,
+                    state=session.state,
+                    progress=int(progress),
+                    reason=session.reason,
+                    target_version=session.target_version,
+                )
+                out["progress"] = int(progress)
+        out["firmware_version"] = status.get("firmware_version")
+        out["device_state"] = status.get("state")
+    return out
+
+
+def is_upgrading(store: Store, user_id: str) -> bool:
+    session = store.get_firmware_ota_session(user_id)
+    return session is not None and session.state == "upgrading"

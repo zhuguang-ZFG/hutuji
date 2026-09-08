@@ -68,6 +68,7 @@ from draw_portal.push import (
 from draw_portal.upload_kinds import detect_upload_kind
 from draw_portal.store import Store
 from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
+from draw_portal import firmware_ota as firmware_ota_mod
 
 logger = logging.getLogger(__name__)
 
@@ -694,6 +695,46 @@ def create_app() -> FastAPI:
 
         return {"status": "ok", "result": unwrap_tool_text(result)}
 
+    @app.get("/api/device/firmware/check", dependencies=phone_secured)
+    def firmware_check(user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        return firmware_ota_mod.check_firmware(
+            store=store,
+            binding=binding,
+            catalog_path=config.firmware_catalog_path,
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+        )
+
+    @app.post("/api/device/firmware/upgrade", dependencies=phone_secured)
+    def firmware_upgrade(user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        return firmware_ota_mod.start_upgrade(
+            store=store,
+            binding=binding,
+            catalog_path=config.firmware_catalog_path,
+            public_base=config.firmware_public_base,
+            signing_secret=config.firmware_signing_secret,
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+        )
+
+    @app.get("/api/device/firmware/ota_status", dependencies=phone_secured)
+    def firmware_ota_status(user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        return firmware_ota_mod.get_ota_status(
+            store=store,
+            binding=binding,
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+        )
+
     def _finalize_binding(session: BindSession, user_id: str, now: float, event_type: str) -> DeviceBinding:
         """探活 + 旧 token 保留 + 落绑定 + usage 埋点：抽屉码与自动撮合共用一条完成路径。"""
         ok, _summary = probe_device_token(
@@ -841,6 +882,10 @@ def create_app() -> FastAPI:
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定小派设备")
         return binding
+
+    def _reject_if_firmware_upgrading(user_id: str) -> None:
+        if firmware_ota_mod.is_upgrading(store, user_id):
+            raise HTTPException(status_code=400, detail="固件升级中，请稍后再出图")
 
     def _publish_from_job(job_id: str) -> tuple[str, str]:
         published = publish_job_files(
@@ -1263,6 +1308,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/draw/{job_id}/send", dependencies=phone_secured)
     def draw_send(job_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        _reject_if_firmware_upgrading(user_id)
         job = store.get_draw_job(job_id, user_id=user_id)
         if job is None:
             raise HTTPException(status_code=404, detail="任务不存在")
@@ -1409,6 +1455,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/draw/saved/{saved_id}/send", dependencies=phone_secured)
     def draw_saved_send(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        _reject_if_firmware_upgrading(user_id)
         item = store.get_saved_preview(saved_id, user_id=user_id)
         if item is None:
             raise HTTPException(status_code=404, detail="不存在")

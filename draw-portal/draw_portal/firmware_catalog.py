@@ -41,7 +41,8 @@ def build_bin_url(
     if not secret:
         return url
     exp = int(time.time()) + ttl_sec
-    msg = f"{relpath}:{exp}"
+    # 签名必须与 URL 路径段一致：用 lstrip 后的 rel，避免 leading slash 导致验签失败
+    msg = f"{rel}:{exp}"
     sig = hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
     return f"{url}?exp={exp}&sig={sig}"
 
