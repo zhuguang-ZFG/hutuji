@@ -36,6 +36,7 @@
     <input class="field" placeholder="家里 WiFi 密码" password value="{{homePassword}}" bindinput="onPwdInput" focus="{{wifiLocked}}" />
     <button class="btn-primary block-btn" bindtap="onSubmitCreds">一键配网</button>
     <view class="muted hint">配网时手机连着设备热点，断网几十秒属正常</view>
+    <button class="btn-ghost block-btn" wx:if="{{deviceMac}}" bindtap="onClaimOnly">其实已经配好网了？点这里直接绑定这台设备</button>
   </view>
 
   <view class="card" wx:if="{{step === 'working'}}">

@@ -102,4 +102,26 @@ if [[ -f "$KB_ENV" ]]; then
     fi
   ) || echo "WARN: kb-admin token 同步失败，KB 发布将保持 401，需人工补同步" >&2
 fi
+# draw-portal token 互联（2026-09-08）：portal 推送 401 自愈要现场铸 messaging token，
+# 控制台 JWT 走 load_console_token 运行时读文件——portal 跑 hutuji 用户，root:root 600
+# 的 kb-admin.env 它永远读不到（生产实证自愈自 2026-09-07 上线从未成功过一次）；
+# 写 portal 自己的 env（systemd EnvironmentFile 由 root 读入再以 env 注入，hutuji
+# 进程拿得到）。load_console_token env 优先于文件，恰好命中。同钩子纪律：子壳隔离。
+PORTAL_ENV=/etc/hutuji/draw-portal.env
+if [[ -f "$PORTAL_ENV" ]]; then
+  (
+    if grep -q '^DRAW_PORTAL_XIAOZHI_TOKEN=' "$PORTAL_ENV"; then
+      sed -i "s|^DRAW_PORTAL_XIAOZHI_TOKEN=.*|DRAW_PORTAL_XIAOZHI_TOKEN=$NEW|" "$PORTAL_ENV"
+    else
+      printf 'DRAW_PORTAL_XIAOZHI_TOKEN=%s\n' "$NEW" >> "$PORTAL_ENV"
+    fi
+    chmod 600 "$PORTAL_ENV"
+    if systemctl cat hutuji-draw-portal.service >/dev/null 2>&1; then
+      systemctl restart hutuji-draw-portal
+      echo "OK: draw-portal token 已同步并重启"
+    else
+      echo "OK: draw-portal token 已同步（unit 不在场，未重启）"
+    fi
+  ) || echo "WARN: draw-portal token 同步失败，推送 401 自愈将保持不可用，需人工补同步" >&2
+fi
 echo "OK: token 已更换，hutuji-mcp 已重启，/register 探针通过"

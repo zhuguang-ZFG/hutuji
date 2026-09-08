@@ -653,6 +653,21 @@ def create_app() -> FastAPI:
             # 探活失败时保留已验证可用的旧 token，避免重绑把推送打坏。
             token_enc = existing.device_token_enc
             ok = True
+        if not ok:
+            # 绑定期现场铸 messaging token（2026-09-08 量产口径）：announce 上报的常是
+            # NVS websocket token（≠ messaging JWT），等推送 401 再自愈则用户第一单必
+            # 失败；控制台 JWT 经 draw-portal.env 注入（refresh 脚本已互联），铸新失败
+            # 按原样落绑定，推送侧自愈仍兜底。
+            from draw_portal.push import mint_messaging_token
+            from draw_portal.crypto import encrypt_token
+
+
+            fresh = mint_messaging_token(
+                api_base=config.xiaozhi_api_base, mac=session.device_mac
+            )
+            if fresh:
+                token_enc = encrypt_token(config.token_cipher_key, fresh)
+                ok = True
         binding = store.set_device_binding(
             user_id=user_id,
             device_mac=session.device_mac,
@@ -849,6 +864,11 @@ def create_app() -> FastAPI:
                     )
                     racers[task] = "tcb"
                 refined_png = await _race_refine_racers(racers)
+                # i2i 通道可能回 JPEG——process_upload_png 只吃 PNG 魔数，
+                # 2026-09-08 生产实证精修全挂 BitmapError；归一对线稿输出只转格式。
+                refined_png = await asyncio.to_thread(
+                    normalize_raster_to_png, refined_png, line_art=True
+                )
             refined_job = store.create_draw_job(user_id=user_id, source_name="AI 精修")
             try:
                 refined_path = _job_dir(config.data_dir, refined_job.id)

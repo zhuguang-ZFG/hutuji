@@ -160,6 +160,61 @@ def test_photo_upload_refines_in_background(tmp_path: Path, monkeypatch: pytest.
         assert r2.json()["status"] == "ready"
         assert r2.json()["refined"] is None
 
+def test_refine_jpeg_output_normalized_to_png(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """i2i 通道回 JPEG 时精修不得炸 BitmapError（2026-09-08 生产事故：精修全挂只剩 Canny）。"""
+    import imageio.v3 as iio
+    import numpy as np
+
+    # 近白线稿风 JPEG（避免 normalize 误判照片走 Canny）
+    arr = np.full((32, 32, 3), 255, dtype=np.uint8)
+    arr[8:24, 8:24] = 0
+    buf = io.BytesIO()
+    iio.imwrite(buf, arr, extension=".jpeg")
+    jpeg_bytes = buf.getvalue()
+
+    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+        return jpeg_bytes
+
+    seen: list[bytes] = []
+
+    def recording_png(raw, job_dir):
+        seen.append(raw)
+        return _fake_process_upload_png(raw, job_dir)
+
+    real_normalize = normalize_raster_to_png
+
+    def selective_normalize(raw, *, line_art=True):
+        # 输入侧（line_art=False）保持恒等：上传夹具字节不可解码；
+        # 输出侧（line_art=True）走真归一，正是本测要钉的路径。
+        return real_normalize(raw, line_art=True) if line_art else raw
+
+    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.normalize_raster_to_png", selective_normalize)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", recording_png)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        _register(client)
+
+        up = _upload(client)
+        job_id = up.json()["job_id"]
+        # 真归一（imageio+skimage 首导入）要墙钟时间，瞬发轮询等不到——带睡眠轮询
+        import time
+
+        final = None
+        for _ in range(60):
+            r = client.get(f"/api/draw/jobs/{job_id}")
+            refined = r.json().get("refined")
+            if refined and refined["status"] == "ready":
+                final = r.json()
+                break
+            if refined and refined["status"] == "failed":
+                raise AssertionError("精修意外失败：JPEG 归一没生效")
+            time.sleep(0.1)
+        assert final, "精修未就绪"
+        assert final["refined"]["job_id"]
+        assert seen, "精修产物必须进发布链"
+        assert seen[0][:8] == b"\x89PNG\r\n\x1a\n", "JPEG 精修输出必须先归一成 PNG"
+
 
 def test_no_token_keeps_single_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     async def forbidden(*args, **kwargs):  # pragma: no cover - 到场即失败

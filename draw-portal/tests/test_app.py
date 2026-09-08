@@ -142,6 +142,49 @@ def test_bind_claim_then_announce_auto_binds(tmp_path: Path, monkeypatch: pytest
     assert again.json()["bound"] is True
     assert client.get("/api/auth/me").json()["binding"]["bound"] is True
 
+def test_bind_mints_messaging_token_when_probe_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """绑定期铸 token（2026-09-08 量产口径）：announce 上报 token 探活失败时现场铸
+    messaging JWT 落绑定——用户首次推送不再先吃一轮 401 再等自愈。"""
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "draw_portal.app.probe_device_token",
+        lambda **kwargs: (False, "HTTP 401"),
+    )
+    minted: list[str] = []
+
+    def fake_mint(*, api_base: str, mac: str, timeout: int = 15) -> str:
+        minted.append(mac)
+        return "minted-messaging-jwt"
+
+    monkeypatch.setattr("draw_portal.push.mint_messaging_token", fake_mint)
+    _register_and_login(client)
+
+    announce = _announce(client)
+    assert announce.json()["bound"] is False
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.status_code == 200
+    assert claim.json()["status"] == "bound"
+    assert claim.json()["binding"]["token_probe_ok"] is True
+    assert minted == ["aa:bb:cc:dd:ee:ff"]
+
+
+def test_bind_keeps_raw_token_when_mint_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """铸新失败（控制台 JWT 不可用等）不阻断绑定：按 announce 原 token 落、
+    probe_ok=False，推送侧 401 自愈仍兜底。"""
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "draw_portal.app.probe_device_token",
+        lambda **kwargs: (False, "HTTP 401"),
+    )
+    monkeypatch.setattr("draw_portal.push.mint_messaging_token", lambda **kwargs: "")
+    _register_and_login(client)
+
+    _announce(client)
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.status_code == 200
+    assert claim.json()["status"] == "bound"
+    assert claim.json()["binding"]["token_probe_ok"] is False
+
 
 def test_bind_announce_first_claim_completes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """反向时序：设备先连回家网 announce，用户认领时当场撮合完成。"""

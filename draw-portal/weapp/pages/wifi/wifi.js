@@ -213,7 +213,7 @@ Page({
     }
     this.setData({ step: "working" });
     this.appendLog("下发家里 WiFi 凭据…");
-    this.ensureOnDeviceAp(0, () => this.submitCreds(false));
+    this.ensureOnDeviceAp(0, () => this.submitCreds());
   },
 
   // iOS 会把「无互联网」的热点几秒内切回有网 WiFi（2026-09-08 实机抓包：手机 join
@@ -260,7 +260,7 @@ Page({
     });
   },
 
-  submitCreds(retried) {
+  submitCreds() {
     const payload = JSON.stringify({ ssid: this.data.homeSsid, password: this.data.homePassword });
     const http =
       "POST /submit HTTP/1.1\r\nHost: 192.168.4.1\r\nContent-Type: application/json\r\nContent-Length: " +
@@ -270,7 +270,10 @@ Page({
     const tcp = wx.createTCPSocket();
     let got = "";
     let finished = false;
-    const finish = (ok, msg, reconnectable) => {
+    // ok=true 成功；msg 非空=设备显式拒绝；其余（掉线/对端先拆/超时）=歧义 → AP 消失判定。
+    // 2026-09-08 实机：设备收到凭据立刻拆 AP，手机常收不到成功应答，
+    // 旧逻辑把「配网成功」报成「连不上设备配置口」，用户完全不知道其实成功了。
+    const finish = (ok, msg) => {
       if (finished) return;
       finished = true;
       try {
@@ -280,18 +283,16 @@ Page({
         this.appendLog("已下发，设备正在连家里 WiFi（约 10-30 秒）");
         this.setData({ step: "done" });
         this.autoBind();
-      } else {
-        if (!retried && reconnectable) {
-          this.appendLog("手机不在设备热点上了，拉回重试…");
-          this.ensureOnDeviceAp(1, () => this.submitCreds(true));
-          return;
-        }
+      } else if (msg) {
         this.appendLog("下发失败：" + msg);
         this.setData({ step: "creds" });
         wx.showModal({ title: "配网失败", content: msg, showCancel: false });
+      } else {
+        this.appendLog("等待设备连家里 WiFi，确认识别中…");
+        this.confirmProvision(0);
       }
     };
-    const timer = setTimeout(() => finish(false, "设备应答超时，请重试或用浏览器配网", true), 20000);
+    const timer = setTimeout(() => finish(false), 20000);
     tcp.onConnect(() => {
       tcp.write(http);
     });
@@ -302,18 +303,67 @@ Page({
         finish(true);
       } else if (got.indexOf('"success":false') >= 0) {
         clearTimeout(timer);
-        finish(false, "设备拒绝：请核对 WiFi 名称和密码", false);
+        finish(false, "设备拒绝：请核对 WiFi 名称和密码");
       }
     });
     tcp.onClose(() => {
       clearTimeout(timer);
-      finish(got.indexOf('"success":true') >= 0, "连接已断开但未收到成功应答", true);
+      finish(got.indexOf('"success":true') >= 0);
     });
     tcp.onError(() => {
       clearTimeout(timer);
-      finish(false, "连不上设备配置口，确认手机还在设备热点上", true);
+      finish(false);
     });
     tcp.connect({ address: "192.168.4.1", port: 80, timeout: 8 });
+  },
+
+  // AP 消失判定：下发后设备热点还在=凭据没生效（可重试）；热点没了=设备已上家网（成功）。
+  // 两轮探测防 iOS connectWifi 抖动误判；全程 ~20s，期间页面显示「确认识别中」而非报错。
+  confirmProvision(n) {
+    setTimeout(() => {
+      wx.startWifi({
+        success: () => {
+          wx.connectWifi({
+            SSID: this.data.apSsid,
+            password: "",
+            success: () => {
+              if (n < 1) {
+                this.confirmProvision(n + 1);
+                return;
+              }
+              this.appendLog("设备还在配网模式：密码可能被拒，请核对后重试（手机已回设备热点）");
+              this.setData({ step: "creds" });
+              wx.showModal({
+                title: "设备没连上家里 WiFi",
+                content: "请核对 WiFi 名称和密码再试一次",
+                showCancel: false,
+              });
+            },
+            fail: () => {
+              if (n < 1) {
+                this.confirmProvision(n + 1);
+                return;
+              }
+              this.appendLog("设备热点已关闭，已连上家里 WiFi");
+              this.setData({ step: "done" });
+              this.autoBind();
+            },
+          });
+        },
+        fail: () => {
+          if (n < 1) {
+            this.confirmProvision(n + 1);
+          } else {
+            this.setData({ step: "creds" });
+          }
+        },
+      });
+    }, n === 0 ? 12000 : 8000);
+  },
+
+  // 兜底：凭据其实已生效但页面没走到 done（或用户走浏览器配好了），扫过码就能直接认领
+  onClaimOnly() {
+    this.autoBind();
   },
 
   // 一次扫码合一（2026-09-08 定案）：配网码带设备 MAC（在场证明），配网成功后

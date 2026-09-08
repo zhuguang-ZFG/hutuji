@@ -6309,6 +6309,46 @@ def test_refresh_token_kb_admin_interconnect_is_subshell_isolated() -> None:
     assert i_env < i_if < i_open < i_sed < i_cat < i_restart < i_close < i_fi < i_ok
     assert not any(re.search(r"\bexit\b", line) for line in lines[i_fi:i_ok])
 
+def test_refresh_token_draw_portal_interconnect_is_subshell_isolated() -> None:
+    """draw-portal token 互联不许外溢退出码（推送 401 自愈防线）。
+
+    portal 推送 401 自愈经 load_console_token 运行时读文件取控制台 JWT，但 portal
+    跑 hutuji 用户、kb-admin.env 是 root:root 600——2026-09-08 生产实证自愈自
+    2026-09-07 上线从未成功过一次（读不到=回空=「控制台 token 不可用」）。修复
+    口径：refresh 脚本把同一 JWT 写进 draw-portal.env 的 DRAW_PORTAL_XIAOZHI_TOKEN
+    （systemd EnvironmentFile 由 root 读入再以 env 注入，hutuji 进程拿得到；
+    load_console_token env 优先恰好命中）。互联块必须：仅在 draw-portal.env 在场时
+    启用、子壳隔离、unit 不在场只写文件不重启、任何失败仅 WARN 不翻盘主流程退出码。
+    """
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "deploy" / "refresh-xiaozhi-token.sh").read_text(encoding="utf-8")
+
+    block = script[script.index("PORTAL_ENV=/etc/hutuji/draw-portal.env"):]
+
+    # 存在性闸 + 子壳包裹 + || 兜底。
+    assert 'if [[ -f "$PORTAL_ENV" ]]' in block
+    assert "(\n" in block and ") || echo" in block
+    # 写入目标键正确，与 mcp.env 同款 sed 写法（base64url 无 |，分隔符安全）。
+    assert 'sed -i "s|^DRAW_PORTAL_XIAOZHI_TOKEN=.*|DRAW_PORTAL_XIAOZHI_TOKEN=$NEW|"' in block
+    # unit 不在场只写文件不重启（京东云/未装机节点安全）。
+    assert "systemctl cat hutuji-draw-portal.service" in block
+    assert "unit 不在场，未重启" in block
+    # 块内禁止非零退出路径。
+    assert "exit 1" not in block
+    # 行号序：存在性闸 → 子壳 → 写入 → unit 判定 → 兜底关闭 → fi → 成功出口。
+    lines = script.splitlines()
+    i_env = _refresh_script_line_idx(lines, lambda l: "PORTAL_ENV=/etc/hutuji/draw-portal.env" in l)
+    i_if = _refresh_script_line_idx(lines, lambda l: 'if [[ -f "$PORTAL_ENV" ]]' in l, i_env)
+    i_open = _refresh_script_line_idx(lines, lambda l: l.strip() == "(", i_if)
+    i_sed = _refresh_script_line_idx(lines, lambda l: 'sed -i "s|^DRAW_PORTAL_XIAOZHI_TOKEN' in l, i_open)
+    i_cat = _refresh_script_line_idx(lines, lambda l: "systemctl cat hutuji-draw-portal.service" in l, i_sed)
+    i_restart = _refresh_script_line_idx(lines, lambda l: "systemctl restart hutuji-draw-portal" in l, i_cat)
+    i_close = _refresh_script_line_idx(lines, lambda l: l.strip().startswith(") || echo"), i_restart)
+    i_fi = _refresh_script_line_idx(lines, lambda l: l.strip() == "fi", i_close)
+    i_ok = _refresh_script_line_idx(lines, lambda l: 'echo "OK: token 已更换' in l)
+    assert i_env < i_if < i_open < i_sed < i_cat < i_restart < i_close < i_fi < i_ok
+    assert not any(re.search(r"\bexit\b", line) for line in lines[i_fi:i_ok])
+
 
 def test_device_token_watch_shape() -> None:
     """设备 token 看门狗形态钉死（2026-09-03 上线，双机 cron 每小时）。
