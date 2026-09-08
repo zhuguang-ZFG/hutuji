@@ -698,26 +698,79 @@ def create_app() -> FastAPI:
         )
         return published.gcode_url, published.preview_url
 
+    def _tcb_i2i_ready() -> bool:
+        """TCB 混元 i2i 通道就绪 = 显式开关 + URL + key（函数未加 i2i 分支前开关必为 0）。"""
+        return bool(config.tcb_i2i_enabled and config.tcb_image_url and config.tcb_api_key)
+
+    async def _race_refine_racers(racers: dict[asyncio.Task, str]) -> bytes:
+        """i2i 多通道对冲：谁先出图用谁，输家取消；全败抛首个异常（fail-open 由调用方兜）。
+
+        与云端 t2i 对冲池同一拍板口径（2026-09-08 用户：ModelScope/TCB 同等地位）。
+        TCB 单次 POST 快（~15-40s）、魔搭排队慢但质量已验证——质量观察期内若 TCB
+        线稿不达标，把 HUTUJI_TCB_I2I_ENABLED 归 0 即回单通道。
+        """
+        if not racers:
+            raise RuntimeError("无可用精修通道")
+        errors: list[Exception] = []
+        pending = set(racers)
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    try:
+                        result = task.result()
+                    except Exception as exc:  # noqa: BLE001 — 两路窄异常收敛，全败才抛
+                        errors.append(exc)
+                        logger.info(
+                            "照片 AI 精修通道 %s 失败（%s）", racers[task], type(exc).__name__
+                        )
+                        continue
+                    for rest in pending:
+                        rest.cancel()
+                    if pending:
+                        await asyncio.gather(*pending, return_exceptions=True)
+                    logger.info("照片 AI 精修通道 %s 胜出", racers[task])
+                    return result
+        except asyncio.CancelledError:
+            for task in racers:
+                task.cancel()
+            raise
+        raise errors[0]
+
     async def _refine_photo_job(orig_job_id: str, raw: bytes, user_id: str) -> None:
-        """照片两段式第 2 段：魔搭 i2i 精修 → 独立 refined job（同一条描摹/发布链）。
+        """照片两段式第 2 段：i2i 精修（魔搭/TCB 对冲）→ 独立 refined job（同一条描摹/发布链）。
 
         原 job 的 Canny 结果已同步回给用户；此处任何失败只把 refined_status
         置 failed 并记类型名，绝不影响原 job（fail-open，2026-09-08 拍板 UX：
         先 Canny 预览，AI 精修好了再推送换用）。i2i 输入是「原始照片」的
         纯 PNG 归一，不是 Canny 输出——模型要照片细节才能画干净线稿。
         """
-        from hutuji_mcp import modelscope_client
+        from hutuji_mcp import modelscope_client, tcb_i2i
 
         try:
             plain_png = await asyncio.to_thread(
                 normalize_raster_to_png, raw, line_art=False
             )
-            # 每跳请求的 30s/60s 超时在 modelscope_client 内部（asyncio.timeout），
-            # client 级超时只需不更紧。
+            # 每跳请求的超时在各 client 内部（asyncio.timeout），client 级只需不更紧。
             async with httpx.AsyncClient(timeout=120.0) as client:
-                refined_png = await modelscope_client.generate_i2i_png(
-                    client, config.modelscope_token, plain_png
-                )
+                racers: dict[asyncio.Task, str] = {}
+                if config.modelscope_token:
+                    task = asyncio.create_task(
+                        modelscope_client.generate_i2i_png(
+                            client, config.modelscope_token, plain_png
+                        )
+                    )
+                    racers[task] = "modelscope"
+                if _tcb_i2i_ready():
+                    task = asyncio.create_task(
+                        tcb_i2i.generate_i2i_png(
+                            client, config.tcb_image_url, config.tcb_api_key, plain_png
+                        )
+                    )
+                    racers[task] = "tcb"
+                refined_png = await _race_refine_racers(racers)
             refined_job = store.create_draw_job(user_id=user_id, source_name="AI 精修")
             try:
                 refined_path = _job_dir(config.data_dir, refined_job.id)
@@ -861,7 +914,9 @@ def create_app() -> FastAPI:
         # 小程序在结果页轮询 /api/draw/jobs/{id} 的 refined 字段。非照片（线稿/
         # SVG）或未配 token 时 refined=null，前端不展示精修入口。
         refined_payload: dict[str, Any] | None = None
-        if config.modelscope_token and await asyncio.to_thread(is_photo_raster, raw):
+        if (config.modelscope_token or _tcb_i2i_ready()) and await asyncio.to_thread(
+            is_photo_raster, raw
+        ):
             store.set_draw_job_refined(job.id, status="pending")
             _spawn_background(_refine_photo_job_guarded(job.id, raw, user_id))
             refined_payload = {"status": "pending"}

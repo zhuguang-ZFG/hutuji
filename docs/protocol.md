@@ -720,7 +720,7 @@ Cookie: <session>
 |----|------|
 | 触发 | `POST /draw-upload/api/draw/upload` 位图经 `is_photo_raster`（近白像素占比 <0.5 判照片）且 portal 配 `HUTUJI_MODELSCOPE_TOKEN`；线稿/SVG/未配 token 走原单段，`refined=null` |
 | 第一段（同步） | Canny 线稿照常同步返回，响应加 `refined={"status":"pending"}`；用户立即可用线稿版发送 |
-| 第二段（后台） | portal 后台任务：原始照片（`normalize_raster_to_png(line_art=False)` 保中间调，**不是** Canny 输出）→ 魔搭 `Qwen/Qwen-Image-Edit-2509` i2i（`POST api-inference.modelscope.cn/v1/images/generations` 字段 `image_url`；轮询 `GET /v1/tasks/{id}` 头 `X-ModelScope-Task-Type: image_generation`）→ 精修位图走**同一条**描摹/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id` |
+| 第二段（后台） | portal 后台任务：原始照片（`normalize_raster_to_png(line_art=False)` 保中间调，**不是** Canny 输出）→ i2i 双通道对冲「谁先出图用谁」（2026-09-08 用户拍板同地位）：① 魔搭 `Qwen/Qwen-Image-Edit-2509`（`POST api-inference.modelscope.cn/v1/images/generations` 字段 `image_url`；轮询 `GET /v1/tasks/{id}` 头 `X-ModelScope-Task-Type: image_generation`）；② TCB 混元 `HY-Image-v3.0-I2I-ToB`（`hutuji_mcp/tcb_i2i.py` → 云函数 `generateImage-cqA3Hl` 的 i2i 分支，单次 POST `{prompt,image(b64),mode:"i2i"}` → `{success,imageUrl}`，入图先缩长边 1024/≤3MiB；开关 `HUTUJI_TCB_I2I_ENABLED`，函数未部署 i2i 分支前必须为 0——旧函数静默忽略 image 退回 t2i 且「成功」）。两路并发发起、败者取消、全败才置 failed；精修位图走**同一条**描摹/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id` |
 | 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
 | 失败口径 | i2i 任何失败只置 `refined=failed` 并记异常类型名（不回显上游正文/凭据），**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError |
 | 发送 | refined job 是普通 job，`POST .../draw/{refined_job_id}/send` 走 §10.4.5 原路径，无特殊分支 |

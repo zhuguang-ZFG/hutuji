@@ -80,6 +80,14 @@ class Config:
     # 路径维持单段 Canny（2026-09-08 拍板 UX）。与 MCP 侧 HUTUJI_MODELSCOPE_TOKEN
     # 同一凭据，两处 env 分别注入。
     modelscope_token: str = ""
+    # TCB 混元 i2i（2026-09-08 用户指正混元有图生图 API 后接入）：与魔搭同地位
+    # 对冲。两项同配才有通道；tcb_i2i_enabled 是显式开关——云函数加 i2i 分支
+    # 之前旧函数会静默忽略 image 参数退回 t2i（返回与照片无关的图还「成功」），
+    # 故函数部署完成前必须保持 0。与 MCP 侧 HUTUJI_TCB_IMAGE_URL/_API_KEY 同一
+    # 凭据，portal env 单独注入。
+    tcb_image_url: str = ""
+    tcb_api_key: str = ""
+    tcb_i2i_enabled: bool = False
     # 微信小程序（2026-09-07）：两项同配才启用 /api/auth/wx-login，空=禁用
     wx_appid: str = ""
     wx_secret: str = ""
@@ -177,6 +185,12 @@ def load_config() -> Config:
             or os.environ.get("HUTUJI_GFONT_DIR", "")
         ).strip(),
         modelscope_token=os.environ.get("HUTUJI_MODELSCOPE_TOKEN", "").strip(),
+        tcb_image_url=os.environ.get("HUTUJI_TCB_IMAGE_URL", "").strip(),
+        tcb_api_key=os.environ.get("HUTUJI_TCB_API_KEY", "").strip(),
+        tcb_i2i_enabled=os.environ.get("HUTUJI_TCB_I2I_ENABLED", "")
+        .strip()
+        .lower()
+        in {"1", "true", "yes"},
     )
 
 

@@ -24,7 +24,14 @@ from draw_portal.app import create_app
 from draw_portal.pipeline import PipelineResult, is_photo_raster, normalize_raster_to_png
 
 
-def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, token: str = "") -> None:
+def _env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    token: str = "",
+    tcb: bool = False,
+    tcb_enabled: bool = True,
+) -> None:
     monkeypatch.setenv("DRAW_PORTAL_DB", str(tmp_path / "t.db"))
     monkeypatch.setenv("DRAW_PORTAL_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("DRAW_PORTAL_SESSION_SECRET", "test-session-secret")
@@ -38,11 +45,23 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, token: str = "") ->
     monkeypatch.setenv("DRAW_PORTAL_EMAIL_DEV_EXPOSE_CODE", "1")
     if token:
         monkeypatch.setenv("HUTUJI_MODELSCOPE_TOKEN", token)
+    if tcb:
+        monkeypatch.setenv("HUTUJI_TCB_IMAGE_URL", "https://tcb.example/fn")
+        monkeypatch.setenv("HUTUJI_TCB_API_KEY", "tcb-key")
+        if tcb_enabled:
+            monkeypatch.setenv("HUTUJI_TCB_I2I_ENABLED", "1")
 
 
 @contextlib.contextmanager
-def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, token: str = ""):
-    _env(monkeypatch, tmp_path, token=token)
+def _client(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    token: str = "",
+    tcb: bool = False,
+    tcb_enabled: bool = True,
+):
+    _env(monkeypatch, tmp_path, token=token, tcb=tcb, tcb_enabled=tcb_enabled)
     monkeypatch.setattr("draw_portal.app.send_verification_email", lambda **kwargs: None)
     with TestClient(create_app()) as client:
         yield client
@@ -281,3 +300,144 @@ def test_normalize_line_art_false_preserves_photo_tones() -> None:
     cannied = iio.imread(normalize_raster_to_png(raw))
     near_white_canny = float((cannied.astype(float) / 255.0 > 0.9).mean())
     assert near_white_canny > 0.5, "默认口径仍应输出近白 Canny 线稿"
+
+
+# ---------------------------------------------------------------- TCB 混元 i2i 对冲
+
+
+def test_tcb_channel_refines_without_modelscope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """TCB 单通道（无魔搭 token）：照片同样起精修并走 TCB。"""
+    calls: list[bytes] = []
+
+    async def fake_tcb(client_arg, url, key, image_bytes, **kwargs):
+        assert url == "https://tcb.example/fn" and key == "tcb-key"
+        calls.append(image_bytes)
+        return b"\x89PNG\r\n\x1a\nTCB-REFINED"
+
+    async def forbidden_ms(*args, **kwargs):  # pragma: no cover - 到场即失败
+        raise AssertionError("无魔搭 token 不得调用魔搭")
+
+    with _client(monkeypatch, tmp_path, tcb=True) as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", fake_tcb)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", forbidden_ms)
+        _register(client)
+
+        up = _upload(client)
+        assert up.status_code == 200
+        assert up.json()["refined"] == {"status": "pending"}
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        assert calls, "精修任务必须真正调用 TCB i2i"
+
+
+def test_tcb_creds_without_enable_flag_not_called(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """云函数未加 i2i 分支前（开关=0）：即便配了 URL/key 也不得调 TCB——旧函数
+    会静默忽略 image 参数退回 t2i，返回与照片无关的图还「成功」。"""
+
+    async def forbidden_tcb(*args, **kwargs):  # pragma: no cover - 到场即失败
+        raise AssertionError("开关=0 不得调用 TCB")
+
+    async def fake_ms(client_arg, token, image_bytes, **kwargs):
+        return b"\x89PNG\r\n\x1a\nMS-REFINED"
+
+    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True, tcb_enabled=False) as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", forbidden_tcb)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_ms)
+        _register(client)
+
+        up = _upload(client)
+        assert up.json()["refined"] == {"status": "pending"}
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+
+
+def test_hedge_tcb_wins_and_cancels_modelscope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """双通道对冲：并发发起两侧，TCB 先出图用它，魔搭在途任务被取消。"""
+    state = {"ms_started": False, "ms_cancelled": False, "winner_png": None}
+
+    async def slow_ms(*args, **kwargs):
+        state["ms_started"] = True
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            state["ms_cancelled"] = True
+            raise
+        raise AssertionError("魔搭慢任务不应自然跑完")  # pragma: no cover
+
+    async def fast_tcb(*args, **kwargs):
+        return b"\x89PNG\r\n\x1a\nTCB-WIN"
+
+    def recording_png(png_bytes, job_dir):
+        state["winner_png"] = png_bytes
+        return _fake_process_upload_png(png_bytes, job_dir)
+
+    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True) as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", recording_png)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", slow_ms)
+        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", fast_tcb)
+        _register(client)
+
+        up = _upload(client)
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        assert state["ms_started"], "对冲必须并发发起两侧"
+        assert state["ms_cancelled"], "TCB 胜出后魔搭在途任务必须取消"
+        assert state["winner_png"] == b"\x89PNG\r\n\x1a\nTCB-WIN"
+
+
+def test_hedge_tcb_failure_falls_back_to_modelscope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """TCB 失败不拖垮整单：魔搭慢通道照样出结果。"""
+    from hutuji_mcp.tcb_i2i import TcbI2iError
+
+    state = {"winner_png": None}
+
+    async def broken_tcb(*args, **kwargs):
+        raise TcbI2iError("TCB i2i 返回 502")
+
+    async def slow_ms(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        return b"\x89PNG\r\n\x1a\nMS-WIN"
+
+    def recording_png(png_bytes, job_dir):
+        state["winner_png"] = png_bytes
+        return _fake_process_upload_png(png_bytes, job_dir)
+
+    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True) as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", recording_png)
+        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", broken_tcb)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", slow_ms)
+        _register(client)
+
+        up = _upload(client)
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        assert state["winner_png"] == b"\x89PNG\r\n\x1a\nMS-WIN"
+
+
+def test_hedge_both_fail_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """两路全败：refined=failed，原 job 的 Canny 结果不受影响（fail-open）。"""
+    from hutuji_mcp.modelscope_client import ModelScopeError
+    from hutuji_mcp.tcb_i2i import TcbI2iError
+
+    async def broken_ms(*args, **kwargs):
+        raise ModelScopeError("魔搭任务排队超时")
+
+    async def broken_tcb(*args, **kwargs):
+        raise TcbI2iError("TCB i2i 返回 502")
+
+    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True) as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", broken_ms)
+        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", broken_tcb)
+        _register(client)
+
+        up = _upload(client)
+        job_id = up.json()["job_id"]
+        final = _poll_until(client, job_id, ("failed",))
+        assert final["refined"] == {"status": "failed"}
+        assert final["status"] == "ready"
+        assert final["gcode_url"].endswith(".gcode")

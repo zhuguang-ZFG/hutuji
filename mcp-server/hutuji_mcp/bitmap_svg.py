@@ -1018,8 +1018,8 @@ async def _request_modelscope_image_url(
 
 async def _request_tcb_image_url(client: httpx.AsyncClient, description: str) -> str:
     """腾讯云开发混元 t2i（generateImage 云函数原生 invoke）：单次 POST ~15s，
-    {prompt, model} 进 {success, imageUrl} 出。实测不支持 i2i（image 参数被
-    函数静默忽略），故只进 t2i 对冲池。"""
+    {prompt, model} 进 {success, imageUrl} 出。i2i 由独立模块 tcb_i2i 承担
+    （portal 照片精修链），本 racer 只进 t2i 对冲池。"""
     payload = {"prompt": _BITMAP_STYLE + description, "model": "hunyuan-image"}
     headers = {"Authorization": f"Bearer {_tcb_api_key()}"}
     data = await _post_image_request(
