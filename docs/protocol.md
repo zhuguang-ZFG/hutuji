@@ -728,7 +728,7 @@ Cookie: <session>
 | 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
 | 失败口径 | i2i 任何失败只置 `refined=failed` 并记异常类型名（不回显上游正文/凭据），**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError |
 | 发送 | refined job 是普通 job，`POST .../draw/{refined_job_id}/send` 走 §10.4.5 原路径，无特殊分支 |
-| 明确不做 | v1 不做微信订阅消息推送（需模板申请），用页内轮询；不改 §5 闸任何参数；i2i 提示词固定线稿导向，不对用户开放 |
+| 明确不做 | v1 不做微信订阅消息推送（需模板申请），用页内轮询；不改 §5 闸任何参数；i2i 提示词固定为艺术家素描（结构线+排线、笔式可画），不对用户开放自定义 prompt |
 | 下载闸 | 生图 API 返回的结果图 URL 强制过 `hutuji_mcp/url_guard` 公网 https 闸（https-only + 非 global IP 字面量全拒 + localhost/.local/.internal 域名拒 + 畸形端口 fail-closed）+ 16MiB 流式上限；t2i racer（`bitmap_svg`）与 i2i（`modelscope_client`）共用同一条唯一实现（2026-09-08 加固，IMG-URL-SSRF-GAP） |
 | 并发上限 | portal 后台 i2i 精修经 `_refine_slots`（`asyncio.Semaphore(4)`）排队，超出并发等待不拒绝；防批量照片上传同时打满魔搭免费层（2026-09-08 加固） |
 
