@@ -214,6 +214,33 @@ def process_upload_svg(svg_bytes: bytes, job_dir: Path) -> PipelineResult:
     )
 
 
+def shrink_oversized_png(png_bytes: bytes, *, max_mpx: float = 4.8) -> bytes:
+    """超过描摹内存闸（bitmap_svg 5.0 Mpx 硬闸）的 PNG 先等比缩到闸内。
+
+    2026-09-08 生产实证：小程序客户端压缩按文件字节（4MB）不按像素，
+    12MP 手机照片压完仍是 3072×1920=5.9Mpx，直撞描摹闸整单 422
+    「图片转换失败」。像素高于闸对写字机本就无收益（落笔精度亚毫米），
+    缩到 4.8 Mpx 留边际；闸内图片原样返回零开销。
+    """
+    import imageio.v3 as iio
+
+    arr = iio.imread(png_bytes)
+    h, w = arr.shape[:2]
+    mpx = (h * w) / 1e6
+    if mpx <= max_mpx:
+        return png_bytes
+    from skimage import transform
+
+    scale = (max_mpx / mpx) ** 0.5
+    new_hw = (max(1, round(h * scale)), max(1, round(w * scale)))
+    arr = transform.resize(
+        arr, new_hw + arr.shape[2:], anti_aliasing=True, preserve_range=True
+    ).astype(arr.dtype)
+    buf = io.BytesIO()
+    iio.imwrite(buf, arr, extension=".png")
+    return buf.getvalue()
+
+
 def process_upload_png(png_bytes: bytes, job_dir: Path) -> PipelineResult:
     """PNG → 描摹 → SVG 校验 → vpype G-code → validate_gcode。"""
     from hutuji_mcp.bitmap_svg import (
@@ -228,7 +255,7 @@ def process_upload_png(png_bytes: bytes, job_dir: Path) -> PipelineResult:
     upload_path = job_dir / "upload.png"
     upload_path.write_bytes(png_bytes)
 
-    polys, w, h = trace_bitmap_to_polylines(png_bytes)
+    polys, w, h = trace_bitmap_to_polylines(shrink_oversized_png(png_bytes))
     svg = polylines_to_svg(polys, w, h)
     _validate_svg(svg)
     preview = polylines_to_preview_png(polys, w, h)
