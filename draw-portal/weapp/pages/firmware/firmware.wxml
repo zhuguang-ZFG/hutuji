@@ -1,0 +1,69 @@
+<view class="page">
+  <view class="hero">
+    <view class="hero-brand">动力巢 · OTA</view>
+    <view class="hero-title">固件<span class="accent">升级</span></view>
+    <view class="hero-sub">仅升级小派；升级中请勿断电、勿出图</view>
+  </view>
+
+  <view class="weui-cells__title">小派</view>
+  <view class="weui-cells">
+    <view class="weui-cell">
+      <view class="weui-cell__bd">当前版本</view>
+      <view class="weui-cell__ft">{{current || "—"}}</view>
+    </view>
+    <view class="weui-cell {{updateAvailable ? 'highlight' : ''}}">
+      <view class="weui-cell__bd">
+        最新版本
+        <text wx:if="{{updateAvailable}}" class="badge">有更新</text>
+      </view>
+      <view class="weui-cell__ft">{{latest || "—"}}</view>
+    </view>
+    <view class="weui-cell notes-cell" wx:if="{{notes}}">
+      <view class="weui-cell__bd">更新说明</view>
+      <view class="weui-cell__ft notes-text">{{notes}}</view>
+    </view>
+  </view>
+
+  <view class="weui-cells__title">写字机</view>
+  <view class="weui-cells">
+    <view class="weui-cell">
+      <view class="weui-cell__bd">固件版本</view>
+      <view class="weui-cell__ft">后续支持</view>
+    </view>
+  </view>
+  <view class="weui-btn-area tight">
+    <button class="weui-btn weui-btn_default" disabled>写字机升级 · 后续支持</button>
+  </view>
+
+  <view class="progress-wrap" wx:if="{{upgrading || progress > 0}}">
+    <view class="progress-label">{{progressLabel}}</view>
+    <view class="progress-bar">
+      <view class="progress-fill" style="width: {{progress}}%;"></view>
+    </view>
+    <view class="progress-meta" wx:if="{{targetVersion}}">目标 {{targetVersion}} · {{progress}}%</view>
+  </view>
+
+  <view
+    class="status-tip {{statusTipClass}}"
+    wx:if="{{statusTip}}"
+  >{{statusTip}}</view>
+
+  <view class="weui-btn-area">
+    <button
+      class="weui-btn weui-btn_default"
+      bindtap="onCheck"
+      loading="{{checking}}"
+      disabled="{{checking || upgrading}}"
+    >检查更新</button>
+  </view>
+  <view class="weui-btn-area tight">
+    <button
+      class="weui-btn weui-btn_primary"
+      bindtap="onUpgrade"
+      loading="{{upgrading}}"
+      disabled="{{!updateAvailable || checking || upgrading}}"
+    >立即升级</button>
+  </view>
+
+  <view class="page-foot muted">动力巢 · v0.2.12</view>
+</view>

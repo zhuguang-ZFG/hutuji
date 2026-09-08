@@ -107,4 +107,18 @@ Page({
     }
     wx.navigateTo({ url: "/pages/wifi/wifi" });
   },
+
+  onGoFirmware() {
+    if (this.data.needPhone) {
+      wx.showToast({ title: "请先授权手机号", icon: "none" });
+      return;
+    }
+    const bound = !!(this.data.me && this.data.me.binding && this.data.me.binding.bound);
+    if (!bound) {
+      wx.showToast({ title: "请先绑定设备", icon: "none" });
+      setTimeout(() => wx.navigateTo({ url: "/pages/bind/bind" }), 400);
+      return;
+    }
+    wx.navigateTo({ url: "/pages/firmware/firmware" });
+  },
 });

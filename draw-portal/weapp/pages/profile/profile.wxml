@@ -73,7 +73,13 @@
     <view class="weui-btn-area tight">
       <button class="weui-btn weui-btn_default" bindtap="onGoWifi">一键配网</button>
     </view>
+
+    <view class="weui-cells__title">固件</view>
+    <view class="weui-cells__tips">检查并升级小派固件；写字机远程升级后续支持</view>
+    <view class="weui-btn-area tight">
+      <button class="weui-btn weui-btn_default" bindtap="onGoFirmware">固件升级</button>
+    </view>
   </block>
 
-  <view class="page-foot muted">动力巢 · v0.2.11</view>
+  <view class="page-foot muted">动力巢 · v0.2.12</view>
 </view>
