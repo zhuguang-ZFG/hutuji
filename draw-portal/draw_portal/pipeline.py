@@ -214,6 +214,31 @@ def process_upload_svg(svg_bytes: bytes, job_dir: Path) -> PipelineResult:
     )
 
 
+def strip_corner_watermark(png_bytes: bytes) -> bytes:
+    """洗白右下角「AI生成」类角标水印，供描摹输入（2026-09-08 实证 TCB 混元
+    i2i 输出右下角带半透明灰字「AI生成」，不洗会随描摹变成纸面笔画）。
+
+    判定只动角区（x≥78%, y≥88%）的中灰像素（灰度 >100 洗白）：水印是半透灰字，
+    线稿笔画近黑（<100）与角区人物线条都不受影响。数字存档 upload.png 由调用方
+    保留未洗版本（合规留痕），本函数产物只进描摹/G-code。
+    """
+    import imageio.v3 as iio
+    import numpy as np
+
+    try:
+        arr = iio.imread(png_bytes).copy()
+    except Exception:
+        return png_bytes  # 判不出就不动：水印洗白是可用性增强，不为它加 fail-closed 面
+    h, w = arr.shape[:2]
+    y0, x0 = int(h * 0.88), int(w * 0.78)
+    zone = arr[y0:, x0:]
+    gray = zone if zone.ndim == 2 else zone[..., :3].mean(axis=-1)
+    zone[gray > 100] = 255
+    buf = io.BytesIO()
+    iio.imwrite(buf, arr, extension=".png")
+    return buf.getvalue()
+
+
 def shrink_oversized_png(png_bytes: bytes, *, max_mpx: float = 4.8) -> bytes:
     """超过描摹内存闸（bitmap_svg 5.0 Mpx 硬闸）的 PNG 先等比缩到闸内。
 

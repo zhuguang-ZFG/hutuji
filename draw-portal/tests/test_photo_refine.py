@@ -110,12 +110,16 @@ def _upload(client: TestClient):
 
 
 def _poll_until(client: TestClient, job_id: str, statuses: tuple[str, ...], rounds: int = 40):
+    import time
+
     for _ in range(rounds):
         r = client.get(f"/api/draw/jobs/{job_id}")
         assert r.status_code == 200
         refined = r.json().get("refined")
         if refined and refined["status"] in statuses:
             return r.json()
+        # 后台任务走真 to_thread 链（归一/洗白/写盘），瞬发轮询等不到——小睡眠轮询
+        time.sleep(0.05)
     raise AssertionError(f"refined 未进入 {statuses}")
 
 

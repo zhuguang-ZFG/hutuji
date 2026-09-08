@@ -77,3 +77,23 @@ def test_small_png_passes_shrink_untouched():
     iio.imwrite(buf, arr, extension=".png")
     raw = buf.getvalue()
     assert shrink_oversized_png(raw) is raw
+
+
+def test_corner_watermark_stripped_but_dark_strokes_survive():
+    """i2i 角标「AI生成」半透灰字洗白进描摹，近黑线稿笔画与非角区内容不动
+    （2026-09-08 实证 TCB 混元输出右下角水印会上纸成笔画）。"""
+    import imageio.v3 as iio
+    import numpy as np
+
+    from draw_portal.pipeline import strip_corner_watermark
+
+    arr = np.full((200, 200), 255, dtype=np.uint8)
+    arr[180:190, 160:190] = 180  # 角区水印（半透中灰）
+    arr[176:179, 150:195] = 20   # 角区线稿笔画（近黑）
+    arr[50:60, 50:60] = 150      # 非角区中灰内容（不许动）
+    buf = io.BytesIO()
+    iio.imwrite(buf, arr, extension=".png")
+    out = iio.imread(strip_corner_watermark(buf.getvalue()))
+    assert (out[180:190, 160:190] == 255).all()  # 水印洗白
+    assert (out[176:179, 150:195] == 20).all()   # 近黑笔画保留
+    assert (out[50:60, 50:60] == 150).all()      # 非角区不动

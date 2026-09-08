@@ -54,6 +54,7 @@ from draw_portal.pipeline import (
     process_upload,
     process_upload_doc,
     process_upload_png,
+    strip_corner_watermark,
 )
 from draw_portal.probe import probe_device_token
 from draw_portal.push import (
@@ -869,10 +870,18 @@ def create_app() -> FastAPI:
                 refined_png = await asyncio.to_thread(
                     normalize_raster_to_png, refined_png, line_art=True
                 )
+                # 「AI生成」角标水印：描摹输入洗白（否则水印上纸），
+                # 数字存档 upload.png 留未洗版（合规留痕）。
+                trace_png = await asyncio.to_thread(
+                    strip_corner_watermark, refined_png
+                )
             refined_job = store.create_draw_job(user_id=user_id, source_name="AI 精修")
             try:
                 refined_path = _job_dir(config.data_dir, refined_job.id)
-                await asyncio.to_thread(process_upload_png, refined_png, refined_path)
+                await asyncio.to_thread(process_upload_png, trace_png, refined_path)
+                # 覆写回未洗版：纸面产物走洗白版，存档保留带水印原图
+                refined_path.mkdir(parents=True, exist_ok=True)
+                (refined_path / "upload.png").write_bytes(refined_png)
                 published = await asyncio.to_thread(
                     publish_job_files,
                     job_dir=refined_path,
