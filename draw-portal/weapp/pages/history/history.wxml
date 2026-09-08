@@ -15,7 +15,7 @@
     <view class="empty-panel">
       <view class="empty-glyph"></view>
       <view class="empty-title">还没有收藏</view>
-      <view class="empty-sub">去「创作」画一张，或拍张照片试试</view>
+      <view class="empty-sub">去「创作」生成预览后点「收藏」，作品会出现在这里</view>
     </view>
   </block>
 
@@ -40,7 +40,8 @@
           <view class="name">{{item.sourceName}}</view>
           <view class="muted">{{item.createdAt}}</view>
         </view>
-        <view class="weui-cell__ft">
+        <view class="weui-cell__ft row-actions">
+          <button class="del-btn" size="mini" hover-class="btn-press" bindtap="onDelete" data-id="{{item.savedId}}">删除</button>
           <button class="send-btn" size="mini" hover-class="btn-press" bindtap="onSend" data-id="{{item.savedId}}">发送</button>
         </view>
       </view>

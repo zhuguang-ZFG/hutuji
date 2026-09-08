@@ -6,6 +6,7 @@ Page({
     description: "",
     generating: false,
     sending: false,
+    saving: false,
     uploading: false,
     job: null,
     quotaLeft: null,
@@ -107,6 +108,30 @@ Page({
     this.sendJob(jobId);
   },
 
+  onSave() {
+    const job = this.data.job;
+    if (!job || job.refining || this.data.saving) return;
+    const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
+    this.setData({ saving: true });
+    api
+      .request(`/api/draw/${jobId}/save`, { method: "POST", data: {} })
+      .then((res) => {
+        this.setData({ saving: false });
+        if (res.status === "saved") {
+          wx.showToast({ title: "已收藏", icon: "success" });
+        } else {
+          wx.showToast({ title: res.detail || "收藏失败", icon: "none" });
+        }
+      })
+      .catch((err) => {
+        this.setData({ saving: false });
+        wx.showModal({
+          title: "收藏失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
 
   sendJob(jobId) {
     if (this.data.sending) return;

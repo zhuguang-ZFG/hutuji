@@ -49,13 +49,22 @@
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'failed'}}">精修未成功 · 快速草图</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修仍在跑 · 先看草图</view>
         <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
-        <button
-          class="weui-btn weui-btn_primary send-inline"
-          hover-class="btn-press"
-          bindtap="onSend"
-          loading="{{sending}}"
-          disabled="{{sending}}"
-        >发送到写字机</button>
+        <view class="preview-actions">
+          <button
+            class="weui-btn weui-btn_default action-inline"
+            hover-class="btn-press"
+            bindtap="onSave"
+            loading="{{saving}}"
+            disabled="{{saving || sending}}"
+          >收藏</button>
+          <button
+            class="weui-btn weui-btn_primary action-inline"
+            hover-class="btn-press"
+            bindtap="onSend"
+            loading="{{sending}}"
+            disabled="{{sending || saving}}"
+          >发送到写字机</button>
+        </view>
       </block>
     </view>
   </block>

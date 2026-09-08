@@ -61,6 +61,6 @@
       <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort}}">停止</button>
     </view>
 
-    <view class="page-foot muted">动力巢 · v0.2.10</view>
+    <view class="page-foot muted">动力巢 · v0.2.11</view>
   </block>
 </view>
