@@ -1,5 +1,5 @@
 {
-  "git_head": "79ead352a4ba07712ca203e03c216ebe57642b13",
+  "git_head": "1dd15f09dfe524c10615076d588dcd61b91bc2ff",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1307,6 +1307,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-08T14:03:42Z",
+  "updated": "2026-09-08T14:06:07Z",
   "version": 1
 }
