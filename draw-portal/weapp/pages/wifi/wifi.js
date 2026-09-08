@@ -12,7 +12,15 @@ Page({
     log: "",
   },
 
-  onLoad() {
+  // 微信「扫一扫」直接扫设备配网码（mp 后台「扫普通链接二维码打开小程序」规则：
+  // https://hutuji.donglicao.com/draw-upload/wifi?s=<ssid> → 本页带 s 参数拉起）→ 免扫码直进
+  onLoad(options) {
+    const s = options && options.s ? String(options.s) : "";
+    if (s) {
+      let ssid = s;
+      try { ssid = decodeURIComponent(s); } catch (e) {}
+      this.setData({ apSsid: ssid });
+    }
     wx.startWifi({ success: () => {}, fail: () => {} });
     // Android 可预填当前 WiFi 名；iOS 多半拿不到，手输即可
     wx.getConnectedWifi({
@@ -31,9 +39,17 @@ Page({
     wx.scanCode({
       success: (res) => {
         const raw = String(res.result || "").trim();
-        // 标准 WIFI 码（设备屏：WIFI:T:nopass;S:<ssid>;;）；兼容扫出纯热点名/带空格变体
-        const m = /WIFI:T:[^;]*;S:([^;]*);/i.exec(raw);
-        const ssid = m ? m[1] : (/^[\x20-\x7e]{1,32}$/.test(raw) && raw.indexOf("http") !== 0 ? raw : "");
+        // 三种形态：① 设备屏 URL 码（5431a15 起：…/draw-upload/wifi?s=<ssid>，与微信扫一扫规则同源）
+        // ② 标准 WIFI 码（旧固件：WIFI:T:nopass;S:<ssid>;;）③ 纯热点名/带空格变体
+        let ssid = "";
+        const mu = /^https:\/\/hutuji\.donglicao\.com\/draw-upload\/wifi\?(?:[^&\s]*&)*s=([^&\s]+)/i.exec(raw);
+        if (mu) {
+          try { ssid = decodeURIComponent(mu[1]); } catch (e) { ssid = mu[1]; }
+        }
+        if (!ssid) {
+          const m = /WIFI:T:[^;]*;S:([^;]*);/i.exec(raw);
+          ssid = m ? m[1] : (/^[\x20-\x7e]{1,32}$/.test(raw) && raw.indexOf("http") !== 0 ? raw : "");
+        }
         if (!ssid) {
           wx.showModal({
             title: "没认出这个码",

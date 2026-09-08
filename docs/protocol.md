@@ -648,6 +648,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - 设备本地维护动作进入「绑定呼图账号」→ 生成 **6～8 位** `bind_code`，**TTL 10 分钟**，屏显 QR + 大字码。
 - QR 载荷：`https://hutuji.donglicao.com/draw-upload/bind?c=<bind_code>`（HTTPS）。
 - `bind_code` 单次消费；过期作废。
+- 设备配网 QR（xiaozhi `5431a15` 起 URL 形态，与绑机码同族）：`https://hutuji.donglicao.com/draw-upload/wifi?s=<urlencode(AP SSID)>`。消费双通道：① 微信「扫一扫」经 mp 后台「扫普通链接二维码打开小程序」规则带 `s` 参数拉起配网页（`wifi.js onLoad(options.s)`，weapp 0.1.7 起消费）；② 小程序内「扫屏幕配网码」`wx.scanCode` 解析同一形态（weapp 0.1.7 起；旧固件 `WIFI:T:nopass;S:<ssid>;;` 与纯 SSID 形态继续兼容）。5431a15 只改固件未同步小程序内解析属回归，0.1.7 收口。
 
 #### 10.4.3 设备 announce（S3 → draw-portal）
 

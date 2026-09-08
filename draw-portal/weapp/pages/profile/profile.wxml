@@ -47,5 +47,5 @@
     <button class="btn-ghost block-btn" bindtap="onGoWifi">一键配网</button>
   </view>
 
-  <view class="muted footer-note">动力巢 · v0.1.6</view>
+  <view class="muted footer-note">动力巢 · v0.1.7</view>
 </view>
