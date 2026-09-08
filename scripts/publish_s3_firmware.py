@@ -1,6 +1,6 @@
 """发布小派 S3 固件到静态仓：manifest.json + catalog 更新 + latest.json。
 
-用法（hub 根，PYTHONPATH 含 draw-portal）::
+用法（hub 根）::
 
   python scripts/publish_s3_firmware.py \\
     --board freenove-esp32s3-display-2.8-lcd \\
@@ -28,7 +28,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from draw_portal.firmware_version import parse_hutuji_version
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "draw-portal"))
+
+from draw_portal.firmware_version import parse_hutuji_version  # noqa: E402
 
 _DEVICE = "s3"
 _BIN_NAME = "xiaozhi.bin"
