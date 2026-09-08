@@ -502,7 +502,7 @@ def test_hedge_both_fail_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatc
         assert final["gcode_url"].endswith(".gcode")
 
 
-# ---------------------------------------------------------------- 抬笔门 + 轮廓回退
+# ---------------------------------------------------------------- 抬笔门 + 稀疏排线重试
 
 
 def _process_with_pen_lifts(lifts_seq: list[int]):
@@ -523,13 +523,13 @@ def _process_with_pen_lifts(lifts_seq: list[int]):
     return fn, state
 
 
-def test_refine_pen_lift_retries_contour_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """首轮抬笔超阈 → 轮廓回退提示词再跑一轮；第二轮过阈则 ready。"""
+def test_refine_pen_lift_retries_sparse_hatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """首轮超偏好阈 → 稀疏排线重试（仍带排线）；第二轮更优则 ready。"""
     from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_MAX
+    from draw_portal.app import REFINE_PEN_LIFT_PREF
 
     prompts: list[str] = []
-    process_fn, _ = _process_with_pen_lifts([REFINE_PEN_LIFT_MAX + 50, 40])
+    process_fn, _ = _process_with_pen_lifts([REFINE_PEN_LIFT_PREF + 20, 90])
 
     async def fake_i2i(client_arg, token, image_bytes, **kwargs):
         prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
@@ -547,21 +547,44 @@ def test_refine_pen_lift_retries_contour_prompt(tmp_path: Path, monkeypatch: pyt
         assert final["refined"]["job_id"]
         assert prompts == [
             modelscope_client.I2I_LINE_ART_PROMPT,
-            modelscope_client.I2I_CONTOUR_FALLBACK_PROMPT,
+            modelscope_client.I2I_SPARSE_HATCH_RETRY_PROMPT,
         ]
-        # 第二轮 job 才是 ready；第一轮过密 job 不得被挂成 refined
         r2 = client.get(f"/api/draw/jobs/{final['refined']['job_id']}")
         assert r2.json()["status"] == "ready"
 
 
-def test_refine_pen_lift_both_dense_marks_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """两轮抬笔都超阈：refined=failed，Canny 原 job 仍 ready。"""
+def test_refine_accepts_between_pref_and_hard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """生产 107–130 曾被阈 100 整批判死；PREF<lifts≤HARD 必须 ready。"""
     from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_MAX
+    from draw_portal.app import REFINE_PEN_LIFT_HARD, REFINE_PEN_LIFT_PREF
+
+    mid = (REFINE_PEN_LIFT_PREF + REFINE_PEN_LIFT_HARD) // 2
+    process_fn, state = _process_with_pen_lifts([mid])
+
+    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+        return b"\x89PNG\r\n\x1a\nREFINED"
+
+    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        _register(client)
+
+        up = _upload(client)
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        # mid > PREF → 会再跑一轮；两轮同 lifts 时仍 ready
+        assert state["n"] >= 1
+
+
+def test_refine_pen_lift_both_over_hard_marks_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """两轮都超硬阈：refined=failed，Canny 原 job 仍 ready。"""
+    from hutuji_mcp import modelscope_client
+    from draw_portal.app import REFINE_PEN_LIFT_HARD
 
     prompts: list[str] = []
     process_fn, _ = _process_with_pen_lifts(
-        [REFINE_PEN_LIFT_MAX + 80, REFINE_PEN_LIFT_MAX + 20]
+        [REFINE_PEN_LIFT_HARD + 40, REFINE_PEN_LIFT_HARD + 10]
     )
 
     async def fake_i2i(client_arg, token, image_bytes, **kwargs):
@@ -583,17 +606,17 @@ def test_refine_pen_lift_both_dense_marks_failed(tmp_path: Path, monkeypatch: py
         assert final["preview_url"] == canny_preview
         assert prompts == [
             modelscope_client.I2I_LINE_ART_PROMPT,
-            modelscope_client.I2I_CONTOUR_FALLBACK_PROMPT,
+            modelscope_client.I2I_SPARSE_HATCH_RETRY_PROMPT,
         ]
 
 
-def test_refine_pen_lift_under_max_skips_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """首轮抬笔未超阈：只用 v4 素描提示词，不发起轮廓回退。"""
+def test_refine_pen_lift_under_pref_skips_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """首轮未超偏好阈：只用 v5，不发起稀疏排线重试。"""
     from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_MAX
+    from draw_portal.app import REFINE_PEN_LIFT_PREF
 
     prompts: list[str] = []
-    process_fn, state = _process_with_pen_lifts([REFINE_PEN_LIFT_MAX - 1])
+    process_fn, state = _process_with_pen_lifts([REFINE_PEN_LIFT_PREF - 10])
 
     async def fake_i2i(client_arg, token, image_bytes, **kwargs):
         prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)

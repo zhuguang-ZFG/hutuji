@@ -81,9 +81,13 @@ _background_tasks: set[asyncio.Task] = set()
 # 不把突发流量原样堆到上游 API。模块级单例与 _background_tasks 同口径。
 _refine_slots = asyncio.Semaphore(4)
 
-# 精修描摹抬笔硬闸（2026-09-08）：生产 v3 密排线抬笔 166–184，预览碎成乱麻；
-# paper_risk 软阈 50 仍放行。此处 100 作可画上界——超阈先轮廓回退一轮，再超则 refined=failed（保留 Canny）。
-REFINE_PEN_LIFT_MAX = 100
+# i2i 精修抬笔门（2026-09-08 夜 supersede）：
+# 生产实证：精修结果常落在 100–130，旧阈 100 把可用素描整批 RefineTooDense；
+# 偏好阈 160（两轮内优先达标），硬阈 220（取最优仍超才 failed——量产不可常失败）。
+REFINE_PEN_LIFT_PREF = 160
+REFINE_PEN_LIFT_HARD = 220
+# 兼容旧测试名
+REFINE_PEN_LIFT_MAX = REFINE_PEN_LIFT_PREF
 
 
 def _spawn_background(coro) -> None:
@@ -848,10 +852,11 @@ def create_app() -> FastAPI:
         先 Canny 预览，AI 精修好了再推送换用）。i2i 输入是「原始照片」的
         纯 PNG 归一，不是 Canny 输出——模型要照片细节才能画干净线稿。
 
-        抬笔门（2026-09-08）：首轮用 I2I_LINE_ART_PROMPT（v4 稀疏素描）；描摹
-        pen_lifts > REFINE_PEN_LIFT_MAX 则该 job 标 failed，再用
-        I2I_CONTOUR_FALLBACK_PROMPT 对冲一轮；仍超阈则 refined=failed（保留 Canny），
-        禁止把碎线乱麻硬放行给用户。
+        抬笔门（2026-09-08 夜 supersede，量产口径）：
+        - 首轮 I2I_LINE_ART_PROMPT v5（必须有长稀疏排线素描感）；
+        - 抬笔 > PREF 再用 I2I_SPARSE_HATCH_RETRY_PROMPT（仍带排线，更稀）；
+        - 两轮取抬笔更低者；≤ HARD 即 ready（生产 107–130 曾被旧阈 100 整批判死）；
+        - 仅两轮都 > HARD 或上游异常才 refined=failed。
         """
         from hutuji_mcp import modelscope_client, tcb_i2i
 
@@ -880,15 +885,11 @@ def create_app() -> FastAPI:
         async def _attempt(
             client: httpx.AsyncClient, plain_png: bytes, prompt: str
         ) -> tuple[str, int]:
-            """跑一轮 i2i→描摹。返回 (job_id, pen_lifts)；pipeline 异常已标 failed 并再抛。"""
+            """跑一轮 i2i→描摹。返回 (job_id, pen_lifts)；≤HARD 已 publish+ready，否则 failed。"""
             refined_png = await _race_i2i(client, plain_png, prompt)
-            # i2i 通道可能回 JPEG——process_upload_png 只吃 PNG 魔数，
-            # 2026-09-08 生产实证精修全挂 BitmapError；归一对线稿输出只转格式。
             refined_png = await asyncio.to_thread(
                 normalize_raster_to_png, refined_png, line_art=True
             )
-            # 「AI生成」角标水印：描摹输入洗白（否则水印上纸），
-            # 数字存档 upload.png 留未洗版（合规留痕）。
             trace_png = await asyncio.to_thread(strip_corner_watermark, refined_png)
             refined_job = store.create_draw_job(user_id=user_id, source_name="AI 精修")
             refined_path = _job_dir(config.data_dir, refined_job.id)
@@ -898,7 +899,7 @@ def create_app() -> FastAPI:
                 )
                 refined_path.mkdir(parents=True, exist_ok=True)
                 (refined_path / "upload.png").write_bytes(refined_png)
-                if result.pen_lifts > REFINE_PEN_LIFT_MAX:
+                if result.pen_lifts > REFINE_PEN_LIFT_HARD:
                     store.mark_draw_job_failed(
                         refined_job.id, error_summary="RefineTooDense"
                     )
@@ -921,42 +922,43 @@ def create_app() -> FastAPI:
             plain_png = await asyncio.to_thread(
                 normalize_raster_to_png, raw, line_art=False
             )
-            # 每跳请求的超时在各 client 内部（asyncio.timeout），client 级只需不更紧。
             async with httpx.AsyncClient(timeout=120.0) as client:
                 job_id, lifts = await _attempt(
                     client, plain_png, modelscope_client.I2I_LINE_ART_PROMPT
                 )
-                if lifts > REFINE_PEN_LIFT_MAX:
+                if lifts > REFINE_PEN_LIFT_PREF:
                     logger.info(
-                        "照片精修抬笔 %s 超阈 %s，轮廓回退：%s",
+                        "照片精修抬笔 %s 超偏好阈 %s，稀疏排线重试：%s",
                         lifts,
-                        REFINE_PEN_LIFT_MAX,
+                        REFINE_PEN_LIFT_PREF,
                         orig_job_id,
                     )
-                    job_id, lifts = await _attempt(
+                    job2, lifts2 = await _attempt(
                         client,
                         plain_png,
-                        modelscope_client.I2I_CONTOUR_FALLBACK_PROMPT,
+                        modelscope_client.I2I_SPARSE_HATCH_RETRY_PROMPT,
                     )
-                    if lifts > REFINE_PEN_LIFT_MAX:
-                        logger.info(
-                            "轮廓回退仍抬笔 %s，精修失败保留 Canny：%s",
-                            lifts,
-                            orig_job_id,
-                        )
-                        store.set_draw_job_refined(orig_job_id, status="failed")
-                        return
+                    if lifts2 <= REFINE_PEN_LIFT_HARD and (
+                        lifts > REFINE_PEN_LIFT_HARD or lifts2 < lifts
+                    ):
+                        job_id, lifts = job2, lifts2
+                if lifts > REFINE_PEN_LIFT_HARD:
+                    logger.info(
+                        "精修两轮抬笔仍超硬阈 %s（最优 %s），失败保留 Canny：%s",
+                        REFINE_PEN_LIFT_HARD,
+                        lifts,
+                        orig_job_id,
+                    )
+                    store.set_draw_job_refined(orig_job_id, status="failed")
+                    return
             store.set_draw_job_refined(
                 orig_job_id, status="ready", refined_job_id=job_id
             )
             logger.info("照片 AI 精修完成：%s（抬笔 %s）", orig_job_id, lifts)
         except asyncio.CancelledError:
-            # 停机取消：同样回填 failed（否则 DB 里永远挂 pending），但原样
-            # 再抛——不吞 CancelledError，保住优雅停机语义。
             store.set_draw_job_refined(orig_job_id, status="failed")
             raise
         except Exception as exc:
-            # 与 redact 硬约定同口径：只记异常类型名，不回显上游/凭据细节。
             logger.info("照片 AI 精修失败（%s）：%s", type(exc).__name__, orig_job_id)
             store.set_draw_job_refined(orig_job_id, status="failed")
 
