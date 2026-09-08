@@ -46,6 +46,11 @@ Page({
       if (!ok) return;
       this._ensureBound().then((bound) => {
         if (!bound) return;
+        // onHide 停了轮询；升级中若只 silent check 会因 upgrading 早退卡死 UI
+        if (this.data.upgrading) {
+          this._pollOnce();
+          return;
+        }
         this.onCheck(true);
       });
     });
@@ -194,7 +199,7 @@ Page({
     this._pollCount = (this._pollCount || 0) + 1;
     if (this._pollCount > POLL_MAX) {
       this._stopPoll();
-      this.setData({ upgrading: false });
+      this.setData({ upgrading: false, progress: 0 });
       this._setTip("超时未确认结果，请查看设备屏幕", "warn");
       wx.showToast({ title: "请查看设备屏幕", icon: "none" });
       return;
