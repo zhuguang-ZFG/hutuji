@@ -661,7 +661,7 @@ Content-Type: application/json
 
 - 传输仅 HTTPS；日志**禁止**打印 `device_token` 与完整 `bind_code`（可记 mac + 结果）。
 - 服务端写入短期 `bind_sessions`；限速按 MAC + IP。
-- **token 真值（2026-08-29 HIL）**：小智 `/messaging/device/tools/call` 须 **messaging JWT**（控制台「主题配置 / assets-generator」URL 的 `token=` 参数，`purpose=messaging`）。固件 announce 当前仍可能上报 NVS `websocket.token`（WSS 连接用，**≠ messaging JWT**）→ 绑定后 `hutuji.status` 探活 401。**运维**：手动写入绑定表 messaging token，或 complete 时若已有同 MAC 且探活正常的旧 token 则保留（防重绑覆盖）。长期：固件 `ReadDeviceToken()` 优先 `messaging.token`、OTA 解析 `messaging` 段（xiaozhi 工作树未提交）。主题配置重签 token 后须更新绑定表。
+- **token 真值（2026-08-29 HIL）**：小智 `/messaging/device/tools/call` 须 **messaging JWT**（控制台「主题配置 / assets-generator」URL 的 `token=` 参数，`purpose=messaging`）。固件 announce 当前仍可能上报 NVS `websocket.token`（WSS 连接用，**≠ messaging JWT**）→ 绑定后 `hutuji.status` 探活 401。**处置（2026-09-08 起，量产口径）**：`_finalize_binding` 探活失败即现场铸新（控制台 `POST /agents/generate-messaging-token {macAddress}`；控制台 JWT 从 portal 进程 env `DRAW_PORTAL_XIAOZHI_TOKEN` 读，`refresh-xiaozhi-token.sh` 已互联写入 draw-portal.env 并重启 portal——旧路径「等推送 401 再自愈」使用户第一单必失败，且自愈曾长期读 root:root 600 的 kb-admin.env、被 hutuji 用户进程级拒读而在生产从未成功）；铸新失败按原样落绑定，推送侧 401 自愈仍兜底；complete 时已有同 MAC 且探活正常的旧 token 仍保留（防重绑覆盖）。长期：固件 `ReadDeviceToken()` 优先 `messaging.token`、OTA 解析 `messaging` 段（xiaozhi 工作树未提交）。主题配置重签 token 后须更新绑定表。
 - 响应 2026-09-08 起新增 `"bound": bool`：该 MAC 已绑定（含本次 announce 触发认领撮合成功）时为 true，固件无头轮询据此停止并屏显「已绑定呼图账号」；老固件忽略多余字段，向后兼容。
 
 #### 10.4.4 用户 complete（浏览器 → draw-portal，须登录）
