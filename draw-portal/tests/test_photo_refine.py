@@ -500,3 +500,113 @@ def test_hedge_both_fail_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatc
         assert final["refined"] == {"status": "failed"}
         assert final["status"] == "ready"
         assert final["gcode_url"].endswith(".gcode")
+
+
+# ---------------------------------------------------------------- 抬笔门 + 轮廓回退
+
+
+def _process_with_pen_lifts(lifts_seq: list[int]):
+    """按调用次序返回不同 pen_lifts，供抬笔门/回退测注入。"""
+    state = {"n": 0}
+
+    def fn(png_bytes, job_dir):
+        i = state["n"]
+        state["n"] += 1
+        lifts = lifts_seq[min(i, len(lifts_seq) - 1)]
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "draw.gcode").write_text("G21\nG90\nG1 X1 Y1\n", encoding="ascii")
+        (job_dir / "preview.png").write_bytes(png_bytes)
+        return PipelineResult(
+            3, 20, lifts, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png"
+        )
+
+    return fn, state
+
+
+def test_refine_pen_lift_retries_contour_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """首轮抬笔超阈 → 轮廓回退提示词再跑一轮；第二轮过阈则 ready。"""
+    from hutuji_mcp import modelscope_client
+    from draw_portal.app import REFINE_PEN_LIFT_MAX
+
+    prompts: list[str] = []
+    process_fn, _ = _process_with_pen_lifts([REFINE_PEN_LIFT_MAX + 50, 40])
+
+    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+        prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
+        return b"\x89PNG\r\n\x1a\nREFINED"
+
+    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        _register(client)
+
+        up = _upload(client)
+        job_id = up.json()["job_id"]
+        final = _poll_until(client, job_id, ("ready",))
+        assert final["refined"]["job_id"]
+        assert prompts == [
+            modelscope_client.I2I_LINE_ART_PROMPT,
+            modelscope_client.I2I_CONTOUR_FALLBACK_PROMPT,
+        ]
+        # 第二轮 job 才是 ready；第一轮过密 job 不得被挂成 refined
+        r2 = client.get(f"/api/draw/jobs/{final['refined']['job_id']}")
+        assert r2.json()["status"] == "ready"
+
+
+def test_refine_pen_lift_both_dense_marks_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """两轮抬笔都超阈：refined=failed，Canny 原 job 仍 ready。"""
+    from hutuji_mcp import modelscope_client
+    from draw_portal.app import REFINE_PEN_LIFT_MAX
+
+    prompts: list[str] = []
+    process_fn, _ = _process_with_pen_lifts(
+        [REFINE_PEN_LIFT_MAX + 80, REFINE_PEN_LIFT_MAX + 20]
+    )
+
+    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+        prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
+        return b"\x89PNG\r\n\x1a\nREFINED"
+
+    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        _register(client)
+
+        up = _upload(client)
+        job_id = up.json()["job_id"]
+        canny_preview = up.json()["preview_url"]
+        final = _poll_until(client, job_id, ("failed",))
+        assert final["refined"] == {"status": "failed"}
+        assert final["status"] == "ready"
+        assert final["preview_url"] == canny_preview
+        assert prompts == [
+            modelscope_client.I2I_LINE_ART_PROMPT,
+            modelscope_client.I2I_CONTOUR_FALLBACK_PROMPT,
+        ]
+
+
+def test_refine_pen_lift_under_max_skips_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """首轮抬笔未超阈：只用 v4 素描提示词，不发起轮廓回退。"""
+    from hutuji_mcp import modelscope_client
+    from draw_portal.app import REFINE_PEN_LIFT_MAX
+
+    prompts: list[str] = []
+    process_fn, state = _process_with_pen_lifts([REFINE_PEN_LIFT_MAX - 1])
+
+    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+        prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
+        return b"\x89PNG\r\n\x1a\nREFINED"
+
+    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        _register(client)
+
+        up = _upload(client)
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        assert prompts == [modelscope_client.I2I_LINE_ART_PROMPT]
+        assert state["n"] == 1
