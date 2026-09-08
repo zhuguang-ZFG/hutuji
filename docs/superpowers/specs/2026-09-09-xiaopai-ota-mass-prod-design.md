@@ -160,3 +160,12 @@ portal POST /api/device/firmware/upgrade （签发短时升级许可）
 若以上无异议，回复「批准」后进入实现计划（`docs/superpowers/plans/`）。
 
 **已批准（2026-09-09）** → 实现计划：`docs/superpowers/plans/2026-09-09-xiaopai-ota-mass-prod.md`
+
+## 9. 后续镜像排期（2026-09-09 用户确认）
+
+OTA 收口之后，小程序再镜像云端能力（设备侧能力保留，不迁移走）：
+
+1. **写字 P0**：文本输入 + 字号/行距/页数预览 + 发送/收藏（复用 `hutuji_write` / portal 文档链）
+2. **笔顺 / 字分解**：输入汉字 → 田字格教学预览 → 发送（复用 `hutuji_teach` / `stroke_order`）
+
+在 OTA Task 7–8 完成前不插队实现以上两项。
