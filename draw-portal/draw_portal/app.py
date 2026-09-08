@@ -613,8 +613,11 @@ def create_app() -> FastAPI:
             arguments=arguments,
             timeout=15,
         )
-        if not ok and result in ("HTTP 401", "HTTP 403"):
-            # 与 draw_send 同一自愈：铸新 messaging token → 回写绑定表 → 重试
+        if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
+            # 与 draw_send 同一自愈：铸新 messaging token → 回写绑定表 → 重试。
+            # 404「Device not online」也要铸：整片刷机重生 client UUID 后旧
+            # messaging token 指向失效 clientId（2026-09-08 实机定性），
+            # 重铸取注册表当前 clientId；真离线时重试自然仍败，不误报。
             from draw_portal.push import mint_messaging_token
 
             fresh = mint_messaging_token(api_base=config.xiaozhi_api_base, mac=binding.device_mac)

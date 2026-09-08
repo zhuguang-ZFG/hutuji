@@ -263,7 +263,10 @@ def push_draw_self_heal(
         preview_url=preview_url,
         pages_arg=pages_arg,
     )
-    if ok or summary not in ("HTTP 401", "HTTP 403"):
+    # 404「Device not online」同样铸：整片刷机重生 client UUID 后旧 messaging token
+    # 指向失效 clientId（2026-09-08 实机定性），重铸取注册表当前 clientId；
+    # 设备真离线时重试自然仍败，不误报也不阻断。
+    if ok or summary not in ("HTTP 401", "HTTP 403", "HTTP 404"):
         return ok, summary
     fresh = mint_messaging_token(api_base=api_base, mac=device_mac)
     if not fresh:

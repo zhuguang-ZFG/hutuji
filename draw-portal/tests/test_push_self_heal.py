@@ -48,6 +48,39 @@ def test_401_self_heal_mints_updates_and_retries(monkeypatch):
     assert calls["push"][-1] == "fresh-jwt"  # 重试用的是新铸明文 token
 
 
+def test_404_not_online_self_heal_mints_and_retries(monkeypatch):
+    """404「Device not online」同样铸新重试（2026-09-08 实机定性：整片刷机重生
+    client UUID，旧 messaging token 指向失效 clientId，预览推送上屏全 404）。"""
+    calls = {"mint": 0, "push": []}
+
+    def fake_push_for_user_binding(**kw):
+        return False, "HTTP 404"
+
+    def fake_push_draw(**kw):
+        calls["push"].append(kw["device_token"])
+        return True, "hutuji.draw ok"
+
+    def fake_mint(**kw):
+        calls["mint"] += 1
+        return "fresh-jwt-404"
+
+    monkeypatch.setattr(push_mod, "push_for_user_binding", fake_push_for_user_binding)
+    monkeypatch.setattr(push_mod, "push_draw_to_device", fake_push_draw)
+    monkeypatch.setattr(push_mod, "mint_messaging_token", fake_mint)
+
+    ok, summary = push_draw_self_heal(
+        api_base="https://example",
+        token_cipher_key=_FERNET_KEY,
+        device_mac="aa:bb:cc:dd:ee:ff",
+        device_token_enc="stale-enc",
+        gcode_url="https://x/g",
+        preview_url="https://x/p",
+    )
+    assert ok
+    assert calls["mint"] == 1
+    assert calls["push"][-1] == "fresh-jwt-404"
+
+
 def test_non_401_does_not_mint(monkeypatch):
     monkeypatch.setattr(
         push_mod,
