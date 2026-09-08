@@ -24,42 +24,32 @@
 
   <view class="card" wx:if="{{job}}">
     <view class="card-title">预览</view>
-    <image
-      class="preview"
-      src="{{job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl}}"
-      mode="aspectFit"
-      bindtap="onPreviewTap"
-    />
-    <!-- 精修就绪后给两个版本切换卡，选中项高亮边框；上方大图始终跟随选中版本 -->
-    <view class="version-row" wx:if="{{job.refined}}">
-      <view
-        class="version-item {{job.useRefined ? '' : 'version-active'}}"
-        data-version="draft"
-        bindtap="onPickVersion"
-      >
-        <image class="version-thumb" src="{{job.previewUrl}}" mode="aspectFill" />
-        <view class="version-name">线稿版</view>
-      </view>
-      <view
-        class="version-item {{job.useRefined ? 'version-active' : ''}}"
-        data-version="refined"
-        bindtap="onPickVersion"
-      >
-        <image class="version-thumb" src="{{job.refined.previewUrl}}" mode="aspectFill" />
-        <view class="version-name">AI 精修版</view>
-      </view>
+    <!-- 2026-09-08 用户拍板「只等 AI 版、失败才给 Canny 草图」：
+         精修中只展示等待态，Canny 草图不再先上屏（像成品的垃圾占位是当日投诉根因） -->
+    <view class="refine-waiting" wx:if="{{job.refining}}">
+      <view class="refine-waiting-title">AI 正在画…</view>
+      <view class="muted center-text">照片转单线稿约 10 秒到 2 分钟，好了自动上屏</view>
     </view>
-    <view class="muted center-text" wx:if="{{job.refining}}">AI 精修中，好了可以直接换用…</view>
-    <view class="muted center-text" wx:if="{{job.refineFailed}}">AI 精修未成功，已保留线稿版</view>
-    <view class="muted center-text">约 {{job.lines}} 行笔画 · 点图放大</view>
-    <button
-      class="btn-primary block-btn"
-      bindtap="onSend"
-      loading="{{sending}}"
-      disabled="{{sending}}"
-    >
-      发送到写字机
-    </button>
+    <block wx:else>
+      <image
+        class="preview"
+        src="{{job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl}}"
+        mode="aspectFit"
+        bindtap="onPreviewTap"
+      />
+      <view class="muted center-text" wx:if="{{job.refined}}">AI 精修版 · 点图放大</view>
+      <view class="muted center-text" wx:if="{{!job.refined && job.refineFailed === 'failed'}}">AI 精修未成功，这是快速草图版</view>
+      <view class="muted center-text" wx:if="{{!job.refined && job.refineFailed === 'timeout'}}">AI 精修还在跑，先看快速草图，好了会进历史</view>
+      <view class="muted center-text" wx:if="{{!job.refined && !job.refineFailed}}">约 {{job.lines}} 行笔画 · 点图放大</view>
+      <button
+        class="btn-primary block-btn"
+        bindtap="onSend"
+        loading="{{sending}}"
+        disabled="{{sending}}"
+      >
+        发送到写字机
+      </button>
+    </block>
   </view>
 
   <view class="card">

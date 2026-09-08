@@ -140,8 +140,9 @@ Page({
       });
   },
 
-  // 上传/生成响应统一落 job：照片类任务后端会异步跑 AI 精修（i2i，约 1-3 分钟），
-  // refined.status === "pending" 时先展示 Canny 线稿版，同时开轮询等精修版
+  // 上传/生成响应统一落 job：照片类任务后端异步跑 AI 精修（i2i，约 1-3 分钟）。
+  // 2026-09-08 用户拍板 A 方案：pending 时页面只展示「AI 正在画」等待态，
+  // Canny 草图不再先上屏；ready 上 AI 版，failed/超时才回落草图并标注。
   adoptJob(data) {
     // 新 job 换掉旧 job：旧轮询链必须停掉，否则两链并存、旧链还会改写新 job 的状态
     this.stopRefinePolling();
@@ -198,12 +199,12 @@ Page({
             return;
           }
           if (refined && refined.status === "failed") {
-            // 失败不弹窗打扰：线稿版本来就在手里，灰字说明即可
-            finish({ "job.refineFailed": true });
+            // 失败不弹窗打扰：回落 Canny 草图版并标注（A 方案唯一草图出口）
+            finish({ "job.refineFailed": "failed" });
             return;
           }
           if (round >= 36) {
-            finish(); // 超时静默放弃，理由同上
+            finish({ "job.refineFailed": "timeout" }); // 超时同样回落草图，但说明 AI 还可能好
             return;
           }
           this._refineTimer = setTimeout(poll, 5000);
@@ -212,7 +213,7 @@ Page({
           if (token !== this._refineToken) return;
           // 网络抖动不算精修失败；轮次照样累计，保证极端弱网下 3 分钟内也必停
           if (round >= 36) {
-            finish();
+            finish({ "job.refineFailed": "timeout" });
             return;
           }
           this._refineTimer = setTimeout(poll, 5000);
@@ -230,14 +231,6 @@ Page({
     }
   },
 
-  onPickVersion(e) {
-    const job = this.data.job;
-    if (!job || !job.refined) return;
-    const useRefined = e.currentTarget.dataset.version === "refined";
-    if (useRefined !== job.useRefined) {
-      this.setData({ "job.useRefined": useRefined });
-    }
-  },
 
   onPickFile() {
     if (this.data.uploading) return;
