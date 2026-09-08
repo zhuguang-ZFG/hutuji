@@ -17,6 +17,18 @@
 | 生产 | 双机已热更；备份 `/root/hutuji-bak-20260909-{imagefree,autoconfirm}/` |
 | 仍脏/不入库 | `tmp/**`、本地截图/记忆草稿、`.playwright-mcp/`、外仓固件未推项以各仓 status 为准 |
 
+### 0.1 小派量产 OTA worktree（2026-09-09，`feat/xiaopai-ota-mass-prod`）
+
+| 项 | 说明 |
+|----|------|
+| 路径 / 分支 | hub worktree `D:\Users\hutuji\.worktrees\xiaopai-ota` / `feat/xiaopai-ota-mass-prod`（相对主工作树隔离；**勿**用主树 `git checkout -- .` 覆盖） |
+| 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-xiaopai-ota-mass-prod-design.md` → `docs/superpowers/plans/2026-09-09-xiaopai-ota-mass-prod.md` |
+| hub 已提交链（摘） | `8e052ca`/`acddb83`/`9828d11`/`75d7550` portal catalog+API；`f11e2e6`/`305636c` nginx `/firmware/`+发版脚本；`3a63962`/`427eb9d`/`05c2c6c` protocol OTA 字段与工具；`908e959`/`dc7f2f3` weapp 固件页+onShow 轮询 |
+| xiaozhi（`D:\Users\xiaozhi-esp32`） | 量产 OTA 提交：`73257fa` StatusJson+ParseVersion → `9194e60` 空 reason 省略 → `fcaca02` `hutuji.ota_check`/`ota_start`+每天自检+`PROJECT_VER=hutuji.1.0.0`+三板挂工具 → `942fcfb` 日历日 snprintf 钳位。**未推 origin 以现取 `git status`/`git log origin..HEAD` 为准** |
+| xiaozhi 脏树 | `main/boards/lichuang-dev/hutuji_draw_bind.cc` 有未提交改动（+22 行，与 OTA 批无关——**禁止覆盖**）；另有本地 `tmp_build_*.{bat,log}` / `pp_*.{bat,txt}` 等不入库 |
+| HIL | 条目 1–6 **本会话未跑＝未验证**（见 `docs/release-readiness.md` 文首 + 状态总览 #18） |
+| 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaozhi_ota_mass_prod_authorized` 登记本批授权路径意图 |
+
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
 ### TCB 混元 i2i 通道批（2026-09-08，代码已测未提交未部署；云函数补丁待用户粘贴）
@@ -488,6 +500,19 @@
 ---
 
 ## 3. xiaozhi-esp32（`D:\Users\xiaozhi-esp32`）
+
+### 小派量产远程 OTA（2026-09-09，**已本地提交；推送/刷机/HIL 另批**）
+
+| 文件 / 意图 | 说明 |
+|------|------|
+| `main/boards/lichuang-dev/hutuji_ota.{h,cc}` | `hutuji.ota_check` / `ota_start`、每天自检（NVS 日戳）、HTTPS host 闸、调度 `UpgradeFirmware` |
+| `main/boards/lichuang-dev/hutuji_job.{h,cc}` | `StatusJson`：`firmware_version` / `board` / `ota{state,progress,update_available[,reason]}`；`SetOtaStatus` |
+| `main/ota.cc` | `ParseVersion` 跳过非数字段（支持 `hutuji.x.y.z`） |
+| `CMakeLists.txt` / `main/CMakeLists.txt` | `PROJECT_VER=hutuji.1.0.0`；链入 `hutuji_ota.cc` |
+| 三板 tools 挂点 | `lichuang_dev_board.cc`、`freenove-…2.8-lcd.cc`、`waveshare/…3.5.cc` + `application.cc` 日检钩 |
+| 提交 | `73257fa` → `9194e60` → `fcaca02` → `942fcfb`（现取 HEAD 可能含后续无关提交；OTA 范围以上列为准） |
+| 脏树 | **`hutuji_draw_bind.cc` 未提交改动须保留**；勿与 OTA 提交混回滚 |
+| 板上 / HIL | **未刷含本批 OTA 的量产镜像；HIL 1–6 未验证** |
 
 ### Grbl `$` 设置指纹 + 对话上报（2026-08-30，**已提交 `0d041c9` / 已推 origin，[PR #1](https://github.com/zhuguang-ZFG/xiaozhi-esp32/pull/1)**）
 

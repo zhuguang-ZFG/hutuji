@@ -59,5 +59,24 @@
   "rejected_current_link": [
     "USB Host as current board link",
     "CH9350 as current board link"
-  ]
+  ],
+  "xiaozhi_ota_mass_prod_authorized": {
+    "note": "2026-09-09 用户批准小派量产远程 OTA（设计已批准→计划 Task 1–8）。仅小派 S3；Grbl OTA 本批不做。授权意图=包装 UpgradeFirmware + status/MCP 工具 + 版本串，不旁路 Telnet/不改换纸。",
+    "design": "docs/superpowers/specs/2026-09-09-xiaopai-ota-mass-prod-design.md",
+    "plan": "docs/superpowers/plans/2026-09-09-xiaopai-ota-mass-prod.md",
+    "paths": [
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "xiaozhi-esp32/main/ota.cc",
+      "xiaozhi-esp32/main/application.cc",
+      "xiaozhi-esp32/CMakeLists.txt",
+      "xiaozhi-esp32/main/CMakeLists.txt",
+      "xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc",
+      "xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/freenove-esp32s3-display-2.8-lcd.cc",
+      "xiaozhi-esp32/main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc"
+    ],
+    "hub_paths_note": "portal/weapp/deploy/nginx/firmware 脚本与 docs/protocol OTA 段落属 hub_safe_doc_globs 或本批 feat/xiaopai-ota-mass-prod 产品面，不列入本键"
+  }
 }

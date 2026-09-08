@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:583-725`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:584-726`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -313,11 +313,27 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 工具 | 参数 | 行为 |
 |------|------|------|
-| `hutuji.draw` | `url,preview_url[,pages]` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:309-339`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内**。`pages`（可选，多页文章）见 §4.2 |
+| `hutuji.draw` | `url,preview_url[,pages]` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:310-340`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内**。`pages`（可选，多页文章）见 §4.2 |
 | `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line, …}`。**OTA 增字段（2026-09-09）**：`firmware_version`（`esp_app_get_description()->version`，量产形如 `hutuji.x.y.z`）、`board`（编译期 `BOARD_NAME`，与固件 catalog 板型 key 一致，如 `freenove-esp32s3-display-2.8-lcd`）、`ota` 对象 `{state, progress, update_available[, reason]}`（缺省 `state=idle`/`progress=0`/`update_available=false`；`reason` 空则省略；升级态由 `hutuji.ota_start` 写入）。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
 | `hutuji.ota_check` | — | **只查不升**（2026-09-09）：GET 自建仓 `{public}/firmware/s3/{BOARD_NAME}/latest.json`，比较 `hutuji.x.y.z`；写 `status.ota.update_available`；返回 `{update_available,current,latest,notes,reason}`。每天 idle+WiFi 自检复用同路径（NVS 日历日，失败不打扰）。 |
 | `hutuji.ota_start` | `url,version,board[,sha256]` | 量产远程升（2026-09-09）：仅 `state=idle` 且非 `kDeviceStateUpgrading`、`board==BOARD_NAME`、HTTPS host ∈ 允许列表（默认 `hutuji.donglicao.com`）时受理；调度 `UpgradeFirmware`；忙/错板回 `{reason}`。`sha256` 本批契约对齐、设备侧未核（门户发版已核）。成功路径 reboot；失败 `ota.state=failed`。**禁止**自检自动调用。 |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
+
+**OTA `reason` 稳定 token（2026-09-09，与设计 F1–F8 / portal `assert_upgrade_allowed` 对齐；字符串勿随意改名）：**
+
+| token | 含义 | 典型触发 |
+|-------|------|----------|
+| `ok` | 成功受理 / 检查无错 | `ota_start` 已调度；或检查路径成功且有结论 |
+| `up_to_date` | 已是推荐版本 | `ota_check` 比较后无更新 |
+| `check_failed` | 查版本失败 | DNS/TLS/4xx/5xx/坏 JSON（F1） |
+| `download_failed` | 下载中断 | 中途断网、超时（F2；**未切启动槽**） |
+| `verify_failed` | 镜像校验失败 | 长度/魔数/校验（F3；**未切启动槽**） |
+| `write_failed` | 写入 flash 失败 | flash 错误（F4；**未切启动槽**） |
+| `busy` | 忙拒升 | 非 idle / 已在 upgrading / 出图预览换纸配网（F5） |
+| `board_mismatch` | 错板包 | `board` ≠ `BOARD_NAME` 或 catalog 板型不符（F8） |
+| `rolled_back` | 新槽起不来后回旧槽 | PENDING_VERIFY 未 mark valid → 回滚（F6；**发版门槛 HIL，本批真机未验**） |
+
+> `status.ota.reason` 空则省略该字段。门户/小程序文案映射：`busy`→「出图结束后再试」、`board_mismatch`→「固件与机型不符」等。故意坏包回滚 HIL 未做前**不得**写「升级绝对安全」。
 | `hutuji.confirm` | — | 屏幕预览确认出图（「开始画/可以/就这个」）；仅 `awaiting_confirmation` 态有效，等价于点屏幕「开始画」钮 |
 | `hutuji.pause` | — | 暂停当前绘图（可恢复）；停笔不发 `0x18`，流式态由 Job 层挂起投喂 |
 | `hutuji.resume` | — | 恢复之前暂停的绘图，继续 PSRAM 缓存的行流 |
@@ -490,7 +506,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | MCP 服务产出 | 公网能力 URL **必须是 `https://`**；HTTP 响应头给 `Content-Length` + `X-Hutuji-CRC32:<hex>`。Cloudflare Tunnel 的明文回源只允许 loopback，公网直连 `:80 /files/` 必须拒绝 |
 | MCP 控制面 | `/mcp` 只允许同机 bridge 通过 loopback 对端连接；服务应用层必须按 ASGI socket 对端地址再判一次，未知/非 loopback 一律 404。不得以 `Host`、`X-Forwarded-For`、`CF-Connecting-IP` 等请求头代替——攻击方可伪造。systemd loopback 监听、安全组不放行 8300、nginx `/mcp` 404 三层仍必须保留；应用层守卫只兜住控制面，不能防 `/files` 绕过 nginx 限速/ACL 直曝。 |
 | 校验算法 | **CRC32**只负责发现传输截断/位翻转，**不是认证码**，不能抵抗同时篡改正文与响应头的中间人；公网传输认证由 HTTPS 承担，不上 SHA256。⚠️ **变体两侧必须钉死同一个**（zlib/IEEE，Python `zlib.crc32` ↔ ESP32 侧同变体） |
-| S3 侧流程 | 全量下载入 PSRAM（`GetBodyLength()` / `GetResponseHeader()` / `Read()` 循环，模板 `ota.cc:309-338`）→ **先比长度**（快速失败）→ **再比 CRC32** → 全部通过**才**发第一行 |
+| S3 侧流程 | 全量下载入 PSRAM（`GetBodyLength()` / `GetResponseHeader()` / `Read()` 循环，模板 `ota.cc:310-339`）→ **先比长度**（快速失败）→ **再比 CRC32** → 全部通过**才**发第一行 |
 | 任一不符 | 任务 error，**一个字节都不发写字机**，推送提示（见 §7） |
 | URL 时效 | 只需保证**一次成功下载**（几分钟即可），**可用短时效签名 URL**——因重发走 PSRAM 缓存（§4），不再回源 |
 

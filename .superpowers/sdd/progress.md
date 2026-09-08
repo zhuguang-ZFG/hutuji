@@ -1,12 +1,10 @@
-﻿# SDD progress — M0/M1 artist sketch i2i
-Plan: docs/superpowers/plans/2026-09-08-m0-m1-artist-sketch-i2i.md
-Started: 2026-09-08
-Branch: feat/m1-artist-sketch-i2i
-Worktree: D:/Users/hutuji/.worktrees/m1-artist-sketch
-User auth: B+C (defer M0, isolate worktree)
-Task 1: deferred — user authorized skip (链路风险自担); resume HIL before Task 5 claim
-Task 2: in_progress
-Task 3: pending
-Task 4: pending
-Task 5: pending
-Task 6: pending
+﻿# SDD progress — 小派 OTA
+Plan: docs/superpowers/plans/2026-09-09-xiaopai-ota-mass-prod.md
+Started: 2026-09-09
+Branch: feat/xiaopai-ota-mass-prod
+Worktree: D:/Users/hutuji/.worktrees/xiaopai-ota
+Task 1-5: complete
+Task 6: complete (xiaozhi fcaca02..942fcfb; freenove idf build RC=0; flash/HIL未做)
+Task 7: complete (05c2c6c..dc7f2f3, review clean)
+Task 8: complete (docs-first; HIL 1–6 未验证; docs gate pass; report task-8-report.md)
+Post-OTA backlog: 写字 P0 → 笔顺/字分解；OTA 真机 HIL 1–6 + 坏包回滚门槛
