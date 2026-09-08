@@ -38,11 +38,11 @@
 
 | 项 | 说明 |
 |----|------|
-| 小程序 | AppID `wxbf3c1e0013b46343`「小派写字机」；0.1.1→0.1.5 已传，0.1.5 修复拍照转换无预览（统一走 AI 预览卡）；备案已提交审核中 |
+| 小程序 | AppID `wxbf3c1e0013b46343`；**2026-09-08 备案被驳回，用户拍板改名「动力巢」**（原「小派写字机」，代码侧 app.json 全局标题/profile 页脚已改，0.1.6 待传）；0.1.1→0.1.5 已传，0.1.5 修复拍照转换无预览（统一走 AI 预览卡）
 | 后端 | portal 55/55：绑定 400 静默重试、强制换绑、拍照 JPEG 修复（魔数闸）、照片 Canny 边缘模式（人像质变，参照 Inkscape CANNY/奎享 EdgeTab）、推送 token 自愈（401/403 自动铸 messaging token 回写重试）——双机已部署 |
 | 固件 | xiaozhi `5431a15`：lichuang 链接修复（SetGrobotEyesPaused 移出 WECHAT_MESSAGE_STYLE 守卫）+ 配网 QR 改 URL 形态（微信扫一扫直进小程序）+ bind announce 并入轮询环 + 配网 5 分钟无操作自动退出；lichuang release zip 已建（2.78MB 真编译 2200 单元），waveshare 增量验证中；**待刷机** |
 | MP 规则 | 两条扫码规则已上线体验版：`/draw-upload/bind`→绑定页、`/draw-upload/wifi`→配网页（校检文件经 nginx 三路径服务） |
-| 待办 | 用户 MP 后台设 0.1.5 为体验版；刷机后真机验证扫码绑定+扫码配网；备案号下发后提版本审核 |
+| 待办 | MP 后台改名「动力巢」+ 重新提交备案；刷机后真机验证扫码绑定+扫码配网；备案号下发后提版本审核 |
 
 ### kawaii→Eilik 调参批（2026-09-06 晚，xiaozhi `3b88132`；已刷 COM14）
 
