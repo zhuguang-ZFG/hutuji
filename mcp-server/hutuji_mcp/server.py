@@ -439,34 +439,39 @@ async def _chain_device_draw(
     （不记 token、URL 经共享脱敏），draw 结果不受影响——云端两步衔接仍是
     合法回落路径。token 为空 = 禁用。
 
+    2026-09-08：401/403/404 走 `device_messaging.chain_hutuji_draw` 自愈重铸
+    （与 portal 小程序 send 同口径）。异步 accepted 后云端不再二次调 draw，
+    链式失败且无自愈 = 小派屏永远无预览（生产实证 MCP token 404 而 portal 能推）。
+
     pages 非空 = 多页文章（hutuji_write）：设备 MCP Property 只支持
     boolean/integer/string，故 pages 以紧凑 JSON 字符串传（设备侧
     `hutuji::ParseArticlePages` 纯扫描解析，键序 url→preview_url 固定）。
     """
-    token = getattr(settings, "xiaozhi_device_token", "")
-    if not token:
+    from . import device_messaging
+
+    env_token = getattr(settings, "xiaozhi_device_token", "")
+    if not env_token and not device_messaging.load_device_token():
         return
-    arguments: dict[str, str] = {"url": url, "preview_url": preview_url}
-    if pages:
-        arguments["pages"] = _pages_argument(pages)
-    payload = {"name": "hutuji.draw", "arguments": arguments}
+    pages_arg = _pages_argument(pages) if pages else None
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{settings.xiaozhi_api_base}/messaging/device/tools/call",
-                json=payload,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        if resp.status_code != 200:
-            logger.warning("设备链式调用失败 status=%d（回落云端两步）", resp.status_code)
-            _report_mcp_tool("draw_push", ok=False, detail=f"http_{resp.status_code}")
-        else:
-            logger.info("设备链式调用 hutuji.draw 已受理")
-            _report_mcp_tool("draw_push", ok=True)
+        ok, detail = await device_messaging.chain_hutuji_draw(
+            api_base=settings.xiaozhi_api_base,
+            env_token=env_token,
+            url=url,
+            preview_url=preview_url,
+            pages_arg=pages_arg,
+        )
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("设备链式调用异常（%s，回落云端两步）", type(exc).__name__)
         _report_mcp_tool("draw_push", ok=False, detail=type(exc).__name__)
-
+        return
+    if ok:
+        if detail == "ok":
+            logger.info("设备链式调用 hutuji.draw 已受理")
+        _report_mcp_tool("draw_push", ok=True)
+    else:
+        logger.warning("设备链式调用失败 %s（回落云端两步）", detail)
+        _report_mcp_tool("draw_push", ok=False, detail=detail)
 
 async def _run_draw_job(
     description: str, public_base_url: str, *, job_id: str | None = None,
@@ -842,6 +847,8 @@ _WRITE_TEXT_MAX_CHARS = 5000
 # key 是 (目录, 名字)，目录切换自然隔离。不设 LRU——字库数量以个位数计。
 _gfont_cache: dict[tuple[str, str], object] = {}
 _gfont_metrics_cache: dict[tuple[str, str], object] = {}
+# 笔顺数据模块级缓存（同 _gfont_cache：import 期不探测目录，首次调用惰性加载）
+_stroke_data_cache: dict[str, object] = {}
 
 
 async def _run_write_job(
@@ -871,7 +878,30 @@ async def _run_write_job(
     layout = write_text.WriteLayout(
         size_mm=size_mm, line_spacing=line_spacing, char_gap_mm=char_gap_mm,
     )
-    result = await asyncio.to_thread(write_text.layout_text, text, font, metrics, layout, max_pages=ARTICLE_MAX_PAGES)
+    # CJK 写字默认走标准笔顺（与 hutuji_teach 同源）；未配置 STROKE_DIR 则纯 gfont
+    stroke_data = None
+    if settings.stroke_dir:
+        stroke_data = _stroke_data_cache.get(settings.stroke_dir)
+        if stroke_data is None:
+            from . import stroke_order
+
+            try:
+                stroke_data = await asyncio.to_thread(
+                    stroke_order.StrokeData.load, settings.stroke_dir
+                )
+                _stroke_data_cache[settings.stroke_dir] = stroke_data
+            except stroke_order.StrokeOrderError:
+                stroke_data = None
+    result = await asyncio.to_thread(
+        write_text.layout_text,
+        text,
+        font,
+        metrics,
+        layout,
+        ARTICLE_MAX_PAGES,
+        None,
+        stroke_data,
+    )
 
     store = get_output_store()
     store.ensure_ready()
@@ -958,7 +988,10 @@ async def hutuji_write(
     text: str, font: str = "", size_mm: float = 12.0,
     line_spacing: float = 1.6, char_gap_mm: float = 0.8,
 ) -> str:
-    """用奎享手写字库把整段文字写成字（钢笔单线手写体，非画图）。
+    """用奎享字库排版写整段文字（钢笔单线；CJK 有笔顺数据时按标准笔顺逐笔抬笔）。
+
+    与 hutuji_teach 的区别：teach 是田字格渐显教学页；本工具是正文排版出图。
+    未配置 HUTUJI_STROKE_DIR 或缺字笔顺时该字回落 gfont 连笔路径。
 
     用户说「写一封信/写一段话/抄一篇文章」时用；要画图用 hutuji_draw。
     text 是要写的内容（\\n 分段，段首自动缩进两格，自动折行/分页/标点避头）。
@@ -986,9 +1019,6 @@ async def hutuji_write(
     return await _run_write_job(
         safe_text, font.strip(), size_mm, line_spacing, char_gap_mm, public_base_url,
     )
-
-# 笔顺数据模块级缓存（同 _gfont_cache 口径：import 期不探测目录，首次调用惰性加载）
-_stroke_data_cache: dict[str, object] = {}
 
 # 一次教学的汉字上限：教学页每字一页起，小孩注意力/纸张消耗都有限
 _TEACH_MAX_CHARS = 20

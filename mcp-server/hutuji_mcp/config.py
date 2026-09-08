@@ -114,9 +114,9 @@ class Settings:
     # 带默认值：既有测试构造点不必全跟着加参数。
     image_model: str = "agnes-image-2.1-flash"
 
-    # 文生图备用端点（agnes 主链失败时的降级链；imagefree 免鉴权公共服务，
-    # 置空=禁用）。默认即生产可用值，env 只用于覆盖或关闭。
-    image_fallback_url: str = "https://imagefree.tingfengai.art/v1/generate"
+    # 文生图备用端点（历史 imagefree 公共服务；2026-09-09 生产实测持续 403，
+    # 默认改为空=禁用，避免对冲池固定噪音。需自建/替换端点时再设 https URL）。
+    image_fallback_url: str = ""
     # 可选商汤 U1 Fast PNG 主后端；三项全空=保持 Agnes，任一配置则必须三项齐全。
     sensenova_base_url: str = ""
     sensenova_api_key: str = ""
@@ -390,9 +390,7 @@ def load_settings() -> Settings:
         image_model=os.environ.get("HUTUJI_IMAGE_MODEL", "agnes-image-2.1-flash"),
         output_dir=_resolve_output_dir(),
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
-        image_fallback_url=os.environ.get(
-            "HUTUJI_IMAGE_FALLBACK_URL", "https://imagefree.tingfengai.art/v1/generate"
-        ),
+        image_fallback_url=os.environ.get("HUTUJI_IMAGE_FALLBACK_URL", ""),
         xiaozhi_api_base=os.environ.get("HUTUJI_XIAOZHI_API_BASE", "https://xiaozhi.me/api"),
         xiaozhi_console_token=os.environ.get("HUTUJI_XIAOZHI_TOKEN", ""),
         xiaozhi_agent_id=os.environ.get("HUTUJI_XIAOZHI_AGENT_ID", ""),

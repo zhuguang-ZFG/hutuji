@@ -198,6 +198,32 @@ def test_layout_wraps_at_text_width():
     assert max(xs) <= 190.0 - 8.0 + 1e-6  # 不越右边距
 
 
+def test_layout_cjk_uses_stroke_order_pen_lifts():
+    """CJK 有笔顺数据时按 medians 段数逐笔抬笔；未传 stroke_data 仍走 gfont 单路径。"""
+    from hutuji_mcp.stroke_order import StrokeData
+
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, paragraph_indent=0)
+    # 「中」四笔：竖、横、左竖、右竖（测试夹具，非真库）
+    medians = {
+        "中": [
+            [(512, 900), (512, 100)],
+            [(200, 500), (800, 500)],
+            [(200, 900), (200, 100)],
+            [(800, 900), (800, 100)],
+        ]
+    }
+    stroke = StrokeData(medians=medians)
+    with_stroke = write_text.layout_text("中", font, metrics, layout, stroke_data=stroke)
+    without = write_text.layout_text("中", font, metrics, layout)
+    assert len(with_stroke.pages[0].strokes) == 4
+    assert len(without.pages[0].strokes) == 1  # 夹具盒形单路径
+    # 缺笔顺字回落 gfont，不整单失败
+    mixed = write_text.layout_text("中永", font, metrics, layout, stroke_data=stroke)
+    # 中=4 + 永(夹具单路径)=1
+    assert len(mixed.pages[0].strokes) == 5
+
+
 def test_layout_tab_matches_space_width():
     """Tab 与空格同价：测量与落版一致（修复前测量 5.5mm/落版 5.25mm，满行处折行错位）。"""
     font, metrics = _fixture_font(), _fixture_metrics()
@@ -492,7 +518,13 @@ def test_write_pages_arg_matches_chain_push_byte_for_byte(tmp_path, monkeypatch)
             pushed.update(json["arguments"])
             return _Resp()
 
-    monkeypatch.setattr(server.httpx, "AsyncClient", _Client)
+    # 链式推送经 device_messaging（2026-09-08），须补丁该模块 httpx。
+    from hutuji_mcp import device_messaging as dm
+
+    monkeypatch.setattr(dm, "httpx", types.SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(
+        dm, "load_device_token", lambda env_fallback="": env_fallback or "tok"
+    )
 
     async def _run() -> dict:
         payload = json.loads(
@@ -667,7 +699,11 @@ def test_write_chain_push_sends_pages_json_string(tmp_path, monkeypatch):
             captured["auth"] = headers.get("Authorization", "")
             return _Resp()
 
-    monkeypatch.setattr(server.httpx, "AsyncClient", _Client)
+    # 链式推送经 device_messaging（2026-09-08 自愈），须补丁该模块的 httpx。
+    from hutuji_mcp import device_messaging as dm
+
+    monkeypatch.setattr(dm, "httpx", types.SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(dm, "load_device_token", lambda env_fallback="": env_fallback or "tok")
     monkeypatch.setattr(
         server, "settings",
         types.SimpleNamespace(

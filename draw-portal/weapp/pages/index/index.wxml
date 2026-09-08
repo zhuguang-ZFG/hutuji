@@ -1,78 +1,86 @@
-<view class="page">
-  <view class="card hero">
-    <view class="hero-title">想画点什么？</view>
-    <textarea
-      class="desc-input"
-      placeholder="一句话描述，例如：一只简笔画小猫"
-      value="{{description}}"
-      bindinput="onDescInput"
-      maxlength="200"
-      auto-height
-    />
-    <view class="hero-foot">
-      <view class="chip" wx:if="{{quotaLeft !== null}}">今日还可生图 {{quotaLeft}} 次</view>
-      <button
-        class="btn-primary hero-btn"
-        bindtap="onGenerate"
-        loading="{{generating}}"
-        disabled="{{generating || !description}}"
-      >
-        {{generating ? "生成中（约 10-60 秒）" : "生成图画"}}
-      </button>
-    </view>
+<view class="page create-page">
+  <view class="slim-head">
+    <text class="slim-title">想画点<span class="accent">什么</span></text>
+    <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日 {{quotaLeft}} 次</text>
   </view>
 
-  <view class="card" wx:if="{{job}}">
-    <view class="card-title">预览</view>
-    <!-- 2026-09-08 用户拍板「只等 AI 版、失败才给 Canny 草图」：
-         精修中只展示等待态，Canny 草图不再先上屏（像成品的垃圾占位是当日投诉根因） -->
-    <view class="refine-waiting" wx:if="{{job.refining}}">
-      <view class="refine-waiting-title">AI 正在画…</view>
-      <view class="muted center-text">照片转单线稿约 10 秒到 2 分钟，好了自动上屏</view>
-    </view>
-    <block wx:else>
-      <image
-        class="preview"
-        src="{{job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl}}"
-        mode="aspectFit"
-        bindtap="onPreviewTap"
-      />
-      <view class="muted center-text" wx:if="{{job.refined}}">AI 精修版 · 点图放大</view>
-      <view class="muted center-text" wx:if="{{!job.refined && job.refineFailed === 'failed'}}">AI 精修未成功，这是快速草图版</view>
-      <view class="muted center-text" wx:if="{{!job.refined && job.refineFailed === 'timeout'}}">AI 精修还在跑，先看快速草图，好了会进历史</view>
-      <view class="muted center-text" wx:if="{{!job.refined && !job.refineFailed}}">约 {{job.lines}} 行笔画 · 点图放大</view>
-      <button
-        class="btn-primary block-btn"
-        bindtap="onSend"
-        loading="{{sending}}"
-        disabled="{{sending}}"
-      >
-        发送到写字机
-      </button>
-    </block>
-  </view>
-
-  <view class="card">
-    <view class="card-title">拍照 / 相册绘图</view>
-    <view class="card-sub">拍一张画稿或照片，转成单线笔画写画</view>
-    <view class="row-btns">
-      <button class="btn-ghost half" bindtap="onTakePhoto" data-source="camera" disabled="{{uploading}}">拍照</button>
-      <button class="btn-ghost half" bindtap="onTakePhoto" data-source="album" disabled="{{uploading}}">从相册选</button>
+  <view class="weui-cells input-panel">
+    <view class="weui-cell weui-cell_textarea">
+      <view class="weui-cell__bd">
+        <textarea
+          class="weui-textarea"
+          placeholder="一句话，例如：一只简笔画小猫"
+          value="{{description}}"
+          bindinput="onDescInput"
+          maxlength="200"
+          auto-height
+          placeholder-class="ph"
+        />
+      </view>
     </view>
   </view>
-
-  <view class="card">
-    <view class="card-title">文档 / 文件</view>
-    <view class="card-sub">Word / Excel / PPT / 图片 / SVG，写出或画出</view>
-    <button class="btn-ghost block-btn" bindtap="onPickFile" loading="{{uploading}}" disabled="{{uploading}}">
-      {{uploading ? "转换中…" : "选择文件"}}
+  <view class="weui-btn-area tight">
+    <button
+      class="weui-btn weui-btn_primary"
+      hover-class="btn-press"
+      bindtap="onGenerate"
+      loading="{{generating}}"
+      disabled="{{generating || !description}}"
+    >
+      {{generating ? "生成中…" : "生成图画"}}
     </button>
-    <view class="muted hint" wx:if="{{uploading}}">转换中，照片约 5-15 秒</view>
   </view>
 
-  <view class="card bind-card" wx:if="{{!binding}}">
-    <view class="card-title">还没绑定写字机</view>
-    <view class="card-sub">扫码或输码，10 秒绑好</view>
-    <button class="btn-primary block-btn" bindtap="onGoBind">去绑定</button>
+  <block wx:if="{{job}}">
+    <view class="preview-card">
+      <view class="refine-waiting" wx:if="{{job.refining}}">
+        <view class="pulse-ring"></view>
+        <view class="refine-waiting-title">AI 正在画</view>
+        <view class="muted center-text">约 10 秒～2 分钟，好了自动上屏</view>
+      </view>
+      <block wx:else>
+        <image
+          class="preview"
+          src="{{job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl}}"
+          mode="aspectFit"
+          bindtap="onPreviewTap"
+        />
+        <view class="preview-meta muted" wx:if="{{job.refined}}">AI 精修 · 点图放大</view>
+        <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'failed'}}">精修未成功 · 快速草图</view>
+        <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修仍在跑 · 先看草图</view>
+        <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
+        <button
+          class="weui-btn weui-btn_primary send-inline"
+          hover-class="btn-press"
+          bindtap="onSend"
+          loading="{{sending}}"
+          disabled="{{sending}}"
+        >发送到写字机</button>
+      </block>
+    </view>
+  </block>
+
+  <view class="action-grid">
+    <button class="action-tile" hover-class="tile-press" bindtap="onTakePhoto" data-source="camera" disabled="{{uploading}}">
+      <view class="tile-icon cam"></view>
+      <text class="tile-label">拍照</text>
+    </button>
+    <button class="action-tile" hover-class="tile-press" bindtap="onTakePhoto" data-source="album" disabled="{{uploading}}">
+      <view class="tile-icon album"></view>
+      <text class="tile-label">相册</text>
+    </button>
+    <button class="action-tile" hover-class="tile-press" bindtap="onPickFile" disabled="{{uploading}}">
+      <view class="tile-icon doc"></view>
+      <text class="tile-label">{{uploading ? "转换中" : "文档"}}</text>
+    </button>
+  </view>
+  <view class="weui-cells__tips" wx:if="{{uploading}}">转换中，照片约 5–15 秒</view>
+
+  <view class="bind-banner" wx:if="{{!binding}}" bindtap="onGoBind" hover-class="tile-press">
+    <view class="bind-copy">
+      <text class="bind-title">还没绑定写字机</text>
+      <text class="bind-sub">扫码或输码，约 10 秒</text>
+    </view>
+    <text class="bind-go">去绑定 ›</text>
   </view>
 </view>

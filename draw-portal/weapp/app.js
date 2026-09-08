@@ -4,12 +4,14 @@
 App({
   globalData: {
     user: null,
+    phoneBound: false,
   },
   onLaunch() {
     this.ensureSession();
   },
   ensureSession() {
     const api = require("./utils/api");
+    const phoneGate = require("./utils/phone_gate");
     return new Promise((resolve) => {
       wx.login({
         success: (res) => {
@@ -25,13 +27,17 @@ App({
             .then((data) => {
               api.setSession(data.session || "");
               wx.setStorageSync("session_ok", true);
-              this.globalData.user = data.user || null;
-              resolve(this.globalData.user);
+              return api.request("/api/auth/me").then((me) => {
+                this.globalData.user = me;
+                this.globalData.phoneBound = phoneGate.isPhoneBound(me);
+                resolve(me);
+              });
             })
             .catch(() => {
               wx.removeStorageSync("session_ok");
               wx.removeStorageSync("session_token");
               this.globalData.user = null;
+              this.globalData.phoneBound = false;
               // 登录失败必须可见：503=后端未配密钥、域名未白名单等都会走到这，
               // 静默匿名页会让真机联调误判成「功能坏了」
               wx.showToast({

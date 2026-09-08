@@ -79,6 +79,7 @@ def _register(client: TestClient) -> None:
         json={"email": "buyer@qq.com", "code": code},
     )
     assert verify.status_code == 200
+    assert client.post("/api/auth/bind-phone", json={"phone": "13800138000"}).status_code == 200
 
 
 def _fake_process_upload(raw, *, content_type, filename, job_dir):

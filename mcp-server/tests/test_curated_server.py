@@ -93,12 +93,31 @@ def test_draw_job_prefer_hit_serves_curated(monkeypatch, tmp_path):
     _stub_persist(monkeypatch)
     slot_spy = _stub_slot(monkeypatch)
 
-    payload = json.loads(asyncio.run(server._run_draw_job("画一只猫", _BASE_URL)))
+    # 须显式简笔风才吃 curated；裸「画一只猫」走 AI（2026-09-08 风格门）。
+    payload = json.loads(asyncio.run(server._run_draw_job("简笔画一只猫", _BASE_URL)))
 
     assert qd_lookup.call_count == 0
     generate.assert_not_awaited()
     assert slot_spy.entries == 0, "curated 命中与 QD 命中同口径：不占付费限流名额"
     assert payload["url"].endswith(".gcode")
+
+
+def test_draw_job_plain_noun_skips_curated_for_ai(monkeypatch, tmp_path):
+    """裸「画老虎」不得命中 curated（儿童简笔库），须落 AI 位图链。"""
+    lib = tmp_path / "lib"
+    _seed_library(lib, category="tiger", count=52)
+    out = tmp_path / "out"
+    out.mkdir()
+    _patch_settings(monkeypatch, out, str(lib))
+    _stub_qd_forbidden(monkeypatch)
+    generate = _stub_ai(monkeypatch)
+    _stub_persist(monkeypatch)
+    slot_spy = _stub_slot(monkeypatch)
+
+    asyncio.run(server._run_draw_job("画一只老虎", _BASE_URL))
+
+    generate.assert_awaited_once_with("画一只老虎", attempt=0)
+    assert slot_spy.entries == 1
 
 
 def test_draw_job_prefer_miss_under_n_min_falls_to_ai(monkeypatch, tmp_path):
@@ -174,7 +193,9 @@ def test_draw_job_prefer_hit_concurrent_share_one_job(monkeypatch, tmp_path):
     monkeypatch.setattr(curated, "_pick_and_load", _counting_pick)
 
     async def exercise():
-        tasks = [asyncio.create_task(server.hutuji_draw("画一只猫")) for _ in range(4)]
+        tasks = [
+            asyncio.create_task(server.hutuji_draw("简笔画一只猫")) for _ in range(4)
+        ]
         try:
             payloads = [json.loads(r) for r in await asyncio.gather(*tasks)]
             assert len({p["url"] for p in payloads}) == 1, "同题并发必须共享同一事务产物"

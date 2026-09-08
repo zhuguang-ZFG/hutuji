@@ -21,7 +21,7 @@ _DEFAULT_IMAGE_BACKENDS = {
     "sensenova": True,
     "agnes": True,
     "siliconflow": True,
-    "fallback": True,
+    "fallback": True,  # 仅当 HUTUJI_IMAGE_FALLBACK_URL 非空才入池；URL 空则无噪音
     # 2026-09-08 新增：魔搭（t2i 对冲 + 照片 i2i 精修共用 token）与腾讯云开发
     # 混元（仅 t2i）；运营后台可同口径开关。
     "modelscope": True,

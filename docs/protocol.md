@@ -477,7 +477,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **按「设备看到的字节」计，不按上位机的字符数**：S3 下载到的、`Content-Length` 与 CRC32 算的都是**磁盘原始字节**，故云端判上限必须量同一个对象。Python 的 `read_text()` 走 universal newlines，会把 CRLF 塌成单个 LF、每行少算 1 字节——实测某 20846 行 CRLF 产物磁盘 524369 字节（超上限 81 字节）被判为未超并放行，回给 S3 的 `bytes` 也少报 20846。512KiB 是 S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。单行 **254** 字节 payload（Grbl `LINE_BUFFER_SIZE` 的可用值，见 §3）同理按字节计。
 
 - **MCP 生成事务取消所有权（2026-08-20，不升协议号）**：规范化后相同 `description` 的在途 `hutuji_draw` 必须共享一个完整事务（付费生图、中心线描摹、SVG→G-code、产物与返回 JSON）和一个并发名额。客户端 `notifications/cancelled` 只结清对应 JSON-RPC waiter，不得取消已计费事务、提前释放名额或让后续同题重试另起生成；重试搭车原任务，完成后拿同一 capability 结果。共享任务失败/取消后必须从在途表移除，使下一次调用能重新尝试；成功结果仍受 600 秒 capability TTL。该约束只合并同一逻辑生成轮，不取消该轮内已定案的商汤/Agnes/imagefree 并发对冲。
-- **异步生成+完成推送（2026-08-28 决策，默认关闭）**：`HUTUJI_DRAW_ASYNC=1` 且已配 `HUTUJI_XIAOZHI_DEVICE_TOKEN` 时 `hutuji_draw` 立即回 `{"accepted":true,"description":<安全化后>,"eta_seconds":45,"note":"生成完成会自动推送到设备预览，无需重复调用"}`，任务由 `_draw_inflight` 持有生命周期并在 `_run_draw_job` 唯一完成点经 `_chain_device_draw` 自动推送到设备预览（单 flight 复用，同题第二调搭车不另起生成）；缺 token 时回落同步并记一行 warning。
+- **异步生成+完成推送（2026-08-28 决策，默认关闭）**：`HUTUJI_DRAW_ASYNC=1` 且已配 `HUTUJI_XIAOZHI_DEVICE_TOKEN`（或共享文件，见下）时 `hutuji_draw` 立即回 `{"accepted":true,"description":<安全化后>,"eta_seconds":45,"note":"生成完成会自动推送到设备预览，无需重复调用"}`，任务由 `_draw_inflight` 持有生命周期并在 `_run_draw_job` 唯一完成点经 `_chain_device_draw` 自动推送到设备预览（单 flight 复用，同题第二调搭车不另起生成）；缺 token 时回落同步并记一行 warning。
+- **语音链式推送自愈（2026-09-08）**：小程序 `send` 走 portal `push_draw_self_heal`（401/403/404 重铸 messaging JWT）；语音/自生成走 MCP `_chain_device_draw`。异步已回 `accepted` 后云端**不会**再调第二步 `hutuji.draw`，链式失败且无自愈 = 屏上永无预览。量产口径：MCP 与 portal 共用 `device_messaging`——优先读 `/var/lib/hutuji/device_messaging.token`（`HUTUJI_DEVICE_TOKEN_FILE` 可覆盖），回落 `HUTUJI_XIAOZHI_DEVICE_TOKEN`；撞 401/403/404 时用控制台 JWT + `HUTUJI_DEVICE_MAC`（或 portal DB `device_bindings` 最新 MAC）重铸并落盘，worker 现读文件无需重启。portal 自愈成功亦写同一文件，避免「小程序能预览、小派自生成不能」。
 ### 5.1 下载完整性契约（先下完 + 校验 + 再发）
 
 **放弃「边下边转」**：流式边下边发若中途截断，前半已画在纸上，且提前 EOF 可能不报错——会静默产出「看似画完实则缺半」的纸。故把完整性校验**前移到落笔之前**。
@@ -631,7 +632,21 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 买家网页传图 + 设备二维码绑机。详细产品设计见 `docs/design/draw-portal-bind.md`。与 §8「S3 不做 G-code 生成」不冲突——生成在阿里云 draw-portal/MCP，S3 仍只下载转发。
 
-**推送→出图两阶段（与语音链路同契约）**：draw-portal 调 `hutuji.draw(url, preview_url)` 只上屏预览；用户点屏「开始画」或说「开始画」后设备侧 `hutuji.confirm`（等价屏上确认钮）才下载 G-code 并灌流。
+**推送→出图（小程序/网页 send）**：draw-portal 调 `hutuji.draw(url, preview_url)` 后，**默认自动**轮询至 `awaiting_confirmation` 再调 `hutuji.confirm`（2026-09-09：用户已在小程序预览过，不必再在小派点「开始画」）。设备状态机仍经 previewing→awaiting_confirmation（固件契约未砍预览态）；语音/云端链式推送仍只到预览，由用户点屏或说「开始画」确认。控制页「开始画」按钮保留作失败兜底。
+
+**推送→出图两阶段（语音链路）**：云端/MCP 链式 `hutuji.draw` 只上屏预览；用户点屏「开始画」或说「开始画」或小程序控制页「开始画」（`hutuji.confirm`）后设备侧才下载 G-code 并灌流。
+
+#### 10.4.0 登录与手机号硬前置（2026-09-08）
+
+| 项 | 约定 |
+|----|------|
+| 会话 | `wx.login` → `/api/auth/wx-login` 仍可建会话（小程序 x-session / 网页 cookie）；邮箱注册验证同前 |
+| 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、文字生图、`send`/saved、`/api/device/control` |
+| 放行 | `/api/auth/me`、`wx-phone`、`bind-phone`（仅非微信邮箱账号补绑 11 位）、`wx-profile`/`wx-avatar`、登录注册登出 |
+| 错误 | 产品面无号 → **403**，`detail={"code":"phone_required","message":"…"}`（稳定码供小程序统一跳「我的」） |
+| me | 增 `phone_bound: bool`（与 `!!phone` 同义，便于前端） |
+| 网页 QQ 邮箱 | 同闸：无 phone 不可进产品面；经 `POST /api/auth/bind-phone` 补绑 |
+| 平台动作 | 备案改名、隐私条款、提审仍在 MP 后台，不由本仓代做 |
 
 #### 10.4.1 角色划分
 
@@ -684,7 +699,7 @@ Cookie: <session>
 | 步骤 | 约定 |
 |------|------|
 | 上传 | `POST /draw-upload/api/draw/upload` multipart；PNG/JPEG/WebP/GIF/BMP/SVG（≤4MB）；描摹或 SVG 直转 + `validate_gcode` 同 §5 |
-| 推送 | `POST .../draw/{job_id}/send` → 使用该用户 binding 的 token 调 `hutuji.draw(url, preview_url)` |
+| 推送 | `POST .../draw/{job_id}/send` → `hutuji.draw` 后**自动** `hutuji.confirm`（小程序已预览）；失败时 detail 含「自动开始画未完成」可改用控制页 |
 | **保存预览** | `POST .../draw/{job_id}/save` → 将 PNG（及可选 G-code 副本）复制到用户域持久化路径；**不依赖** §5.1 的 600s `/files/` TTL |
 | 图库 | `GET .../draw/saved`；可再次 `send` 或 `DELETE` |
 

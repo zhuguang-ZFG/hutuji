@@ -1,51 +1,79 @@
 <view class="page">
-  <view class="card profile-card">
-    <button class="avatar-btn" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
-      <image wx:if="{{me && me.avatar_url}}" class="avatar" src="{{me.avatar_url}}" mode="aspectFill" />
-      <view wx:else class="avatar placeholder">+</view>
-    </button>
-    <view class="profile-fields">
-      <input
-        class="nick-input"
-        type="nickname"
-        placeholder="微信昵称"
-        value="{{nicknameDraft}}"
-        bindinput="onNickInput"
-        bindblur="onSaveNick"
-      />
+  <view class="hero">
+    <view class="hero-brand">动力巢 · LIMA</view>
+    <view class="hero-title">我的<span class="accent">账号</span></view>
+    <view class="hero-sub">头像与手机号用于绑机、推送与课堂管理</view>
+  </view>
+
+  <block wx:if="{{needPhone}}">
+    <view class="weui-cells__title">使用前请授权手机号</view>
+    <view class="weui-cells__tips">绑机、传图、控制写字机都需要手机号。授权后即可继续。</view>
+    <view class="weui-btn-area">
       <button
-        wx:if="{{!me || !me.phone}}"
-        class="btn-ghost phone-btn"
+        class="weui-btn weui-btn_primary"
         open-type="getPhoneNumber"
         bind:getphonenumber="onGetPhone"
       >
-        绑定手机号
+        授权手机号
       </button>
-      <view wx:else class="chip">{{me.phone}}</view>
+    </view>
+  </block>
+
+  <view class="weui-cells__title">账号</view>
+  <view class="weui-cells">
+    <view class="weui-cell profile-cell">
+      <view class="weui-cell__hd">
+        <button class="avatar-btn" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
+          <image wx:if="{{avatarSrc}}" class="avatar" src="{{avatarSrc}}" mode="aspectFill" />
+          <view wx:else class="avatar placeholder">+</view>
+        </button>
+      </view>
+      <view class="weui-cell__bd">
+        <input
+          class="nick-input"
+          type="nickname"
+          placeholder="微信昵称"
+          value="{{nicknameDraft}}"
+          bindinput="onNickInput"
+          bindblur="onSaveNick"
+        />
+        <button
+          wx:if="{{needPhone}}"
+          class="phone-link"
+          open-type="getPhoneNumber"
+          bind:getphonenumber="onGetPhone"
+        >
+          绑定手机号
+        </button>
+        <view wx:else class="phone-text">{{me.phone}}</view>
+      </view>
     </view>
   </view>
 
-  <view class="card">
-    <view class="card-title">设备</view>
-    <block wx:if="{{me && me.binding && me.binding.bound}}">
-      <view class="status-row">
-        <view class="chip">已绑定</view>
-        <view class="muted">设备尾号 {{me.binding.macSuffix || me.binding.deviceMac}}</view>
+  <block wx:if="{{!needPhone}}">
+    <view class="weui-cells__title">设备</view>
+    <view class="weui-cells">
+      <view class="weui-cell" wx:if="{{me && me.binding && me.binding.bound}}">
+        <view class="weui-cell__bd">已绑定</view>
+        <view class="weui-cell__ft">设备尾号 {{me.binding.macSuffix || me.binding.deviceMac}}</view>
       </view>
-    </block>
-    <block wx:else>
-      <view class="card-sub">绑定后才能发送任务和控制写字机</view>
-    </block>
-    <button class="btn-primary block-btn" bindtap="onGoBind">
-      {{me && me.binding && me.binding.bound ? "换绑 / 查看" : "去绑定"}}
-    </button>
-  </view>
+      <view class="weui-cell" wx:else>
+        <view class="weui-cell__bd">未绑定</view>
+        <view class="weui-cell__ft">绑定后才能发送任务</view>
+      </view>
+    </view>
+    <view class="weui-btn-area tight">
+      <button class="weui-btn weui-btn_primary" bindtap="onGoBind">
+        {{me && me.binding && me.binding.bound ? "换绑 / 查看" : "去绑定"}}
+      </button>
+    </view>
 
-  <view class="card">
-    <view class="card-title">网络</view>
-    <view class="card-sub">新写字机或换了 WiFi 时，一键把设备连上家里网络</view>
-    <button class="btn-ghost block-btn" bindtap="onGoWifi">一键配网</button>
-  </view>
+    <view class="weui-cells__title">网络</view>
+    <view class="weui-cells__tips">新写字机或换了 WiFi 时，一键把设备连上家里网络</view>
+    <view class="weui-btn-area tight">
+      <button class="weui-btn weui-btn_default" bindtap="onGoWifi">一键配网</button>
+    </view>
+  </block>
 
-  <view class="muted footer-note">动力巢 · v0.1.7</view>
+  <view class="page-foot muted">动力巢 · v0.2.10</view>
 </view>

@@ -2,6 +2,7 @@
 // TCP socket 直发 AP 配置接口（LAN IP 走不了 wx.request 白名单，socket 不受限）→
 // 设备上家网。回退路径：浏览器连热点开 http://192.168.4.1
 const api = require("../../utils/api");
+const phoneGate = require("../../utils/phone_gate");
 
 Page({
   data: {
@@ -18,6 +19,7 @@ Page({
   // 微信「扫一扫」直接扫设备配网码（mp 后台「扫普通链接二维码打开小程序」规则：
   // https://hutuji.donglicao.com/draw-upload/wifi?s=<ssid> → 本页带 s 参数拉起）→ 免扫码直进
   onLoad(options) {
+    phoneGate.ensurePhoneOrRedirect(api);
     const s = options && options.s ? String(options.s) : "";
     if (s) {
       let ssid = s;

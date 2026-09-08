@@ -163,6 +163,70 @@ def push_draw_to_device(
     return (True, "hutuji.draw ok") if ok else (False, result)
 
 
+def auto_confirm_after_preview(
+    *,
+    api_base: str,
+    device_token: str,
+    timeout_s: float = 90.0,
+    poll_s: float = 1.5,
+) -> tuple[bool, str]:
+    """小程序已预览过：等设备进入 awaiting_confirmation 后自动 hutuji.confirm。
+
+    设备契约仍要求先 draw（下载 PNG/预取 G-code），不能跳过预览态；门户侧代点
+    「开始画」，用户不必再在小派屏上确认。超时/失败不撤销已推预览。
+    """
+    import json
+
+    from draw_portal.mcp_result import unwrap_tool_text
+
+    deadline = time.monotonic() + timeout_s
+    last_hint = ""
+    while time.monotonic() < deadline:
+        ok, raw = push_tool_call(
+            api_base=api_base,
+            device_token=device_token,
+            name="hutuji.status",
+            arguments={},
+            timeout=15,
+        )
+        if ok:
+            text = unwrap_tool_text(raw)
+            state = ""
+            awaiting = False
+            try:
+                payload = json.loads(text)
+                if isinstance(payload, dict):
+                    state = str(payload.get("state") or "")
+                    awaiting = bool(payload.get("awaiting_confirmation")) or (
+                        state == "awaiting_confirmation"
+                    )
+            except json.JSONDecodeError:
+                awaiting = "awaiting_confirmation" in text
+                state = "awaiting_confirmation" if awaiting else ""
+            last_hint = state or text[:80]
+            if awaiting:
+                cok, cres = push_tool_call(
+                    api_base=api_base,
+                    device_token=device_token,
+                    name="hutuji.confirm",
+                    arguments={},
+                    timeout=30,
+                )
+                return (True, "hutuji.confirm ok") if cok else (False, cres)
+            # 已越过确认门（重发/竞态）：视为已开画，勿再 confirm
+            if state in (
+                "downloading",
+                "verifying",
+                "streaming",
+                "paused",
+                "paper_change",
+                "done",
+            ):
+                return True, f"already {state}"
+        time.sleep(poll_s)
+    return False, f"confirm timeout ({last_hint or 'no status'})"
+
+
 def push_for_user_binding(
     *,
     api_base: str,
@@ -250,15 +314,21 @@ def push_draw_self_heal(
     preview_url: str,
     pages_arg: str | None = None,
     on_token_minted=None,
+    auto_confirm: bool = False,
 ) -> tuple[bool, str]:
-    """推送 + 401/403 自愈：铸新 messaging token → 回调回写 → 重试一次。
+    """推送 + 401/403/404 自愈：铸新 messaging token → 回调回写 → 重试一次。
 
     on_token_minted(new_enc)：由调用方把新 token（已加密）写回绑定表。
+    铸新成功后另写 MCP 共享明文文件（`hutuji_mcp.device_messaging.save_device_token`），
+    使语音链式推送与小程序 send 不因 mcp.env 陈旧分叉。
+
+    auto_confirm：小程序/网页已预览过时，draw 成功后轮询 status 并代调
+    hutuji.confirm，设备不必再等用户点屏（2026-09-09 用户口径）。
     """
-    ok, summary = push_for_user_binding(
+    active_token = decrypt_token(token_cipher_key, device_token_enc)
+    ok, summary = push_draw_to_device(
         api_base=api_base,
-        token_cipher_key=token_cipher_key,
-        device_token_enc=device_token_enc,
+        device_token=active_token,
         gcode_url=gcode_url,
         preview_url=preview_url,
         pages_arg=pages_arg,
@@ -266,21 +336,44 @@ def push_draw_self_heal(
     # 404「Device not online」同样铸：整片刷机重生 client UUID 后旧 messaging token
     # 指向失效 clientId（2026-09-08 实机定性），重铸取注册表当前 clientId；
     # 设备真离线时重试自然仍败，不误报也不阻断。
-    if ok or summary not in ("HTTP 401", "HTTP 403", "HTTP 404"):
-        return ok, summary
-    fresh = mint_messaging_token(api_base=api_base, mac=device_mac)
-    if not fresh:
-        return False, summary + "（自愈失败：控制台 token 不可用）"
-    from draw_portal.crypto import encrypt_token
+    if (not ok) and summary in ("HTTP 401", "HTTP 403", "HTTP 404"):
+        fresh = mint_messaging_token(api_base=api_base, mac=device_mac)
+        if not fresh:
+            return False, summary + "（自愈失败：控制台 token 不可用）"
+        from draw_portal.crypto import encrypt_token
 
-    new_enc = encrypt_token(token_cipher_key, fresh)
-    if on_token_minted is not None:
-        on_token_minted(new_enc)
-    ok2, summary2 = push_draw_to_device(
+        new_enc = encrypt_token(token_cipher_key, fresh)
+        if on_token_minted is not None:
+            on_token_minted(new_enc)
+        # 与 MCP 语音链式推送共用落盘真值，避免 portal 已自愈而 mcp.env 仍是旧 JWT
+        # （2026-09-08：小程序能预览、小派自生成不能 —— MCP 链式 404 无自愈）。
+        try:
+            from hutuji_mcp.device_messaging import save_device_token
+
+            save_device_token(fresh)
+        except Exception:  # noqa: BLE001 — 落盘失败不阻断已铸成功的 portal 重试
+            pass
+        ok, summary2 = push_draw_to_device(
+            api_base=api_base,
+            device_token=fresh,
+            gcode_url=gcode_url,
+            preview_url=preview_url,
+            pages_arg=pages_arg,
+        )
+        if ok:
+            active_token = fresh
+            summary = "hutuji.draw ok（token 已自愈）"
+        else:
+            return False, summary2
+    if not ok:
+        return False, summary
+    if not auto_confirm:
+        return True, summary
+    cok, csum = auto_confirm_after_preview(
         api_base=api_base,
-        device_token=fresh,
-        gcode_url=gcode_url,
-        preview_url=preview_url,
-        pages_arg=pages_arg,
+        device_token=active_token,
     )
-    return (True, "hutuji.draw ok（token 已自愈）") if ok2 else (False, summary2)
+    if cok:
+        return True, summary + "；已自动开始画"
+    # 预览已上屏；确认失败不把整次 send 判失败，便于用户改用控制页「开始画」
+    return True, summary + f"；自动开始画未完成：{csum}"

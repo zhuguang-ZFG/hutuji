@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const phoneGate = require("../../utils/phone_gate");
 
 Page({
   data: {
@@ -19,7 +20,9 @@ Page({
     }
   },
   onShow() {
-    this.pollStatus();
+    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
+      if (ok) this.pollStatus();
+    });
   },
 
   onCodeInput(e) {

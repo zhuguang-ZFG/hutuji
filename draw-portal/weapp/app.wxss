@@ -1,40 +1,48 @@
-/** 全局主题：品牌藏青 #1A1A2E / 主色青 #2E6E65 / 米纸底 #F6F1E6 / 设备瞳色点缀 #B4F0FF */
+/** LiMa 官网同源：深空底 + 青光主色（www.donglicao.com） */
 page {
-  background: #F6F1E6;
-  color: #1A1A2E;
+  background: #0b0c13;
+  color: #f2f4f8;
   font-size: 28rpx;
-  --brand: #1A1A2E;
-  --primary: #2E6E65;
-  --accent: #B4F0FF;
-  --paper: #F6F1E6;
-  --danger: #B3403A;
+  --bg: #0b0c13;
+  --panel: #14151f;
+  --panel-2: #1a1b28;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f2f4f8;
+  --muted: #9aa3b5;
+  --cyan: #00d1e5;
+  --cyan-dim: rgba(0, 209, 229, 0.16);
+  --danger: #ff5c6a;
+  --ok: #00d1e5;
 }
 
 .card {
-  background: #fff;
-  border-radius: 24rpx;
+  background: var(--panel);
+  border-radius: 28rpx;
   padding: 32rpx;
   margin: 24rpx;
-  box-shadow: 0 6rpx 24rpx rgba(26, 26, 46, 0.07);
+  border: 1rpx solid var(--line);
+  box-shadow: 0 12rpx 48rpx rgba(0, 209, 229, 0.08);
 }
 
 .card-title {
   font-size: 34rpx;
   font-weight: 600;
+  color: var(--text);
   margin-bottom: 8rpx;
 }
 
 .card-sub {
   font-size: 24rpx;
-  color: #8A8A99;
+  color: var(--muted);
   margin-bottom: 20rpx;
 }
 
 .btn-primary {
-  background: var(--primary) !important;
-  color: #fff !important;
+  background: var(--cyan) !important;
+  color: #061016 !important;
   border-radius: 999rpx !important;
   font-size: 30rpx !important;
+  font-weight: 600 !important;
 }
 
 .btn-primary::after {
@@ -42,9 +50,9 @@ page {
 }
 
 .btn-ghost {
-  background: #fff !important;
-  color: var(--primary) !important;
-  border: 2rpx solid var(--primary) !important;
+  background: transparent !important;
+  color: var(--cyan) !important;
+  border: 2rpx solid rgba(0, 209, 229, 0.45) !important;
   border-radius: 999rpx !important;
   font-size: 30rpx !important;
 }
@@ -54,9 +62,9 @@ page {
 }
 
 .btn-danger-ghost {
-  background: #fff !important;
+  background: transparent !important;
   color: var(--danger) !important;
-  border: 2rpx solid var(--danger) !important;
+  border: 2rpx solid rgba(255, 92, 106, 0.55) !important;
   border-radius: 999rpx !important;
   font-size: 30rpx !important;
 }
@@ -70,21 +78,21 @@ page {
   padding: 6rpx 20rpx;
   border-radius: 999rpx;
   font-size: 22rpx;
-  background: #EEF6F4;
-  color: var(--primary);
+  background: var(--cyan-dim);
+  color: var(--cyan);
 }
 
 .chip.warn {
-  background: #FBF3E4;
-  color: #9A6B1A;
+  background: rgba(255, 184, 77, 0.16);
+  color: #ffb84d;
 }
 
 .chip.err {
-  background: #F9E9E8;
+  background: rgba(255, 92, 106, 0.16);
   color: var(--danger);
 }
 
 .muted {
-  color: #8A8A99;
+  color: var(--muted);
   font-size: 24rpx;
 }

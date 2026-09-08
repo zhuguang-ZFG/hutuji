@@ -77,6 +77,8 @@ class Config:
     generate_daily_limit: int
     generate_timeout_seconds: int
     gfont_dir: str  # 奎享 .gfont 字库目录（文档导入排版用）；空 = 文档导入禁用
+    # 标准笔顺目录（与 HUTUJI_STROKE_DIR 同源）；空 = 文档写字回落 gfont 连笔
+    stroke_dir: str = ""
     # 魔搭 token：照片两段式第 2 段（i2i 精修）凭据；空 = 精修禁用，照片
     # 路径维持单段 Canny（2026-09-08 拍板 UX）。与 MCP 侧 HUTUJI_MODELSCOPE_TOKEN
     # 同一凭据，两处 env 分别注入。
@@ -187,6 +189,10 @@ def load_config() -> Config:
         gfont_dir=(
             os.environ.get("DRAW_PORTAL_GFONT_DIR")
             or os.environ.get("HUTUJI_GFONT_DIR", "")
+        ).strip(),
+        stroke_dir=(
+            os.environ.get("DRAW_PORTAL_STROKE_DIR")
+            or os.environ.get("HUTUJI_STROKE_DIR", "")
         ).strip(),
         modelscope_token=os.environ.get("HUTUJI_MODELSCOPE_TOKEN", "").strip(),
         tcb_image_url=os.environ.get("HUTUJI_TCB_IMAGE_URL", "").strip(),

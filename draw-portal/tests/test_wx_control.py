@@ -36,12 +36,15 @@ def _clients(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClien
     _env(monkeypatch, tmp_path)
     monkeypatch.setattr(app_mod, "_wx_code2session", lambda cfg, code: "openid-B")
     monkeypatch.setattr("draw_portal.app.probe_device_token", lambda **kwargs: (True, "mock"))
+    monkeypatch.setattr(app_mod, "_wx_phone_number", lambda cfg, code: "13900139000")
     app = create_app()
     c1, c2 = TestClient(app), TestClient(app)
     req = c1.post("/api/auth/register/request", json={"email": "buyer@qq.com", "password": "secret123"})
     code = req.json()["dev_code"]
     assert c1.post("/api/auth/register/verify", json={"email": "buyer@qq.com", "code": code}).status_code == 200
+    assert c1.post("/api/auth/bind-phone", json={"phone": "13800138000"}).status_code == 200
     assert c2.post("/api/auth/wx-login", json={"code": "js"}).status_code == 200
+    assert c2.post("/api/auth/wx-phone", json={"code": "phone"}).status_code == 200
     return c1, c2
 
 
@@ -113,11 +116,22 @@ def test_device_control_dispatch_and_result_relay(tmp_path: Path, monkeypatch: p
     assert calls[0]["arguments"] == {"action": "jog_x+"}
     assert r.json()["result"] == '{"state":"idle"}'
 
-    err = '{"error":"设备正忙"}'
+    # 现网 messaging 信封：success + data（不是 MCP content）
+    import json as _json
+
+    payload = {"connected": True, "ready": True, "state": "idle"}
+    envelope = _json.dumps(
+        {"success": True, "message": "Tools called successfully", "data": payload},
+        separators=(",", ":"),
+    )
+    monkeypatch.setattr(app_mod, "push_tool_call", lambda **kw: (True, envelope))
+    st = c2.post("/api/device/control", json={"tool": "hutuji.status"})
+    assert st.status_code == 200
+    assert _json.loads(st.json()["result"]) == payload
+
     monkeypatch.setattr(app_mod, "push_tool_call", lambda **kw: (False, "HTTP 503"))
     r2 = c2.post("/api/device/control", json={"tool": "hutuji.pen_test"})
     assert r2.json() == {"status": "error", "detail": "HTTP 503"}
-    assert err  # noqa: F841 — 形状对照说明
 
 def test_wx_profile_phone_avatar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _, c2 = _clients(monkeypatch, tmp_path)

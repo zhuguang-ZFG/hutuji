@@ -141,6 +141,12 @@ class WxPhoneBody(BaseModel):
     code: str = Field(min_length=1, max_length=128)
 
 
+class BindPhoneBody(BaseModel):
+    """网页/邮箱账号补绑手机号（小程序微信用户须走 getPhoneNumber → wx-phone）。"""
+
+    phone: str = Field(min_length=11, max_length=20)
+
+
 class DeviceControlBody(BaseModel):
     tool: str = Field(min_length=1, max_length=32)
     action: str | None = None
@@ -352,7 +358,24 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=403, detail="邮箱未验证")
         return user_id
 
+    def require_phone(user_id: str = Depends(user_dep)) -> str:
+        """产品主路径硬前置：未绑定手机号禁止绑机 / 传图 / 生图 / 推送 / 控制。
+        只读 me、拿号、资料、登出仍走 secured。错误码稳定为 phone_required。"""
+        user = store.get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=401, detail="未登录")
+        if not (user.phone and str(user.phone).strip()):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "phone_required",
+                    "message": "请先绑定手机号后再使用",
+                },
+            )
+        return user_id
+
     secured = [Depends(user_dep)]
+    phone_secured = [Depends(require_phone)]
 
     def _send_register_code(email: str, password: str) -> dict[str, str]:
         if not config.smtp_host or not config.smtp_from:
@@ -493,11 +516,14 @@ def create_app() -> FastAPI:
         if user is None:
             raise HTTPException(status_code=401, detail="未登录")
         binding = store.get_binding_for_user(user_id)
+        phone = user.phone
+        phone_bound = bool(phone and str(phone).strip())
         return {
             "email": user.email,
             "wx": user.wx_openid is not None,
             "nickname": user.nickname,
-            "phone": user.phone,
+            "phone": phone,
+            "phone_bound": phone_bound,
             "avatar_url": f"/api/auth/avatar/{user.id}" if user.avatar_path else None,
             "binding": store.binding_status_dict(binding),
         }
@@ -597,8 +623,26 @@ def create_app() -> FastAPI:
         store.set_user_phone(user_id, phone)
         return {"status": "ok", "phone": phone}
 
-    @app.post("/api/device/control", dependencies=secured)
-    def device_control(body: DeviceControlBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+    @app.post("/api/auth/bind-phone", dependencies=secured)
+    def bind_phone(body: BindPhoneBody, user_id: str = Depends(user_dep)) -> dict[str, str]:
+        """邮箱账号补绑中国大陆 11 位手机号；微信用户须走 wx-phone。"""
+        import re as _re
+
+        user = store.get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=401, detail="未登录")
+        if user.wx_openid:
+            raise HTTPException(status_code=400, detail="微信用户请用手机号授权")
+        phone = body.phone.strip().replace(" ", "").replace("-", "")
+        if phone.startswith("+86"):
+            phone = phone[3:]
+        if not _re.fullmatch(r"1\d{10}", phone):
+            raise HTTPException(status_code=400, detail="手机号格式不正确")
+        store.set_user_phone(user_id, phone)
+        return {"status": "ok", "phone": phone}
+
+    @app.post("/api/device/control", dependencies=phone_secured)
+    def device_control(body: DeviceControlBody, user_id: str = Depends(require_phone)) -> dict[str, Any]:
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定设备")
@@ -644,8 +688,11 @@ def create_app() -> FastAPI:
                 )
         if not ok:
             return {"status": "error", "detail": result}
-        # 设备工具回包是 JSON 字符串（hutuji.status 等）或 started/true；原样透传给前端解析
-        return {"status": "ok", "result": result}
+        # 设备侧 McpTool::Call 包一层 content/isError；解出 text 再回前端，
+        # 避免小程序把 content 数组当 status → connected 读不到假「未连接」。
+        from draw_portal.mcp_result import unwrap_tool_text
+
+        return {"status": "ok", "result": unwrap_tool_text(result)}
 
     def _finalize_binding(session: BindSession, user_id: str, now: float, event_type: str) -> DeviceBinding:
         """探活 + 旧 token 保留 + 落绑定 + usage 埋点：抽屉码与自动撮合共用一条完成路径。"""
@@ -717,7 +764,7 @@ def create_app() -> FastAPI:
         store.delete_bind_claim(mac)
         return binding
 
-    @app.post("/api/user/bind/complete", dependencies=secured)
+    @app.post("/api/user/bind/complete", dependencies=phone_secured)
     def bind_complete(body: BindCompleteBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         try:
             code = normalize_bind_code(body.bind_code)
@@ -739,7 +786,7 @@ def create_app() -> FastAPI:
         binding = _finalize_binding(session, user_id, now, "bind_complete")
         return {"status": "bound", "binding": store.binding_status_dict(binding)}
 
-    @app.post("/api/user/bind/claim", dependencies=secured)
+    @app.post("/api/user/bind/claim", dependencies=phone_secured)
     def bind_claim(body: BindClaimBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         """一次扫码合一流程的认领侧：小程序配网成功后按 QR 里的 MAC 认领。
         设备 announce 到达即自动绑定；announce 先到（设备先连回家网）则此处直接撮合。"""
@@ -770,7 +817,7 @@ def create_app() -> FastAPI:
             return {"status": "bound", "binding": store.binding_status_dict(binding)}
         return {"status": "claimed", "expires_at": claim.expires_at}
 
-    @app.post("/api/user/bind/unbind", dependencies=secured)
+    @app.post("/api/user/bind/unbind", dependencies=phone_secured)
     def bind_unbind(user_id: str = Depends(user_dep)) -> dict[str, str]:
         binding = store.get_binding_for_user(user_id)
         if not store.delete_binding_for_user(user_id):
@@ -784,7 +831,7 @@ def create_app() -> FastAPI:
             )
         return {"status": "unbound"}
 
-    @app.get("/api/user/bind/status", dependencies=secured)
+    @app.get("/api/user/bind/status", dependencies=phone_secured)
     def bind_status(user_id: str = Depends(user_dep)) -> dict[str, Any]:
         binding = store.get_binding_for_user(user_id)
         return store.binding_status_dict(binding)
@@ -966,7 +1013,7 @@ def create_app() -> FastAPI:
         async with _refine_slots:
             await _refine_photo_job(orig_job_id, raw, user_id)
 
-    @app.post("/api/draw/upload", dependencies=secured)
+    @app.post("/api/draw/upload", dependencies=phone_secured)
     async def draw_upload(
         file: UploadFile = File(...),
         user_id: str = Depends(user_dep),
@@ -1001,8 +1048,13 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=503, detail="文档导入未配置（服务端缺字库目录）")
             try:
                 result = await asyncio.to_thread(
-                    process_upload_doc, raw, kind, job_path, gfont_dir=config.gfont_dir
-                )
+                    process_upload_doc,
+                    raw,
+                    kind,
+                    job_path,
+                    gfont_dir=config.gfont_dir,
+                    stroke_dir=config.stroke_dir,
+                                )
                 published_pages = await asyncio.to_thread(
                     publish_doc_pages,
                     job_dir=job_path,
@@ -1093,7 +1145,7 @@ def create_app() -> FastAPI:
             "refined": refined_payload,
         }
 
-    @app.get("/api/draw/jobs/{job_id}", dependencies=secured)
+    @app.get("/api/draw/jobs/{job_id}", dependencies=phone_secured)
     def draw_job_status(
         job_id: str,
         user_id: str = Depends(user_dep),
@@ -1123,7 +1175,7 @@ def create_app() -> FastAPI:
         payload["refined"] = refined
         return payload
 
-    @app.post("/api/draw/generate", dependencies=secured)
+    @app.post("/api/draw/generate", dependencies=phone_secured)
     async def draw_generate(
         body: GenerateDrawBody,
         user_id: str = Depends(user_dep),
@@ -1209,7 +1261,7 @@ def create_app() -> FastAPI:
             "description": description,
         }
 
-    @app.post("/api/draw/{job_id}/send", dependencies=secured)
+    @app.post("/api/draw/{job_id}/send", dependencies=phone_secured)
     def draw_send(job_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         job = store.get_draw_job(job_id, user_id=user_id)
         if job is None:
@@ -1248,6 +1300,7 @@ def create_app() -> FastAPI:
             preview_url=preview_url,
             pages_arg=pages_arg,
             on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc),
+            auto_confirm=True,
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())
@@ -1260,7 +1313,7 @@ def create_app() -> FastAPI:
         )
         return {"status": "sent" if ok else "push_failed", "detail": summary}
 
-    @app.post("/api/draw/{job_id}/save", dependencies=secured)
+    @app.post("/api/draw/{job_id}/save", dependencies=phone_secured)
     def draw_save(
         job_id: str,
         body: SavePreviewBody | None = None,
@@ -1315,7 +1368,7 @@ def create_app() -> FastAPI:
             "preview_url": f"/api/draw/saved/{saved.id}/preview.png",
         }
 
-    @app.get("/api/draw/saved", dependencies=secured)
+    @app.get("/api/draw/saved", dependencies=phone_secured)
     def draw_saved_list(user_id: str = Depends(user_dep)) -> dict[str, Any]:
         items = store.list_saved_previews(user_id)
         return {
@@ -1331,7 +1384,7 @@ def create_app() -> FastAPI:
             ]
         }
 
-    @app.get("/api/draw/saved/{saved_id}", dependencies=secured)
+    @app.get("/api/draw/saved/{saved_id}", dependencies=phone_secured)
     def draw_saved_detail(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         item = store.get_saved_preview(saved_id, user_id=user_id)
         if item is None:
@@ -1344,7 +1397,7 @@ def create_app() -> FastAPI:
             "preview_url": f"/api/draw/saved/{item.id}/preview.png",
         }
 
-    @app.get("/api/draw/saved/{saved_id}/preview.png", dependencies=secured)
+    @app.get("/api/draw/saved/{saved_id}/preview.png", dependencies=phone_secured)
     def draw_saved_preview_png(saved_id: str, user_id: str = Depends(user_dep)) -> FileResponse:
         item = store.get_saved_preview(saved_id, user_id=user_id)
         if item is None:
@@ -1354,7 +1407,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="预览已丢失")
         return FileResponse(path, media_type="image/png")
 
-    @app.post("/api/draw/saved/{saved_id}/send", dependencies=secured)
+    @app.post("/api/draw/saved/{saved_id}/send", dependencies=phone_secured)
     def draw_saved_send(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         item = store.get_saved_preview(saved_id, user_id=user_id)
         if item is None:
@@ -1382,6 +1435,7 @@ def create_app() -> FastAPI:
             gcode_url=published.gcode_url,
             preview_url=published.preview_url,
             on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc),
+            auto_confirm=True,
         )
         if ok:
             store.update_binding_last_push(user_id, when=time.time())
@@ -1487,7 +1541,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=403, detail="仅允许可信内网或 loopback 读取")
         return store.get_mcp_settings_payload()
 
-    @app.delete("/api/draw/saved/{saved_id}", dependencies=secured)
+    @app.delete("/api/draw/saved/{saved_id}", dependencies=phone_secured)
     def draw_saved_delete(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, str]:
         item = store.delete_saved_preview(saved_id, user_id=user_id)
         if item is None:

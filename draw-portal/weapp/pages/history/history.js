@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const phoneGate = require("../../utils/phone_gate");
 
 Page({
   data: {
@@ -7,7 +8,10 @@ Page({
   },
 
   onShow() {
-    this.refresh();
+    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
+      if (ok) this.refresh();
+      else this.setData({ loading: false });
+    });
   },
 
   onPullDownRefresh() {
@@ -54,14 +58,18 @@ Page({
     const savedId = e.currentTarget.dataset.id;
     wx.showModal({
       title: "发送到写字机",
-      content: "写字机屏幕出现预览后点「开始画」",
+      content: "将直接开始画，无需再在小派上确认",
       success: (res) => {
         if (!res.confirm) return;
         api
           .request(`/api/draw/saved/${savedId}/send`, { method: "POST" })
           .then((r) => {
             if (r.status === "sent") {
-              wx.showToast({ title: "已发送", icon: "success" });
+              const started = /已自动开始画/.test(r.detail || "");
+              wx.showToast({
+                title: started ? "已开始画" : "已发送",
+                icon: "success",
+              });
             } else {
               wx.showModal({ title: "发送失败", content: r.detail, showCancel: false });
             }

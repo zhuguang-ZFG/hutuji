@@ -18,6 +18,13 @@ from .llm_svg import _validate_svg
 logger = logging.getLogger(__name__)
 _rng = random.SystemRandom()
 _warned: set[tuple[str, str]] = set()
+# 与 quickdraw._PREFIX_RE 画风词同源：默认走 AI 位图素描链；仅用户显式要
+# 「简笔/速写/涂鸦…」时才吃 curated（2026-09-08：裸「画老虎」命中 curated
+# 随机抽到儿童简笔轮廓，无排线素描感，用户判画质不行——QD 退役后风格门
+# 曾漏接，lookup_preferred 对达标类目无条件优先）。
+_STYLE_RE = re.compile(
+    r"(?:简笔画|简笔|速写|涂鸦|快速|随便|灵魂)"
+)
 _POINTS_RE = re.compile(r"<polyline\b[^>]*\bpoints=\"([^\"]+)\"", re.I)
 # 预览源坐标框必须与条目 viewBox 一致：生成件 1024 空间、矢量件 36 空间，
 # 硬写 256 会把全部点裁出画布（2026-08-27 小派预览空白实锤，321B 近空 PNG）。
@@ -145,14 +152,20 @@ def _pick_and_load(root_s: str, category: str) -> BitmapResult | None:
     return BitmapResult(svg=svg, preview_png=_preview_from_svg(svg))
 
 
-def lookup_preferred(description: str) -> BitmapResult | None:
-    """达标类目优先出 curated（2026-08-27 用户拍板 QD 退役路由）。
+def wants_curated_style(description: str) -> bool:
+    """用户是否显式要 curated/简笔风；裸「画 X」默认 False → AI。"""
+    return bool(_STYLE_RE.search(description or ""))
 
-    判据：类目在 manifest 的 count >= n_min（单类目达标，不要求全集
-    ready——142/142 运行时抽检已过，见 deployment 文首）。manifest 每次
-    现读（灌库进行中计数要新鲜，不能 lru_cache 冻结）；未达标/未映射/
-    目录缺失一律 None 落 AI 链。
+
+def lookup_preferred(description: str) -> BitmapResult | None:
+    """达标类目 + 显式简笔风 才出 curated（2026-08-27 QD 退役；2026-09-08 补风格门）。
+
+    判据：① 描述含简笔/速写/涂鸦等风格词；② 类目在 manifest 的 count >= n_min
+    （单类目达标，不要求全集 ready）。manifest 每次现读（灌库进行中计数要新鲜，
+    不能 lru_cache 冻结）；无风格词/未达标/未映射/目录缺失一律 None 落 AI 链。
     """
+    if not wants_curated_style(description):
+        return None
     root = _curated_dir()
     if root is None:
         return None

@@ -11,6 +11,29 @@ function setSession(v) {
   if (v) wx.setStorageSync("session_token", v);
 }
 
+function _detailPayload(data) {
+  if (!data) return { message: "请求失败，请稍后再试", code: null };
+  const d = data.detail;
+  if (d && typeof d === "object") {
+    return {
+      message: d.message || d.code || "请求失败，请稍后再试",
+      code: d.code || null,
+    };
+  }
+  if (typeof d === "string") return { message: d, code: null };
+  return { message: "请求失败，请稍后再试", code: null };
+}
+
+function _handlePhoneRequired(payload) {
+  if (payload.code !== "phone_required") return;
+  try {
+    const gate = require("./phone_gate");
+    gate.redirectToPhoneGate(payload.message);
+  } catch (e) {
+    wx.showToast({ title: payload.message || "请先授权手机号", icon: "none" });
+  }
+}
+
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
     wx.request({
@@ -32,9 +55,16 @@ function request(path, options = {}) {
           return;
         }
         if (res.statusCode >= 400) {
-          const detail =
-            (res.data && res.data.detail) || "请求失败，请稍后再试";
-          reject({ status: res.statusCode, detail });
+          const payload = _detailPayload(res.data);
+          if (res.statusCode === 403 && payload.code === "phone_required") {
+            _handlePhoneRequired(payload);
+          }
+          reject({
+            status: res.statusCode,
+            detail: payload.message,
+            code: payload.code,
+            message: payload.message,
+          });
           return;
         }
         resolve(res.data);
@@ -56,12 +86,19 @@ function uploadFile(path, filePath, name) {
       timeout: 150000,
       success(res) {
         if (res.statusCode >= 400) {
-          let detail = "上传失败";
+          let data = null;
           try {
-            const data = JSON.parse(res.data);
-            if (data && data.detail) detail = data.detail;
+            data = JSON.parse(res.data);
           } catch (e) {}
-          reject({ status: res.statusCode, detail });
+          const payload = _detailPayload(data || { detail: "上传失败" });
+          if (res.statusCode === 403 && payload.code === "phone_required") {
+            _handlePhoneRequired(payload);
+          }
+          reject({
+            status: res.statusCode,
+            detail: payload.message,
+            code: payload.code,
+          });
           return;
         }
         let data = res.data;
@@ -100,4 +137,21 @@ function downloadFile(path) {
 }
 
 
-module.exports = { BASE_URL, request, uploadFile, downloadFile, getSession, setSession };
+/** 相对路径 → 可给 <image> 用的绝对 URL；已是 http(s)/本地临时路径则原样返回。 */
+function mediaUrl(path) {
+  if (!path) return "";
+  const s = String(path);
+  if (/^(https?:|wxfile:|data:|blob:)/i.test(s)) return s;
+  if (s.startsWith("//")) return "https:" + s;
+  return BASE_URL + (s.startsWith("/") ? s : "/" + s);
+}
+
+module.exports = {
+  BASE_URL,
+  request,
+  uploadFile,
+  downloadFile,
+  getSession,
+  setSession,
+  mediaUrl,
+};

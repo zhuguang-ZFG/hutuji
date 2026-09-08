@@ -95,13 +95,16 @@ def _photo_to_line_art(arr):
     return util.img_as_ubyte(1.0 - edges.astype(float))
 
 
-def process_upload_doc(raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str) -> DocPipelineResult:
+def process_upload_doc(
+    raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str, stroke_dir: str = "",
+) -> DocPipelineResult:
     """文档 → 解析 → 排版 → 每页 SVG/G-code/预览（多页，pages/ 目录 + pages.json）。
 
     版式全部自排（normalize=False 跳过 vpype layout）：文章走 write_text
     （与语音 hutuji_write 同链），表格走 table_layout（格线+格内字同页笔画）。
     两种模式的每页产物都过同一条 §5 闸（_validate_svg + validate_gcode）。
     gfont_dir 由 app 层在路由前验空（未配置 = 503），此处断言即可。
+    stroke_dir 可选：配置则文章 CJK 按标准笔顺逐笔抬笔（与 hutuji_write 同）。
     """
     import json as _json
 
@@ -116,6 +119,14 @@ def process_upload_doc(raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str) 
 
     font = write_text.load_font(gfont_dir, None)
     metrics = write_text.measure_font(font)
+    stroke_data = None
+    if stroke_dir:
+        from hutuji_mcp import stroke_order
+
+        try:
+            stroke_data = stroke_order.StrokeData.load(stroke_dir)
+        except stroke_order.StrokeOrderError:
+            stroke_data = None
     if doc.mode == "article":
         # 与语音写字链同参数（WriteLayout 默认值即生产值）；标题段（docx pStyle /
         # pptx title 占位符检出）免段首缩进 + 段前后加距（2026-09-04 用户拍板）
@@ -123,6 +134,7 @@ def process_upload_doc(raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str) 
             "\n".join(doc.paragraphs), font, metrics, write_text.WriteLayout(),
             max_pages=ARTICLE_MAX_PAGES,
             headings=doc.headings or None,
+            stroke_data=stroke_data,
         )
     else:
         # 表格：8mm 字号/1.25 行距/0.5 字距——190mm 页区塞下常见成绩表的

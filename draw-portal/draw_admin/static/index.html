@@ -521,10 +521,40 @@
     </div>
 
     <div class="card">
+      <h2 class="section-title">设备绑定一览</h2>
+      <p class="muted" style="margin-top:0">MAC ↔ 用户 ↔ 手机号 ↔ 最近推送 / token 探活（不含 token）</p>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>邮箱</th><th>状态</th><th>绑机</th><th>传图</th><th>图库</th><th>操作</th></tr>
+            <tr><th>MAC</th><th>手机号</th><th>邮箱</th><th>状态</th><th>探活</th><th>最近推送</th></tr>
+          </thead>
+          <tbody id="bindings-body"></tbody>
+        </table>
+      </div>
+      <div id="bindings-empty" class="empty-hint hidden">暂无绑定</div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">版本备注（人工登记）</h2>
+      <div class="provider-form-grid two-col">
+        <label class="field"><span>小程序版本</span><input type="text" id="ops-weapp" placeholder="如 0.2.2"></label>
+        <label class="field"><span>固件备注</span><input type="text" id="ops-fw" placeholder="板型/commit 摘要"></label>
+        <label class="field" style="grid-column:1/-1"><span>出货备注</span><input type="text" id="ops-ship" placeholder="不宣称可出货，仅备忘"></label>
+      </div>
+      <button id="btn-ops-save" class="primary sm" style="margin-top:0.55rem">保存备注</button>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">出货签核清单（只读）</h2>
+      <p id="checklist-note" class="muted" style="margin-top:0"></p>
+      <div id="checklist-body"></div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>邮箱</th><th>手机</th><th>状态</th><th>绑机</th><th>传图</th><th>图库</th><th>操作</th></tr>
           </thead>
           <tbody id="users-body"></tbody>
         </table>
@@ -879,6 +909,7 @@ function renderUserRow(u) {
   return `
     <tr>
       <td>${u.email}</td>
+      <td>${u.phone || "—"}</td>
       <td>${tag(u.status)}</td>
       <td>${u.bound ? (u.device_mac || "是") : "否"}</td>
       <td>${u.job_count}</td>
@@ -902,6 +933,7 @@ function renderUserCard(u) {
         ${tag(u.status)}
       </div>
       <div class="user-card-meta">
+        <div>手机：${u.phone || "—"}</div>
         <div>绑机：${u.bound ? (u.device_mac || "是") : "否"}</div>
         <div>传图：${u.job_count}</div>
         <div>图库：${u.saved_count}</div>
@@ -933,14 +965,77 @@ async function loadUsers() {
   bindUserActions($("users-cards"));
 }
 
+function fmtTs(ts) {
+  if (!ts) return "—";
+  try {
+    return new Date(ts * 1000).toLocaleString();
+  } catch (e) {
+    return String(ts);
+  }
+}
+
+async function loadBindings() {
+  const data = await api("/bindings");
+  const items = data.items || [];
+  $("bindings-empty").classList.toggle("hidden", items.length > 0);
+  $("bindings-body").innerHTML = items.map((b) => `
+    <tr>
+      <td><code>${b.device_mac}</code></td>
+      <td>${b.phone || "—"}</td>
+      <td>${b.email || "—"}</td>
+      <td>${tag(b.user_status || "active")}</td>
+      <td>${b.token_probe_ok === true ? "OK" : (b.token_probe_ok === false ? "失败" : "—")}</td>
+      <td>${fmtTs(b.last_push_at)}</td>
+    </tr>`).join("");
+}
+
+async function loadOpsNotes() {
+  const n = await api("/ops/notes");
+  $("ops-weapp").value = n.weapp_version || "";
+  $("ops-fw").value = n.firmware_note || "";
+  $("ops-ship").value = n.shipping_note || "";
+}
+
+async function loadChecklist() {
+  const d = await api("/ops/checklist");
+  $("checklist-note").textContent = d.note || "";
+  $("checklist-body").innerHTML = (d.sections || []).map((s) => `
+    <div style="margin-bottom:0.75rem">
+      <strong>${s.id}. ${s.title}</strong>
+      <ul style="margin:0.35rem 0 0;padding-left:1.2rem;color:var(--muted)">
+        ${(s.items || []).map((it) => `<li>□ ${it}</li>`).join("")}
+      </ul>
+    </div>`).join("") +
+    `<p class="muted">真值文档：${d.source || "docs/release-checklist.md"}（仓内，不在此勾选）</p>`;
+}
+
 async function enterDash() {
   $("login-section").classList.add("hidden");
   $("dash-section").classList.remove("hidden");
   await loadStats();
   await loadDrawSettings();
   await loadImageProviders();
+  await loadBindings();
+  await loadOpsNotes();
+  await loadChecklist();
   await loadUsers();
 }
+
+$("btn-ops-save").onclick = async () => {
+  try {
+    await api("/ops/notes", {
+      method: "PUT",
+      body: JSON.stringify({
+        weapp_version: $("ops-weapp").value,
+        firmware_note: $("ops-fw").value,
+        shipping_note: $("ops-ship").value,
+      }),
+    });
+    toast("备注已保存");
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
 
 $("btn-save-limits").onclick = () => saveDrawLimits().catch((e) => toast(e.message, true));
 $("btn-save-backends").onclick = () => saveImageBackends().catch((e) => toast(e.message, true));

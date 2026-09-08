@@ -9,15 +9,16 @@
   ],
   "window": {
     "navigationBarTitleText": "动力巢",
-    "navigationBarBackgroundColor": "#1A1A2E",
+    "navigationBarBackgroundColor": "#0B0C13",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#F6F1E6"
+    "backgroundColor": "#0B0C13",
+    "backgroundTextStyle": "light"
   },
   "tabBar": {
-    "color": "#8A8A99",
-    "selectedColor": "#2E6E65",
-    "backgroundColor": "#FFFFFF",
-    "borderStyle": "white",
+    "color": "#6B7385",
+    "selectedColor": "#00D1E5",
+    "backgroundColor": "#0B0C13",
+    "borderStyle": "black",
     "list": [
       { "pagePath": "pages/index/index", "text": "创作" },
       { "pagePath": "pages/control/control", "text": "控制" },

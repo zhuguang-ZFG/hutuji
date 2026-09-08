@@ -9,6 +9,14 @@
 
 ---
 
+## 0. 2026-09-09 收口入库（本批提交）
+
+| 项 | 说明 |
+|----|------|
+| 产品 | weapp LiMa 主题 + 控机疏密至 **0.2.10**；portal send **自动 confirm**；imagefree 默认关；Agnes 400 短 prompt 再试；CJK 笔顺写字链（既有工作树一并入库） |
+| 生产 | 双机已热更；备份 `/root/hutuji-bak-20260909-{imagefree,autoconfirm}/` |
+| 仍脏/不入库 | `tmp/**`、本地截图/记忆草稿、`.playwright-mcp/`、外仓固件未推项以各仓 status 为准 |
+
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
 ### TCB 混元 i2i 通道批（2026-09-08，代码已测未提交未部署；云函数补丁待用户粘贴）

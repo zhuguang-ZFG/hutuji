@@ -19,19 +19,22 @@ def _fake_mint(*, api_base, mac, timeout=15):
 
 
 def test_401_self_heal_mints_updates_and_retries(monkeypatch):
-    calls = {"push": [], "mint": 0, "stored": []}
-
-    def fake_push_for_user_binding(**kw):
-        calls["push"].append(kw["device_token_enc"])
-        return False, "HTTP 401"
+    calls = {"push": [], "stored": []}
 
     def fake_push_draw(**kw):
-        calls["push"].append(kw["device_token"])
+        tok = kw["device_token"]
+        calls["push"].append(tok)
+        if tok == "stale-plain":
+            return False, "HTTP 401"
         return True, "hutuji.draw ok"
 
-    monkeypatch.setattr(push_mod, "push_for_user_binding", fake_push_for_user_binding)
     monkeypatch.setattr(push_mod, "push_draw_to_device", fake_push_draw)
     monkeypatch.setattr(push_mod, "mint_messaging_token", _fake_mint)
+    monkeypatch.setattr(
+        push_mod,
+        "decrypt_token",
+        lambda _k, enc: "stale-plain",
+    )
 
     ok, summary = push_draw_self_heal(
         api_base="https://example",
@@ -44,8 +47,8 @@ def test_401_self_heal_mints_updates_and_retries(monkeypatch):
     )
     assert ok
     assert "自愈" in summary
-    assert len(calls["stored"]) == 1  # 新 token（加密后）已回写
-    assert calls["push"][-1] == "fresh-jwt"  # 重试用的是新铸明文 token
+    assert len(calls["stored"]) == 1
+    assert calls["push"][-1] == "fresh-jwt"
 
 
 def test_404_not_online_self_heal_mints_and_retries(monkeypatch):
@@ -53,20 +56,29 @@ def test_404_not_online_self_heal_mints_and_retries(monkeypatch):
     client UUID，旧 messaging token 指向失效 clientId，预览推送上屏全 404）。"""
     calls = {"mint": 0, "push": []}
 
-    def fake_push_for_user_binding(**kw):
-        return False, "HTTP 404"
-
     def fake_push_draw(**kw):
         calls["push"].append(kw["device_token"])
+        if kw["device_token"] == "stale-plain":
+            return False, "HTTP 404"
         return True, "hutuji.draw ok"
 
     def fake_mint(**kw):
         calls["mint"] += 1
         return "fresh-jwt-404"
 
-    monkeypatch.setattr(push_mod, "push_for_user_binding", fake_push_for_user_binding)
+    saved: list[str] = []
+
     monkeypatch.setattr(push_mod, "push_draw_to_device", fake_push_draw)
     monkeypatch.setattr(push_mod, "mint_messaging_token", fake_mint)
+    monkeypatch.setattr(
+        push_mod,
+        "decrypt_token",
+        lambda _k, enc: "stale-plain",
+    )
+    monkeypatch.setattr(
+        "hutuji_mcp.device_messaging.save_device_token",
+        lambda tok: saved.append(tok),
+    )
 
     ok, summary = push_draw_self_heal(
         api_base="https://example",
@@ -79,12 +91,18 @@ def test_404_not_online_self_heal_mints_and_retries(monkeypatch):
     assert ok
     assert calls["mint"] == 1
     assert calls["push"][-1] == "fresh-jwt-404"
+    assert saved == ["fresh-jwt-404"]
 
 
 def test_non_401_does_not_mint(monkeypatch):
     monkeypatch.setattr(
         push_mod,
-        "push_for_user_binding",
+        "decrypt_token",
+        lambda _k, enc: "plain",
+    )
+    monkeypatch.setattr(
+        push_mod,
+        "push_draw_to_device",
         lambda **kw: (False, "网络 TimeoutError"),
     )
     monkeypatch.setattr(
@@ -107,7 +125,12 @@ def test_non_401_does_not_mint(monkeypatch):
 def test_mint_unavailable_reports_heal_failure(monkeypatch):
     monkeypatch.setattr(
         push_mod,
-        "push_for_user_binding",
+        "decrypt_token",
+        lambda _k, enc: "plain",
+    )
+    monkeypatch.setattr(
+        push_mod,
+        "push_draw_to_device",
         lambda **kw: (False, "HTTP 401"),
     )
     monkeypatch.setattr(push_mod, "mint_messaging_token", lambda **kw: "")

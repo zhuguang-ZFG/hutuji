@@ -1,4 +1,5 @@
 {
-  "usingComponents": {},
-  "navigationBarTitleText": "写字机"
+  "navigationBarTitleText": "写字机",
+  "backgroundColor": "#0B0C13",
+  "usingComponents": {}
 }

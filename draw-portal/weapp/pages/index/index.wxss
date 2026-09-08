@@ -1,120 +1,217 @@
-.page {
-  min-height: 100vh;
-  padding-bottom: 40rpx;
+@import "../../styles/weui-page.wxss";
+
+.create-page {
+  padding-bottom: 32rpx;
 }
 
-.hero {
-  background: linear-gradient(135deg, #1A1A2E 0%, #24344F 100%);
-  color: #fff;
-}
-
-.hero-title {
-  font-size: 40rpx;
-  font-weight: 600;
-  margin-bottom: 20rpx;
-}
-
-.desc-input {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 16rpx;
-  padding: 20rpx;
-  min-height: 120rpx;
-  color: #fff;
-  font-size: 28rpx;
-}
-
-.desc-input::placeholder {
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.hero-foot {
+.slim-head {
+  margin: 20rpx 28rpx 12rpx;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  margin-top: 20rpx;
+  gap: 16rpx;
 }
 
-.hero-btn {
-  min-width: 300rpx;
+.slim-title {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.slim-title .accent {
+  color: #00d1e5;
+}
+
+.slim-quota {
+  font-size: 22rpx;
+  color: #9aa3b5;
+  flex-shrink: 0;
+}
+
+.input-panel {
+  margin-top: 0;
+}
+
+.weui-cell_textarea {
+  align-items: flex-start;
+  padding-top: 18rpx;
+  padding-bottom: 18rpx;
+}
+
+.weui-textarea {
+  width: 100%;
+  min-height: 100rpx;
+  font-size: 30rpx;
+  color: #f2f4f8;
+  line-height: 1.5;
+}
+
+.ph {
+  color: #6b7385;
+}
+
+.preview-card {
+  margin: 20rpx 24rpx 0;
+  padding: 20rpx;
+  border-radius: 24rpx;
+  background: #14151f;
+  border: 1rpx solid rgba(0, 209, 229, 0.22);
 }
 
 .preview {
   width: 100%;
-  height: 560rpx;
-  background: #F6F1E6;
+  height: 620rpx;
+  background: #0b0c13;
   border-radius: 16rpx;
-  margin-bottom: 12rpx;
+  display: block;
 }
 
-.center-text {
+.preview-meta {
   text-align: center;
-  margin-bottom: 16rpx;
+  margin: 14rpx 0 8rpx;
 }
 
-.block-btn {
-  margin-top: 16rpx;
+.send-inline {
+  margin-top: 8rpx !important;
+  line-height: 2.1 !important;
+  font-size: 30rpx !important;
 }
 
-.row-btns {
-  display: flex;
-  gap: 20rpx;
-}
-
-.half {
-  flex: 1;
-}
-
-/* AI 精修版本切换：线稿版 / 精修版两张小卡横排，选中项加主题色高亮边框 */
-.version-row {
-  display: flex;
-  gap: 20rpx;
-  margin-bottom: 12rpx;
-}
-
-.version-item {
-  flex: 1;
-  padding: 10rpx;
-  border: 2rpx solid transparent;
-  border-radius: 16rpx;
-  text-align: center;
-}
-
-.version-active {
-  border-color: var(--primary);
-}
-
-.version-thumb {
-  width: 100%;
-  height: 180rpx;
-  background: #F6F1E6;
-  border-radius: 12rpx;
-}
-
-.version-name {
-  margin-top: 8rpx;
-  font-size: 24rpx;
-  color: #8A8A99;
-}
-
-/* AI 精修等待态（2026-09-08 A 方案：只等 AI 版，失败才给 Canny 草图） */
 .refine-waiting {
-  padding: 90rpx 30rpx;
+  padding: 100rpx 24rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16rpx;
 }
 
+.pulse-ring {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(0, 209, 229, 0.25);
+  box-shadow: 0 0 0 12rpx rgba(0, 209, 229, 0.08), inset 0 0 0 18rpx rgba(0, 209, 229, 0.35);
+}
+
 .refine-waiting-title {
-  font-size: 36rpx;
+  font-size: 34rpx;
   font-weight: 600;
-  color: #2E6E65;
+  color: #00d1e5;
 }
 
-.upload-ready {
-  margin-top: 20rpx;
+.center-text {
+  text-align: center;
 }
 
-.bind-card {
-  border: 2rpx dashed #2E6E65;
+.action-grid {
+  margin: 28rpx 24rpx 0;
+  display: flex;
+  gap: 16rpx;
+}
+
+.action-tile {
+  flex: 1;
+  margin: 0;
+  padding: 28rpx 8rpx 24rpx;
+  background: #14151f;
+  border-radius: 20rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14rpx;
+  line-height: 1.2;
+}
+
+.action-tile::after {
+  border: none;
+}
+
+.action-tile[disabled] {
+  opacity: 0.45;
+}
+
+.tile-icon {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 12rpx;
+  border: 3rpx solid #00d1e5;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.tile-icon.cam {
+  border-radius: 14rpx;
+}
+.tile-icon.cam::after {
+  content: "";
+  position: absolute;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  border: 3rpx solid #00d1e5;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+}
+
+.tile-icon.album {
+  border-style: dashed;
+}
+
+.tile-icon.doc {
+  border-radius: 6rpx 14rpx 6rpx 6rpx;
+}
+
+.tile-label {
+  font-size: 24rpx;
+  color: #f2f4f8;
+  font-weight: 500;
+}
+
+.bind-banner {
+  margin: 28rpx 24rpx 0;
+  padding: 24rpx 28rpx;
+  border-radius: 20rpx;
+  background: rgba(0, 209, 229, 0.08);
+  border: 1rpx solid rgba(0, 209, 229, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.bind-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.bind-title {
+  font-size: 28rpx;
+  color: #f2f4f8;
+  font-weight: 600;
+}
+
+.bind-sub {
+  font-size: 22rpx;
+  color: #9aa3b5;
+}
+
+.bind-go {
+  font-size: 26rpx;
+  color: #00d1e5;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.btn-press {
+  opacity: 0.82;
+}
+
+.tile-press {
+  background: #1a1b28 !important;
+  border-color: rgba(0, 209, 229, 0.35) !important;
 }

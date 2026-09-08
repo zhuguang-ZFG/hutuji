@@ -36,7 +36,7 @@ LLM（OpenAI 兼容）文生图 → 位图 → sknw 中心线描摹 → SVG ─�
 | `HUTUJI_LLM_MODEL` | `auto` | 模型名 |
 | `HUTUJI_IMAGE_MODEL` | `agnes-image-2.1-flash` | Agnes 文生图模型；也是商汤失败时的受控回退，与 LLM 共用 base_url/key |
 | `HUTUJI_SENSENOVA_BASE_URL` / `_API_KEY` / `_IMAGE_MODEL` | 全空 | 可选商汤 PNG 主后端，启用时三项必须齐全；官方配置为 `https://token.sensenova.cn/v1` / 独立 key / `sensenova-u1-fast`。请求固定竖版 `1760x2368`、`n=1`、`watermark=false`；单次失败立即回退 Agnes。仍走 PNG→中心线描摹，不允许改成模型直写 SVG。2026-08-28 评测：平台新型号 `sensenova-u1.5-lite` 实测 33–46s/张（u1-fast 6.5–8.3s）且活不过 20s attempt 闸，结论不接入，勿重试（证据 `../results/local-only/2026-08-28/u15-lite-bench/`） |
-| `HUTUJI_IMAGE_FALLBACK_URL` | `https://imagefree.tingfengai.art/v1/generate` | 第三层免鉴权备用端点：商汤（若启用）与 Agnes 均失败后调用；置空=禁用。请求 `{prompt, aspect_ratio}`、响应扁平 `image_url`，由 `bitmap_svg` 内部适配 |
+| `HUTUJI_IMAGE_FALLBACK_URL` | （空） | 免鉴权备用生图端点；置空=禁用。旧默认 `imagefree.tingfengai.art` 已于 2026-09-09 生产持续 403，默认关闭；自建 https 端点再开。请求 `{prompt, aspect_ratio}`、响应扁平 `image_url` |
 | `HUTUJI_OUTPUT_DIR` | `./output` | G-code/SVG 产出目录 |
 | `HUTUJI_PUBLIC_BASE_URL` | `http://127.0.0.1:8300` | 返回给 S3 的下载 URL 前缀；VPS 上填 nginx 的 HTTPS 公网地址 |
 | `HUTUJI_HOST` | `127.0.0.1` | uvicorn 监听地址；**只接受 `127.0.0.1` / `::1` / `localhost` 三个值**（大小写不敏感，非集合内一律拒绝，`127.0.0.2` 之类同段地址也拒），非法值在构造 `settings`（import `config` 时）即抛 `ValueError` 拒绝启动。原先只在文档里劝，生产漏配还能静默把 `/mcp` 绑到 `0.0.0.0`；注意 `python -m uvicorn hutuji_mcp.server:app` **不读**本变量，必须显式 `--host 127.0.0.1` |

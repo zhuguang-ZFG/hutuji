@@ -865,6 +865,72 @@ class Store:
             "token_probe_ok": binding.token_probe_ok,
         }
 
+    def list_device_bindings(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        """运营一览：MAC ↔ user ↔ phone ↔ last_push / token_probe（不含 token 本体）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT b.device_mac, b.user_id, b.bound_at, b.last_push_at, b.token_probe_ok,
+                       u.email, u.phone, u.nickname, u.status AS user_status
+                FROM device_bindings b
+                JOIN users u ON u.id = b.user_id
+                ORDER BY COALESCE(b.last_push_at, b.bound_at) DESC
+                LIMIT ?
+                """,
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "device_mac": row["device_mac"],
+                    "user_id": row["user_id"],
+                    "email": row["email"],
+                    "phone": row["phone"],
+                    "nickname": row["nickname"],
+                    "user_status": row["user_status"],
+                    "bound_at": row["bound_at"],
+                    "last_push_at": row["last_push_at"],
+                    "token_probe_ok": (
+                        None
+                        if row["token_probe_ok"] is None
+                        else bool(row["token_probe_ok"])
+                    ),
+                }
+            )
+        return out
+
+    def get_ops_notes(self) -> dict[str, str]:
+        raw = self._read_platform_settings(
+            ("ops_weapp_version", "ops_firmware_note", "ops_shipping_note")
+        )
+        return {
+            "weapp_version": raw.get("ops_weapp_version", ""),
+            "firmware_note": raw.get("ops_firmware_note", ""),
+            "shipping_note": raw.get("ops_shipping_note", ""),
+        }
+
+    def set_ops_notes(
+        self,
+        *,
+        weapp_version: str | None = None,
+        firmware_note: str | None = None,
+        shipping_note: str | None = None,
+    ) -> dict[str, str]:
+        values: dict[str, str | None] = {}
+        if weapp_version is not None:
+            values["ops_weapp_version"] = (weapp_version or "").strip()[:80] or None
+        if firmware_note is not None:
+            values["ops_firmware_note"] = (firmware_note or "").strip()[:500] or None
+        if shipping_note is not None:
+            values["ops_shipping_note"] = (shipping_note or "").strip()[:500] or None
+        if values:
+            self._write_platform_settings(
+                allowed_keys=frozenset(values.keys()),
+                values=values,
+            )
+        return self.get_ops_notes()
+
     def create_draw_job(self, *, user_id: str, source_name: str | None) -> DrawJob:
         job = DrawJob(
             id=str(uuid.uuid4()),

@@ -11,6 +11,8 @@
   行书出锋起笔仍可为负 X，装饰笔画的轻微越格属字库设计，不做 per-glyph ink-box 变宽
   （变宽会毁掉汉字方格对齐；越格严重的字库靠调大 char_gap_mm 兜）。
 - 文本入口的繁→简规范化在 server.hutuji_write 做（t2s 模块），本模块只管排版。
+- CJK 可选标准笔顺（stroke_data=StrokeData）：有 medians 时逐笔抬笔落墨，与
+  hutuji_teach 同源；缺字/未配置回落 gfont 连笔。teach 仍是田字格渐显教学链。
 
 排版规则（中文文章）：
 - 页区 = (190-左右边距) × (277-上下边距) mm（竖版 B 案：宽 190mm 阅读方向、高 277mm 行推进；
@@ -236,6 +238,32 @@ class _GlyphCache:
         return self._cache[ch]
 
 
+def _medians_to_pen_strokes(
+    medians: list[list[tuple[int, int]]],
+    cell_x: float,
+    cell_y: float,
+    cell_mm: float,
+    *,
+    pad_mm: float = 0.8,
+) -> list[_PenStroke]:
+    """标准笔顺 medians（1024、y 向上）→ 页面 mm 逐笔路径（每笔一条，笔间抬笔）。"""
+    xs = [x for stroke in medians for x, _ in stroke]
+    ys = [y for stroke in medians for _, y in stroke]
+    if not xs or not ys:
+        return []
+    x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+    span = max(x1 - x0, y1 - y0, 1)
+    s = (cell_mm - 2 * pad_mm) / span
+    ox = cell_x + pad_mm + (cell_mm - 2 * pad_mm - (x1 - x0) * s) / 2
+    oy = cell_y + pad_mm + (cell_mm - 2 * pad_mm - (y1 - y0) * s) / 2
+    out: list[_PenStroke] = []
+    for stroke in medians:
+        pts = [(ox + (x - x0) * s, oy + (y1 - y) * s) for x, y in stroke]
+        if len(pts) >= 2:
+            out.append(_PenStroke(points=pts))
+    return out
+
+
 def layout_text(
     text: str,
     font: GfontFile,
@@ -243,18 +271,23 @@ def layout_text(
     layout: WriteLayout,
     max_pages: int = 20,
     headings: set[int] | None = None,
+    stroke_data: object | None = None,
 ) -> LayoutResult:
     """核心排版：文本 → 分页落笔路径（页面 SVG 坐标，mm）。
 
+    stroke_data：可选标准笔顺库（stroke_order.StrokeData）。CJK 有笔顺数据时
+    **按 PRC 规范逐笔抬笔**写（与 hutuji_teach 同源 medians）；缺字回落 gfont
+    连笔；拉丁/标点仍走 gfont。未传或未配置时保持纯 gfont（旧行为）。
+
     max_pages 是防呆上界（与设备侧 kArticleMaxPages 同值）；超出截断并置 truncated。
-    实际容量随字号走：默认 12mm 字高约 117 字/页 → 20 页 ≈2300 字先到页数闸，
-    `server._WRITE_TEXT_MAX_CHARS=5000` 只在更小字号下才可能先触发。
     """
     layout.validate()
     if not text.strip():
         raise WriteTextError("文本为空")
     if max_pages < 1:
         raise WriteTextError("max_pages 非法")
+
+    stroke_medians = getattr(stroke_data, "medians", None) if stroke_data is not None else None
 
     # 行网格（y 基线/行计数）恒按正文字号走；标题段只在落墨与横向步进上切大字号，
     # 竖向占 heading_rows 个正文行带——行计数语义不被标题搞混，分页/容量闸全部照旧
@@ -272,12 +305,10 @@ def layout_text(
     def cjk_slot_units(ch: str) -> float:
         """CJK 逐字槽位（字库单位）：em 与（本字墨右缘+全库 CJK 左越界上限）取大。
 
-        字库字形不以 [0,em] 为界（如果梦「来」墨跨 [-180,398]，宽字墨宽达
-        1.11em）；em 网格只保普通字对，宽右缘字后随大左越界字必撞（探针实测
-        是→是 需 571>522、来→和 需 661>522）。槽位按本字右缘预留全库最大
-        左越界——窄字留在 em 网格，宽字局部放宽；逐字无关上下文，测量/落墨
-        同式，折行不错位。缺字形回落 em。
+        笔顺路径按方格 em 步进（不跟 gfont 墨宽），避免连笔库墨宽拖偏笔顺字距。
         """
+        if stroke_medians is not None and ch in stroke_medians:
+            return metrics.em_height
         glyph = cache.get(ch)
         if glyph is None:
             return metrics.em_height
@@ -329,6 +360,20 @@ def layout_text(
         return max(floor, max(xs) + metrics.latin_left_overhang)
 
     def emit_glyph(strokes: list[_PenStroke], ch: str, x_origin: float, y_baseline: float) -> None:
+        # CJK 优先标准笔顺（逐笔抬笔）；缺数据回落 gfont 连笔
+        if (
+            stroke_medians is not None
+            and _is_cjk(ch)
+            and ch in stroke_medians
+        ):
+            size_mm = metrics.em_height * scale
+            cell_y = y_baseline - metrics.baseline_to_top * scale
+            strokes.extend(
+                _medians_to_pen_strokes(
+                    stroke_medians[ch], x_origin, cell_y, size_mm
+                )
+            )
+            return
         glyph = cache.get(ch)
         if glyph is None:
             return

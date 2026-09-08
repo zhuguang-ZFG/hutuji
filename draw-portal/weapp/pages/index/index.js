@@ -1,4 +1,5 @@
 const api = require("../../utils/api");
+const phoneGate = require("../../utils/phone_gate");
 
 Page({
   data: {
@@ -12,7 +13,9 @@ Page({
   },
 
   onShow() {
-    this.refreshStatus();
+    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
+      if (ok) this.refreshStatus();
+    });
   },
 
   onLoad() {
@@ -113,9 +116,12 @@ Page({
       .then((res) => {
         this.setData({ sending: false });
         if (res.status === "sent") {
+          const started = /已自动开始画/.test(res.detail || "");
           wx.showModal({
-            title: "已发送",
-            content: "写字机屏幕上出现预览后，点「开始画」即可",
+            title: started ? "已开始画" : "已发送",
+            content: started
+              ? "写字机正在出图，无需再在小派上点确认"
+              : res.detail || "已推送到写字机",
             showCancel: false,
           });
         } else {

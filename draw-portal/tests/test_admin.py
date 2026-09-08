@@ -47,12 +47,30 @@ def test_admin_users_ban_unbind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert client.post(f"/api/users/{user.id}/unban").status_code == 200
     assert store.get_user(user.id).status == "active"
 
+    bindings = client.get("/api/bindings")
+    assert bindings.status_code == 200
+    assert bindings.json()["total"] == 1
+    assert bindings.json()["items"][0]["device_mac"] == "aa:bb:cc:dd:ee:ff"
+
     assert client.post(f"/api/users/{user.id}/unbind").status_code == 200
     assert store.get_binding_for_user(user.id) is None
 
     stats = client.get("/api/stats")
     assert stats.status_code == 200
     assert stats.json()["users_total"] == 1
+
+    notes = client.put(
+        "/api/ops/notes",
+        json={"weapp_version": "0.2.2", "firmware_note": "freenove test"},
+    )
+    assert notes.status_code == 200
+    assert notes.json()["notes"]["weapp_version"] == "0.2.2"
+    assert client.get("/api/ops/notes").json()["weapp_version"] == "0.2.2"
+
+    checklist = client.get("/api/ops/checklist")
+    assert checklist.status_code == 200
+    assert checklist.json()["source"] == "docs/release-checklist.md"
+    assert len(checklist.json()["sections"]) >= 5
 
 
 def test_admin_conversation_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -44,6 +44,9 @@ def _register_and_login(client: TestClient, email: str = "buyer@qq.com") -> None
         json={"email": email, "code": code},
     )
     assert verify.status_code == 200
+    # 产品面硬前置手机号：邮箱路径走 bind-phone 补绑
+    phone = client.post("/api/auth/bind-phone", json={"phone": "13800138000"})
+    assert phone.status_code == 200, phone.text
 
 
 def test_register_rejects_non_qq_email(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

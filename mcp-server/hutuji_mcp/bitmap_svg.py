@@ -101,7 +101,8 @@ _IMAGE_DOWNLOAD_MAX_BYTES = 16 * 1024 * 1024
 # 与 LLM 路线同一口径：瞬态状态码重试两次（1s/3s），其余立即失败。
 _TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
 _RETRY_DELAYS_SECONDS = (1.0, 3.0)
-# 备用生图端点（imagefree，免鉴权公共服务）的画幅：1:1 = 1024x1024，与 _IMAGE_SIZE
+# 备用生图端点（imagefree 等免鉴权公共服务）的画幅：1:1 = 1024x1024，与 _IMAGE_SIZE
+# 对齐。2026-09-09：阿里云出口 IP 被 imagefree 风控 403（AUTH.003），默认 URL 已清空。
 # 同尺寸（其文档 /v1/meta 可查）；改 _IMAGE_SIZE 宽高比时同步改这里。该端点文档
 # 典型耗时 20~45s，与 _IMAGE_ATTEMPT_TIMEOUT_SECONDS 同量级——降级链比主链更容易
 # 撞超时，属预期（降级宁慢勿错）。
@@ -852,14 +853,30 @@ async def _request_agnes_image_url(
     client: httpx.AsyncClient, description: str
 ) -> str:
     url = f"{settings.llm_base_url.rstrip('/')}/images/generations"
-    payload = {
+    headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
+    styled = {
         "model": settings.image_model,
         "prompt": _BITMAP_STYLE + description,
         "size": _IMAGE_SIZE,
         "n": 1,
     }
-    headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
-    data = await _post_image_request(client, url, payload, headers, "生图 API")
+    try:
+        data = await _post_image_request(client, url, styled, headers, "生图 API")
+    except BitmapError as exc:
+        # 2026-09-09：Agnes 偶发 400（内容策略/过长前缀），短主题裸 prompt 再试一次；
+        # 其它错误不重试，避免拖慢对冲。
+        if "返回 400" not in str(exc):
+            raise
+        plain = {
+            "model": settings.image_model,
+            "prompt": description.strip() or "simple line art icon",
+            "size": _IMAGE_SIZE,
+            "n": 1,
+        }
+        logger.info("Agnes 400，改用短 prompt 重试一次")
+        data = await _post_image_request(
+            client, url, plain, headers, "生图 API", retry_delays=()
+        )
     return _extract_agnes_image_url(data)
 
 

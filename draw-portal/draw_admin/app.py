@@ -85,6 +85,12 @@ class ImageProviderKeyUpdateBody(BaseModel):
     enabled: bool | None = None
 
 
+class OpsNotesBody(BaseModel):
+    weapp_version: str | None = Field(default=None, max_length=80)
+    firmware_note: str | None = Field(default=None, max_length=500)
+    shipping_note: str | None = Field(default=None, max_length=500)
+
+
 def _conversation_csv(rows: list[dict[str, Any]]) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -389,6 +395,7 @@ def create_app() -> FastAPI:
                 {
                     "id": it.user.id,
                     "email": it.user.email,
+                    "phone": it.user.phone,
                     "status": it.user.status,
                     "created_at": it.user.created_at,
                     "email_verified_at": it.user.email_verified_at,
@@ -402,6 +409,76 @@ def create_app() -> FastAPI:
                     "device_mac": it.device_mac,
                 }
                 for it in items
+            ],
+        }
+
+    @app.get("/api/bindings", dependencies=secured)
+    def bindings(limit: int = 200) -> dict[str, Any]:
+        items = store.list_device_bindings(limit=limit)
+        return {"total": len(items), "items": items}
+
+    @app.get("/api/ops/notes", dependencies=secured)
+    def get_ops_notes() -> dict[str, str]:
+        return store.get_ops_notes()
+
+    @app.put("/api/ops/notes", dependencies=secured)
+    def put_ops_notes(body: OpsNotesBody) -> dict[str, Any]:
+        notes = store.set_ops_notes(
+            weapp_version=body.weapp_version,
+            firmware_note=body.firmware_note,
+            shipping_note=body.shipping_note,
+        )
+        store.log_admin_action(
+            action="update_ops_notes",
+            target_user_id=None,
+            detail=f"weapp={notes.get('weapp_version','')[:32]}",
+        )
+        return {"status": "ok", "notes": notes}
+
+    @app.get("/api/ops/checklist", dependencies=secured)
+    def ops_checklist() -> dict[str, Any]:
+        """只读签核清单：与 docs/release-checklist.md 对齐，不伪造勾选状态。"""
+        return {
+            "source": "docs/release-checklist.md",
+            "note": "本页只列项；是否勾实以仓内清单与 release-readiness 为准，不得据此宣称可出货。",
+            "sections": [
+                {
+                    "id": "A",
+                    "title": "冻结",
+                    "items": [
+                        "hutuji / Grbl / xiaozhi commit 与依赖锁",
+                        "固件二进制 SHA256（若本批烧录）",
+                    ],
+                },
+                {
+                    "id": "B",
+                    "title": "自动化",
+                    "items": ["mcp pytest 全绿", "e2e_local PASS", "桥接烟测（若改桥接）"],
+                },
+                {
+                    "id": "C",
+                    "title": "双机",
+                    "items": ["unit/nginx 一致或已记 diff", "TLS 与公网面", "回滚包可恢复"],
+                },
+                {
+                    "id": "D",
+                    "title": "硬件联调",
+                    "items": ["bringup 阶段记录", "协议数字回填或标注仍为推导"],
+                },
+                {
+                    "id": "E",
+                    "title": "生产与合规",
+                    "items": [
+                        "production-sop 首件",
+                        "device-test-record",
+                        "compliance 签核",
+                    ],
+                },
+                {
+                    "id": "F",
+                    "title": "审批",
+                    "items": ["研发/QA/运维/生产签字栏"],
+                },
             ],
         }
 
