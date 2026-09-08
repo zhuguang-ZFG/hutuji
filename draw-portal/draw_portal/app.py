@@ -38,7 +38,14 @@ from draw_portal.email_verify import (
     send_verification_email,
     verify_email_code,
 )
-from draw_portal.models import normalize_bind_code, normalize_email, normalize_mac, normalize_registration_email
+from draw_portal.models import (
+    BindSession,
+    DeviceBinding,
+    normalize_bind_code,
+    normalize_email,
+    normalize_mac,
+    normalize_registration_email,
+)
 from draw_portal.passwords import hash_password, verify_password
 from draw_portal.pipeline import (
     copy_saved_preview,
@@ -110,6 +117,11 @@ class BindAnnounceBody(BaseModel):
 class BindCompleteBody(BaseModel):
     bind_code: str
     force: bool = False  # 设备已绑他人时强制换绑（授权证据=屏显 bind_code 在场持有）
+
+
+class BindClaimBody(BaseModel):
+    mac: str
+    force: bool = False  # 与 bind/complete 同口径：跨账号换绑须显式确认（在场证据=扫到屏显配网 QR）
 
 
 class WxProfileBody(BaseModel):
@@ -515,10 +527,19 @@ def create_app() -> FastAPI:
             device_token_enc=enc,
             expires_at=now + config.bind_code_ttl_seconds,
         )
+        bound = store.get_user_id_for_mac(mac) is not None
+        if not bound:
+            # 一次扫码合一流程的 announce 侧撮合：配网会话内用户已按 MAC 认领
+            # （在场证明），announce 携 device_token（身份证明）到达即双证齐全。
+            claim = store.get_bind_claim(mac, now=now)
+            if claim is not None:
+                bound = _try_auto_bind(mac, claim.user_id, claim.force, now) is not None
         return {
             "status": "announced",
             "expires_at": session.expires_at,
             "mac_suffix": mac[-5:],
+            # 固件据此停轮询/打日志；老固件忽略多余字段，向后兼容。
+            "bound": bound,
         }
 
     @app.post("/api/auth/wx-profile", dependencies=secured)
@@ -614,25 +635,8 @@ def create_app() -> FastAPI:
         # 设备工具回包是 JSON 字符串（hutuji.status 等）或 started/true；原样透传给前端解析
         return {"status": "ok", "result": result}
 
-    @app.post("/api/user/bind/complete", dependencies=secured)
-    def bind_complete(body: BindCompleteBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
-        try:
-            code = normalize_bind_code(body.bind_code)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        now = time.time()
-        # 先偷看不消费：跨账号冲突要 409 且不烧掉会话，用户一键确认后同码强制换绑
-        peek = store.get_bind_session(code)
-        if peek is None or peek.consumed_at is not None or peek.expires_at < now:
-            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
-        other_user = store.get_user_id_for_mac(peek.device_mac)
-        if other_user is not None and other_user != user_id:
-            if not body.force:
-                raise HTTPException(status_code=409, detail="该设备已绑定其他账号，确认后可强制换绑")
-            store.delete_binding_for_mac(peek.device_mac)
-        session = store.consume_bind_session(code, now=now)
-        if session is None:
-            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
+    def _finalize_binding(session: BindSession, user_id: str, now: float, event_type: str) -> DeviceBinding:
+        """探活 + 旧 token 保留 + 落绑定 + usage 埋点：抽屉码与自动撮合共用一条完成路径。"""
         ok, _summary = probe_device_token(
             api_base=config.xiaozhi_api_base,
             device_token=decrypt_token(config.token_cipher_key, session.device_token_enc),
@@ -658,12 +662,86 @@ def create_app() -> FastAPI:
         )
         _record_portal_usage(
             store,
-            event_type="bind_complete",
+            event_type=event_type,
             user_id=user_id,
             device_mac=binding.device_mac,
             ok=ok,
         )
+        return binding
+
+    def _try_auto_bind(mac: str, user_id: str, force: bool, now: float) -> DeviceBinding | None:
+        """claim（用户在场证明）× session（设备身份证明）双向撮合。
+        跨账号冲突未确认时不越权：claim 保留，等用户 force 重认领或走抽屉码。"""
+        other_user = store.get_user_id_for_mac(mac)
+        if other_user == user_id:
+            store.delete_bind_claim(mac)
+            return store.get_binding_for_user(user_id)
+        if other_user is not None and not force:
+            return None
+        session = store.get_live_bind_session_for_mac(mac, now=now)
+        if session is None:
+            return None
+        consumed = store.consume_bind_session(session.bind_code, now=now)
+        if consumed is None:
+            return None
+        if other_user is not None:
+            store.delete_binding_for_mac(mac)
+        binding = _finalize_binding(consumed, user_id, now, "bind_auto_complete")
+        store.delete_bind_claim(mac)
+        return binding
+
+    @app.post("/api/user/bind/complete", dependencies=secured)
+    def bind_complete(body: BindCompleteBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        try:
+            code = normalize_bind_code(body.bind_code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        now = time.time()
+        # 先偷看不消费：跨账号冲突要 409 且不烧掉会话，用户一键确认后同码强制换绑
+        peek = store.get_bind_session(code)
+        if peek is None or peek.consumed_at is not None or peek.expires_at < now:
+            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
+        other_user = store.get_user_id_for_mac(peek.device_mac)
+        if other_user is not None and other_user != user_id:
+            if not body.force:
+                raise HTTPException(status_code=409, detail="该设备已绑定其他账号，确认后可强制换绑")
+            store.delete_binding_for_mac(peek.device_mac)
+        session = store.consume_bind_session(code, now=now)
+        if session is None:
+            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
+        binding = _finalize_binding(session, user_id, now, "bind_complete")
         return {"status": "bound", "binding": store.binding_status_dict(binding)}
+
+    @app.post("/api/user/bind/claim", dependencies=secured)
+    def bind_claim(body: BindClaimBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        """一次扫码合一流程的认领侧：小程序配网成功后按 QR 里的 MAC 认领。
+        设备 announce 到达即自动绑定；announce 先到（设备先连回家网）则此处直接撮合。"""
+        try:
+            mac = normalize_mac(body.mac)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        now = time.time()
+        other_user = store.get_user_id_for_mac(mac)
+        if other_user == user_id:
+            existing_binding = store.get_binding_for_user(user_id)
+            if existing_binding is not None:
+                return {
+                    "status": "already_bound",
+                    "binding": store.binding_status_dict(existing_binding),
+                }
+        if other_user is not None and not body.force:
+            raise HTTPException(status_code=409, detail="该设备已绑定其他账号，确认后可强制换绑")
+        claim = store.upsert_bind_claim(
+            device_mac=mac,
+            user_id=user_id,
+            force=body.force,
+            expires_at=now + config.bind_claim_ttl_seconds,
+            created_at=now,
+        )
+        binding = _try_auto_bind(mac, user_id, body.force, now)
+        if binding is not None:
+            return {"status": "bound", "binding": store.binding_status_dict(binding)}
+        return {"status": "claimed", "expires_at": claim.expires_at}
 
     @app.post("/api/user/bind/unbind", dependencies=secured)
     def bind_unbind(user_id: str = Depends(user_dep)) -> dict[str, str]:

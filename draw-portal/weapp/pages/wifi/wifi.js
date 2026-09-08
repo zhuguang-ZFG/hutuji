@@ -1,6 +1,8 @@
 // 一键配网：扫设备屏 WiFi 码（或手输热点名）→ 手机连设备热点 →
 // TCP socket 直发 AP 配置接口（LAN IP 走不了 wx.request 白名单，socket 不受限）→
 // 设备上家网。回退路径：浏览器连热点开 http://192.168.4.1
+const api = require("../../utils/api");
+
 Page({
   data: {
     step: "scan", // scan → manual → (连热点+扫列表) → aps → creds → working → done
@@ -9,7 +11,8 @@ Page({
     homePassword: "",
     apList: [],
     wifiLocked: false, // 从设备扫描列表点选的 WiFi 不允许改名
-    log: "",
+    deviceMac: "", // 2026-09-08 起配网码带 &m=<MAC>：配网成功后自动认领绑定
+    bindState: "", // "" | claiming | waiting | bound | manual（仅 done 页展示用）
   },
 
   // 微信「扫一扫」直接扫设备配网码（mp 后台「扫普通链接二维码打开小程序」规则：
@@ -20,6 +23,12 @@ Page({
       let ssid = s;
       try { ssid = decodeURIComponent(s); } catch (e) {}
       this.setData({ apSsid: ssid });
+    }
+    const m = options && options.m ? String(options.m) : "";
+    if (m) {
+      let mac = m;
+      try { mac = decodeURIComponent(m); } catch (e) {}
+      this.setData({ deviceMac: mac.trim() });
     }
     wx.startWifi({ success: () => {}, fail: () => {} });
     // Android 可预填当前 WiFi 名；iOS 多半拿不到，手输即可
@@ -45,6 +54,12 @@ Page({
         const mu = /^https:\/\/hutuji\.donglicao\.com\/draw-upload\/wifi\?(?:[^&\s]*&)*s=([^&\s]+)/i.exec(raw);
         if (mu) {
           try { ssid = decodeURIComponent(mu[1]); } catch (e) { ssid = mu[1]; }
+          const mm = /^https:\/\/hutuji\.donglicao\.com\/draw-upload\/wifi\?(?:[^&\s]*&)*m=([^&\s]+)/i.exec(raw);
+          if (mm) {
+            let mac = mm[1];
+            try { mac = decodeURIComponent(mm[1]); } catch (e) {}
+            this.setData({ deviceMac: mac.trim() });
+          }
         }
         if (!ssid) {
           const m = /WIFI:T:[^;]*;S:([^;]*);/i.exec(raw);
@@ -220,6 +235,7 @@ Page({
       if (ok) {
         this.appendLog("已下发，设备正在连家里 WiFi（约 10-30 秒）");
         this.setData({ step: "done" });
+        this.autoBind();
       } else {
         this.appendLog("下发失败：" + msg);
         this.setData({ step: "creds" });
@@ -249,6 +265,78 @@ Page({
       finish(false, "连不上设备配置口，确认手机还在设备热点上");
     });
     tcp.connect({ address: "192.168.4.1", port: 80, timeout: 8 });
+  },
+
+  // 一次扫码合一（2026-09-08 定案）：配网码带设备 MAC（在场证明），配网成功后
+  // 直接认领；设备上线 announce 由 portal 撮合完成绑定。旧固件码/未登录 → 手动降级。
+  autoBind() {
+    const mac = this.data.deviceMac;
+    if (!mac) {
+      this.appendLog("这个码没带设备身份，可点下方按钮手动绑定");
+      return;
+    }
+    if (!api.getSession()) {
+      this.appendLog("登录后会自动绑定，也可稍后点下方按钮手动绑定");
+      return;
+    }
+    this.setData({ bindState: "claiming" });
+    this.appendLog("正在为你绑定这台设备…");
+    this.claimMac(mac, false);
+  },
+
+  claimMac(mac, force) {
+    api
+      .request("/api/user/bind/claim", { method: "POST", data: { mac, force: !!force } })
+      .then((res) => {
+        if (res.status === "bound" || res.status === "already_bound") {
+          this.bindDone();
+          return;
+        }
+        // claimed：等设备重启上线 announce 自动撮合（重启+激活约 1-2 分钟）
+        this.setData({ bindState: "waiting" });
+        this.appendLog("配网完成，设备上线后会自动完成绑定…");
+        this.pollBound(0);
+      })
+      .catch((err) => {
+        if (err.status === 409) {
+          // 与绑定页同口径：设备绑在别的账号时在场（扫到屏显码）即可确认换绑
+          wx.showModal({
+            title: "换绑到当前账号？",
+            content: "这台写字机之前绑过别的账号，换绑后那边就不能控制它了",
+            confirmText: "换绑",
+            cancelText: "不换",
+            success: (r) => {
+              if (r.confirm) this.claimMac(mac, true);
+            },
+          });
+          return;
+        }
+        // 认领没抵达服务器：不阻断配网成功，留手动降级
+        this.appendLog("自动绑定没连上服务器，可点下方按钮手动绑定");
+        this.setData({ bindState: "manual" });
+      });
+  },
+
+  pollBound(n) {
+    if (n >= 24 || this.data.bindState === "bound") return; // ~2 分钟等设备上线
+    setTimeout(() => {
+      api
+        .request("/api/auth/me", { timeout: 15000 })
+        .then((me) => {
+          if (me.binding && me.binding.bound) {
+            this.bindDone();
+            return;
+          }
+          this.pollBound(n + 1);
+        })
+        .catch(() => this.pollBound(n + 1));
+    }, 5000);
+  },
+
+  bindDone() {
+    this.setData({ bindState: "bound" });
+    this.appendLog("绑定成功！现在可以直接对写字机说话了");
+    wx.showToast({ title: "绑定成功", icon: "success" });
   },
 
   onGoBind() {

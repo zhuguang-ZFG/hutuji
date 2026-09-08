@@ -45,10 +45,12 @@
 
   <view class="card" wx:if="{{step === 'done'}}">
     <view class="success-badge">✓</view>
-    <view class="card-title center-text">配网已下发</view>
-    <view class="muted center-text">设备连上家里 WiFi 后会自动上线，手机也会自动切回家里 WiFi</view>
+    <view class="card-title center-text">{{bindState === 'bound' ? '配网 + 绑定都完成了' : '配网已下发'}}</view>
+    <view class="muted center-text" wx:if="{{bindState !== 'bound'}}">设备连上家里 WiFi 后会自动上线，手机也会自动切回家里 WiFi</view>
+    <view class="muted center-text" wx:if="{{bindState === 'claiming' || bindState === 'waiting'}}">设备上线后会自动绑定到你的账号，请稍候…</view>
+    <view class="muted center-text" wx:if="{{bindState === 'bound'}}">已自动绑定到你的账号，现在可以直接对写字机说话了</view>
     <view class="log">{{log}}</view>
-    <button class="btn-primary block-btn" bindtap="onGoBind">下一步：绑定设备</button>
+    <button class="btn-primary block-btn" wx:if="{{bindState !== 'bound'}}" bindtap="onGoBind">下一步：绑定设备</button>
     <button class="btn-ghost block-btn" bindtap="onRestart">再配一台</button>
   </view>
 </view>

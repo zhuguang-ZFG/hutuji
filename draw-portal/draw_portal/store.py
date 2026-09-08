@@ -27,6 +27,7 @@ from draw_portal.image_providers import (
 from draw_portal.mcp_settings import build_mcp_settings_payload
 from draw_portal.provider_crypto import decrypt_api_key, encrypt_api_key
 from draw_portal.models import (
+    BindClaim,
     BindSession,
     DeviceBinding,
     DrawJob,
@@ -69,6 +70,14 @@ CREATE TABLE IF NOT EXISTS bind_sessions (
     device_token_enc TEXT NOT NULL,
     expires_at REAL NOT NULL,
     consumed_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS bind_claims (
+    device_mac TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    force INTEGER NOT NULL DEFAULT 0,
+    expires_at REAL NOT NULL,
+    created_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS device_bindings (
@@ -294,6 +303,16 @@ class Store:
             device_token_enc=row["device_token_enc"],
             expires_at=row["expires_at"],
             consumed_at=consumed,
+        )
+
+    @staticmethod
+    def _row_bind_claim(row: sqlite3.Row) -> BindClaim:
+        return BindClaim(
+            device_mac=row["device_mac"],
+            user_id=row["user_id"],
+            force=bool(row["force"]),
+            expires_at=row["expires_at"],
+            created_at=row["created_at"],
         )
 
     @staticmethod
@@ -705,6 +724,72 @@ class Store:
             expires_at=session.expires_at,
             consumed_at=now,
         )
+
+    def get_live_bind_session_for_mac(self, device_mac: str, *, now: float) -> BindSession | None:
+        """claim 侧撮合：找该 MAC 最新一条未消费、未过期的 announce 会话。"""
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM bind_sessions
+                WHERE device_mac = ? AND consumed_at IS NULL AND expires_at >= ?
+                ORDER BY expires_at DESC LIMIT 1
+                """,
+                (mac, now),
+            ).fetchone()
+        return self._row_bind_session(row) if row else None
+
+    def upsert_bind_claim(
+        self,
+        *,
+        device_mac: str,
+        user_id: str,
+        force: bool,
+        expires_at: float,
+        created_at: float,
+    ) -> BindClaim:
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO bind_claims (device_mac, user_id, force, expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(device_mac) DO UPDATE SET
+                    user_id=excluded.user_id,
+                    force=excluded.force,
+                    expires_at=excluded.expires_at,
+                    created_at=excluded.created_at
+                """,
+                (mac, user_id, int(force), expires_at, created_at),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM bind_claims WHERE device_mac = ?", (mac,)
+            ).fetchone()
+        assert row is not None
+        return self._row_bind_claim(row)
+
+    def get_bind_claim(self, device_mac: str, *, now: float) -> BindClaim | None:
+        """读取未过期认领；过期行顺手删除（与产物 TTL 同口径：访问时清理，无后台线程）。"""
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM bind_claims WHERE device_mac = ?", (mac,)
+            ).fetchone()
+            if row is None:
+                return None
+            if row["expires_at"] < now:
+                conn.execute("DELETE FROM bind_claims WHERE device_mac = ?", (mac,))
+                conn.commit()
+                return None
+        return self._row_bind_claim(row)
+
+    def delete_bind_claim(self, device_mac: str) -> bool:
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM bind_claims WHERE device_mac = ?", (mac,))
+            conn.commit()
+            return cur.rowcount > 0
 
     def set_device_binding(
         self,

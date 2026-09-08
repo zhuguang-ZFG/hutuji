@@ -49,6 +49,19 @@ class BindSession:
 
 
 @dataclass(frozen=True)
+class BindClaim:
+    """配网会话内用户按 MAC 认领设备（一次扫码合一流程的认领侧）。
+    与 BindSession 互为两半：claim=用户在场证明（扫到屏显 QR 拿到 MAC），
+    session=设备身份证明（带 device_token 的 announce），portal 双向撮合即绑定。"""
+
+    device_mac: str
+    user_id: str
+    force: bool
+    expires_at: float
+    created_at: float
+
+
+@dataclass(frozen=True)
 class DeviceBinding:
     user_id: str
     device_mac: str

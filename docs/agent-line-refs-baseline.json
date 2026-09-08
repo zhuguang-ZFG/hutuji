@@ -1,5 +1,5 @@
 {
-  "git_head": "f5466bc9299299e55ace3d4e07fd521d2c88a3ff",
+  "git_head": "193171c77ead4856e6b2e0df9cf2ca0507f2e7c7",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -681,7 +681,7 @@
       "source": "            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:1234-1279": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:1312-1357": {
       "sha8": "efda6524",
       "source": "    @app.post(\"/api/device/conversation/report\")\n    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:\n        try:\n            mac = normalize_mac(body.mac)\n            session_id = body.session_id.strip()[:64]\n        except ValueError as exc:\n            raise HTTPException(status_code=400, detail=str(exc)) from exc\n        user_id = store.get_user_id_for_mac(mac)\n        if user_id is None:\n            raise HTTPException(status_code=403, detail=\"设备未绑定呼图账号\")\n        now = time.time()\n        store.purge_conversation_before(\n            retention_cutoff(retention_days=config.conversation_retention_days)\n        )\n        accepted = 0\n        for turn in body.events:\n            try:\n                role = normalize_role(turn.role)\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            content = truncate_conversation_content(\n                turn.content, max_len=config.conversation_max_content\n            )\n            if not content:\n                continue\n            client_ts = turn.client_ts if turn.client_ts is not None else now\n            key = conversation_dedupe_key(\n                device_mac=mac,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n            )\n            if store.insert_conversation_event(\n                dedupe_key=key,\n                device_mac=mac,\n                user_id=user_id,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n                created_at=now,\n            ):\n                accepted += 1\n        return {\"status\": \"ok\", \"accepted\": accepted, \"total\": len(body.events)}\n",
       "target": "draw-portal/draw_portal/app.py"
@@ -696,12 +696,12 @@
       "source": "            if (!settings_line_ok_) {\n                ready_.store(true);\n                auth_probe_stage_ = AuthProbeStage::Complete;\n                ESP_LOGE(TAG, \"Grbl 设置指纹不符（$%s）\", GetSettingsMismatchKey().c_str());\n                NotifyCloud(\"写字机参数被改动，请联系卖家恢复后再画\");\n                return true;",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:1015-1017": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:1023-1025": {
       "sha8": "60473fe0",
       "source": "    // 末项查询故意用 Grbl 扩展名括号语法 `[Errors/Verbose]`（§9-G′ 守卫对象的对应查询\n    // 形态）；应答仍是 `$Errors/Verbose=Off`，由 ParseGrblSettingLine 的 `$` 前缀路径解析，\n    // Off→0 映射见该函数。findings #30 R5：两种语法并存非矛盾，COM14 实机指纹 13 项通过实证。",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:1018": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> hutuji_recovery_core.h:1026": {
       "sha8": "460101e7",
       "source": "    {\"[Errors/Verbose]\", \"Errors/Verbose\", 0.0, true},",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -716,12 +716,12 @@
       "source": "| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1050` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1050` 自此降级为 fast-path advisory（只负责 web 侧 `\"busy\"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |",
       "target": "docs/protocol.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:50": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:52": {
       "sha8": "37af662b",
       "source": "> **2026-08-30 上午 Grbl `$` 指纹门禁 + 写保护（三仓已刷实机；hub 文档已同步）**：协议 §6.1 / §9-G′。S3 连接后授权探测通过 → 逐项只读 golden（13 项，含 `[Errors/Verbose]`；Grbl 单查回 `Off` 已映射为 0）→ `grbl_settings_ok=true` 才 ready。COM14 抓包 `tmp/settings-fp-fixed-com14.log`（gitignore）：`Grbl 设置指纹通过（13 项）`；镜像 SHA-256 `1555415246ADF3DF4CBD42ADDE53B53DF9C82627745BD78219972CBA56C1BA62`（`build-hil-ws35/xiaozhi.bin`）。Grbl COM13 刷入 `7069D20E95DDF58DA8B4C15650FC115D636B8CD2783D2B5DE20956E76405C4E1`；写保护实锤 `$130=200`→`error:5`，`$130` 只读仍 `210.000`（`tmp/test_grbl_write_lock_com13.py`）。fz 门禁 host SIL 层见上条。未宣称出货。",
       "target": "docs/release-readiness.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:85": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:87": {
       "sha8": "3f107c13",
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
@@ -976,7 +976,7 @@
       "source": "        abort_reset_owner_.CancelClaim();\n        return false;\n    }\n    return true;\n}\n\nbool Job::PerformAbortReset(bool wait_for_stream_quiescence, bool owner_claimed,\n                            bool allow_unready_reconnect) {\n    auto& pipe = Pipe::GetInstance();\n    if (!owner_claimed && !abort_reset_owner_.TryClaim()) {\n        return WaitForAbortReset();\n    }\n\n    // R21-F04 残余：`!` 触发的 Hold 转移播报是「取消中」而非用户暂停；抑制窗\n    // RAII 覆盖本函数全程（含所有 break 早退）。pause 的 Hold 播报不受影响——\n    // pause 不进 PerformAbortReset。\n    struct TransitionNotifyGuard {\n        Pipe& p;\n        explicit TransitionNotifyGuard(Pipe& pipe) : p(pipe) {\n            p.SetTransitionNotifySuppressed(true);\n        }\n        ~TransitionNotifyGuard() { p.SetTransitionNotifySuppressed(false); }\n    } transition_notify_guard{pipe};\n\n    const uint32_t session = pipe.GetConnectionSequence();\n    abort_reset_session_.store(session, std::memory_order_release);\n    const TickType_t began = xTaskGetTickCount();\n    bool success = false;\n    // 归位坐标快照声明在 do 外：快照点在循环内（Hold 确认时），使用点在循环后\n    // （reset 成功后 HomeAfterAbort）——声明进 do 会出作用域（编译实证）。\n    float hold_x = 0, hold_y = 0, hold_z = 0;\n    do {\n        // `!` 必须先于任何可能长达数十分钟的 planner-sync 应答等待。它只是\n        // 安全停机字符，不是 reset；即使旧流已 Failed 也要先尽力停住机器。\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!pipe.IsResetSessionReady(session, allow_unready_reconnect) ||\n                !pipe.SendRealtime('!')) {\n                break;\n            }\n        }\n\n        bool stopped = false;\n        uint32_t stopped_status_baseline = pipe.GetStatusReportSequence();\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t before_query = pipe.GetStatusReportSequence();\n            if (!pipe.SendRealtime('?')) {\n                break;\n            }\n            const TickType_t query_began = xTaskGetTickCount();\n            while (pipe.GetStatusReportSequence() == before_query &&\n                   (xTaskGetTickCount() - query_began) < pdMS_TO_TICKS(1000)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n            if (pipe.HasFreshStoppedStatus(before_query, session)) {\n                stopped_status_baseline = before_query;\n                stopped = true;\n                abort_hold_confirmed_.store(true, std::memory_order_release);\n                // 归位坐标快照必须在 reset 前取：pipe 每条状态报告都覆写 MPos，\n                // 复位后的 0,0 报告会冲掉这里的真位置（2026-08-28 advisory）。\n                pipe.GetMachinePos(hold_x, hold_y, hold_z);\n                break;\n            }\n        }\n        if (!stopped) {\n            break;\n        }\n\n        if (wait_for_stream_quiescence) {\n            while (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) &&\n                   (xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n                vTaskDelay(pdMS_TO_TICKS(50));\n            }\n        }\n\n        uint32_t paper_before = 0;\n        {\n            std::lock_guard<std::mutex> stream_lock(stream_mutex_);\n            if (!CanResetAfterStream(stream_quiescence_.load(std::memory_order_acquire)) ||\n                !pipe.IsResetSessionReady(session, allow_unready_reconnect)) {\n                break;\n            }\n            paper_before = pipe.GetPaperStatusSequence();\n            if (!pipe.SendLine(\"[ESP901]\")) {\n                break;\n            }\n        }\n        int paper_error = -1;\n        if (pipe.WaitResponse(kPaperStatusTimeoutMs, nullptr, &paper_error) != WaitResult::Ok ||\n            pipe.GetPaperStatusSequence() == paper_before ||\n            pipe.GetPaperChangingState() != PaperChangingState::Off) {\n            break;\n        }\n        const uint32_t banner_before = pipe.GetResetBannerSequence();\n        const uint32_t post_reset_status = pipe.GetStatusReportSequence();\n        if (!pipe.SendAbortReset(session, stopped_status_baseline, paper_before, banner_before,\n                                 allow_unready_reconnect)) {\n            break;\n        }\n        uint32_t idle_query_baseline = post_reset_status;\n        bool queried_idle = false;\n        while ((xTaskGetTickCount() - began) < pdMS_TO_TICKS(kResetRecoveryTimeoutMs)) {\n            if (!pipe.IsConnected() || pipe.GetConnectionSequence() != session) {\n                break;\n            }\n            const uint32_t banner_generation = pipe.GetResetBannerSequence();\n            if (banner_generation == AbortResetToken::NextGeneration(banner_before) &&\n                pipe.IsReady() && pipe.IsAuthorized()) {\n                if (!queried_idle) {\n                    idle_query_baseline = pipe.GetStatusReportSequence();\n                    queried_idle = true;\n                    if (!pipe.SendRealtime('?')) {\n                        break;\n                    }\n                }\n                if (pipe.GetStatusReportSequence() != idle_query_baseline &&\n                    pipe.GetStatusReportSequence() != post_reset_status &&\n                    pipe.GetGrblState() == GrblState::Idle) {\n                    success = true;\n                    break;\n                }\n            }\n            vTaskDelay(pdMS_TO_TICKS(100));\n        }\n    } while (false);\n\n    if (success) {\n        // 2026-08-28 用户决策「停止后也要自己回原点」：归位失败不翻盘\n        // （机器已停稳是主结果），只分流尾态播报。\n        abort_home_done_.store(HomeAfterAbort(hold_x, hold_y), std::memory_order_release);\n    }\n    if (!success) {\n        pipe.CancelAbortReset();\n        // 不解锁未知 Alarm。若普通 abort 未能完成受限 reset，只拆会话阻止继续写；\n        // busy 在 owner 终态发布后才释放，下一次连接仍须重新验明。\n        if (pipe.GetGrblState() != GrblState::Alarm) {\n            pipe.ShutdownSocket(session);\n        }\n    }\n    if (!abort_reset_owner_.Complete(success)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/protocol.md -> hutuji_recovery_core.h:1101-1183": {
+    "docs/protocol.md -> hutuji_recovery_core.h:1109-1191": {
       "sha8": "459b6939",
       "source": "class AbortResetToken {\npublic:\n    /** 调用方必须用同一把发送锁串行化 Arm/Consume/Cancel。 */\n    bool Arm(uint32_t connection_generation, uint32_t current_banner_generation,\n             uint32_t current_receive_epoch) {\n        const uint32_t expected_banner = NextGeneration(current_banner_generation);\n        State state = state_.load(std::memory_order_acquire);\n        while (true) {\n            if (state == State::Arming || state == State::Pending) {\n                return false;\n            }\n            // 已取消的 reset 结果仍可能迟到；同一 session/同一代不得重新布防，\n            // 否则旧 banner 会兑现新 token（ABA）。换 session 或 banner 前进后才可重试。\n            if (state == State::Cancelled &&\n                connection_generation_.load(std::memory_order_relaxed) == connection_generation &&\n                expected_banner_generation_.load(std::memory_order_relaxed) == expected_banner) {\n                return false;\n            }\n            if (state_.compare_exchange_weak(state, State::Arming, std::memory_order_acq_rel,\n                                             std::memory_order_acquire)) {\n                break;\n            }\n        }\n        connection_generation_.store(connection_generation, std::memory_order_relaxed);\n        expected_banner_generation_.store(expected_banner, std::memory_order_relaxed);\n        expected_receive_epoch_.store(current_receive_epoch, std::memory_order_relaxed);\n        State expected = State::Arming;\n        return state_.compare_exchange_strong(expected, State::Pending, std::memory_order_release,\n                                              std::memory_order_acquire);\n    }\n\n    bool Consume(uint32_t connection_generation, uint32_t banner_generation,\n                 uint32_t receive_epoch) {\n        State state = state_.load(std::memory_order_acquire);\n        while (state == State::Pending || state == State::Cancelled) {\n            // 早到/旧 session banner 不得破坏当前 token；只消费精确绑定的一代。\n            if (connection_generation_.load(std::memory_order_relaxed) != connection_generation ||\n                expected_banner_generation_.load(std::memory_order_relaxed) != banner_generation ||\n                !IsAfter(receive_epoch, expected_receive_epoch_.load(std::memory_order_relaxed))) {\n                return false;\n            }\n            const bool redeem = state == State::Pending;\n            if (state_.compare_exchange_weak(state, State::Empty, std::memory_order_acq_rel,\n                                             std::memory_order_acquire)) {\n                return redeem;\n            }\n        }\n        return false;\n    }\n\n    void Cancel() {\n        State state = state_.load(std::memory_order_acquire);\n        while (state == State::Arming || state == State::Pending) {\n            if (state_.compare_exchange_weak(state, State::Cancelled, std::memory_order_acq_rel,\n                                             std::memory_order_acquire)) {\n                return;\n            }\n        }\n    }\n\n    bool Pending() const { return state_.load(std::memory_order_acquire) == State::Pending; }\n\n    static constexpr uint32_t NextGeneration(uint32_t generation) { return generation + 1U; }\n\n    /** RFC 1982 风格半区间比较，支持 UINT32_MAX→0。 */\n    static constexpr bool IsAfter(uint32_t candidate, uint32_t baseline) {\n        const uint32_t distance = candidate - baseline;\n        return distance != 0U && distance < (uint32_t{1} << 31);\n    }\n\nprivate:\n    enum class State : uint8_t {\n        Empty = 0,\n        Arming,\n        Pending,\n        Cancelled,\n    };\n\n    std::atomic<uint32_t> connection_generation_{0};\n    std::atomic<uint32_t> expected_banner_generation_{0};\n    std::atomic<uint32_t> expected_receive_epoch_{0};\n    std::atomic<State> state_{State::Empty};\n};",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -986,7 +986,7 @@
       "source": "// 窗口按 payload+LF 计字节；应答队列须覆盖最短非空行形成的最大在途条数，",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
     },
-    "docs/protocol.md -> hutuji_recovery_core.h:639-642": {
+    "docs/protocol.md -> hutuji_recovery_core.h:647-650": {
       "sha8": "a7f2aab5",
       "source": "inline constexpr bool CanSendAbortReset(bool connected, bool ready, bool same_session,\n                                        bool fresh_stopped_status, bool fresh_paper_status,\n                                        bool changing_off) {\n    return connected && ready && same_session && fresh_stopped_status && fresh_paper_status &&",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -1026,17 +1026,17 @@
       "source": "        // GPIO34: 3.3V=NoP(无纸), 0V=HavP(有纸)",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/PaperSystem.cpp"
     },
-    "docs/release-readiness.md -> application.cc:1213": {
+    "docs/release-readiness.md -> application.cc:1221": {
       "sha8": "6a10b9cc",
       "source": "void Application::SendMcpMessage(const std::string& payload) {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
-    "docs/release-readiness.md -> application.cc:566": {
+    "docs/release-readiness.md -> application.cc:574": {
       "sha8": "6f66d874",
       "source": "    protocol_->OnAudioChannelClosed([this, &board]() {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
-    "docs/release-readiness.md -> application.cc:956": {
+    "docs/release-readiness.md -> application.cc:964": {
       "sha8": "9db5f6db",
       "source": "#if CONFIG_SEND_WAKE_WORD_DATA",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
@@ -1286,7 +1286,7 @@
       "source": "\n    // 每条 G-code 都是小包；关闭 Nagle，避免 Z5 已执行并在 `$1=25ms` 后失能，",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/troubleshooting.md -> hutuji_recovery_core.h:918-921": {
+    "docs/troubleshooting.md -> hutuji_recovery_core.h:926-929": {
       "sha8": "5810b427",
       "source": " * 换纸遥测三态：Unknown 是 fail-open 默认态——超时/序号未推进/字段缺席都不得\n * 被解释成「缺纸」，否则一次 Telnet 抖动就会误拒有纸的正常出图（比页尾 error:90 更糟）。\n */\nenum class PaperPresentState : uint8_t { Unknown = 0, Yes, No };",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h"
@@ -1307,6 +1307,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-08T08:58:30Z",
+  "updated": "2026-09-08T10:31:46Z",
   "version": 1
 }

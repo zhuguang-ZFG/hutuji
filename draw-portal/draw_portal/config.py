@@ -59,6 +59,7 @@ class Config:
     host: str
     port: int
     bind_code_ttl_seconds: int
+    bind_claim_ttl_seconds: int
     saved_preview_limit: int
     smtp_host: str
     smtp_port: int
@@ -152,6 +153,9 @@ def load_config() -> Config:
         port=port,
         bind_code_ttl_seconds=int(os.environ.get("DRAW_PORTAL_BIND_TTL_SECONDS", "600")),
         saved_preview_limit=int(os.environ.get("DRAW_PORTAL_SAVED_PREVIEW_LIMIT", "50")),
+        # 认领窗口放宽到 30 分钟：claim 在配网成功后发出，设备还要重启+连家网+激活
+        # （relay 重试环最长 ~10 分钟）才 announce，600s 会话 TTL 盖不住最坏路径。
+        bind_claim_ttl_seconds=int(os.environ.get("DRAW_PORTAL_BIND_CLAIM_TTL_SECONDS", "1800")),
         smtp_host=os.environ.get("DRAW_PORTAL_SMTP_HOST", "").strip(),
         smtp_port=int(os.environ.get("DRAW_PORTAL_SMTP_PORT", "587")),
         smtp_user=os.environ.get("DRAW_PORTAL_SMTP_USER", "").strip(),

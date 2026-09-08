@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:639-642` 与 `hutuji_recovery_core.h:1101-1183`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:647-650` 与 `hutuji_recovery_core.h:1109-1191`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -648,7 +648,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - 设备本地维护动作进入「绑定呼图账号」→ 生成 **6～8 位** `bind_code`，**TTL 10 分钟**，屏显 QR + 大字码。
 - QR 载荷：`https://hutuji.donglicao.com/draw-upload/bind?c=<bind_code>`（HTTPS）。
 - `bind_code` 单次消费；过期作废。
-- 设备配网 QR（xiaozhi `5431a15` 起 URL 形态，与绑机码同族）：`https://hutuji.donglicao.com/draw-upload/wifi?s=<urlencode(AP SSID)>`。消费双通道：① 微信「扫一扫」经 mp 后台「扫普通链接二维码打开小程序」规则带 `s` 参数拉起配网页（`wifi.js onLoad(options.s)`，weapp 0.1.7 起消费）；② 小程序内「扫屏幕配网码」`wx.scanCode` 解析同一形态（weapp 0.1.7 起；旧固件 `WIFI:T:nopass;S:<ssid>;;` 与纯 SSID 形态继续兼容）。5431a15 只改固件未同步小程序内解析属回归，0.1.7 收口。
+- 设备配网 QR（xiaozhi `5431a15` 起 URL 形态，与绑机码同族）：`https://hutuji.donglicao.com/draw-upload/wifi?s=<urlencode(AP SSID)>`。消费双通道：① 微信「扫一扫」经 mp 后台「扫普通链接二维码打开小程序」规则带 `s` 参数拉起配网页（`wifi.js onLoad(options.s)`，weapp 0.1.7 起消费）；② 小程序内「扫屏幕配网码」`wx.scanCode` 解析同一形态（weapp 0.1.7 起；旧固件 `WIFI:T:nopass;S:<ssid>;;` 与纯 SSID 形态继续兼容）。5431a15 只改固件未同步小程序内解析属回归，0.1.7 收口。**2026-09-08 起 QR 追加 `&m=<urlencode(整机 MAC)>`**（冒号编 `%3A`）作为「用户扫到这张屏显码」的近场证明，供一次扫码合一自动绑定（见 §10.4.4「一次扫码合一」）；小程序 0.1.8 起 `onLoad(options.m)` 与 `onScanAp` 双通道消费，`m` 缺失的旧码自动回落手动绑定。
 
 #### 10.4.3 设备 announce（S3 → draw-portal）
 
@@ -662,6 +662,7 @@ Content-Type: application/json
 - 传输仅 HTTPS；日志**禁止**打印 `device_token` 与完整 `bind_code`（可记 mac + 结果）。
 - 服务端写入短期 `bind_sessions`；限速按 MAC + IP。
 - **token 真值（2026-08-29 HIL）**：小智 `/messaging/device/tools/call` 须 **messaging JWT**（控制台「主题配置 / assets-generator」URL 的 `token=` 参数，`purpose=messaging`）。固件 announce 当前仍可能上报 NVS `websocket.token`（WSS 连接用，**≠ messaging JWT**）→ 绑定后 `hutuji.status` 探活 401。**运维**：手动写入绑定表 messaging token，或 complete 时若已有同 MAC 且探活正常的旧 token 则保留（防重绑覆盖）。长期：固件 `ReadDeviceToken()` 优先 `messaging.token`、OTA 解析 `messaging` 段（xiaozhi 工作树未提交）。主题配置重签 token 后须更新绑定表。
+- 响应 2026-09-08 起新增 `"bound": bool`：该 MAC 已绑定（含本次 announce 触发认领撮合成功）时为 true，固件无头轮询据此停止并屏显「已绑定呼图账号」；老固件忽略多余字段，向后兼容。
 
 #### 10.4.4 用户 complete（浏览器 → draw-portal，须登录）
 
@@ -675,6 +676,8 @@ Cookie: <session>
 - 匹配未消费的 announce → 建立 `user_id` ↔ `device_mac` ↔ `device_token`（**加密存储**）。
 - 一期：**一用户一台设备**。
 - 可选：用控制台 JWT 校验 `mac` 已在 agent 设备列表（与 `/register` 激活一致）。
+
+**一次扫码合一（claim 自动绑定，2026-09-08 定案；ESP RainMaker「配网会话内交换身份」/ Tuya 扫码即绑同族）**：用户扫配网 QR（`m=<MAC>` 在场证明）→ 小程序配网成功后 `POST /draw-upload/api/user/bind/claim`（须登录）`{"mac":"aa:bb:...","force":false}` 写入 `bind_claims`（MAC 主键，TTL 默认 1800s，`DRAW_PORTAL_BIND_CLAIM_TTL_SECONDS`；窗口放宽是因设备重启+激活重试环最长 ~10 分钟才 announce）。设备侧每次开机激活完成事件起无头 announce 轮（5s×120，仅 waveshare/freenove 编译面，不屏显 QR）；announce 检出同 MAC 未过期认领即消费自身会话完成绑定（usage 事件 `bind_auto_complete`，与 complete 共用 `_finalize_binding` 完成路径），claim 先到 announce 后到为常态时序；announce 先到则 claim 当场撮合回 `status:"bound"`。跨账号冲突与 complete 同口径：409 + `force:true` 确认换绑（在场证据=扫到屏显配网码）。三端任一缺失（旧固件 QR 无 `m`、用户未登录、旧小程序不消费 `m`）自动回落抽屉输码 complete 路径，该路径永久保留。
 
 #### 10.4.5 网页传图与保存预览
 

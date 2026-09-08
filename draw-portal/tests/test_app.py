@@ -102,6 +102,113 @@ def test_register_login_and_bind_flow(tmp_path: Path, monkeypatch: pytest.Monkey
     assert me.status_code == 200
     assert me.json()["binding"]["bound"] is True
 
+def _announce(client: TestClient, mac: str = "aa:bb:cc:dd:ee:ff", code: str = "ABC123"):
+    return client.post(
+        "/api/device/bind/announce",
+        json={
+            "mac": mac,
+            "bind_code": code,
+            "device_token": "test-device-token-" + secrets.token_hex(8),
+        },
+    )
+
+
+def _mock_probe_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "draw_portal.app.probe_device_token",
+        lambda **kwargs: (True, "mock ok"),
+    )
+
+
+def test_bind_claim_then_announce_auto_binds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """一次扫码合一主路径：配网成功后认领在先，设备 announce 到达即自动绑定。"""
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client)
+
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.status_code == 200
+    assert claim.json()["status"] == "claimed"
+
+    announce = _announce(client)
+    assert announce.status_code == 200
+    assert announce.json()["bound"] is True
+
+    me = client.get("/api/auth/me")
+    assert me.json()["binding"]["bound"] is True
+
+    # 认领已消费、绑定已成立：后续 announce 幂等回 bound，不再换绑。
+    again = _announce(client, code="DEF456")
+    assert again.json()["bound"] is True
+    assert client.get("/api/auth/me").json()["binding"]["bound"] is True
+
+
+def test_bind_announce_first_claim_completes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """反向时序：设备先连回家网 announce，用户认领时当场撮合完成。"""
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client)
+
+    announce = _announce(client)
+    assert announce.json()["bound"] is False
+
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.status_code == 200
+    assert claim.json()["status"] == "bound"
+    assert claim.json()["binding"]["bound"] is True
+
+
+def test_bind_claim_conflict_requires_force(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """跨账号冲突与抽屉码同口径：未确认认领 409 且不越权换绑，force 后才换。"""
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client, "first@qq.com")
+    _announce(client)
+    assert client.post("/api/user/bind/complete", json={"bind_code": "ABC123"}).status_code == 200
+
+    _register_and_login(client, "second@qq.com")
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.status_code == 409
+
+    # 未 force 的认领不碰既有绑定：announce 仍归第一用户。
+    announce = _announce(client, code="DEF456")
+    assert announce.json()["bound"] is True
+    assert client.get("/api/auth/me").json()["binding"]["bound"] is False
+
+    # force 认领 + 在场会话 → 即时换绑到第二用户。
+    claim2 = client.post(
+        "/api/user/bind/claim",
+        json={"mac": "aa:bb:cc:dd:ee:ff", "force": True},
+    )
+    assert claim2.status_code == 200
+    assert claim2.json()["status"] == "bound"
+    assert client.get("/api/auth/me").json()["binding"]["bound"] is True
+
+
+def test_bind_claim_expired_does_not_auto_bind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """过期认领不得撮合；抽屉码降级路径不受影响。"""
+    monkeypatch.setenv("DRAW_PORTAL_BIND_CLAIM_TTL_SECONDS", "-1")
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client)
+
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.json()["status"] == "claimed"
+
+    announce = _announce(client)
+    assert announce.json()["bound"] is False
+
+    complete = client.post("/api/user/bind/complete", json={"bind_code": "ABC123"})
+    assert complete.status_code == 200
+    assert complete.json()["binding"]["bound"] is True
+
+
+def test_bind_claim_rejects_invalid_mac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _client(monkeypatch, tmp_path)
+    _register_and_login(client)
+    r = client.post("/api/user/bind/claim", json={"mac": "not-a-mac"})
+    assert r.status_code == 400
+
 
 def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _client(monkeypatch, tmp_path)
