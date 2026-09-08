@@ -182,6 +182,9 @@ def start_upgrade(
     token_cipher_key: bytes,
     board_fallback: str | None = None,
 ) -> dict[str, Any]:
+    if is_upgrading(store, binding.user_id):
+        return {"status": "error", "detail": "busy"}
+
     plan = check_firmware(
         store=store,
         binding=binding,
@@ -263,7 +266,7 @@ def start_upgrade(
             device_mac=binding.device_mac,
             state="failed",
             progress=0,
-            reason="check_failed",
+            reason=None,
             target_version=version,
         )
         return {"status": "error", "detail": result}

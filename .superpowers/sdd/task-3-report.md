@@ -46,3 +46,14 @@ $ pytest tests/test_wx_control.py -q
 - `start_upgrade` 经 `check_firmware` + 二次 status，共两次 `hutuji.status`（可接受；状态竞态窗口更小）。
 - 设备尚未实现 `hutuji.ota_start` / status 字段时，实机 check 会 `check_failed`（预期，待 Task 5/6）。
 - draw 闸只拦 `/send`，不拦 upload/generate（与 brief 一致）。
+
+## Review fixes (Important)
+
+1. **Duplicate upgrade:** `start_upgrade` 入口若 `is_upgrading` → `{"status":"error","detail":"busy"}`，不再二次 push `ota_start`。测例 `test_duplicate_upgrade_returns_busy`。
+2. **Push failure reason:** push 失败会话 `state=failed`、`reason=None`（不再误标 `check_failed`）；API `detail` 保留 HTTP/错误串。测例 `test_push_failure_session_reason_not_check_failed`。
+3. 未拆 `check_firmware(store=…)`：`store` 仍用于 token 自愈写回，跳过 optional。
+
+```
+$ pytest tests/test_firmware_ota.py tests/test_firmware_ota_core.py -q
+..........  10 passed
+```

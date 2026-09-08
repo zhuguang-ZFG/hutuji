@@ -195,3 +195,55 @@ def test_firmware_check_and_ota_status(tmp_path: Path, monkeypatch: pytest.Monke
     body = st.json()
     assert body["state"] == "upgrading"
     assert body["target_version"] == "hutuji.1.0.1"
+
+
+def test_duplicate_upgrade_returns_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _, c2 = _clients(monkeypatch, tmp_path)
+    _announce(c2, "IIII01")
+    assert c2.post("/api/user/bind/complete", json={"bind_code": "IIII01"}).status_code == 200
+
+    calls: list[dict] = []
+
+    def fake_push(**kw):
+        calls.append(kw)
+        if kw.get("name") == "hutuji.status":
+            return True, _status_json()
+        return True, json.dumps({"ok": True})
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", fake_push)
+    first = c2.post("/api/device/firmware/upgrade")
+    assert first.status_code == 200
+    assert first.json()["status"] == "started"
+    ota_before = sum(1 for c in calls if c.get("name") == "hutuji.ota_start")
+    assert ota_before == 1
+
+    second = c2.post("/api/device/firmware/upgrade")
+    assert second.status_code == 200
+    assert second.json() == {"status": "error", "detail": "busy"}
+    ota_after = sum(1 for c in calls if c.get("name") == "hutuji.ota_start")
+    assert ota_after == 1
+
+
+def test_push_failure_session_reason_not_check_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    _, c2 = _clients(monkeypatch, tmp_path)
+    _announce(c2, "JJJJ01")
+    assert c2.post("/api/user/bind/complete", json={"bind_code": "JJJJ01"}).status_code == 200
+
+    def fake_push(**kw):
+        if kw.get("name") == "hutuji.status":
+            return True, _status_json()
+        return False, "HTTP 503"
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", fake_push)
+    r = c2.post("/api/device/firmware/upgrade")
+    assert r.status_code == 200
+    assert r.json() == {"status": "error", "detail": "HTTP 503"}
+
+    st = c2.get("/api/device/firmware/ota_status")
+    assert st.status_code == 200
+    body = st.json()
+    assert body["state"] == "failed"
+    assert body["reason"] != "check_failed"
+    assert body["reason"] is None
