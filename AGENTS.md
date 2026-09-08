@@ -42,7 +42,7 @@ hutuji 是一台 **AI 绘图自动换纸写字机**：语音 → 云端 MCP 生�
 |---|---|
 | `mcp-server/hutuji_mcp/` | ③ MCP 生成服务包（36 个模块 + 空 `__init__.py` + `hutuji_gwrite.toml`；2026-09-04 起含文档导入三件套 `doc_ingest`/`table_layout`/`article_pages`） |
 | `mcp-server/tests/` | pytest 契约/注入回归 + `test_star.svg` 夹具 |
-| `draw-portal/` | 传图/文档上传门户（FastAPI，独立 venv，`draw_portal/` 包 + `tests/` 76 项；2026-09-08 起含 `/api/user/bind/claim` 一次扫码合一认领撮合，契约 `docs/protocol.md` §10.4.4；复用 hutuji_mcp 走 PYTHONPATH；门禁不含它，改动须单独跑 `tests/`） |
+| `draw-portal/` | 传图/文档上传门户（FastAPI，独立 venv，`draw_portal/` 包 + `tests/` 80 项；2026-09-08 起含 `/api/user/bind/claim` 一次扫码合一认领撮合，契约 `docs/protocol.md` §10.4.4；复用 hutuji_mcp 走 PYTHONPATH；门禁不含它，改动须单独跑 `tests/`） |
 | `mcp-server/scripts/` | `e2e_local.py`（无硬件闭环）、`cloud_bridge_smoke.py`（云工具发现） |
 | `scripts/` | 本仓门禁 `agent_gate.py` + 实机工具（WiFi 配网、故障注入抓包、小智控制台） |
 | `deploy/` | 双机 systemd / nginx / env 模板 + `prepare-host.sh`、`install-from-repo.sh`、`preflight.sh` |
