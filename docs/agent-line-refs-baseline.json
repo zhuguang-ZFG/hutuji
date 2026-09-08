@@ -1,5 +1,5 @@
 {
-  "git_head": "8a62f044d861ea5782e2cee14b9e46c82ee87d59",
+  "git_head": "d0db04d0078678728dadf7054fd1696394d61fa1",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1011,6 +1011,11 @@
       "source": " * CONSTRAINTS: preserve callbacks, state gates, locale keys, and 56 px touch targets.",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
+    "docs/release-readiness.md -> AGENTS.md:147-149": {
+      "sha8": "576b1a61",
+      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1276 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
+      "target": "AGENTS.md"
+    },
     "docs/release-readiness.md -> GCode.cpp:1732": {
       "sha8": "fe86c136",
       "source": "            if (stepper_idle_lock_time->get() != 0xff) {",
@@ -1302,6 +1307,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-08T03:26:23Z",
+  "updated": "2026-09-08T03:44:01Z",
   "version": 1
 }

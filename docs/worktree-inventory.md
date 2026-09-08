@@ -11,7 +11,7 @@
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
-### SSRF/并发加固 + 文档同步批（2026-09-08，未提交）
+### SSRF/并发加固 + 文档同步批（2026-09-08，hub `d0db04d` 已推、双机已部署）
 
 | 项 | 说明 |
 |----|------|
@@ -20,7 +20,7 @@
 | 小程序 | 历史页受保护预览改走 `api.downloadFile`（x-session 头）——真机直接 `<image src>` 不带会话头会 401；加加载占位 |
 | 测试 | mcp `test_modelscope.py` 17→22（全套 1271→1276，SSRF 拒绝矩阵：回环/私网/IPv6 回环/localhost./.internal/非 https）；portal +1 semaphore 用例（62→63） |
 | 文档 | AGENTS.md 链路 racer 列表补魔搭/TCB、env 清单 +3、模块数 31→35、portal 测试数 34+7→63；README/CLAUDE racer 列表同步 |
-| 待办 | 双机部署加固批 + restart + 冒烟；weapp 下一体验版发布（含历史页修复） |
+| 待办 | weapp 下一体验版发布（含历史页修复） |
 
 ### 图生图（i2i）AI 线稿通道 + 魔搭/TCB t2i racer 批（2026-09-08，hub `8a62f04` 已推、双机已部署）
 
