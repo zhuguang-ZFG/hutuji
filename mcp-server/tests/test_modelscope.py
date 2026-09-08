@@ -194,7 +194,31 @@ def test_download_rejects_non_https() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))) as client:
             return await modelscope_client.download_image(client, "http://cdn.example/x.png")
 
-    with pytest.raises(ModelScopeError, match="非 https"):
+    with pytest.raises(ModelScopeError, match="有效的 https"):
+        asyncio.run(main())
+
+
+@pytest.mark.parametrize(
+    "url, reason",
+    [
+        # 任务回包 URL 过与生图主链同一把 SSRF 闸（IMG-URL-SSRF-GAP）：
+        # 闸在发起任何 HTTP 请求之前，MockTransport 若被命中即测试失败。
+        ("https://127.0.0.1/x.png", "内网"),
+        ("https://192.168.1.13/x.png", "内网"),
+        ("https://[::1]/x.png", "内网"),
+        ("https://localhost./x.png", "本地主机名"),
+        ("https://cdn.example.internal/x.png", "本地主机名"),
+    ],
+)
+def test_download_rejects_internal_result_url(url: str, reason: str) -> None:
+    def handler(request):  # noqa: ANN001, ANN202
+        raise AssertionError("内网地址不应发起 HTTP 请求")
+
+    async def main() -> bytes:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await modelscope_client.download_image(client, url)
+
+    with pytest.raises(ModelScopeError, match=reason):
         asyncio.run(main())
 
 

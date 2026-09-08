@@ -1,5 +1,5 @@
 {
-  "git_head": "f4e930d52a6371b53ea312865cfe8dd0c1f7c0a5",
+  "git_head": "8a62f044d861ea5782e2cee14b9e46c82ee87d59",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -456,14 +456,14 @@
       "source": "#      窗口持续填充 planner，避免笔画期间因 WiFi 往返空档失能。当前保持奎享原值\n#      F10000，不采用未经证明的 F1000/F300 降速方案。2026-07-29 同文件中先画的\n#      F300/F1500 线无墨，后画的 F10000/F1500 线出墨且均匀；落笔速度与先后顺序\n#      尚未解耦，不能据此宣称 F10000 是唯一根因。详见 docs/troubleshooting.md。",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:117": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:119": {
       "sha8": "373590ce",
       "source": "- `mcp-server/hutuji_mcp/quickdraw.py` — Quick Draw 本地缓存（2026-08-24 落地）：`lookup()` 命中即免付费生图，复用位图路线产物面；数据根走 `HUTUJI_QUICKDRAW_DIR`，类目映射 `quickdraw_categories.json`（v4：**402 别名键 → 298 官方在册类目**，已对账 categories.txt；与数据目录 298 个 `.jsonl` 双向零差；2026-08-25 v4 两项：`_PREFIX_RE` 增 11 个礼貌备择 + 循环剥离 ≤3 刀（请画/帮我画+单字名词此前全 miss），补 15 个「小X」口语变体（小树/小花等，实机 HIL 实证「画一棵小树」miss 走付费 AI 链）；圣诞树/松树经 GCS 404 实证非官方类目不收）；署名 `QUICKDRAW-ATTRIBUTION.md`。；2026-08-25 C 组合：质量路由 _QD_STYLE_RE 默认 AI 链、简笔风才查 QD；数据换装精选版每类 50 条（quickdraw_curate.py 三因子质量分），原始 200 条/类本地备份",
       "target": "AGENTS.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:145-147": {
-      "sha8": "8e9d0e2b",
-      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1271 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:147-149": {
+      "sha8": "576b1a61",
+      "source": "\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1276 项**。\n- 测试约定：函数式 `def test_*`，无测试类，私有辅助如 `_settings()` / `_minimal_gcode()`；负向契约用 `pytest.raises(..., match=...)`；拒绝矩阵用 `@pytest.mark.parametrize`（`(输入, 原因)`）；async 直接 `asyncio.run(...)`（无 async 插件）；临时状态用 `tmp_path`；时间用可注入 clock 或 `os.utime`，不引 freeze-time；**不要引入 `TestClient`**——现有测试直接调 `server._serve_file()` / `server.hutuji_status()` 并 monkeypatch 模块全局。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -541,17 +541,17 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:379": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:390": {
       "sha8": "12408ced",
       "source": "| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v3（**387 别名键 → 298 官方在册类目**，已对账 categories.txt；手机改指 cell phone）。2026-08-24 实测：去 `_meta` 后 387 键、去重后 298 值，与 `quickdraw-data/` 的 298 个 `.jsonl` 双向零差；本轮补入 14 个多字别名覆盖原单字类目；2026-08-25 v4 批演进 402 键、C 组合双机部署见本页 C 组合节 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:384": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:395": {
       "sha8": "aea86d4d",
       "source": "| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（2026-08-24 基线 298 类 × 200 条 ≈ 20MiB；2026-08-25 C 组合换装精选版每类 50 条，见 C 组合节）。历史误记「gitignored 目录内」已于 2026-08-24 撤（实测 `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 干跑可见 314 文件）。**决策状态（2026-08-24 用户 advisory 点名）**：本页 `edf68e7` 条目「不新增忽略规则」对**整目录忽略 tmp/** 仍成立——advisory 同文否决整目录方案：AGENTS.md 刷机坑段引用根 `tmp/` 工具（flash_hil_ws35.ps1、reset_wdt_capture.py），整目录忽略会把它们变成只在本机的隐形文件；仅对**数据集本体**开窄例外：`.gitignore` 新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条——后者兜住 qd_smoke/qd_trial/qd_verify 下 4 个散落 .jsonl（同属 CC BY 4.0 素材，入库即构成再分发）。实测 `check-ignore -v` 双向命中正确、`git add -An` 下数据集不可见；mcp-server/tmp/ 剩余可见面 = 12 个实验/工具件（abkit、twoopt_star、capture_resilient.py 等，干跑实测）**仍未忽略**，故**禁止 `git add .`/`git add -A`**，提交必须点名暂存 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:386": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:397": {
       "sha8": "c0a52acd",
       "source": "| 验证状态 | hub 门禁 **PASS（2026-08-24，13/13）**；全量 pytest **976/976**、e2e `PASS`；docs 指纹 216/216、外仓引用 212/212；Quick Draw 映射 387 键→298 类、14 个单字孤儿类目均有多字别名且跨类子串碰撞为 0；最长优先 4 个真实碰撞断言通过；服务异步 vpype 转换最多 2 个并发且取消/超时回归通过。**已于 2026-08-24 部署阿里云生产**（3 文件 sha256 对账、双服务重启、ExecStartPre 过、hit 冒烟 0.714s 命中 cat、公网下载逐字节一致、/mcp 404）**并同步京东云热备**（6 产物+数据集 298 文件+env，仅重启 mcp、bridge 保持 disabled，preflight 25/30 其 5 fail 均为热备态预期分歧；详见 `deployment.md` 顶部两条）。**生产量化同日完成**：lookup 类目覆盖 23/23（14 修复类目全 HIT）；6 并发 hit 出图全 OK（墙钟 2.29s、同秒 6 产物、付费日志 0 条）。**仍未执行**：真实语音 HIL、真实使用命中率统计；根 `tmp/` 暂存副本已纳入 `scripts/agent_gate.py` `_REF_SKIP_DIRS`，原 basename 假绿根因已修 |",
       "target": "docs/worktree-inventory.md"
@@ -681,7 +681,7 @@
       "source": "            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:1170-1215": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:1179-1224": {
       "sha8": "efda6524",
       "source": "    @app.post(\"/api/device/conversation/report\")\n    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:\n        try:\n            mac = normalize_mac(body.mac)\n            session_id = body.session_id.strip()[:64]\n        except ValueError as exc:\n            raise HTTPException(status_code=400, detail=str(exc)) from exc\n        user_id = store.get_user_id_for_mac(mac)\n        if user_id is None:\n            raise HTTPException(status_code=403, detail=\"设备未绑定呼图账号\")\n        now = time.time()\n        store.purge_conversation_before(\n            retention_cutoff(retention_days=config.conversation_retention_days)\n        )\n        accepted = 0\n        for turn in body.events:\n            try:\n                role = normalize_role(turn.role)\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            content = truncate_conversation_content(\n                turn.content, max_len=config.conversation_max_content\n            )\n            if not content:\n                continue\n            client_ts = turn.client_ts if turn.client_ts is not None else now\n            key = conversation_dedupe_key(\n                device_mac=mac,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n            )\n            if store.insert_conversation_event(\n                dedupe_key=key,\n                device_mac=mac,\n                user_id=user_id,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n                created_at=now,\n            ):\n                accepted += 1\n        return {\"status\": \"ok\", \"accepted\": accepted, \"total\": len(body.events)}\n",
       "target": "draw-portal/draw_portal/app.py"
@@ -731,7 +731,7 @@
       "source": "    tmp_path: Path, monkeypatch: pytest.MonkeyPatch",
       "target": "mcp-server/tests/test_contract.py"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:450": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:461": {
       "sha8": "218f3480",
       "source": "- **2026-08-23 烧录 `fb2b3b5`（COM13，用户批准后执行）**：`pio run -e release` 重建 SUCCESS（仅重编 PaperSystem.cpp/WebSettings.cpp，与 E′ 触碰面一致；新 bin 1857936 字节，取代 08-15 旧镜像）→ `pio run -t upload --upload-port COM13` app-only `0x10000`，esptool `Hash of data verified`，RTS 硬复位。启动自证 `results/local-only/2026-08-23/fb2b3b5-com13-boot.log`（抓取脚本 `tmp/cap_fb2b3b5_com13.py`）：`Grbl_ESP32 Ver 1.3a`、paper system vM716 ready、`[License] Authorized (restored from NVS)`、连上 `ChinaNet-jJmz` 获 `192.168.1.13`、HTTP/TELNET:23 起来，无崩溃重启。**矛盾待澄清**：本次启动自报 ChipID（efuse MAC）`0000FC7742C63C94`，与 §2 上文 08-22 记录的 `00002C876AE9BFB4` 不一致（本地证据文件中检索不到后者出处），COM 号漂移或多台写字机皆有可能——物理身份需用户确认；可确认的是「今天 COM13 这块板」已跑 `fb2b3b5` 且授权/.13 网络身份正常。物理并发复现（E′ 的 HIL）仍未做。**wokwi 同日登记**：复跑 `run_wokwi_smoke.py`（新镜像已就位）失败根因为 Wokwi 免费版月度 CI 配额耗尽（`API Error: ... Free plan monthly CI minute quota`，serial 0 行），属外部阻塞非固件回归；该可选层本月不可跑，不阻断产品门禁。",
       "target": "docs/worktree-inventory.md"
@@ -1302,6 +1302,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-08T02:28:09Z",
+  "updated": "2026-09-08T03:26:23Z",
   "version": 1
 }

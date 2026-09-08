@@ -68,6 +68,11 @@ logger = logging.getLogger(__name__)
 # 回调自清理是标准做法。
 _background_tasks: set[asyncio.Task] = set()
 
+# i2i 精修并发上限：魔搭免费层单任务轮询约 3 分钟，课堂 NAT 突发会在同一事件
+# 循环挂出一串轮询协程（每个还握着原始照片字节）。名额之外的精修排队等位，
+# 不把突发流量原样堆到上游 API。模块级单例与 _background_tasks 同口径。
+_refine_slots = asyncio.Semaphore(4)
+
 
 def _spawn_background(coro) -> None:
     task = asyncio.create_task(coro)
@@ -741,6 +746,10 @@ def create_app() -> FastAPI:
             logger.info("照片 AI 精修失败（%s）：%s", type(exc).__name__, orig_job_id)
             store.set_draw_job_refined(orig_job_id, status="failed")
 
+    async def _refine_photo_job_guarded(orig_job_id: str, raw: bytes, user_id: str) -> None:
+        async with _refine_slots:
+            await _refine_photo_job(orig_job_id, raw, user_id)
+
     @app.post("/api/draw/upload", dependencies=secured)
     async def draw_upload(
         file: UploadFile = File(...),
@@ -854,7 +863,7 @@ def create_app() -> FastAPI:
         refined_payload: dict[str, Any] | None = None
         if config.modelscope_token and await asyncio.to_thread(is_photo_raster, raw):
             store.set_draw_job_refined(job.id, status="pending")
-            _spawn_background(_refine_photo_job(job.id, raw, user_id))
+            _spawn_background(_refine_photo_job_guarded(job.id, raw, user_id))
             refined_payload = {"status": "pending"}
         return {
             "status": "ready",

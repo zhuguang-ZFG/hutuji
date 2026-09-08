@@ -18,7 +18,6 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from collections import OrderedDict
 import asyncio
-import ipaddress
 import json
 import logging
 import math
@@ -28,7 +27,6 @@ import zlib
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
-from urllib.parse import urlsplit
 
 import anyio
 import httpx
@@ -36,6 +34,7 @@ import numpy as np
 
 from .config import settings
 from .llm_svg import _sanitize_description, _validate_svg
+from .url_guard import UrlGuardError, validate_public_https_url
 
 logger = logging.getLogger(__name__)
 
@@ -150,46 +149,13 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 def _validate_image_download_url(url: str) -> None:
     """生图 API 返回的下载地址必须指向公网 https（IMG-URL-SSRF-GAP）。
 
-    上游 images API 的响应受 prompt 影响，可能返回内网 https 地址；服务器直接
-    GET 该地址等于把内网当代理（SSRF）。判定：
-    - scheme 必须 https；
-    - hostname 是 IP 字面量时用 ipaddress 拒一切非 global 地址（is_global False
-      即拒，覆盖 loopback/private/link-local/reserved/shared 全段）；
-    - hostname 为 'localhost'（大小写不敏感）或以 '.localhost'/'.local'/'.internal'
-      结尾同样拒绝；
-    - 主机名先剥结尾点：DNS 绝对名形态（`127.0.0.1.`、`localhost.`）与裸名等价，
-      不剥会被当成普通域名放行。
-    DNS-rebinding 不在本层防御面：域名先解析到内网再变公网，也无法把内网内容
-    带出——响应还须过 PNG magic，且本模块从不把下载内容回显给调用方。
+    判定逻辑唯一实现在 url_guard.validate_public_https_url（modelscope_client
+    结果图下载共用）；此处只把异常包装成本模块窄类型 BitmapError。
     """
     try:
-        parts = urlsplit(url)
-        # urlsplit 不校验端口：非数字端口要访问 .port 才抛 ValueError。httpx
-        # 构造请求时对这类 URL 抛 InvalidURL（不是 HTTPError 子类，下载循环的
-        # except 捕不到），不在这里拦会裸穿成 500。
-        parts.port
-    except ValueError:
-        # 非法端口等 urlsplit 拒绝的形态按无效地址处理，fail-closed。
-        raise BitmapError("生图 API 未返回有效的 https 图片地址") from None
-    if parts.scheme != "https":
-        raise BitmapError("生图 API 未返回有效的 https 图片地址")
-    host = (parts.hostname or "").rstrip(".")
-    if not host:
-        raise BitmapError("生图 API 未返回有效的 https 图片地址")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        if ":" in host:
-            # 含 ':' 又不是 IP 字面量 = 未加方括号的 IPv6 / 畸形主机名；urlsplit
-            # 与 httpx 对端口的切分不一致，httpx 会抛 InvalidURL 裸穿成 500。
-            raise BitmapError("生图 API 未返回有效的 https 图片地址") from None
-    else:
-        if not ip.is_global:
-            raise BitmapError("生图 API 返回的图片地址指向内网/保留地址段")
-        return
-    lowered = host.lower()
-    if lowered == "localhost" or lowered.endswith((".localhost", ".local", ".internal")):
-        raise BitmapError("生图 API 返回的图片地址指向本地主机名")
+        validate_public_https_url(url)
+    except UrlGuardError as exc:
+        raise BitmapError(str(exc)) from None
 # 解码前的像素数上限。_IMAGE_DOWNLOAD_MAX_BYTES 限的是**压缩**字节，管不住像素数：
 # 全白 PNG 压缩比实测 440~925:1，16MB 上限可携带上万 Mpx。而本模块的预处理链把
 # 像素放大到远超裸图——2026-08-11 本机实测（results 探针，用后即删）：

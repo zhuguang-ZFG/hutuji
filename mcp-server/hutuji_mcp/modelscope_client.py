@@ -20,6 +20,8 @@ import json
 
 import httpx
 
+from .url_guard import UrlGuardError, validate_public_https_url
+
 BASE_URL = "https://api-inference.modelscope.cn"
 T2I_MODEL = "Qwen/Qwen-Image"
 I2I_MODEL = "Qwen/Qwen-Image-Edit-2509"
@@ -194,9 +196,12 @@ async def download_image(
     *,
     timeout_seconds: float = _DOWNLOAD_TIMEOUT_SECONDS,
 ) -> bytes:
-    """下载魔搭结果图（URL 来自任务回包）；只放 https，16MiB 上限。"""
-    if not image_url.startswith("https://"):
-        raise ModelScopeError("魔搭结果图地址非 https")
+    """下载魔搭结果图（URL 来自任务回包）；公网 https 闸 + 16MiB 上限。"""
+    # 任务回包同样可能含内网地址：与生图主链同一把 SSRF 闸（IMG-URL-SSRF-GAP）。
+    try:
+        validate_public_https_url(image_url)
+    except UrlGuardError as exc:
+        raise ModelScopeError(str(exc)) from None
     try:
         async with asyncio.timeout(timeout_seconds):
             async with client.stream("GET", image_url) as resp:

@@ -77,4 +77,27 @@ function uploadFile(path, filePath, name) {
   });
 }
 
-module.exports = { BASE_URL, request, uploadFile, getSession, setSession };
+// 收藏预览等 secured 图片：<image>/wx.previewImage 发请求带不上 x-session 头，
+// 真机会 401 白图；必须先经 wx.downloadFile（可带头）落地临时文件再显示。
+// downloadFile 合法域名需在 mp 后台与 request/uploadFile 同配（2026-09-07 已加）。
+function downloadFile(path) {
+  return new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: BASE_URL + path,
+      header: { "x-session": getSession() },
+      success(res) {
+        if (res.statusCode === 200) {
+          resolve(res.tempFilePath);
+          return;
+        }
+        reject({ status: res.statusCode, detail: "图片加载失败" });
+      },
+      fail() {
+        reject({ status: 0, detail: "网络不可用，请检查网络" });
+      },
+    });
+  });
+}
+
+
+module.exports = { BASE_URL, request, uploadFile, downloadFile, getSession, setSession };

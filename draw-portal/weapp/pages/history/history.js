@@ -18,14 +18,24 @@ Page({
     api
       .request("/api/draw/saved")
       .then((data) => {
-        // 收藏列表契约：{items:[{id,title,saved_at,preview_url}]}，发送走 saved/{id}/send
+        // 收藏列表契约：{items:[{id,title,saved_at,preview_url}]}，发送走 saved/{id}/send。
+        // preview_url 是 secured 相对路径，<image> 直连必 401（带不上 x-session），
+        // 先置空、逐条 downloadFile 落地临时文件后回填本地路径。
         const jobs = (data.items || []).map((it) => ({
           savedId: it.id,
-          previewUrl: api.BASE_URL + it.preview_url,
+          previewUrl: "",
+          previewPath: it.preview_url,
           sourceName: it.title || "作品",
           createdAt: String(it.saved_at || "").replace("T", " ").slice(0, 16),
         }));
         this.setData({ jobs, loading: false });
+        jobs.forEach((job, idx) => {
+          if (!job.previewPath) return;
+          api
+            .downloadFile(job.previewPath)
+            .then((local) => this.setData({ [`jobs[${idx}].previewUrl`]: local }))
+            .catch(() => {}); // 单条失败留占位，不打扰整页
+        });
         if (done) done();
       })
       .catch(() => {
@@ -35,7 +45,9 @@ Page({
   },
 
   onPreview(e) {
-    wx.previewImage({ urls: [e.currentTarget.dataset.url] });
+    const url = e.currentTarget.dataset.url;
+    if (!url) return; // 预览尚未下载完成
+    wx.previewImage({ urls: [url] });
   },
 
   onSend(e) {

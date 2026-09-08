@@ -4,7 +4,8 @@
     <view class="muted">去首页画一个，或拍张照片试试</view>
   </view>
   <view class="card work" wx:for="{{jobs}}" wx:key="savedId">
-    <image class="thumb" src="{{item.previewUrl}}" mode="aspectFill" bindtap="onPreview" data-url="{{item.previewUrl}}" />
+    <image wx:if="{{item.previewUrl}}" class="thumb" src="{{item.previewUrl}}" mode="aspectFill" bindtap="onPreview" data-url="{{item.previewUrl}}" />
+    <view wx:else class="thumb thumb-placeholder"><text class="muted">加载中…</text></view>
     <view class="info">
       <view class="name">{{item.sourceName}}</view>
       <view class="muted">{{item.createdAt}}</view>

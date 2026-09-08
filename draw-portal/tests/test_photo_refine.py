@@ -11,6 +11,7 @@ starlette 每个请求新建事件循环，上传响应一落盘循环就关，�
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import io
 from pathlib import Path
@@ -197,6 +198,32 @@ def test_i2i_failure_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatch: p
         assert final["status"] == "ready"
         assert final["preview_url"] == canny_preview
         assert final["gcode_url"].endswith(".gcode")
+
+
+def test_refine_concurrency_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """课堂 NAT 突发：6 个照片上传同时触发精修，在上游同时在途的不得超过
+    _refine_slots 名额（4），且排队任务不丢——全部走到 ready。"""
+    active = 0
+    peak = 0
+
+    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.05)  # 占住名额，迫使突发并发显形
+        active -= 1
+        return b"\x89PNG\r\n\x1a\nREFINED"
+
+    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        _register(client)
+
+        job_ids = [_upload(client).json()["job_id"] for _ in range(6)]
+        for jid in job_ids:
+            _poll_until(client, jid, ("ready",))
+    assert peak <= 4, f"并发精修越过上游名额：peak={peak}"
+    assert peak >= 2, "并发闸把精修串行化同样违背设计（名额应被用满）"
 
 
 def test_job_status_404_for_unknown_or_foreign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
