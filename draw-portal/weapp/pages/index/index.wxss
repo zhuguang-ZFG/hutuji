@@ -64,6 +64,38 @@
   flex: 1;
 }
 
+/* AI 精修版本切换：线稿版 / 精修版两张小卡横排，选中项加主题色高亮边框 */
+.version-row {
+  display: flex;
+  gap: 20rpx;
+  margin-bottom: 12rpx;
+}
+
+.version-item {
+  flex: 1;
+  padding: 10rpx;
+  border: 2rpx solid transparent;
+  border-radius: 16rpx;
+  text-align: center;
+}
+
+.version-active {
+  border-color: var(--primary);
+}
+
+.version-thumb {
+  width: 100%;
+  height: 180rpx;
+  background: #F6F1E6;
+  border-radius: 12rpx;
+}
+
+.version-name {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #8A8A99;
+}
+
 .upload-ready {
   margin-top: 20rpx;
 }

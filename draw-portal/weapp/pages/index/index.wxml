@@ -26,10 +26,31 @@
     <view class="card-title">预览</view>
     <image
       class="preview"
-      src="{{job.previewUrl}}"
+      src="{{job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl}}"
       mode="aspectFit"
       bindtap="onPreviewTap"
     />
+    <!-- 精修就绪后给两个版本切换卡，选中项高亮边框；上方大图始终跟随选中版本 -->
+    <view class="version-row" wx:if="{{job.refined}}">
+      <view
+        class="version-item {{job.useRefined ? '' : 'version-active'}}"
+        data-version="draft"
+        bindtap="onPickVersion"
+      >
+        <image class="version-thumb" src="{{job.previewUrl}}" mode="aspectFill" />
+        <view class="version-name">线稿版</view>
+      </view>
+      <view
+        class="version-item {{job.useRefined ? 'version-active' : ''}}"
+        data-version="refined"
+        bindtap="onPickVersion"
+      >
+        <image class="version-thumb" src="{{job.refined.previewUrl}}" mode="aspectFill" />
+        <view class="version-name">AI 精修版</view>
+      </view>
+    </view>
+    <view class="muted center-text" wx:if="{{job.refining}}">AI 精修中，好了可以直接换用…</view>
+    <view class="muted center-text" wx:if="{{job.refineFailed}}">AI 精修未成功，已保留线稿版</view>
     <view class="muted center-text">约 {{job.lines}} 行笔画 · 点图放大</view>
     <button
       class="btn-primary block-btn"
