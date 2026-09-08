@@ -213,10 +213,54 @@ Page({
     }
     this.setData({ step: "working" });
     this.appendLog("下发家里 WiFi 凭据…");
-    this.submitCreds();
+    this.ensureOnDeviceAp(0, () => this.submitCreds(false));
   },
 
-  submitCreds() {
+  // iOS 会把「无互联网」的热点几秒内切回有网 WiFi（2026-09-08 实机抓包：手机 join
+  // 设备热点 9s 后 leave，用户输完密码点下发时已不在热点 → TCP 连不上 192.168.4.1）。
+  // 下发前先确认还挂在设备热点上，不在就重新 connectWifi 拉回，最多重试 2 次。
+  ensureOnDeviceAp(n, next) {
+    wx.getConnectedWifi({
+      success: (r) => {
+        if (r.wifi && r.wifi.SSID === this.data.apSsid) {
+          next();
+          return;
+        }
+        this.rejoinDeviceAp(n, next);
+      },
+      fail: () => this.rejoinDeviceAp(n, next),
+    });
+  },
+
+  rejoinDeviceAp(n, next) {
+    if (n >= 2) {
+      this.appendLog("手机离开了设备热点");
+      this.setData({ step: "creds" });
+      wx.showModal({
+        title: "手机离开了设备热点",
+        content:
+          "iPhone 会把没网的热点自动切走：弹「此无线局域网似乎未接入互联网」时选「仍要使用」；或在系统 WiFi 设置里手动连上「" +
+          this.data.apSsid +
+          "」再回来点一键配网",
+        showCancel: false,
+      });
+      return;
+    }
+    this.appendLog("重新连接设备热点…");
+    wx.startWifi({
+      success: () => {
+        wx.connectWifi({
+          SSID: this.data.apSsid,
+          password: "",
+          success: () => setTimeout(next, 1200),
+          fail: () => this.rejoinDeviceAp(n + 1, next),
+        });
+      },
+      fail: () => this.rejoinDeviceAp(n + 1, next),
+    });
+  },
+
+  submitCreds(retried) {
     const payload = JSON.stringify({ ssid: this.data.homeSsid, password: this.data.homePassword });
     const http =
       "POST /submit HTTP/1.1\r\nHost: 192.168.4.1\r\nContent-Type: application/json\r\nContent-Length: " +
@@ -226,7 +270,7 @@ Page({
     const tcp = wx.createTCPSocket();
     let got = "";
     let finished = false;
-    const finish = (ok, msg) => {
+    const finish = (ok, msg, reconnectable) => {
       if (finished) return;
       finished = true;
       try {
@@ -237,12 +281,17 @@ Page({
         this.setData({ step: "done" });
         this.autoBind();
       } else {
+        if (!retried && reconnectable) {
+          this.appendLog("手机不在设备热点上了，拉回重试…");
+          this.ensureOnDeviceAp(1, () => this.submitCreds(true));
+          return;
+        }
         this.appendLog("下发失败：" + msg);
         this.setData({ step: "creds" });
         wx.showModal({ title: "配网失败", content: msg, showCancel: false });
       }
     };
-    const timer = setTimeout(() => finish(false, "设备应答超时，请重试或用浏览器配网"), 20000);
+    const timer = setTimeout(() => finish(false, "设备应答超时，请重试或用浏览器配网", true), 20000);
     tcp.onConnect(() => {
       tcp.write(http);
     });
@@ -253,16 +302,16 @@ Page({
         finish(true);
       } else if (got.indexOf('"success":false') >= 0) {
         clearTimeout(timer);
-        finish(false, "设备拒绝：请核对 WiFi 名称和密码");
+        finish(false, "设备拒绝：请核对 WiFi 名称和密码", false);
       }
     });
     tcp.onClose(() => {
       clearTimeout(timer);
-      finish(got.indexOf('"success":true') >= 0, "连接已断开但未收到成功应答");
+      finish(got.indexOf('"success":true') >= 0, "连接已断开但未收到成功应答", true);
     });
     tcp.onError(() => {
       clearTimeout(timer);
-      finish(false, "连不上设备配置口，确认手机还在设备热点上");
+      finish(false, "连不上设备配置口，确认手机还在设备热点上", true);
     });
     tcp.connect({ address: "192.168.4.1", port: 80, timeout: 8 });
   },
