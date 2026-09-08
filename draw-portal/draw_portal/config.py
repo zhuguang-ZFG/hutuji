@@ -76,6 +76,10 @@ class Config:
     generate_daily_limit: int
     generate_timeout_seconds: int
     gfont_dir: str  # 奎享 .gfont 字库目录（文档导入排版用）；空 = 文档导入禁用
+    # 魔搭 token：照片两段式第 2 段（i2i 精修）凭据；空 = 精修禁用，照片
+    # 路径维持单段 Canny（2026-09-08 拍板 UX）。与 MCP 侧 HUTUJI_MODELSCOPE_TOKEN
+    # 同一凭据，两处 env 分别注入。
+    modelscope_token: str = ""
     # 微信小程序（2026-09-07）：两项同配才启用 /api/auth/wx-login，空=禁用
     wx_appid: str = ""
     wx_secret: str = ""
@@ -172,6 +176,7 @@ def load_config() -> Config:
             os.environ.get("DRAW_PORTAL_GFONT_DIR")
             or os.environ.get("HUTUJI_GFONT_DIR", "")
         ).strip(),
+        modelscope_token=os.environ.get("HUTUJI_MODELSCOPE_TOKEN", "").strip(),
     )
 
 

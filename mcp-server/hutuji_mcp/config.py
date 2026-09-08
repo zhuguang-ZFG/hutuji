@@ -124,6 +124,17 @@ class Settings:
     # SiliconFlow：可图已备案（Beijing-KeTu-202404280003）；单 key 即启用
     # schnell + 可图双 racer，空值禁用。base URL 固定官方端点，不走配置面。
     siliconflow_api_key: str = ""
+    # 魔搭 ModelScope：单 token 同时启用 t2i 对冲 racer（bitmap_svg 池内一员，
+    # 2026-09-08 用户拍板「和商汤/agnes 同等地位」）与照片 i2i 精修链
+    # （draw-portal 两段式：先 Canny 预览后 AI 线稿推送）。空值=双双禁用。
+    # 凭据只走 env，禁入库。
+    modelscope_token: str = ""
+    # 腾讯云开发混元文生图（用户既有 generateImage 云函数的原生 invoke 端点 +
+    # 环境 API key，2026-09-08 实测链路：Bearer 鉴权、{prompt,model} 进、
+    # {success,imageUrl} 出、~15s）。两项同配或同空。实测不支持 i2i——
+    # image 参数被函数静默忽略，只作 t2i 对冲 racer。
+    tcb_image_url: str = ""
+    tcb_api_key: str = ""
     # Quick Draw 本地缓存目录（quickdraw.lookup 的数据根；设计稿
     # docs/design/quickdraw-local-cache.md）。空值 = 禁用并回落 AI 对冲；
     # import 期不探测目录存在性（生产目录由部署保证），首次 lookup 惰性确认，
@@ -260,6 +271,24 @@ class Settings:
         # 0.0.0.0 在生产静默无效、在开发直跑 `python -m hutuji_mcp.server` 却是真裸曝。
         # 静默无效比报错危险：它让人误以为监听面已改。两条路径在此统一口径。
         object.__setattr__(self, "siliconflow_api_key", self.siliconflow_api_key.strip())
+        object.__setattr__(self, "modelscope_token", self.modelscope_token.strip())
+        # 混元生图两项必须同配或同空（只配一半会让 racer 以 401 假性在场、
+        # 每次对冲都白付一次 45s 超时）；URL 同 image_fallback 的 https+主机名口径。
+        tcb_image_url = self.tcb_image_url.strip().rstrip("/")
+        tcb_api_key = self.tcb_api_key.strip()
+        if bool(tcb_image_url) != bool(tcb_api_key):
+            raise ValueError(
+                "HUTUJI_TCB_IMAGE_URL 与 HUTUJI_TCB_API_KEY 必须同时配置或同时留空"
+            )
+        if tcb_image_url:
+            parsed = urlsplit(tcb_image_url)
+            if parsed.scheme != "https" or not parsed.hostname:
+                raise ValueError(
+                    "HUTUJI_TCB_IMAGE_URL 必须是 https:// 且带主机名，或置空禁用，"
+                    f"当前 {self.tcb_image_url!r}"
+                )
+        object.__setattr__(self, "tcb_image_url", tcb_image_url)
+        object.__setattr__(self, "tcb_api_key", tcb_api_key)
         if not _is_loopback_host(self.host.lower()):
             raise ValueError(
                 f"HUTUJI_HOST 只允许 loopback，当前 {self.host!r}；"
@@ -361,7 +390,6 @@ def load_settings() -> Settings:
         image_model=os.environ.get("HUTUJI_IMAGE_MODEL", "agnes-image-2.1-flash"),
         output_dir=_resolve_output_dir(),
         public_base_url=os.environ.get("HUTUJI_PUBLIC_BASE_URL", "http://127.0.0.1:8300"),
-        # 默认仅本机监听；公网只让 nginx 反代 /files，绝不直曝 /mcp。
         image_fallback_url=os.environ.get(
             "HUTUJI_IMAGE_FALLBACK_URL", "https://imagefree.tingfengai.art/v1/generate"
         ),
@@ -373,6 +401,9 @@ def load_settings() -> Settings:
         xiaozhi_device_token=os.environ.get("HUTUJI_XIAOZHI_DEVICE_TOKEN", ""),
         sensenova_image_model=os.environ.get("HUTUJI_SENSENOVA_IMAGE_MODEL", ""),
         siliconflow_api_key=os.environ.get("HUTUJI_SILICONFLOW_API_KEY", ""),
+        modelscope_token=os.environ.get("HUTUJI_MODELSCOPE_TOKEN", ""),
+        tcb_image_url=os.environ.get("HUTUJI_TCB_IMAGE_URL", ""),
+        tcb_api_key=os.environ.get("HUTUJI_TCB_API_KEY", ""),
         quickdraw_dir=os.environ.get("HUTUJI_QUICKDRAW_DIR", ""),
         gfont_dir=os.environ.get("HUTUJI_GFONT_DIR", ""),
         stroke_dir=os.environ.get("HUTUJI_STROKE_DIR", ""),

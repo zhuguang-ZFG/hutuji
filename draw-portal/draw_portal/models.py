@@ -67,6 +67,10 @@ class DrawJob:
     basename: str | None
     error_summary: str | None
     created_at: float
+    # 照片两段式（2026-09-08）：原 job 是 Canny 快出结果；魔搭 i2i 精修成
+    # 独立 job 后回填 refined_job_id。NULL = 非照片或未启用精修。
+    refined_status: str | None = None  # pending | ready | failed
+    refined_job_id: str | None = None
 
 
 @dataclass(frozen=True)

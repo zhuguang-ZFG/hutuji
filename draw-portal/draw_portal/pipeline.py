@@ -35,22 +35,41 @@ class DocPipelineResult:
     preview_path: Path
 
 
-def normalize_raster_to_png(raw: bytes) -> bytes:
+def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:
     """WebP/GIF/BMP/PNG/JPEG 统一为 PNG 字节。
 
     照片类栅格（近白像素占比 <0.5）走 Canny 边缘提取转单线稿，
     人像/场景相似度远优于亮度阈值+骨架化（2026-09-07 用户人像实证：
     阈值链输出不成形轮廓，Canny σ2.2 输出可辨识人脸+口罩+帽子）。
     参照 Inkscape trace bitmap CANNY 模式与奎享 EdgeTab 的行业共识。
+
+    line_art=False 只做格式归一、跳过 Canny——两段式精修要把「原始照片」
+    喂给 i2i 模型，不是把 Canny 结果喂进去（2026-09-08 拍板 UX）。
     """
     import imageio.v3 as iio
 
     arr = iio.imread(raw)
-    if _looks_like_photo(arr):
+    if line_art and _looks_like_photo(arr):
         arr = _photo_to_line_art(arr)
     buf = io.BytesIO()
     iio.imwrite(buf, arr, extension=".png")
     return buf.getvalue()
+
+
+def is_photo_raster(raw: bytes) -> bool:
+    """上传原件是否「照片」（近白像素 <0.5）；与 normalize 的照片启发式同源。
+
+    两段式精修用它决定要不要起 i2i 后台任务。非栅格（SVG 字节）/解码失败
+    一律 False——判不出就维持现状（只有 Canny 结果），不为可用性特性加
+    fail-closed 面。
+    """
+    import imageio.v3 as iio
+
+    try:
+        arr = iio.imread(raw)
+        return _looks_like_photo(arr)
+    except Exception:
+        return False
 
 
 def _looks_like_photo(arr) -> bool:

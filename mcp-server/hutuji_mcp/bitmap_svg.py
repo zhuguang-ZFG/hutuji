@@ -1018,6 +1018,56 @@ async def _request_siliconflow_kolors_image_url(
         },
     )
 
+def _modelscope_token() -> str:
+    """魔搭 token；空值禁用。Settings 可能缺该字段（测试直造），同 getattr 口径。"""
+    return getattr(settings, "modelscope_token", "").strip()
+
+
+def _tcb_image_url() -> str:
+    return getattr(settings, "tcb_image_url", "").strip()
+
+
+def _tcb_api_key() -> str:
+    return getattr(settings, "tcb_api_key", "").strip()
+
+
+async def _request_modelscope_image_url(
+    client: httpx.AsyncClient, description: str
+) -> str:
+    """魔搭 t2i 对冲 racer：异步任务制（提交+轮询 output_images[0]）。
+
+    免费层排队实测可达分钟级，轮询上限用 modelscope_client.T2I_TIMEOUT_SECONDS
+    （120s）而非对冲池 45s 单次闸——它是「有机会赢」的成员，不为它拖住整单；
+    输给快通道时被 race 取消，已提交的任务在魔搭侧自然完结（免费配额代价）。
+    """
+    from . import modelscope_client
+
+    try:
+        return await modelscope_client.generate_image_url(
+            client, _modelscope_token(), prompt=_BITMAP_STYLE + description
+        )
+    except modelscope_client.ModelScopeError as exc:
+        raise BitmapError(str(exc)) from None
+
+
+async def _request_tcb_image_url(client: httpx.AsyncClient, description: str) -> str:
+    """腾讯云开发混元 t2i（generateImage 云函数原生 invoke）：单次 POST ~15s，
+    {prompt, model} 进 {success, imageUrl} 出。实测不支持 i2i（image 参数被
+    函数静默忽略），故只进 t2i 对冲池。"""
+    payload = {"prompt": _BITMAP_STYLE + description, "model": "hunyuan-image"}
+    headers = {"Authorization": f"Bearer {_tcb_api_key()}"}
+    data = await _post_image_request(
+        client, _tcb_image_url(), payload, headers, "混元生图", retry_delays=()
+    )
+    if data.get("success") is not True:
+        # error/message 是云函数自由文本，不回显，只记 success 值。
+        logger.warning("混元生图未出图（success=%r）", data.get("success"))
+        raise BitmapError("混元生图未出图（success=false）")
+    image_url = data.get("imageUrl")
+    if not isinstance(image_url, str) or not image_url:
+        raise BitmapError("混元生图未返回有效的 https 图片地址")
+    return image_url
+
 async def _race_dynamic_image_racers(
     client: httpx.AsyncClient, description: str, racers: list[dict[str, Any]]
 ) -> str:
@@ -1109,6 +1159,10 @@ async def _race_image_backends(
     if _image_backend_enabled("siliconflow") and _siliconflow_api_key():
         racers.append(("硅流 Schnell", "siliconflow:schnell", _request_siliconflow_schnell_image_url))
         racers.append(("硅流可图", "siliconflow:kolors", _request_siliconflow_kolors_image_url))
+    if _image_backend_enabled("modelscope") and _modelscope_token():
+        racers.append(("魔搭生图", "modelscope", _request_modelscope_image_url))
+    if _image_backend_enabled("tcb") and _tcb_image_url() and _tcb_api_key():
+        racers.append(("混元生图", "tcb", _request_tcb_image_url))
     if _image_backend_enabled("fallback") and _image_fallback_url():
         racers.append(("备用端点", "imagefree", _request_fallback_image_url))
     if not racers:
@@ -1181,6 +1235,9 @@ async def _race_image_backends(
         for sf_name in ("硅流 Schnell", "硅流可图"):
             if sf_name in errors:
                 parts.append(f"{sf_name} 同样失败：{errors[sf_name]}")
+        for extra_name in ("魔搭生图", "混元生图"):
+            if extra_name in errors:
+                parts.append(f"{extra_name}同样失败：{errors[extra_name]}")
         if "备用端点" in errors:
             parts.append(f"备用端点同样失败：{errors['备用端点']}")
         raise BitmapError("；".join(parts) if parts else "全部生图后端均失败")

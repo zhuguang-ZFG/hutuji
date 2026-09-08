@@ -87,7 +87,9 @@ CREATE TABLE IF NOT EXISTS draw_jobs (
     source_name TEXT,
     basename TEXT,
     error_summary TEXT,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    refined_status TEXT,
+    refined_job_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS saved_previews (
@@ -202,6 +204,11 @@ _USER_MIGRATION_COLUMNS = (
     ("phone", "TEXT"),
     ("avatar_path", "TEXT"),
 )
+_DRAW_JOB_MIGRATION_COLUMNS = (
+    ("refined_status", "TEXT"),
+    ("refined_job_id", "TEXT"),
+)
+
 
 
 class Store:
@@ -239,6 +246,13 @@ class Store:
             WHERE email_verified_at IS NULL AND status = 'active'
             """
         )
+        job_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(draw_jobs)").fetchall()
+        }
+        for name, ddl in _DRAW_JOB_MIGRATION_COLUMNS:
+            if name not in job_cols:
+                conn.execute(f"ALTER TABLE draw_jobs ADD COLUMN {name} {ddl}")
         conn.commit()
 
     @staticmethod
@@ -304,6 +318,8 @@ class Store:
             basename=row["basename"],
             error_summary=row["error_summary"],
             created_at=row["created_at"],
+            refined_status=row["refined_status"],
+            refined_job_id=row["refined_job_id"],
         )
 
     @staticmethod
@@ -807,6 +823,22 @@ class Store:
                 WHERE id = ?
                 """,
                 (error_summary[:500], job_id),
+            )
+            conn.commit()
+
+    def set_draw_job_refined(
+        self, job_id: str, *, status: str, refined_job_id: str | None = None
+    ) -> None:
+        """照片两段式：pending → ready（回填精修 job id）/ failed。只写 refined_* 两列。"""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE draw_jobs
+                SET refined_status = ?,
+                    refined_job_id = COALESCE(?, refined_job_id)
+                WHERE id = ?
+                """,
+                (status, refined_job_id, job_id),
             )
             conn.commit()
 

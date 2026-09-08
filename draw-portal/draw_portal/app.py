@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import time
 import uuid
@@ -8,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,7 +40,14 @@ from draw_portal.email_verify import (
 )
 from draw_portal.models import normalize_bind_code, normalize_email, normalize_mac, normalize_registration_email
 from draw_portal.passwords import hash_password, verify_password
-from draw_portal.pipeline import copy_saved_preview, process_upload, process_upload_doc
+from draw_portal.pipeline import (
+    copy_saved_preview,
+    is_photo_raster,
+    normalize_raster_to_png,
+    process_upload,
+    process_upload_doc,
+    process_upload_png,
+)
 from draw_portal.probe import probe_device_token
 from draw_portal.push import (
     _install_capability_pair,
@@ -51,6 +60,20 @@ from draw_portal.push import (
 from draw_portal.upload_kinds import detect_upload_kind
 from draw_portal.store import Store
 from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
+
+logger = logging.getLogger(__name__)
+
+# asyncio 事件循环对 task 只持弱引用：后台任务若无强引用驻留，可能被 GC
+# 静默回收（任务停在 await 上永不完成、无异常可追溯）。模块级集合 + 完成
+# 回调自清理是标准做法。
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 class RegisterRequestBody(BaseModel):
     email: str
@@ -670,6 +693,54 @@ def create_app() -> FastAPI:
         )
         return published.gcode_url, published.preview_url
 
+    async def _refine_photo_job(orig_job_id: str, raw: bytes, user_id: str) -> None:
+        """照片两段式第 2 段：魔搭 i2i 精修 → 独立 refined job（同一条描摹/发布链）。
+
+        原 job 的 Canny 结果已同步回给用户；此处任何失败只把 refined_status
+        置 failed 并记类型名，绝不影响原 job（fail-open，2026-09-08 拍板 UX：
+        先 Canny 预览，AI 精修好了再推送换用）。i2i 输入是「原始照片」的
+        纯 PNG 归一，不是 Canny 输出——模型要照片细节才能画干净线稿。
+        """
+        from hutuji_mcp import modelscope_client
+
+        try:
+            plain_png = await asyncio.to_thread(
+                normalize_raster_to_png, raw, line_art=False
+            )
+            # 每跳请求的 30s/60s 超时在 modelscope_client 内部（asyncio.timeout），
+            # client 级超时只需不更紧。
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                refined_png = await modelscope_client.generate_i2i_png(
+                    client, config.modelscope_token, plain_png
+                )
+            refined_job = store.create_draw_job(user_id=user_id, source_name="AI 精修")
+            try:
+                refined_path = _job_dir(config.data_dir, refined_job.id)
+                await asyncio.to_thread(process_upload_png, refined_png, refined_path)
+                published = await asyncio.to_thread(
+                    publish_job_files,
+                    job_dir=refined_path,
+                    mcp_output_dir=config.mcp_output_dir,
+                    public_base_url=config.public_base_url,
+                )
+                store.mark_draw_job_ready(refined_job.id, basename=published.basename)
+            except Exception as exc:
+                store.mark_draw_job_failed(refined_job.id, error_summary=type(exc).__name__)
+                raise
+            store.set_draw_job_refined(
+                orig_job_id, status="ready", refined_job_id=refined_job.id
+            )
+            logger.info("照片 AI 精修完成：%s", orig_job_id)
+        except asyncio.CancelledError:
+            # 停机取消：同样回填 failed（否则 DB 里永远挂 pending），但原样
+            # 再抛——不吞 CancelledError，保住优雅停机语义。
+            store.set_draw_job_refined(orig_job_id, status="failed")
+            raise
+        except Exception as exc:
+            # 与 redact 硬约定同口径：只记异常类型名，不回显上游/凭据细节。
+            logger.info("照片 AI 精修失败（%s）：%s", type(exc).__name__, orig_job_id)
+            store.set_draw_job_refined(orig_job_id, status="failed")
+
     @app.post("/api/draw/upload", dependencies=secured)
     async def draw_upload(
         file: UploadFile = File(...),
@@ -777,6 +848,14 @@ def create_app() -> FastAPI:
             detail=source_name[:120],
             ok=True,
         )
+        # 照片两段式（2026-09-08 拍板）：Canny 结果已就绪，后台起魔搭 i2i 精修；
+        # 小程序在结果页轮询 /api/draw/jobs/{id} 的 refined 字段。非照片（线稿/
+        # SVG）或未配 token 时 refined=null，前端不展示精修入口。
+        refined_payload: dict[str, Any] | None = None
+        if config.modelscope_token and await asyncio.to_thread(is_photo_raster, raw):
+            store.set_draw_job_refined(job.id, status="pending")
+            _spawn_background(_refine_photo_job(job.id, raw, user_id))
+            refined_payload = {"status": "pending"}
         return {
             "status": "ready",
             "job_id": job.id,
@@ -784,7 +863,38 @@ def create_app() -> FastAPI:
             "gcode_url": published.gcode_url,
             "lines": result.lines,
             "bytes": result.bytes,
+            "refined": refined_payload,
         }
+
+    @app.get("/api/draw/jobs/{job_id}", dependencies=secured)
+    def draw_job_status(
+        job_id: str,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        """job 状态查询：两段式精修进度的轮询面（小程序结果页 ~5s 间隔）。
+
+        URL 由 basename 确定性推导（与 push._install_capability_pair 同公式），
+        不另存；refined=null 表示无精修（非照片/未启用）。
+        """
+        job = store.get_draw_job(job_id, user_id=user_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="作品不存在")
+        prefix = config.public_base_url.rstrip("/")
+        payload: dict[str, Any] = {"job_id": job.id, "status": job.status}
+        if job.status == "ready" and job.basename:
+            payload["gcode_url"] = f"{prefix}/files/{job.basename}.gcode"
+            payload["preview_url"] = f"{prefix}/files/{job.basename}.png"
+        refined: dict[str, Any] | None = None
+        if job.refined_status:
+            refined = {"status": job.refined_status}
+            if job.refined_status == "ready" and job.refined_job_id:
+                refined["job_id"] = job.refined_job_id
+                refined_job = store.get_draw_job(job.refined_job_id, user_id=user_id)
+                if refined_job and refined_job.status == "ready" and refined_job.basename:
+                    refined["gcode_url"] = f"{prefix}/files/{refined_job.basename}.gcode"
+                    refined["preview_url"] = f"{prefix}/files/{refined_job.basename}.png"
+        payload["refined"] = refined
+        return payload
 
     @app.post("/api/draw/generate", dependencies=secured)
     async def draw_generate(
