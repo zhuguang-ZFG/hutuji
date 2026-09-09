@@ -108,7 +108,7 @@
 | 测试 | mcp 新增 `test_chat.py` **28** 项，全套 **1338** 项全绿（合并分支后：+test_article_llm.py 4、test_contract.py 629→631）（此前 1288；另补登前期漏记 test_device_messaging.py 8、test_i2i_prompt_sketch.py 6、test_write_text.py 45→46、test_curated_server.py 5→6）；`test_contract.py` 链式三测试钉 `HUTUJI_DEVICE_TOKEN_FILE`——本机 `C:\var\lib\hutuji\device_messaging.token` 残留测试值 `fresh-jwt` 曾致 test_draw_chains 假红（文件已删）；portal `test_chat.py` **10** 项，portal 全量 100 过 + test_doc_upload 4 项失败与本批无关（HEAD 基线同挂，未定性） |
 | 验证 | hub 门禁：pytest 1332 PASS、e2e PASS、文档层全过；`line_ref_fingerprints` 42 处半漂移 + 3 空锚点 = **xiaozhi 仓 OTA/记忆批进行中**（application.cc 等工作树改动），按规则未重登，待该批收口后人工核对再 --accept-line-refs |
 | 文档 | protocol §10.4.10；readiness 顶部条目；AGENTS.md 计数/文件清单 |
-| 待办 | ① 双机部署（mcp + portal 代码，无新凭据——LLM 三件套复用 mcp.env 既有值）② MP 设 0.3.0 体验版 ③ 隐私协议补「文字对话传第三方 AI」条款 + AI 生成标识（MP 后台）④ 聊天 msgSecCheck 真联调（用真实 appid 过一遍审核）⑤ 真机 HIL：聊内画图全链 ⑥ test_doc_upload 4 项失败定性 |
+| 待办 | ~~① 双机部署~~（已完成：19 文件双机 SHA 对账 + restart + 冒烟 + preflight）~~② weapp 0.3.0 CLI 上传~~（重传 exit 0，TOTAL 100.2 KB）③ MP 设 0.3.0 体验版 ④ 隐私协议补「文字对话传第三方 AI」+ AI 生成标识（MP 后台）⑤ msgSecCheck 真联调 ⑥ 真机 HIL（文字聊/语音/写字/笔顺/固件升级）⑦ test_doc_upload 4 项失败定性（合并后 portal 173 全绿，疑似已被分支修掉，待复核确认） |
 
 ### TCB 混元 i2i 通道批（2026-09-08，代码已测未提交未部署；云函数补丁待用户粘贴）
 
