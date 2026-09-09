@@ -26,6 +26,7 @@
 | hub 已提交链（摘） | `8e052ca`/`acddb83`/`9828d11`/`75d7550` portal catalog+API；`f11e2e6`/`305636c` nginx `/firmware/`+发版脚本；`3a63962`/`427eb9d`/`05c2c6c` protocol OTA 字段与工具；`908e959`/`dc7f2f3` weapp 固件页+onShow 轮询 |
 | xiaozhi（`D:\Users\xiaozhi-esp32`） | 量产 OTA 提交：`73257fa` StatusJson+ParseVersion → `9194e60` 空 reason 省略 → `fcaca02` `hutuji.ota_check`/`ota_start`+每天自检+`PROJECT_VER=hutuji.1.0.0`+三板挂工具 → `942fcfb` 日历日 snprintf 钳位。**未推 origin 以现取 `git status`/`git log origin..HEAD` 为准** |
 | xiaozhi 脏树 | `main/boards/lichuang-dev/hutuji_draw_bind.cc` 有未提交改动（+22 行，与 OTA 批无关——**禁止覆盖**）；另有本地 `tmp_build_*.{bat,log}` / `pp_*.{bat,txt}` 等不入库 |
+| 生产 `/firmware/`（2026-09-09 15:1x） | 双机目录+nginx location+portal env 已通；catalog 空 `boards={}`；真 bin 未发；HIL 未跑 |
 | HIL | 条目 1–6 **本会话未跑＝未验证**（见 `docs/release-readiness.md` 文首 + 状态总览 #18） |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaozhi_ota_mass_prod_authorized` 登记本批授权路径意图 |
 
