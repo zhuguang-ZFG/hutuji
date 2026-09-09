@@ -34,6 +34,19 @@ function _handlePhoneRequired(payload) {
   }
 }
 
+// 401 统一处置：清会话态；logged_out 闸门在场（用户显式退出）→ 回「我的」登录墙。
+function _reject401(reject) {
+  wx.removeStorageSync("session_ok");
+  wx.removeStorageSync("session_token");
+  getApp().globalData.user = null;
+  if (wx.getStorageSync("logged_out")) {
+    wx.switchTab({ url: "/pages/profile/profile" });
+    reject({ status: 401, detail: "请先登录" });
+    return;
+  }
+  reject({ status: 401, detail: "登录已过期" });
+}
+
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
     wx.request({
@@ -47,18 +60,8 @@ function request(path, options = {}) {
       timeout: options.timeout || 150000,
       success(res) {
         if (res.statusCode === 401) {
-          // 会话过期：清态回首页重新静默登录
-          wx.removeStorageSync("session_ok");
-          wx.removeStorageSync("session_token");
-          getApp().globalData.user = null;
-          // 登录墙统一：用户已显式退出（logged_out 闸门）时，任何 tab 的 401
-          // 一律带回「我的」登录墙，而不是各页裸 toast（量产精致项 2026-09-09）
-          if (wx.getStorageSync("logged_out")) {
-            wx.switchTab({ url: "/pages/profile/profile" });
-            reject({ status: 401, detail: "请先登录" });
-            return;
-          }
-          reject({ status: 401, detail: "登录已过期" });
+          _reject401(reject);
+          return;
         }
         if (res.statusCode >= 400) {
           const payload = _detailPayload(res.data);
@@ -96,6 +99,10 @@ function uploadFile(path, filePath, name, formData) {
           try {
             data = JSON.parse(res.data);
           } catch (e) {}
+          if (res.statusCode === 401) {
+            _reject401(reject);
+            return;
+          }
           const payload = _detailPayload(data || { detail: "上传失败" });
           if (res.statusCode === 403 && payload.code === "phone_required") {
             _handlePhoneRequired(payload);
