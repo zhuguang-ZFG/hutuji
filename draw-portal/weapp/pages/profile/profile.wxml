@@ -58,6 +58,9 @@
       </view>
     </view>
   </view>
+    <view class="weui-btn-area tight">
+      <button class="weui-btn logout-btn" bindtap="onLogout">退出登录</button>
+    </view>
   </block>
 
 
@@ -97,9 +100,6 @@
       <button class="weui-btn weui-btn_default" bindtap="onGoChat">去和小派聊</button>
     </view>
 
-    <view class="weui-btn-area tight">
-      <button class="weui-btn logout-btn" bindtap="onLogout">退出登录</button>
-    </view>
   </block>
 
   <view class="page-foot muted">动力巢 · v0.3.0</view>
