@@ -3,8 +3,14 @@ const phoneGate = require("../../utils/phone_gate");
 
 Page({
   data: {
+    mode: "draw",
     description: "",
+    writeText: "",
+    sizeMm: 12,
+    lineSpacing: 1.6,
+    pageIndex: 0,
     generating: false,
+    layouting: false,
     sending: false,
     saving: false,
     uploading: false,
@@ -38,8 +44,31 @@ Page({
     this.stopRefinePolling();
   },
 
+  onModeTap(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (mode === this.data.mode) return;
+    this.stopRefinePolling();
+    this.setData({ mode, job: null, pageIndex: 0 });
+  },
+
   onDescInput(e) {
     this.setData({ description: e.detail.value });
+  },
+
+  onWriteInput(e) {
+    this.setData({ writeText: e.detail.value });
+  },
+
+  bumpSize(e) {
+    const delta = Number(e.currentTarget.dataset.delta);
+    const v = Math.min(40, Math.max(2, Math.round((this.data.sizeMm + delta) * 10) / 10));
+    this.setData({ sizeMm: v });
+  },
+
+  bumpLine(e) {
+    const delta = Number(e.currentTarget.dataset.delta);
+    const v = Math.min(3, Math.max(1, Math.round((this.data.lineSpacing + delta) * 10) / 10));
+    this.setData({ lineSpacing: v });
   },
 
   refreshStatus() {
@@ -91,12 +120,59 @@ Page({
       });
   },
 
-  onPreviewTap() {
+  onLayoutPreview() {
+    if (this.data.layouting || !this.data.writeText) return;
+    this.setData({ layouting: true });
+    api
+      .request("/api/draw/write", {
+        method: "POST",
+        data: {
+          text: this.data.writeText,
+          size_mm: this.data.sizeMm,
+          line_spacing: this.data.lineSpacing,
+        },
+      })
+      .then((res) => {
+        this.setData({ layouting: false });
+        this.adoptJob(res);
+        wx.showToast({ title: "排版完成", icon: "success" });
+      })
+      .catch((err) => {
+        this.setData({ layouting: false });
+        wx.showModal({
+          title: "排版失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
+
+  currentPreviewUrl() {
     const job = this.data.job;
-    if (!job) return;
-    // 放大图跟随预览卡当前显示的版本（线稿 / AI 精修）
-    const url = job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl;
+    if (!job) return "";
+    if (job.pages && job.pages.length) {
+      const p = job.pages[this.data.pageIndex] || job.pages[0];
+      return p.preview_url;
+    }
+    if (job.useRefined && job.refined) return job.refined.previewUrl;
+    return job.previewUrl;
+  },
+
+  onPreviewTap() {
+    const url = this.currentPreviewUrl();
+    if (!url) return;
     wx.previewImage({ urls: [url] });
+  },
+
+  onPrevPage() {
+    if (this.data.pageIndex <= 0) return;
+    this.setData({ pageIndex: this.data.pageIndex - 1 });
+  },
+
+  onNextPage() {
+    const pages = this.data.job && this.data.job.pages;
+    if (!pages || this.data.pageIndex >= pages.length - 1) return;
+    this.setData({ pageIndex: this.data.pageIndex + 1 });
   },
 
   onSend() {
@@ -186,11 +262,14 @@ Page({
       refined: null,
       useRefined: false,
       refineFailed: false,
+      pages: data.pages || null,
+      pageCount: data.page_count || null,
+      truncated: !!data.truncated,
     };
     if (data.refined && data.refined.status === "pending") {
       job.refining = true;
     }
-    this.setData({ job });
+    this.setData({ job, pageIndex: 0 });
     if (job.refining) {
       this.startRefinePolling(job.jobId);
     }
@@ -262,7 +341,6 @@ Page({
     }
   },
 
-
   onPickFile() {
     if (this.data.uploading) return;
     wx.chooseMessageFile({
@@ -275,8 +353,15 @@ Page({
           return;
         }
         this.setData({ uploading: true });
+        const formData =
+          this.data.mode === "write"
+            ? {
+                size_mm: String(this.data.sizeMm),
+                line_spacing: String(this.data.lineSpacing),
+              }
+            : undefined;
         api
-          .uploadFile("/api/draw/upload", file.path, "file")
+          .uploadFile("/api/draw/upload", file.path, "file", formData)
           .then((data) => {
             // 与 AI 生成同一预览卡：预览图 + 行数 + 发送钮（此前只存 jobId 不存 preview_url，
             // 用户看不到转换效果——2026-09-07「转换后没有预览」实证）

@@ -76,9 +76,9 @@ function request(path, options = {}) {
   });
 }
 
-function uploadFile(path, filePath, name) {
+function uploadFile(path, filePath, name, formData) {
   return new Promise((resolve, reject) => {
-    wx.uploadFile({
+    const opts = {
       url: BASE_URL + path,
       filePath: filePath,
       name: name || "file",
@@ -110,7 +110,11 @@ function uploadFile(path, filePath, name) {
       fail() {
         reject({ status: 0, detail: "网络不可用，请检查网络" });
       },
-    });
+    };
+    if (formData && typeof formData === "object") {
+      opts.formData = formData;
+    }
+    wx.uploadFile(opts);
   });
 }
 
