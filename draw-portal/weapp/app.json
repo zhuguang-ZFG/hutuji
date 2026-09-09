@@ -5,7 +5,9 @@
     "pages/history/history",
     "pages/profile/profile",
     "pages/bind/bind",
-    "pages/wifi/wifi"
+    "pages/wifi/wifi",
+    "pages/firmware/firmware",
+    "pages/chat/chat"
   ],
   "window": {
     "navigationBarTitleText": "动力巢",
@@ -20,10 +22,22 @@
     "backgroundColor": "#0B0C13",
     "borderStyle": "black",
     "list": [
-      { "pagePath": "pages/index/index", "text": "创作" },
-      { "pagePath": "pages/control/control", "text": "控制" },
-      { "pagePath": "pages/history/history", "text": "历史" },
-      { "pagePath": "pages/profile/profile", "text": "我的" }
+      {
+        "pagePath": "pages/index/index",
+        "text": "创作"
+      },
+      {
+        "pagePath": "pages/control/control",
+        "text": "控制"
+      },
+      {
+        "pagePath": "pages/history/history",
+        "text": "历史"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的"
+      }
     ]
   },
   "useExtendedLib": {
@@ -31,6 +45,11 @@
   },
   "networkTimeout": {
     "request": 150000
+  },
+  "permission": {
+    "scope.record": {
+      "desc": "用于语音聊小派"
+    }
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

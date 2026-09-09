@@ -109,7 +109,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 
 ## Important Files｜关键文件
 
-- `mcp-server/hutuji_mcp/server.py` — FastAPI + FastMCP 入口；云端工具 `hutuji_draw` / `hutuji_write` / `hutuji_teach` / `hutuji_status` / `hutuji_preview_svg` / `hutuji_sing` / `hutuji_remember` / `hutuji_recall` / `hutuji_forget`（下划线名是 Python 工具；文档里点号 `hutuji.draw/status/abort/...` 指**设备侧**工具，见 `docs/protocol.md` §4/§10.2）；路由 `GET|HEAD /files/{name}`、`GET|HEAD /songs/{name}`、`POST /register`，`/mcp` 挂在根、本机可达、公网由 nginx 404。
+- `mcp-server/hutuji_mcp/server.py` — FastAPI + FastMCP 入口；云端工具 `hutuji_draw` / `hutuji_write` / `hutuji_teach` / `hutuji_status` / `hutuji_preview_svg` / `hutuji_sing` / `hutuji_remember` / `hutuji_recall` / `hutuji_forget`（记忆三工具**必传 `device_id`**，按设备分桶，见 `protocol.md` §10.3；下划线名是 Python 工具；文档里点号 `hutuji.draw/status/abort/...` 指**设备侧**工具，见 `docs/protocol.md` §4/§10.2）；路由 `GET|HEAD /files/{name}`、`GET|HEAD /songs/{name}`、`POST /register`，`/mcp` 挂在根、本机可达、公网由 nginx 404。
 - `mcp-server/hutuji_mcp/gcode_gen.py` — vpype 管线、限幅常量、`validate_gcode()`。
 - `mcp-server/hutuji_mcp/arc_fit.py` — G2/G3 弧拟合（2026-09-05 落地）：vpype 产物落笔态连续短折线 → I/J 圆弧 + 直线塌缩，纯 stdlib，挂在 `_read_generated_gcode` 短段塌缩之后；容差/扫掠/半径/有向转角四闸常量有实测依据，写字页砍行 45–50%、偏差 ≤146µm。
 - `mcp-server/hutuji_mcp/hutuji_gwrite.toml` — 生产 G-code profile（逐字对齐 §5）。
@@ -124,8 +124,10 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - `mcp-server/hutuji_mcp/{redact,cloud_bridge}.py` — `redact.py` 是 MCP/桥接/取证脚本共用的日志脱敏唯一实现；`cloud_bridge.py` 负责小智云 WSS ↔ 本机 `/mcp`（spawn `mcp-proxy`，带脱敏、重连与空闲/错误探活：空闲 60s 或工具 isError/顶层 JSON-RPC error 回包后经 proxy 发真 `tools/list`，探针回包本地消费，25s 无响应判死重建 proxy；云端 60s ping 心跳由 proxy 本地应答、不过 proxy→MCP 链路，**不刷新空闲钟**否则探活被同周期心跳永久压住）。
 - `mcp-server/hutuji_mcp/{grbl_sim,pipe_sim}.py` — 假 Grbl / 假 S3，e2e 与本地调试用。
 - `mcp-server/hutuji_mcp/activation_relay.py` — 激活码中转：设备 POST 激活码到 `/register`，服务器持控制台 token 代绑小智 agent（无感激活）；token 缺失回 503，日志永不记码。
+- `mcp-server/hutuji_mcp/article_llm.py` — 小程序 AI 写文/润色（2026-09-09）：portal `POST /api/draw/write/ai` 用；只出正文、不自动出纸。
+- `draw-portal/draw_portal/{voice_agent,voice_jobs,tencent_asr}.py` — 小程序语音聊小派（§10.4.13）：ASR → LLM tool loop；`voice.draw`/`voice.write` 生成后 `auto_confirm=False` 推预览；确认/取消走 `POST /api/voice/confirm|cancel`（LLM 不可调 `hutuji.confirm`）；weapp chat 预览卡「开始画/取消」，脚注 **v0.2.19**。
 - `scripts/agent_gate.py` — 本仓门禁；报告固定写 `results/hutuji_gate_last.{json,md}`。开工先写 `results/.hutuji_gate_running`（含计划层清单与 HEAD），报告落盘后才删——**标记在场 = 上次没跑完，其间报告不可信**；**退出码是「本轮是否通过」的唯一真值**，报告头另绑 `git_head` 供比对新旧。
-- `docs/protocol.md` — v0.5 契约（§5 G-code、§9 Grbl 小改清单）。
+- `docs/protocol.md` — v0.5 契约（§5 G-code、§9 Grbl 小改清单；§10.4.13 语音画+写确认）。
 - `docs/release-readiness.md`（状态真值）、`docs/agent-handoff.md`（接手防呆）、`docs/agent-anti-drift.md`（防漂移）、`docs/agent-edit-allowlist.json`（机读白名单）、`docs/agent-constraint-matrix.md`（三仓矩阵）、`docs/worktree-inventory.md`（脏树登记）、`docs/agent-gate.md`（门禁定义）、`docs/bringup-sop.md`（阶段 0–9 判据）。
 - `docs/daytime-tuning-runbook.md` — 白天联调单日取证编排（11 步，每步 命令/期望/失败回退/取证落点；判据引用 `bringup-sop.md` 不复制，取证填 `templates/`，结论勾回 `release-readiness.md`）。**基线按 2026-08-09 复核过**：第 4/5 步（烧 Grbl/S3）与第 9 步（换纸中 abort）已标「板上已是 / 已有历史取证，正常联调日跳过」——原文钉的 `12f26ac`/`255f133`/`f1cf066` 经 `git merge-base --is-ancestor` 实测**都是板上基线的祖先**，照旧文烧即固件回退；换板/回退才用那两步，§8.5 复测须从当前 HEAD 带 `-DHUTUJI_AUTO_TEST_ABORT_ON_PAPER=ON` 构建（**构建期开关**，不是某个旧 commit 的固有行为），禁 checkout 旧 commit。**第 1/2 步已于 2026-08-09 执行通过**（token 续期 → `sync 2094251` → 三类问法召回逐条命中；同步前云端 KB 还是 08-07 版，08-08 那组契约纠错本轮才真正上云），但**第 1 步是每日重做项**，控制台 JWT 会被服务端作废，不得标「已完成跳过」。文首适用基线**已不再钉 HEAD SHA**（钉 SHA 正是它过期 9 天的原因），改为现取 `git log --oneline -1` 并与 readiness 文首对齐。该文件**已于 2026-08-09 补入** `GOVERNANCE_DOCS`（第 18 份），故禁语与复活两层现在覆盖它；但门禁只查禁语与复活词，**查不出「已完成/可跳过」这类状态措辞是否属实**，改它仍须人工对账 `release-readiness.md`。
 - `.cursor/rules/hutuji-agent-rails.mdc` — Cursor 侧同口径硬轨，口径变更要同步。

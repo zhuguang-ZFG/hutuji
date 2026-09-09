@@ -32,6 +32,7 @@ from draw_portal.models import (
     DeviceBinding,
     DrawJob,
     EmailVerification,
+    FirmwareOtaSession,
     SavedPreview,
     User,
     UserSummary,
@@ -87,6 +88,16 @@ CREATE TABLE IF NOT EXISTS device_bindings (
     bound_at REAL NOT NULL,
     last_push_at REAL,
     token_probe_ok INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS firmware_ota_sessions (
+    user_id TEXT PRIMARY KEY,
+    device_mac TEXT NOT NULL,
+    state TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    target_version TEXT,
+    updated_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS draw_jobs (
@@ -325,6 +336,18 @@ class Store:
             bound_at=row["bound_at"],
             last_push_at=row["last_push_at"],
             token_probe_ok=None if probe is None else bool(probe),
+        )
+
+    @staticmethod
+    def _row_firmware_ota_session(row: sqlite3.Row) -> FirmwareOtaSession:
+        return FirmwareOtaSession(
+            user_id=row["user_id"],
+            device_mac=row["device_mac"],
+            state=row["state"],
+            progress=int(row["progress"] or 0),
+            reason=row["reason"],
+            target_version=row["target_version"],
+            updated_at=float(row["updated_at"]),
         )
 
     @staticmethod
@@ -864,6 +887,59 @@ class Store:
             "bound_at": binding.bound_at,
             "token_probe_ok": binding.token_probe_ok,
         }
+
+    def get_firmware_ota_session(self, user_id: str) -> FirmwareOtaSession | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM firmware_ota_sessions WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return self._row_firmware_ota_session(row) if row else None
+
+    def upsert_firmware_ota_session(
+        self,
+        *,
+        user_id: str,
+        device_mac: str,
+        state: str,
+        progress: int = 0,
+        reason: str | None = None,
+        target_version: str | None = None,
+        updated_at: float | None = None,
+    ) -> FirmwareOtaSession:
+        when = time.time() if updated_at is None else updated_at
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO firmware_ota_sessions (
+                    user_id, device_mac, state, progress, reason, target_version, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    device_mac = excluded.device_mac,
+                    state = excluded.state,
+                    progress = excluded.progress,
+                    reason = excluded.reason,
+                    target_version = excluded.target_version,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    mac,
+                    state,
+                    int(progress),
+                    reason,
+                    target_version,
+                    when,
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM firmware_ota_sessions WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        assert row is not None
+        return self._row_firmware_ota_session(row)
 
     def list_device_bindings(self, *, limit: int = 200) -> list[dict[str, Any]]:
         """运营一览：MAC ↔ user ↔ phone ↔ last_push / token_probe（不含 token 本体）。"""

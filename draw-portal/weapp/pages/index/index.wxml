@@ -1,36 +1,157 @@
 <view class="page create-page">
+  <view class="mode-segment">
+    <view
+      class="mode-tab {{mode === 'draw' ? 'active' : ''}}"
+      data-mode="draw"
+      bindtap="onModeTap"
+    >画图</view>
+    <view
+      class="mode-tab {{mode === 'write' ? 'active' : ''}}"
+      data-mode="write"
+      bindtap="onModeTap"
+    >写字</view>
+    <view
+      class="mode-tab {{mode === 'teach' ? 'active' : ''}}"
+      data-mode="teach"
+      bindtap="onModeTap"
+    >笔顺</view>
+  </view>
+
   <view class="slim-head">
-    <text class="slim-title">想画点<span class="accent">什么</span></text>
+    <text class="slim-title" wx:if="{{mode === 'draw'}}">想画点<text class="accent">什么</text></text>
+    <text class="slim-title" wx:elif="{{mode === 'write'}}">想写点<text class="accent">什么</text></text>
+    <text class="slim-title" wx:else>想学点<text class="accent">什么</text></text>
     <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日 {{quotaLeft}} 次</text>
   </view>
 
-  <view class="weui-cells input-panel">
-    <view class="weui-cell weui-cell_textarea">
-      <view class="weui-cell__bd">
-        <textarea
-          class="weui-textarea"
-          placeholder="一句话，例如：一只简笔画小猫"
-          value="{{description}}"
-          bindinput="onDescInput"
-          maxlength="200"
-          auto-height
-          placeholder-class="ph"
-        />
+  <!-- 画图模式 -->
+  <block wx:if="{{mode === 'draw'}}">
+    <view class="weui-cells input-panel">
+      <view class="weui-cell weui-cell_textarea">
+        <view class="weui-cell__bd">
+          <textarea
+            class="weui-textarea"
+            placeholder="一句话，例如：一只简笔画小猫"
+            value="{{description}}"
+            bindinput="onDescInput"
+            maxlength="200"
+            auto-height
+            placeholder-class="ph"
+          />
+        </view>
       </view>
     </view>
-  </view>
-  <view class="weui-btn-area tight">
-    <button
-      class="weui-btn weui-btn_primary"
-      hover-class="btn-press"
-      bindtap="onGenerate"
-      loading="{{generating}}"
-      disabled="{{generating || !description}}"
-    >
-      {{generating ? "生成中…" : "生成图画"}}
-    </button>
-  </view>
+    <view class="weui-btn-area tight">
+      <button
+        class="weui-btn weui-btn_primary"
+        hover-class="btn-press"
+        bindtap="onGenerate"
+        loading="{{generating}}"
+        disabled="{{generating || !description}}"
+      >
+        {{generating ? "生成中…" : "生成图画"}}
+      </button>
+    </view>
+  </block>
 
+  <!-- 写字模式：手输 / AI 写文 / 润色 → 再排版预览（§10.4.12） -->
+  <block wx:elif="{{mode === 'write'}}">
+    <view class="weui-cells input-panel">
+      <view class="weui-cell weui-cell_textarea">
+        <view class="weui-cell__bd">
+          <textarea
+            class="weui-textarea write-area"
+            placeholder="写主题（如：春天）或贴草稿；最多 5000 字"
+            value="{{writeText}}"
+            bindinput="onWriteInput"
+            maxlength="5000"
+            auto-height
+            placeholder-class="ph"
+          />
+        </view>
+      </view>
+    </view>
+
+    <view class="ai-row">
+      <button
+        class="weui-btn weui-btn_default ai-btn"
+        hover-class="btn-press"
+        bindtap="onAiGenerate"
+        loading="{{aiWriting}}"
+        disabled="{{aiWriting || layouting || !writeText}}"
+      >AI写一篇</button>
+      <button
+        class="weui-btn weui-btn_default ai-btn"
+        hover-class="btn-press"
+        bindtap="onAiPolish"
+        loading="{{aiWriting}}"
+        disabled="{{aiWriting || layouting || !writeText}}"
+      >润色扩写</button>
+    </view>
+
+    <view class="layout-controls">
+      <view class="layout-row">
+        <text class="layout-label">字号</text>
+        <view class="stepper">
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpSize" data-delta="-1">−</view>
+          <text class="step-val">{{sizeMm}} mm</text>
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpSize" data-delta="1">+</view>
+        </view>
+      </view>
+      <view class="layout-row">
+        <text class="layout-label">行距</text>
+        <view class="stepper">
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpLine" data-delta="-0.1">−</view>
+          <text class="step-val">{{lineSpacing}}×</text>
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpLine" data-delta="0.1">+</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="weui-btn-area tight">
+      <button
+        class="weui-btn weui-btn_primary"
+        hover-class="btn-press"
+        bindtap="onLayoutPreview"
+        loading="{{layouting}}"
+        disabled="{{layouting || aiWriting || !writeText}}"
+      >
+        {{layouting ? "排版中…" : "排版预览"}}
+      </button>
+    </view>
+  </block>
+
+  <!-- 笔顺模式 -->
+  <block wx:elif="{{mode === 'teach'}}">
+    <view class="weui-cells input-panel">
+      <view class="weui-cell weui-cell_textarea">
+        <view class="weui-cell__bd">
+          <textarea
+            class="weui-textarea write-area"
+            placeholder="随便写，例如：春眠不觉晓"
+            value="{{teachText}}"
+            bindinput="onTeachInput"
+            maxlength="200"
+            auto-height
+            placeholder-class="ph"
+          />
+        </view>
+      </view>
+    </view>
+    <view class="weui-btn-area tight">
+      <button
+        class="weui-btn weui-btn_primary"
+        hover-class="btn-press"
+        bindtap="onTeachGenerate"
+        loading="{{teaching}}"
+        disabled="{{teaching || !teachText}}"
+      >
+        {{teaching ? "生成中…" : "生成笔顺"}}
+      </button>
+    </view>
+  </block>
+
+  <!-- 共用预览卡 -->
   <block wx:if="{{job}}">
     <view class="preview-card">
       <view class="refine-waiting" wx:if="{{job.refining}}">
@@ -39,28 +160,58 @@
         <view class="muted center-text">约 10 秒～2 分钟，好了自动上屏</view>
       </view>
       <block wx:else>
+        <view class="page-nav" wx:if="{{job.pages && job.pages.length > 1}}">
+          <button
+            class="page-nav-btn"
+            hover-class="btn-press"
+            bindtap="onPrevPage"
+            disabled="{{pageIndex <= 0}}"
+          >‹</button>
+          <text class="page-nav-label">第 {{pageIndex + 1}} / {{job.pageCount || job.pages.length}} 页</text>
+          <button
+            class="page-nav-btn"
+            hover-class="btn-press"
+            bindtap="onNextPage"
+            disabled="{{pageIndex >= job.pages.length - 1}}"
+          >›</button>
+        </view>
         <image
           class="preview"
-          src="{{job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl}}"
+          src="{{job.pages && job.pages.length ? job.pages[pageIndex].preview_url : (job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl)}}"
           mode="aspectFit"
           bindtap="onPreviewTap"
         />
+        <view class="preview-meta muted" wx:if="{{job.inputTruncated}}">仅保留前 20 个汉字</view>
+        <view class="preview-meta muted" wx:if="{{job.truncated}}">超过 20 页上限，已截断</view>
+        <view class="preview-meta muted" wx:if="{{job.missingCharsText}}">缺字 {{job.missingCharsText}}（写出为空白）</view>
         <view class="preview-meta muted" wx:if="{{job.refined}}">AI 精修 · 点图放大</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'failed'}}">精修未成功 · 快速草图</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修仍在跑 · 先看草图</view>
+        <view class="preview-meta muted" wx:elif="{{job.pages && job.pages.length > 1}}">共 {{job.pageCount || job.pages.length}} 页 · 点图放大</view>
+        <view class="preview-meta muted" wx:elif="{{mode === 'teach' && job.charsTaught}}">教 {{job.charsTaught.length}} 字 · 点图放大</view>
         <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
-        <button
-          class="weui-btn weui-btn_primary send-inline"
-          hover-class="btn-press"
-          bindtap="onSend"
-          loading="{{sending}}"
-          disabled="{{sending}}"
-        >发送到写字机</button>
+        <view class="preview-actions">
+          <button
+            class="weui-btn weui-btn_default action-inline"
+            hover-class="btn-press"
+            bindtap="onSave"
+            loading="{{saving}}"
+            disabled="{{saving || sending}}"
+          >收藏</button>
+          <button
+            class="weui-btn weui-btn_primary action-inline"
+            hover-class="btn-press"
+            bindtap="onSend"
+            loading="{{sending}}"
+            disabled="{{sending || saving}}"
+          >发送到写字机</button>
+        </view>
       </block>
     </view>
   </block>
 
-  <view class="action-grid">
+  <!-- 画图：三格入口 -->
+  <view class="action-grid" wx:if="{{mode === 'draw'}}">
     <button class="action-tile" hover-class="tile-press" bindtap="onTakePhoto" data-source="camera" disabled="{{uploading}}">
       <view class="tile-icon cam"></view>
       <text class="tile-label">拍照</text>
@@ -74,7 +225,15 @@
       <text class="tile-label">{{uploading ? "转换中" : "文档"}}</text>
     </button>
   </view>
-  <view class="weui-cells__tips" wx:if="{{uploading}}">转换中，照片约 5–15 秒</view>
+
+  <!-- 写字：仅文档 -->
+  <view class="action-grid action-grid-single" wx:elif="{{mode === 'write'}}">
+    <button class="action-tile" hover-class="tile-press" bindtap="onPickFile" disabled="{{uploading}}">
+      <view class="tile-icon doc"></view>
+      <text class="tile-label">{{uploading ? "转换中" : "文档"}}</text>
+    </button>
+  </view>
+  <view class="weui-cells__tips" wx:if="{{uploading}}">{{mode === 'write' ? '转换中，文档约 5–15 秒' : '转换中，照片约 5–15 秒'}}</view>
 
   <view class="bind-banner" wx:if="{{!binding}}" bindtap="onGoBind" hover-class="tile-press">
     <view class="bind-copy">

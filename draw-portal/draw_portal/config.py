@@ -25,6 +25,15 @@ def load_provider_cipher_key() -> bytes | None:
         raise RuntimeError("DRAW_PORTAL_PROVIDER_CIPHER_KEY 无效") from exc
 
 
+def _parse_firmware_allowed_hosts(raw: str) -> tuple[str, ...]:
+    out: list[str] = []
+    for part in raw.split(","):
+        text = part.strip().lower()
+        if text:
+            out.append(text)
+    return tuple(out)
+
+
 def _is_loopback_host(host: str) -> bool:
     try:
         return ipaddress.ip_address(host).is_loopback
@@ -94,6 +103,11 @@ class Config:
     # 微信小程序（2026-09-07）：两项同配才启用 /api/auth/wx-login，空=禁用
     wx_appid: str = ""
     wx_secret: str = ""
+    # 小派 OTA（2026-09-09）：catalog 路径空=禁用 check/upgrade；签名密钥空=不签下载 URL
+    firmware_catalog_path: str = ""
+    firmware_public_base: str = ""
+    firmware_allowed_hosts: tuple[str, ...] = ()
+    firmware_signing_secret: str = ""
 
 
 @dataclass(frozen=True)
@@ -201,6 +215,18 @@ def load_config() -> Config:
         .strip()
         .lower()
         in {"1", "true", "yes"},
+        firmware_catalog_path=os.environ.get("DRAW_PORTAL_FIRMWARE_CATALOG_PATH", "").strip(),
+        firmware_public_base=os.environ.get("DRAW_PORTAL_FIRMWARE_PUBLIC_BASE", "").strip()
+        or public_base,
+        firmware_allowed_hosts=_parse_firmware_allowed_hosts(
+            os.environ.get(
+                "DRAW_PORTAL_FIRMWARE_ALLOWED_HOSTS",
+                "hutuji.donglicao.com",
+            )
+        ),
+        firmware_signing_secret=os.environ.get(
+            "DRAW_PORTAL_FIRMWARE_SIGNING_SECRET", ""
+        ).strip(),
     )
 
 

@@ -95,55 +95,21 @@ def _photo_to_line_art(arr):
     return util.img_as_ubyte(1.0 - edges.astype(float))
 
 
-def process_upload_doc(
-    raw: bytes, kind: str, job_dir: Path, *, gfont_dir: str, stroke_dir: str = "",
+def _materialize_laid_pages(
+    laid,
+    job_dir: Path,
+    *,
+    kind: str,
+    mode: str,
 ) -> DocPipelineResult:
-    """文档 → 解析 → 排版 → 每页 SVG/G-code/预览（多页，pages/ 目录 + pages.json）。
-
-    版式全部自排（normalize=False 跳过 vpype layout）：文章走 write_text
-    （与语音 hutuji_write 同链），表格走 table_layout（格线+格内字同页笔画）。
-    两种模式的每页产物都过同一条 §5 闸（_validate_svg + validate_gcode）。
-    gfont_dir 由 app 层在路由前验空（未配置 = 503），此处断言即可。
-    stroke_dir 可选：配置则文章 CJK 按标准笔顺逐笔抬笔（与 hutuji_write 同）。
-    """
+    """排版结果 → 每页 SVG/G-code/预览 + pages.json + 第 1 页兼容名。"""
     import json as _json
 
-    from hutuji_mcp import doc_ingest, table_layout, write_text
-    from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
+    from hutuji_mcp import write_text
     from hutuji_mcp.gcode_gen import svg_to_gcode, validate_gcode
     from hutuji_mcp.llm_svg import _validate_svg
 
-    assert gfont_dir, "gfont_dir 为空应先在 app 层 503"
     job_dir.mkdir(parents=True, exist_ok=True)
-    doc = doc_ingest.parse_document(raw, kind)
-
-    font = write_text.load_font(gfont_dir, None)
-    metrics = write_text.measure_font(font)
-    stroke_data = None
-    if stroke_dir:
-        from hutuji_mcp import stroke_order
-
-        try:
-            stroke_data = stroke_order.StrokeData.load(stroke_dir)
-        except stroke_order.StrokeOrderError:
-            stroke_data = None
-    if doc.mode == "article":
-        # 与语音写字链同参数（WriteLayout 默认值即生产值）；标题段（docx pStyle /
-        # pptx title 占位符检出）免段首缩进 + 段前后加距（2026-09-04 用户拍板）
-        laid = write_text.layout_text(
-            "\n".join(doc.paragraphs), font, metrics, write_text.WriteLayout(),
-            max_pages=ARTICLE_MAX_PAGES,
-            headings=doc.headings or None,
-            stroke_data=stroke_data,
-        )
-    else:
-        # 表格：8mm 字号/1.25 行距/0.5 字距——190mm 页区塞下常见成绩表的
-        # 经验下限（更小到 3.5mm 地板由 table_layout 自收紧，再不行报错）
-        laid = table_layout.layout_tables(
-            doc.tables, font, metrics,
-            write_text.WriteLayout(size_mm=8.0, line_spacing=1.25, char_gap_mm=0.5),
-            max_pages=ARTICLE_MAX_PAGES,
-        )
     pages_dir = job_dir / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
     page_lines: list[int] = []
@@ -164,16 +130,14 @@ def process_upload_doc(
         total_lines += stats.lines
         total_bytes += stats.bytes
 
-    # 第 1 页复制为单页兼容名：saved_preview 保存链与后台 job 展示只认
-    # draw.gcode/preview.png；多页整篇发送走 pages.json，不碰这条旧链。
     first_svg = pages_dir / "page_001.svg"
     shutil.copyfile(first_svg, job_dir / "draw.svg")
     shutil.copyfile(pages_dir / "page_001.gcode", job_dir / "draw.gcode")
     shutil.copyfile(pages_dir / "page_001.png", job_dir / "preview.png")
 
     meta = {
-        "kind": doc.kind,
-        "mode": doc.mode,
+        "kind": kind,
+        "mode": mode,
         "page_count": len(laid.pages),
         "truncated": laid.truncated,
         "missing_chars": laid.missing_chars,
@@ -183,8 +147,8 @@ def process_upload_doc(
         _json.dumps(meta, ensure_ascii=False), encoding="utf-8"
     )
     return DocPipelineResult(
-        kind=doc.kind,
-        mode=doc.mode,
+        kind=kind,
+        mode=mode,
         page_count=len(laid.pages),
         truncated=laid.truncated,
         missing_chars=laid.missing_chars,
@@ -195,6 +159,117 @@ def process_upload_doc(
         gcode_path=job_dir / "draw.gcode",
         preview_path=job_dir / "preview.png",
     )
+
+
+def process_write_text(
+    text: str,
+    job_dir: Path,
+    *,
+    gfont_dir: str,
+    layout,
+    stroke_dir: str = "",
+) -> DocPipelineResult:
+    """纯文本 → 文章排版 → 多页产物（kind=write，供 /api/draw/write 调用）。"""
+    from hutuji_mcp import write_text
+    from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
+
+    assert gfont_dir
+    if not text.strip():
+        raise write_text.WriteTextError("文本为空")
+    font = write_text.load_font(gfont_dir, None)
+    metrics = write_text.measure_font(font)
+    stroke_data = None
+    if stroke_dir:
+        from hutuji_mcp import stroke_order
+
+        try:
+            stroke_data = stroke_order.StrokeData.load(stroke_dir)
+        except stroke_order.StrokeOrderError:
+            stroke_data = None
+    laid = write_text.layout_text(
+        text,
+        font,
+        metrics,
+        layout,
+        max_pages=ARTICLE_MAX_PAGES,
+        stroke_data=stroke_data,
+    )
+    return _materialize_laid_pages(laid, job_dir, kind="write", mode="article")
+
+
+def process_teach_text(
+    chars: str,
+    job_dir: Path,
+    *,
+    stroke_dir: str,
+) -> DocPipelineResult:
+    """笔顺教学 → 田字格多页产物（kind=teach，供 /api/draw/teach 调用）。"""
+    from hutuji_mcp import stroke_order
+    from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
+
+    assert stroke_dir, "stroke_dir 为空应先在 app 层 503"
+    if not [c for c in chars if not c.isspace()]:
+        raise stroke_order.StrokeOrderError("没有可教的汉字")
+    data = stroke_order.StrokeData.load(stroke_dir)
+    laid = stroke_order.layout_teach(chars, data, ARTICLE_MAX_PAGES)
+    return _materialize_laid_pages(laid, job_dir, kind="teach", mode="article")
+
+
+def process_upload_doc(
+    raw: bytes,
+    kind: str,
+    job_dir: Path,
+    *,
+    gfont_dir: str,
+    stroke_dir: str = "",
+    size_mm: float | None = None,
+    line_spacing: float | None = None,
+) -> DocPipelineResult:
+    """文档 → 解析 → 排版 → 每页 SVG/G-code/预览（多页，pages/ 目录 + pages.json）。
+
+    版式全部自排（normalize=False 跳过 vpype layout）：文章走 write_text
+    （与语音 hutuji_write 同链），表格走 table_layout（格线+格内字同页笔画）。
+    两种模式的每页产物都过同一条 §5 闸（_validate_svg + validate_gcode）。
+    gfont_dir 由 app 层在路由前验空（未配置 = 503），此处断言即可。
+    stroke_dir 可选：配置则文章 CJK 按标准笔顺逐笔抬笔（与 hutuji_write 同）。
+    """
+    from draw_portal.write_layout_params import resolve_article_layout
+    from hutuji_mcp import doc_ingest, table_layout, write_text
+    from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
+
+    assert gfont_dir, "gfont_dir 为空应先在 app 层 503"
+    doc = doc_ingest.parse_document(raw, kind)
+
+    font = write_text.load_font(gfont_dir, None)
+    metrics = write_text.measure_font(font)
+    stroke_data = None
+    if stroke_dir:
+        from hutuji_mcp import stroke_order
+
+        try:
+            stroke_data = stroke_order.StrokeData.load(stroke_dir)
+        except stroke_order.StrokeOrderError:
+            stroke_data = None
+    if doc.mode == "article":
+        layout = resolve_article_layout(size_mm=size_mm, line_spacing=line_spacing)
+        laid = write_text.layout_text(
+            "\n".join(doc.paragraphs),
+            font,
+            metrics,
+            layout,
+            max_pages=ARTICLE_MAX_PAGES,
+            headings=doc.headings or None,
+            stroke_data=stroke_data,
+        )
+    else:
+        laid = table_layout.layout_tables(
+            doc.tables,
+            font,
+            metrics,
+            write_text.WriteLayout(size_mm=8.0, line_spacing=1.25, char_gap_mm=0.5),
+            max_pages=ARTICLE_MAX_PAGES,
+        )
+    return _materialize_laid_pages(laid, job_dir, kind=doc.kind, mode=doc.mode)
 
 
 def process_upload_svg(svg_bytes: bytes, job_dir: Path) -> PipelineResult:

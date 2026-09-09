@@ -54,7 +54,7 @@ def _fake_doc_result(job_dir: Path) -> DocPipelineResult:
 
 
 def _patch_doc_pipeline(monkeypatch: pytest.MonkeyPatch, captured: dict | None = None):
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "pages").mkdir(exist_ok=True)
         for i in (1, 2):
@@ -68,6 +68,8 @@ def _patch_doc_pipeline(monkeypatch: pytest.MonkeyPatch, captured: dict | None =
         )
         if captured is not None:
             captured["gfont_dir"] = gfont_dir
+            captured["size_mm"] = kwargs.get("size_mm")
+            captured["line_spacing"] = kwargs.get("line_spacing")
         return _fake_doc_result(job_dir)
 
     def fake_publish(*, job_dir, mcp_output_dir, public_base_url):
@@ -109,6 +111,60 @@ def test_doc_upload_success_multipage(tmp_path: Path, monkeypatch: pytest.Monkey
     assert captured["gfont_dir"] == "/x/fonts"
 
 
+def test_doc_upload_passes_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _doc_client(monkeypatch, tmp_path)
+    captured: dict = {}
+    _patch_doc_pipeline(monkeypatch, captured)
+
+    r = client.post(
+        "/api/draw/upload",
+        files={"file": ("a.txt", b"hello world text\n" * 2, "text/plain")},
+        data={"size_mm": "18", "line_spacing": "2"},
+    )
+    assert r.status_code == 200, r.text
+    assert captured["size_mm"] == 18.0
+    assert captured["line_spacing"] == 2.0
+
+
+def test_doc_upload_invalid_layout_form_is_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    client = _doc_client(monkeypatch, tmp_path)
+    _patch_doc_pipeline(monkeypatch)
+
+    r = client.post(
+        "/api/draw/upload",
+        files={"file": ("a.txt", b"hello world text\n" * 2, "text/plain")},
+        data={"size_mm": "x"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "版式参数无效"
+
+
+def test_doc_upload_layout_params_oob_is_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    client = _doc_client(monkeypatch, tmp_path)
+
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
+        from draw_portal.write_layout_params import resolve_article_layout
+
+        resolve_article_layout(
+            size_mm=kwargs.get("size_mm"),
+            line_spacing=kwargs.get("line_spacing"),
+        )
+        raise AssertionError("resolve_article_layout should have raised")
+
+    monkeypatch.setattr("draw_portal.app.process_upload_doc", fake_process)
+    r = client.post(
+        "/api/draw/upload",
+        files={"file": ("a.txt", b"hello world text\n" * 2, "text/plain")},
+        data={"size_mm": "999"},
+    )
+    assert r.status_code == 400
+    assert "字号" in r.json()["detail"]
+
+
 def test_doc_upload_requires_gfont_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _doc_client(monkeypatch, tmp_path, gfont_dir="")
     up = client.post(
@@ -124,7 +180,7 @@ def test_doc_upload_ingest_error_is_400_with_reason(
 ):
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         from hutuji_mcp.doc_ingest import DocIngestError
 
         raise DocIngestError("加密文档不支持")
@@ -140,7 +196,7 @@ def test_doc_upload_ingest_error_is_400_with_reason(
 def test_doc_upload_layout_error_is_400(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         from hutuji_mcp.write_text import WriteTextError
 
         raise WriteTextError("表格过宽：字号缩到 3.5mm 仍排不下")
@@ -163,7 +219,7 @@ def test_doc_upload_layout_error_is_400(tmp_path: Path, monkeypatch: pytest.Monk
 def test_doc_upload_unexpected_error_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr("draw_portal.app.process_upload_doc", fake_process)

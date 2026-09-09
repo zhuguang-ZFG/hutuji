@@ -3,9 +3,19 @@ const phoneGate = require("../../utils/phone_gate");
 
 Page({
   data: {
+    mode: "draw",
     description: "",
+    writeText: "",
+    teachText: "",
+    sizeMm: 12,
+    lineSpacing: 1.6,
+    pageIndex: 0,
     generating: false,
+    layouting: false,
+    aiWriting: false,
+    teaching: false,
     sending: false,
+    saving: false,
     uploading: false,
     job: null,
     quotaLeft: null,
@@ -22,6 +32,7 @@ Page({
     // 轮询句柄与作废令牌挂在页面实例上：不放进 data，避免无关字段触发渲染
     this._refineTimer = null;
     this._refineToken = 0;
+    this._writeToken = 0;
   },
 
   onHide() {
@@ -37,8 +48,45 @@ Page({
     this.stopRefinePolling();
   },
 
+  onModeTap(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (mode === this.data.mode) return;
+    this.stopRefinePolling();
+    // 作废在途排版/文档上传：回调靠令牌自灭，避免切模式后 adoptJob 把旧预览写回
+    this._writeToken = (this._writeToken || 0) + 1;
+    this.setData({
+      mode,
+      job: null,
+      pageIndex: 0,
+      layouting: false,
+      aiWriting: false,
+      teaching: false,
+      uploading: false,
+    });
+  },
+
   onDescInput(e) {
     this.setData({ description: e.detail.value });
+  },
+
+  onWriteInput(e) {
+    this.setData({ writeText: e.detail.value });
+  },
+
+  onTeachInput(e) {
+    this.setData({ teachText: e.detail.value });
+  },
+
+  bumpSize(e) {
+    const delta = Number(e.currentTarget.dataset.delta);
+    const v = Math.min(40, Math.max(2, Math.round((this.data.sizeMm + delta) * 10) / 10));
+    this.setData({ sizeMm: v });
+  },
+
+  bumpLine(e) {
+    const delta = Number(e.currentTarget.dataset.delta);
+    const v = Math.min(3, Math.max(1, Math.round((this.data.lineSpacing + delta) * 10) / 10));
+    this.setData({ lineSpacing: v });
   },
 
   refreshStatus() {
@@ -90,12 +138,126 @@ Page({
       });
   },
 
-  onPreviewTap() {
+  onTeachGenerate() {
+    if (this.data.teaching || !this.data.teachText) return;
+    const token = this._writeToken;
+    this.setData({ teaching: true });
+    api
+      .request("/api/draw/teach", {
+        method: "POST",
+        data: { text: this.data.teachText },
+      })
+      .then((res) => {
+        if (token !== this._writeToken) return;
+        this.setData({ teaching: false });
+        this.adoptJob(res);
+        wx.showToast({ title: "生成完成", icon: "success" });
+      })
+      .catch((err) => {
+        if (token !== this._writeToken) return;
+        this.setData({ teaching: false });
+        wx.showModal({
+          title: "生成失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
+
+  onAiGenerate() {
+    this._runWriteAi("generate");
+  },
+
+  onAiPolish() {
+    this._runWriteAi("polish");
+  },
+
+  _runWriteAi(mode) {
+    if (this.data.aiWriting || this.data.layouting || !this.data.writeText) return;
+    const token = this._writeToken;
+    const payload =
+      mode === "generate"
+        ? { mode: "generate", prompt: this.data.writeText }
+        : { mode: "polish", text: this.data.writeText };
+    this.setData({ aiWriting: true });
+    api
+      .request("/api/draw/write/ai", { method: "POST", data: payload })
+      .then((res) => {
+        if (token !== this._writeToken) return;
+        const text = (res && res.text) || "";
+        this.setData({ aiWriting: false, writeText: text });
+        wx.showToast({
+          title: mode === "generate" ? "已生成，可再改" : "已润色，可再改",
+          icon: "success",
+        });
+      })
+      .catch((err) => {
+        if (token !== this._writeToken) return;
+        this.setData({ aiWriting: false });
+        wx.showModal({
+          title: mode === "generate" ? "生成失败" : "润色失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
+
+  onLayoutPreview() {
+    if (this.data.layouting || !this.data.writeText) return;
+    const token = this._writeToken;
+    this.setData({ layouting: true });
+    api
+      .request("/api/draw/write", {
+        method: "POST",
+        data: {
+          text: this.data.writeText,
+          size_mm: this.data.sizeMm,
+          line_spacing: this.data.lineSpacing,
+        },
+      })
+      .then((res) => {
+        if (token !== this._writeToken) return;
+        this.setData({ layouting: false });
+        this.adoptJob(res);
+        wx.showToast({ title: "排版完成", icon: "success" });
+      })
+      .catch((err) => {
+        if (token !== this._writeToken) return;
+        this.setData({ layouting: false });
+        wx.showModal({
+          title: "排版失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
+
+  currentPreviewUrl() {
     const job = this.data.job;
-    if (!job) return;
-    // 放大图跟随预览卡当前显示的版本（线稿 / AI 精修）
-    const url = job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl;
+    if (!job) return "";
+    if (job.pages && job.pages.length) {
+      const p = job.pages[this.data.pageIndex] || job.pages[0];
+      return p.preview_url;
+    }
+    if (job.useRefined && job.refined) return job.refined.previewUrl;
+    return job.previewUrl;
+  },
+
+  onPreviewTap() {
+    const url = this.currentPreviewUrl();
+    if (!url) return;
     wx.previewImage({ urls: [url] });
+  },
+
+  onPrevPage() {
+    if (this.data.pageIndex <= 0) return;
+    this.setData({ pageIndex: this.data.pageIndex - 1 });
+  },
+
+  onNextPage() {
+    const pages = this.data.job && this.data.job.pages;
+    if (!pages || this.data.pageIndex >= pages.length - 1) return;
+    this.setData({ pageIndex: this.data.pageIndex + 1 });
   },
 
   onSend() {
@@ -107,6 +269,30 @@ Page({
     this.sendJob(jobId);
   },
 
+  onSave() {
+    const job = this.data.job;
+    if (!job || job.refining || this.data.saving) return;
+    const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
+    this.setData({ saving: true });
+    api
+      .request(`/api/draw/${jobId}/save`, { method: "POST", data: {} })
+      .then((res) => {
+        this.setData({ saving: false });
+        if (res.status === "saved") {
+          wx.showToast({ title: "已收藏", icon: "success" });
+        } else {
+          wx.showToast({ title: res.detail || "收藏失败", icon: "none" });
+        }
+      })
+      .catch((err) => {
+        this.setData({ saving: false });
+        wx.showModal({
+          title: "收藏失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
 
   sendJob(jobId) {
     if (this.data.sending) return;
@@ -161,11 +347,18 @@ Page({
       refined: null,
       useRefined: false,
       refineFailed: false,
+      pages: data.pages || null,
+      pageCount: data.page_count || null,
+      truncated: !!data.truncated,
+      inputTruncated: !!data.input_truncated,
+      missingChars: data.missing_chars || [],
+      missingCharsText: (data.missing_chars || []).slice(0, 10).join(""),
+      charsTaught: data.chars_taught || null,
     };
     if (data.refined && data.refined.status === "pending") {
       job.refining = true;
     }
-    this.setData({ job });
+    this.setData({ job, pageIndex: 0 });
     if (job.refining) {
       this.startRefinePolling(job.jobId);
     }
@@ -237,7 +430,6 @@ Page({
     }
   },
 
-
   onPickFile() {
     if (this.data.uploading) return;
     wx.chooseMessageFile({
@@ -249,10 +441,19 @@ Page({
           wx.showToast({ title: "文件超过 4MB", icon: "none" });
           return;
         }
+        const token = this._writeToken;
         this.setData({ uploading: true });
+        const formData =
+          this.data.mode === "write"
+            ? {
+                size_mm: String(this.data.sizeMm),
+                line_spacing: String(this.data.lineSpacing),
+              }
+            : undefined;
         api
-          .uploadFile("/api/draw/upload", file.path, "file")
+          .uploadFile("/api/draw/upload", file.path, "file", formData)
           .then((data) => {
+            if (token !== this._writeToken) return;
             // 与 AI 生成同一预览卡：预览图 + 行数 + 发送钮（此前只存 jobId 不存 preview_url，
             // 用户看不到转换效果——2026-09-07「转换后没有预览」实证）
             this.setData({ uploading: false });
@@ -260,6 +461,7 @@ Page({
             wx.showToast({ title: "转换完成", icon: "success" });
           })
           .catch((err) => {
+            if (token !== this._writeToken) return;
             this.setData({ uploading: false });
             wx.showModal({
               title: "上传失败",

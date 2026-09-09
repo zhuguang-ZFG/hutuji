@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Cookie, Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -54,8 +54,11 @@ from draw_portal.pipeline import (
     process_upload,
     process_upload_doc,
     process_upload_png,
+    process_teach_text,
+    process_write_text,
     strip_corner_watermark,
 )
+from draw_portal.teach_chars import extract_teach_chars
 from draw_portal.probe import probe_device_token
 from draw_portal.push import (
     _install_capability_pair,
@@ -68,6 +71,7 @@ from draw_portal.push import (
 from draw_portal.upload_kinds import detect_upload_kind
 from draw_portal.store import Store
 from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
+from draw_portal import firmware_ota as firmware_ota_mod
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +248,27 @@ class UsageIngestBody(BaseModel):
 
 class GenerateDrawBody(BaseModel):
     description: str = Field(min_length=1, max_length=200)
+
+
+class WriteBody(BaseModel):
+    text: str
+    size_mm: float | None = None
+    line_spacing: float | None = None
+
+
+class WriteAiBody(BaseModel):
+    mode: str  # generate | polish
+    prompt: str = ""
+    text: str = ""
+
+
+class VoiceTurnBody(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class TeachBody(BaseModel):
+    text: str
 
 
 _MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -694,6 +719,317 @@ def create_app() -> FastAPI:
 
         return {"status": "ok", "result": unwrap_tool_text(result)}
 
+    def _infer_voice_format(filename: str) -> str:
+        lower = filename.lower()
+        if lower.endswith(".wav"):
+            return "wav"
+        if lower.endswith(".m4a"):
+            return "m4a"
+        return "mp3"
+
+    @app.post("/api/voice/asr", dependencies=phone_secured)
+    async def voice_asr(
+        file: UploadFile = File(...),
+        user_id: str = Depends(require_phone),
+    ) -> dict[str, str]:
+        from draw_portal.tencent_asr import AsrError, recognize_sentence
+
+        raw = await file.read()
+        voice_format = _infer_voice_format(file.filename or "")
+        try:
+            text = recognize_sentence(audio=raw, voice_format=voice_format)
+        except AsrError as exc:
+            msg = str(exc)
+            if "未配置" in msg:
+                raise HTTPException(status_code=503, detail=msg) from None
+            raise HTTPException(status_code=400, detail=msg) from None
+        _record_portal_usage(
+            store,
+            event_type="web_voice_asr",
+            user_id=user_id,
+            detail=f"{voice_format}:{len(raw)}",
+            ok=True,
+        )
+        return {"text": text}
+
+    @app.post("/api/voice/turn", dependencies=phone_secured)
+    def voice_turn(
+        body: VoiceTurnBody,
+        user_id: str = Depends(require_phone),
+    ) -> dict[str, Any]:
+        from draw_portal import voice_agent
+        from draw_portal.mcp_result import unwrap_tool_text
+        from draw_portal.push import mint_messaging_token
+        from draw_portal.voice_agent import VoiceAgentError
+        from draw_portal.voice_jobs import VoiceJobError, run_voice_draw, run_voice_write
+
+        binding = store.get_binding_for_user(user_id)
+        device_mac: str | None = binding.device_mac if binding else None
+        token_holder: dict[str, str | None] = {
+            "token": (
+                decrypt_token(config.token_cipher_key, binding.device_token_enc)
+                if binding
+                else None
+            ),
+        }
+        enc_holder: dict[str, str | None] = {
+            "enc": binding.device_token_enc if binding else None,
+        }
+
+        def push_tool(name: str, arguments: dict[str, Any]) -> str:
+            tok = token_holder["token"]
+            if tok is None:
+                return "请先绑定写字机"
+            ok, result = push_tool_call(
+                api_base=config.xiaozhi_api_base,
+                device_token=tok,
+                name=name,
+                arguments=arguments,
+                timeout=15,
+            )
+            if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404") and binding is not None:
+                fresh = mint_messaging_token(
+                    api_base=config.xiaozhi_api_base, mac=binding.device_mac
+                )
+                if fresh:
+                    new_enc = encrypt_token(config.token_cipher_key, fresh)
+                    store.update_binding_token(user_id, device_token_enc=new_enc)
+                    token_holder["token"] = fresh
+                    enc_holder["enc"] = new_enc
+                    ok, result = push_tool_call(
+                        api_base=config.xiaozhi_api_base,
+                        device_token=fresh,
+                        name=name,
+                        arguments=arguments,
+                        timeout=15,
+                    )
+            if not ok:
+                return result if isinstance(result, str) else str(result)
+            return unwrap_tool_text(result)
+
+        def run_portal_tool(
+            name: str, arguments: dict[str, Any]
+        ) -> tuple[str, dict[str, str] | None]:
+            if binding is None or enc_holder["enc"] is None or device_mac is None:
+                raise VoiceJobError("请先绑定写字机")
+
+            def on_token_minted(new_enc: str) -> None:
+                store.update_binding_token(user_id, device_token_enc=new_enc)
+                enc_holder["enc"] = new_enc
+                token_holder["token"] = decrypt_token(config.token_cipher_key, new_enc)
+
+            if name == "voice.draw":
+                if not config.usage_ingest_secret:
+                    raise VoiceJobError("生图通道未配置", status=503)
+                desc = str(arguments.get("description") or "").strip()
+                since = time.time() - 86400
+                used = sum(
+                    row["count"]
+                    for row in store.usage_counts_for_user_since(user_id, since)
+                    if row["event_type"] == "web_generate"
+                )
+                if used >= config.generate_daily_limit:
+                    raise VoiceJobError(
+                        f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来",
+                        status=429,
+                    )
+                job = store.create_draw_job(
+                    user_id=user_id, source_name=("语音画: " + desc)[:120]
+                )
+                job_path = _job_dir(config.data_dir, job.id)
+                summary, preview = run_voice_draw(
+                    description=desc,
+                    user_id=user_id,
+                    job_id=job.id,
+                    job_dir=job_path,
+                    mcp_internal_base_url=config.mcp_internal_base_url,
+                    usage_ingest_secret=config.usage_ingest_secret,
+                    generate_timeout_seconds=config.generate_timeout_seconds,
+                    mcp_output_dir=config.mcp_output_dir,
+                    public_base_url=config.public_base_url,
+                    mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                        jid, basename=base
+                    ),
+                    mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                        jid, error_summary=err
+                    ),
+                    api_base=config.xiaozhi_api_base,
+                    token_cipher_key=config.token_cipher_key,
+                    device_mac=device_mac,
+                    device_token_enc=enc_holder["enc"],
+                    on_token_minted=on_token_minted,
+                )
+                _record_portal_usage(
+                    store,
+                    event_type="web_generate",
+                    user_id=user_id,
+                    device_mac=device_mac,
+                    detail=desc[:120],
+                    ok=True,
+                )
+                return summary, preview.as_dict()
+
+            if name == "voice.write":
+                raw_text = str(arguments.get("text") or "")
+                job = store.create_draw_job(
+                    user_id=user_id, source_name=("语音写: " + raw_text.strip())[:120]
+                )
+                job_path = _job_dir(config.data_dir, job.id)
+                summary, preview = run_voice_write(
+                    text=raw_text,
+                    user_id=user_id,
+                    job_id=job.id,
+                    job_dir=job_path,
+                    gfont_dir=config.gfont_dir or "",
+                    stroke_dir=config.stroke_dir or "",
+                    mcp_output_dir=config.mcp_output_dir,
+                    public_base_url=config.public_base_url,
+                    mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                        jid, basename=base
+                    ),
+                    mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                        jid, error_summary=err
+                    ),
+                    api_base=config.xiaozhi_api_base,
+                    token_cipher_key=config.token_cipher_key,
+                    device_mac=device_mac,
+                    device_token_enc=enc_holder["enc"],
+                    on_token_minted=on_token_minted,
+                )
+                _record_portal_usage(
+                    store,
+                    event_type="web_write",
+                    user_id=user_id,
+                    device_mac=device_mac,
+                    detail=("语音写: " + raw_text.strip())[:100],
+                    ok=True,
+                )
+                return summary, preview.as_dict()
+
+            raise VoiceJobError("未知画写工具")
+
+        try:
+            out = voice_agent.chat(
+                session_id=body.session_id,
+                user_text=body.text,
+                device_mac=device_mac,
+                push_tool=push_tool,
+                run_portal_tool=run_portal_tool,
+            )
+        except VoiceAgentError as exc:
+            msg = str(exc)
+            if "未配置" in msg:
+                raise HTTPException(status_code=503, detail=msg) from None
+            raise HTTPException(status_code=400, detail=msg) from None
+        _record_portal_usage(
+            store,
+            event_type="web_voice_turn",
+            user_id=user_id,
+            device_mac=device_mac,
+            detail=f"{len(body.text)}:{len(out.get('reply', ''))}",
+            ok=True,
+        )
+        payload: dict[str, Any] = {
+            "reply": out["reply"],
+            "tool_traces": out["tool_traces"],
+        }
+        if out.get("preview"):
+            payload["preview"] = out["preview"]
+        return payload
+
+    def _voice_device_tool(user_id: str, tool_name: str) -> dict[str, str]:
+        from draw_portal.mcp_result import unwrap_tool_text
+        from draw_portal.push import mint_messaging_token
+
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定写字机")
+        token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
+        ok, result = push_tool_call(
+            api_base=config.xiaozhi_api_base,
+            device_token=token,
+            name=tool_name,
+            arguments={},
+            timeout=30,
+        )
+        if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
+            fresh = mint_messaging_token(
+                api_base=config.xiaozhi_api_base, mac=binding.device_mac
+            )
+            if fresh:
+                store.update_binding_token(
+                    user_id,
+                    device_token_enc=encrypt_token(config.token_cipher_key, fresh),
+                )
+                ok, result = push_tool_call(
+                    api_base=config.xiaozhi_api_base,
+                    device_token=fresh,
+                    name=tool_name,
+                    arguments={},
+                    timeout=30,
+                )
+        if not ok:
+            detail = result if isinstance(result, str) else str(result)
+            raise HTTPException(status_code=502, detail=detail[:120])
+        text = unwrap_tool_text(result)
+        _record_portal_usage(
+            store,
+            event_type=f"web_voice_{tool_name.split('.')[-1]}",
+            user_id=user_id,
+            device_mac=binding.device_mac,
+            detail=tool_name,
+            ok=True,
+        )
+        return {"status": "ok", "result": text}
+
+    @app.post("/api/voice/confirm", dependencies=phone_secured)
+    def voice_confirm(user_id: str = Depends(require_phone)) -> dict[str, str]:
+        return _voice_device_tool(user_id, "hutuji.confirm")
+
+    @app.post("/api/voice/cancel", dependencies=phone_secured)
+    def voice_cancel(user_id: str = Depends(require_phone)) -> dict[str, str]:
+        return _voice_device_tool(user_id, "hutuji.abort")
+
+    @app.get("/api/device/firmware/check", dependencies=phone_secured)
+    def firmware_check(user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        return firmware_ota_mod.check_firmware(
+            store=store,
+            binding=binding,
+            catalog_path=config.firmware_catalog_path,
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+        )
+
+    @app.post("/api/device/firmware/upgrade", dependencies=phone_secured)
+    def firmware_upgrade(user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        return firmware_ota_mod.start_upgrade(
+            store=store,
+            binding=binding,
+            catalog_path=config.firmware_catalog_path,
+            public_base=config.firmware_public_base,
+            signing_secret=config.firmware_signing_secret,
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+        )
+
+    @app.get("/api/device/firmware/ota_status", dependencies=phone_secured)
+    def firmware_ota_status(user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        return firmware_ota_mod.get_ota_status(
+            store=store,
+            binding=binding,
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+        )
+
     def _finalize_binding(session: BindSession, user_id: str, now: float, event_type: str) -> DeviceBinding:
         """探活 + 旧 token 保留 + 落绑定 + usage 埋点：抽屉码与自动撮合共用一条完成路径。"""
         ok, _summary = probe_device_token(
@@ -841,6 +1177,10 @@ def create_app() -> FastAPI:
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定小派设备")
         return binding
+
+    def _reject_if_firmware_upgrading(user_id: str) -> None:
+        if firmware_ota_mod.is_upgrading(store, user_id):
+            raise HTTPException(status_code=400, detail="固件升级中，请稍后再出图")
 
     def _publish_from_job(job_id: str) -> tuple[str, str]:
         published = publish_job_files(
@@ -1016,6 +1356,8 @@ def create_app() -> FastAPI:
     @app.post("/api/draw/upload", dependencies=phone_secured)
     async def draw_upload(
         file: UploadFile = File(...),
+        size_mm: str | None = Form(None),
+        line_spacing: str | None = Form(None),
         user_id: str = Depends(user_dep),
     ) -> dict[str, Any]:
         content_type = (file.content_type or "").split(";")[0].strip().lower()
@@ -1046,6 +1388,14 @@ def create_app() -> FastAPI:
             if not config.gfont_dir:
                 store.mark_draw_job_failed(job.id, error_summary="DocImportNotConfigured")
                 raise HTTPException(status_code=503, detail="文档导入未配置（服务端缺字库目录）")
+            from draw_portal.write_layout_params import WriteLayoutParamsError, parse_optional_float
+
+            try:
+                doc_size_mm = parse_optional_float(size_mm)
+                doc_line_spacing = parse_optional_float(line_spacing)
+            except WriteLayoutParamsError as exc:
+                store.mark_draw_job_failed(job.id, error_summary="WriteLayoutParamsError")
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             try:
                 result = await asyncio.to_thread(
                     process_upload_doc,
@@ -1054,7 +1404,9 @@ def create_app() -> FastAPI:
                     job_path,
                     gfont_dir=config.gfont_dir,
                     stroke_dir=config.stroke_dir,
-                                )
+                    size_mm=doc_size_mm,
+                    line_spacing=doc_line_spacing,
+                )
                 published_pages = await asyncio.to_thread(
                     publish_doc_pages,
                     job_dir=job_path,
@@ -1063,7 +1415,7 @@ def create_app() -> FastAPI:
                 )
                 # basename 单值化决策：job 主键 = 第 1 页；整篇页表在 pages.json
                 store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
-            except (DocIngestError, WriteTextError) as exc:
+            except (DocIngestError, WriteTextError, WriteLayoutParamsError) as exc:
                 store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
                 raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
             except Exception as exc:
@@ -1143,6 +1495,178 @@ def create_app() -> FastAPI:
             "lines": result.lines,
             "bytes": result.bytes,
             "refined": refined_payload,
+        }
+
+    @app.post("/api/draw/write/ai", dependencies=phone_secured)
+    async def draw_write_ai(
+        body: WriteAiBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        """主题生成或草稿润色：只回纯文本，不排版、不出纸。"""
+        from hutuji_mcp.article_llm import generate_or_polish
+        from hutuji_mcp.llm_svg import LlmError
+
+        mode = (body.mode or "").strip().lower()
+        try:
+            article = await generate_or_polish(
+                mode=mode, prompt=body.prompt, text=body.text
+            )
+        except LlmError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+        _record_portal_usage(
+            store,
+            event_type="web_write_ai",
+            user_id=user_id,
+            detail=f"{mode}:{len(article)}",
+            ok=True,
+        )
+        return {"status": "ok", "mode": mode, "text": article}
+
+    @app.post("/api/draw/write", dependencies=phone_secured)
+    async def draw_write(
+        body: WriteBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        from hutuji_mcp import t2s
+        from hutuji_mcp.write_text import WriteTextError
+
+        from draw_portal.write_layout_params import WriteLayoutParamsError, resolve_article_layout
+
+        if not config.gfont_dir:
+            raise HTTPException(status_code=503, detail="写字字库未配置")
+        safe = t2s.to_simplified(body.text.strip())
+        if not safe:
+            raise HTTPException(status_code=400, detail="文本为空")
+        if len(safe) > 5000:
+            raise HTTPException(
+                status_code=400,
+                detail=f"文本超长：{len(safe)} 字符（上限 5000）",
+            )
+        try:
+            layout = resolve_article_layout(
+                size_mm=body.size_mm,
+                line_spacing=body.line_spacing,
+            )
+        except WriteLayoutParamsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        source_name = ("写字: " + safe)[:120]
+        job = store.create_draw_job(user_id=user_id, source_name=source_name)
+        job_path = _job_dir(config.data_dir, job.id)
+        try:
+            result = await asyncio.to_thread(
+                process_write_text,
+                safe,
+                job_path,
+                gfont_dir=config.gfont_dir,
+                layout=layout,
+                stroke_dir=config.stroke_dir or "",
+            )
+            published_pages = await asyncio.to_thread(
+                publish_doc_pages,
+                job_dir=job_path,
+                mcp_output_dir=config.mcp_output_dir,
+                public_base_url=config.public_base_url,
+            )
+            store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+        except WriteTextError as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+        except Exception as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=422, detail="写字转换失败") from exc
+
+        _record_portal_usage(
+            store,
+            event_type="web_write",
+            user_id=user_id,
+            detail=source_name[:100],
+            ok=True,
+        )
+        first = published_pages[0]
+        return {
+            "status": "ready",
+            "job_id": job.id,
+            "preview_url": first.preview_url,
+            "gcode_url": first.gcode_url,
+            "lines": result.lines,
+            "bytes": result.bytes,
+            "pages": [
+                {"url": p.gcode_url, "preview_url": p.preview_url}
+                for p in published_pages
+            ],
+            "page_count": result.page_count,
+            "doc_kind": result.kind,
+            "doc_mode": result.mode,
+            "truncated": result.truncated,
+            "missing_chars": result.missing_chars,
+        }
+
+    @app.post("/api/draw/teach", dependencies=phone_secured)
+    async def draw_teach(
+        body: TeachBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        from hutuji_mcp import t2s
+        from hutuji_mcp.stroke_order import StrokeOrderError
+
+        if not config.stroke_dir:
+            raise HTTPException(status_code=503, detail="笔顺数据未配置")
+        safe = t2s.to_simplified(body.text.strip())
+        chars, input_truncated = extract_teach_chars(safe)
+        if not chars:
+            raise HTTPException(status_code=400, detail="没有可教的汉字")
+
+        source_name = ("笔顺: " + chars)[:120]
+        job = store.create_draw_job(user_id=user_id, source_name=source_name)
+        job_path = _job_dir(config.data_dir, job.id)
+        try:
+            result = await asyncio.to_thread(
+                process_teach_text,
+                chars,
+                job_path,
+                stroke_dir=config.stroke_dir,
+            )
+            published_pages = await asyncio.to_thread(
+                publish_doc_pages,
+                job_dir=job_path,
+                mcp_output_dir=config.mcp_output_dir,
+                public_base_url=config.public_base_url,
+            )
+            store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+        except StrokeOrderError as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+        except Exception as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=422, detail="笔顺转换失败") from exc
+
+        _record_portal_usage(
+            store,
+            event_type="web_teach",
+            user_id=user_id,
+            detail=source_name[:100],
+            ok=True,
+        )
+        first = published_pages[0]
+        return {
+            "status": "ready",
+            "job_id": job.id,
+            "preview_url": first.preview_url,
+            "gcode_url": first.gcode_url,
+            "lines": result.lines,
+            "bytes": result.bytes,
+            "pages": [
+                {"url": p.gcode_url, "preview_url": p.preview_url}
+                for p in published_pages
+            ],
+            "page_count": result.page_count,
+            "doc_kind": result.kind,
+            "doc_mode": result.mode,
+            "truncated": result.truncated,
+            "missing_chars": result.missing_chars,
+            "chars_taught": chars,
+            "input_truncated": input_truncated,
         }
 
     @app.get("/api/draw/jobs/{job_id}", dependencies=phone_secured)
@@ -1263,6 +1787,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/draw/{job_id}/send", dependencies=phone_secured)
     def draw_send(job_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        _reject_if_firmware_upgrading(user_id)
         job = store.get_draw_job(job_id, user_id=user_id)
         if job is None:
             raise HTTPException(status_code=404, detail="任务不存在")
@@ -1409,6 +1934,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/draw/saved/{saved_id}/send", dependencies=phone_secured)
     def draw_saved_send(saved_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        _reject_if_firmware_upgrading(user_id)
         item = store.get_saved_preview(saved_id, user_id=user_id)
         if item is None:
             raise HTTPException(status_code=404, detail="不存在")
