@@ -74,6 +74,17 @@
 | 生产 | weapp **0.2.16** CLI 上传与 MP 体验版勾选 **待用户** |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_progress_p0_authorized` |
 
+### 0.5 小程序语音聊小派 P1（2026-09-09，同 worktree `feat/xiaopai-ota-mass-prod`）
+
+| 项 | 说明 |
+|----|------|
+| 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md` §3 → `docs/superpowers/plans/2026-09-09-weapp-voice-asr.md` |
+| hub 已提交链（摘） | portal `voice_agent.py` + `/api/voice/asr|turn` + 测试；`e9a6e01` weapp chat 页 hold-to-talk + 我的页入口 + 脚注 **v0.2.17** |
+| 触及面 | `draw-portal/draw_portal/{voice_agent.py,app.py,tencent_asr.py}`；`draw-portal/tests/test_voice_{agent,api}.py`；`draw-portal/weapp/pages/chat/*`；`draw-portal/weapp/pages/profile/*`；契约 `docs/protocol.md` §10.4.13 |
+| 生产 | 腾讯云 ASR + LLM 三键注入 draw-portal.env **☐ 用户动作**；portal restart **☐**；weapp **0.2.17** CLI 上传见 readiness 文首 |
+| HIL | 语音 ASR/turn 真机 **未验证**（见 `docs/templates/weapp-control-smoke.md` 行 13–15） |
+| 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_voice_p1_authorized` |
+
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
 ### TCB 混元 i2i 通道批（2026-09-08，代码已测未提交未部署；云函数补丁待用户粘贴）

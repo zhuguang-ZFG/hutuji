@@ -1,4 +1,7 @@
 # 发布与出货就绪度
+
+> **2026-09-09 19:xx weapp 语音聊小派 P1 + **0.2.17** CLI 已传（🟡 代码+包体有证；生产 ASR/LLM 密钥注入 ☐；HIL ☐）**：hub worktree `feat/xiaopai-ota-mass-prod` portal `voice_agent` + `/api/voice/asr|turn` + weapp chat 页 hold-to-talk（`e9a6e01`）；契约 §10.4.13；冒烟 `docs/templates/weapp-control-smoke.md` 行 13–15。本机 CLI upload **0.2.17** exit **0**，AppID wxbf3c1e0013b46343，TOTAL **92118 B**（`tmp/weapp-upload-0.2.17.json`）。请 MP 将 **0.2.17** 设为体验版。**仍未做**：生产 draw-portal.env 注入腾讯云 ASR + LLM 三键并 restart portal；真机按住说话/「写字机状态」「记住测试」HIL。**不得宣称**可出货或联调完成。
+
 > **2026-09-09 18:5x weapp 0.2.16 CLI 已传（🟡；进度手测 ☐）**：本机 CLI upload **0.2.16** exit 0，AppID wxbf3c1e0013b46343，TOTAL **86576 B**（	mp/weapp-upload-0.2.16.json）。请 MP 将 **0.2.16** 设为体验版，按 docs/templates/weapp-control-smoke.md 行 9–12 勾进度。**仍未做**：进度真机勾实；语音 P1。**不得宣称**可出货或联调完成。
 
 > **2026-09-09 18:4x weapp 控制页进度 P0（🟡 源码已合；真机手测 ☐）**：控制页时间线/页条/出图中 1.5s 轮询与 v0.2.16 脚注已合入 worktree（`job_progress.js` + control 三件套）；计划 `docs/superpowers/plans/2026-09-09-weapp-progress-p0.md`。真机手测 ☐ 见 `docs/templates/weapp-control-smoke.md` 行 9–12。**仍未做**：MP 选 **0.2.16** 体验版；进度 HIL 勾实。**不得宣称**可出货或联调完成。
