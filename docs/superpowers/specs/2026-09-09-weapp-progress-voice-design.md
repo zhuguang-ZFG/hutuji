@@ -1,6 +1,6 @@
 # 小程序机台进度 + 语音聊小派 设计
 
-> 状态：**已批准**（2026-09-09）→ P0 计划 `docs/superpowers/plans/2026-09-09-weapp-progress-p0.md`；P1 语音另开计划  
+> 状态：**已批准**（2026-09-09）→ P0 计划 `docs/superpowers/plans/2026-09-09-weapp-progress-p0.md`（已实施；weapp **0.2.16** CLI 已传）→ P1 计划 `docs/superpowers/plans/2026-09-09-weapp-voice-asr.md`  
 > 对话定案：进度先 + 语音方案 A；小程序与设备麦 **独立会话 ID**  
 
 > 范围：draw-portal + weapp 为主；P0 **不改**固件 `hutuji.status` JSON 形状；P1 ASR 密钥只落 portal  
