@@ -96,7 +96,6 @@ Page({
       pageIndex: 0,
       layouting: false,
       aiWriting: false,
-      aiTextUsed: false,
       teaching: false,
       uploading: false,
     });
@@ -105,9 +104,9 @@ Page({
   onDescInput(e) {
     this.setData({ description: e.detail.value });
   },
-
   onWriteInput(e) {
-    this.setData({ writeText: e.detail.value });
+    // 用户手动改稿即脱离 AI 原文：标识只跟「当前文本是否 AI 产物」走，不随模式切换重置
+    this.setData({ writeText: e.detail.value, aiTextUsed: false });
   },
 
   onTeachInput(e) {
