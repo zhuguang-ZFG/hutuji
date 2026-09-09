@@ -96,5 +96,21 @@
       "draw-portal/weapp/pages/index/index.wxss",
       "draw-portal/weapp/utils/api.js"
     ]
+  },
+  "xiaopai_teach_ux_authorized": {
+    "note": "2026-09-09 用户批准小程序笔顺 P0（随便写+20字帽；方案1扩 draw job）。仅 draw-portal + weapp；复用 stroke_order.layout_teach，不抬 kArticleMaxPages、不改 MCP hutuji_teach 签名/§5。",
+    "design": "docs/superpowers/specs/2026-09-09-xiaopai-teach-ux-design.md",
+    "plan": "docs/superpowers/plans/2026-09-09-xiaopai-teach-ux.md",
+    "paths": [
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/pipeline.py",
+      "draw-portal/draw_portal/teach_chars.py",
+      "draw-portal/tests/test_teach_api.py",
+      "draw-portal/tests/test_teach_chars.py",
+      "draw-portal/tests/test_teach_pipeline.py",
+      "draw-portal/weapp/pages/index/index.js",
+      "draw-portal/weapp/pages/index/index.wxml",
+      "draw-portal/weapp/pages/index/index.wxss"
+    ]
   }
 }

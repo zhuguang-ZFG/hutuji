@@ -659,7 +659,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 项 | 约定 |
 |----|------|
 | 会话 | `wx.login` → `/api/auth/wx-login` 仍可建会话（小程序 x-session / 网页 cookie）；邮箱注册验证同前 |
-| 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、`/api/draw/write`、文字生图、`send`/saved、`/api/device/control` |
+| 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、`/api/draw/write`、`/api/draw/teach`、文字生图、`send`/saved、`/api/device/control` |
 | 放行 | `/api/auth/me`、`wx-phone`、`bind-phone`（仅非微信邮箱账号补绑 11 位）、`wx-profile`/`wx-avatar`、登录注册登出 |
 | 错误 | 产品面无号 → **403**，`detail={"code":"phone_required","message":"…"}`（稳定码供小程序统一跳「我的」） |
 | me | 增 `phone_bound: bool`（与 `!!phone` 同义，便于前端） |
@@ -778,10 +778,27 @@ Cookie: <session>
 | 响应 | `{status, job_id, preview_url, gcode_url, lines, bytes, pages[{url, preview_url}], page_count, truncated, missing_chars, doc_kind, doc_mode}` |
 | 复用 | `POST .../draw/{job_id}/send`（自动 confirm）、`POST .../save`、历史列表；与 §10.4.5 上传 job 零分叉 |
 | 错误 | 空文/超长/版式越界 → 400 + 中文 detail；缺 `HUTUJI_GFONT_DIR` → **503**「写字字库未配置」；不回显内部路径 |
-| 小程序 | 创作页「画图 \| 写字」切换；写字模式藏拍照/相册、保留「文档」；排版预览须显式点击（改正文/版式后不自动重排）；weapp **v0.2.13** |
-| 明确不做 | 笔顺/选字库/字距；独立 `/api/write/*`；改 MCP `hutuji_write` 签名；改 §5/竖版/转置/换纸 |
+| 小程序 | 创作页「画图 \| 写字 \| 笔顺」三段（写字段行为同本表）；写字模式藏拍照/相册、保留「文档」；排版预览须显式点击；weapp 写字段 **v0.2.13** 起、笔顺见 §10.4.11 |
+| 明确不做 | 选字库/字距；独立 `/api/write/*`；改 MCP `hutuji_write` 签名；改 §5/竖版/转置/换纸 |
 
 **HIL**：纸面笔迹、多页发送、文档版式与收藏再发 **未验证**（见 `docs/release-readiness.md` 文首）。
+
+#### 10.4.11 小程序手输笔顺（2026-09-09 落地 worktree `07c52e5`..`102bc59`；设计 `docs/superpowers/specs/2026-09-09-xiaopai-teach-ux-design.md`）
+
+| 面 | 约定 |
+|----|------|
+| 入口 | `POST /draw-upload/api/draw/teach`（登录态 + **须绑定 phone**，同 §10.4.0） |
+| 请求 JSON | `text` 必填（繁→简后随便写；服务端按序抽 CJK；无汉字 → 400「没有可教的汉字」） |
+| 抽字 | 按出现顺序抽 CJK（`㐀-鿿豈-﫿`，不含全角标点区）；最多 **20** 字（与 `hutuji_teach` / `kArticleMaxPages=20` 同源）；超出截断并 `input_truncated: true` |
+| 排版 | `stroke_order.layout_teach` 田字格渐显；**无**字号/行距；`max_pages = ARTICLE_MAX_PAGES`（20） |
+| 产物 | 与文档链同构；job 元数据 `kind=teach` |
+| 响应 | 对齐写字多页块，另含 `chars_taught`、`input_truncated`、`missing_chars`、`truncated` |
+| 复用 | `send`（自动 confirm）/`save`/历史；与上传 job 零分叉 |
+| 错误 | 无汉字 → 400；缺 stroke 目录 → **503**「笔顺数据未配置」；`StrokeOrderError` → 400 |
+| 小程序 | 创作页「笔顺」段；藏拍照/相册/文档；weapp **v0.2.14** |
+| 明确不做 | 抬 `kArticleMaxPages`；笔画动画；改 MCP `hutuji_teach` 签名；改 §5/竖版/转置/换纸 |
+
+**HIL**：笔顺预览、多页发送、田字格纸面 **未验证**（见 `docs/release-readiness.md` 文首）。
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

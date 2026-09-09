@@ -39,6 +39,17 @@
 | HIL | 纸面/真机 **未验证**（见 `docs/release-readiness.md` 文首写字 P0 条） |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_write_ux_authorized` |
 
+### 0.3 小程序笔顺 P0（2026-09-09，同 worktree `feat/xiaopai-ota-mass-prod`）
+
+| 项 | 说明 |
+|----|------|
+| 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-xiaopai-teach-ux-design.md` → `docs/superpowers/plans/2026-09-09-xiaopai-teach-ux.md` |
+| hub 已提交链 | `07c52e5`/`98b14b1` 抽字 → `8d73f47` `process_teach_text` → `c8fde0a` `POST /api/draw/teach` → `102bc59` weapp 笔顺模式（**v0.2.14**） |
+| 触及面 | portal `teach_chars.py`/`pipeline.py`/`app.py` + `test_teach_*`；weapp `pages/index/*` 三段 |
+| HIL | 纸面/真机 **未验证**（见 `docs/release-readiness.md` 文首笔顺 P0 条） |
+| 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_teach_ux_authorized` |
+| 注意 | Task 5 曾误在主工作树 `main` 落 `ab0be39`（无笔顺代码祖先）——**功能分支以本 worktree 本收口提交为准**；主树误提交待用户决定是否 `reset`/`revert` |
+
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
 ### TCB 混元 i2i 通道批（2026-09-08，代码已测未提交未部署；云函数补丁待用户粘贴）
