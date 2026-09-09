@@ -6,7 +6,7 @@ import re
 
 TEACH_MAX_CHARS = 20
 
-_CJK_RE = re.compile(r"[㐀-鿿豈-﫿＀-￯]")
+_CJK_RE = re.compile(r"[㐀-鿿豈-﫿]")
 
 
 def extract_teach_chars(text: str) -> tuple[str, bool]:
