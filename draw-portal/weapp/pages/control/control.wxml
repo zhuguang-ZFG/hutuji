@@ -18,6 +18,27 @@
         <text class="status-state">{{stateLabel || '—'}}</text>
       </view>
       <view class="status-bottom" wx:if="{{statusLine}}">{{statusLine}}</view>
+      <view class="timeline" wx:if="{{status}}">
+        <block wx:for="{{timelineLabels}}" wx:key="*this">
+          <view class="timeline-step {{index === timelineIndex ? 'active' : ''}} {{index < timelineIndex ? 'done' : ''}}">
+            <view class="timeline-dot"></view>
+            <text class="timeline-lab">{{item}}</text>
+          </view>
+        </block>
+      </view>
+      <view class="timeline-hint" wx:if="{{timelineHint}}">{{timelineHint}}</view>
+      <view class="eta-row" wx:if="{{elapsedLabel || etaLabel}}">
+        <text wx:if="{{elapsedLabel}}">已画 {{elapsedLabel}}</text>
+        <text wx:if="{{elapsedLabel && etaLabel}}"> · </text>
+        <text wx:if="{{etaLabel}}">预计 {{etaLabel}}</text>
+      </view>
+      <view class="page-bar-wrap" wx:if="{{pageShow}}">
+        <view class="page-bar-meta">页 {{pageLabel}}</view>
+        <view class="page-bar-track">
+          <view class="page-bar-fill" style="width: {{pagePercent}}%;"></view>
+        </view>
+      </view>
+      <view class="ota-line" wx:if="{{otaLine}}">{{otaLine}}</view>
     </view>
 
     <view class="confirm-row" wx:if="{{canConfirm}}">
@@ -61,6 +82,6 @@
       <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort}}">停止</button>
     </view>
 
-    <view class="page-foot muted">动力巢 · v0.2.14</view>
+    <view class="page-foot muted">动力巢 · v0.2.16</view>
   </block>
 </view>
