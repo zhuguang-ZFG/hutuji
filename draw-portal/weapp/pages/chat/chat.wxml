@@ -1,0 +1,37 @@
+<view class="page chat-page">
+  <scroll-view
+    class="msg-scroll"
+    scroll-y
+    scroll-into-view="{{scrollAnchor}}"
+    scroll-with-animation
+    enhanced
+    show-scrollbar="{{false}}"
+  >
+    <view class="msg-list">
+      <block wx:if="{{!messages.length}}">
+        <view class="empty-hint muted">按住下方按钮说话，与小派聊写字机</view>
+      </block>
+      <block wx:for="{{messages}}" wx:key="id">
+        <view id="msg-{{item.id}}" class="msg-row {{item.role}}">
+          <view class="bubble">{{item.content}}</view>
+          <view wx:if="{{item.toolTracesText}}" class="tool-traces muted">{{item.toolTracesText}}</view>
+        </view>
+      </block>
+    </view>
+  </scroll-view>
+
+  <view class="hold-area">
+    <view
+      class="hold-btn {{recording ? 'active' : ''}} {{busy ? 'disabled' : ''}}"
+      bindtouchstart="onHoldStart"
+      bindtouchend="onHoldEnd"
+      bindtouchcancel="onHoldEnd"
+    >
+      <text wx:if="{{recording}}">松开 结束</text>
+      <text wx:elif="{{busy && !recording}}">处理中…</text>
+      <text wx:else>按住 说话</text>
+    </view>
+  </view>
+
+  <view class="page-foot muted">动力巢 · v0.2.17</view>
+</view>

@@ -121,4 +121,12 @@ Page({
     }
     wx.navigateTo({ url: "/pages/firmware/firmware" });
   },
+
+  onGoChat() {
+    if (this.data.needPhone) {
+      wx.showToast({ title: "请先授权手机号", icon: "none" });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/chat/chat" });
+  },
 });

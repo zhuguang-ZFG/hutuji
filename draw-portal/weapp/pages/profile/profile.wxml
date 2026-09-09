@@ -79,7 +79,13 @@
     <view class="weui-btn-area tight">
       <button class="weui-btn weui-btn_default" bindtap="onGoFirmware">固件升级</button>
     </view>
+
+    <view class="weui-cells__title">语音</view>
+    <view class="weui-cells__tips">按住说话，与小派聊写字机状态与控制</view>
+    <view class="weui-btn-area tight">
+      <button class="weui-btn weui-btn_default" bindtap="onGoChat">语音聊小派</button>
+    </view>
   </block>
 
-  <view class="page-foot muted">动力巢 · v0.2.16</view>
+  <view class="page-foot muted">动力巢 · v0.2.17</view>
 </view>

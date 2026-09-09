@@ -6,7 +6,8 @@
     "pages/profile/profile",
     "pages/bind/bind",
     "pages/wifi/wifi",
-    "pages/firmware/firmware"
+    "pages/firmware/firmware",
+    "pages/chat/chat"
   ],
   "window": {
     "navigationBarTitleText": "动力巢",
