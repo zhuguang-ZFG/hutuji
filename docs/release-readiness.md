@@ -1,4 +1,7 @@
 # 发布与出货就绪度
+
+> **2026-09-09 18:4x weapp 控制页进度 P0（🟡 源码已合；真机手测 ☐）**：控制页时间线/页条/出图中 1.5s 轮询与 v0.2.16 脚注已合入 worktree（`job_progress.js` + control 三件套）；计划 `docs/superpowers/plans/2026-09-09-weapp-progress-p0.md`。真机手测 ☐ 见 `docs/templates/weapp-control-smoke.md` 行 9–12。**仍未做**：MP 选 **0.2.16** 体验版；进度 HIL 勾实。**不得宣称**可出货或联调完成。
+
 > **2026-09-09 15:1x 双机 `/firmware/` 静态仓 + portal OTA env（🟡 空 catalog；真包/HIL 未做）**：`/var/hutuji/firmware/`（`catalog.json`=`{"device":"s3","boards":{}}` + `probe.txt`）双机已建；阿里 gray 两 443 块 + 京东 sites-enabled 各插 `location /firmware/`（复用既有 `hutuji_gray_files`/`hutuji_files`，**未**新开 zone）；公网 `GET /firmware/probe.txt`/`catalog.json` → **200**。portal env 三键 `DRAW_PORTAL_FIRMWARE_{CATALOG_PATH,PUBLIC_BASE,ALLOWED_HOSTS}` 双机已写并 restart；未登录 check/ota_status → **401**。京东曾把 `.bak` 落在 `sites-enabled/` 致 `limit_req_zone` 重复绑定，已移到 `/root/nginx-bak-firmware/`。**仍未做**：`publish_s3_firmware.py` 真 bin/catalog 发版、含 OTA 的设备镜像刷机、HIL ①–⑥。**不得宣称**升级绝对安全或可出货。
 
 > **2026-09-09 15:xx weapp 0.2.14 CLI 已传 + portal 写字/笔顺/OTA API 双机已部署（🟡；纸面/真机 HIL 仍未验证）**：本机 `cli.bat upload -v 0.2.14` exit 0，AppID `wxbf3c1e0013b46343`，包体 TOTAL **78.8 KB / 80701 B**（`tmp/weapp-upload-0.2.14.json`）。请 MP 将 **0.2.14** 设为体验版。双机 portal 10 文件 LF SHA 与 `feat/xiaopai-ota-mass-prod` @ `d71c52a` blob 逐位相符、CR=0，备份 `/root/hutuji-bak-20260909-write-teach-ota/`；`/api/health` 200，未登录 `POST /api/draw/write|teach` → **401**（路由在场）。`HUTUJI_STROKE_DIR`/`DRAW_PORTAL_GFONT_DIR` 生产已在位。**仍未做**：写字/笔顺/OTA 真机 HIL；nginx `/firmware/` 静态仓与 catalog 上云；含 OTA 的设备镜像刷机。**不得宣称**可出货、纸面已验、升级绝对安全或联调完成。
