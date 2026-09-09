@@ -197,6 +197,24 @@ def process_write_text(
     return _materialize_laid_pages(laid, job_dir, kind="write", mode="article")
 
 
+def process_teach_text(
+    chars: str,
+    job_dir: Path,
+    *,
+    stroke_dir: str,
+) -> DocPipelineResult:
+    """笔顺教学 → 田字格多页产物（kind=teach，供 /api/draw/teach 调用）。"""
+    from hutuji_mcp import stroke_order
+    from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
+
+    assert stroke_dir, "stroke_dir 为空应先在 app 层 503"
+    if not [c for c in chars if not c.isspace()]:
+        raise stroke_order.StrokeOrderError("没有可教的汉字")
+    data = stroke_order.StrokeData.load(stroke_dir)
+    laid = stroke_order.layout_teach(chars, data, ARTICLE_MAX_PAGES)
+    return _materialize_laid_pages(laid, job_dir, kind="teach", mode="article")
+
+
 def process_upload_doc(
     raw: bytes,
     kind: str,
