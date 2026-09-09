@@ -1,5 +1,7 @@
 # 发布与出货就绪度
 
+> **2026-09-09 21:0x weapp **0.2.20** 补回写字 AI 按钮（🟡 CLI 已传；真机目视 ☐）**：根因=`79c47af` 只入库 `onAiGenerate`/`onAiPolish`+`.ai-row` 样式，**未改 `index.wxml`**，体验版看不到「AI写一篇/润色扩写」。已补 wxml、字号步进改 `view` 防 button 默认态、标题 `span`→嵌套 `text`。本机 CLI upload **0.2.20** exit **0**，TOTAL **94700 B**（`tmp/weapp-upload-0.2.20.log`）。请 MP 设 **0.2.20** 为体验版。**仍未做**：真机目视写字 AI；语音画写 HIL。**不得宣称**可出货。
+
 > **2026-09-09 20:3x weapp 语音画+写确认卡 + **0.2.19** CLI 已传（🟡 代码+双机 portal+包体有证；真机 HIL ☐）**：设计/计划已批准（`docs/superpowers/specs/2026-09-09-weapp-voice-draw-write-design.md` → plan 同日）。portal `voice.draw`/`voice.write` → `push_draw_self_heal(auto_confirm=False)`；`POST /api/voice/confirm|cancel`；ASR 去掉错误 `AppId` 参数后鉴权通；双机已热更 `voice_agent`/`voice_jobs`/`app`/`tencent_asr`；契约 §10.4.13；weapp chat 预览卡「开始画/取消」。本机 CLI upload **0.2.19** exit **0**，AppID wxbf3c1e0013b46343，TOTAL **94207 B**（`tmp/weapp-upload-0.2.19.json`）。请 MP 将 **0.2.19** 设为体验版。**仍未做**：说「画一只猫」/「写：…」→ 预览卡 → 开始画落笔；取消预览。**不得宣称**可出货或联调完成。
 
 > **2026-09-09 19:xx weapp 语音聊小派 P1 + **0.2.17** CLI 已传（🟡 代码+包体有证；生产 ASR/LLM 密钥注入 ☐；HIL ☐）**：hub worktree `feat/xiaopai-ota-mass-prod` portal `voice_agent` + `/api/voice/asr|turn` + weapp chat 页 hold-to-talk（`e9a6e01`）；契约 §10.4.13；冒烟 `docs/templates/weapp-control-smoke.md` 行 13–15。本机 CLI upload **0.2.17** exit **0**，AppID wxbf3c1e0013b46343，TOTAL **92118 B**（`tmp/weapp-upload-0.2.17.json`）。请 MP 将 **0.2.17** 设为体验版。**仍未做**：生产 draw-portal.env 注入腾讯云 ASR + LLM 三键并 restart portal；真机按住说话/「写字机状态」「记住测试」HIL。**不得宣称**可出货或联调完成。

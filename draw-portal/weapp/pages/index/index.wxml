@@ -18,9 +18,9 @@
   </view>
 
   <view class="slim-head">
-    <text class="slim-title" wx:if="{{mode === 'draw'}}">想画点<span class="accent">什么</span></text>
-    <text class="slim-title" wx:elif="{{mode === 'write'}}">想写点<span class="accent">什么</span></text>
-    <text class="slim-title" wx:else>想学点<span class="accent">什么</span></text>
+    <text class="slim-title" wx:if="{{mode === 'draw'}}">想画点<text class="accent">什么</text></text>
+    <text class="slim-title" wx:elif="{{mode === 'write'}}">想写点<text class="accent">什么</text></text>
+    <text class="slim-title" wx:else>想学点<text class="accent">什么</text></text>
     <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日 {{quotaLeft}} 次</text>
   </view>
 
@@ -54,14 +54,14 @@
     </view>
   </block>
 
-  <!-- 写字模式 -->
+  <!-- 写字模式：手输 / AI 写文 / 润色 → 再排版预览（§10.4.12） -->
   <block wx:elif="{{mode === 'write'}}">
     <view class="weui-cells input-panel">
       <view class="weui-cell weui-cell_textarea">
         <view class="weui-cell__bd">
           <textarea
             class="weui-textarea write-area"
-            placeholder="输入要写的文字，最多 5000 字"
+            placeholder="写主题（如：春天）或贴草稿；最多 5000 字"
             value="{{writeText}}"
             bindinput="onWriteInput"
             maxlength="5000"
@@ -72,21 +72,38 @@
       </view>
     </view>
 
+    <view class="ai-row">
+      <button
+        class="weui-btn weui-btn_default ai-btn"
+        hover-class="btn-press"
+        bindtap="onAiGenerate"
+        loading="{{aiWriting}}"
+        disabled="{{aiWriting || layouting || !writeText}}"
+      >AI写一篇</button>
+      <button
+        class="weui-btn weui-btn_default ai-btn"
+        hover-class="btn-press"
+        bindtap="onAiPolish"
+        loading="{{aiWriting}}"
+        disabled="{{aiWriting || layouting || !writeText}}"
+      >润色扩写</button>
+    </view>
+
     <view class="layout-controls">
       <view class="layout-row">
         <text class="layout-label">字号</text>
         <view class="stepper">
-          <button class="step-btn" hover-class="btn-press" bindtap="bumpSize" data-delta="-1">−</button>
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpSize" data-delta="-1">−</view>
           <text class="step-val">{{sizeMm}} mm</text>
-          <button class="step-btn" hover-class="btn-press" bindtap="bumpSize" data-delta="1">+</button>
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpSize" data-delta="1">+</view>
         </view>
       </view>
       <view class="layout-row">
         <text class="layout-label">行距</text>
         <view class="stepper">
-          <button class="step-btn" hover-class="btn-press" bindtap="bumpLine" data-delta="-0.1">−</button>
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpLine" data-delta="-0.1">−</view>
           <text class="step-val">{{lineSpacing}}×</text>
-          <button class="step-btn" hover-class="btn-press" bindtap="bumpLine" data-delta="0.1">+</button>
+          <view class="step-btn" hover-class="btn-press" bindtap="bumpLine" data-delta="0.1">+</view>
         </view>
       </view>
     </view>
@@ -97,7 +114,7 @@
         hover-class="btn-press"
         bindtap="onLayoutPreview"
         loading="{{layouting}}"
-        disabled="{{layouting || !writeText}}"
+        disabled="{{layouting || aiWriting || !writeText}}"
       >
         {{layouting ? "排版中…" : "排版预览"}}
       </button>

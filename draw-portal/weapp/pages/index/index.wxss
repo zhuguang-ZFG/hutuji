@@ -117,7 +117,10 @@
   height: 56rpx;
   margin: 0;
   padding: 0;
-  line-height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   font-size: 32rpx;
   font-weight: 600;
   color: #00d1e5;
@@ -356,8 +359,8 @@
 .ai-row {
   display: flex;
   gap: 16rpx;
-  padding-left: 32rpx;
-  padding-right: 32rpx;
+  margin: 8rpx 24rpx 0;
+  padding: 0;
 }
 .ai-btn {
   flex: 1;

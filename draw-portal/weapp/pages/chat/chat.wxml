@@ -1,4 +1,4 @@
-﻿<view class="page chat-page">
+<view class="page chat-page">
   <scroll-view
     class="msg-scroll"
     scroll-y
@@ -49,5 +49,5 @@
     </view>
   </view>
 
-  <view class="page-foot muted">动力巢 · v0.2.19</view>
+  <view class="page-foot muted">动力巢 · v0.2.20</view>
 </view>

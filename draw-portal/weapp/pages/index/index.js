@@ -59,6 +59,7 @@ Page({
       job: null,
       pageIndex: 0,
       layouting: false,
+      aiWriting: false,
       teaching: false,
       uploading: false,
     });

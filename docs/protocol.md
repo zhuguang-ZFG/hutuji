@@ -817,7 +817,7 @@ Cookie: <session>
 | 请求 | `mode=generate` + `prompt`（主题/提纲）；或 `mode=polish` + `text`（草稿） |
 | 行为 | 调 `HUTUJI_LLM_*` 生成/润色**纯文本**；繁→简；长度 ≤2000；**禁止** SVG/G-code；不排版、不出纸 |
 | 响应 | `{status:"ok", mode, text}`；失败 400 白话 |
-| 小程序 | 写字模式「AI写一篇」「润色扩写」写入 `writeText`，用户可改后再「排版预览」；weapp **v0.2.15** |
+| 小程序 | 写字模式「AI写一篇」「润色扩写」写入 `writeText`，用户可改后再「排版预览」；weapp **v0.2.20**（0.2.15–0.2.19 曾漏挂 wxml 按钮，仅 js/wxss 在场） |
 | 环境 | portal 进程须配 `HUTUJI_LLM_BASE_URL/_API_KEY/_MODEL`（可与 mcp.env 同值） |
 | 明确不做 | 自动出纸；改 `hutuji_write` 语音链 |
 
