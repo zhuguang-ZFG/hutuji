@@ -37,6 +37,7 @@
 | hub 已提交链 | `f79394d` 版式校验 → `819d7df` `process_write_text` → `981c723` `POST /api/draw/write` → `0b7bc95`/`ab31763` 文档 upload 版式 → `c6922f7`/`b663e55` weapp 写字模式+翻页（**v0.2.13**） |
 | 触及面 | portal `app.py`/`pipeline.py`/`write_layout_params.py` + 测试 `test_write_*`/`test_doc_upload`；weapp `pages/index/*`、`utils/api.js`、页脚版本 bump |
 | HIL | 纸面/真机 **未验证**（见 `docs/release-readiness.md` 文首写字 P0 条） |
+| 生产 | 2026-09-09 随笔顺同批双机 portal 热修；weapp 随 **0.2.14** |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_write_ux_authorized` |
 
 ### 0.3 小程序笔顺 P0（2026-09-09，同 worktree `feat/xiaopai-ota-mass-prod`）
@@ -44,11 +45,12 @@
 | 项 | 说明 |
 |----|------|
 | 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-xiaopai-teach-ux-design.md` → `docs/superpowers/plans/2026-09-09-xiaopai-teach-ux.md` |
-| hub 已提交链 | `07c52e5`/`98b14b1` 抽字 → `8d73f47` `process_teach_text` → `c8fde0a` `POST /api/draw/teach` → `102bc59` weapp 笔顺模式（**v0.2.14**） |
+| hub 已提交链 | `07c52e5`/`98b14b1` 抽字 → `8d73f47` `process_teach_text` → `c8fde0a` `POST /api/draw/teach` → `102bc59` weapp 笔顺模式（**v0.2.14**）→ `d71c52a` 文档收口 |
 | 触及面 | portal `teach_chars.py`/`pipeline.py`/`app.py` + `test_teach_*`；weapp `pages/index/*` 三段 |
 | HIL | 纸面/真机 **未验证**（见 `docs/release-readiness.md` 文首笔顺 P0 条） |
+| 生产 | 双机 portal 10 文件热修 ALL_OK；weapp CLI **0.2.14** 已传（80701 B）；MP 选体验版待用户 |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_teach_ux_authorized` |
-| 注意 | Task 5 曾误在主工作树 `main` 落 `ab0be39`（无笔顺代码祖先）——**功能分支以本 worktree 本收口提交为准**；主树误提交待用户决定是否 `reset`/`revert` |
+| 注意 | Task 5 曾误在主工作树落 `ab0be39`——**已于 2026-09-09 将 main tip `reset --hard` 回 `3538f44`**；功能真值在本 worktree `d71c52a` |
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
