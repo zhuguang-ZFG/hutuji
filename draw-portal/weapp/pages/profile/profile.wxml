@@ -1,4 +1,4 @@
-<view class="page">
+﻿<view class="page">
   <view class="hero">
     <view class="hero-brand">动力巢 · LIMA</view>
     <view class="hero-title">我的<span class="accent">账号</span></view>
@@ -87,5 +87,5 @@
     </view>
   </block>
 
-  <view class="page-foot muted">动力巢 · v0.2.17</view>
+  <view class="page-foot muted">动力巢 · v0.2.18</view>
 </view>

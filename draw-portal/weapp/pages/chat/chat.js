@@ -77,12 +77,17 @@ Page({
   },
 
   onHoldStart() {
+    // 录音中不可再开；上传中 busy 才锁。勿在 start 前 busy=true，
+    // 否则 .disabled{pointer-events:none} 会吞掉 touchend，松手停不了。
     if (this.data.busy || this.data.recording) return;
-    this.setData({ busy: true });
-    this._recorder.start({
-      format: "mp3",
-      duration: 60000,
-    });
+    try {
+      this._recorder.start({
+        format: "mp3",
+        duration: 60000,
+      });
+    } catch (e) {
+      wx.showToast({ title: "无法开始录音", icon: "none" });
+    }
   },
 
   onHoldEnd() {
@@ -90,24 +95,21 @@ Page({
       this._recorder.stop();
       return;
     }
-    if (this.data.busy) {
-      this.setData({ busy: false });
-    }
   },
 
   _onRecordStop(res) {
     const path = res && res.tempFilePath;
     if (!path) {
-      this.setData({ busy: false });
+      this.setData({ busy: false, recording: false });
       wx.showToast({ title: "录音为空", icon: "none" });
       return;
     }
+    this.setData({ busy: true });
     api
       .uploadFile("/api/voice/asr", path, "file")
       .then((asr) => {
         const text = (asr && asr.text ? asr.text : "").trim();
         if (!text) {
-          this.setData({ busy: false });
           wx.showToast({ title: "未识别到内容", icon: "none" });
           return;
         }
@@ -125,8 +127,15 @@ Page({
           });
       })
       .catch((err) => {
+        const status = err && err.status ? err.status : 0;
+        let title = (err && err.detail) || "请求失败";
+        if (status === 404 || status === 405) {
+          title = "语音服务未上线";
+        } else if (status === 503) {
+          title = title.length > 20 ? "语音未配置" : title;
+        }
         wx.showToast({
-          title: (err && err.detail) || "请求失败",
+          title: title.slice(0, 20),
           icon: "none",
         });
       })
@@ -135,3 +144,4 @@ Page({
       });
   },
 });
+

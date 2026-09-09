@@ -1,4 +1,4 @@
-<view class="page chat-page">
+﻿<view class="page chat-page">
   <scroll-view
     class="msg-scroll"
     scroll-y
@@ -22,7 +22,7 @@
 
   <view class="hold-area">
     <view
-      class="hold-btn {{recording ? 'active' : ''}} {{busy ? 'disabled' : ''}}"
+      class="hold-btn {{recording ? 'active' : ''}} {{busy && !recording ? 'disabled' : ''}}"
       bindtouchstart="onHoldStart"
       bindtouchend="onHoldEnd"
       bindtouchcancel="onHoldEnd"
@@ -33,5 +33,5 @@
     </view>
   </view>
 
-  <view class="page-foot muted">动力巢 · v0.2.17</view>
+  <view class="page-foot muted">动力巢 · v0.2.18</view>
 </view>

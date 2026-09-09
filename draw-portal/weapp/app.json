@@ -34,6 +34,12 @@
   "networkTimeout": {
     "request": 150000
   },
+  "permission": {
+    "scope.record": {
+      "desc": "用于语音聊小派"
+    }
+  },
+  "requiredPrivateInfos": ["getRecorderManager"],
   "style": "v2",
   "sitemapLocation": "sitemap.json"
 }
