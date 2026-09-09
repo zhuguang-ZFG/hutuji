@@ -54,7 +54,7 @@ def _fake_doc_result(job_dir: Path) -> DocPipelineResult:
 
 
 def _patch_doc_pipeline(monkeypatch: pytest.MonkeyPatch, captured: dict | None = None):
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "pages").mkdir(exist_ok=True)
         for i in (1, 2):
@@ -124,7 +124,7 @@ def test_doc_upload_ingest_error_is_400_with_reason(
 ):
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         from hutuji_mcp.doc_ingest import DocIngestError
 
         raise DocIngestError("加密文档不支持")
@@ -140,7 +140,7 @@ def test_doc_upload_ingest_error_is_400_with_reason(
 def test_doc_upload_layout_error_is_400(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         from hutuji_mcp.write_text import WriteTextError
 
         raise WriteTextError("表格过宽：字号缩到 3.5mm 仍排不下")
@@ -163,7 +163,7 @@ def test_doc_upload_layout_error_is_400(tmp_path: Path, monkeypatch: pytest.Monk
 def test_doc_upload_unexpected_error_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_process(raw, kind, job_dir, *, gfont_dir):
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr("draw_portal.app.process_upload_doc", fake_process)
