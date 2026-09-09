@@ -80,10 +80,10 @@
       <button class="weui-btn weui-btn_default" bindtap="onGoFirmware">固件升级</button>
     </view>
 
-    <view class="weui-cells__title">语音</view>
-    <view class="weui-cells__tips">按住说话，与小派聊写字机状态与控制</view>
+    <view class="weui-cells__title">聊小派</view>
+    <view class="weui-cells__tips">按住说话或直接打字：聊天、画画、写字、查状态都行</view>
     <view class="weui-btn-area tight">
-      <button class="weui-btn weui-btn_default" bindtap="onGoChat">语音聊小派</button>
+      <button class="weui-btn weui-btn_default" bindtap="onGoChat">去和小派聊</button>
     </view>
   </block>
 

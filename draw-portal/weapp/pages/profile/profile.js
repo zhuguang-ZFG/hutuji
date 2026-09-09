@@ -127,6 +127,7 @@ Page({
       wx.showToast({ title: "请先授权手机号", icon: "none" });
       return;
     }
-    wx.navigateTo({ url: "/pages/chat/chat" });
+    // chat 页 0.3.0 起进 tabBar：navigateTo 不能去 tab 页，必须 switchTab
+    wx.switchTab({ url: "/pages/chat/chat" });
   },
 });
