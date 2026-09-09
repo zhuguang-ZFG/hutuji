@@ -572,6 +572,7 @@
     </div>
     <div id="upload-msg" class="msg hidden"></div>
     <img id="job-preview" class="preview hidden" alt="预览">
+    <div id="job-ai-mark" class="muted hidden" style="font-size:.8rem;margin-top:.3rem">内容由 AI 生成，仅供参考</div>
     <div id="job-pages" class="hidden" style="display:flex;gap:.5rem;overflow-x:auto;margin-top:.7rem"></div>
     <div id="job-actions" class="btn-row two hidden" style="margin-top:.85rem">
       <button id="btn-send" class="primary" type="button">发送到小派</button>
@@ -791,7 +792,7 @@ function resetUploadForm() {
   local.classList.add('hidden');
   if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
   local.removeAttribute('src');
-  $('job-preview').classList.add('hidden');
+  $('job-preview').classList.add('hidden'); $('job-ai-mark').classList.add('hidden');
   $('job-preview').removeAttribute('src');
   $('job-actions').classList.add('hidden');
   $('job-pages').classList.add('hidden');
@@ -997,7 +998,7 @@ function showJobResult(data, doneText) {
   const pages = Array.isArray(data.pages) ? data.pages : null;
   if (pages && pages.length > 1) {
     // 多页文档：逐页预览条；保存到图库只存得下第 1 页，禁用避免误导
-    $('job-preview').classList.add('hidden');
+    $('job-preview').classList.add('hidden'); $('job-ai-mark').classList.add('hidden');
     const strip = $('job-pages');
     strip.innerHTML = '';
     pages.forEach((p, i) => {
@@ -1015,7 +1016,7 @@ function showJobResult(data, doneText) {
     $('job-pages').classList.add('hidden');
     $('job-pages').innerHTML = '';
     $('job-preview').src = data.preview_url;
-    $('job-preview').classList.remove('hidden');
+    $('job-preview').classList.remove('hidden'); $('job-ai-mark').classList.remove('hidden');
     $('btn-save').disabled = false;
     $('btn-save').title = '';
   }

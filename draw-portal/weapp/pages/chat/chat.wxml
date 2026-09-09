@@ -46,6 +46,7 @@
                 binderror="onDrawImgError"
               />
               <view class="draw-state">约 {{item.draw.lines}} 行 · 点图放大</view>
+              <view class="draw-state muted">内容由 AI 生成，仅供参考</view>
               <view class="draw-actions">
                 <view class="btn-confirm" data-id="{{item.id}}" bindtap="onDrawSend">{{item.draw.sending ? "发送中…" : "发送到写字机"}}</view>
                 <view class="btn-confirm ghost {{item.draw.saved ? 'disabled' : ''}}" data-id="{{item.id}}" bindtap="onDrawSave">{{item.draw.saved ? "已收藏" : "收藏"}}</view>

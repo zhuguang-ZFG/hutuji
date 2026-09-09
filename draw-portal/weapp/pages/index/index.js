@@ -13,6 +13,9 @@ Page({
     generating: false,
     layouting: false,
     aiWriting: false,
+    // AI 写文（generate/polish）成功后置位，驱动预览卡「AI 生成」标识
+    //（《人工智能生成合成内容标识办法》2025-09-01 施行，量产合规项）
+    aiTextUsed: false,
     teaching: false,
     sending: false,
     saving: false,
@@ -220,7 +223,7 @@ Page({
       .then((res) => {
         if (token !== this._writeToken) return;
         const text = (res && res.text) || "";
-        this.setData({ aiWriting: false, writeText: text });
+        this.setData({ aiWriting: false, writeText: text, aiTextUsed: true });
         wx.showToast({
           title: mode === "generate" ? "已生成，可再改" : "已润色，可再改",
           icon: "success",
