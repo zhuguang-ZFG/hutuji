@@ -1,4 +1,6 @@
 # 发布与出货就绪度
+> **2026-09-09 18:5x weapp 0.2.16 CLI 已传（🟡；进度手测 ☐）**：本机 CLI upload **0.2.16** exit 0，AppID wxbf3c1e0013b46343，TOTAL **86576 B**（	mp/weapp-upload-0.2.16.json）。请 MP 将 **0.2.16** 设为体验版，按 docs/templates/weapp-control-smoke.md 行 9–12 勾进度。**仍未做**：进度真机勾实；语音 P1。**不得宣称**可出货或联调完成。
+
 > **2026-09-09 18:4x weapp 控制页进度 P0（🟡 源码已合；真机手测 ☐）**：控制页时间线/页条/出图中 1.5s 轮询与 v0.2.16 脚注已合入 worktree（`job_progress.js` + control 三件套）；计划 `docs/superpowers/plans/2026-09-09-weapp-progress-p0.md`。真机手测 ☐ 见 `docs/templates/weapp-control-smoke.md` 行 9–12。**仍未做**：MP 选 **0.2.16** 体验版；进度 HIL 勾实。**不得宣称**可出货或联调完成。
 
 > **2026-09-09 18:2x 记忆 messaging HIL + `hutuji.1.0.6`（✅ 设备工具面；语音口述未做）**：根因=remember/forget/recall-miss 回纯中文 → 小智 messaging HTTP 500；改 JSON 回包后 freenove 真编译 sha256 `6f119063…9b26` size 3032336，双机 catalog/latest=`1.0.6`，COM15 otadata+app 刷入。portal 绑机 token 调 MAC `b8:1f:3f:c4:58:2c`：`status`=`hutuji.1.0.6`；`remember hil_json→tea_v2` / `recall` 命中 / `forget` / `recall` miss 四步均 **ok True**（`tmp/mem-hil-106-*.txt`）。**仍未做**：真人语音「记住/记得」口述；AI 写文真机；MP 选 weapp 0.2.15。**不得宣称**可出货或语音记忆闭合。
