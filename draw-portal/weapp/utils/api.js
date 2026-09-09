@@ -94,15 +94,15 @@ function uploadFile(path, filePath, name, formData) {
       header: { "x-session": getSession() },
       timeout: 150000,
       success(res) {
+        if (res.statusCode === 401) {
+          _reject401(reject);
+          return;
+        }
         if (res.statusCode >= 400) {
           let data = null;
           try {
             data = JSON.parse(res.data);
           } catch (e) {}
-          if (res.statusCode === 401) {
-            _reject401(reject);
-            return;
-          }
           const payload = _detailPayload(data || { detail: "上传失败" });
           if (res.statusCode === 403 && payload.code === "phone_required") {
             _handlePhoneRequired(payload);
