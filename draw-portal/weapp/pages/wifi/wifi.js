@@ -14,6 +14,7 @@ Page({
     wifiLocked: false, // 从设备扫描列表点选的 WiFi 不允许改名
     deviceMac: "", // 2026-09-08 起配网码带 &m=<MAC>：配网成功后自动认领绑定
     bindState: "", // "" | claiming | waiting | bound | manual（仅 done 页展示用）
+    log: "", // 配网进度日志（working/done 页可见）
   },
 
   // 微信「扫一扫」直接扫设备配网码（mp 后台「扫普通链接二维码打开小程序」规则：

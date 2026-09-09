@@ -16,7 +16,40 @@ Page({
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
       if (ok) this.refreshStatus();
     });
+    this.resumeJobState();
   },
+
+  // 精修回屏恢复（2026-09-09）：onHide 停链后 job 仍挂在 data 上，回到页面时
+  // 一次性补查 job 状态——pending 续轮、ready 上屏、failed 标注；不再「切走就丢」。
+  resumeJobState() {
+    const job = this.data.job;
+    if (!job || !job.jobId) return;
+    if (job.refined || job.refineFailed || job.refining) return; // 已有终态或链在跑
+    api
+      .request("/api/draw/jobs/" + job.jobId)
+      .then((res) => {
+        const refined = res && res.refined;
+        if (!refined) return;
+        if (refined.status === "ready") {
+          this.setData({
+            "job.refined": {
+              jobId: refined.job_id,
+              previewUrl: refined.preview_url,
+              gcodeUrl: refined.gcode_url,
+            },
+            "job.useRefined": true,
+          });
+          wx.showToast({ title: "AI 精修版好了", icon: "success" });
+        } else if (refined.status === "failed") {
+          this.setData({ "job.refineFailed": "failed" });
+        } else if (refined.status === "pending") {
+          this.setData({ "job.refining": true });
+          this.startRefinePolling(job.jobId);
+        }
+      })
+      .catch(() => {}); // 补屏失败不打扰，下次 onShow 再试
+  },
+
 
   onLoad() {
     // 轮询句柄与作废令牌挂在页面实例上：不放进 data，避免无关字段触发渲染
@@ -41,7 +74,7 @@ Page({
     this.setData({ description: e.detail.value });
   },
 
-  refreshStatus() {
+  refreshStatus(retried) {
     const app = getApp();
     const ready = () => {
       api
@@ -54,7 +87,9 @@ Page({
           }
         })
         .catch(() => {
-          app.ensureSession().then(() => this.refreshStatus());
+          // 失败只重登重试一次：无闸递归在弱网/后端 5xx 时会连环打请求
+          if (retried) return;
+          app.ensureSession().then(() => this.refreshStatus(true));
         });
     };
     if (!wx.getStorageSync("session_ok")) {
@@ -106,7 +141,24 @@ Page({
     const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
     this.sendJob(jobId);
   },
-
+  // 收藏（2026-09-09 补断头路）：此前全小程序没有 /save 调用方，历史页永远空。
+  // 跟随预览卡当前选中版本：精修就绪且选中精修版时收藏精修 job。
+  onSave() {
+    const job = this.data.job;
+    if (!job || job.saving || job.saved) return;
+    const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
+    this.setData({ "job.saving": true });
+    api
+      .request(`/api/draw/${jobId}/save`, { method: "POST", data: {} })
+      .then(() => {
+        this.setData({ "job.saving": false, "job.saved": true });
+        wx.showToast({ title: "已收藏，历史页能再画", icon: "success" });
+      })
+      .catch((err) => {
+        this.setData({ "job.saving": false });
+        wx.showToast({ title: err.detail || "收藏失败", icon: "none" });
+      });
+  },
 
   sendJob(jobId) {
     if (this.data.sending) return;
@@ -159,8 +211,9 @@ Page({
       lines: data.lines,
       refining: false,
       refined: null,
-      useRefined: false,
       refineFailed: false,
+      saving: false,
+      saved: false,
     };
     if (data.refined && data.refined.status === "pending") {
       job.refining = true;

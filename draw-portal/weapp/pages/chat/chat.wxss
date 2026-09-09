@@ -1,0 +1,178 @@
+@import "../../styles/weui-page.wxss";
+
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.msg-list {
+  padding: 24rpx 24rpx 32rpx;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 20rpx;
+}
+
+.from-user {
+  align-items: flex-end;
+}
+
+.from-pai {
+  align-items: flex-start;
+}
+
+.bubble {
+  max-width: 78%;
+  padding: 18rpx 24rpx;
+  border-radius: 20rpx;
+  font-size: 28rpx;
+  line-height: 1.55;
+  word-break: break-all;
+}
+
+.from-user .bubble {
+  background: #00d1e5;
+  color: #061016;
+  border-bottom-right-radius: 6rpx;
+}
+
+.from-pai .bubble {
+  background: #14151f;
+  color: #f2f4f8;
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-bottom-left-radius: 6rpx;
+}
+
+.bubble.dim {
+  color: #9aa3b5;
+}
+
+/* 聊内画图卡：挂在气泡下方的独立面板 */
+.draw-card {
+  margin-top: 12rpx;
+  width: 78%;
+  background: #14151f;
+  border: 1rpx solid rgba(0, 209, 229, 0.22);
+  border-radius: 20rpx;
+  padding: 20rpx;
+  box-sizing: border-box;
+}
+
+.draw-desc {
+  font-size: 26rpx;
+  color: #f2f4f8;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+.draw-state {
+  font-size: 24rpx;
+  color: #9aa3b5;
+  text-align: center;
+  padding: 12rpx 0;
+}
+
+.draw-state.warn {
+  color: #ffb84d;
+}
+
+.draw-preview {
+  width: 100%;
+  height: 420rpx;
+  background: #0b0c13;
+  border-radius: 14rpx;
+  display: block;
+}
+
+.draw-actions {
+  display: flex;
+  gap: 12rpx;
+}
+
+.draw-btn {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  line-height: 2.2;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #061016;
+  background: #00d1e5;
+  border-radius: 999rpx;
+}
+
+.draw-btn.ghost {
+  background: transparent;
+  color: #00d1e5;
+  border: 2rpx solid rgba(0, 209, 229, 0.45);
+}
+
+.draw-btn::after {
+  border: none;
+}
+
+.draw-btn[disabled] {
+  opacity: 0.45;
+}
+
+.btn-press {
+  opacity: 0.82;
+}
+
+.chat-end {
+  height: 1rpx;
+}
+
+/* 输入栏：钉在可视区底部（tabBar 之上），键盘弹起时随 adjustPosition 顶起 */
+.input-bar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
+  background: #0b0c13;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-input {
+  flex: 1;
+  background: #1a1b28;
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-radius: 999rpx;
+  padding: 16rpx 28rpx;
+  font-size: 28rpx;
+  color: #f2f4f8;
+}
+
+.ph {
+  color: #6b7385;
+}
+
+.chat-send {
+  margin: 0;
+  padding: 0 36rpx;
+  line-height: 2.2;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #061016;
+  background: #00d1e5;
+  border-radius: 999rpx;
+  flex-shrink: 0;
+}
+
+.chat-send::after {
+  border: none;
+}
+
+.chat-send[disabled] {
+  opacity: 0.45;
+}

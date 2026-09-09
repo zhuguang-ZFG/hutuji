@@ -94,6 +94,9 @@ class Config:
     # 微信小程序（2026-09-07）：两项同配才启用 /api/auth/wx-login，空=禁用
     wx_appid: str = ""
     wx_secret: str = ""
+    # 小程序文字聊天（2026-09-09）：/api/chat 日配额与 MCP /internal/chat 转发超时
+    chat_daily_limit: int = 50
+    chat_timeout_seconds: int = 30
 
 
 @dataclass(frozen=True)
@@ -201,6 +204,8 @@ def load_config() -> Config:
         .strip()
         .lower()
         in {"1", "true", "yes"},
+        chat_daily_limit=int(os.environ.get("DRAW_PORTAL_CHAT_DAILY_LIMIT", "50")),
+        chat_timeout_seconds=int(os.environ.get("DRAW_PORTAL_CHAT_TIMEOUT_SECONDS", "30")),
     )
 
 

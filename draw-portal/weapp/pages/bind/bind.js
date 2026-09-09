@@ -7,6 +7,7 @@ Page({
     code: "",
     submitting: false,
     macSuffix: "",
+    waitSeconds: 0, // waiting 态已等待秒数（进度可见，不闷等）
   },
 
 
@@ -68,17 +69,18 @@ Page({
         }
         const d = err.detail || "";
         if (/无效|已过期|pending|等待|设备/.test(d) || err.status === 404 || err.status === 400) {
-          // 设备 announce 在途（固件最长 ~10 分钟重试环）：静默重试 15 次×2s
+          // 设备 announce 在途：静默重试 30 次×2s（60s 覆盖常见在途窗口），
+          // 等待秒数上屏让用户看见进展；超过仍没等到就给明确指引，不闷死。
           const n = (retried || 0) + 1;
-          if (n <= 15) {
-            this.setData({ step: "waiting" });
+          if (n <= 30) {
+            this.setData({ step: "waiting", waitSeconds: n * 2 });
             setTimeout(() => {
               this.setData({ submitting: false });
               this.doBind(force, n);
             }, 2000);
             return;
           }
-          this.setData({ submitting: false, step: "input" });
+          this.setData({ submitting: false, step: "input", waitSeconds: 0 });
           wx.showModal({
             title: "没连上写字机",
             content: "请确认写字机已联网，再扫一次屏幕上的二维码",

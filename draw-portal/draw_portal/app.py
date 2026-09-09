@@ -31,6 +31,7 @@ from draw_portal.auth import (
     set_session_cookie,
 )
 from draw_portal.config import load_config
+from draw_portal import chat as chat_mod
 from draw_portal.crypto import decrypt_token, encrypt_token
 from draw_portal.email_verify import (
     generate_email_code,
@@ -110,6 +111,18 @@ class WxLoginBody(BaseModel):
     """微信小程序静默登录：wx.login 的 code 换会话（2026-09-07）。"""
 
     code: str = Field(min_length=1, max_length=256)
+
+
+class ChatHistoryItem(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=500)
+
+
+class ChatBody(BaseModel):
+    """小程序文字聊天：单条消息 + 客户端携带的最近若干轮上下文。"""
+
+    message: str = Field(min_length=1, max_length=200)
+    history: list[ChatHistoryItem] = Field(default_factory=list, max_length=10)
 
 
 class LoginBody(BaseModel):
@@ -1553,6 +1566,83 @@ def create_app() -> FastAPI:
                 except OSError:
                     pass
         return {"status": "deleted"}
+
+    @app.post("/api/chat", dependencies=phone_secured)
+    async def chat_send(body: ChatBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        """小程序文字聊天（2026-09-09）：内容安全 → 本机 MCP /internal/chat。
+
+        配额与 web_generate 同口径：成功才计 24h 窗口（失败不占额）。模型回复
+        也过一遍内容安全；被拦时回落固定话术，不把「违规」帽子扣给用户。
+        消息安全审核需要真实 openid，故本端点只对微信用户开放（聊天 UI 只在小程序）。
+        """
+        if not config.usage_ingest_secret or not (config.wx_appid and config.wx_secret):
+            raise HTTPException(status_code=503, detail="聊天通道未配置")
+        user = store.get_user(user_id)
+        openid = (user.wx_openid or "") if user else ""
+        if not openid:
+            raise HTTPException(status_code=403, detail="聊天功能仅小程序账号可用")
+        message = body.message.strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="消息不能为空")
+
+        since = time.time() - 86400
+        used = sum(
+            row["count"]
+            for row in store.usage_counts_for_user_since(user_id, since)
+            if row["event_type"] == "wx_chat"
+        )
+        if used >= config.chat_daily_limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"今日聊天次数已达上限（{config.chat_daily_limit} 次），明天再来",
+            )
+
+        history = [{"role": it.role, "content": it.content} for it in body.history]
+        try:
+            await asyncio.to_thread(
+                chat_mod.msg_sec_check,
+                appid=config.wx_appid,
+                secret=config.wx_secret,
+                openid=openid,
+                content=message,
+            )
+            result = await asyncio.to_thread(
+                chat_mod.request_internal_chat,
+                base_url=config.mcp_internal_base_url,
+                secret=config.usage_ingest_secret,
+                message=message,
+                history=history,
+                timeout_seconds=config.chat_timeout_seconds,
+            )
+            reply = result["reply"]
+            try:
+                await asyncio.to_thread(
+                    chat_mod.msg_sec_check,
+                    appid=config.wx_appid,
+                    secret=config.wx_secret,
+                    openid=openid,
+                    content=reply,
+                )
+            except chat_mod.ChatContentRejected:
+                reply = "这句话小派接不住，换个话题聊聊吧~"
+        except chat_mod.ChatContentRejected as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except chat_mod.ChatError as exc:
+            status = exc.status if exc.status in (400, 503) else 502
+            raise HTTPException(status_code=status, detail=exc.detail) from exc
+
+        _record_portal_usage(
+            store,
+            event_type="wx_chat",
+            user_id=user_id,
+            detail=message[:120],
+            ok=True,
+        )
+        return {
+            "reply": reply,
+            "draw_intent": result.get("draw_intent"),
+            "remaining": config.chat_daily_limit - used - 1,
+        }
 
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

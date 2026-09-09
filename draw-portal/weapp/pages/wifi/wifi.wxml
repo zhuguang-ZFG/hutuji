@@ -1,7 +1,7 @@
 <view class="page">
   <block wx:if="{{step === 'scan'}}">
     <view class="hero">
-      <view class="hero-brand">动力巢 · WIFI</view>
+      <view class="hero-brand">动力巢 · 小派</view>
       <view class="hero-title">给写字机连<span class="accent">家里 WiFi</span></view>
       <view class="hero-sub">对写字机说「配网」，屏幕出现二维码后扫它</view>
     </view>
@@ -87,7 +87,7 @@
 
   <block wx:if="{{step === 'done'}}">
     <view class="hero">
-      <view class="hero-brand">动力巢 · WIFI</view>
+      <view class="hero-brand">动力巢 · 小派</view>
       <view class="hero-title">
         {{bindState === 'bound' ? '配网 + 绑定都完成了' : '配网已下发'}}
       </view>

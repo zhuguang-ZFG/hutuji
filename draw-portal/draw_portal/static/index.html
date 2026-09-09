@@ -739,8 +739,9 @@ async function loadSaved() {
       btn.disabled = true;
       try {
         const r = await api('/draw/saved/' + btn.dataset.send + '/send', { method: 'POST' });
+        const started = /已自动开始画/.test(r.detail || '');
         showMsg($('gallery-msg'), r.status === 'sent'
-          ? '已发送。请在设备屏点「开始画」确认出图'
+          ? (started ? '已开始画：写字机正在出图，无需再点确认' : '已发送。' + (r.detail || ''))
           : ('发送失败：' + r.detail), r.status === 'sent');
       } catch (e) { showMsg($('gallery-msg'), e.message, false); }
       finally { btn.disabled = false; }
@@ -1077,8 +1078,9 @@ $('btn-send').onclick = async () => {
   if (!currentJobId) return;
   try {
     const r = await api('/draw/' + currentJobId + '/send', { method: 'POST' });
+    const started = /已自动开始画/.test(r.detail || '');
     showMsg($('upload-msg'), r.status === 'sent'
-      ? '已推送到小派。请在设备屏点「开始画」，或说「开始画」'
+      ? (started ? '已开始画：写字机正在出图，无需再点确认' : '已推送到小派。' + (r.detail || ''))
       : ('推送失败：' + r.detail), r.status === 'sent');
   } catch (e) { showMsg($('upload-msg'), e.message, false); }
 };

@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/chat/chat",
     "pages/control/control",
     "pages/history/history",
     "pages/profile/profile",
@@ -21,6 +22,7 @@
     "borderStyle": "black",
     "list": [
       { "pagePath": "pages/index/index", "text": "创作" },
+      { "pagePath": "pages/chat/chat", "text": "小派" },
       { "pagePath": "pages/control/control", "text": "控制" },
       { "pagePath": "pages/history/history", "text": "历史" },
       { "pagePath": "pages/profile/profile", "text": "我的" }

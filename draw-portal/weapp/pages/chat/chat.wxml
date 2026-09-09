@@ -1,0 +1,89 @@
+<view class="page chat-page">
+  <scroll-view
+    class="chat-scroll"
+    scroll-y
+    scroll-into-view="{{anchor}}"
+    scroll-with-animation
+  >
+    <view class="msg-list">
+      <view
+        wx:for="{{messages}}"
+        wx:key="id"
+        class="msg {{item.role === 'user' ? 'from-user' : 'from-pai'}}"
+      >
+        <view class="bubble">
+          <text>{{item.text}}</text>
+        </view>
+        <view wx:if="{{item.draw}}" class="draw-card">
+          <view class="draw-desc">想画：{{item.draw.description}}</view>
+          <block wx:if="{{item.draw.state === 'idle'}}">
+            <button
+              class="draw-btn"
+              hover-class="btn-press"
+              bindtap="onDrawGenerate"
+              data-idx="{{index}}"
+            >生成这幅画</button>
+          </block>
+          <view wx:elif="{{item.draw.state === 'generating'}}" class="draw-state">
+            生成中，约 10 秒～1 分钟，好了自动上屏…
+          </view>
+          <block wx:elif="{{item.draw.state === 'ready'}}">
+            <image
+              class="draw-preview"
+              src="{{item.draw.previewUrl}}"
+              mode="aspectFit"
+              bindtap="onDrawPreview"
+              binderror="onDrawImgError"
+              data-idx="{{index}}"
+            />
+            <view class="draw-state">约 {{item.draw.lines}} 行 · 点图放大</view>
+            <view class="draw-actions">
+              <button
+                class="draw-btn"
+                hover-class="btn-press"
+                bindtap="onDrawSend"
+                data-idx="{{index}}"
+                loading="{{item.draw.sending}}"
+                disabled="{{item.draw.sending}}"
+              >发送到写字机</button>
+              <button
+                class="draw-btn ghost"
+                hover-class="btn-press"
+                bindtap="onDrawSave"
+                data-idx="{{index}}"
+                disabled="{{item.draw.saved}}"
+              >{{item.draw.saved ? "已收藏" : "收藏"}}</button>
+            </view>
+          </block>
+          <view wx:elif="{{item.draw.state === 'failed'}}" class="draw-state warn">
+            {{item.draw.error || "生成失败，换个说法试试"}}
+          </view>
+        </view>
+      </view>
+      <view wx:if="{{sending}}" class="msg from-pai">
+        <view class="bubble dim">小派正在想…</view>
+      </view>
+      <view id="chat-end" class="chat-end"></view>
+    </view>
+  </scroll-view>
+
+  <view class="input-bar">
+    <input
+      class="chat-input"
+      value="{{input}}"
+      placeholder="和小派说点什么…"
+      placeholder-class="ph"
+      bindinput="onInput"
+      bindconfirm="onSend"
+      confirm-type="send"
+      maxlength="200"
+      cursor-spacing="12"
+    />
+    <button
+      class="chat-send"
+      hover-class="btn-press"
+      bindtap="onSend"
+      disabled="{{!input || sending}}"
+    >发送</button>
+  </view>
+</view>

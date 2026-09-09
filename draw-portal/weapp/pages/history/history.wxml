@@ -15,7 +15,7 @@
     <view class="empty-panel">
       <view class="empty-glyph"></view>
       <view class="empty-title">还没有收藏</view>
-      <view class="empty-sub">去「创作」画一张，或拍张照片试试</view>
+      <view class="empty-sub">去「创作」画一张，或跟「小派」聊聊</view>
     </view>
   </block>
 
@@ -24,7 +24,7 @@
       <text class="slim-title">我的作品</text>
     </view>
     <view class="weui-cells">
-      <view class="weui-cell work-cell" wx:for="{{jobs}}" wx:key="savedId" hover-class="row-press">
+      <view class="weui-cell work-cell" wx:for="{{jobs}}" wx:key="savedId" hover-class="row-press" bindlongpress="onLongPress" data-id="{{item.savedId}}" data-idx="{{index}}">
         <view class="weui-cell__hd">
           <image
             wx:if="{{item.previewUrl}}"
@@ -45,5 +45,6 @@
         </view>
       </view>
     </view>
+    <view class="weui-cells__tips">长按可删除不要的作品</view>
   </block>
 </view>

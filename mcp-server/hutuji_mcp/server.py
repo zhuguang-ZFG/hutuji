@@ -1446,7 +1446,7 @@ async def _bridge_health(request: Request) -> Response:
 _INTERNAL_DRAW_MAX_BODY_BYTES = 4 * 1024
 
 
-def _internal_draw_authorized(request: Request) -> bool:
+def _internal_api_authorized(request: Request) -> bool:
     client = request.client
     host = client.host if client is not None else ""
     try:
@@ -1465,7 +1465,7 @@ def _internal_draw_authorized(request: Request) -> bool:
 @app.post("/internal/draw")
 async def _internal_draw(request: Request) -> Response:
     """本机 portal 的同步生图入口；鉴权失败一律 404（不回显端点存在）。"""
-    if not _internal_draw_authorized(request):
+    if not _internal_api_authorized(request):
         return Response(content=b"not found", status_code=404, media_type="text/plain")
     body = await request.body()
     if len(body) > _INTERNAL_DRAW_MAX_BODY_BYTES:
@@ -1487,6 +1487,43 @@ async def _internal_draw(request: Request) -> Response:
     except DrawTimeoutError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from None
     except (BitmapError, PaperRiskExhaustedError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return Response(
+        content=result,
+        status_code=200,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+# ---- /internal/chat：小程序「小派」Tab 文字聊天的本机内部入口（2026-09-09）----
+# 与 /internal/draw 同一道闸（loopback + 共享密钥，未配密钥 fail-closed 404）；
+# 密钥同样复用 HUTUJI_USAGE_INGEST_SECRET，不新增凭据。LLM 凭据只在本侧 env，
+# portal 只持共享密钥转发，与网页生图同构。
+_INTERNAL_CHAT_MAX_BODY_BYTES = 16 * 1024
+
+
+@app.post("/internal/chat")
+async def _internal_chat(request: Request) -> Response:
+    """本机 portal 的聊天入口；鉴权失败一律 404（不回显端点存在）。"""
+    if not _internal_api_authorized(request):
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    body = await request.body()
+    if len(body) > _INTERNAL_CHAT_MAX_BODY_BYTES:
+        raise HTTPException(status_code=400, detail="请求体过大")
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from None
+    from .chat import ChatError, ChatUnavailableError, normalize_chat_payload, run_chat
+
+    try:
+        message, history = normalize_chat_payload(payload)
+        result = await run_chat(message, history)
+    except ChatError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except ChatUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except LlmError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
     return Response(
         content=result,

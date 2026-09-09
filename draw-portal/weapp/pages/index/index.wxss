@@ -72,10 +72,23 @@
   margin: 14rpx 0 8rpx;
 }
 
+.preview-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
 .send-inline {
+  flex: 2;
   margin-top: 8rpx !important;
   line-height: 2.1 !important;
   font-size: 30rpx !important;
+}
+
+.save-inline {
+  flex: 1;
+  margin-top: 8rpx !important;
+  line-height: 2.1 !important;
+  font-size: 28rpx !important;
 }
 
 .refine-waiting {

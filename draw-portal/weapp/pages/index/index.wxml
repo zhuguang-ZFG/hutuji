@@ -1,7 +1,7 @@
 <view class="page create-page">
   <view class="slim-head">
     <text class="slim-title">想画点<span class="accent">什么</span></text>
-    <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日 {{quotaLeft}} 次</text>
+    <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日还可画 {{quotaLeft}} 次</text>
   </view>
 
   <view class="weui-cells input-panel">
@@ -49,13 +49,22 @@
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'failed'}}">精修未成功 · 快速草图</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修仍在跑 · 先看草图</view>
         <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
-        <button
-          class="weui-btn weui-btn_primary send-inline"
-          hover-class="btn-press"
-          bindtap="onSend"
-          loading="{{sending}}"
-          disabled="{{sending}}"
-        >发送到写字机</button>
+        <view class="preview-actions">
+          <button
+            class="weui-btn weui-btn_primary send-inline"
+            hover-class="btn-press"
+            bindtap="onSend"
+            loading="{{sending}}"
+            disabled="{{sending}}"
+          >发送到写字机</button>
+          <button
+            class="weui-btn weui-btn_default save-inline"
+            hover-class="btn-press"
+            bindtap="onSave"
+            loading="{{job.saving}}"
+            disabled="{{job.saving || job.saved}}"
+          >{{job.saved ? "已收藏" : "收藏"}}</button>
+        </view>
       </block>
     </view>
   </block>

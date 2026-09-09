@@ -1054,6 +1054,7 @@ def test_draw_chains_device_draw_when_token_configured(
     Bearer 头正确、端点为官方 /messaging/device/tools/call）。"""
     stem = "draw_20260824_120000_aaaaaaaaaaaaaaaaaaaaaa"
     monkeypatch.setattr(server, "settings", _settings(tmp_path, xiaozhi_device_token="dev-token"))
+    monkeypatch.setenv("HUTUJI_DEVICE_TOKEN_FILE", str(tmp_path / "device_messaging.token"))  # 钉死 token 文件路径：宿主机 /var/lib 残留会污染链式断言
     _stub_draw_pipeline(monkeypatch, stem)
     calls = []
 
@@ -1085,6 +1086,7 @@ def test_draw_skips_chain_when_token_empty(
     """P1-3：token 为空 = 链式禁用，不得发起任何设备 API 调用（云端两步是合法回落）。"""
     stem = "draw_20260824_120001_bbbbbbbbbbbbbbbbbbbbbb"
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
+    monkeypatch.setenv("HUTUJI_DEVICE_TOKEN_FILE", str(tmp_path / "device_messaging.token"))  # 钉死 token 文件路径：宿主机 /var/lib 残留会污染链式断言
     _stub_draw_pipeline(monkeypatch, stem)
     calls = []
 
@@ -1135,6 +1137,7 @@ def test_draw_retry_same_description_chains_once(
     """P1-3 幂等：同题两个 waiter 复用同一任务（single-flight），链式只触发一次。"""
     stem = "draw_20260824_120003_dddddddddddddddddddddd"
     monkeypatch.setattr(server, "settings", _settings(tmp_path, xiaozhi_device_token="dev-token"))
+    monkeypatch.setenv("HUTUJI_DEVICE_TOKEN_FILE", str(tmp_path / "device_messaging.token"))  # 钉死 token 文件路径：宿主机 /var/lib 残留会污染链式断言
     _stub_draw_pipeline(monkeypatch, stem)
     calls = []
 

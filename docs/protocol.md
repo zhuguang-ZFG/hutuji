@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:583-725`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:584-726`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -313,7 +313,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 工具 | 参数 | 行为 |
 |------|------|------|
-| `hutuji.draw` | `url,preview_url[,pages]` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:309-339`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内**。`pages`（可选，多页文章）见 §4.2 |
+| `hutuji.draw` | `url,preview_url[,pages]` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:310-340`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内**。`pages`（可选，多页文章）见 §4.2 |
 | `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line}`。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
 | `hutuji.confirm` | — | 屏幕预览确认出图（「开始画/可以/就这个」）；仅 `awaiting_confirmation` 态有效，等价于点屏幕「开始画」钮 |
@@ -488,7 +488,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | MCP 服务产出 | 公网能力 URL **必须是 `https://`**；HTTP 响应头给 `Content-Length` + `X-Hutuji-CRC32:<hex>`。Cloudflare Tunnel 的明文回源只允许 loopback，公网直连 `:80 /files/` 必须拒绝 |
 | MCP 控制面 | `/mcp` 只允许同机 bridge 通过 loopback 对端连接；服务应用层必须按 ASGI socket 对端地址再判一次，未知/非 loopback 一律 404。不得以 `Host`、`X-Forwarded-For`、`CF-Connecting-IP` 等请求头代替——攻击方可伪造。systemd loopback 监听、安全组不放行 8300、nginx `/mcp` 404 三层仍必须保留；应用层守卫只兜住控制面，不能防 `/files` 绕过 nginx 限速/ACL 直曝。 |
 | 校验算法 | **CRC32**只负责发现传输截断/位翻转，**不是认证码**，不能抵抗同时篡改正文与响应头的中间人；公网传输认证由 HTTPS 承担，不上 SHA256。⚠️ **变体两侧必须钉死同一个**（zlib/IEEE，Python `zlib.crc32` ↔ ESP32 侧同变体） |
-| S3 侧流程 | 全量下载入 PSRAM（`GetBodyLength()` / `GetResponseHeader()` / `Read()` 循环，模板 `ota.cc:309-338`）→ **先比长度**（快速失败）→ **再比 CRC32** → 全部通过**才**发第一行 |
+| S3 侧流程 | 全量下载入 PSRAM（`GetBodyLength()` / `GetResponseHeader()` / `Read()` 循环，模板 `ota.cc:310-339`）→ **先比长度**（快速失败）→ **再比 CRC32** → 全部通过**才**发第一行 |
 | 任一不符 | 任务 error，**一个字节都不发写字机**，推送提示（见 §7） |
 | URL 时效 | 只需保证**一次成功下载**（几分钟即可），**可用短时效签名 URL**——因重发走 PSRAM 缓存（§4），不再回源 |
 
@@ -748,6 +748,21 @@ Cookie: <session>
 | 并发上限 | portal 后台 i2i 精修经 `_refine_slots`（`asyncio.Semaphore(4)`）排队，超出并发等待不拒绝；防批量照片上传同时打满魔搭免费层（2026-09-08 加固） |
 
 合规面：照片会传输给第三方 AI 服务（魔搭 ModelScope，国内）生成线稿——小程序《用户隐私保护指引》上架前须补此条款（用户 MP 后台动作）；grok/NewAPI 通道因出境+未备案已排除。魔搭 t2i（`Qwen/Qwen-Image`）与 TCB 混元（`hunyuan-image`，`HUTUJI_TCB_IMAGE_URL`+`HUTUJI_TCB_API_KEY` 同配同空）同时作为对冲池 t2i racer 进 `bitmap_svg`（与商汤/agnes/imagefree/硅流同构），默认启用、portal 运营后台可关。
+
+#### 10.4.10 小程序文字聊天（/api/chat → MCP /internal/chat，2026-09-09 落地）
+
+| 面 | 约定 |
+|----|------|
+| 入口 | 小程序「小派」Tab → `POST /draw-upload/api/chat`（phone_secured）`{message ≤200 字, history ≤10 轮 {role:user\|assistant, content ≤500}}`；仅微信用户（msgSecCheck 需真实 openid），邮箱账号 403 |
+| 内容安全 | 用户输入与模型回复各过一遍微信 `msgSecCheck`（version=2 / scene=2），凭据复用 `DRAW_PORTAL_WX_APPID/_WX_SECRET`（access_token 模块级缓存、过期重铸一次）；审核服务不可用 **fail-closed 503**（合规闸非可用性配件）；输入被拦 400 白话；输出被拦回落固定话术「这句话小派接不住…」不扣「违规」帽子 |
+| 转发 | portal 调本机 MCP `POST /internal/chat`（与 /internal/draw 同一道闸：loopback + `X-Hutuji-Usage-Secret`，未配密钥 fail-closed 404，公网不可达）；body ≤16KiB |
+| LLM | 复用 `HUTUJI_LLM_*` 三件套（不新增凭据）；20s 超时、max_tokens 400、64KiB 响应上限（网络读取阶段生效）；人格 = `hutuji_mcp/chat.py` SYSTEM_PROMPT（与 `docs/xiaozhi-agent/role-prompt.md` 同源裁剪，改人格两边同步）；聊天域不带工具、不真出图 |
+| 画图意图 | LLM 首行输出 `DRAW::{"description": ≤60 字}` → MCP 解析为 `draw_intent`；解析失败/乱位/残缺标记一律按普通回复且标记行剥离，绝不透给前端。小程序收到意图后由用户点按钮走既有 `/api/draw/generate` → send/save——§5 闸、限流、校验零改动 |
+| 回包 | `{reply ≤500 字, draw_intent: null\|{description}, remaining}` |
+| 配额 | 成功回话记 `wx_chat` usage 事件；24h 窗口上限 `DRAW_PORTAL_CHAT_DAILY_LIMIT`（默认 50），超限 429；失败不占配额（与 web_generate 同口径） |
+| 错误映射 | 400 输入白话透传 / 401 未登录 / 403 仅小程序账号 / 429 日配额 / 502·503 固定白话不回显内部细节 |
+
+合规面：聊天消息与模型回复会传输给第三方 LLM 服务（`HUTUJI_LLM_*` 所配通道）生成回话——小程序《用户隐私保护指引》须一并补「文字对话传第三方 AI 生成回复」条款与 AI 生成标识（用户 MP 后台动作）；聊天内容只在小程序本地留存（服务端不落会话历史，仅 usage 事件 detail 留 120 字摘要）。
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

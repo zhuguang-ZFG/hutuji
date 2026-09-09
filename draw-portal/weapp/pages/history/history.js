@@ -54,6 +54,43 @@ Page({
     wx.previewImage({ urls: [url] });
   },
 
+  // 长按删除（2026-09-09 补）：后端 DELETE /api/draw/saved/{id} 早已上线但前端无入口
+  onLongPress(e) {
+    const savedId = e.currentTarget.dataset.id;
+    const idx = Number(e.currentTarget.dataset.idx);
+    wx.showActionSheet({
+      itemList: ["删除"],
+      itemColor: "#FA5151",
+      success: (res) => {
+        if (res.tapIndex !== 0) return;
+        wx.showModal({
+          title: "删除这件作品",
+          content: "删除后不能再发送到写字机，确定？",
+          confirmText: "删除",
+          confirmColor: "#FA5151",
+          success: (r) => {
+            if (!r.confirm) return;
+            api
+              .request(`/api/draw/saved/${savedId}`, { method: "DELETE" })
+              .then(() => {
+                const jobs = this.data.jobs.slice();
+                jobs.splice(idx, 1);
+                this.setData({ jobs });
+                wx.showToast({ title: "已删除", icon: "success" });
+              })
+              .catch((err) => {
+                wx.showModal({
+                  title: "删除失败",
+                  content: err.detail || "请稍后再试",
+                  showCancel: false,
+                });
+              });
+          },
+        });
+      },
+    });
+  },
+
   onSend(e) {
     const savedId = e.currentTarget.dataset.id;
     wx.showModal({
