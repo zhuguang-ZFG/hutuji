@@ -54,6 +54,7 @@ from draw_portal.pipeline import (
     process_upload,
     process_upload_doc,
     process_upload_png,
+    process_write_text,
     strip_corner_watermark,
 )
 from draw_portal.probe import probe_device_token
@@ -245,6 +246,12 @@ class UsageIngestBody(BaseModel):
 
 class GenerateDrawBody(BaseModel):
     description: str = Field(min_length=1, max_length=200)
+
+
+class WriteBody(BaseModel):
+    text: str
+    size_mm: float | None = None
+    line_spacing: float | None = None
 
 
 _MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -1188,6 +1195,86 @@ def create_app() -> FastAPI:
             "lines": result.lines,
             "bytes": result.bytes,
             "refined": refined_payload,
+        }
+
+    @app.post("/api/draw/write", dependencies=phone_secured)
+    async def draw_write(
+        body: WriteBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        from hutuji_mcp import t2s
+        from hutuji_mcp.write_text import WriteTextError
+
+        from draw_portal.write_layout_params import WriteLayoutParamsError, resolve_article_layout
+
+        if not config.gfont_dir:
+            raise HTTPException(status_code=503, detail="写字字库未配置")
+        safe = t2s.to_simplified(body.text.strip())
+        if not safe:
+            raise HTTPException(status_code=400, detail="文本为空")
+        if len(safe) > 5000:
+            raise HTTPException(
+                status_code=400,
+                detail=f"文本超长：{len(safe)} 字符（上限 5000）",
+            )
+        try:
+            layout = resolve_article_layout(
+                size_mm=body.size_mm,
+                line_spacing=body.line_spacing,
+            )
+        except WriteLayoutParamsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        source_name = ("写字: " + safe)[:120]
+        job = store.create_draw_job(user_id=user_id, source_name=source_name)
+        job_path = _job_dir(config.data_dir, job.id)
+        try:
+            result = await asyncio.to_thread(
+                process_write_text,
+                safe,
+                job_path,
+                gfont_dir=config.gfont_dir,
+                layout=layout,
+                stroke_dir=config.stroke_dir or "",
+            )
+            published_pages = await asyncio.to_thread(
+                publish_doc_pages,
+                job_dir=job_path,
+                mcp_output_dir=config.mcp_output_dir,
+                public_base_url=config.public_base_url,
+            )
+            store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+        except WriteTextError as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+        except Exception as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=422, detail="写字转换失败") from exc
+
+        _record_portal_usage(
+            store,
+            event_type="web_write",
+            user_id=user_id,
+            detail=source_name[:100],
+            ok=True,
+        )
+        first = published_pages[0]
+        return {
+            "status": "ready",
+            "job_id": job.id,
+            "preview_url": first.preview_url,
+            "gcode_url": first.gcode_url,
+            "lines": result.lines,
+            "bytes": result.bytes,
+            "pages": [
+                {"url": p.gcode_url, "preview_url": p.preview_url}
+                for p in published_pages
+            ],
+            "page_count": result.page_count,
+            "doc_kind": result.kind,
+            "doc_mode": result.mode,
+            "truncated": result.truncated,
+            "missing_chars": result.missing_chars,
         }
 
     @app.get("/api/draw/jobs/{job_id}", dependencies=phone_secured)
