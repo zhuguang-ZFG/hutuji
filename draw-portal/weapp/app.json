@@ -22,10 +22,22 @@
     "backgroundColor": "#0B0C13",
     "borderStyle": "black",
     "list": [
-      { "pagePath": "pages/index/index", "text": "创作" },
-      { "pagePath": "pages/control/control", "text": "控制" },
-      { "pagePath": "pages/history/history", "text": "历史" },
-      { "pagePath": "pages/profile/profile", "text": "我的" }
+      {
+        "pagePath": "pages/index/index",
+        "text": "创作"
+      },
+      {
+        "pagePath": "pages/control/control",
+        "text": "控制"
+      },
+      {
+        "pagePath": "pages/history/history",
+        "text": "历史"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的"
+      }
     ]
   },
   "useExtendedLib": {
@@ -39,7 +51,6 @@
       "desc": "用于语音聊小派"
     }
   },
-  "requiredPrivateInfos": ["getRecorderManager"],
   "style": "v2",
   "sitemapLocation": "sitemap.json"
 }
