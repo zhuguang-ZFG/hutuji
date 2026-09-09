@@ -97,7 +97,7 @@
 | 脏树注意 | 曾误用 PowerShell `Set-Content` 弄坏部分 wxml 编码；已 `git checkout` 恢复 bind/history/index/wifi 后再上传 |
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
-### 照片 i2i 质量批（2026-09-10，代码已测全绿；已提交未部署）
+### 照片 i2i 质量批（2026-09-10，已提交 `21699a8` + 双机已部署）
 
 | 项 | 说明 |
 |----|------|
@@ -106,7 +106,8 @@
 | portal 侧 | `pipeline.process_upload_png` 加同名透传参数（默认 zhang，Canny 快出段不变）；`app.py` `_refine_photo_job` 精修描摹传 `skeleton_method="lee"` |
 | 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError），全套 **1339** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
 | 验证 | hub 门禁 PASS（1339 + e2e PASS + 指纹 260：2 处行号纯移动 --fix-line-refs 自动（findings/30 两处）、1 处人工核对后 --accept-line-refs（findings/28 计数行内容随批次更新，引用意图不变）） |
-| 待办 | ① 双机部署（modelscope_client.py + bitmap_svg.py + portal app.py/pipeline.py 四文件）+ 真实照片单观察 v6+lee 抬笔数 ② 魔搭余额充值后验证 2511/多图输入 ③ SquiggleTab 连续线模式立项与否待用户拍板 |
+| 部署 | 已完成 02:1x CST：四文件双机 SHA 逐位相符 + 阿里云 mcp/bridge/portal/worker@{1..8} 与京东 mcp/portal restart active + 公网冒烟（证据 docs/deployment.md 顶部） |
+| 待办 | ① 真实照片单观察 v6+lee 抬笔数 ② 魔搭余额充值后验证 2511/多图输入 ③ SquiggleTab 连续线模式立项与否待用户拍板 |
 
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
 

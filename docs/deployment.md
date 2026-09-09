@@ -1,4 +1,6 @@
 # 部署（2026-08-23 起：阿里云主 / 京东云热备；历史章节为京东云口径）
+> **2026-09-10 02:1x CST 照片 i2i 质量批双机部署**：`21699a8` 四文件 HEAD blob 导出（CR=0）双机 SHA-256 逐位相符——modelscope_client `d92b1cf3…5971d`、bitmap_svg `02e1cb61…c7cdb`、portal app `1b452c34…97243`、portal pipeline `2e64285b…6c12f7`；备份 `/root/hutuji-bak-20260910-i2i/{mcp,portal}/`。阿里云 restart mcp+cloud-bridge+draw-portal+draw-worker@{1..8} 共 11 个 active，京东 restart mcp+draw-portal active；公网 `/draw-upload/` 200、`/mcp` 404。**仍未做**：真实照片单 v6+lee 抬笔数观察。
+
 > **2026-09-09 16:5x CST HIL⑥ poison 回滚后 catalog 指回 1.0.3**：短暂发布 `hutuji.1.0.4` poison（sha256 `418236a8…0257`）做 F6 网升回滚；复验后双机 `latest.json`/`catalog.json` 恢复 `hutuji.1.0.3`（`3dff940a…c5d1`），1.0.4 manifest 标 WITHDRAWN。设备 messaging 现 `1.0.3`/`up_to_date`。
 
 > **2026-09-09 16:3x CST `hutuji.1.0.3` catalog + 纯网络升复验**：sha256 `3dff940aa373273c73069632c83f3e59c14d8ad1a64b3bdf07937d908a9cc5d1` size 3021984；双机 `/var/hutuji/firmware/` 同步；公网 `latest.json`=`1.0.3`。messaging：`1.0.2`→`1.0.3` 无 USB。**不得宣称**升级绝对安全。
