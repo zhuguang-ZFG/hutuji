@@ -54,9 +54,11 @@ from draw_portal.pipeline import (
     process_upload,
     process_upload_doc,
     process_upload_png,
+    process_teach_text,
     process_write_text,
     strip_corner_watermark,
 )
+from draw_portal.teach_chars import extract_teach_chars
 from draw_portal.probe import probe_device_token
 from draw_portal.push import (
     _install_capability_pair,
@@ -252,6 +254,10 @@ class WriteBody(BaseModel):
     text: str
     size_mm: float | None = None
     line_spacing: float | None = None
+
+
+class TeachBody(BaseModel):
+    text: str
 
 
 _MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -1287,6 +1293,73 @@ def create_app() -> FastAPI:
             "doc_mode": result.mode,
             "truncated": result.truncated,
             "missing_chars": result.missing_chars,
+        }
+
+    @app.post("/api/draw/teach", dependencies=phone_secured)
+    async def draw_teach(
+        body: TeachBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        from hutuji_mcp import t2s
+        from hutuji_mcp.stroke_order import StrokeOrderError
+
+        if not config.stroke_dir:
+            raise HTTPException(status_code=503, detail="笔顺数据未配置")
+        safe = t2s.to_simplified(body.text.strip())
+        chars, input_truncated = extract_teach_chars(safe)
+        if not chars:
+            raise HTTPException(status_code=400, detail="没有可教的汉字")
+
+        source_name = ("笔顺: " + chars)[:120]
+        job = store.create_draw_job(user_id=user_id, source_name=source_name)
+        job_path = _job_dir(config.data_dir, job.id)
+        try:
+            result = await asyncio.to_thread(
+                process_teach_text,
+                chars,
+                job_path,
+                stroke_dir=config.stroke_dir,
+            )
+            published_pages = await asyncio.to_thread(
+                publish_doc_pages,
+                job_dir=job_path,
+                mcp_output_dir=config.mcp_output_dir,
+                public_base_url=config.public_base_url,
+            )
+            store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+        except StrokeOrderError as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+        except Exception as exc:
+            store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            raise HTTPException(status_code=422, detail="笔顺转换失败") from exc
+
+        _record_portal_usage(
+            store,
+            event_type="web_teach",
+            user_id=user_id,
+            detail=source_name[:100],
+            ok=True,
+        )
+        first = published_pages[0]
+        return {
+            "status": "ready",
+            "job_id": job.id,
+            "preview_url": first.preview_url,
+            "gcode_url": first.gcode_url,
+            "lines": result.lines,
+            "bytes": result.bytes,
+            "pages": [
+                {"url": p.gcode_url, "preview_url": p.preview_url}
+                for p in published_pages
+            ],
+            "page_count": result.page_count,
+            "doc_kind": result.kind,
+            "doc_mode": result.mode,
+            "truncated": result.truncated,
+            "missing_chars": result.missing_chars,
+            "chars_taught": chars,
+            "input_truncated": input_truncated,
         }
 
     @app.get("/api/draw/jobs/{job_id}", dependencies=phone_secured)
