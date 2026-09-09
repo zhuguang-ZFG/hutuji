@@ -17,6 +17,15 @@
 | 生产 | 双机已热更；备份 `/root/hutuji-bak-20260909-{imagefree,autoconfirm}/` |
 | 仍脏/不入库 | `tmp/**`、本地截图/记忆草稿、`.playwright-mcp/`、外仓固件未推项以各仓 status 为准 |
 
+### 0.0 记忆无感 + 小程序 AI 写文（2026-09-09 17:5x，同 worktree）
+
+| 项 | 状态 |
+|----|------|
+| hub 路径 | `D:\Users\hutuji\.worktrees\xiaopai-ota` / `feat/xiaopai-ota-mass-prod`（未提交改动含 article_llm/portal write/ai、role-prompt、weapp 0.2.15、契约/readiness） |
+| xiaozhi | `hutuji_memory.{h,cc}` + `hutuji_memory_core.h`；三板 `InitializeTools` 挂载；`PROJECT_VER=hutuji.1.0.5`；host `test_hutuji_memory_core.py` 绿。**脏树勿覆盖**既有 `hutuji_draw_bind.cc` 等 |
+| 生产 | 双机 portal+`article_llm` 已热更；LLM env 已注入；角色 `2094251` 已 sync；weapp **0.2.15** 已 CLI 上传；**catalog=`hutuji.1.0.6`**（sha `6f119063…9b26`）；COM15 板上 **1.0.6**；记忆 messaging 四步 HIL ✅ |
+| 未做 | 真人语音记/召口述；AI 写文真机；MP 体验版勾选 |
+
 ### 0.1 小派量产 OTA worktree（2026-09-09，`feat/xiaopai-ota-mass-prod`）
 
 | 项 | 说明 |
@@ -26,7 +35,8 @@
 | hub 已提交链（摘） | `8e052ca`/`acddb83`/`9828d11`/`75d7550` portal catalog+API；`f11e2e6`/`305636c` nginx `/firmware/`+发版脚本；`3a63962`/`427eb9d`/`05c2c6c` protocol OTA 字段与工具；`908e959`/`dc7f2f3` weapp 固件页+onShow 轮询 |
 | xiaozhi（`D:\Users\xiaozhi-esp32`） | 量产 OTA 提交：`73257fa` StatusJson+ParseVersion → `9194e60` 空 reason 省略 → `fcaca02` `hutuji.ota_check`/`ota_start`+每天自检+`PROJECT_VER=hutuji.1.0.0`+三板挂工具 → `942fcfb` 日历日 snprintf 钳位。**未推 origin 以现取 `git status`/`git log origin..HEAD` 为准** |
 | xiaozhi 脏树 | `main/boards/lichuang-dev/hutuji_draw_bind.cc` 有未提交改动（+22 行，与 OTA 批无关——**禁止覆盖**）；另有本地 `tmp_build_*.{bat,log}` / `pp_*.{bat,txt}` 等不入库 |
-| 生产 `/firmware/`（2026-09-09 15:1x） | 双机目录+nginx location+portal env 已通；catalog 空 `boards={}`；真 bin 未发；HIL 未跑 |
+| 生产 `/firmware/`（2026-09-09 18:2x） | latest/catalog=`hutuji.1.0.6`（sha `6f119063…9b26`）；COM15 板上同版本；记忆工具 messaging HIL 四步 ok；语音口述未做 |
+| 记忆隔离（2026-09-09 17:2x） | 双机已热更 SHA 见 readiness；角色提示已上云 `2094251`。**未**做双设备语音 HIL。产品上「扫码绑机」≠「记忆自动带 MAC」 |
 | HIL | 条目 1–6 **本会话未跑＝未验证**（见 `docs/release-readiness.md` 文首 + 状态总览 #18） |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaozhi_ota_mass_prod_authorized` 登记本批授权路径意图 |
 
@@ -52,6 +62,17 @@
 | 生产 | 双机 portal 10 文件热修 ALL_OK；weapp CLI **0.2.14** 已传（80701 B）；MP 选体验版待用户 |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_teach_ux_authorized` |
 | 注意 | Task 5 曾误在主工作树落 `ab0be39`——**已于 2026-09-09 将 main tip `reset --hard` 回 `3538f44`**；功能真值在本 worktree `d71c52a` |
+
+### 0.4 小程序控制页进度 P0（2026-09-09，同 worktree `feat/xiaopai-ota-mass-prod`）
+
+| 项 | 说明 |
+|----|------|
+| 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md` §2 → `docs/superpowers/plans/2026-09-09-weapp-progress-p0.md` |
+| hub 已提交链（摘） | Task 1–4：`job_progress.js` 纯函数 → `control.js` 自适应轮询 → `control.wxml/wxss` 时间线/页条/ETA → 三页脚注 **v0.2.16**（`832e766` 等，以现取 `git log` 为准） |
+| 触及面 | `draw-portal/weapp/utils/job_progress.js`；`draw-portal/weapp/pages/control/*`；`pages/profile/profile.wxml`、`pages/firmware/firmware.wxml` 脚注 |
+| HIL | 控制页进度手测 **未验证**（见 `docs/templates/weapp-control-smoke.md` 行 9–12） |
+| 生产 | weapp **0.2.16** CLI 上传与 MP 体验版勾选 **待用户** |
+| 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_progress_p0_authorized` |
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
