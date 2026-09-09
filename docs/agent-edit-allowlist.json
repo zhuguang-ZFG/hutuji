@@ -112,5 +112,51 @@
       "draw-portal/weapp/pages/index/index.wxml",
       "draw-portal/weapp/pages/index/index.wxss"
     ]
+  },
+  "xiaozhi_memory_device_local": {
+    "note": "2026-09-09 用户批准记忆用户无感：设备侧 hutuji.remember/recall/forget + 本机 NVS；角色提示只教设备工具。",
+    "plan": "cursor plan 记忆无感与AI写文",
+    "paths": [
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_memory.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_memory.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_memory_core.h",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_memory_core.py",
+      "xiaozhi-esp32/main/CMakeLists.txt",
+      "xiaozhi-esp32/CMakeLists.txt",
+      "xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc",
+      "xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/freenove-esp32s3-display-2.8-lcd.cc",
+      "xiaozhi-esp32/main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc"
+    ]
+  },
+  "xiaopai_write_ai_authorized": {
+    "note": "2026-09-09 用户批准小程序 AI 写文 C：主题生成+草稿润色；portal /api/draw/write/ai + weapp；复用 HUTUJI_LLM_*，不直出 G-code。",
+    "plan": "cursor plan 记忆无感与AI写文",
+    "paths": [
+      "mcp-server/hutuji_mcp/article_llm.py",
+      "mcp-server/tests/test_article_llm.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_write_ai_api.py",
+      "draw-portal/weapp/pages/index/index.js",
+      "draw-portal/weapp/pages/index/index.wxml",
+      "draw-portal/weapp/pages/index/index.wxss",
+      "draw-portal/weapp/app.json"
+    ]
+  },
+  "xiaopai_progress_p0_authorized": {
+    "note": "2026-09-09 用户批准 weapp 进度 P0（时间线+1.5s 轮询+页条）；仅 draw-portal/weapp + 文档；不改固件 status。",
+    "plan": "docs/superpowers/plans/2026-09-09-weapp-progress-p0.md",
+    "paths": [
+      "draw-portal/weapp/utils/job_progress.js",
+      "draw-portal/weapp/pages/control/control.js",
+      "draw-portal/weapp/pages/control/control.wxml",
+      "draw-portal/weapp/pages/control/control.wxss",
+      "draw-portal/weapp/pages/profile/profile.wxml",
+      "draw-portal/weapp/pages/firmware/firmware.wxml",
+      "docs/templates/weapp-control-smoke.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md",
+      "docs/superpowers/plans/2026-09-09-weapp-progress-p0.md"
+    ]
   }
 }
