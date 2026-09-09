@@ -1127,7 +1127,7 @@ def create_app() -> FastAPI:
                 )
                 # basename 单值化决策：job 主键 = 第 1 页；整篇页表在 pages.json
                 store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
-            except (DocIngestError, WriteTextError) as exc:
+            except (DocIngestError, WriteTextError, WriteLayoutParamsError) as exc:
                 store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
                 raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
             except Exception as exc:

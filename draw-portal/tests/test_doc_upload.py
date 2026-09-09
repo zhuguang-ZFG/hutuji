@@ -141,6 +141,30 @@ def test_doc_upload_invalid_layout_form_is_400(
     assert r.json()["detail"] == "版式参数无效"
 
 
+def test_doc_upload_layout_params_oob_is_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    client = _doc_client(monkeypatch, tmp_path)
+
+    def fake_process(raw, kind, job_dir, *, gfont_dir, **kwargs):
+        from draw_portal.write_layout_params import resolve_article_layout
+
+        resolve_article_layout(
+            size_mm=kwargs.get("size_mm"),
+            line_spacing=kwargs.get("line_spacing"),
+        )
+        raise AssertionError("resolve_article_layout should have raised")
+
+    monkeypatch.setattr("draw_portal.app.process_upload_doc", fake_process)
+    r = client.post(
+        "/api/draw/upload",
+        files={"file": ("a.txt", b"hello world text\n" * 2, "text/plain")},
+        data={"size_mm": "999"},
+    )
+    assert r.status_code == 400
+    assert "字号" in r.json()["detail"]
+
+
 def test_doc_upload_requires_gfont_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = _doc_client(monkeypatch, tmp_path, gfont_dir="")
     up = client.post(
