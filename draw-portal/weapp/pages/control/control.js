@@ -37,6 +37,7 @@ Page({
   onShow() {
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
       if (!ok) return;
+      this._reschedulePoll(jobProgress.POLL_MS_IDLE);
       this.refresh();
     });
   },
@@ -182,7 +183,9 @@ Page({
           }
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        this._reschedulePoll(jobProgress.POLL_MS_IDLE);
+      });
   },
 
   control(tool, action, quiet) {
