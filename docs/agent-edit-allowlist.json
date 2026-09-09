@@ -78,5 +78,23 @@
       "xiaozhi-esp32/main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc"
     ],
     "hub_paths_note": "portal/weapp/deploy/nginx/firmware 脚本与 docs/protocol OTA 段落属 hub_safe_doc_globs 或本批 feat/xiaopai-ota-mass-prod 产品面，不列入本键"
+  },
+  "xiaopai_write_ux_authorized": {
+    "note": "2026-09-09 用户批准小程序写字 P0（设计已批准→计划 Task 1–6）。仅 draw-portal + weapp；复用 hutuji_mcp.write_text/文档链，不改 §5/竖版/转置/换纸/MCP hutuji_write 签名。",
+    "design": "docs/superpowers/specs/2026-09-09-xiaopai-write-ux-design.md",
+    "plan": "docs/superpowers/plans/2026-09-09-xiaopai-write-ux.md",
+    "paths": [
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/pipeline.py",
+      "draw-portal/draw_portal/write_layout_params.py",
+      "draw-portal/tests/test_write_api.py",
+      "draw-portal/tests/test_write_layout_params.py",
+      "draw-portal/tests/test_write_pipeline.py",
+      "draw-portal/tests/test_doc_upload.py",
+      "draw-portal/weapp/pages/index/index.js",
+      "draw-portal/weapp/pages/index/index.wxml",
+      "draw-portal/weapp/pages/index/index.wxss",
+      "draw-portal/weapp/utils/api.js"
+    ]
   }
 }

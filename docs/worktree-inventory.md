@@ -29,6 +29,16 @@
 | HIL | 条目 1–6 **本会话未跑＝未验证**（见 `docs/release-readiness.md` 文首 + 状态总览 #18） |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaozhi_ota_mass_prod_authorized` 登记本批授权路径意图 |
 
+### 0.2 小程序写字 P0（2026-09-09，同 worktree `feat/xiaopai-ota-mass-prod`）
+
+| 项 | 说明 |
+|----|------|
+| 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-xiaopai-write-ux-design.md` → `docs/superpowers/plans/2026-09-09-xiaopai-write-ux.md` |
+| hub 已提交链 | `f79394d` 版式校验 → `819d7df` `process_write_text` → `981c723` `POST /api/draw/write` → `0b7bc95`/`ab31763` 文档 upload 版式 → `c6922f7`/`b663e55` weapp 写字模式+翻页（**v0.2.13**） |
+| 触及面 | portal `app.py`/`pipeline.py`/`write_layout_params.py` + 测试 `test_write_*`/`test_doc_upload`；weapp `pages/index/*`、`utils/api.js`、页脚版本 bump |
+| HIL | 纸面/真机 **未验证**（见 `docs/release-readiness.md` 文首写字 P0 条） |
+| 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_write_ux_authorized` |
+
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 
 ### TCB 混元 i2i 通道批（2026-09-08，代码已测未提交未部署；云函数补丁待用户粘贴）

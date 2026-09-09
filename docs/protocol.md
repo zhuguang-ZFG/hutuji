@@ -659,7 +659,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 项 | 约定 |
 |----|------|
 | 会话 | `wx.login` → `/api/auth/wx-login` 仍可建会话（小程序 x-session / 网页 cookie）；邮箱注册验证同前 |
-| 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、文字生图、`send`/saved、`/api/device/control` |
+| 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、`/api/draw/write`、文字生图、`send`/saved、`/api/device/control` |
 | 放行 | `/api/auth/me`、`wx-phone`、`bind-phone`（仅非微信邮箱账号补绑 11 位）、`wx-profile`/`wx-avatar`、登录注册登出 |
 | 错误 | 产品面无号 → **403**，`detail={"code":"phone_required","message":"…"}`（稳定码供小程序统一跳「我的」） |
 | me | 增 `phone_bound: bool`（与 `!!phone` 同义，便于前端） |
@@ -716,7 +716,7 @@ Cookie: <session>
 
 | 步骤 | 约定 |
 |------|------|
-| 上传 | `POST /draw-upload/api/draw/upload` multipart；PNG/JPEG/WebP/GIF/BMP/SVG（≤4MB）；描摹或 SVG 直转 + `validate_gcode` 同 §5 |
+| 上传 | `POST /draw-upload/api/draw/upload` multipart；PNG/JPEG/WebP/GIF/BMP/SVG（≤4MB）；Word/Excel/PPT/CSV/TXT 文档链；描摹或 SVG 直转 + `validate_gcode` 同 §5。**article**（txt/docx/pptx）可选 form 字段 `size_mm`（2–40，默认 12）、`line_spacing`（1.0–3.0，默认 1.6）；**table**（xlsx/csv）忽略这两项 |
 | 推送 | `POST .../draw/{job_id}/send` → `hutuji.draw` 后**自动** `hutuji.confirm`（小程序已预览）；失败时 detail 含「自动开始画未完成」可改用控制页 |
 | **保存预览** | `POST .../draw/{job_id}/save` → 将 PNG（及可选 G-code 副本）复制到用户域持久化路径；**不依赖** §5.1 的 600s `/files/` TTL |
 | 图库 | `GET .../draw/saved`；可再次 `send` 或 `DELETE` |
@@ -766,6 +766,22 @@ Cookie: <session>
 | 并发上限 | portal 后台 i2i 精修经 `_refine_slots`（`asyncio.Semaphore(4)`）排队，超出并发等待不拒绝；防批量照片上传同时打满魔搭免费层（2026-09-08 加固） |
 
 合规面：照片会传输给第三方 AI 服务（魔搭 ModelScope，国内）生成线稿——小程序《用户隐私保护指引》上架前须补此条款（用户 MP 后台动作）；grok/NewAPI 通道因出境+未备案已排除。魔搭 t2i（`Qwen/Qwen-Image`）与 TCB 混元（`hunyuan-image`，`HUTUJI_TCB_IMAGE_URL`+`HUTUJI_TCB_API_KEY` 同配同空）同时作为对冲池 t2i racer 进 `bitmap_svg`（与商汤/agnes/imagefree/硅流同构），默认启用、portal 运营后台可关。
+
+#### 10.4.10 小程序手输写字（2026-09-09 落地 hub `981c723` 链；设计 `docs/superpowers/specs/2026-09-09-xiaopai-write-ux-design.md`）
+
+| 面 | 约定 |
+|----|------|
+| 入口 | `POST /draw-upload/api/draw/write`（登录态 + **须绑定 phone**，同 §10.4.0） |
+| 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（默认 12）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6） |
+| 排版 | 默认字库 + `write_text.layout_text`；`max_pages = ARTICLE_MAX_PAGES`（20）；超出截断并 `truncated: true` |
+| 产物 | 与文档链同构：`pages/page_NNN.{svg,gcode,png}` + `pages.json` + 首页兼容 `draw.*`/`preview.png`；job 元数据 `kind=write` |
+| 响应 | `{status, job_id, preview_url, gcode_url, lines, bytes, pages[{url, preview_url}], page_count, truncated, missing_chars, doc_kind, doc_mode}` |
+| 复用 | `POST .../draw/{job_id}/send`（自动 confirm）、`POST .../save`、历史列表；与 §10.4.5 上传 job 零分叉 |
+| 错误 | 空文/超长/版式越界 → 400 + 中文 detail；缺 `HUTUJI_GFONT_DIR` → **503**「写字字库未配置」；不回显内部路径 |
+| 小程序 | 创作页「画图 \| 写字」切换；写字模式藏拍照/相册、保留「文档」；排版预览须显式点击（改正文/版式后不自动重排）；weapp **v0.2.13** |
+| 明确不做 | 笔顺/选字库/字距；独立 `/api/write/*`；改 MCP `hutuji_write` 签名；改 §5/竖版/转置/换纸 |
+
+**HIL**：纸面笔迹、多页发送、文档版式与收藏再发 **未验证**（见 `docs/release-readiness.md` 文首）。
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
