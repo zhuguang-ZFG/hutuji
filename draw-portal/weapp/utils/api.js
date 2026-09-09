@@ -51,8 +51,14 @@ function request(path, options = {}) {
           wx.removeStorageSync("session_ok");
           wx.removeStorageSync("session_token");
           getApp().globalData.user = null;
+          // 登录墙统一：用户已显式退出（logged_out 闸门）时，任何 tab 的 401
+          // 一律带回「我的」登录墙，而不是各页裸 toast（量产精致项 2026-09-09）
+          if (wx.getStorageSync("logged_out")) {
+            wx.switchTab({ url: "/pages/profile/profile" });
+            reject({ status: 401, detail: "请先登录" });
+            return;
+          }
           reject({ status: 401, detail: "登录已过期" });
-          return;
         }
         if (res.statusCode >= 400) {
           const payload = _detailPayload(res.data);
