@@ -97,6 +97,17 @@
 | 脏树注意 | 曾误用 PowerShell `Set-Content` 弄坏部分 wxml 编码；已 `git checkout` 恢复 bind/history/index/wifi 后再上传 |
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
+### 照片 i2i 质量批（2026-09-10，代码已测全绿；已提交未部署）
+
+| 项 | 说明 |
+|----|------|
+| 决策 | ① 提示词 v6：按 Qwen-Image-Edit 官方 EDIT_SYSTEM_PROMPT（`src/examples/tools/prompt_utils.py`）重构——指令直述、人像身份约束前置（「其余保持不变」官方范式）、风格特征压句尾、否定排比保留；v5 实证排线词原样保留只调语序。supersede v5。② 骨架算法 zhang→lee：5 张生产精修样本 A/B（`tmp/ab_lee_vs_zhang.py`，样本拉自 `/var/lib/hutuji/draw-portal/` jobs 5198853e/805fa9b7/0c278f1f/5eebf7f9/6c1f3390）抬笔 138→128、144→144、115→99、94→89、130→133，净 -31（3 胜 1 平 1 微负），点数不降反微升=细节未丢 → **仅精修链切 lee**（证据只覆盖精修照片），t2i/QD/写字/笔顺共用描摹维持 zhang 默认。③ 奎享 SquiggleTab 亮度波纹连续线（抬笔≈0）与 l/c.java 路径拼接 = 数量级杠杆候选，本批只做设计定案外的小步；2511 模型/多图 ControlNet 输入被魔搭余额 429 阻塞 |
+| MCP 侧 | `bitmap_svg.trace_bitmap_to_polylines` 加 keyword-only `skeleton_method="zhang"` 透传 skimage；`modelscope_client.py` `I2I_LINE_ART_PROMPT`/`I2I_SPARSE_HATCH_RETRY_PROMPT` v6 |
+| portal 侧 | `pipeline.process_upload_png` 加同名透传参数（默认 zhang，Canny 快出段不变）；`app.py` `_refine_photo_job` 精修描摹传 `skeleton_method="lee"` |
+| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError），全套 **1339** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
+| 验证 | hub 门禁 PASS（1339 + e2e PASS + 指纹 260：2 处行号纯移动 --fix-line-refs 自动（findings/30 两处）、1 处人工核对后 --accept-line-refs（findings/28 计数行内容随批次更新，引用意图不变）） |
+| 待办 | ① 双机部署（modelscope_client.py + bitmap_svg.py + portal app.py/pipeline.py 四文件）+ 真实照片单观察 v6+lee 抬笔数 ② 魔搭余额充值后验证 2511/多图输入 ③ SquiggleTab 连续线模式立项与否待用户拍板 |
+
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
 
 | 项 | 说明 |
@@ -105,7 +116,7 @@
 | MCP 侧 | 新增 `hutuji_mcp/chat.py`（人格 SYSTEM_PROMPT 与 `docs/xiaozhi-agent/role-prompt.md` 同源裁剪；`DRAW::{...}` 意图标记解析，坏标记/乱位一律回落普通回复且剥标记行；20s/400 tokens/64KiB 上限）；`server.py` 新增 `POST /internal/chat`（与 /internal/draw 同闸；`_internal_draw_authorized` 更名 `_internal_api_authorized` 两路共用） |
 | portal 侧 | 新增 `draw_portal/chat.py`（msgSecCheck v2 输入+输出双审、access_token 缓存重铸、审核服务不可用 fail-closed 503、输出被拦回落固定话术；`request_internal_chat` 转发与错误映射同 generate.py 口径）；`app.py` `POST /api/chat`（phone_secured + openid 闸 + `wx_chat` 24h 配额 `DRAW_PORTAL_CHAT_DAILY_LIMIT` 默认 50 成功才计数）；`config.py` +2 env |
 | weapp 0.3.0 | 新增 `pages/chat/`（气泡对话 + 聊内画图卡：生成/发送/收藏）；tabBar 五 Tab「创作/小派/控制/历史/我的」。缺陷修复：① 收藏断头路——创作页预览卡加「收藏」（此前全端无 `/save` 调用方，历史页永远空）；② 历史页长按删除（DELETE 早已上线无入口）；③ 创作页切 Tab 精修结果恢复（onShow 一次性补查 job，pending 续轮/ready 上屏/failed 标注）；④ 绑定静默重试 30s→60s 带等待秒数上屏；⑤ refreshStatus 失败递归加单次闸；品牌统一「动力巢 · 小派」 |
-| 测试 | mcp 新增 `test_chat.py` **28** 项，全套 **1338** 项全绿（合并分支后：+test_article_llm.py 4、test_contract.py 629→631）（此前 1288；另补登前期漏记 test_device_messaging.py 8、test_i2i_prompt_sketch.py 6、test_write_text.py 45→46、test_curated_server.py 5→6）；`test_contract.py` 链式三测试钉 `HUTUJI_DEVICE_TOKEN_FILE`——本机 `C:\var\lib\hutuji\device_messaging.token` 残留测试值 `fresh-jwt` 曾致 test_draw_chains 假红（文件已删）；portal `test_chat.py` **10** 项，portal 全量 100 过 + test_doc_upload 4 项失败与本批无关（HEAD 基线同挂，未定性） |
+| 测试 | mcp 新增 `test_chat.py` **28** 项，全套 **1339** 项全绿（2026-09-10 i2i 质量批 +1：lee 骨架契约）（合并分支后：+test_article_llm.py 4、test_contract.py 629→631）（此前 1288；另补登前期漏记 test_device_messaging.py 8、test_i2i_prompt_sketch.py 6、test_write_text.py 45→46、test_curated_server.py 5→6）；`test_contract.py` 链式三测试钉 `HUTUJI_DEVICE_TOKEN_FILE`——本机 `C:\var\lib\hutuji\device_messaging.token` 残留测试值 `fresh-jwt` 曾致 test_draw_chains 假红（文件已删）；portal `test_chat.py` **10** 项，portal 全量 100 过 + test_doc_upload 4 项失败与本批无关（HEAD 基线同挂，未定性） |
 | 验证 | hub 门禁：pytest 1332 PASS、e2e PASS、文档层全过；`line_ref_fingerprints` 42 处半漂移 + 3 空锚点 = **xiaozhi 仓 OTA/记忆批进行中**（application.cc 等工作树改动），按规则未重登，待该批收口后人工核对再 --accept-line-refs |
 | 文档 | protocol §10.4.10；readiness 顶部条目；AGENTS.md 计数/文件清单 |
 | 待办 | ~~① 双机部署~~（已完成：19 文件双机 SHA 对账 + restart + 冒烟 + preflight）~~② weapp 0.3.0 CLI 上传~~（重传 exit 0，TOTAL 100.2 KB）③ MP 设 0.3.0 体验版 ④ 隐私协议补「文字对话传第三方 AI」+ AI 生成标识（MP 后台）⑤ msgSecCheck 真联调 ⑥ 真机 HIL（文字聊/语音/写字/笔顺/固件升级）⑦ test_doc_upload 4 项失败定性（合并后 portal 173 全绿，疑似已被分支修掉，待复核确认） |

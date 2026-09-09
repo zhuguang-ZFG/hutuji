@@ -570,8 +570,17 @@ def _suppress_hatch_clusters(polys: list[np.ndarray]) -> list[np.ndarray]:
     return [p for i, p in enumerate(polys) if i not in drop]
 
 
-def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
-    """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。"""
+def trace_bitmap_to_polylines(
+    png_bytes: bytes, *, skeleton_method: str = "zhang"
+) -> tuple[list[np.ndarray], int, int]:
+    """PNG 字节 → 中心线折线列表（像素坐标）。纯函数，不碰网络/磁盘。
+
+    skeleton_method 透传 skimage skeletonize：默认 zhang 维持存量路径行为；
+    照片 i2i 精修链传 lee——2026-09-10 五张生产真实精修样本 A/B 实测
+    抬笔 -31 净（-14%/0/-5%/-7%/+2%）、点数略增（细节不丢），txt2plotter
+    社区同结论（Lee 更平滑、连通更好）。lee 用 3D 场计算更吃内存，
+    输入已被 shrink_oversized_png 限幅，风险可控。
+    """
     (
         iio, sknw, rgb2gray, rgba2rgb, gaussian, threshold_otsu,
         skeletonize, erosion, disk, measure, closing,
@@ -635,7 +644,7 @@ def trace_bitmap_to_polylines(png_bytes: bytes) -> tuple[list[np.ndarray], int, 
             blob_hits += 1
         if blob_hits:
             logger.info("位图描摹：实心色块转轮廓环 %d 处", blob_hits)
-        skel = skeletonize(binary)
+        skel = skeletonize(binary, method=skeleton_method)
         skel_px = int(skel.sum())
         if skel_px > _SKNW_TRACE_BUDGET_PX:
             # R10-BMP-01：必须拦在 build_sknw 之前——sknw 的越界写不是异常而是

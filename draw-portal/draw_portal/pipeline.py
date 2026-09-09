@@ -353,8 +353,14 @@ def shrink_oversized_png(png_bytes: bytes, *, max_mpx: float = 4.8) -> bytes:
     return buf.getvalue()
 
 
-def process_upload_png(png_bytes: bytes, job_dir: Path) -> PipelineResult:
-    """PNG → 描摹 → SVG 校验 → vpype G-code → validate_gcode。"""
+def process_upload_png(
+    png_bytes: bytes, job_dir: Path, *, skeleton_method: str = "zhang"
+) -> PipelineResult:
+    """PNG → 描摹 → SVG 校验 → vpype G-code → validate_gcode。
+
+    skeleton_method 透传 trace_bitmap_to_polylines；照片 i2i 精修链传 lee
+    （生产样本 A/B 抬笔净降，2026-09-10），Canny 快出段维持 zhang 不动。
+    """
     from hutuji_mcp.bitmap_svg import (
         polylines_to_preview_png,
         polylines_to_svg,
@@ -367,7 +373,9 @@ def process_upload_png(png_bytes: bytes, job_dir: Path) -> PipelineResult:
     upload_path = job_dir / "upload.png"
     upload_path.write_bytes(png_bytes)
 
-    polys, w, h = trace_bitmap_to_polylines(shrink_oversized_png(png_bytes))
+    polys, w, h = trace_bitmap_to_polylines(
+        shrink_oversized_png(png_bytes), skeleton_method=skeleton_method
+    )
     svg = polylines_to_svg(polys, w, h)
     _validate_svg(svg)
     preview = polylines_to_preview_png(polys, w, h)

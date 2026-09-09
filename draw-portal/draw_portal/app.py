@@ -1295,7 +1295,9 @@ def create_app() -> FastAPI:
             refined_path = _job_dir(config.data_dir, refined_job.id)
             try:
                 result = await asyncio.to_thread(
-                    process_upload_png, trace_png, refined_path
+                    # i2i 线稿走 lee 骨架（生产样本 A/B 抬笔净降 2026-09-10）；
+                    # Canny 快出段不动，维持 zhang。
+                    process_upload_png, trace_png, refined_path, skeleton_method="lee",
                 )
                 refined_path.mkdir(parents=True, exist_ok=True)
                 (refined_path / "upload.png").write_bytes(refined_png)

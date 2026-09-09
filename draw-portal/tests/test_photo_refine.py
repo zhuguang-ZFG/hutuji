@@ -89,7 +89,7 @@ def _fake_process_upload(raw, *, content_type, filename, job_dir):
     return PipelineResult(2, 10, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
 
 
-def _fake_process_upload_png(png_bytes, job_dir):
+def _fake_process_upload_png(png_bytes, job_dir, *, skeleton_method="zhang"):
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "draw.gcode").write_text("G21\nG90\nG1 X1 Y1\n", encoding="ascii")
     (job_dir / "preview.png").write_bytes(png_bytes)
@@ -182,7 +182,7 @@ def test_refine_jpeg_output_normalized_to_png(tmp_path: Path, monkeypatch: pytes
 
     seen: list[bytes] = []
 
-    def recording_png(raw, job_dir):
+    def recording_png(raw, job_dir, *, skeleton_method="zhang"):
         seen.append(raw)
         return _fake_process_upload_png(raw, job_dir)
 
@@ -429,7 +429,7 @@ def test_hedge_tcb_wins_and_cancels_modelscope(tmp_path: Path, monkeypatch: pyte
     async def fast_tcb(*args, **kwargs):
         return b"\x89PNG\r\n\x1a\nTCB-WIN"
 
-    def recording_png(png_bytes, job_dir):
+    def recording_png(png_bytes, job_dir, *, skeleton_method="zhang"):
         state["winner_png"] = png_bytes
         return _fake_process_upload_png(png_bytes, job_dir)
 
@@ -461,7 +461,7 @@ def test_hedge_tcb_failure_falls_back_to_modelscope(tmp_path: Path, monkeypatch:
         await asyncio.sleep(0.05)
         return b"\x89PNG\r\n\x1a\nMS-WIN"
 
-    def recording_png(png_bytes, job_dir):
+    def recording_png(png_bytes, job_dir, *, skeleton_method="zhang"):
         state["winner_png"] = png_bytes
         return _fake_process_upload_png(png_bytes, job_dir)
 
@@ -510,7 +510,7 @@ def _process_with_pen_lifts(lifts_seq: list[int]):
     """按调用次序返回不同 pen_lifts，供抬笔门/回退测注入。"""
     state = {"n": 0}
 
-    def fn(png_bytes, job_dir):
+    def fn(png_bytes, job_dir, *, skeleton_method="zhang"):
         i = state["n"]
         state["n"] += 1
         lifts = lifts_seq[min(i, len(lifts_seq) - 1)]

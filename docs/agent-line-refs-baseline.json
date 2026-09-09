@@ -1,5 +1,5 @@
 {
-  "git_head": "44b690bde760af3d7f7f20ed94b00b6dbbc665dc",
+  "git_head": "90102095f28954b16d4f8f39ecbf59f7b03831be",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -462,8 +462,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:150-152": {
-      "sha8": "b7ed208f",
-      "source": "## Testing & QA｜测试与门禁\n\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1338 项**。",
+      "sha8": "27363169",
+      "source": "## Testing & QA｜测试与门禁\n\n- 框架 pytest，**无 `conftest.py` / `pytest.ini` / 自定义 marker**；`.venv\\Scripts\\python -m pytest -q` 当前收集 **1339 项**。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:485": {
@@ -681,7 +681,7 @@
       "source": "            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:1990-2035": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:1992-2037": {
       "sha8": "efda6524",
       "source": "    @app.post(\"/api/device/conversation/report\")\n    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:\n        try:\n            mac = normalize_mac(body.mac)\n            session_id = body.session_id.strip()[:64]\n        except ValueError as exc:\n            raise HTTPException(status_code=400, detail=str(exc)) from exc\n        user_id = store.get_user_id_for_mac(mac)\n        if user_id is None:\n            raise HTTPException(status_code=403, detail=\"设备未绑定呼图账号\")\n        now = time.time()\n        store.purge_conversation_before(\n            retention_cutoff(retention_days=config.conversation_retention_days)\n        )\n        accepted = 0\n        for turn in body.events:\n            try:\n                role = normalize_role(turn.role)\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            content = truncate_conversation_content(\n                turn.content, max_len=config.conversation_max_content\n            )\n            if not content:\n                continue\n            client_ts = turn.client_ts if turn.client_ts is not None else now\n            key = conversation_dedupe_key(\n                device_mac=mac,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n            )\n            if store.insert_conversation_event(\n                dedupe_key=key,\n                device_mac=mac,\n                user_id=user_id,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n                created_at=now,\n            ):\n                accepted += 1\n        return {\"status\": \"ok\", \"accepted\": accepted, \"total\": len(body.events)}\n",
       "target": "draw-portal/draw_portal/app.py"
@@ -726,7 +726,7 @@
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7454": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> test_contract.py:7480": {
       "sha8": "4ca08e99",
       "source": "    (outside / \"foreign.cc\").write_text(\"a\\nb\\n\", encoding=\"utf-8\")",
       "target": "mcp-server/tests/test_contract.py"
@@ -1302,6 +1302,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-09T16:53:54Z",
+  "updated": "2026-09-09T18:01:42Z",
   "version": 1
 }

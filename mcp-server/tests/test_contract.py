@@ -2108,6 +2108,32 @@ def test_bitmap_trace_synthetic_star_full_chain(tmp_path: Path) -> None:
     stats = gcode_gen.svg_to_gcode(svg_path, gcode_path)
     assert stats.lines > 5
 
+def test_bitmap_trace_lee_method_contract() -> None:
+    """lee 骨架分支（照片 i2i 精修链用）：合成星稿出非空折线，量纲与 zhang 同档。
+
+    只钉「能出活且量级合理」，不钉逐点相等——两种算法结果本就该有差异，
+    写死相等会把后续 skimage 升级卡死。
+    """
+    from hutuji_mcp import bitmap_svg
+
+    zhang, _w, _h = bitmap_svg.trace_bitmap_to_polylines(
+        _star_png_bytes(), skeleton_method="zhang"
+    )
+    lee, w2, h2 = bitmap_svg.trace_bitmap_to_polylines(
+        _star_png_bytes(), skeleton_method="lee"
+    )
+    assert lee, "lee 一条折线都没描出来"
+    assert (w2, h2) == (_w, _h)
+    z_pts = sum(len(p) for p in zhang)
+    l_pts = sum(len(p) for p in lee)
+    assert z_pts > 500 and l_pts > 500
+    assert 0.5 < l_pts / z_pts < 2.0, "lee/zhang 点数量纲漂移异常"
+
+    with pytest.raises(bitmap_svg.BitmapError, match="位图描摹失败"):
+        bitmap_svg.trace_bitmap_to_polylines(
+            _star_png_bytes(), skeleton_method="bogus"
+        )
+
 
 def _irregular_solid_blob_png() -> bytes:
     """白底 200x200：左上不规则实心块（模拟生图把眼睛画成实心）+ 右下细横线对照。"""
