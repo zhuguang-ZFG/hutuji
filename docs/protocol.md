@@ -800,6 +800,20 @@ Cookie: <session>
 
 **HIL**：笔顺预览、多页发送、田字格纸面 **未验证**（见 `docs/release-readiness.md` 文首）。
 
+#### 10.4.13 小程序语音聊小派（P1；2026-09-09）
+
+| 项 | 约定 |
+|----|------|
+| ASR | `POST /draw-upload/api/voice/asr`（`phone_secured`）；`multipart/form-data` 字段 `file`（`mp3`，≤1.5 MiB）→ `{status:"ok", text}` |
+| 对话 | `POST /draw-upload/api/voice/turn`（`phone_secured`）；JSON `{session_id, text}`（`session_id` ≤64，**与设备麦会话独立**）→ `{status:"ok", reply, tool_traces?}` |
+| 智能体 | portal 编排：角色提示取自设备工具口径 + `HUTUJI_LLM_*` 补全；工具经 messaging 白名单（`hutuji.status` / `hutuji.remember` / `hutuji.recall` / `hutuji.forget` / `hutuji.abort`）；须已绑机才执行工具 |
+| 密钥 | `DRAW_PORTAL_TENCENT_SECRET_ID` / `DRAW_PORTAL_TENCENT_SECRET_KEY` / `DRAW_PORTAL_TENCENT_ASR_APP_ID` **只**落 portal env；**禁止**进 weapp / 日志明文 |
+| 禁用 | 三键任一为空 → ASR/语音链 **503** 中文 detail，不假成功 |
+| 小程序 | 创作/控制入口进 chat 页；按住说话 → ASR → turn 气泡；weapp **v0.2.17** |
+| 明确不做 | 小程序直连设备麦/喇叭；旁路官方云自建 WSS；TTS（P1.5 可选） |
+
+**HIL**：真机按住说话→ASR→聊小派→工具 **未验证**。
+
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
 | 面 | 约定 |

@@ -158,5 +158,31 @@
       "docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md",
       "docs/superpowers/plans/2026-09-09-weapp-progress-p0.md"
     ]
+  },
+  "xiaopai_voice_p1_authorized": {
+    "note": "2026-09-09 用户批准小程序语音聊小派 P1（ASR + 独立会话文本智能体）；仅 draw-portal + weapp + 文档；密钥只落 portal env，不进 weapp。",
+    "plan": "docs/superpowers/plans/2026-09-09-weapp-voice-asr.md",
+    "paths": [
+      "draw-portal/draw_portal/tencent_asr.py",
+      "draw-portal/draw_portal/voice_agent.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_tencent_asr.py",
+      "draw-portal/tests/test_voice_agent.py",
+      "draw-portal/tests/test_voice_api.py",
+      "draw-portal/weapp/pages/chat/chat.js",
+      "draw-portal/weapp/pages/chat/chat.wxml",
+      "draw-portal/weapp/pages/chat/chat.wxss",
+      "draw-portal/weapp/pages/chat/chat.json",
+      "draw-portal/weapp/app.json",
+      "draw-portal/weapp/pages/profile/profile.wxml",
+      "draw-portal/weapp/pages/profile/profile.js",
+      "deploy/env.draw-portal.example",
+      "docs/protocol.md",
+      "docs/templates/weapp-control-smoke.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md",
+      "docs/superpowers/plans/2026-09-09-weapp-voice-asr.md"
+    ]
   }
 }
