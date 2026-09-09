@@ -177,7 +177,7 @@
       <text class="tile-label">{{uploading ? "转换中" : "文档"}}</text>
     </button>
   </view>
-  <view class="weui-cells__tips" wx:if="{{uploading}}">转换中，照片约 5–15 秒</view>
+  <view class="weui-cells__tips" wx:if="{{uploading}}">{{mode === 'write' ? '转换中，文档约 5–15 秒' : '转换中，照片约 5–15 秒'}}</view>
 
   <view class="bind-banner" wx:if="{{!binding}}" bindtap="onGoBind" hover-class="tile-press">
     <view class="bind-copy">

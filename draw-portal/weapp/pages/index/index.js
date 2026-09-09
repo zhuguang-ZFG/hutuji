@@ -29,6 +29,7 @@ Page({
     // 轮询句柄与作废令牌挂在页面实例上：不放进 data，避免无关字段触发渲染
     this._refineTimer = null;
     this._refineToken = 0;
+    this._writeToken = 0;
   },
 
   onHide() {
@@ -48,7 +49,15 @@ Page({
     const mode = e.currentTarget.dataset.mode;
     if (mode === this.data.mode) return;
     this.stopRefinePolling();
-    this.setData({ mode, job: null, pageIndex: 0 });
+    // 作废在途排版/文档上传：回调靠令牌自灭，避免切模式后 adoptJob 把旧预览写回
+    this._writeToken = (this._writeToken || 0) + 1;
+    this.setData({
+      mode,
+      job: null,
+      pageIndex: 0,
+      layouting: false,
+      uploading: false,
+    });
   },
 
   onDescInput(e) {
@@ -122,6 +131,7 @@ Page({
 
   onLayoutPreview() {
     if (this.data.layouting || !this.data.writeText) return;
+    const token = this._writeToken;
     this.setData({ layouting: true });
     api
       .request("/api/draw/write", {
@@ -133,11 +143,13 @@ Page({
         },
       })
       .then((res) => {
+        if (token !== this._writeToken) return;
         this.setData({ layouting: false });
         this.adoptJob(res);
         wx.showToast({ title: "排版完成", icon: "success" });
       })
       .catch((err) => {
+        if (token !== this._writeToken) return;
         this.setData({ layouting: false });
         wx.showModal({
           title: "排版失败",
@@ -352,6 +364,7 @@ Page({
           wx.showToast({ title: "文件超过 4MB", icon: "none" });
           return;
         }
+        const token = this._writeToken;
         this.setData({ uploading: true });
         const formData =
           this.data.mode === "write"
@@ -363,6 +376,7 @@ Page({
         api
           .uploadFile("/api/draw/upload", file.path, "file", formData)
           .then((data) => {
+            if (token !== this._writeToken) return;
             // 与 AI 生成同一预览卡：预览图 + 行数 + 发送钮（此前只存 jobId 不存 preview_url，
             // 用户看不到转换效果——2026-09-07「转换后没有预览」实证）
             this.setData({ uploading: false });
@@ -370,6 +384,7 @@ Page({
             wx.showToast({ title: "转换完成", icon: "success" });
           })
           .catch((err) => {
+            if (token !== this._writeToken) return;
             this.setData({ uploading: false });
             wx.showModal({
               title: "上传失败",
