@@ -1,5 +1,7 @@
 # 发布与出货就绪度
 
+> **2026-09-09 20:3x weapp 语音画+写确认卡 + **0.2.19** CLI 已传（🟡 代码+双机 portal+包体有证；真机 HIL ☐）**：设计/计划已批准（`docs/superpowers/specs/2026-09-09-weapp-voice-draw-write-design.md` → plan 同日）。portal `voice.draw`/`voice.write` → `push_draw_self_heal(auto_confirm=False)`；`POST /api/voice/confirm|cancel`；ASR 去掉错误 `AppId` 参数后鉴权通；双机已热更 `voice_agent`/`voice_jobs`/`app`/`tencent_asr`；契约 §10.4.13；weapp chat 预览卡「开始画/取消」。本机 CLI upload **0.2.19** exit **0**，AppID wxbf3c1e0013b46343，TOTAL **94207 B**（`tmp/weapp-upload-0.2.19.json`）。请 MP 将 **0.2.19** 设为体验版。**仍未做**：说「画一只猫」/「写：…」→ 预览卡 → 开始画落笔；取消预览。**不得宣称**可出货或联调完成。
+
 > **2026-09-09 19:xx weapp 语音聊小派 P1 + **0.2.17** CLI 已传（🟡 代码+包体有证；生产 ASR/LLM 密钥注入 ☐；HIL ☐）**：hub worktree `feat/xiaopai-ota-mass-prod` portal `voice_agent` + `/api/voice/asr|turn` + weapp chat 页 hold-to-talk（`e9a6e01`）；契约 §10.4.13；冒烟 `docs/templates/weapp-control-smoke.md` 行 13–15。本机 CLI upload **0.2.17** exit **0**，AppID wxbf3c1e0013b46343，TOTAL **92118 B**（`tmp/weapp-upload-0.2.17.json`）。请 MP 将 **0.2.17** 设为体验版。**仍未做**：生产 draw-portal.env 注入腾讯云 ASR + LLM 三键并 restart portal；真机按住说话/「写字机状态」「记住测试」HIL。**不得宣称**可出货或联调完成。
 
 > **2026-09-09 18:5x weapp 0.2.16 CLI 已传（🟡；进度手测 ☐）**：本机 CLI upload **0.2.16** exit 0，AppID wxbf3c1e0013b46343，TOTAL **86576 B**（	mp/weapp-upload-0.2.16.json）。请 MP 将 **0.2.16** 设为体验版，按 docs/templates/weapp-control-smoke.md 行 9–12 勾进度。**仍未做**：进度真机勾实；语音 P1。**不得宣称**可出货或联调完成。
@@ -260,11 +262,11 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-09-08**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1276 passed**、e2e `PASS`；docs 指纹 **261** 处全对（2026-09-08 SSRF/并发加固文档批 7 处位移：4 处 `--fix-line-refs` 自动重定位 + findings/28 共 3 处人工改指——AGENTS.md:147-149 计数行块仅计数演进、inventory:395/397 两行内容逐字一致——重登基线），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-09-08**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1276 passed**、e2e `PASS`；docs 指纹 **261** 处全对（2026-09-08 SSRF/并发加固文档批 7 处位移：4 处 `--fix-line-refs` 自动重定位 + findings/28 共 3 处人工改指——AGENTS.md:149-151 计数行块仅计数演进、inventory:395/397 两行内容逐字一致——重登基线），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-09-08**（`profile=hub` `overall=pass`：pytest **1276 passed**、e2e `PASS`、docs 指纹 260 处全对、外仓文档引用 247 处全在范围；末轮 hub 在 `d0db04d` 提交后运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub/full 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线 2026-09-08 随 SSRF/并发加固文档批重登（261 处，7 处位移：4 处自动重定位、3 处人工改指；另 1 处新登记=readiness 自身对 AGENTS.md:147-149 的新引用）
+- 本仓 `hub` 最近通过：**2026-09-08**（`profile=hub` `overall=pass`：pytest **1276 passed**、e2e `PASS`、docs 指纹 260 处全对、外仓文档引用 247 处全在范围；末轮 hub 在 `d0db04d` 提交后运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub/full 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线 2026-09-08 随 SSRF/并发加固文档批重登（261 处，7 处位移：4 处自动重定位、3 处人工改指；另 1 处新登记=readiness 自身对 AGENTS.md:149-151 的新引用）
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）

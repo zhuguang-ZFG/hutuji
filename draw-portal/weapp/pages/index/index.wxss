@@ -352,3 +352,15 @@
   background: #1a1b28 !important;
   border-color: rgba(0, 209, 229, 0.35) !important;
 }
+
+.ai-row {
+  display: flex;
+  gap: 16rpx;
+  padding-left: 32rpx;
+  padding-right: 32rpx;
+}
+.ai-btn {
+  flex: 1;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}

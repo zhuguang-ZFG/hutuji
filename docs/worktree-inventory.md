@@ -81,9 +81,20 @@
 | 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md` §3 → `docs/superpowers/plans/2026-09-09-weapp-voice-asr.md` |
 | hub 已提交链（摘） | portal `voice_agent.py` + `/api/voice/asr|turn` + 测试；`e9a6e01` weapp chat 页 hold-to-talk + 我的页入口 + 脚注 **v0.2.17** |
 | 触及面 | `draw-portal/draw_portal/{voice_agent.py,app.py,tencent_asr.py}`；`draw-portal/tests/test_voice_{agent,api}.py`；`draw-portal/weapp/pages/chat/*`；`draw-portal/weapp/pages/profile/*`；契约 `docs/protocol.md` §10.4.13 |
-| 生产 | 腾讯云 ASR + LLM 三键注入 draw-portal.env **☐ 用户动作**；portal restart **☐**；weapp **0.2.17** CLI 上传见 readiness 文首 |
+| 生产 | 腾讯云 ASR + LLM 三键已注入双机 draw-portal.env 并 restart（`ASR_CONFIGURED True`；未登录 asr→401）；weapp 现以 **0.2.19** 为准（见 §0.6） |
 | HIL | 语音 ASR/turn 真机 **未验证**（见 `docs/templates/weapp-control-smoke.md` 行 13–15） |
 | 白名单 | `docs/agent-edit-allowlist.json` 键 `xiaopai_voice_p1_authorized` |
+
+### 0.6 语音画+写 + 小程序确认（2026-09-09，同 worktree）
+
+| 项 | 说明 |
+|----|------|
+| 设计 / 计划 | 已批准：`docs/superpowers/specs/2026-09-09-weapp-voice-draw-write-design.md` → `docs/superpowers/plans/2026-09-09-weapp-voice-draw-write.md` |
+| 触及面 | `voice_jobs.py`；`voice_agent` 增 `voice.draw`/`voice.write`；`app.py` `/api/voice/confirm|cancel`；weapp chat 预览卡；`tencent_asr` 去 AppId；契约 §10.4.13；脚注 **v0.2.19** |
+| 生产 | 双机 portal 已 scp 热更上述模块；CLI upload **0.2.19** TOTAL **94207 B**（`tmp/weapp-upload-0.2.19.json`） |
+| HIL | 画/写→预览卡→开始画落笔、取消预览 **未验证**（冒烟行 16–18） |
+| 白名单 | `xiaopai_voice_draw_write_authorized` |
+| 脏树注意 | 曾误用 PowerShell `Set-Content` 弄坏部分 wxml 编码；已 `git checkout` 恢复 bind/history/index/wifi 后再上传 |
 
 ## 1. hutuji 本仓（`D:\Users\hutuji`）
 

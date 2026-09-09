@@ -9,12 +9,28 @@
   >
     <view class="msg-list">
       <block wx:if="{{!messages.length}}">
-        <view class="empty-hint muted">按住下方按钮说话，与小派聊写字机</view>
+        <view class="empty-hint muted">按住说话：可查状态、画画、写字；出图前在此确认</view>
       </block>
       <block wx:for="{{messages}}" wx:key="id">
         <view id="msg-{{item.id}}" class="msg-row {{item.role}}">
           <view class="bubble">{{item.content}}</view>
           <view wx:if="{{item.toolTracesText}}" class="tool-traces muted">{{item.toolTracesText}}</view>
+          <view wx:if="{{item.previewUrl}}" class="preview-card">
+            <image class="preview-img" src="{{item.previewUrl}}" mode="aspectFit"></image>
+            <view wx:if="{{item.previewPending}}" class="preview-actions">
+              <view
+                class="btn-confirm"
+                data-id="{{item.id}}"
+                bindtap="onConfirmPreview"
+              >开始画</view>
+              <view
+                class="btn-cancel"
+                data-id="{{item.id}}"
+                bindtap="onCancelPreview"
+              >取消</view>
+            </view>
+            <view wx:elif="{{item.previewDone}}" class="preview-done muted">{{item.previewDone}}</view>
+          </view>
         </view>
       </block>
     </view>
@@ -33,5 +49,5 @@
     </view>
   </view>
 
-  <view class="page-foot muted">动力巢 · v0.2.18</view>
+  <view class="page-foot muted">动力巢 · v0.2.19</view>
 </view>

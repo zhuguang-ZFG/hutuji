@@ -12,6 +12,7 @@ Page({
     pageIndex: 0,
     generating: false,
     layouting: false,
+    aiWriting: false,
     teaching: false,
     sending: false,
     saving: false,
@@ -156,6 +157,44 @@ Page({
         this.setData({ teaching: false });
         wx.showModal({
           title: "生成失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
+
+  onAiGenerate() {
+    this._runWriteAi("generate");
+  },
+
+  onAiPolish() {
+    this._runWriteAi("polish");
+  },
+
+  _runWriteAi(mode) {
+    if (this.data.aiWriting || this.data.layouting || !this.data.writeText) return;
+    const token = this._writeToken;
+    const payload =
+      mode === "generate"
+        ? { mode: "generate", prompt: this.data.writeText }
+        : { mode: "polish", text: this.data.writeText };
+    this.setData({ aiWriting: true });
+    api
+      .request("/api/draw/write/ai", { method: "POST", data: payload })
+      .then((res) => {
+        if (token !== this._writeToken) return;
+        const text = (res && res.text) || "";
+        this.setData({ aiWriting: false, writeText: text });
+        wx.showToast({
+          title: mode === "generate" ? "已生成，可再改" : "已润色，可再改",
+          icon: "success",
+        });
+      })
+      .catch((err) => {
+        if (token !== this._writeToken) return;
+        this.setData({ aiWriting: false });
+        wx.showModal({
+          title: mode === "generate" ? "生成失败" : "润色失败",
           content: err.detail || "请稍后再试",
           showCancel: false,
         });

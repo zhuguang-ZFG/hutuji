@@ -64,11 +64,17 @@ Page({
     return "m" + this._msgSeq;
   },
 
-  _pushMessage(role, content, toolTraces) {
+  _pushMessage(role, content, toolTraces, preview) {
     const id = this._nextMsgId();
     const msg = { id, role, content };
     const tracesText = formatToolTraces(toolTraces);
     if (tracesText) msg.toolTracesText = tracesText;
+    if (preview && preview.preview_url) {
+      msg.previewUrl = preview.preview_url;
+      msg.jobId = preview.job_id || "";
+      msg.previewKind = preview.kind || "";
+      msg.previewPending = true;
+    }
     const messages = this.data.messages.concat(msg);
     this.setData({
       messages,
@@ -76,9 +82,14 @@ Page({
     });
   },
 
+  _patchMessage(id, patch) {
+    const messages = this.data.messages.map((m) =>
+      m.id === id ? Object.assign({}, m, patch) : m
+    );
+    this.setData({ messages });
+  },
+
   onHoldStart() {
-    // 录音中不可再开；上传中 busy 才锁。勿在 start 前 busy=true，
-    // 否则 .disabled{pointer-events:none} 会吞掉 touchend，松手停不了。
     if (this.data.busy || this.data.recording) return;
     try {
       this._recorder.start({
@@ -95,6 +106,44 @@ Page({
       this._recorder.stop();
       return;
     }
+  },
+
+  onConfirmPreview(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id || this.data.busy) return;
+    this.setData({ busy: true });
+    api
+      .request("/api/voice/confirm", { method: "POST", data: {} })
+      .then(() => {
+        this._patchMessage(id, { previewPending: false, previewDone: "已开始画" });
+        wx.showToast({ title: "已开始画", icon: "success" });
+      })
+      .catch((err) => {
+        wx.showToast({
+          title: ((err && err.detail) || "确认失败").slice(0, 20),
+          icon: "none",
+        });
+      })
+      .finally(() => this.setData({ busy: false }));
+  },
+
+  onCancelPreview(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id || this.data.busy) return;
+    this.setData({ busy: true });
+    api
+      .request("/api/voice/cancel", { method: "POST", data: {} })
+      .then(() => {
+        this._patchMessage(id, { previewPending: false, previewDone: "已取消" });
+        wx.showToast({ title: "已取消", icon: "none" });
+      })
+      .catch((err) => {
+        wx.showToast({
+          title: ((err && err.detail) || "取消失败").slice(0, 20),
+          icon: "none",
+        });
+      })
+      .finally(() => this.setData({ busy: false }));
   },
 
   _onRecordStop(res) {
@@ -123,7 +172,8 @@ Page({
             const reply =
               (turn && turn.reply ? turn.reply : "").trim() || "（无回复）";
             const traces = turn && turn.tool_traces ? turn.tool_traces : [];
-            this._pushMessage("assistant", reply, traces);
+            const preview = turn && turn.preview ? turn.preview : null;
+            this._pushMessage("assistant", reply, traces, preview);
           });
       })
       .catch((err) => {
@@ -144,4 +194,3 @@ Page({
       });
   },
 });
-

@@ -184,5 +184,28 @@
       "docs/superpowers/specs/2026-09-09-weapp-progress-voice-design.md",
       "docs/superpowers/plans/2026-09-09-weapp-voice-asr.md"
     ]
+  },
+  "xiaopai_voice_draw_write_authorized": {
+    "note": "2026-09-09 用户批准小程序语音画+写（方案3）+ 聊天页确认；仅 draw-portal + weapp + 文档；不自动 confirm、不改固件/§5/换纸。",
+    "plan": "docs/superpowers/plans/2026-09-09-weapp-voice-draw-write.md",
+    "paths": [
+      "draw-portal/draw_portal/voice_agent.py",
+      "draw-portal/draw_portal/voice_jobs.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_voice_agent.py",
+      "draw-portal/tests/test_voice_api.py",
+      "draw-portal/tests/test_voice_jobs.py",
+      "draw-portal/weapp/pages/chat/chat.js",
+      "draw-portal/weapp/pages/chat/chat.wxml",
+      "draw-portal/weapp/pages/chat/chat.wxss",
+      "draw-portal/weapp/app.json",
+      "docs/protocol.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/templates/weapp-control-smoke.md",
+      "docs/superpowers/specs/2026-09-09-weapp-voice-draw-write-design.md",
+      "docs/superpowers/plans/2026-09-09-weapp-voice-draw-write.md",
+      "docs/agent-edit-allowlist.json"
+    ]
   }
 }

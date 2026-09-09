@@ -36,12 +36,19 @@
 - [ ] 刷机/串口：`hutuji.status` 含 `firmware_version":"hutuji.x.y.z"` 与新版本一致
 - [ ] **升后联网冒烟**：WiFi 连上、Telnet 可达、语音问「状态」/`hutuji.status` 正常、可完成一次轻量出图或 status 探活
 
-## HIL：故意坏包（须拒升、旧固件继续跑）
+## HIL：故意坏包
 
-- [ ] 准备同 board 的 **损坏 bin**（截断或篡改末段字节），仅在内网/ staging 目录测试，勿污染生产 latest
+### A. 下载/校验失败（不切槽）
+- [ ] 准备同 board 的 **损坏/缺失 bin**（截断、篡改或 404），仅 staging；勿长期污染生产 latest
 - [ ] 设备触发升级 → 下载/校验失败 → **不切槽**、不 reboot 到新槽
 - [ ] `hutuji.status` / 小程序显示明确 **failed** 态，可重试或放弃
-- [ ] 旧版本仍可正常出图与联网
+- [ ] 旧版本仍可正常联网
+
+### B. 切槽后启动失败回滚（PENDING_VERIFY / F6）
+- [ ] 用 `HUTUJI_OTA_POISON_ROLLBACK=ON` 构建临时版本（启动即 `esp_ota_mark_app_invalid_rollback_and_reboot`），**禁止量产发版**
+- [ ] 临时将 catalog/latest 指到毒包 → 网升 → 设备离线后再连
+- [ ] 复验 `firmware_version` **回到升前稳定版**、可 `ota_check`
+- [ ] **立刻**把 latest/catalog 指回稳定版；毒包目录标 WITHDRAWN
 
 ## HIL：错板拒升
 

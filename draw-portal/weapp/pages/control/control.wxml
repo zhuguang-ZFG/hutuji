@@ -1,4 +1,4 @@
-﻿<view class="page control-page">
+<view class="page control-page">
   <block wx:if="{{!bound}}">
     <view class="empty-panel">
       <view class="empty-glyph"></view>
@@ -82,6 +82,6 @@
       <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort}}">停止</button>
     </view>
 
-    <view class="page-foot muted">动力巢 · v0.2.18</view>
+    <view class="page-foot muted">动力巢 · v0.2.19</view>
   </block>
 </view>

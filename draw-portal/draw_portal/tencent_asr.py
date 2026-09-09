@@ -102,9 +102,9 @@ def _tc3_authorization(
     )
 
 
-def _build_request_payload(
-    *, audio: bytes, voice_format: str, app_id: int
-) -> dict[str, object]:
+def _build_request_payload(*, audio: bytes, voice_format: str) -> dict[str, object]:
+    # SentenceRecognition（2019-06-14）请求体不含 AppId；账号由 TC3 签名的
+    # SecretId 标识。带 AppId 会回 UnknownParameter（生产 2026-09-09 实测）。
     return {
         "ProjectId": 0,
         "SubServiceType": 2,
@@ -114,7 +114,6 @@ def _build_request_payload(
         "UsrAudioKey": secrets.token_hex(8),
         "Data": base64.b64encode(audio).decode("ascii"),
         "DataLen": len(audio),
-        "AppId": app_id,
     }
 
 
@@ -164,10 +163,8 @@ def recognize_sentence(*, audio: bytes, voice_format: str = "mp3") -> str:
     if len(audio) > MAX_AUDIO_BYTES:
         raise AsrError("录音过长")
 
-    secret_id, secret_key, app_id = _load_credentials()
-    payload = _build_request_payload(
-        audio=audio, voice_format=voice_format, app_id=app_id
-    )
+    secret_id, secret_key, _app_id = _load_credentials()
+    payload = _build_request_payload(audio=audio, voice_format=voice_format)
     data = _call_sentence_recognition(
         secret_id=secret_id, secret_key=secret_key, payload=payload
     )
@@ -179,8 +176,14 @@ def recognize_sentence(*, audio: bytes, voice_format: str = "mp3") -> str:
     error = response.get("Error")
     if isinstance(error, dict):
         code = error.get("Code")
+        message = error.get("Message")
+        parts: list[str] = []
         if isinstance(code, str) and code:
-            raise AsrError(f"语音识别错误 {code}")
+            parts.append(code)
+        if isinstance(message, str) and message.strip():
+            parts.append(message.strip()[:120])
+        if parts:
+            raise AsrError("语音识别错误 " + " ".join(parts))
         raise AsrError("语音识别错误")
 
     result = response.get("Result")

@@ -761,6 +761,7 @@ def create_app() -> FastAPI:
         from draw_portal.mcp_result import unwrap_tool_text
         from draw_portal.push import mint_messaging_token
         from draw_portal.voice_agent import VoiceAgentError
+        from draw_portal.voice_jobs import VoiceJobError, run_voice_draw, run_voice_write
 
         binding = store.get_binding_for_user(user_id)
         device_mac: str | None = binding.device_mac if binding else None
@@ -770,6 +771,9 @@ def create_app() -> FastAPI:
                 if binding
                 else None
             ),
+        }
+        enc_holder: dict[str, str | None] = {
+            "enc": binding.device_token_enc if binding else None,
         }
 
         def push_tool(name: str, arguments: dict[str, Any]) -> str:
@@ -788,11 +792,10 @@ def create_app() -> FastAPI:
                     api_base=config.xiaozhi_api_base, mac=binding.device_mac
                 )
                 if fresh:
-                    store.update_binding_token(
-                        user_id,
-                        device_token_enc=encrypt_token(config.token_cipher_key, fresh),
-                    )
+                    new_enc = encrypt_token(config.token_cipher_key, fresh)
+                    store.update_binding_token(user_id, device_token_enc=new_enc)
                     token_holder["token"] = fresh
+                    enc_holder["enc"] = new_enc
                     ok, result = push_tool_call(
                         api_base=config.xiaozhi_api_base,
                         device_token=fresh,
@@ -804,12 +807,114 @@ def create_app() -> FastAPI:
                 return result if isinstance(result, str) else str(result)
             return unwrap_tool_text(result)
 
+        def run_portal_tool(
+            name: str, arguments: dict[str, Any]
+        ) -> tuple[str, dict[str, str] | None]:
+            if binding is None or enc_holder["enc"] is None or device_mac is None:
+                raise VoiceJobError("请先绑定写字机")
+
+            def on_token_minted(new_enc: str) -> None:
+                store.update_binding_token(user_id, device_token_enc=new_enc)
+                enc_holder["enc"] = new_enc
+                token_holder["token"] = decrypt_token(config.token_cipher_key, new_enc)
+
+            if name == "voice.draw":
+                if not config.usage_ingest_secret:
+                    raise VoiceJobError("生图通道未配置", status=503)
+                desc = str(arguments.get("description") or "").strip()
+                since = time.time() - 86400
+                used = sum(
+                    row["count"]
+                    for row in store.usage_counts_for_user_since(user_id, since)
+                    if row["event_type"] == "web_generate"
+                )
+                if used >= config.generate_daily_limit:
+                    raise VoiceJobError(
+                        f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来",
+                        status=429,
+                    )
+                job = store.create_draw_job(
+                    user_id=user_id, source_name=("语音画: " + desc)[:120]
+                )
+                job_path = _job_dir(config.data_dir, job.id)
+                summary, preview = run_voice_draw(
+                    description=desc,
+                    user_id=user_id,
+                    job_id=job.id,
+                    job_dir=job_path,
+                    mcp_internal_base_url=config.mcp_internal_base_url,
+                    usage_ingest_secret=config.usage_ingest_secret,
+                    generate_timeout_seconds=config.generate_timeout_seconds,
+                    mcp_output_dir=config.mcp_output_dir,
+                    public_base_url=config.public_base_url,
+                    mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                        jid, basename=base
+                    ),
+                    mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                        jid, error_summary=err
+                    ),
+                    api_base=config.xiaozhi_api_base,
+                    token_cipher_key=config.token_cipher_key,
+                    device_mac=device_mac,
+                    device_token_enc=enc_holder["enc"],
+                    on_token_minted=on_token_minted,
+                )
+                _record_portal_usage(
+                    store,
+                    event_type="web_generate",
+                    user_id=user_id,
+                    device_mac=device_mac,
+                    detail=desc[:120],
+                    ok=True,
+                )
+                return summary, preview.as_dict()
+
+            if name == "voice.write":
+                raw_text = str(arguments.get("text") or "")
+                job = store.create_draw_job(
+                    user_id=user_id, source_name=("语音写: " + raw_text.strip())[:120]
+                )
+                job_path = _job_dir(config.data_dir, job.id)
+                summary, preview = run_voice_write(
+                    text=raw_text,
+                    user_id=user_id,
+                    job_id=job.id,
+                    job_dir=job_path,
+                    gfont_dir=config.gfont_dir or "",
+                    stroke_dir=config.stroke_dir or "",
+                    mcp_output_dir=config.mcp_output_dir,
+                    public_base_url=config.public_base_url,
+                    mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                        jid, basename=base
+                    ),
+                    mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                        jid, error_summary=err
+                    ),
+                    api_base=config.xiaozhi_api_base,
+                    token_cipher_key=config.token_cipher_key,
+                    device_mac=device_mac,
+                    device_token_enc=enc_holder["enc"],
+                    on_token_minted=on_token_minted,
+                )
+                _record_portal_usage(
+                    store,
+                    event_type="web_write",
+                    user_id=user_id,
+                    device_mac=device_mac,
+                    detail=("语音写: " + raw_text.strip())[:100],
+                    ok=True,
+                )
+                return summary, preview.as_dict()
+
+            raise VoiceJobError("未知画写工具")
+
         try:
             out = voice_agent.chat(
                 session_id=body.session_id,
                 user_text=body.text,
                 device_mac=device_mac,
                 push_tool=push_tool,
+                run_portal_tool=run_portal_tool,
             )
         except VoiceAgentError as exc:
             msg = str(exc)
@@ -824,7 +929,66 @@ def create_app() -> FastAPI:
             detail=f"{len(body.text)}:{len(out.get('reply', ''))}",
             ok=True,
         )
-        return {"reply": out["reply"], "tool_traces": out["tool_traces"]}
+        payload: dict[str, Any] = {
+            "reply": out["reply"],
+            "tool_traces": out["tool_traces"],
+        }
+        if out.get("preview"):
+            payload["preview"] = out["preview"]
+        return payload
+
+    def _voice_device_tool(user_id: str, tool_name: str) -> dict[str, str]:
+        from draw_portal.mcp_result import unwrap_tool_text
+        from draw_portal.push import mint_messaging_token
+
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定写字机")
+        token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
+        ok, result = push_tool_call(
+            api_base=config.xiaozhi_api_base,
+            device_token=token,
+            name=tool_name,
+            arguments={},
+            timeout=30,
+        )
+        if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
+            fresh = mint_messaging_token(
+                api_base=config.xiaozhi_api_base, mac=binding.device_mac
+            )
+            if fresh:
+                store.update_binding_token(
+                    user_id,
+                    device_token_enc=encrypt_token(config.token_cipher_key, fresh),
+                )
+                ok, result = push_tool_call(
+                    api_base=config.xiaozhi_api_base,
+                    device_token=fresh,
+                    name=tool_name,
+                    arguments={},
+                    timeout=30,
+                )
+        if not ok:
+            detail = result if isinstance(result, str) else str(result)
+            raise HTTPException(status_code=502, detail=detail[:120])
+        text = unwrap_tool_text(result)
+        _record_portal_usage(
+            store,
+            event_type=f"web_voice_{tool_name.split('.')[-1]}",
+            user_id=user_id,
+            device_mac=binding.device_mac,
+            detail=tool_name,
+            ok=True,
+        )
+        return {"status": "ok", "result": text}
+
+    @app.post("/api/voice/confirm", dependencies=phone_secured)
+    def voice_confirm(user_id: str = Depends(require_phone)) -> dict[str, str]:
+        return _voice_device_tool(user_id, "hutuji.confirm")
+
+    @app.post("/api/voice/cancel", dependencies=phone_secured)
+    def voice_cancel(user_id: str = Depends(require_phone)) -> dict[str, str]:
+        return _voice_device_tool(user_id, "hutuji.abort")
 
     @app.get("/api/device/firmware/check", dependencies=phone_secured)
     def firmware_check(user_id: str = Depends(require_phone)) -> dict[str, Any]:

@@ -24,6 +24,10 @@ _OTA_START_TIMEOUT = 20
 _STATUS_TIMEOUT = 15
 
 
+# 与设备 JobIsIdleForOta / 手动控制 settled 对齐（出图中态才 busy）
+_SETTLED_FOR_OTA = frozenset({"idle", "done", "error", "aborted"})
+
+
 def assert_upgrade_allowed(
     *,
     job_state: str,
@@ -31,7 +35,7 @@ def assert_upgrade_allowed(
     manifest_board: str,
 ) -> str | None:
     state = (job_state or "").strip().lower()
-    if state != "idle":
+    if state not in _SETTLED_FOR_OTA:
         return "busy"
     if board != manifest_board:
         return "board_mismatch"

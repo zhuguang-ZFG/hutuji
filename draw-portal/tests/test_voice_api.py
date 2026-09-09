@@ -86,3 +86,45 @@ def test_voice_asr_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     )
     assert r.status_code == 200, r.text
     assert r.json()["text"] == "识别到了"
+
+
+def test_voice_confirm_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    client = _client(monkeypatch, tmp_path)
+    r = client.post("/api/voice/confirm")
+    assert r.status_code in (401, 403)
+
+
+def test_voice_cancel_requires_binding(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    client = _auth(monkeypatch, tmp_path)
+    r = client.post("/api/voice/cancel")
+    assert r.status_code == 400
+    assert "绑定" in r.json()["detail"]
+
+
+def test_voice_turn_returns_preview(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    client = _auth(monkeypatch, tmp_path)
+
+    def fake_chat(**kwargs):
+        return {
+            "reply": "请点开始画",
+            "tool_traces": [{"name": "voice.draw", "summary": "ok"}],
+            "preview": {
+                "kind": "draw",
+                "job_id": "j1",
+                "preview_url": "https://example.test/p.png",
+                "gcode_url": "https://example.test/p.gcode",
+            },
+        }
+
+    monkeypatch.setenv("HUTUJI_LLM_API_KEY", "k")
+    monkeypatch.setenv("HUTUJI_LLM_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("HUTUJI_LLM_MODEL", "m")
+    monkeypatch.setattr("draw_portal.voice_agent.chat", fake_chat)
+    r = client.post(
+        "/api/voice/turn",
+        json={"session_id": "s-preview", "text": "画猫"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["preview"]["preview_url"].endswith(".png")
+    assert body["reply"] == "请点开始画"

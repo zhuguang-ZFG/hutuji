@@ -1,4 +1,4 @@
-"""小程序语音对话智能体（portal 编排 LLM + 设备工具）。"""
+"""小程序语音对话智能体（portal 编排 LLM + 设备工具 + 画/写）。"""
 from __future__ import annotations
 
 import json
@@ -8,26 +8,29 @@ from typing import Any
 
 import httpx
 
-VOICE_TOOL_ALLOWLIST = frozenset({
+VOICE_DEVICE_ALLOWLIST = frozenset({
     "hutuji.status",
     "hutuji.remember",
     "hutuji.recall",
     "hutuji.forget",
     "hutuji.abort",
 })
+VOICE_PORTAL_ALLOWLIST = frozenset({"voice.draw", "voice.write"})
+VOICE_TOOL_ALLOWLIST = VOICE_DEVICE_ALLOWLIST | VOICE_PORTAL_ALLOWLIST
 MAX_HISTORY_MESSAGES = 12
 MAX_TOOL_ROUNDS = 3
 _LLM_TIMEOUT = 60.0
 
 _SYSTEM_PROMPT = (
     "你是「小派」，微信小程序里的 AI 助手，帮用户了解并控制已绑定的呼图机写字机。"
-    "你只能调用白名单工具：hutuji.status、hutuji.remember、hutuji.recall、"
-    "hutuji.forget、hutuji.abort。"
-    "用户说「记住/以后都」用 hutuji.remember，问「你记得吗」先 hutuji.recall 再答，"
-    "「忘掉」用 hutuji.forget，紧急停止用 hutuji.abort。"
-    "禁止编造设备状态或假装已执行；需要设备实时信息时必须调 hutuji.status。"
+    "画画用 voice.draw（参数 description），写字用 voice.write（参数 text）。"
+    "查询状态用 hutuji.status；「记住/以后都」用 hutuji.remember，"
+    "问「你记得吗」先 hutuji.recall，忘掉用 hutuji.forget，紧急停止用 hutuji.abort。"
+    "生成成功后告诉用户：已推到写字机预览，请在小程序点「开始画」或「取消」；"
+    "不要假装已经开画，也不要声称自己能点确认。"
+    "禁止编造设备状态；需要实时信息时必须调 hutuji.status。"
     "未绑定写字机时提示「请先绑定写字机」。"
-    "回答简短口语化中文，热情但不啰嗦。密码、验证码、身份证号不要记。"
+    "回答简短口语化中文。密码、验证码、身份证号不要记。"
 )
 
 
@@ -55,7 +58,9 @@ def _load_llm_config() -> tuple[str, str, str]:
 
 
 def _build_tools_schema() -> list[dict[str, Any]]:
-    def _tool(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+    def _tool(
+        name: str, description: str, properties: dict[str, Any], required: list[str]
+    ) -> dict[str, Any]:
         return {
             "type": "function",
             "function": {
@@ -70,8 +75,20 @@ def _build_tools_schema() -> list[dict[str, Any]]:
         }
 
     return [
+        _tool(
+            "voice.draw",
+            "根据描述生成一幅画并推到写字机预览（需用户在小程序确认才开画）",
+            {"description": {"type": "string", "description": "要画的内容描述"}},
+            ["description"],
+        ),
+        _tool(
+            "voice.write",
+            "把文本排版成手写体并推到写字机预览（需用户在小程序确认才开画）",
+            {"text": {"type": "string", "description": "要写的正文"}},
+            ["text"],
+        ),
         _tool("hutuji.status", "查询写字机当前状态", {}, []),
-        _tool("hutuji.abort", "停止当前绘图任务", {}, []),
+        _tool("hutuji.abort", "停止当前绘图任务或取消预览", {}, []),
         _tool(
             "hutuji.remember",
             "记住用户告知的事实",
@@ -144,24 +161,40 @@ def _extract_assistant_message(data: dict[str, Any]) -> dict[str, Any]:
     return message
 
 
+PortalToolFn = Callable[[str, dict[str, Any]], tuple[str, dict[str, str] | None]]
+
+
 def _execute_tool(
     *,
     name: str,
     arguments: dict[str, Any],
     device_mac: str | None,
     push_tool: Callable[[str, dict[str, Any]], str],
-) -> tuple[str, str]:
+    run_portal_tool: PortalToolFn | None,
+) -> tuple[str, str, dict[str, str] | None]:
     if name not in VOICE_TOOL_ALLOWLIST:
-        return "工具不允许", "error: 工具不允许"
+        return "工具不允许", "error: 工具不允许", None
     if device_mac is None:
-        return "请先绑定写字机", "error: 请先绑定写字机"
+        return "请先绑定写字机", "error: 请先绑定写字机", None
+
+    if name in VOICE_PORTAL_ALLOWLIST:
+        if run_portal_tool is None:
+            return "画写通道未接线", "error: 画写通道未接线", None
+        try:
+            text, preview = run_portal_tool(name, arguments)
+        except Exception as exc:
+            # VoiceJobError 等：把白话给模型
+            msg = str(exc).strip() or type(exc).__name__
+            return msg, f"error: {_truncate_trace(msg)}", None
+        return text, f"ok: {_truncate_trace(text)}", preview
+
     try:
         result = push_tool(name, arguments)
     except Exception as exc:
         summary = f"error: {type(exc).__name__}"
-        return "工具调用失败", summary
+        return "工具调用失败", summary, None
     text = result if isinstance(result, str) else str(result)
-    return text, f"ok: {_truncate_trace(text)}"
+    return text, f"ok: {_truncate_trace(text)}", None
 
 
 def chat(
@@ -170,6 +203,7 @@ def chat(
     user_text: str,
     device_mac: str | None,
     push_tool: Callable[[str, dict[str, Any]], str],
+    run_portal_tool: PortalToolFn | None = None,
 ) -> dict[str, Any]:
     if not llm_configured():
         raise VoiceAgentError("对话未配置")
@@ -197,6 +231,7 @@ def chat(
     ]
     tool_traces: list[dict[str, str]] = []
     reply = ""
+    last_preview: dict[str, str] | None = None
 
     for round_idx in range(MAX_TOOL_ROUNDS + 1):
         payload: dict[str, Any] = {
@@ -217,7 +252,11 @@ def chat(
 
         if round_idx >= MAX_TOOL_ROUNDS:
             content = message.get("content")
-            reply = content.strip() if isinstance(content, str) else "抱歉，我暂时无法完成这个请求。"
+            reply = (
+                content.strip()
+                if isinstance(content, str)
+                else "抱歉，我暂时无法完成这个请求。"
+            )
             break
 
         messages.append(message)
@@ -226,14 +265,19 @@ def chat(
             name = fn.get("name") if isinstance(fn, dict) else None
             if not isinstance(name, str) or not name:
                 continue
-            args = _parse_tool_arguments(fn.get("arguments") if isinstance(fn, dict) else None)
-            result_text, summary = _execute_tool(
+            args = _parse_tool_arguments(
+                fn.get("arguments") if isinstance(fn, dict) else None
+            )
+            result_text, summary, preview = _execute_tool(
                 name=name,
                 arguments=args,
                 device_mac=device_mac,
                 push_tool=push_tool,
+                run_portal_tool=run_portal_tool,
             )
             tool_traces.append({"name": name, "summary": _truncate_trace(summary)})
+            if preview:
+                last_preview = preview
             tool_call_id = tool_call.get("id")
             if isinstance(tool_call_id, str) and tool_call_id:
                 messages.append(
@@ -251,4 +295,7 @@ def chat(
     history.append({"role": "assistant", "content": reply})
     _cap_history(history)
 
-    return {"reply": reply, "tool_traces": tool_traces}
+    out: dict[str, Any] = {"reply": reply, "tool_traces": tool_traces}
+    if last_preview:
+        out["preview"] = last_preview
+    return out

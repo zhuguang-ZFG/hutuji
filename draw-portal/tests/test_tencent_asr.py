@@ -37,6 +37,8 @@ def test_httpx_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DRAW_PORTAL_TENCENT_SECRET_KEY", "key")
     monkeypatch.setenv("DRAW_PORTAL_TENCENT_ASR_APP_ID", "123")
 
+    seen: dict[str, object] = {}
+
     class _FakeResponse:
         status_code = 200
 
@@ -55,7 +57,52 @@ def test_httpx_success(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
 
         def post(self, url: str, *, content: bytes, headers: dict) -> _FakeResponse:
+            import json
+
+            seen["payload"] = json.loads(content.decode("utf-8"))
             return _FakeResponse()
 
     monkeypatch.setattr(m.httpx, "Client", _FakeClient)
     assert m.recognize_sentence(audio=b"abc") == "你好"
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert "AppId" not in payload
+    assert payload.get("VoiceFormat") == "mp3"
+    assert payload.get("DataLen") == 3
+
+
+def test_api_error_includes_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DRAW_PORTAL_TENCENT_SECRET_ID", "id")
+    monkeypatch.setenv("DRAW_PORTAL_TENCENT_SECRET_KEY", "key")
+    monkeypatch.setenv("DRAW_PORTAL_TENCENT_ASR_APP_ID", "123")
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict:
+            return {
+                "Response": {
+                    "Error": {
+                        "Code": "UnknownParameter",
+                        "Message": "The parameter `AppId` is not recognized.",
+                    }
+                }
+            }
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self) -> _FakeClient:
+            return self
+
+        def __exit__(self, *args) -> None:
+            return None
+
+        def post(self, url: str, *, content: bytes, headers: dict) -> _FakeResponse:
+            return _FakeResponse()
+
+    monkeypatch.setattr(m.httpx, "Client", _FakeClient)
+    with pytest.raises(m.AsrError, match="UnknownParameter"):
+        m.recognize_sentence(audio=b"abc")

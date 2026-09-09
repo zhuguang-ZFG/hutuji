@@ -32,8 +32,13 @@ def test_plan_check_newer(tmp_path):
 
 def test_busy_and_wrong_board_reject():
     assert assert_upgrade_allowed(job_state="streaming", board="a", manifest_board="a") == "busy"
+    assert assert_upgrade_allowed(job_state="previewing", board="a", manifest_board="a") == "busy"
     assert assert_upgrade_allowed(job_state="idle", board="a", manifest_board="b") == "board_mismatch"
     assert assert_upgrade_allowed(job_state="idle", board="a", manifest_board="a") is None
+    # done/error/aborted 与设备 settled 闸对齐（画完可升，不必先 pen_up）
+    assert assert_upgrade_allowed(job_state="done", board="a", manifest_board="a") is None
+    assert assert_upgrade_allowed(job_state="error", board="a", manifest_board="a") is None
+    assert assert_upgrade_allowed(job_state="aborted", board="a", manifest_board="a") is None
 
 
 def test_build_bin_url_hmac_signs_stripped_rel():
