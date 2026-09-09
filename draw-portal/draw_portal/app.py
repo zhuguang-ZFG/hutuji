@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Cookie, Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -1068,6 +1068,8 @@ def create_app() -> FastAPI:
     @app.post("/api/draw/upload", dependencies=phone_secured)
     async def draw_upload(
         file: UploadFile = File(...),
+        size_mm: str | None = Form(None),
+        line_spacing: str | None = Form(None),
         user_id: str = Depends(user_dep),
     ) -> dict[str, Any]:
         content_type = (file.content_type or "").split(";")[0].strip().lower()
@@ -1098,6 +1100,14 @@ def create_app() -> FastAPI:
             if not config.gfont_dir:
                 store.mark_draw_job_failed(job.id, error_summary="DocImportNotConfigured")
                 raise HTTPException(status_code=503, detail="文档导入未配置（服务端缺字库目录）")
+            from draw_portal.write_layout_params import WriteLayoutParamsError, parse_optional_float
+
+            try:
+                doc_size_mm = parse_optional_float(size_mm)
+                doc_line_spacing = parse_optional_float(line_spacing)
+            except WriteLayoutParamsError as exc:
+                store.mark_draw_job_failed(job.id, error_summary="WriteLayoutParamsError")
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             try:
                 result = await asyncio.to_thread(
                     process_upload_doc,
@@ -1106,7 +1116,9 @@ def create_app() -> FastAPI:
                     job_path,
                     gfont_dir=config.gfont_dir,
                     stroke_dir=config.stroke_dir,
-                                )
+                    size_mm=doc_size_mm,
+                    line_spacing=doc_line_spacing,
+                )
                 published_pages = await asyncio.to_thread(
                     publish_doc_pages,
                     job_dir=job_path,

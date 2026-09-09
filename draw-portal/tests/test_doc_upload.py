@@ -68,6 +68,8 @@ def _patch_doc_pipeline(monkeypatch: pytest.MonkeyPatch, captured: dict | None =
         )
         if captured is not None:
             captured["gfont_dir"] = gfont_dir
+            captured["size_mm"] = kwargs.get("size_mm")
+            captured["line_spacing"] = kwargs.get("line_spacing")
         return _fake_doc_result(job_dir)
 
     def fake_publish(*, job_dir, mcp_output_dir, public_base_url):
@@ -107,6 +109,36 @@ def test_doc_upload_success_multipage(tmp_path: Path, monkeypatch: pytest.Monkey
     assert data["preview_url"] == data["pages"][0]["preview_url"]
     assert data["gcode_url"] == data["pages"][0]["url"]
     assert captured["gfont_dir"] == "/x/fonts"
+
+
+def test_doc_upload_passes_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _doc_client(monkeypatch, tmp_path)
+    captured: dict = {}
+    _patch_doc_pipeline(monkeypatch, captured)
+
+    r = client.post(
+        "/api/draw/upload",
+        files={"file": ("a.txt", b"hello world text\n" * 2, "text/plain")},
+        data={"size_mm": "18", "line_spacing": "2"},
+    )
+    assert r.status_code == 200, r.text
+    assert captured["size_mm"] == 18.0
+    assert captured["line_spacing"] == 2.0
+
+
+def test_doc_upload_invalid_layout_form_is_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    client = _doc_client(monkeypatch, tmp_path)
+    _patch_doc_pipeline(monkeypatch)
+
+    r = client.post(
+        "/api/draw/upload",
+        files={"file": ("a.txt", b"hello world text\n" * 2, "text/plain")},
+        data={"size_mm": "x"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "版式参数无效"
 
 
 def test_doc_upload_requires_gfont_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
