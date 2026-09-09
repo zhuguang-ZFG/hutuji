@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const mcpResult = require("../../utils/mcp_result");
+const jobProgress = require("../../utils/job_progress");
 
 // 设备控制：WeUI 官方模板布局 + 奎享同构能力
 // 状态轮询 + 点动/步距/抬落笔/试笔 + 任务 暂停/继续/停止/重画 + 预览确认
@@ -23,22 +24,45 @@ Page({
     lastLine: "",
     statusLine: "",
     manualLocked: false,
+    timelineIndex: 0,
+    timelineLabels: jobProgress.TIMELINE_LABELS.slice(),
+    timelineHint: "",
+    pageShow: false,
+    pagePercent: 0,
+    elapsedLabel: "",
+    etaLabel: "",
+    otaLine: "",
   },
 
   onShow() {
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
       if (!ok) return;
       this.refresh();
-      this._timer = setInterval(() => this.refresh(true), 5000);
     });
   },
 
   onHide() {
-    clearInterval(this._timer);
+    this._clearPoll();
   },
 
   onUnload() {
-    clearInterval(this._timer);
+    this._clearPoll();
+  },
+
+  _clearPoll() {
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+    this._pollMs = 0;
+  },
+
+  _reschedulePoll(pollMs) {
+    const ms = pollMs || jobProgress.POLL_MS_IDLE;
+    if (this._timer && this._pollMs === ms) return;
+    this._clearPoll();
+    this._pollMs = ms;
+    this._timer = setInterval(() => this.refresh(true), ms);
   },
 
   _deriveControls(status) {
@@ -83,6 +107,7 @@ Page({
       rawLast && !/^</.test(rawLast) && !/MPos:|Bf:|FS:/.test(rawLast)
         ? rawLast
         : "";
+    const prog = jobProgress.deriveProgressView(status);
     return {
       canConfirm,
       canAbort,
@@ -93,10 +118,18 @@ Page({
       linkLabel,
       grblLabel: (status && status.grbl_state) || "",
       posLabel,
-      pageLabel,
+      pageLabel: prog.pageLabel || pageLabel,
       statusLine,
       lastLine,
       manualLocked: !!(canConfirm || canPause || this.data.busyAction),
+      timelineIndex: prog.timelineIndex,
+      timelineLabels: prog.timelineLabels,
+      timelineHint: prog.timelineHint,
+      pageShow: prog.pageShow,
+      pagePercent: prog.pagePercent,
+      elapsedLabel: prog.elapsedLabel,
+      etaLabel: prog.etaLabel,
+      otaLine: prog.otaLine,
     };
   },
 
@@ -106,13 +139,18 @@ Page({
       .then((me) => {
         const bound = !!(me.binding && me.binding.bound);
         this.setData({ bound });
-        if (!bound) return;
+        if (!bound) {
+          this._clearPoll();
+          return;
+        }
         return this.control("hutuji.status", null, true).then((r) => {
           if (r && r.result) {
             const status = mcpResult.parseToolJson(r.result);
             if (status) {
               this.setData(Object.assign({ status }, this._deriveControls(status)));
+              this._reschedulePoll(jobProgress.deriveProgressView(status).pollMs);
             } else {
+              const emptyProg = jobProgress.deriveProgressView(null);
               this.setData({
                 status: null,
                 canConfirm: false,
@@ -128,8 +166,19 @@ Page({
                 lastLine: "",
                 statusLine: "",
                 manualLocked: !!this.data.busyAction,
+                timelineIndex: emptyProg.timelineIndex,
+                timelineLabels: emptyProg.timelineLabels,
+                timelineHint: emptyProg.timelineHint,
+                pageShow: emptyProg.pageShow,
+                pagePercent: emptyProg.pagePercent,
+                elapsedLabel: emptyProg.elapsedLabel,
+                etaLabel: emptyProg.etaLabel,
+                otaLine: emptyProg.otaLine,
               });
+              this._reschedulePoll(jobProgress.POLL_MS_IDLE);
             }
+          } else {
+            this._reschedulePoll(jobProgress.POLL_MS_IDLE);
           }
         });
       })
