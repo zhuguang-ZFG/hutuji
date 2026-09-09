@@ -96,6 +96,7 @@ Page({
       pageIndex: 0,
       layouting: false,
       aiWriting: false,
+      aiTextUsed: false,
       teaching: false,
       uploading: false,
     });

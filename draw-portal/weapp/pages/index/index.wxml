@@ -181,7 +181,7 @@
           mode="aspectFit"
           bindtap="onPreviewTap"
         />
-        <view class="preview-meta muted" wx:if="{{mode === 'draw' || job.refined || aiTextUsed}}">内容由 AI 生成，仅供参考</view>
+        <view class="preview-meta muted" wx:if="{{mode === 'draw' || job.refined || (mode === 'write' && aiTextUsed)}}">内容由 AI 生成，仅供参考</view>
         <view class="preview-meta muted" wx:if="{{job.inputTruncated}}">仅保留前 20 个汉字</view>
         <view class="preview-meta muted" wx:if="{{job.truncated}}">超过 20 页上限，已截断</view>
         <view class="preview-meta muted" wx:if="{{job.missingCharsText}}">缺字 {{job.missingCharsText}}（写出为空白）</view>
