@@ -1,0 +1,254 @@
+"""小程序语音对话智能体（portal 编排 LLM + 设备工具）。"""
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Callable
+from typing import Any
+
+import httpx
+
+VOICE_TOOL_ALLOWLIST = frozenset({
+    "hutuji.status",
+    "hutuji.remember",
+    "hutuji.recall",
+    "hutuji.forget",
+    "hutuji.abort",
+})
+MAX_HISTORY_MESSAGES = 12
+MAX_TOOL_ROUNDS = 3
+_LLM_TIMEOUT = 60.0
+
+_SYSTEM_PROMPT = (
+    "你是「小派」，微信小程序里的 AI 助手，帮用户了解并控制已绑定的呼图机写字机。"
+    "你只能调用白名单工具：hutuji.status、hutuji.remember、hutuji.recall、"
+    "hutuji.forget、hutuji.abort。"
+    "用户说「记住/以后都」用 hutuji.remember，问「你记得吗」先 hutuji.recall 再答，"
+    "「忘掉」用 hutuji.forget，紧急停止用 hutuji.abort。"
+    "禁止编造设备状态或假装已执行；需要设备实时信息时必须调 hutuji.status。"
+    "未绑定写字机时提示「请先绑定写字机」。"
+    "回答简短口语化中文，热情但不啰嗦。密码、验证码、身份证号不要记。"
+)
+
+
+class VoiceAgentError(Exception):
+    """语音对话失败。"""
+
+
+_sessions: dict[str, list[dict[str, Any]]] = {}
+
+
+def llm_configured() -> bool:
+    return all(
+        os.environ.get(name, "").strip()
+        for name in ("HUTUJI_LLM_API_KEY", "HUTUJI_LLM_BASE_URL", "HUTUJI_LLM_MODEL")
+    )
+
+
+def _load_llm_config() -> tuple[str, str, str]:
+    api_key = os.environ.get("HUTUJI_LLM_API_KEY", "").strip()
+    base_url = os.environ.get("HUTUJI_LLM_BASE_URL", "").strip()
+    model = os.environ.get("HUTUJI_LLM_MODEL", "").strip()
+    if not (api_key and base_url and model):
+        raise VoiceAgentError("对话未配置")
+    return api_key, base_url, model
+
+
+def _build_tools_schema() -> list[dict[str, Any]]:
+    def _tool(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                },
+            },
+        }
+
+    return [
+        _tool("hutuji.status", "查询写字机当前状态", {}, []),
+        _tool("hutuji.abort", "停止当前绘图任务", {}, []),
+        _tool(
+            "hutuji.remember",
+            "记住用户告知的事实",
+            {
+                "key": {"type": "string", "description": "记忆键"},
+                "value": {"type": "string", "description": "要记住的内容"},
+            },
+            ["key", "value"],
+        ),
+        _tool(
+            "hutuji.recall",
+            "召回已记住的内容",
+            {"key": {"type": "string", "description": "记忆键"}},
+            ["key"],
+        ),
+        _tool(
+            "hutuji.forget",
+            "忘记指定记忆",
+            {"key": {"type": "string", "description": "记忆键，全部清除传 *"}},
+            ["key"],
+        ),
+    ]
+
+
+def _truncate_trace(text: str, limit: int = 200) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _cap_history(history: list[dict[str, Any]]) -> None:
+    while len(history) > MAX_HISTORY_MESSAGES:
+        history.pop(0)
+
+
+def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _post_chat(*, url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        with httpx.Client(timeout=_LLM_TIMEOUT) as client:
+            resp = client.post(url, json=payload, headers=headers)
+    except httpx.HTTPError as exc:
+        raise VoiceAgentError(f"对话服务失败：{type(exc).__name__}") from exc
+    if resp.status_code != 200:
+        raise VoiceAgentError(f"对话服务返回 {resp.status_code}")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise VoiceAgentError("对话服务回包异常") from exc
+    if not isinstance(data, dict):
+        raise VoiceAgentError("对话服务回包异常")
+    return data
+
+
+def _extract_assistant_message(data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        message = data["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise VoiceAgentError("对话服务回包异常") from exc
+    if not isinstance(message, dict):
+        raise VoiceAgentError("对话服务回包异常")
+    return message
+
+
+def _execute_tool(
+    *,
+    name: str,
+    arguments: dict[str, Any],
+    device_mac: str | None,
+    push_tool: Callable[[str, dict[str, Any]], str],
+) -> tuple[str, str]:
+    if name not in VOICE_TOOL_ALLOWLIST:
+        return "工具不允许", "error: 工具不允许"
+    if device_mac is None:
+        return "请先绑定写字机", "error: 请先绑定写字机"
+    try:
+        result = push_tool(name, arguments)
+    except Exception as exc:
+        summary = f"error: {type(exc).__name__}"
+        return "工具调用失败", summary
+    text = result if isinstance(result, str) else str(result)
+    return text, f"ok: {_truncate_trace(text)}"
+
+
+def chat(
+    *,
+    session_id: str,
+    user_text: str,
+    device_mac: str | None,
+    push_tool: Callable[[str, dict[str, Any]], str],
+) -> dict[str, Any]:
+    if not llm_configured():
+        raise VoiceAgentError("对话未配置")
+
+    sid = session_id.strip()
+    if not sid:
+        raise VoiceAgentError("会话无效")
+    if len(sid) > 64:
+        sid = sid[:64]
+
+    text = user_text.strip()
+    if not text:
+        raise VoiceAgentError("内容为空")
+
+    api_key, base_url, model = _load_llm_config()
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    tools = _build_tools_schema()
+
+    history = _sessions.setdefault(sid, [])
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        *history,
+        {"role": "user", "content": text},
+    ]
+    tool_traces: list[dict[str, str]] = []
+    reply = ""
+
+    for round_idx in range(MAX_TOOL_ROUNDS + 1):
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+        }
+        if round_idx < MAX_TOOL_ROUNDS:
+            payload["tools"] = tools
+
+        data = _post_chat(url=url, headers=headers, payload=payload)
+        message = _extract_assistant_message(data)
+        tool_calls = message.get("tool_calls")
+
+        if not tool_calls:
+            content = message.get("content")
+            reply = content.strip() if isinstance(content, str) else ""
+            break
+
+        if round_idx >= MAX_TOOL_ROUNDS:
+            content = message.get("content")
+            reply = content.strip() if isinstance(content, str) else "抱歉，我暂时无法完成这个请求。"
+            break
+
+        messages.append(message)
+        for tool_call in tool_calls:
+            fn = tool_call.get("function") or {}
+            name = fn.get("name") if isinstance(fn, dict) else None
+            if not isinstance(name, str) or not name:
+                continue
+            args = _parse_tool_arguments(fn.get("arguments") if isinstance(fn, dict) else None)
+            result_text, summary = _execute_tool(
+                name=name,
+                arguments=args,
+                device_mac=device_mac,
+                push_tool=push_tool,
+            )
+            tool_traces.append({"name": name, "summary": _truncate_trace(summary)})
+            tool_call_id = tool_call.get("id")
+            if isinstance(tool_call_id, str) and tool_call_id:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": result_text,
+                    }
+                )
+
+    if not reply:
+        reply = "抱歉，我暂时无法完成这个请求。"
+
+    history.append({"role": "user", "content": text})
+    history.append({"role": "assistant", "content": reply})
+    _cap_history(history)
+
+    return {"reply": reply, "tool_traces": tool_traces}
