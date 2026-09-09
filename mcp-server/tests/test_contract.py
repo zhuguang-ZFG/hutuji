@@ -9616,6 +9616,10 @@ def test_register_route_maps_errors(tmp_path: Path, monkeypatch) -> None:
 
 from hutuji_mcp import memory_store
 
+# 同智能体多设备：记忆必须按 device_id 分桶（用户 2026-09-09 原话「不能共享记忆」）
+_MEM_DEV_A = "aa:bb:cc:dd:ee:01"
+_MEM_DEV_B = "aa:bb:cc:dd:ee:02"
+
 
 def _patch_memory_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """memory_store 与 server 各自持有 settings 引用（模块级单例惯例），两边都要换。"""
@@ -9628,31 +9632,70 @@ def test_memory_remember_recall_forget_roundtrip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_memory_settings(tmp_path, monkeypatch)
-    assert "已记住" in asyncio.run(server.hutuji_remember("称呼", "叫我小明"))
-    got = json.loads(asyncio.run(server.hutuji_recall("称呼")))
+    assert "已记住" in asyncio.run(
+        server.hutuji_remember("称呼", "叫我小明", _MEM_DEV_A)
+    )
+    got = json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "称呼")))
     assert got["memories"] == {"称呼": "叫我小明"}
     # 全量回忆
-    all_got = json.loads(asyncio.run(server.hutuji_recall("")))
+    all_got = json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))
     assert all_got["total"] == 1 and all_got["memories"]["称呼"] == "叫我小明"
     # 精确删除后查不到
-    assert "已忘掉" in asyncio.run(server.hutuji_forget("称呼"))
-    assert "没有记住" in asyncio.run(server.hutuji_recall("称呼"))
+    assert "已忘掉" in asyncio.run(server.hutuji_forget("称呼", _MEM_DEV_A))
+    assert "没有记住" in asyncio.run(server.hutuji_recall(_MEM_DEV_A, "称呼"))
+
+
+def test_memory_devices_are_isolated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """设备 A 的记忆不得被设备 B 读到；forget * 只清本机。"""
+    _patch_memory_settings(tmp_path, monkeypatch)
+    asyncio.run(server.hutuji_remember("称呼", "小明", _MEM_DEV_A))
+    asyncio.run(server.hutuji_remember("称呼", "小红", _MEM_DEV_B))
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "称呼")))[
+        "memories"
+    ] == {"称呼": "小明"}
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_B, "称呼")))[
+        "memories"
+    ] == {"称呼": "小红"}
+    assert "全部忘掉" in asyncio.run(server.hutuji_forget("*", _MEM_DEV_A))
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))["total"] == 0
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_B, "称呼")))[
+        "memories"
+    ] == {"称呼": "小红"}
+
+
+def test_memory_rejects_empty_device_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """缺 device_id 必须拒写拒读，禁止回落全局共享桶。"""
+    _patch_memory_settings(tmp_path, monkeypatch)
+    msg = asyncio.run(server.hutuji_remember("称呼", "小明", ""))
+    assert "设备" in msg or "device" in msg.lower()
+    assert "已记住" not in msg
+    assert "设备" in asyncio.run(server.hutuji_recall("", "称呼"))
+    # 旧全局 memory.json 即使有内容也不得被空 device_id 读出
+    (tmp_path / memory_store.LEGACY_MEMORY_FILE_NAME).write_text(
+        json.dumps({"称呼": "泄漏"}, ensure_ascii=False), encoding="utf-8"
+    )
+    leak = asyncio.run(server.hutuji_recall("", ""))
+    assert "泄漏" not in leak
 
 
 def test_memory_same_key_overwrites_and_lru_evicts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_memory_settings(tmp_path, monkeypatch)
-    asyncio.run(server.hutuji_remember("画猫偏好", "橘猫"))
-    asyncio.run(server.hutuji_remember("画猫偏好", "黑猫"))
-    got = json.loads(asyncio.run(server.hutuji_recall("画猫偏好")))
+    asyncio.run(server.hutuji_remember("画猫偏好", "橘猫", _MEM_DEV_A))
+    asyncio.run(server.hutuji_remember("画猫偏好", "黑猫", _MEM_DEV_A))
+    got = json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "画猫偏好")))
     assert got["memories"] == {"画猫偏好": "黑猫"}
     # 写满 200 条后再写 2 条：最久未触碰的两条被逐出，总数恒 200
     for i in range(memory_store.MEMORY_MAX_ENTRIES):
-        asyncio.run(server.hutuji_remember(f"k{i:03d}", "v"))
-    asyncio.run(server.hutuji_remember("extra1", "v"))
-    asyncio.run(server.hutuji_remember("extra2", "v"))
-    all_got = json.loads(asyncio.run(server.hutuji_recall("")))
+        asyncio.run(server.hutuji_remember(f"k{i:03d}", "v", _MEM_DEV_A))
+    asyncio.run(server.hutuji_remember("extra1", "v", _MEM_DEV_A))
+    asyncio.run(server.hutuji_remember("extra2", "v", _MEM_DEV_A))
+    all_got = json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))
     assert all_got["total"] == memory_store.MEMORY_MAX_ENTRIES
     # k000 是最早写入且未被触碰的，应已被逐出；extra2 必在
     assert "k000" not in all_got["memories"]
@@ -9665,8 +9708,8 @@ def test_memory_truncates_and_strips_control_chars(
     _patch_memory_settings(tmp_path, monkeypatch)
     long_key = "题" * (memory_store.MEMORY_KEY_MAX_CHARS + 20)
     long_value = "值" * (memory_store.MEMORY_VALUE_MAX_CHARS + 20) + "\x00\x1f"
-    asyncio.run(server.hutuji_remember(long_key + "\x07", long_value))
-    got = json.loads(asyncio.run(server.hutuji_recall("")))
+    asyncio.run(server.hutuji_remember(long_key + "\x07", long_value, _MEM_DEV_A))
+    got = json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))
     (key, value), = got["memories"].items()
     assert len(key) == memory_store.MEMORY_KEY_MAX_CHARS
     assert len(value) == memory_store.MEMORY_VALUE_MAX_CHARS
@@ -9676,28 +9719,31 @@ def test_memory_truncates_and_strips_control_chars(
 def test_memory_corrupt_file_fails_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """memory.json 损坏/结构不对一律从空开始，不得让工具 500。"""
+    """单设备记忆文件损坏/结构不对一律从空开始，不得让工具 500。"""
     _patch_memory_settings(tmp_path, monkeypatch)
-    tmp_path.mkdir(exist_ok=True)
-    (tmp_path / memory_store.MEMORY_FILE_NAME).write_text("{broken", encoding="utf-8")
-    got = json.loads(asyncio.run(server.hutuji_recall("")))
+    path = memory_store.memory_path_for(_MEM_DEV_A)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{broken", encoding="utf-8")
+    got = json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))
     assert got["total"] == 0
     # 损坏后仍可正常写入并覆盖坏文件
-    assert "已记住" in asyncio.run(server.hutuji_remember("a", "b"))
-    assert json.loads(asyncio.run(server.hutuji_recall("a")))["memories"] == {"a": "b"}
+    assert "已记住" in asyncio.run(server.hutuji_remember("a", "b", _MEM_DEV_A))
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "a")))[
+        "memories"
+    ] == {"a": "b"}
     # 结构不对（合法 JSON 但非 dict[str,str]）同样从空开始
-    (tmp_path / memory_store.MEMORY_FILE_NAME).write_text("[1,2,3]", encoding="utf-8")
-    assert json.loads(asyncio.run(server.hutuji_recall("")))["total"] == 0
+    path.write_text("[1,2,3]", encoding="utf-8")
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))["total"] == 0
 
 
 def test_memory_forget_star_clears_all(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_memory_settings(tmp_path, monkeypatch)
-    asyncio.run(server.hutuji_remember("a", "1"))
-    asyncio.run(server.hutuji_remember("b", "2"))
-    assert "全部忘掉" in asyncio.run(server.hutuji_forget("*"))
-    assert json.loads(asyncio.run(server.hutuji_recall("")))["total"] == 0
+    asyncio.run(server.hutuji_remember("a", "1", _MEM_DEV_A))
+    asyncio.run(server.hutuji_remember("b", "2", _MEM_DEV_A))
+    assert "全部忘掉" in asyncio.run(server.hutuji_forget("*", _MEM_DEV_A))
+    assert json.loads(asyncio.run(server.hutuji_recall(_MEM_DEV_A, "")))["total"] == 0
 
 
 def test_memory_file_not_downloadable_and_not_cleaned(
@@ -9705,16 +9751,20 @@ def test_memory_file_not_downloadable_and_not_cleaned(
 ) -> None:
     """记忆文件必须同时躲过 /files 闸门与 TTL 清理（位置安全的两条活判据）。"""
     _patch_memory_settings(tmp_path, monkeypatch)
-    asyncio.run(server.hutuji_remember("称呼", "小明"))
-    # /files 名字闸门拒绝 memory.json
+    asyncio.run(server.hutuji_remember("称呼", "小明", _MEM_DEV_A))
+    # /files 名字闸门拒绝旧全局名与分桶相对路径
     with pytest.raises(HTTPException) as caught:
-        asyncio.run(server._serve_file(memory_store.MEMORY_FILE_NAME))
+        asyncio.run(server._serve_file(memory_store.LEGACY_MEMORY_FILE_NAME))
     assert caught.value.status_code == 404
-    # TTL 清理只清 draw_* 产物，memory.json 过期语义不适用
+    device_path = memory_store.memory_path_for(_MEM_DEV_A)
+    with pytest.raises(HTTPException) as caught2:
+        asyncio.run(server._serve_file(device_path.name))
+    assert caught2.value.status_code == 404
+    # TTL 清理只清 draw_* 产物，记忆文件过期语义不适用
     old = time.time() - 86400
-    os.utime(tmp_path / memory_store.MEMORY_FILE_NAME, (old, old))
+    os.utime(device_path, (old, old))
     server._cleanup_expired_outputs()
-    assert (tmp_path / memory_store.MEMORY_FILE_NAME).is_file()
+    assert device_path.is_file()
 
 
 def _write_song_catalog(tmp_path: Path, entries: list[dict]) -> Path:

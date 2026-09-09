@@ -25,6 +25,15 @@ def load_provider_cipher_key() -> bytes | None:
         raise RuntimeError("DRAW_PORTAL_PROVIDER_CIPHER_KEY 无效") from exc
 
 
+def _parse_firmware_allowed_hosts(raw: str) -> tuple[str, ...]:
+    out: list[str] = []
+    for part in raw.split(","):
+        text = part.strip().lower()
+        if text:
+            out.append(text)
+    return tuple(out)
+
+
 def _is_loopback_host(host: str) -> bool:
     try:
         return ipaddress.ip_address(host).is_loopback
@@ -97,6 +106,11 @@ class Config:
     # 小程序文字聊天（2026-09-09）：/api/chat 日配额与 MCP /internal/chat 转发超时
     chat_daily_limit: int = 50
     chat_timeout_seconds: int = 30
+    # 小派 OTA（2026-09-09）：catalog 路径空=禁用 check/upgrade；签名密钥空=不签下载 URL
+    firmware_catalog_path: str = ""
+    firmware_public_base: str = ""
+    firmware_allowed_hosts: tuple[str, ...] = ()
+    firmware_signing_secret: str = ""
 
 
 @dataclass(frozen=True)
@@ -206,6 +220,18 @@ def load_config() -> Config:
         in {"1", "true", "yes"},
         chat_daily_limit=int(os.environ.get("DRAW_PORTAL_CHAT_DAILY_LIMIT", "50")),
         chat_timeout_seconds=int(os.environ.get("DRAW_PORTAL_CHAT_TIMEOUT_SECONDS", "30")),
+        firmware_catalog_path=os.environ.get("DRAW_PORTAL_FIRMWARE_CATALOG_PATH", "").strip(),
+        firmware_public_base=os.environ.get("DRAW_PORTAL_FIRMWARE_PUBLIC_BASE", "").strip()
+        or public_base,
+        firmware_allowed_hosts=_parse_firmware_allowed_hosts(
+            os.environ.get(
+                "DRAW_PORTAL_FIRMWARE_ALLOWED_HOSTS",
+                "hutuji.donglicao.com",
+            )
+        ),
+        firmware_signing_secret=os.environ.get(
+            "DRAW_PORTAL_FIRMWARE_SIGNING_SECRET", ""
+        ).strip(),
     )
 
 

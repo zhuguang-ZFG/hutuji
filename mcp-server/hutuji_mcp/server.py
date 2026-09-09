@@ -1126,33 +1126,37 @@ async def hutuji_teach(text: str) -> str:
     return await _run_teach_job(safe_text, public_base_url)
 
 @mcp.tool()
-async def hutuji_remember(key: str, value: str) -> str:
+async def hutuji_remember(key: str, value: str, device_id: str) -> str:
     """记住用户告诉你的事情（称呼、偏好、约定等）。
 
+    必须传当前对话设备的 MAC 作为 device_id——同智能体下多台设备记忆互不共享，
+    缺省或串用其它设备 MAC 会记错/记不住。
     key 是简短主题（≤50 字），value 是要记住的内容（≤500 字），同主题会覆盖旧的。
     用户说「记住…」「以后都…」时用；密码、验证码等敏感信息不要记。
     重启后记忆仍在，除非用户说忘掉。"""
     _report_mcp_tool("remember")
-    return await asyncio.to_thread(_memory_remember, key, value)
+    return await asyncio.to_thread(_memory_remember, key, value, device_id)
 
 
 @mcp.tool()
-async def hutuji_recall(key: str = "") -> str:
-    """回忆之前记住的事情。
+async def hutuji_recall(device_id: str, key: str = "") -> str:
+    """回忆之前记住的事情（仅当前 device_id 对应设备的桶）。
 
-    key 留空返回全部记忆（很多时只回最近的并注明总数）；给 key 按主题匹配。
+    必须传当前对话设备的 MAC 作为 device_id。
+    key 留空返回该设备全部记忆（很多时只回最近的并注明总数）；给 key 按主题匹配。
     用户问「我说过…吗」「你记得…吗」「我喜欢什么」时先查它再回答，查不到就老实说没记住，不要编。"""
     _report_mcp_tool("recall")
-    return await asyncio.to_thread(_memory_recall, key)
+    return await asyncio.to_thread(_memory_recall, device_id, key)
 
 
 @mcp.tool()
-async def hutuji_forget(key: str) -> str:
-    """忘掉记住的事情：key 精确删除；传 * 清空全部（须用户明确要求全部忘掉）。
+async def hutuji_forget(key: str, device_id: str) -> str:
+    """忘掉记住的事情：key 精确删除；传 * 清空**本设备**全部（须用户明确要求全部忘掉）。
 
+    必须传当前对话设备的 MAC 作为 device_id；* 不会清其它设备的记忆。
     用户说「忘掉…」「别记了」时用。"""
     _report_mcp_tool("forget")
-    return await asyncio.to_thread(_memory_forget, key)
+    return await asyncio.to_thread(_memory_forget, key, device_id)
 
 
 def _songs_dir() -> Path:

@@ -1,89 +1,90 @@
 <view class="page chat-page">
   <scroll-view
-    class="chat-scroll"
+    class="msg-scroll"
     scroll-y
-    scroll-into-view="{{anchor}}"
+    scroll-into-view="{{scrollAnchor}}"
     scroll-with-animation
+    enhanced
+    show-scrollbar="{{false}}"
   >
     <view class="msg-list">
-      <view
-        wx:for="{{messages}}"
-        wx:key="id"
-        class="msg {{item.role === 'user' ? 'from-user' : 'from-pai'}}"
-      >
-        <view class="bubble">
-          <text>{{item.text}}</text>
-        </view>
-        <view wx:if="{{item.draw}}" class="draw-card">
-          <view class="draw-desc">想画：{{item.draw.description}}</view>
-          <block wx:if="{{item.draw.state === 'idle'}}">
-            <button
-              class="draw-btn"
-              hover-class="btn-press"
-              bindtap="onDrawGenerate"
-              data-idx="{{index}}"
-            >生成这幅画</button>
-          </block>
-          <view wx:elif="{{item.draw.state === 'generating'}}" class="draw-state">
-            生成中，约 10 秒～1 分钟，好了自动上屏…
-          </view>
-          <block wx:elif="{{item.draw.state === 'ready'}}">
-            <image
-              class="draw-preview"
-              src="{{item.draw.previewUrl}}"
-              mode="aspectFit"
-              bindtap="onDrawPreview"
-              binderror="onDrawImgError"
-              data-idx="{{index}}"
-            />
-            <view class="draw-state">约 {{item.draw.lines}} 行 · 点图放大</view>
-            <view class="draw-actions">
-              <button
-                class="draw-btn"
-                hover-class="btn-press"
-                bindtap="onDrawSend"
-                data-idx="{{index}}"
-                loading="{{item.draw.sending}}"
-                disabled="{{item.draw.sending}}"
-              >发送到写字机</button>
-              <button
-                class="draw-btn ghost"
-                hover-class="btn-press"
-                bindtap="onDrawSave"
-                data-idx="{{index}}"
-                disabled="{{item.draw.saved}}"
-              >{{item.draw.saved ? "已收藏" : "收藏"}}</button>
+      <block wx:for="{{messages}}" wx:key="id">
+        <view id="msg-{{item.id}}" class="msg-row {{item.role}}">
+          <view class="bubble">{{item.content}}</view>
+          <view wx:if="{{item.toolTracesText}}" class="tool-traces muted">{{item.toolTracesText}}</view>
+          <view wx:if="{{item.previewUrl}}" class="preview-card">
+            <image class="preview-img" src="{{item.previewUrl}}" mode="aspectFit"></image>
+            <view wx:if="{{item.previewPending}}" class="preview-actions">
+              <view
+                class="btn-confirm"
+                data-id="{{item.id}}"
+                bindtap="onConfirmPreview"
+              >开始画</view>
+              <view
+                class="btn-cancel"
+                data-id="{{item.id}}"
+                bindtap="onCancelPreview"
+              >取消</view>
             </view>
-          </block>
-          <view wx:elif="{{item.draw.state === 'failed'}}" class="draw-state warn">
-            {{item.draw.error || "生成失败，换个说法试试"}}
+            <view wx:elif="{{item.previewDone}}" class="preview-done muted">{{item.previewDone}}</view>
+          </view>
+          <!-- 文字链画图卡（DRAW:: 意图） -->
+          <view wx:if="{{item.draw}}" class="draw-card">
+            <view class="draw-desc">想画：{{item.draw.description}}</view>
+            <block wx:if="{{item.draw.state === 'idle'}}">
+              <view class="draw-btn" hover-class="btn-press" data-id="{{item.id}}" bindtap="onDrawGenerate">{{item.draw.error ? "重新生成" : "生成这幅画"}}</view>
+              <view wx:if="{{item.draw.error}}" class="draw-state warn">{{item.draw.error}}</view>
+            </block>
+            <view wx:elif="{{item.draw.state === 'generating'}}" class="draw-state">生成中，约 10 秒～1 分钟，好了自动上屏…</view>
+            <block wx:elif="{{item.draw.state === 'ready'}}">
+              <image
+                class="preview-img"
+                src="{{item.draw.previewUrl}}"
+                mode="aspectFit"
+                data-id="{{item.id}}"
+                bindtap="onDrawPreview"
+                binderror="onDrawImgError"
+              />
+              <view class="draw-state">约 {{item.draw.lines}} 行 · 点图放大</view>
+              <view class="draw-actions">
+                <view class="btn-confirm" data-id="{{item.id}}" bindtap="onDrawSend">{{item.draw.sending ? "发送中…" : "发送到写字机"}}</view>
+                <view class="btn-confirm ghost {{item.draw.saved ? 'disabled' : ''}}" data-id="{{item.id}}" bindtap="onDrawSave">{{item.draw.saved ? "已收藏" : "收藏"}}</view>
+              </view>
+            </block>
+            <view wx:elif="{{item.draw.state === 'failed'}}" class="draw-state warn">{{item.draw.error || "生成失败，换个说法试试"}}</view>
           </view>
         </view>
-      </view>
-      <view wx:if="{{sending}}" class="msg from-pai">
-        <view class="bubble dim">小派正在想…</view>
-      </view>
-      <view id="chat-end" class="chat-end"></view>
+      </block>
     </view>
   </scroll-view>
 
-  <view class="input-bar">
+  <view class="input-row">
     <input
-      class="chat-input"
-      value="{{input}}"
-      placeholder="和小派说点什么…"
+      class="text-input"
+      value="{{textInput}}"
+      placeholder="也可以打字…"
       placeholder-class="ph"
-      bindinput="onInput"
-      bindconfirm="onSend"
+      bindinput="onTextInput"
+      bindconfirm="onSendText"
       confirm-type="send"
       maxlength="200"
       cursor-spacing="12"
     />
-    <button
-      class="chat-send"
-      hover-class="btn-press"
-      bindtap="onSend"
-      disabled="{{!input || sending}}"
-    >发送</button>
+    <view class="text-send {{(!textInput || busy) ? 'disabled' : ''}}" hover-class="btn-press" bindtap="onSendText">发送</view>
   </view>
+
+  <view class="hold-area">
+    <view
+      class="hold-btn {{recording ? 'active' : ''}} {{busy && !recording ? 'disabled' : ''}}"
+      bindtouchstart="onHoldStart"
+      bindtouchend="onHoldEnd"
+      bindtouchcancel="onHoldEnd"
+    >
+      <text wx:if="{{recording}}">松开 结束</text>
+      <text wx:elif="{{busy && !recording}}">处理中…</text>
+      <text wx:else>按住 说话</text>
+    </view>
+  </view>
+
+  <view class="page-foot muted">动力巢 · v0.3.0</view>
 </view>

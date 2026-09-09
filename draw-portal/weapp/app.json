@@ -6,7 +6,8 @@
     "pages/history/history",
     "pages/profile/profile",
     "pages/bind/bind",
-    "pages/wifi/wifi"
+    "pages/wifi/wifi",
+    "pages/firmware/firmware"
   ],
   "window": {
     "navigationBarTitleText": "动力巢",
@@ -33,6 +34,11 @@
   },
   "networkTimeout": {
     "request": 150000
+  },
+  "permission": {
+    "scope.record": {
+      "desc": "用于语音聊小派"
+    }
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

@@ -1,9 +1,14 @@
-"""小派记忆持久化：云端 JSON 单文件 + 覆盖式增删查（窄异常，无日志正文）。
+"""小派记忆持久化：按设备分桶的云端 JSON + 覆盖式增删查（窄异常，无日志正文）。
 
-存储位置 `settings.output_dir / "memory.json"`：
-- `_cleanup_expired_outputs` 只清 `draw_*` 能力产物，摸不到本文件；
+同智能体下会挂多台设备——记忆**不得**跨设备共享（2026-09-09 用户原话）。
+每台设备一个文件：`settings.output_dir / "memory" / "devices" / "<safe_id>.json"`。
+
+- `_cleanup_expired_outputs` 只清 `draw_*` 能力产物，摸不到本目录；
 - `/files` 只服务带 128-bit token 的能力文件名，本文件不可下载；
-- 生产 output_dir 与 G-code 产物同目录、同权限，无需新增配置。
+- 生产 output_dir 与 G-code 产物同树、同权限，无需新增配置。
+
+缺 `device_id` **fail-closed**（拒写拒读），禁止回落旧全局 `memory.json`。
+旧全局文件若仍在盘上仅作遗留，本模块不再读写。
 
 内容属用户个人数据：本模块任何分支都**不把 key/value 写进日志**（脱敏硬约定）。
 记忆不是关键数据——文件缺失/损坏一律从空开始，绝不让工具调用因它 500。
@@ -12,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -19,7 +25,9 @@ from pathlib import Path
 from .config import settings
 from .llm_svg import _CONTROL_CHAR_RE
 
-MEMORY_FILE_NAME = "memory.json"
+LEGACY_MEMORY_FILE_NAME = "memory.json"  # 旧全局共享文件名；只拒下载，不再读写
+MEMORY_DIR_NAME = "memory"
+MEMORY_DEVICES_SUBDIR = "devices"
 MEMORY_MAX_ENTRIES = 200
 MEMORY_KEY_MAX_CHARS = 50
 MEMORY_VALUE_MAX_CHARS = 500
@@ -30,13 +38,43 @@ MEMORY_RECALL_ALL_LIMIT = 100
 # 挤爆 LLM 上下文的理论极端；从最新往回装，装满为止（条数上限仍先生效）。
 MEMORY_RECALL_ALL_MAX_CHARS = 8000
 
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
+_MISSING_DEVICE = (
+    "记不住：缺少设备标识。同智能体下多台设备记忆互不共享，请传当前设备 MAC 作为 device_id。"
+)
+
 # MCP 工具走 asyncio.to_thread，remember/forget 的读-改-写必须串行，
 # 否则两个并发写各自 _load 后互相覆盖丢一条（_store 原子写只保不烂不保不丢）。
 _LOCK = threading.Lock()
 
 
+def sanitize_device_id(raw: str) -> str | None:
+    """合法 device_id 原样返回；空串 → None；非法 → 抛 ValueError（与 draw 同口径）。"""
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if not _DEVICE_ID_RE.fullmatch(value):
+        raise ValueError("device_id 只允许 1..64 字 ASCII 字母数字及 :_-")
+    return value
+
+
+def _file_safe_device_id(device_id: str) -> str:
+    """Windows 路径不能含 ':'（MAC 常见），统一换成 '_'；其余已过白名单。"""
+    return device_id.replace(":", "_")
+
+
+def memory_devices_dir() -> Path:
+    return settings.output_dir / MEMORY_DIR_NAME / MEMORY_DEVICES_SUBDIR
+
+
+def memory_path_for(device_id: str) -> Path:
+    """解析后的设备记忆文件路径；调用方须先 sanitize。"""
+    return memory_devices_dir() / f"{_file_safe_device_id(device_id)}.json"
+
+
 def memory_path() -> Path:
-    return settings.output_dir / MEMORY_FILE_NAME
+    """兼容旧调用：指向遗留全局文件（本模块已不再读写其内容）。"""
+    return settings.output_dir / LEGACY_MEMORY_FILE_NAME
 
 
 def _clean(text: str, limit: int) -> str:
@@ -46,10 +84,10 @@ def _clean(text: str, limit: int) -> str:
     return _CONTROL_CHAR_RE.sub("", text).strip()[:limit]
 
 
-def _load() -> "OrderedDict[str, str]":
+def _load(path: Path) -> "OrderedDict[str, str]":
     """读全量；缺失/损坏/结构不对一律从空开始（fail-open，理由见模块 docstring）。"""
     try:
-        raw = json.loads(memory_path().read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return OrderedDict()
     if not isinstance(raw, dict):
@@ -59,36 +97,48 @@ def _load() -> "OrderedDict[str, str]":
     )
 
 
-def _store(data: "OrderedDict[str, str]") -> None:
+def _store(path: Path, data: "OrderedDict[str, str]") -> None:
     """原子写：先写临时文件再 os.replace，崩溃/并发不会留下半个 JSON。"""
-    path = memory_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)
 
 
-def remember(key: str, value: str) -> str:
-    """写入/覆盖一条记忆；超容量按 LRU 逐出最久未触碰的条目。"""
+def remember(key: str, value: str, device_id: str) -> str:
+    """写入/覆盖一条记忆；超容量按 LRU 逐出最久未触碰的条目。仅本 device_id 桶。"""
+    try:
+        safe_dev = sanitize_device_id(device_id)
+    except ValueError as exc:
+        return str(exc)
+    if safe_dev is None:
+        return _MISSING_DEVICE
     key = _clean(key, MEMORY_KEY_MAX_CHARS)
     value = _clean(value, MEMORY_VALUE_MAX_CHARS)
     if not key or not value:
         return "没听清要记什么，这次没有记住。"
+    path = memory_path_for(safe_dev)
     with _LOCK:
-        data = _load()
+        data = _load(path)
         if key in data:
             del data[key]
         data[key] = value
         while len(data) > MEMORY_MAX_ENTRIES:
             data.popitem(last=False)
-        _store(data)
+        _store(path, data)
     return f"已记住「{key}」。"
 
 
-def recall(key: str = "") -> str:
-    """按主题子串回忆；key 为空返回全量（条数与字符总量双上限，注明总数）。"""
+def recall(device_id: str, key: str = "") -> str:
+    """按主题子串回忆；key 为空返回全量（条数与字符总量双上限，注明总数）。仅本桶。"""
+    try:
+        safe_dev = sanitize_device_id(device_id)
+    except ValueError as exc:
+        return str(exc)
+    if safe_dev is None:
+        return _MISSING_DEVICE
     key = _clean(key, MEMORY_KEY_MAX_CHARS)
-    data = _load()
+    data = _load(memory_path_for(safe_dev))
     if not key:
         total = len(data)
         items: list[tuple[str, str]] = []
@@ -113,21 +163,26 @@ def recall(key: str = "") -> str:
     return json.dumps({"memories": hits}, ensure_ascii=False)
 
 
-def forget(key: str) -> str:
-    """精确删除一条；传 "*" 清空全部。"""
+def forget(key: str, device_id: str) -> str:
+    """精确删除一条；传 "*" 清空**本设备**全部（不清其它设备）。"""
+    try:
+        safe_dev = sanitize_device_id(device_id)
+    except ValueError as exc:
+        return str(exc)
+    if safe_dev is None:
+        return _MISSING_DEVICE
     key = _clean(key, MEMORY_KEY_MAX_CHARS)
+    path = memory_path_for(safe_dev)
     if key == "*":
         with _LOCK:
-            _store(OrderedDict())
+            _store(path, OrderedDict())
         return "已经全部忘掉了。"
     if not key:
         return "没听清要忘掉什么。"
     with _LOCK:
-        data = _load()
+        data = _load(path)
         if key not in data:
             return f"本来就没有记住「{key}」。"
         del data[key]
-        _store(data)
+        _store(path, data)
     return f"已忘掉「{key}」。"
-
-

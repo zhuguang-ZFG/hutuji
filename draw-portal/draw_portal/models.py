@@ -72,6 +72,17 @@ class DeviceBinding:
 
 
 @dataclass(frozen=True)
+class FirmwareOtaSession:
+    user_id: str
+    device_mac: str
+    state: str
+    progress: int
+    reason: str | None
+    target_version: str | None
+    updated_at: float
+
+
+@dataclass(frozen=True)
 class DrawJob:
     id: str
     user_id: str

@@ -108,11 +108,40 @@ Page({
                 icon: "success",
               });
             } else {
-              wx.showModal({ title: "发送失败", content: r.detail, showCancel: false });
+              wx.showModal({ title: "发送失败", content: r.detail || "设备未响应", showCancel: false });
             }
           })
           .catch((err) => {
-            wx.showModal({ title: "发送失败", content: err.detail, showCancel: false });
+            if (err.status === 400 && /绑定/.test(err.detail || "")) {
+              wx.navigateTo({ url: "/pages/bind/bind" });
+              return;
+            }
+            wx.showModal({ title: "发送失败", content: err.detail || "请稍后再试", showCancel: false });
+          });
+      },
+    });
+  },
+
+  onDelete(e) {
+    const savedId = e.currentTarget.dataset.id;
+    wx.showModal({
+      title: "删除收藏",
+      content: "删除后不能从历史再发送，确认删除？",
+      confirmColor: "#e54d42",
+      success: (res) => {
+        if (!res.confirm) return;
+        api
+          .request(`/api/draw/saved/${savedId}`, { method: "DELETE" })
+          .then(() => {
+            wx.showToast({ title: "已删除", icon: "success" });
+            this.refresh();
+          })
+          .catch((err) => {
+            wx.showModal({
+              title: "删除失败",
+              content: err.detail || "请稍后再试",
+              showCancel: false,
+            });
           });
       },
     });
