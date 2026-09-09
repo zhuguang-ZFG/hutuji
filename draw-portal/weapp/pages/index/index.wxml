@@ -10,11 +10,17 @@
       data-mode="write"
       bindtap="onModeTap"
     >写字</view>
+    <view
+      class="mode-tab {{mode === 'teach' ? 'active' : ''}}"
+      data-mode="teach"
+      bindtap="onModeTap"
+    >笔顺</view>
   </view>
 
   <view class="slim-head">
     <text class="slim-title" wx:if="{{mode === 'draw'}}">想画点<span class="accent">什么</span></text>
-    <text class="slim-title" wx:else>想写点<span class="accent">什么</span></text>
+    <text class="slim-title" wx:elif="{{mode === 'write'}}">想写点<span class="accent">什么</span></text>
+    <text class="slim-title" wx:else>想学点<span class="accent">什么</span></text>
     <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日 {{quotaLeft}} 次</text>
   </view>
 
@@ -98,6 +104,36 @@
     </view>
   </block>
 
+  <!-- 笔顺模式 -->
+  <block wx:elif="{{mode === 'teach'}}">
+    <view class="weui-cells input-panel">
+      <view class="weui-cell weui-cell_textarea">
+        <view class="weui-cell__bd">
+          <textarea
+            class="weui-textarea write-area"
+            placeholder="随便写，例如：春眠不觉晓"
+            value="{{teachText}}"
+            bindinput="onTeachInput"
+            maxlength="200"
+            auto-height
+            placeholder-class="ph"
+          />
+        </view>
+      </view>
+    </view>
+    <view class="weui-btn-area tight">
+      <button
+        class="weui-btn weui-btn_primary"
+        hover-class="btn-press"
+        bindtap="onTeachGenerate"
+        loading="{{teaching}}"
+        disabled="{{teaching || !teachText}}"
+      >
+        {{teaching ? "生成中…" : "生成笔顺"}}
+      </button>
+    </view>
+  </block>
+
   <!-- 共用预览卡 -->
   <block wx:if="{{job}}">
     <view class="preview-card">
@@ -128,11 +164,14 @@
           mode="aspectFit"
           bindtap="onPreviewTap"
         />
+        <view class="preview-meta muted" wx:if="{{job.inputTruncated}}">仅保留前 20 个汉字</view>
         <view class="preview-meta muted" wx:if="{{job.truncated}}">超过 20 页上限，已截断</view>
-        <view class="preview-meta muted" wx:elif="{{job.refined}}">AI 精修 · 点图放大</view>
+        <view class="preview-meta muted" wx:if="{{job.missingCharsText}}">缺字 {{job.missingCharsText}}（写出为空白）</view>
+        <view class="preview-meta muted" wx:if="{{job.refined}}">AI 精修 · 点图放大</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'failed'}}">精修未成功 · 快速草图</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修仍在跑 · 先看草图</view>
         <view class="preview-meta muted" wx:elif="{{job.pages && job.pages.length > 1}}">共 {{job.pageCount || job.pages.length}} 页 · 点图放大</view>
+        <view class="preview-meta muted" wx:elif="{{mode === 'teach' && job.charsTaught}}">教 {{job.charsTaught.length}} 字 · 点图放大</view>
         <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
         <view class="preview-actions">
           <button

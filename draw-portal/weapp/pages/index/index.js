@@ -6,11 +6,13 @@ Page({
     mode: "draw",
     description: "",
     writeText: "",
+    teachText: "",
     sizeMm: 12,
     lineSpacing: 1.6,
     pageIndex: 0,
     generating: false,
     layouting: false,
+    teaching: false,
     sending: false,
     saving: false,
     uploading: false,
@@ -56,6 +58,7 @@ Page({
       job: null,
       pageIndex: 0,
       layouting: false,
+      teaching: false,
       uploading: false,
     });
   },
@@ -66,6 +69,10 @@ Page({
 
   onWriteInput(e) {
     this.setData({ writeText: e.detail.value });
+  },
+
+  onTeachInput(e) {
+    this.setData({ teachText: e.detail.value });
   },
 
   bumpSize(e) {
@@ -121,6 +128,32 @@ Page({
       })
       .catch((err) => {
         this.setData({ generating: false });
+        wx.showModal({
+          title: "生成失败",
+          content: err.detail || "请稍后再试",
+          showCancel: false,
+        });
+      });
+  },
+
+  onTeachGenerate() {
+    if (this.data.teaching || !this.data.teachText) return;
+    const token = this._writeToken;
+    this.setData({ teaching: true });
+    api
+      .request("/api/draw/teach", {
+        method: "POST",
+        data: { text: this.data.teachText },
+      })
+      .then((res) => {
+        if (token !== this._writeToken) return;
+        this.setData({ teaching: false });
+        this.adoptJob(res);
+        wx.showToast({ title: "生成完成", icon: "success" });
+      })
+      .catch((err) => {
+        if (token !== this._writeToken) return;
+        this.setData({ teaching: false });
         wx.showModal({
           title: "生成失败",
           content: err.detail || "请稍后再试",
@@ -277,6 +310,10 @@ Page({
       pages: data.pages || null,
       pageCount: data.page_count || null,
       truncated: !!data.truncated,
+      inputTruncated: !!data.input_truncated,
+      missingChars: data.missing_chars || [],
+      missingCharsText: (data.missing_chars || []).slice(0, 10).join(""),
+      charsTaught: data.chars_taught || null,
     };
     if (data.refined && data.refined.status === "pending") {
       job.refining = true;
