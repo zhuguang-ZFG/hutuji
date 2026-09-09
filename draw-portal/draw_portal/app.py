@@ -256,6 +256,17 @@ class WriteBody(BaseModel):
     line_spacing: float | None = None
 
 
+class WriteAiBody(BaseModel):
+    mode: str  # generate | polish
+    prompt: str = ""
+    text: str = ""
+
+
+class VoiceTurnBody(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class TeachBody(BaseModel):
     text: str
 
@@ -707,6 +718,113 @@ def create_app() -> FastAPI:
         from draw_portal.mcp_result import unwrap_tool_text
 
         return {"status": "ok", "result": unwrap_tool_text(result)}
+
+    def _infer_voice_format(filename: str) -> str:
+        lower = filename.lower()
+        if lower.endswith(".wav"):
+            return "wav"
+        if lower.endswith(".m4a"):
+            return "m4a"
+        return "mp3"
+
+    @app.post("/api/voice/asr", dependencies=phone_secured)
+    async def voice_asr(
+        file: UploadFile = File(...),
+        user_id: str = Depends(require_phone),
+    ) -> dict[str, str]:
+        from draw_portal.tencent_asr import AsrError, recognize_sentence
+
+        raw = await file.read()
+        voice_format = _infer_voice_format(file.filename or "")
+        try:
+            text = recognize_sentence(audio=raw, voice_format=voice_format)
+        except AsrError as exc:
+            msg = str(exc)
+            if "未配置" in msg:
+                raise HTTPException(status_code=503, detail=msg) from None
+            raise HTTPException(status_code=400, detail=msg) from None
+        _record_portal_usage(
+            store,
+            event_type="web_voice_asr",
+            user_id=user_id,
+            detail=f"{voice_format}:{len(raw)}",
+            ok=True,
+        )
+        return {"text": text}
+
+    @app.post("/api/voice/turn", dependencies=phone_secured)
+    def voice_turn(
+        body: VoiceTurnBody,
+        user_id: str = Depends(require_phone),
+    ) -> dict[str, Any]:
+        from draw_portal import voice_agent
+        from draw_portal.mcp_result import unwrap_tool_text
+        from draw_portal.push import mint_messaging_token
+        from draw_portal.voice_agent import VoiceAgentError
+
+        binding = store.get_binding_for_user(user_id)
+        device_mac: str | None = binding.device_mac if binding else None
+        token_holder: dict[str, str | None] = {
+            "token": (
+                decrypt_token(config.token_cipher_key, binding.device_token_enc)
+                if binding
+                else None
+            ),
+        }
+
+        def push_tool(name: str, arguments: dict[str, Any]) -> str:
+            tok = token_holder["token"]
+            if tok is None:
+                return "请先绑定写字机"
+            ok, result = push_tool_call(
+                api_base=config.xiaozhi_api_base,
+                device_token=tok,
+                name=name,
+                arguments=arguments,
+                timeout=15,
+            )
+            if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404") and binding is not None:
+                fresh = mint_messaging_token(
+                    api_base=config.xiaozhi_api_base, mac=binding.device_mac
+                )
+                if fresh:
+                    store.update_binding_token(
+                        user_id,
+                        device_token_enc=encrypt_token(config.token_cipher_key, fresh),
+                    )
+                    token_holder["token"] = fresh
+                    ok, result = push_tool_call(
+                        api_base=config.xiaozhi_api_base,
+                        device_token=fresh,
+                        name=name,
+                        arguments=arguments,
+                        timeout=15,
+                    )
+            if not ok:
+                return result if isinstance(result, str) else str(result)
+            return unwrap_tool_text(result)
+
+        try:
+            out = voice_agent.chat(
+                session_id=body.session_id,
+                user_text=body.text,
+                device_mac=device_mac,
+                push_tool=push_tool,
+            )
+        except VoiceAgentError as exc:
+            msg = str(exc)
+            if "未配置" in msg:
+                raise HTTPException(status_code=503, detail=msg) from None
+            raise HTTPException(status_code=400, detail=msg) from None
+        _record_portal_usage(
+            store,
+            event_type="web_voice_turn",
+            user_id=user_id,
+            device_mac=device_mac,
+            detail=f"{len(body.text)}:{len(out.get('reply', ''))}",
+            ok=True,
+        )
+        return {"reply": out["reply"], "tool_traces": out["tool_traces"]}
 
     @app.get("/api/device/firmware/check", dependencies=phone_secured)
     def firmware_check(user_id: str = Depends(require_phone)) -> dict[str, Any]:
@@ -1214,6 +1332,31 @@ def create_app() -> FastAPI:
             "bytes": result.bytes,
             "refined": refined_payload,
         }
+
+    @app.post("/api/draw/write/ai", dependencies=phone_secured)
+    async def draw_write_ai(
+        body: WriteAiBody,
+        user_id: str = Depends(user_dep),
+    ) -> dict[str, Any]:
+        """主题生成或草稿润色：只回纯文本，不排版、不出纸。"""
+        from hutuji_mcp.article_llm import generate_or_polish
+        from hutuji_mcp.llm_svg import LlmError
+
+        mode = (body.mode or "").strip().lower()
+        try:
+            article = await generate_or_polish(
+                mode=mode, prompt=body.prompt, text=body.text
+            )
+        except LlmError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
+        _record_portal_usage(
+            store,
+            event_type="web_write_ai",
+            user_id=user_id,
+            detail=f"{mode}:{len(article)}",
+            ok=True,
+        )
+        return {"status": "ok", "mode": mode, "text": article}
 
     @app.post("/api/draw/write", dependencies=phone_secured)
     async def draw_write(
