@@ -10,6 +10,13 @@ App({
     this.ensureSession();
   },
   ensureSession() {
+    // 「退出登录」闸门：用户主动退出后不再静默重登（否则退出立即被 wx.login
+    // 无感恢复、形同虚设）。等用户在「我的」页显式点「重新登录」才清此标记。
+    if (wx.getStorageSync("logged_out")) {
+      this.globalData.user = null;
+      this.globalData.phoneBound = false;
+      return Promise.resolve(null);
+    }
     const api = require("./utils/api");
     const phoneGate = require("./utils/phone_gate");
     return new Promise((resolve) => {
@@ -58,5 +65,19 @@ App({
         },
       });
     });
+  },
+  // 退出登录：纯客户端清除（会话是无状态 HMAC blob，服务端无可吊销对象）。
+  // 置 logged_out 闸门阻止下次冷启动被静默重登，详见 ensureSession。
+  logout() {
+    wx.removeStorageSync("session_token");
+    wx.removeStorageSync("session_ok");
+    wx.setStorageSync("logged_out", true);
+    this.globalData.user = null;
+    this.globalData.phoneBound = false;
+  },
+  // 用户在「我的」页显式点重新登录：清闸门后走正常静默链路。
+  loginAgain() {
+    wx.removeStorageSync("logged_out");
+    return this.ensureSession();
   },
 });

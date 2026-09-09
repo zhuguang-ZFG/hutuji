@@ -8,11 +8,44 @@ Page({
     nicknameDraft: "",
     savingNick: false,
     needPhone: false,
+    loggedOut: false,
   },
 
   onShow() {
-    this.refresh();
+    const loggedOut = !!wx.getStorageSync("logged_out");
+    this.setData({ loggedOut });
+    if (!loggedOut) this.refresh();
   },
+
+  // 退出登录：确认后清本地会话并置 logged_out 闸门（app.logout），
+  // 本页塌成登录墙；其他 tab 的接口会 401，等用户回本页显式重登。
+  onLogout() {
+    wx.showModal({
+      title: "退出登录",
+      content: "退出后本机保存的会话将被清除，作品与绑定关系不受影响，重新登录即可恢复。",
+      confirmText: "退出",
+      confirmColor: "#d9534f",
+      success: (res) => {
+        if (!res.confirm) return;
+        getApp().logout();
+        this.setData({ loggedOut: true, me: null, avatarSrc: "", needPhone: false });
+      },
+    });
+  },
+
+  onLoginAgain() {
+    getApp()
+      .loginAgain()
+      .then((me) => {
+        if (me) {
+          this.setData({ loggedOut: false });
+          this._applyMe(me);
+        } else {
+          wx.showToast({ title: "登录失败，请稍后再试", icon: "none" });
+        }
+      });
+  },
+
 
   _applyMe(me) {
     const needPhone = !phoneGate.isPhoneBound(me);

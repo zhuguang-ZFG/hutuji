@@ -5,7 +5,15 @@
     <view class="hero-sub">头像与手机号用于绑定设备、同步你的作品</view>
   </view>
 
-  <block wx:if="{{needPhone}}">
+  <block wx:if="{{loggedOut}}">
+    <view class="weui-cells__title">已退出登录</view>
+    <view class="weui-cells__tips">本地会话已清除。你的作品、收藏与设备绑定都还在云端，重新登录即可恢复。</view>
+    <view class="weui-btn-area">
+      <button class="weui-btn weui-btn_primary" bindtap="onLoginAgain">微信一键登录</button>
+    </view>
+  </block>
+
+  <block wx:if="{{!loggedOut && needPhone}}">
     <view class="weui-cells__title">使用前请授权手机号</view>
     <view class="weui-cells__tips">绑机、传图、控制写字机都需要手机号。授权后即可继续。</view>
     <view class="weui-btn-area">
@@ -19,6 +27,7 @@
     </view>
   </block>
 
+  <block wx:if="{{!loggedOut}}">
   <view class="weui-cells__title">账号</view>
   <view class="weui-cells">
     <view class="weui-cell profile-cell">
@@ -49,8 +58,10 @@
       </view>
     </view>
   </view>
+  </block>
 
-  <block wx:if="{{!needPhone}}">
+
+  <block wx:if="{{!loggedOut && !needPhone}}">
     <view class="weui-cells__title">设备</view>
     <view class="weui-cells">
       <view class="weui-cell" wx:if="{{me && me.binding && me.binding.bound}}">
@@ -84,6 +95,10 @@
     <view class="weui-cells__tips">按住说话或直接打字：聊天、画画、写字、查状态都行</view>
     <view class="weui-btn-area tight">
       <button class="weui-btn weui-btn_default" bindtap="onGoChat">去和小派聊</button>
+    </view>
+
+    <view class="weui-btn-area tight">
+      <button class="weui-btn logout-btn" bindtap="onLogout">退出登录</button>
     </view>
   </block>
 

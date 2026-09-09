@@ -61,3 +61,16 @@
   font-size: 26rpx;
   color: #9aa3b5;
 }
+
+/* 退出登录：弱化警示文本按钮，避免与主按钮同级重量（量产惯例：退出入口要可见但不抢眼） */
+.logout-btn {
+  background: transparent;
+  color: #e57373;
+  font-size: 28rpx;
+  border: 2rpx solid rgba(229, 115, 115, 0.45);
+  border-radius: 12rpx;
+}
+
+.logout-btn::after {
+  border: none;
+}
