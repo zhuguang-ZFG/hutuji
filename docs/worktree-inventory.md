@@ -106,8 +106,9 @@
 | portal 侧 | `pipeline.process_upload_png` 加同名透传参数（默认 zhang，Canny 快出段不变）；`app.py` `_refine_photo_job` 精修描摹传 `skeleton_method="lee"` |
 | 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError），全套 **1339** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
 | 验证 | hub 门禁 PASS（1339 + e2e PASS + 指纹 260：2 处行号纯移动 --fix-line-refs 自动（findings/30 两处）、1 处人工核对后 --accept-line-refs（findings/28 计数行内容随批次更新，引用意图不变）） |
-| 部署 | 已完成 02:1x CST：四文件双机 SHA 逐位相符 + 阿里云 mcp/bridge/portal/worker@{1..8} 与京东 mcp/portal restart active + 公网冒烟（证据 docs/deployment.md 顶部） |
-| 待办 | ① 真实照片单观察 v6+lee 抬笔数 ② 魔搭余额充值后验证 2511/多图输入 ③ SquiggleTab 连续线模式立项与否待用户拍板 |
+| 部署 | 已完成 02:1x CST：四文件双机 SHA 逐位相符 + 阿里云 mcp/bridge/portal/worker@{1..8} 与京东 mcp/portal restart active + 公网冒烟 + preflight 阿里 24/33·京东 29/33（均符合节点基线，无新 fail 类别；证据 docs/deployment.md 顶部） |
+| 待办 | ① 真实照片单观察 v6+lee 抬笔数 ② 魔搭余额充值后验证 2511/多图输入 + **v7 提示词实证**（v6 否定排比 vs 正向锚定「etching / cross-hatching / pen plotter style」重写，同图 A/B——v6 否定保留的依据是 Qwen-Edit 官方 prompt_utils 文档推断而非实测，txt2plotter 的禁否定句经验属 Flux 系不可直接移植，故必须实验定案。**实验期须隔离赛道**：_race_i2i 谁先出图用谁会混入 TCB/魔搭模型变量，v7 A/B 时临时单通道或记录来源腿；指标须同时记「排线段存活数/抬笔数/总点数」三项，只看抬笔会误判——_suppress_hatch_clusters 只删 ≤40px 短段簇，v6 要求的长排线全存活，抬笔压力正来自它们）③ SquiggleTab 连续线模式立项与否待用户拍板（见下行风格目标） |
+| 风格目标（待拍板） | 「排线素描感」（现役 v6 路线，用户 2026-09-08 硬约束「必须有排线素描感」）与「SquiggleTab 亮度波纹单连续线」（抬笔≈0 的另一种艺术形态）是**互斥的两种风格档位**，不是同一链路的强弱版本——先定风格目标再选链路，两者不混用 |
 
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
 

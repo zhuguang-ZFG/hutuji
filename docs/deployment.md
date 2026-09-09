@@ -1,5 +1,5 @@
 # 部署（2026-08-23 起：阿里云主 / 京东云热备；历史章节为京东云口径）
-> **2026-09-10 02:1x CST 照片 i2i 质量批双机部署**：`21699a8` 四文件 HEAD blob 导出（CR=0）双机 SHA-256 逐位相符——modelscope_client `d92b1cf3…5971d`、bitmap_svg `02e1cb61…c7cdb`、portal app `1b452c34…97243`、portal pipeline `2e64285b…6c12f7`；备份 `/root/hutuji-bak-20260910-i2i/{mcp,portal}/`。阿里云 restart mcp+cloud-bridge+draw-portal+draw-worker@{1..8} 共 11 个 active，京东 restart mcp+draw-portal active；公网 `/draw-upload/` 200、`/mcp` 404。**仍未做**：真实照片单 v6+lee 抬笔数观察。
+> **2026-09-10 02:1x CST 照片 i2i 质量批双机部署**：`21699a8` 四文件 HEAD blob 导出（CR=0）双机 SHA-256 逐位相符——modelscope_client `d92b1cf3…5971d`、bitmap_svg `02e1cb61…c7cdb`、portal app `1b452c34…97243`、pipeline `2e64285b…6c12f7`；备份 `/root/hutuji-bak-20260910-i2i/{mcp,portal}/`。阿里云 restart mcp+cloud-bridge+draw-portal+draw-worker@{1..8} 共 11 个 active，京东 restart mcp+draw-portal active；公网 `/draw-upload/` 200、`/mcp` 404。**preflight（02:2x）阿里云 24/33**（9 fail 全为 nginx 布局类已知差异：模板一致/symlink/:80 ACL/隧道兜底，与历史基线同集合）、**京东 29/33**（4 fail=is-enabled 热备停启 + symlink + 模板一致 + 公网 /files 真下（热备无本地产物），无新 fail 类别，较历史 28/33 多 1 项通过）。**仍未做**：真实照片单 v6+lee 抬笔数观察。
 
 > **2026-09-09 16:5x CST HIL⑥ poison 回滚后 catalog 指回 1.0.3**：短暂发布 `hutuji.1.0.4` poison（sha256 `418236a8…0257`）做 F6 网升回滚；复验后双机 `latest.json`/`catalog.json` 恢复 `hutuji.1.0.3`（`3dff940a…c5d1`），1.0.4 manifest 标 WITHDRAWN。设备 messaging 现 `1.0.3`/`up_to_date`。
 
