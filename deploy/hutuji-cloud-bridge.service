@@ -46,6 +46,7 @@ MemoryMax=256M
 
 NoNewPrivileges=true
 PrivateTmp=true
+LimitNOFILE=65535
 ProtectSystem=strict
 ProtectHome=true
 RuntimeDirectory=hutuji
@@ -71,9 +72,6 @@ ProcSubset=pid
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete
-# el8 systemd 239 的 @system-service 不含 pidfd_open/clone3；Python 3.12 asyncio
-# spawn mcp-proxy 会走这两条。默认 SIGSYS 会把 spawn 卡死成「WSS 已连、proxy 永不起」
-# （/bridge-health 长期 proxy_connected=false）。ENOSYS 让解释器回落到 fork。
 SystemCallErrorNumber=ENOSYS
 
 [Install]

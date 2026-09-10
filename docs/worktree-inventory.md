@@ -144,6 +144,16 @@
 | 验证 | 事故原图：hatch 墨覆盖 19.4%、squiggle 27.5%；纸面观感（277px≈1px/mm 面积平均）视觉评判「能非常清晰认出戴眼镜微笑女孩、五官高辨识度、头发纹理非实心、结构性排线非噪点」；新预览卡尺寸下同一结论；5 样本回归 8.6–12.9% 覆盖；MCP 1361 全绿、portal 166 全绿；§5 预算闸实证：事故原图 hatch 由超闸 575KiB 压回 433KiB（余量 89KiB） |
 | 部署 | 已完成：`124ad76` 双文件（sketch_render `f41145e46b6d`、bitmap_svg `234752f71c09`）双机 SHA 逐位相符；阿里云 restart mcp+bridge+portal+worker@{1..8} 11 单元 active、京东 mcp+portal active；节点冒烟 hatch 181843B/1397 抬笔过 §5 |
 
+### 双机量产安全加固批（2026-09-10，用户原话「把 vps 处理一下，为量产做准备，后续大规模并发，要能扛住冲击和攻击，参考 GitHub 开源项目做法」）
+
+| 项 | 说明 |
+|---|---|
+| 审计发现 | 双机 sshd PasswordAuthentication yes + PermitRootLogin yes（密码暴破面全开）、fail2ban 缺席、syn_backlog 128/256、mcp/portal/bridge 缺 NoNewPrivileges/PrivateTmp/LimitNOFILE、nginx 无 API 级限速（仅 /files//songs//register）与 HSTS/客户端超时 |
+| 实施 | sysctl 四键 + fail2ban 双 jail（sshd 3 次封 1h、nginx-limit-req 10 次封 1h；京东启用即实 ban 2 个在途暴破 IP）+ sshd 五项收紧（reload 后新连接实测可入，首现优先坑：阿里云无 Include 须改写首现行）+ systemd 三件套内联主 unit + nginx API 闸 30r/s burst 90（课堂 NAT 30 生×1.5s 轮询≈20r/s 留头）+ HSTS 86400 + client timeouts |
+| 校验 | preflight 阿里 25/33（基线 24，unit 模板一致翻绿）、京东 30/33（基线 29，同翻绿）；公网 /draw-upload/ 200、/mcp 404、HSTS 头实测在；参照系：nginx limit_req/conn 官方模块模式、fail2ban sshd/nginx-limit-req 标准 jail、OpenSSH 生产基线（禁密码+限试次） |
+| 仓内同步 | `deploy/prepare-host.sh` 并入全套加固（新节点照搬）；`deploy/nginx-hutuji.conf` 与三 unit 模板对平生产真值（含 live 独有的 SystemCallErrorNumber=ENOSYS） |
+| 备份 | 阿里云 `/root/hutuji-bak-20260910-hardening-nginx-gray.conf` + `…-sshd_config`；京东 `/root/hutuji-bak-20260910-hardening-nginx` + `…-sshd_config` |
+
 ### 写字字体选择器批（2026-09-10，用户原话「小程序写字写文章可以增加选字体吗」）
 
 | 项 | 说明 |

@@ -21,6 +21,7 @@ MemoryMax=512M
 
 NoNewPrivileges=true
 PrivateTmp=true
+LimitNOFILE=65535
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/hutuji/draw-portal /opt/hutuji/mcp-server/output
@@ -39,6 +40,7 @@ ProtectControlGroups=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete
+SystemCallErrorNumber=ENOSYS
 
 [Install]
 WantedBy=multi-user.target
