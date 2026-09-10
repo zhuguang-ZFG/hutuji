@@ -132,6 +132,7 @@
 | 验证 | 事故原图（从生产 job 目录取回 `tmp/incident-0910/upload.png`）：hatch 墨覆盖 12.5%、squiggle 20.4%，全分辨率 1px 栅格视觉辨认出戴眼镜微笑女孩、面部留白+轮廓、头发排线纹理非实心；5 张原样本回归 6.7–9.5% 覆盖无过曝；pipeline 级 hatch 305KiB/2756 抬笔、squiggle 165KiB/473 抬笔，§5 余量 ≥213KiB |
 | 测试 | `test_sketch_render.py` 12 项（+`test_mid_tone_photo_does_not_flood_page` 事故回归钉墨覆盖 <25%；层叠测试改深灰 40 钉「普通中灰不排线」新语义）；MCP 全套 1360、portal 166 全绿 |
 | 教训 | ① 预览器/AA 缩放判读失真第二次咬人（preview mean 255 与「实心黑」并存）——评画风只信全分辨率 1px 栅格，已写进 AGENTS.md 警示；② 阈值调参样本集必须含中间调真实照片，亮背景样本调出的阈值对生产必崩 |
+| 部署 | 已完成：`157bd41` 单文件 sketch_render.py 双机 SHA `7f515e469c78` 逐位相符（备份 `…/sketch_render.py.v1`），双机 restart hutuji-draw-portal active；节点冒烟 hatch 129774B/944 抬笔（修复前同样本 231155B/2085，色调修复实证降载） |
 
 
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
