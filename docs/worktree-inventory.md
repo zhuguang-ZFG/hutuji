@@ -120,8 +120,7 @@
 | portal 侧 | `pipeline.process_upload_sketch`（归一 → 渲染 → SVG 白名单 → vpype → §5）；`app.py` `_refine_photo_job` 整体重写为程序化（删 `_race_i2i`/`_attempt`/抬笔门 PREF/HARD/MAX 与 `_tcb_i2i_ready`/`_race_refine_racers`）；`draw_upload` 新增 `style` 表单字段（白名单外静默回落 hatch）；触发条件从「配 token」改为「是照片即精修」；`config.py` 删 `modelscope_token`/`tcb_image_url`/`tcb_api_key`/`tcb_i2i_enabled` 四字段；`index.html` 上传面板加风格单选（排线素描/连续波纹） |
 | 实测 | 5 张生产样本 × 双风格全分辨率 1px 栅格目检通过（排线 = 蚀刻交叉排线、主体可辨；波纹 = 扫描线波形、蛇形并段）；G-code 全部 ≤§5 硬闸（114–298KiB < 512KiB）；排线抬笔 1.9–3.3k/张、波纹 0.4–0.6k/张（蚀刻风固有特性，画图时长显著长于 AI 线稿——已为用户可选档位）；渲染耗时 0.2–0.7s/张。**预览器污染教训已钉进模块 docstring 与 AGENTS.md**（设备预览 0.3×+2px 粗线会糊密排线区，调参只看全分辨率） |
 | 测试 | mcp +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1359** 项全绿（含计数一致性钉）；portal `test_photo_refine.py` 围绕新链重写 18→11（默认 hatch/squiggle 透传/非法回落/无凭据照跑/fail-open/并发闸），全套 **166** 项全绿 |
-| 契约 | `docs/protocol.md` §10.4.9 整体重写（supersede AI i2i 版）、§10.4.8 配额默认 20、§4 语音链新增单设备日限条；AGENTS.md 计数 1339→1359 / 173→166 / 模块 36→37 + `sketch_render` 条目 + tcb_i2i 备用通道状态 |
-| 部署 | 待部署（本批收口后走 双机 blob 导出→SHA 对账→restart mcp+portal→preflight） |
+| 部署 | 已完成：`27bd254` 八文件双机 SHA 逐位相符 + 备份 `/root/hutuji-bak-20260910-sketch/` + 阿里云 11 单元/京东 2 单元 restart active + 节点真样本冒烟（双风格过 §5）+ preflight 阿里 24/33·京东 29/33（基线同集合）；证据 docs/deployment.md 顶条 |
 
 
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
