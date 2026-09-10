@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:647-650` 与 `hutuji_recovery_core.h:1109-1191`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:647-650` 与 `hutuji_recovery_core.h:1119-1201`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:584-726`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:589-731`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -865,7 +865,7 @@ Cookie: <session>
 | 多页任务 | 无换纸机型**不做多页**（用户拍板）：`pages>1` 的写字/笔顺/文档任务在确认环节拒绝，话术「这台机器一次只能画一页哦」；单页任务（语音画图/传图/单页写字）零改动 |
 | 云端/小程序 | 产物契约、§5、错峰 TTL、pages 推送格式**零改动**；按机型藏功能依赖能力标志位（S3 announce 上报 SKU → portal 绑定表存机型 → 小程序按机型显隐多页入口），该面**待首台点亮联调后定案**，当前两机型共用现 UI |
 | 文案 | 换纸相关屏幕提示/播报在无换纸机型整段不进入（随页尾跳过）；小程序「共 N 页/超 20 页截断」等通用多页文案保留（换纸机仍在用） |
-| HIL | **未验证**（首台刷机阻塞于 IO0 下载模式，见 worktree-inventory 量产 SKU 批） |
+| HIL | **未验证**（首台刷机阻塞于 IO0 下载模式，见 worktree-inventory 量产 SKU 批）；S3 侧代码已落地 xiaozhi `eb56138`（host 3 例绿 + release 构建过），待刷机后实机联调 |
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
