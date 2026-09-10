@@ -1,5 +1,5 @@
 {
-  "git_head": "7fa1bb62f6f697322aba7ca45745f1ca66e84380",
+  "git_head": "35dcf2538613423f98d70ea5720d038708b58037",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -36,9 +36,9 @@
       "source": "        if (!http->Open(\"GET\", url)) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc"
     },
-    "docs/agent-handoff.md -> nginx-hutuji.conf:154": {
-      "sha8": "fd837018",
-      "source": "    # 能服务 /files/，否则公网经隧道下载会撞下方 301 自指坏环（S3 不跟随 301）。",
+    "docs/agent-handoff.md -> nginx-hutuji.conf:211": {
+      "sha8": "2c6f2330",
+      "source": "    # `http://localhost:80`，隧道流量在这里一律是 `$scheme = http`，无条件 301 会把",
       "target": "deploy/nginx-hutuji.conf"
     },
     "docs/agent-handoff.md -> protocol.h:36": {
@@ -1292,6 +1292,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-10T08:17:06Z",
+  "updated": "2026-09-10T08:19:22Z",
   "version": 1
 }
