@@ -672,6 +672,7 @@ def list_fonts(fonts_dir: str) -> list[dict[str, str]]:
 # 奎享自有 blood8 系按手写/速写区分。新入库未登记的字库回落「动力巢科技·<词>」。
 _FONT_DISPLAY_NAMES: dict[str, str] = {
     "blood8真迹_xiongzai_blood8": "动力巢科技·真迹手写",
+    "blood8真迹_kvenjoy_blood8": "动力巢科技·真迹经典",
     "blood8真迹2_kvenjoy_blood8": "动力巢科技·真迹行书",
     "blood8-2_kvenjoy_blood8": "动力巢科技·速写",
     "陈继世6_kvenjoy_1": "动力巢科技·继世行书",
