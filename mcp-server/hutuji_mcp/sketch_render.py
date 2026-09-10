@@ -24,19 +24,32 @@ import numpy as np
 # 落笔精度（亚毫米）内排线互不糊团；再大只是浪费算力。
 _WORK_WIDTH_PX = 760
 
-# 排线层：(亮度上限, 角度°)。g < 上限的区域叠该层——层数越多越暗，蚀刻素描
-# 的经典累积口径。0.78 起手让中间调（人脸皮肤 ~0.7-0.8）也有稀疏排线过渡，
-# 暗部四层方向交叉自然近实。mask 先平滑压照片噪点引起的碎段。
-_HATCH_LAYERS: tuple[tuple[float, float], ...] = (
-    (0.78, 45.0),
-    (0.62, -45.0),
-    (0.46, 45.0),
-    (0.30, 90.0),
+# 排线层：(亮度上限, 角度°, 间距px)。g < 上限的区域叠该层——层数越多越暗，
+# 蚀刻素描的经典累积口径。阈值只对「归一化后」的真暗调起线：2026-09-10 生产
+# 事故（室内人像 p50=0.54 直接撞旧 0.78 首层 → ~90% 页面叠四层交叉排线糊成
+# 实心黑卡）证明裸亮度阈值对中间调照片必然失控，首层必须压在 0.55 以下、
+# 亮层用宽间距稀疏过渡。mask 先平滑压照片噪点引起的碎段。
+_HATCH_LAYERS: tuple[tuple[float, float, float], ...] = (
+    (0.55, 45.0, 6.0),
+    (0.42, -45.0, 4.5),
+    (0.30, 45.0, 3.5),
+    (0.18, 90.0, 3.0),
 )
-_HATCH_SPACING_PX = 3.0      # 排线间距（≈1.1mm 纸上）
 _HATCH_MIN_RUN_PX = 6.0      # 短于 ≈2.2mm 的排线段不画：视觉上只是墨点
 _HATCH_SAMPLE_STEP_PX = 1.0  # 沿线采样步长，决定段端点精度
 _HATCH_MASK_SIGMA = 1.0      # mask 前平滑，压阈值附近噪点碎段
+
+# 色调归一化：按图像自身 p2/p98 分位拉伸到 [0,1]，再做 gamma<1 提亮中间调。
+# 照片裸亮度分布随拍摄环境漂移（室内人像 p50≈0.5、线稿 p50≈0.95），固定
+# 阈值无法同时适配；分位拉伸对白墙线稿近似恒等（p2≈墨、p98≈纸），对中间调
+# 照片把背景抬回纸白。2026-09-10 生产事故（室内逆光人像面部落在 p40-p60，
+# 拉伸后仍撞首层阈值整脸铺黑）证明仅拉伸不够：gamma 0.6 把 p50 0.56→0.71，
+# 面部回到首层阈值之上只留轮廓+局部阴影排线，真暗部（头发/投影）仍多层叠加。
+# hi-lo 过小的近纯色图不拉伸（避免放大噪点，交由下游空产出 fail-closed）。
+_TONE_STRETCH_LO_PCT = 2.0
+_TONE_STRETCH_HI_PCT = 98.0
+_TONE_STRETCH_MIN_RANGE = 0.05
+_TONE_GAMMA = 0.6
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
 # 选 4 级 tone 边界：外形 + 三大调分界，多一级就碎、少一级丢结构。
@@ -50,7 +63,7 @@ _CONTOUR_SMOOTH_SIGMA = 1.2  # 轮廓前平滑，压照片噪点引起的抖线
 _SQUIGGLE_ROW_SPACING_PX = 4.0
 _SQUIGGLE_WAVELENGTH_PX = 7.0
 _SQUIGGLE_MAX_AMP_PX = 1.8   # < 行距一半，相邻行波峰永不互撞
-_SQUIGGLE_DARK_FLOOR = 0.06  # 暗度低于此值视为白区，行内断开
+_SQUIGGLE_DARK_FLOOR = 0.30  # 暗度低于此值（归一化后亮调）视为白区，行内断开
 _SQUIGGLE_MIN_SEG_PX = 8.0
 
 # RDP 抽稀：find_contours/波形按像素步进出点（1pt/px），直接进 G-code 会撑爆
@@ -92,6 +105,15 @@ def _load_gray(image_bytes: bytes) -> np.ndarray:
             gray, (new_h, _WORK_WIDTH_PX), anti_aliasing=True
         ).astype(np.float32)
     return np.clip(gray, 0.0, 1.0)
+
+
+def _normalize_tones(gray: np.ndarray) -> np.ndarray:
+    """p2/p98 分位拉伸 + gamma 提亮中间调；近纯色图原样返回（下游 fail-closed）。"""
+    lo, hi = np.percentile(gray, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
+    if hi - lo < _TONE_STRETCH_MIN_RANGE:
+        return gray
+    stretched = np.clip((gray - lo) / (hi - lo), 0.0, 1.0)
+    return (stretched ** _TONE_GAMMA).astype(np.float32)
 
 
 def _simplify(polys: list[np.ndarray], tolerance: float) -> list[np.ndarray]:
@@ -181,12 +203,12 @@ def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.
 
 def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     """排线素描：iso 轮廓 + 四层累积排线，RDP 抽稀后返回 (polys, w, h)。"""
-    gray = _load_gray(image_bytes)
+    gray = _normalize_tones(_load_gray(image_bytes))
     h, w = gray.shape
     polys = _iso_contours(gray)
     smooth = _gaussian_for_mask(gray)
-    for threshold, angle in _HATCH_LAYERS:
-        polys.extend(_hatch_layer(smooth < threshold, angle, _HATCH_SPACING_PX))
+    for threshold, angle, spacing in _HATCH_LAYERS:
+        polys.extend(_hatch_layer(smooth < threshold, angle, spacing))
     if not polys:
         raise SketchRenderError("排线渲染产出为空（图片可能为纯色）")
     return _simplify(polys, _RDP_TOLERANCE_PX), w, h
@@ -198,7 +220,7 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     波纹用连续暗度调制而非阈值 mask，不需要 mask 平滑；抽稀用更小的波形
     容差保住正弦振幅。
     """
-    gray = _load_gray(image_bytes)
+    gray = _normalize_tones(_load_gray(image_bytes))
     h, w = gray.shape
     darkness = 1.0 - gray
     polys: list[np.ndarray] = []

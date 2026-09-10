@@ -56,15 +56,47 @@ def test_hatch_respects_min_run_length():
 
 
 def test_hatch_layers_stacked_by_darkness():
-    """黑区段数必须严格多于灰区：累积层语义（越暗排线越密）。"""
+    """黑区段数必须严格多于深灰区：累积层语义（越暗排线越密）。
+
+    中灰取值须落在归一化后的阈值之下：40/255≈0.157 经 p2/p98 拉伸（≈恒等）
+    + gamma 0.6 → ≈0.33，吃第 1+2 层；黑色吃全部 4 层。普通中灰（如 128）
+    归一化后 ≈0.66 在首层阈值之上、不排线——这是 2026-09-10 黑卡事故修复的
+    核心语义，不许把阈值抬回中间调。
+    """
     arr = np.full((160, 240), 255, dtype=np.uint8)
     arr[:, : 80] = 0      # 黑
-    arr[:, 80:160] = 128  # 中灰
+    arr[:, 80:160] = 40   # 深灰（归一化后 ≈0.33，第 1+2 层）
     polys, _, _ = render_hatch(_png(arr))
     segs = [p for p in polys if len(p) == 2]
     dark = sum(1 for p in segs if (p[0, 0] + p[1, 0]) / 2 < 78)
     mid = sum(1 for p in segs if 82 < (p[0, 0] + p[1, 0]) / 2 < 158)
     assert dark > mid > 0
+
+def _raster_ink_fraction(polys: list[np.ndarray], w: int, h: int) -> float:
+    """1px 全分辨率栅格化（无 AA）→ 真墨覆盖率；预览器粗线会污染判读。"""
+    img = np.zeros((h, w), dtype=bool)
+    for p in polys:
+        xy = np.round(p).astype(int)
+        for (x0, y0), (x1, y1) in zip(xy[:-1], xy[1:]):
+            n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+            xs = np.round(np.linspace(x0, x1, n)).astype(int)
+            ys = np.round(np.linspace(y0, y1, n)).astype(int)
+            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            img[ys[ok], xs[ok]] = True
+    return float(img.mean())
+
+
+def test_mid_tone_photo_does_not_flood_page():
+    """2026-09-10 生产黑卡事故回归：室内中间调照片（背景 217/主体 140/暗斑 30）
+    不得整页铺排线。修复前裸亮度阈值 0.78 首层 ~90% 页面积叠层糊成实心；
+    修复后 p2/p98 拉伸 + gamma 提亮，墨覆盖率必须 <25%（实测 ≈12%）。
+    """
+    arr = np.full((428, 760), 217, dtype=np.uint8)
+    arr[80:360, 180:560] = 140   # 主体中间调块（逆光人脸量级）
+    arr[120:200, 260:400] = 30   # 暗斑（头发/投影量级）
+    polys, w, h = render_hatch(_png(arr))
+    ink = _raster_ink_fraction(polys, w, h)
+    assert ink < 0.25, f"中间调照片铺墨失控 ink={ink:.1%}"
 
 def test_squiggle_amplitude_never_crosses_rows():
     """振幅 < 行距一半：任一波形点离其行基线不超过 max_amp，相邻行永不相撞。"""
