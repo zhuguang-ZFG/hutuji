@@ -54,10 +54,12 @@ _CLAHE_CLIP_LIMIT = 0.02
 _TONE_GAMMA = 0.7
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
-# 选 4 级 tone 边界：外形 + 三大调分界，多一级就碎、少一级丢结构。
-_CONTOUR_LEVELS: tuple[float, ...] = (0.30, 0.48, 0.66, 0.84)
+# 3 级 tone 边界 + 较强平滑：2026-09-10 小样 A/B（事故人像，4 组合目检）
+# 定案——旧 4 级/σ1.2 在面部渐变区切出密集碎波（「地形图感」之源）；
+# 3 级/σ2.0 杂乱碎线显著减少且五官辨识度不降。
+_CONTOUR_LEVELS: tuple[float, ...] = (0.32, 0.52, 0.74)
 _CONTOUR_MIN_POINTS = 12     # 短轮廓是噪声斑点，丢弃
-_CONTOUR_SMOOTH_SIGMA = 1.2  # 轮廓前平滑，压照片噪点引起的抖线
+_CONTOUR_SMOOTH_SIGMA = 2.0  # 轮廓前平滑，压照片噪点引起的抖线与面部碎波
 
 # 波纹：行距 4px，振幅随暗度（1-g）调制，白区（暗度<_DARK_FLOOR）整行不画——
 # 平线在白纸上照样画出墨痕，SquiggleTab 式「全图一根线」的代价是白区爬满
@@ -206,6 +208,67 @@ def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.
         c += spacing
     return out
 
+# 排线串链：相邻段在暗区边界处首尾仅隔一个层距（≈2-3mm），每段独立起笔
+# 是纯浪费（事故人像 3672 抬笔）。贪心近邻串链把「间距 ≤ 上限且连线全程在
+# 最亮排线 mask（膨胀 2px）内」的段落笔连成一笔——连线藏在暗区内，视觉上
+# 是蚀刻填充经典的边界蛇形回折，不污染白区。2026-09-10 用户拍板的提速项。
+_CHAIN_MAX_GAP_PX = 10.0  # ≈3.6mm：串链连线上限
+
+
+def _chain_hatch_segments(
+    segs: list[np.ndarray], dark_mask: np.ndarray
+) -> list[np.ndarray]:
+    """2 点排线段 → 串链折线。贪心：从段 0 尾端出发，每步取最近未用端点，
+    间距 ≤_CHAIN_MAX_GAP_PX 且连线 1/4、1/2、3/4 三点都在 dark_mask 内则落笔
+    并入当前链（段必要时翻转），否则另起新链（=一次抬笔）。段序固定 +
+    argmin 平局取小索引，同输入逐点复现。"""
+    if len(segs) < 2:
+        return segs
+    from scipy.ndimage import binary_dilation
+
+    mask = dark_mask
+    mh, mw = mask.shape
+    starts = np.array([s[0] for s in segs])
+    ends = np.array([s[-1] for s in segs])
+    used = np.zeros(len(segs), dtype=bool)
+
+    def linkable(a: np.ndarray, b: np.ndarray) -> bool:
+        for t in (0.25, 0.5, 0.75):
+            p = a + (b - a) * t
+            x, y = int(round(p[0])), int(round(p[1]))
+            if not (0 <= x < mw and 0 <= y < mh) or not mask[y, x]:
+                return False
+        return True
+
+    chains: list[np.ndarray] = []
+    cur = segs[0].copy()
+    used[0] = True
+    pos = ends[0]
+    for _ in range(len(segs) - 1):
+        d_start = np.hypot(starts[:, 0] - pos[0], starts[:, 1] - pos[1])
+        d_end = np.hypot(ends[:, 0] - pos[0], ends[:, 1] - pos[1])
+        d_start[used] = np.inf
+        d_end[used] = np.inf
+        j_s = int(np.argmin(d_start))
+        j_e = int(np.argmin(d_end))
+        if d_start[j_s] <= d_end[j_e]:
+            j, dist, nxt = j_s, d_start[j_s], segs[j_s]
+        else:
+            j, dist, nxt = j_e, d_end[j_e], segs[j_e][::-1]
+        if dist <= _CHAIN_MAX_GAP_PX and linkable(pos, nxt[0]):
+            cur = np.vstack([cur, nxt])
+            used[j] = True
+            pos = ends[j]
+        else:
+            chains.append(cur)
+            free = np.flatnonzero(~used)
+            j = int(free[np.argmin(np.hypot(starts[free, 0] - pos[0], starts[free, 1] - pos[1]))])
+            cur = segs[j].copy()
+            used[j] = True
+            pos = ends[j]
+    chains.append(cur)
+    return chains
+
 
 def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     """排线素描：iso 轮廓 + 四层累积排线，RDP 抽稀后返回 (polys, w, h)。
@@ -225,8 +288,11 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
             _hatch_layer(smooth < th, ang, sp * factor) for th, ang, sp in _HATCH_LAYERS
         ]
     polys = _iso_contours(gray)
-    for segs in layers:
-        polys.extend(segs)
+    # 最亮层（面部稀疏排线）不串链：连线会落在明调区边缘成可见回折环
+    # （2026-09-10 小样目检）；暗三层用本层 mask 串链，连线藏同暗度带内。
+    polys.extend(layers[0])
+    for (th, _, _), segs in zip(_HATCH_LAYERS[1:], layers[1:]):
+        polys.extend(_chain_hatch_segments(segs, smooth < th))
     if not polys:
         raise SketchRenderError("排线渲染产出为空（图片可能为纯色）")
     return _simplify(polys, _RDP_TOLERANCE_PX), w, h

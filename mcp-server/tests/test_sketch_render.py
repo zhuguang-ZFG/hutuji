@@ -39,16 +39,18 @@ def _half_black_png(w: int = 200, h: int = 120) -> bytes:
 
 
 def test_hatch_segments_respect_tone_mask():
-    """左黑右白图：45° 排线段中点必须落在左半（界差容差 2px）。"""
+    """左黑右白图：排线（含串链连线）不得画进右半白区。
+    2026-09-10 串链落地后改为栅格化口径（链式折线不再是 2 点段，
+    段中点断言会悄悄变空话）：白区墨覆盖 <1%（边界容差含轮廓过渡）。"""
     polys, w, h = render_hatch(_half_black_png())
-    segs = [p for p in polys if len(p) == 2]
-    assert segs, "排线段不能为空"
-    for seg in segs:
-        mid_x = (seg[0, 0] + seg[1, 0]) / 2
-        assert mid_x <= w // 2 + 2, f"排线越界进白区 mid_x={mid_x}"
+    assert polys, "排线产出不能为空"
+    white = _raster_ink_fraction_region(polys, w, h, x0=w // 2 + 3)
+    assert white < 0.01, f"排线越界进白区 ink={white:.1%}"
 
 
-def test_hatch_respects_min_run_length():
+def test_hatch_respects_min_run_length(monkeypatch):
+    # 串链后段被并成长链，min_run 是层生成期约束——以恒等串链观测段原文
+    monkeypatch.setattr(sketch_render, "_chain_hatch_segments", lambda segs, mask: segs)
     polys, _, _ = render_hatch(_gradient_png())
     segs = [p for p in polys if len(p) == 2]
     lengths = [float(np.hypot(*(p[1] - p[0]))) for p in segs]
@@ -56,22 +58,39 @@ def test_hatch_respects_min_run_length():
 
 
 def test_hatch_layers_stacked_by_darkness():
-    """黑区段数必须严格多于深灰区：累积层语义（越暗排线越密）。
+    """黑区墨覆盖必须显著高于深灰区：累积层语义（越暗排线越密）。
 
     中灰取值须落在归一化后的阈值之下：40/255≈0.157 经 p2/p98 拉伸（≈恒等）
-    + gamma 0.6 → ≈0.33，吃第 1+2 层；黑色吃全部 4 层。普通中灰（如 128）
-    归一化后 ≈0.66 在首层阈值之上、不排线——这是 2026-09-10 黑卡事故修复的
-    核心语义，不许把阈值抬回中间调。
+    + gamma 0.7 → ≈0.36，吃第 1+2 层；黑色吃全部 4 层。普通中灰（如 128）
+    归一化后 ≈0.60 在首层阈值之上、不排线——这是 2026-09-10 黑卡事故修复的
+    核心语义，不许把阈值抬回中间调。串链落地后改栅格化口径（链式折线不再
+    是 2 点段）。
     """
     arr = np.full((160, 240), 255, dtype=np.uint8)
     arr[:, : 80] = 0      # 黑
-    arr[:, 80:160] = 40   # 深灰（归一化后 ≈0.33，第 1+2 层）
-    polys, _, _ = render_hatch(_png(arr))
-    segs = [p for p in polys if len(p) == 2]
-    dark = sum(1 for p in segs if (p[0, 0] + p[1, 0]) / 2 < 78)
-    mid = sum(1 for p in segs if 82 < (p[0, 0] + p[1, 0]) / 2 < 158)
-    assert dark > mid > 0
+    arr[:, 80:160] = 40   # 深灰（归一化后 ≈0.36，第 1+2 层）
+    polys, w, h = render_hatch(_png(arr))
+    dark = _raster_ink_fraction_region(polys, w, h, x0=0, x1=78)
+    mid = _raster_ink_fraction_region(polys, w, h, x0=82, x1=158)
+    assert dark > mid * 1.2, f"累积层语义破坏 dark={dark:.1%} mid={mid:.1%}"
+    assert mid > 0.005, f"深灰区排线消失 mid={mid:.1%}"
 
+
+def _raster_ink_fraction_region(
+    polys: list[np.ndarray], w: int, h: int, *, x0: int = 0, x1: int | None = None
+) -> float:
+    """指定列区间的墨覆盖率（1px 栅格化）。"""
+    x1 = w if x1 is None else x1
+    img = np.zeros((h, x1 - x0), dtype=bool)
+    for p in polys:
+        xy = np.round(p).astype(int)
+        for (xa, ya), (xb, yb) in zip(xy[:-1], xy[1:]):
+            n = int(max(abs(xb - xa), abs(yb - ya))) + 1
+            xs = np.round(np.linspace(xa, xb, n)).astype(int)
+            ys = np.round(np.linspace(ya, yb, n)).astype(int)
+            ok = (xs >= x0) & (xs < x1) & (ys >= 0) & (ys < h)
+            img[ys[ok], xs[ok] - x0] = True
+    return float(img.mean())
 def _raster_ink_fraction(polys: list[np.ndarray], w: int, h: int) -> float:
     """1px 全分辨率栅格化（无 AA）→ 真墨覆盖率；预览器粗线会污染判读。"""
     img = np.zeros((h, w), dtype=bool)
@@ -98,16 +117,27 @@ def test_mid_tone_photo_does_not_flood_page():
     ink = _raster_ink_fraction(polys, w, h)
     assert ink < 0.25, f"中间调照片铺墨失控 ink={ink:.1%}"
 
-def test_hatch_segment_budget_governor():
+
+def test_hatch_segment_budget_governor(monkeypatch):
     """段数预算闸：病态密集输入（半幅暗噪点，CLAHE 后必大面积触发排线）必须
     被层距放大压回预算内——2026-09-10 事故原图 CLAHE 后 5508 段 → G-code
-    575KiB 超 §5 512KiB 闸整单 422。钉：排线段（2 点折线）数 ≤ 预算。"""
+    575KiB 超 §5 512KiB 闸整单 422。预算约束的是串链前的段生成期（闸在串链
+    上游），故以恒等串链观测段原文：排线段数 ≤ 预算。"""
+    monkeypatch.setattr(sketch_render, "_chain_hatch_segments", lambda segs, mask: segs)
     rng = np.random.default_rng(7)
     arr = np.full((428, 760), 230, dtype=np.uint8)
     arr[:, : 380] = (rng.random((428, 380)) * 120).astype(np.uint8)
     polys, _, _ = render_hatch(_png(arr))
     n_seg = sum(1 for p in polys if len(p) == 2)
     assert n_seg <= sketch_render._HATCH_SEGMENT_BUDGET, f"预算闸失效 n_seg={n_seg}"
+
+
+def test_hatch_chaining_collapses_pen_lifts():
+    """串链提速的用户可观察契约：大片暗区的排线应并成少数长链而非每段一笔。
+    左半黑 200×120：串链前 ~百级独立段，串链后总折线数必须量级收敛。"""
+    polys, w, h = render_hatch(_half_black_png())
+    assert len(polys) < 40, f"串链失效，折线数={len(polys)}"
+
 
 def test_squiggle_amplitude_never_crosses_rows():
     """振幅 < 行距一半：任一波形点离其行基线不超过 max_amp，相邻行永不相撞。"""
