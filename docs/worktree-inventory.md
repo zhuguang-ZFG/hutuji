@@ -9,6 +9,18 @@
 
 ---
 
+## 2026-09-10 近期评审七项修复（本地未提交）
+
+| 项 | 说明 |
+|----|------|
+| 起点与授权 | `main` / `d40157a`；用户针对七项评审发现回复「解决处理，」。实现与回归路径登记于 `agent-edit-allowlist.json` 的 `recent_review_fixes_20260910_authorized` |
+| MCP | `bitmap_svg.py` 限预览栅格单边 2048、先裁线再分配坐标；`sketch_render.py` 蛇形只连紧邻行且全程暗区；`server.py` 日限移入新任务登记，保留取消隔离和同题复用 |
+| Portal / 小程序 | `pipeline.py` 显式字体不被标准笔顺覆盖；`app.js` 登录代次作废旧回包，`utils/api.js` 旧 401 不清新会话；创作页默认字体不传 `font` |
+| 部署模板 | `nginx-hutuji.conf` 恢复 `:80 /firmware/`，只许 loopback GET/HEAD；本批未部署、未上传小程序、未改两固件仓 |
+| 回归 | MCP 当前收集全套 **1383** 项（37 文件，本批新增 20）全部通过；新增预览资源边界、白带/行间白缺口、并发/取消/accepted 达日限重试、双入口 OTA 静态契约、合成 gfont 真排版；Node 独立运行登录/字体选择测试。最终 **hub PASS（MCP 1383/1383、e2e PASS）、portal 173/173、Node 19/19**，各套件退出码均为 0 |
+| 本地证据 | `results/review-fixes-20260910/`：最终本仓 hub 为 `hub-final.log` / `hub-final-report.{json,md}`（2026-09-10T14:52:26Z，含 MCP 全量 + e2e），pytest 原始输出为 `mcp-pytest-final.log`；`portal-recheck.log`、`weapp.log` 为独立套件；各 `.exit` 记录退出码，`jobs.json` 记录命令、进程与八份实现文件 SHA-256。前两轮 MCP 仅测试计数台账失配，已按 collect 同步；portal 首轮 172 过 / 1 项临时 SQLite 库损坏，单例复跑过、新临时目录全量复跑 **173 过**，损坏原因未归因；Node **19 过**。失败轮次日志原样保留；`results/` 被忽略，证据只在本机 |
+| 保留既有改动 | 开始时 12 份文档的行号调整保留（handoff、daytime、两份 design、六份 kxnx findings、readiness、troubleshooting）；后续门禁重定位单独核对。既有 `tmp/**`、截图、记忆草稿与 `.playwright-mcp/` 保留 |
+
 ## 0. 2026-09-09 收口入库（本批提交）
 
 | 项 | 说明 |

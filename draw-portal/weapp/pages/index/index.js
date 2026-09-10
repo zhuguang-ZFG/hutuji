@@ -97,10 +97,11 @@ Page({
       .then((res) => {
         this._fontsLoading = false;
         if (res && res.fonts && res.fonts.length) {
-          // 服务端回 [{id, name}]：picker 展示动力巢系列显示名，提交回传 id
+          // 默认项不提交 font，让偏好与缺席回退继续由服务端决定。
+          const fonts = [{ id: "", name: "默认字体" }].concat(res.fonts);
           this.setData({
-            fonts: res.fonts,
-            fontNames: res.fonts.map((f) => f.name),
+            fonts,
+            fontNames: fonts.map((f) => f.name),
             fontIndex: 0,
           });
         }
@@ -274,18 +275,18 @@ Page({
   onLayoutPreview() {
     if (this.data.layouting || !this.data.writeText) return;
     const token = this._writeToken;
+    const data = {
+      text: this.data.writeText,
+      size_mm: this.data.sizeMm,
+      line_spacing: this.data.lineSpacing,
+    };
+    const selectedFont = this.data.fonts[this.data.fontIndex];
+    if (selectedFont && selectedFont.id) data.font = selectedFont.id;
     this.setData({ layouting: true });
     api
       .request("/api/draw/write", {
         method: "POST",
-        data: {
-          text: this.data.writeText,
-          size_mm: this.data.sizeMm,
-          line_spacing: this.data.lineSpacing,
-          font: this.data.fonts.length
-            ? this.data.fonts[this.data.fontIndex].id
-            : undefined,
-        },
+        data,
       })
       .then((res) => {
         if (token !== this._writeToken) return;

@@ -2,6 +2,8 @@
 
 语音说一句话，云端 AI 生成绘图内容，写字机自动画出来、自动换纸。
 
+近期评审修复涉及预览资源边界、波纹白区保护、登录回包隔离、字体选择、重试日限与 Tunnel 固件回源。行为契约见 [`docs/protocol.md`](docs/protocol.md)，本地验证及部署状态见 [`docs/release-readiness.md`](docs/release-readiness.md)；小程序回归命令见 [`draw-portal/README.md`](draw-portal/README.md)。
+
 ## 架构（双芯片）
 
 ```

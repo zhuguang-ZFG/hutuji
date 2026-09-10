@@ -2,6 +2,25 @@
   "version": 1,
   "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
   "decision_count": 7,
+  "recent_review_fixes_20260910_authorized": {
+    "note": "2026-09-10 用户针对近期 code review 七项问题回复「解决处理，」，授权修复与回归。范围为预览分配、退出登录竞态、显式字体、波纹白区、重试日限、Tunnel OTA 路由、字体默认项。",
+    "paths": [
+      "mcp-server/hutuji_mcp/bitmap_svg.py",
+      "mcp-server/hutuji_mcp/sketch_render.py",
+      "mcp-server/hutuji_mcp/server.py",
+      "mcp-server/tests/test_preview_bounds.py",
+      "mcp-server/tests/test_sketch_render.py",
+      "mcp-server/tests/test_device_daily_limit.py",
+      "mcp-server/tests/test_contract.py",
+      "draw-portal/draw_portal/pipeline.py",
+      "draw-portal/tests/test_write_pipeline.py",
+      "draw-portal/tests/weapp/*.js",
+      "draw-portal/weapp/app.js",
+      "draw-portal/weapp/utils/api.js",
+      "draw-portal/weapp/pages/index/index.js",
+      "deploy/nginx-hutuji.conf"
+    ]
+  },
   "grbl_section9_only": [
     "Grbl_Esp32/src/WebUI/TelnetServer.cpp",
     "Grbl_Esp32/src/PaperSystem.cpp",

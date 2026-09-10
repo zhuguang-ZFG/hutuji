@@ -2,6 +2,8 @@
 // 真机 wx.request 无 cookie 罐（iOS/Android 常丢 Set-Cookie）——后端在返回体里
 // 下发 session HMAC blob，落 storage 后经 x-session 头回带（见 utils/api.js）。
 App({
+  _sessionGeneration: 0,
+  _sessionPromise: null,
   globalData: {
     user: null,
     phoneBound: false,
@@ -17,12 +19,18 @@ App({
       this.globalData.phoneBound = false;
       return Promise.resolve(null);
     }
+    if (this._sessionPromise) return this._sessionPromise;
+    // 每轮登录和退出都换代：旧 wx.login、换会话及 /me 回包不得恢复已退出的
+    // 身份，也不能清掉后来显式登录的新会话。并发调用共用一轮登录。
+    const generation = ++this._sessionGeneration;
+    const isCurrent = () =>
+      generation === this._sessionGeneration && !wx.getStorageSync("logged_out");
     const api = require("./utils/api");
     const phoneGate = require("./utils/phone_gate");
-    return new Promise((resolve) => {
+    const pending = new Promise((resolve) => {
       wx.login({
         success: (res) => {
-          if (!res.code) {
+          if (!isCurrent() || !res.code) {
             resolve(null);
             return;
           }
@@ -32,15 +40,27 @@ App({
               data: { code: res.code },
             })
             .then((data) => {
+              if (!isCurrent()) {
+                resolve(null);
+                return;
+              }
               api.setSession(data.session || "");
               wx.setStorageSync("session_ok", true);
               return api.request("/api/auth/me").then((me) => {
+                if (!isCurrent()) {
+                  resolve(null);
+                  return;
+                }
                 this.globalData.user = me;
                 this.globalData.phoneBound = phoneGate.isPhoneBound(me);
                 resolve(me);
               });
             })
             .catch(() => {
+              if (!isCurrent()) {
+                resolve(null);
+                return;
+              }
               wx.removeStorageSync("session_ok");
               wx.removeStorageSync("session_token");
               this.globalData.user = null;
@@ -56,6 +76,10 @@ App({
             });
         },
         fail: () => {
+          if (!isCurrent()) {
+            resolve(null);
+            return;
+          }
           wx.showToast({
             title: "微信登录不可用",
             icon: "none",
@@ -65,10 +89,17 @@ App({
         },
       });
     });
+    this._sessionPromise = pending;
+    pending.then(() => {
+      if (this._sessionPromise === pending) this._sessionPromise = null;
+    });
+    return pending;
   },
   // 退出登录：纯客户端清除（会话是无状态 HMAC blob，服务端无可吊销对象）。
   // 置 logged_out 闸门阻止下次冷启动被静默重登，详见 ensureSession。
   logout() {
+    ++this._sessionGeneration;
+    this._sessionPromise = null;
     wx.removeStorageSync("session_token");
     wx.removeStorageSync("session_ok");
     wx.setStorageSync("logged_out", true);

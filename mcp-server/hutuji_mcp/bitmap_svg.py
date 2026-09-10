@@ -54,6 +54,9 @@ class BitmapResult:
 _PREVIEW_MAX_WIDTH = 320
 _PREVIEW_MAX_HEIGHT = 220
 _PREVIEW_PADDING = 6
+# 2048² float32 栅格最多 16MiB；保留现役 1024/2048 生图的 1px 墨密度，
+# 用户 SVG 的 viewBox 可任意大，超出时只缩预览坐标，不能按声明尺寸分配。
+_PREVIEW_RASTER_MAX_SIDE = 2048
 
 # 生图 prompt 前缀：把用户主题约束成适合中心线描摹和笔式绘图仪落纸的线稿。
 # 2026-08-29：在既有纸面风险闸之外前移辅助约束；不把 prompt 当确定性闸门。
@@ -735,6 +738,34 @@ def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
     )
 
 
+def _clip_preview_segment(
+    start: np.ndarray, end: np.ndarray, max_x: float, max_y: float
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """先裁到视口再调用 line()；事后过滤像素挡不住越界长线的坐标数组分配。"""
+    x0, y0 = map(float, start)
+    x1, y1 = map(float, end)
+    dx, dy = x1 - x0, y1 - y0
+    if not math.isfinite(dx) or not math.isfinite(dy):
+        raise BitmapError("预览线段坐标超出数值范围")
+    enter, leave = 0.0, 1.0
+    for p, q in ((-dx, x0), (dx, max_x - x0), (-dy, y0), (dy, max_y - y0)):
+        if p == 0:
+            if q < 0:
+                return None
+        elif p < 0:
+            enter = max(enter, q / p)
+        else:
+            leave = min(leave, q / p)
+        if enter > leave:
+            return None
+
+    def point(t: float) -> tuple[float, float]:
+        # 浮点求交可有舍入误差，回到视口内再转整数像素。
+        return min(max(x0 + t * dx, 0.0), max_x), min(max(y0 + t * dy, 0.0), max_y)
+
+    return point(enter), point(leave)
+
+
 def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -> bytes:
     """把同一组中心线栅格成适合 480×320 设备屏幕的紧凑 PNG。
 
@@ -742,7 +773,8 @@ def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -
     加粗线，密排线区（程序化排线/波纹）全部并成实心黑块，用户预览与纸面
     真相严重不符（两次黑卡事故的判读污染源）。现按内容分辨率 1px 栅格化
     后面积平均降采样：灰度 = 真实墨密度，疏区细线仍可读（轻度增辉曲线），
-    密区呈灰而非死黑。
+    密区呈灰而非死黑。源尺寸超过 2048 时等比缩入有界栅格；先裁线再画，
+    防止用户 SVG 的巨大 viewBox 或越界端点耗尽进程内存。
     """
     try:
         import imageio.v3 as iio
@@ -750,6 +782,13 @@ def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -
         from skimage.transform import resize
     except Exception as exc:  # noqa: BLE001
         raise BitmapError(f"预览图依赖不可用（{type(exc).__name__}）") from None
+
+    try:
+        valid_size = all(math.isfinite(side) and side > 0 for side in (width, height))
+    except (OverflowError, TypeError, ValueError):
+        valid_size = False
+    if not valid_size:
+        raise BitmapError("预览尺寸必须是有限正数")
 
     usable_w = _PREVIEW_MAX_WIDTH - 2 * _PREVIEW_PADDING
     usable_h = _PREVIEW_MAX_HEIGHT - 2 * _PREVIEW_PADDING
@@ -759,15 +798,27 @@ def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -
     out_w = content_w + 2 * _PREVIEW_PADDING
     out_h = content_h + 2 * _PREVIEW_PADDING
 
-    hi = np.full((height, width), 255.0, dtype=np.float32)
+    raster_scale = min(1.0, _PREVIEW_RASTER_MAX_SIDE / width, _PREVIEW_RASTER_MAX_SIDE / height)
+    raster_w = max(1, int(round(width * raster_scale)))
+    raster_h = max(1, int(round(height * raster_scale)))
+    # 以像素中心映射端点，极窄视口缩到 1px 时整条线仍能保留；先在源视口
+    # 裁剪，避免把本应在视口外的平行线压到这一像素上。
+    scale_xy = (
+        (raster_w - 1) / (width - 1) if width > 1 else 1.0,
+        (raster_h - 1) / (height - 1) if height > 1 else 1.0,
+    )
+    hi = np.full((raster_h, raster_w), 255.0, dtype=np.float32)
     for pts in polys:
         smoothed = _smooth_polyline(pts)
+        if not np.isfinite(smoothed).all():
+            raise BitmapError("预览线段坐标必须是有限数")
         for start, end in zip(smoothed[:-1], smoothed[1:]):
-            x0, y0 = np.rint(start).astype(int)
-            x1, y1 = np.rint(end).astype(int)
+            clipped = _clip_preview_segment(start, end, max(0, width - 1), max(0, height - 1))
+            if clipped is None:
+                continue
+            (x0, y0), (x1, y1) = np.rint(np.asarray(clipped) * scale_xy).astype(int)
             rr, cc = line(y0, x0, y1, x1)
-            valid = (rr >= 0) & (rr < height) & (cc >= 0) & (cc < width)
-            hi[rr[valid], cc[valid]] = 0.0
+            hi[rr, cc] = 0.0
     small = resize(hi, (content_h, content_w), anti_aliasing=True)
     # 增辉：单根细线降采样后约 70-85% 亮（1024 坐标系 0.3 缩放下占空 0.3），
     # 乘 2.0 把细线拉回 <128 深灰保持可读（curated 预览跨度测试钉 ink<128）；密区仍近黑

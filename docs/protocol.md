@@ -496,7 +496,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 - **MCP 生成事务取消所有权（2026-08-20，不升协议号）**：规范化后相同 `description` 的在途 `hutuji_draw` 必须共享一个完整事务（付费生图、中心线描摹、SVG→G-code、产物与返回 JSON）和一个并发名额。客户端 `notifications/cancelled` 只结清对应 JSON-RPC waiter，不得取消已计费事务、提前释放名额或让后续同题重试另起生成；重试搭车原任务，完成后拿同一 capability 结果。共享任务失败/取消后必须从在途表移除，使下一次调用能重新尝试；成功结果仍受 600 秒 capability TTL。该约束只合并同一逻辑生成轮，不取消该轮内已定案的商汤/Agnes/imagefree 并发对冲。
 - **异步生成+完成推送（2026-08-28 决策，默认关闭）**：`HUTUJI_DRAW_ASYNC=1` 且已配 `HUTUJI_XIAOZHI_DEVICE_TOKEN`（或共享文件，见下）时 `hutuji_draw` 立即回 `{"accepted":true,"description":<安全化后>,"eta_seconds":45,"note":"生成完成会自动推送到设备预览，无需重复调用"}`，任务由 `_draw_inflight` 持有生命周期并在 `_run_draw_job` 唯一完成点经 `_chain_device_draw` 自动推送到设备预览（单 flight 复用，同题第二调搭车不另起生成）；缺 token 时回落同步并记一行 warning。
-- **语音画图单设备日限（2026-09-10 用户拍板，与 portal 文生图同口径 20 次/天）**：`hutuji_draw` 在既有每分钟 6 次/设备（`HUTUJI_DRAW_PER_DEVICE_MINUTE`）之上新增**每日 20 次/设备**（`HUTUJI_DRAW_PER_DEVICE_DAY` 默认 20）：UTC+8 自然日键 `device_id:yyyymmdd`，按**入队请求时刻**计数（防滥用闸非精确计费，portal 同款残余风险口径）；空 `device_id` 跳过日限（与分钟限同口径）。三条路径同行为：内存 queue / Redis queue（日键 `...day:<device>:<yyyymmdd>`，48h TTL）/ 进程内回落（模块级 dict）；超限抛 `DrawDailyLimitError` 转白话「今日绘画次数已达上限，明天再来」（`/internal/draw` 映 429）。
+- **语音画图单设备日限（2026-09-10 用户拍板，与 portal 文生图同口径 20 次/天）**：`hutuji_draw` 在既有每分钟 6 次/设备（`HUTUJI_DRAW_PER_DEVICE_MINUTE`）之上新增**每日 20 次/设备**（`HUTUJI_DRAW_PER_DEVICE_DAY` 默认 20）：UTC+8 自然日键 `device_id:yyyymmdd`，按**新任务入队时刻**计数（防滥用闸非精确计费，portal 同款残余风险口径）；同题同推送模式命中在途事务则直接搭车，日限已满仍可等待原事务，waiter 取消后的重试与 `accepted` 重试均不重复扣额；空 `device_id` 跳过日限（与分钟限同口径）。三条路径同行为：内存 queue / Redis queue（日键 `...day:<device>:<yyyymmdd>`，48h TTL）/ 进程内回落（模块级 dict）；超限转白话「今日绘画次数已达上限，明天再来」（`/internal/draw` 映 429）。
+- **云端中心线预览资源边界（2026-09-10 评审修复）**：`polylines_to_preview_png` 的高分辨率栅格单边 ≤2048、单个 float32 画布 ≤16MiB。现役 1024/2048 坐标保留 1px 栅格再降采样的墨密度；更大的 SVG `viewBox` 等比缩入预算。线段先裁到源视口再缩放、栅格化，不能靠 `line()` 后过滤像素阻止巨额坐标数组分配；非有限坐标、非正/非有限尺寸拒绝为 `BitmapError`。这是预览边界，机械产物继续走既有 SVG 白名单与本节 G-code 校验。
 - **语音链式推送自愈（2026-09-08）**：小程序 `send` 走 portal `push_draw_self_heal`（401/403/404 重铸 messaging JWT）；语音/自生成走 MCP `_chain_device_draw`。异步已回 `accepted` 后云端**不会**再调第二步 `hutuji.draw`，链式失败且无自愈 = 屏上永无预览。量产口径：MCP 与 portal 共用 `device_messaging`——优先读 `/var/lib/hutuji/device_messaging.token`（`HUTUJI_DEVICE_TOKEN_FILE` 可覆盖），回落 `HUTUJI_XIAOZHI_DEVICE_TOKEN`；撞 401/403/404 时用控制台 JWT + `HUTUJI_DEVICE_MAC`（或 portal DB `device_bindings` 最新 MAC）重铸并落盘，worker 现读文件无需重启。portal 自愈成功亦写同一文件，避免「小程序能预览、小派自生成不能」。
 ### 5.1 下载完整性契约（先下完 + 校验 + 再发）
 
@@ -669,6 +670,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 项 | 约定 |
 |----|------|
 | 会话 | `wx.login` → `/api/auth/wx-login` 仍可建会话（小程序 x-session / 网页 cookie）；邮箱注册验证同前 |
+| 小程序退出/重登 | 退出清 token、会话标记与用户/手机号态，置 `logged_out` 阻止静默重登；显式重登才清此标记。每轮登录及退出递增会话代次，并发 `ensureSession` 共用一轮请求；旧 `wx.login`、换会话和 `/me` 的成功/失败回包均失效。请求/上传的 401 只可清除发起时所属的当前 token 与代次，不能清掉后续登录（同秒重签 token 相同也须隔离） |
 | 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、`/api/draw/write`、`/api/draw/write/ai`、`/api/draw/teach`、文字生图、`send`/saved、`/api/device/control` |
 | 放行 | `/api/auth/me`、`wx-phone`、`bind-phone`（仅非微信邮箱账号补绑 11 位）、`wx-profile`/`wx-avatar`、登录注册登出 |
 | 错误 | 产品面无号 → **403**，`detail={"code":"phone_required","message":"…"}`（稳定码供小程序统一跳「我的」） |
@@ -769,6 +771,7 @@ Cookie: <session>
 | 第一段（同步） | Canny 线稿照常同步返回，响应加 `refined={"status":"pending","style":<生效风格>}`；用户立即可用线稿版发送 |
 | 风格档位 | 表单字段 `style` ∈ `hatch`（排线素描，默认）/ `squiggle`（连续波纹）；白名单外值静默回落 `hatch`（体验参数非安全闸，不 400） |
 | 第二段（后台） | portal 后台任务：原始照片 → `hutuji_mcp.sketch_render` 程序化渲染直出**矢量折线**（iso 亮度等值线轮廓 + 四层累积排线，或行扫描波纹振幅随暗度调制 + 蛇形连接），**描摹环节（skeletonize/sknw）整体消失**，经同一条 `polylines_to_svg`/`_validate_svg`/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id`。零模型费、零下载、确定性可复现（同输入逐点同输出） |
+| 波纹连接 | 仅前一行末段与紧邻下一行首段可蛇形连接，且整条回折线采样都须处于暗区；同一行由白带隔开的段、空行和两行间白色缺口必须抬笔。行距、振幅和抽稀容差沿用既有值 |
 | 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending","style"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
 | 失败口径 | 渲染任何失败只置 `refined=failed` 并记异常类型名，**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError（fail-open 口径与旧链一致） |
 | 发送 | refined job 是普通 job，`POST .../draw/{refined_job_id}/send` 走 §10.4.5 原路径，无特殊分支 |
@@ -783,8 +786,9 @@ Cookie: <session>
 |----|------|
 | 入口 | `POST /draw-upload/api/draw/write`（登录态 + **须绑定 phone**，同 §10.4.0） |
 | 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（默认 12）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6）、`font`（字库 id=文件名词，取自 `GET /api/fonts` 的 `id` 字段；空=默认 blood8 真迹手写体；>60 字符或含 `/` `\` `..` → 400「字体名不合法」；具名不存在 → WriteTextError → 400） |
-| 排版 | 字库 = 请求 `font` 或默认偏好（`load_font` 子串解析文件名词）+ `write_text.layout_text`；`max_pages = ARTICLE_MAX_PAGES`（20）；超出截断并 `truncated: true` |
+| 排版 | 字库 = 请求 `font` 或默认偏好（`load_font` 子串解析文件名词）+ `write_text.layout_text`；显式 `font` 的中文字形也取该 gfont，不被 `HUTUJI_STROKE_DIR` 的 medians 覆盖；未选字体时保留已配置标准笔顺的既有行为。`max_pages = ARTICLE_MAX_PAGES`（20）；超出截断并 `truncated: true` |
 | 字体列表 | `GET /api/fonts`（`phone_secured`）→ `{fonts:[{id, name}…]}`：id=.gfont 文件名词（稳定契约，POST `font` 回传 id）；name=动力巢科技系列显示名（`write_text._FONT_DISPLAY_NAMES` 表驱动，未登记回落 `动力巢科技·<词>`；2026-09-10 用户拍板品牌改名）；纯文件名扫描不解析字库内容；缺 `HUTUJI_GFONT_DIR` → **503** |
+| 默认选择 | 小程序选择器首项为「默认字体」，提交时省略 `font`，由服务端决定偏好及缺席回退；不得把按文件名排序的第一个字库当作默认。用户显式选择其余项才传对应 id，切回默认后再次省略 |
 | 产物 | 与文档链同构：`pages/page_NNN.{svg,gcode,png}` + `pages.json` + 首页兼容 `draw.*`/`preview.png`；job 元数据 `kind=write` |
 | 响应 | `{status, job_id, preview_url, gcode_url, lines, bytes, pages[{url, preview_url}], page_count, truncated, missing_chars, doc_kind, doc_mode}` |
 | 复用 | `POST .../draw/{job_id}/send`（自动 confirm）、`POST .../save`、历史列表；与 §10.4.5 上传 job 零分叉 |

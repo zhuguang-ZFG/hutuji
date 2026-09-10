@@ -241,6 +241,7 @@
 | cloudflared 配置 | `/etc/cloudflared/config.yml`（本地管理模式） |
 | 服务 | `systemctl status cloudflared`（enabled，开机自启） |
 | 入口规则 | `hutuji.donglicao.com` → `http://localhost:80`；其余 404 |
+| 固件回源 | `:80 /firmware/` 与 `:443 /firmware/` 均映射 `/var/hutuji/firmware/`，只放 GET/HEAD、共用 files 限速；`:80` 依次 allow IPv4/IPv6 loopback 再 deny all，供 Tunnel 读取 catalog/latest/bin。2026-09-10 仓内恢复该 location；本批未部署或做 Tunnel 实测 |
 | Cloudflare 账号 | 域名 `donglicao.com` 托管于 Cloudflare |
 
 > 尝试过的失败方案：Flexible SSL（JD Cloud SNI 拦截）、Origin Rules（付费功能）、Workers（fetch 不允许裸 IP → 1003）。

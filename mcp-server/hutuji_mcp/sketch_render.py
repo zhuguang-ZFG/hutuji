@@ -298,6 +298,16 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     return _simplify(polys, _RDP_TOLERANCE_PX), w, h
 
 
+def _squiggle_link_stays_dark(start: np.ndarray, end: np.ndarray, darkness: np.ndarray) -> bool:
+    """半像素步长检查整段回折线；只验两端会跨过两行之间的白色缺口。"""
+    count = int(np.ceil(np.max(np.abs(end - start)) * 2)) + 1
+    xy = np.rint(np.linspace(start, end, count)).astype(int)
+    h, w = darkness.shape
+    if not ((xy[:, 0] >= 0) & (xy[:, 0] < w) & (xy[:, 1] >= 0) & (xy[:, 1] < h)).all():
+        return False
+    return bool((darkness[xy[:, 1], xy[:, 0]] > _SQUIGGLE_DARK_FLOOR).all())
+
+
 def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     """连续波纹：行扫描线振幅随暗度调制，iso 轮廓补结构。返回 (polys, w, h)。
 
@@ -312,6 +322,7 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     phase = 2.0 * np.pi * x / _SQUIGGLE_WAVELENGTH_PX
     rows = np.arange(_SQUIGGLE_ROW_SPACING_PX / 2, h, _SQUIGGLE_ROW_SPACING_PX)
     serpentine_prev_end: np.ndarray | None = None
+    serpentine_prev_row = -2
     for row_idx, y0 in enumerate(rows):
         yi = int(round(y0))
         amp = np.clip(darkness[yi] - _SQUIGGLE_DARK_FLOOR, 0.0, None)
@@ -322,7 +333,7 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
         wave_y = y0 + amp * np.sin(phase)
         # 行内按 live 分段；蛇形连接相邻行段减少抬笔：偶数行左→右、
         # 奇数行右→左，行尾到下行行首近邻则用竖直连线并入同一条折线，
-        # 白捡一次免抬笔；断开即新折线。
+        # 同行不同段之间和空行必须抬笔，回折连线全程也必须在暗区。
         padded = np.concatenate(([False], live, [False]))
         edges = np.flatnonzero(np.diff(padded.astype(np.int8)))
         segs: list[np.ndarray] = []
@@ -338,13 +349,16 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
         for seg in segs:
             if (
                 serpentine_prev_end is not None
+                and serpentine_prev_row == row_idx - 1
                 and abs(seg[0, 1] - serpentine_prev_end[1]) <= _SQUIGGLE_ROW_SPACING_PX * 1.5
                 and abs(seg[0, 0] - serpentine_prev_end[0]) <= w * 0.2
+                and _squiggle_link_stays_dark(serpentine_prev_end, seg[0], darkness)
             ):
                 polys[-1] = np.vstack([polys[-1], seg])
             else:
                 polys.append(seg)
             serpentine_prev_end = seg[-1]
+            serpentine_prev_row = row_idx
     polys.extend(_iso_contours(gray))
     if not polys:
         raise SketchRenderError("波纹渲染产出为空（图片可能为纯白）")

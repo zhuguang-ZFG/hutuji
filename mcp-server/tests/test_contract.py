@@ -5717,6 +5717,28 @@ def test_public_download_template_requires_https_and_loopback_http_origin() -> N
     assert allow_v6_at < deny_at, acl_lines
 
 
+def test_firmware_download_template_supports_https_and_loopback_tunnel() -> None:
+    """OTA 回退 Tunnel 仍须可读 catalog/latest/bin，公网明文不能绕过 TLS。"""
+    root = Path(__file__).resolve().parents[2]
+    nginx = (root / "deploy" / "nginx-hutuji.conf").read_text(encoding="utf-8")
+    port_443, port_80 = nginx.split("    listen 80;", 1)
+    for is_http, block in ((False, port_443), (True, port_80)):
+        match = re.search(r"    location /firmware/ \{(.*?)^    \}", block, re.S | re.M)
+        assert match, "两个入口都必须能服务 /firmware/，否则回退会落进 404"
+        location = match.group(1)
+        assert "alias /var/hutuji/firmware/;" in location
+        assert "limit_except GET HEAD { deny all; }" in location
+        assert "limit_req zone=hutuji_files burst=10 nodelay;" in location
+        assert "sendfile on;" in location
+        assert "default_type application/octet-stream;" in location
+        if is_http:
+            acl = [
+                line.strip() for line in location.splitlines()
+                if line.strip().startswith(("allow ", "deny "))
+            ]
+            assert acl == ["allow 127.0.0.1;", "allow ::1;", "deny all;"]
+
+
 def test_nginx_tunnel_rate_limit_and_logs_use_real_client_ip() -> None:
     """Tunnel 回源都来自 127.0.0.1，不能让全体公网用户共享一个限速桶。
 

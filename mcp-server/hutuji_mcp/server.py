@@ -417,8 +417,9 @@ _draw_inflight: dict[str, asyncio.Task[str]] = {}
 _draw_last_error: dict[str, object] | None = None
 
 # 进程内（无队列）路径的单设备日限计数；queue 路径由 draw_queue 后端计数，
-# 这里只兜进程内路径。键 = f"{device_id}:{yyyymmdd}"（UTC+8 自然日），按入队
-# 请求时刻 +1——与 portal「成功才计数」口径不同：这是防滥用闸，不是精确计费。
+# 这里只兜进程内路径。键 = f"{device_id}:{yyyymmdd}"（UTC+8 自然日），登记
+# 新任务时 +1；同题在途重试搭车不重复计数。与 portal「成功才计数」
+# 口径不同：这是防滥用闸，不是精确计费。
 _device_day_counts: dict[str, int] = {}
 
 
@@ -722,12 +723,9 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
             safe_description, public_base_url, safe_device_id
         )
 
-    # 进程内路径没有 draw_queue 后端的设备限流，日限在此兜底（queue 路径由
-    # attach_or_enqueue 抛 DrawDailyLimitError，文案保持一致）
-    if _device_daily_limit_reached(safe_device_id):
-        raise DrawLimitError("今日绘画次数已达上限，明天再来")
-
-    work = _draw_inprocess(safe_description, public_base_url, chain_push=True)
+    work = _draw_inprocess(
+        safe_description, public_base_url, chain_push=True, device_id=safe_device_id
+    )
 
     # 2026-08-28 异步生成+完成推送（默认关闭）：双真立即 accepted，任务由
     # _draw_inflight 持有生命周期；缺 token 则回落同步并 warning。
@@ -754,7 +752,7 @@ def _inflight_key_for(safe_description: str, chain_push: bool) -> str:
 
 
 def _draw_inprocess(
-    safe_description: str, public_base_url: str, *, chain_push: bool
+    safe_description: str, public_base_url: str, *, chain_push: bool, device_id: str = ""
 ) -> "asyncio.Task[str]":
     """进程内（无队列）共享任务表登记；同题 waiter 搭同一事务。"""
     key = _inflight_key_for(safe_description, chain_push)
@@ -767,6 +765,10 @@ def _draw_inprocess(
             del _draw_inflight[key]
         work = None
     if work is None:
+        # 与 queue attach_or_enqueue 同口径：只拦新任务，日限已满仍可搭车。
+        # 检查、计数、登记之间无 await，避免并发重试各自占额。
+        if _device_daily_limit_reached(device_id):
+            raise DrawLimitError("今日绘画次数已达上限，明天再来")
         work = asyncio.create_task(
             _run_draw_job(safe_description, public_base_url, chain_push=chain_push)
         )

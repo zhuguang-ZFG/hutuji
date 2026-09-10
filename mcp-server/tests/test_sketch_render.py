@@ -160,6 +160,35 @@ def test_squiggle_dark_image_few_long_polys():
     assert waves and len(waves) < rows / 2, f"蛇形连接失效：{len(waves)} 条 vs {rows} 行"
 
 
+def test_squiggle_does_not_bridge_white_gaps_in_same_row():
+    """两块黑区之间的 40px 白带必须抬笔；旧串链会在每行横穿白带。"""
+    arr = np.zeros((120, 240), dtype=np.uint8)
+    arr[:, 100:140] = 255
+    polys, w, h = render_squiggle(_png(arr))
+    white = _raster_ink_fraction_region(polys, w, h, x0=105, x1=135)
+    assert white == 0, f"波纹把白区连成了横线：{white:.1%}"
+
+
+def test_squiggle_adjacent_rows_do_not_join_through_white_notch(monkeypatch):
+    """行尾与下行行首都暗，不代表两端之间也暗；回折线须检查整段。"""
+    # 单测波纹连接，排除色调重映射和等值线描边对白色缺口边缘的影响。
+    monkeypatch.setattr(sketch_render, "_normalize_tones", lambda gray: gray)
+    monkeypatch.setattr(sketch_render, "_iso_contours", lambda gray: [])
+    arr = np.zeros((12, 240), dtype=np.uint8)
+    arr[4:6, -4:] = 255
+    polys, w, h = render_squiggle(_png(arr))
+    from skimage.draw import line
+
+    ink = np.zeros((h, w), dtype=bool)
+    for poly in polys:
+        xy = np.rint(poly).astype(int)
+        for (x0, y0), (x1, y1) in zip(xy[:-1], xy[1:]):
+            rr, cc = line(y0, x0, y1, x1)
+            inside = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
+            ink[rr[inside], cc[inside]] = True
+    assert not ink[4:6, -1].any(), "相邻行回折线跨过了白色缺口"
+
+
 def test_pure_white_both_styles_fail_closed():
     white = _png(np.full((120, 160), 255, dtype=np.uint8))
     with pytest.raises(SketchRenderError):

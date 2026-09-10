@@ -35,10 +35,18 @@ function _handlePhoneRequired(payload) {
 }
 
 // 401 统一处置：清会话态；logged_out 闸门在场（用户显式退出）→ 回「我的」登录墙。
-function _reject401(reject) {
+function _reject401(reject, session, generation) {
+  const app = getApp();
+  // 网络回包可能跨越退出/重新登录；旧凭据的 401 只能拒掉该请求，
+  // 无权清除新会话（HMAC token 也可能同秒重签相同，故同时比较代次）。
+  if (session !== getSession() || generation !== app._sessionGeneration) {
+    reject({ status: 401, detail: "登录已过期" });
+    return;
+  }
   wx.removeStorageSync("session_ok");
   wx.removeStorageSync("session_token");
-  getApp().globalData.user = null;
+  app.globalData.user = null;
+  app.globalData.phoneBound = false;
   if (wx.getStorageSync("logged_out")) {
     wx.switchTab({ url: "/pages/profile/profile" });
     reject({ status: 401, detail: "请先登录" });
@@ -48,19 +56,21 @@ function _reject401(reject) {
 }
 
 function request(path, options = {}) {
+  const generation = getApp()._sessionGeneration;
+  const header = Object.assign(
+    { "content-type": "application/json", "x-session": getSession() },
+    options.header || {}
+  );
   return new Promise((resolve, reject) => {
     wx.request({
       url: BASE_URL + path,
       method: options.method || "GET",
       data: options.data || {},
-      header: Object.assign(
-        { "content-type": "application/json", "x-session": getSession() },
-        options.header || {}
-      ),
+      header,
       timeout: options.timeout || 150000,
       success(res) {
         if (res.statusCode === 401) {
-          _reject401(reject);
+          _reject401(reject, header["x-session"], generation);
           return;
         }
         if (res.statusCode >= 400) {
@@ -86,16 +96,18 @@ function request(path, options = {}) {
 }
 
 function uploadFile(path, filePath, name, formData) {
+  const session = getSession();
+  const generation = getApp()._sessionGeneration;
   return new Promise((resolve, reject) => {
     const opts = {
       url: BASE_URL + path,
       filePath: filePath,
       name: name || "file",
-      header: { "x-session": getSession() },
+      header: { "x-session": session },
       timeout: 150000,
       success(res) {
         if (res.statusCode === 401) {
-          _reject401(reject);
+          _reject401(reject, session, generation);
           return;
         }
         if (res.statusCode >= 400) {

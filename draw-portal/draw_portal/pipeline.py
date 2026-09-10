@@ -172,7 +172,8 @@ def process_write_text(
 ) -> DocPipelineResult:
     """纯文本 → 文章排版 → 多页产物（kind=write，供 /api/draw/write 调用）。
     font_name 为空走默认偏好（blood8 真迹），具名不存在由 load_font 抛
-    WriteTextError → app 层 400。
+    WriteTextError → app 层 400。显式选字体时中文字形也由该字库决定；
+    仅未选字体时沿用标准笔顺覆盖。
     """
     from hutuji_mcp import write_text
     from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
@@ -183,7 +184,7 @@ def process_write_text(
     font = write_text.load_font(gfont_dir, font_name or None)
     metrics = write_text.measure_font(font)
     stroke_data = None
-    if stroke_dir:
+    if stroke_dir and not font_name:
         from hutuji_mcp import stroke_order
 
         try:

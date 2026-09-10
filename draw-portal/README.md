@@ -19,8 +19,13 @@ D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m uvicorn draw_portal.app:c
 
 ```powershell
 $env:PYTHONPATH="D:\Users\hutuji\mcp-server"
+$env:PYTHONIOENCODING="utf-8"
+$env:PYTHONUTF8="1"
 D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
+node --test tests/weapp/session.test.js tests/weapp/font_picker.test.js
 ```
+
+小程序回归使用 Node 内置测试运行器和 wx 桩，覆盖登录/退出回包竞态及默认字体提交；测试放在 `tests/weapp/`，不进入小程序包。`process_write_text` 的字体回归使用合成 gfont 和真实排版，验证显式字体对中文生效、未选字体仍沿用标准笔顺。完整交互与纸面效果另按真机清单验收。
 
 ## 生产部署（阿里云，一期）
 

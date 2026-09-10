@@ -1,6 +1,7 @@
 """单设备每日限流（HUTUJI_DRAW_PER_DEVICE_DAY，UTC+8 自然日窗口，入队时刻计数）。"""
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -192,6 +193,66 @@ def test_inprocess_draw_rejects_21st_call(tmp_path, monkeypatch: pytest.MonkeyPa
             server.DrawLimitError, match="今日绘画次数已达上限，明天再来"
         ):
             await server.hutuji_draw("主题20", device_id="dev-inproc")
+
+    asyncio_run(run_case())
+
+
+@pytest.mark.parametrize("mode", ["concurrent", "cancelled", "async"])
+def test_inprocess_retry_attaches_at_daily_limit(tmp_path, monkeypatch, mode):
+    """第 20 单仍在生成时，并发/取消后的重试/accepted 重试均复用原事务。"""
+    _inprocess_harness(tmp_path, monkeypatch, day=20)
+    monkeypatch.setattr(draw_queue, "day_stamp_cst", lambda: "20260910")
+    server._device_day_counts["dev-retry:20260910"] = 19
+    server.settings.draw_async = mode == "async"
+    server.settings.xiaozhi_device_token = "test-device-token"
+
+    async def run_case():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+
+        async def blocked_run(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+            return '{"url":"https://draw.example/files/same.gcode"}'
+
+        monkeypatch.setattr(server, "_run_draw_job", blocked_run)
+        first = asyncio.create_task(server.hutuji_draw("同题", device_id="dev-retry"))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        shared = server._draw_inflight["同题"]
+        retry = None
+        try:
+            if mode == "cancelled":
+                first.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await first
+                assert not shared.done(), "取消 waiter 不得取消共享生成"
+            elif mode == "async":
+                assert json.loads(await first)["accepted"] is True
+
+            retry = asyncio.create_task(server.hutuji_draw("同题", device_id="dev-retry"))
+            await asyncio.sleep(0)
+            if mode == "async":
+                assert json.loads(await retry)["accepted"] is True
+            else:
+                assert not retry.done(), "搭车应等待原任务，不能因日限提前报错"
+            assert server._device_day_counts["dev-retry:20260910"] == 20
+            assert calls == 1
+            with pytest.raises(server.DrawLimitError, match="今日绘画次数已达上限"):
+                await server.hutuji_draw("新主题", device_id="dev-retry")
+        finally:
+            release.set()
+            await shared
+            await asyncio.gather(first, *([retry] if retry else []), return_exceptions=True)
+
+        if mode != "async":
+            assert json.loads(await retry)["url"].endswith("same.gcode")
+        # 完成后同题再来已是新任务，仍必须被日限挡住。
+        with pytest.raises(server.DrawLimitError, match="今日绘画次数已达上限"):
+            await server.hutuji_draw("同题", device_id="dev-retry")
+        assert calls == 1
 
     asyncio_run(run_case())
 
