@@ -9,7 +9,7 @@
 
 ---
 
-## 2026-09-10 近期评审七项修复（已提交已推 `5062272`+`a776cc6`+证据回填 `bba1284`，双机已部署；量产机烧录本机 DTR 链路阻塞）
+## 2026-09-10 近期评审七项修复（已提交已推 `5062272`+`a776cc6`+证据回填 `bba1284`，双机已部署；量产机已烧录点亮）
 
 | 项 | 说明 |
 |----|------|
@@ -22,7 +22,7 @@
 | 保留既有改动 | 开始时 12 份文档的行号调整保留（handoff、daytime、两份 design、六份 kxnx findings、readiness、troubleshooting）；后续门禁重定位单独核对。既有 `tmp/**`、截图、记忆草稿与 `.playwright-mcp/` 保留 |
 | 提交 | `5062272`（37 文件：七项修复 + 文档/白名单/指纹基线）+ `a776cc6`（weapp 0.3.3 脚注）；已合远端 PR #9 merge 并推 origin（`d1fcd0e`） |
 | 部署 | 双机四文件 SHA-256 逐位相符（备份 `/root/hutuji-bak-20260910-review/`）；京东 `:80 /firmware/` 按 HEAD 模板三处同写并 restart nginx，loopback 200/公网 403；preflight 阿里 25/33、京东 30/33（持平加固批基线）；weapp 0.3.3 CLI 上传 TOTAL 106500 B。明细见 `docs/deployment.md` 首条 |
-| 量产机烧录 | 新机现 COM3（Hub/驱动折腾后重枚举）；CH340 正版 VID_1A86；BtWriter 原固件 `VER:1.1.202220207`、BT MAC `4C:C3:82:CC:8A:9E`；massprod 固件 `eac33b7` 已构建（`Grbl_Esp32-massprod` worktree，1842150 B，Flash 93.7%），三件套+说明在 `tmp/massprod-flash-pack/`（SHA 已录说明内）。**本机下载链路结论（2026-09-11 凌晨取证，已闭环）**：RTS→EN 复位正常、DTR→IO0 全程不生效——量产机上：慢节奏 ×2、esptool v3/v5.3.1、手动 300ms latch 探针、FDT 3.9.9 驱动自动化 SYNC→ERROR 2s、USB2 Hub 经转照旧、驱动 3.9.2024.9→4.0.2026.2 升级照旧；**对照实验：另一块 ESP32 板插本机同样进不了下载模式**（boot 0x13 SPI，FDT/esptool 均败）。用户实证**另一台电脑用官方 FDT 可正常烧录** → **定性：本机对所有 ESP32 板的 DTR 自动下载全灭，两块板子均无问题**；根因在本机 USB/系统栈（Win11 26200 已知坑族 esptool issue #790，换驱动版本无效），不再深查（串口正常通信不受影响）。**下一步**：①另一台电脑用 `tmp/massprod-flash-pack/` 刷（选定路径）；②想钉物理根因可跑 `tmp/dtr_square_wave.py` + 万用表量 IO0 焊盘；③保底短接 IO0(25 号焊盘)→GND 上电后我以 `--before no-reset` 接管。探针 `tmp/probe_*.py`、`tmp/fdt_drive_{1,2,3}.py`，截图 `tmp/fdt_*.png`、`tmp/fdt_frames/` |
+| 量产机烧录 | **已完成（2026-09-11 凌晨）**：短接 IO0 上电 + `--before no-reset` 烧入 massprod 固件（DIO 版；首刷 QIO 看门狗循环已翻案并重刷）；开机 `[VER:1.3a.20260910:]`、`$RST=$` 后金标指纹 12/12 MATCH；本机 DTR 自动下载坏系电脑侧问题（对照板同症、另一台电脑可烧），板子无罪。详见下方「量产无换纸 SKU 批」刷机阻塞行的解决记录 |
 
 ## 0. 2026-09-09 收口入库（本批提交）
 
@@ -173,8 +173,7 @@
 |---|---|
 | 固件 | 新分支 `massprod/nopaper-1.3a`（外仓 Grbl_Esp32，已推 origin）：基线 c896ce5c + `GRBL_VERSION_BUILD` 20211103→**20260910**（`[VER:1.3a.20260910:]` 与现役区分）；树内无 Paper* 换纸代码（无需删改）；PlatformIO release 构建 SUCCESS（firmware.bin 1,842,272B，Flash 93.7%）；WiFi/Telnet/WebUI/出厂 AP 代配面完整（§1.5 零接触配网不受影响） |
 | 系统影响面 | 云端 MCP/portal/小程序**零改动**（产物契约不变）；小派 S3 侧需「无换纸机型」模式：页尾归位保留、M30 段与换纸等待跳过；多页文章**不做**（2026-09-10 用户拍板：不换纸机型只出单页；写字/笔顺/文档多页功能对该机型不开放）；S3 无换纸模式规格=页尾归位保留、M30 与换纸等待整段跳过、多页任务确认环节拒绝（话术「这台机器一次只能画一页哦」）；契约已立 `docs/protocol.md` §10.4.15：机型识别=VER build 20260910 vs 20211103、S3 读 `$I` 分支、能力标志位（announce 上报 SKU→绑定表→小程序显隐）待联调。**S3 无换纸模式代码已落地**（xiaozhi `eb56138` 已推 feat/hutuji-usb-pipe）：新 header-only `hutuji_nopaper_core.h`（VER build 段精确匹配/多页闸/页尾跳过谓词/无换纸 12 项 $$ 指纹金标——数值=c896ce5c 机头默认，刷机流程须含 $RST=$ 或整片擦写，刷后实机校准）+ pipe VER 解析置机型/banner 复位保守回换纸机/指纹探针分表 + job 提交闸与页尾兜底双拦多页、页尾跳 M30；`recovery_core` 指纹核对器加 Table 形参版（旧调用点零改动）。验证：host 测试新增 3 例全绿（VER 识别陷阱矩阵/谓词矩阵/分表与值钉死）、lichuang-dev release 真构建 2120 单元过（vhutuji.1.0.6）、`xiaozhi.bin` 含拒绝话术字面量。既有 host 套件 170 项中 1 例失败为**用户既有在途改动**（draw_bind kAutoBindMaxAttempts，未 stash 前即红，与本批无关）。**HIL 未验**（刷机仍卡 IO0 物理动作）。外仓工作树含大量用户在途 WIP（freenove 换板等 34 项），本批提交只摘 nopaper hunk（git apply --cached 标记过滤），用户改动原样保留未提交 |
-| 刷机阻塞 | 目标机（COM13，ESP32-S 模组+CH340G，用户给原理图 0820SchDoc.SchDoc 佐证）：**RTS→EN 复位通路实测正常，DTR→IO0 通路不工作**（双极性时序均 boot:0x13 SPI 启动，esptool 标准/慢节奏均败）；用户称同款好板可自动下载 → 判定**本机 DTR→IO0 单元级故障**（Q3 SS8050 虚焊/走线断），原理图全板仅 1 颗三极管须复核设计稿与实际贴装差异；待用户万用表量 IO0 焊盘随 DTR 翻转是否跳变，或镊子短接 IO0(25 号焊盘)→GND 上电进下载模式后由我 no_reset 直刷 |
-| 证据 | 刷机前探针 `tmp/massprod-preflash-probe-com13.txt`（原固件 Grbl 1.1 banner、$130-135=200/200/200/300/300/300、Pn:XY）；烧录脚本 `tmp/flash_massprod.py`（慢节奏复位版，备用）；外仓 worktree `D:/Users/Grbl_Esp32-massprod` |
+| 刷机阻塞→已解决（2026-09-11 凌晨） | ~~判定「本机 DTR→IO0 单元级故障」~~ **翻案**：另一块 ESP32 板在本机同样进不了下载模式（对照实验），而量产机在另一台电脑用官方 FDT 可烧——根因是**本机（Win11 26200 + CH340 驱动，3.9/4.0 两版同症）对所有 ESP32 板的 DTR 自动下载全灭**（esptool issue #790 同族），两块板子均无问题。实际刷机路径=**短接 IO0（ESP32-S 模组右列下数第 3 焊盘，示意图 `tmp/esp32s-io0-pinout.png`）到 GND 上电 + `--before no-reset`**：esptool v5.3.1 stub 同步成功（MAC `4c:c3:82:cc:8a:9c` 对上原机 BT MAC），三件套写入哈希校验过。**坑：首刷 QIO 看门狗重启循环**（原厂固件 mode:DIO，该机 QIO 读回乱码）→ DIO 重刷一次点亮；massprod 分支已提交 `d09ad28`（flash_mode 改 dio，防下次 pio upload 再踩）。开机验收：`[VER:1.3a.20260910:]`、`[OPT:PHBSW]`、`Custom 3-Axis HR4988`、AP 模式 `GRBL_ESP` 192.168.0.1（未配 STA）；**NVS 残留盖过机头默认如约出现**（$1=25/$3=6/$100=80/$130=300 等），`$RST=$` 后 12 项金标指纹 **12/12 MATCH**（无换纸表，证据 `tmp/massprod-boot-after-flash.txt`、`tmp/massprod-settings-after-rst.txt`）。**未做**：WiFi STA 配网（需密码）、S3 联机与无换纸行为联调、实画。烧录脚本 `tmp/flash_massprod_noreset.py`（no-reset DIO 版，唯一可信路径）；探针 `tmp/probe_*.py`；FDT 驱动 `tmp/fdt_drive_{1,2,3}.py`；刷机包 `tmp/massprod-flash-pack/`（含 dio bootloader） |
 
 ### 双机量产安全加固批（2026-09-10，用户原话「把 vps 处理一下，为量产做准备，后续大规模并发，要能扛住冲击和攻击，参考 GitHub 开源项目做法」）
 
