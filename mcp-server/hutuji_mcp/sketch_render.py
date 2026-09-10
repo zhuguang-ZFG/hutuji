@@ -8,10 +8,10 @@
 产物契约与 trace_bitmap_to_polylines 相同：list[np.ndarray]，每条 (N,2)
 float64、列序 (x, y)、像素坐标系 y 向下，可直接进 polylines_to_svg。
 
-调参警示：portal 设备预览器（polylines_to_preview_png）把 760px 网格缩到
-约 1/3 再以 2px 粗线无抗锯齿重采样，密排线区在预览里必然糊成实心块——
-评画风必须用全分辨率栅格化（1px 线）或真 G-code，别拿设备预览图调参
-（2026-09-10 两轮被预览器污染的无效评价教训）。
+调参警示：设备预览器 polylines_to_preview_png 已于 2026-09-10 改为真密度渲染
+（全分辨率 1px 栅格化 → 面积平均降采样，灰度=真墨密度）；但任何缩放判读
+仍有残余失真——评画风以全分辨率 1px 栅格化或真 G-code 为准，别拿小预览调参
+（2026-09-10 两轮被旧预览器（0.3×+2px 粗线）污染的无效评价教训）。
 """
 from __future__ import annotations
 
@@ -38,18 +38,20 @@ _HATCH_LAYERS: tuple[tuple[float, float, float], ...] = (
 _HATCH_MIN_RUN_PX = 6.0      # 短于 ≈2.2mm 的排线段不画：视觉上只是墨点
 _HATCH_SAMPLE_STEP_PX = 1.0  # 沿线采样步长，决定段端点精度
 _HATCH_MASK_SIGMA = 1.0      # mask 前平滑，压阈值附近噪点碎段
+_HATCH_SEGMENT_BUDGET = 3500  # 段数预算：边际 ≈70B/段 + 固定轮廓/vpype ≈189KiB（事故原图双点校准），3500 段 ≈ 434KiB 留 §5 余量 ~78KiB
 
-# 色调归一化：按图像自身 p2/p98 分位拉伸到 [0,1]，再做 gamma<1 提亮中间调。
-# 照片裸亮度分布随拍摄环境漂移（室内人像 p50≈0.5、线稿 p50≈0.95），固定
-# 阈值无法同时适配；分位拉伸对白墙线稿近似恒等（p2≈墨、p98≈纸），对中间调
-# 照片把背景抬回纸白。2026-09-10 生产事故（室内逆光人像面部落在 p40-p60，
-# 拉伸后仍撞首层阈值整脸铺黑）证明仅拉伸不够：gamma 0.6 把 p50 0.56→0.71，
-# 面部回到首层阈值之上只留轮廓+局部阴影排线，真暗部（头发/投影）仍多层叠加。
-# hi-lo 过小的近纯色图不拉伸（避免放大噪点，交由下游空产出 fail-closed）。
+# 色调归一化：近纯色闸 → CLAHE 局部均衡 → p2/p98 分位拉伸 → gamma 提亮。
+# 2026-09-10 两次生产黑卡事故定案：① 裸亮度阈值对中间调照片结构性失控
+# （室内人像 p50=0.54 撞 0.78 首层整页铺黑）；② 全局拉伸+gamma 仍救不了
+# 逆光人像（面部局部偏暗被整体曲线压住，纸面观感五官糊没）。CLAHE 按局部
+# 邻域抬对比（逆光脸被局部提亮、与暗发/暗背景分离）是照片转线稿的标准
+# 预处理；拉伸把背景抬回纸白；gamma 0.7 再护中间调。CLAHE 对平坦输入会放大
+# 数值噪声，故近纯色必须在 CLAHE 之前短路（纯白全靠下游空产出 fail-closed）。
 _TONE_STRETCH_LO_PCT = 2.0
 _TONE_STRETCH_HI_PCT = 98.0
 _TONE_STRETCH_MIN_RANGE = 0.05
-_TONE_GAMMA = 0.6
+_CLAHE_CLIP_LIMIT = 0.02
+_TONE_GAMMA = 0.7
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
 # 选 4 级 tone 边界：外形 + 三大调分界，多一级就碎、少一级丢结构。
@@ -108,11 +110,15 @@ def _load_gray(image_bytes: bytes) -> np.ndarray:
 
 
 def _normalize_tones(gray: np.ndarray) -> np.ndarray:
-    """p2/p98 分位拉伸 + gamma 提亮中间调；近纯色图原样返回（下游 fail-closed）。"""
-    lo, hi = np.percentile(gray, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
-    if hi - lo < _TONE_STRETCH_MIN_RANGE:
+    """近纯色短路 → CLAHE → p2/p98 拉伸 → gamma 提亮；纯白等原样返回供下游拒。"""
+    lo0, hi0 = np.percentile(gray, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
+    if hi0 - lo0 < _TONE_STRETCH_MIN_RANGE:
         return gray
-    stretched = np.clip((gray - lo) / (hi - lo), 0.0, 1.0)
+    from skimage.exposure import equalize_adapthist
+
+    clahe = equalize_adapthist(gray, clip_limit=_CLAHE_CLIP_LIMIT)
+    lo, hi = np.percentile(clahe, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
+    stretched = np.clip((clahe - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     return (stretched ** _TONE_GAMMA).astype(np.float32)
 
 
@@ -202,13 +208,25 @@ def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.
 
 
 def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
-    """排线素描：iso 轮廓 + 四层累积排线，RDP 抽稀后返回 (polys, w, h)。"""
+    """排线素描：iso 轮廓 + 四层累积排线，RDP 抽稀后返回 (polys, w, h)。
+
+    段数预算闸：CLAHE 后暗部多的照片排线段数可撞爆 §5 512KiB（2026-09-10
+    事故原图 5508 段 → 575KiB 超闸 422）。段数 ≈ 字节/104（实测线性），超预算
+    按段数比线性放大层距重渲一次（段数 ∝ 1/层距已实测），确定性收敛。
+    """
     gray = _normalize_tones(_load_gray(image_bytes))
     h, w = gray.shape
-    polys = _iso_contours(gray)
     smooth = _gaussian_for_mask(gray)
-    for threshold, angle, spacing in _HATCH_LAYERS:
-        polys.extend(_hatch_layer(smooth < threshold, angle, spacing))
+    layers = [_hatch_layer(smooth < th, ang, sp) for th, ang, sp in _HATCH_LAYERS]
+    n_seg = sum(len(segs) for segs in layers)
+    if n_seg > _HATCH_SEGMENT_BUDGET:
+        factor = n_seg / _HATCH_SEGMENT_BUDGET
+        layers = [
+            _hatch_layer(smooth < th, ang, sp * factor) for th, ang, sp in _HATCH_LAYERS
+        ]
+    polys = _iso_contours(gray)
+    for segs in layers:
+        polys.extend(segs)
     if not polys:
         raise SketchRenderError("排线渲染产出为空（图片可能为纯色）")
     return _simplify(polys, _RDP_TOLERANCE_PX), w, h

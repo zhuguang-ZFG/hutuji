@@ -107,12 +107,15 @@ _GEN_SVG = (
 
 def _ink_span(png: bytes) -> float:
     """预览墨跨度（行覆盖比 × 列覆盖比）：坐标框正确则整图铺开（实测 ~0.38），
-    框取错（回退 256）则被裁近空（实测 ~0.009）——比字节数稳健（字节随内容密度漂）。"""
+    框取错（回退 256）则被裁近空（实测 ~0.009）——比字节数稳健（字节随内容密度漂）。
+    2026-09-10 预览器改真密度渲染（面积平均降采样）：1px 细线在 0.3 缩放下是
+    ~200 浅灰而非纯黑，故阈值从 <128 放宽到 <240（「非白存在」语义）；错框/近空
+    画面对照不变（~0）。"""
     import imageio.v3 as iio
     import numpy as np
 
     img = iio.imread(png)
-    ink = img < 128
+    ink = img < 240
     if not ink.any():
         return 0.0
     rows = np.where(ink.any(axis=1))[0]

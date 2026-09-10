@@ -736,30 +736,47 @@ def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
 
 
 def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -> bytes:
-    """把同一组中心线栅格成适合 480×320 设备屏幕的紧凑 PNG。"""
+    """把同一组中心线栅格成适合 480×320 设备屏幕的紧凑 PNG。
+
+    2026-09-10 起改为真密度渲染：旧实现在 ~308px 目标尺寸直接画 1px+右下
+    加粗线，密排线区（程序化排线/波纹）全部并成实心黑块，用户预览与纸面
+    真相严重不符（两次黑卡事故的判读污染源）。现按内容分辨率 1px 栅格化
+    后面积平均降采样：灰度 = 真实墨密度，疏区细线仍可读（轻度增辉曲线），
+    密区呈灰而非死黑。
+    """
     try:
         import imageio.v3 as iio
         from skimage.draw import line
+        from skimage.transform import resize
     except Exception as exc:  # noqa: BLE001
         raise BitmapError(f"预览图依赖不可用（{type(exc).__name__}）") from None
 
     usable_w = _PREVIEW_MAX_WIDTH - 2 * _PREVIEW_PADDING
     usable_h = _PREVIEW_MAX_HEIGHT - 2 * _PREVIEW_PADDING
     scale = min(usable_w / width, usable_h / height)
-    out_w = max(1, int(round(width * scale)) + 2 * _PREVIEW_PADDING)
-    out_h = max(1, int(round(height * scale)) + 2 * _PREVIEW_PADDING)
-    canvas = np.full((out_h, out_w), 255, dtype=np.uint8)
+    content_w = max(1, int(round(width * scale)))
+    content_h = max(1, int(round(height * scale)))
+    out_w = content_w + 2 * _PREVIEW_PADDING
+    out_h = content_h + 2 * _PREVIEW_PADDING
+
+    hi = np.full((height, width), 255.0, dtype=np.float32)
     for pts in polys:
-        scaled = _smooth_polyline(pts) * scale + _PREVIEW_PADDING
-        for start, end in zip(scaled[:-1], scaled[1:]):
+        smoothed = _smooth_polyline(pts)
+        for start, end in zip(smoothed[:-1], smoothed[1:]):
             x0, y0 = np.rint(start).astype(int)
             x1, y1 = np.rint(end).astype(int)
             rr, cc = line(y0, x0, y1, x1)
-            valid = (rr >= 0) & (rr < out_h) & (cc >= 0) & (cc < out_w)
-            rr, cc = rr[valid], cc[valid]
-            canvas[rr, cc] = 0
-            canvas[np.minimum(rr + 1, out_h - 1), cc] = 0
-            canvas[rr, np.minimum(cc + 1, out_w - 1)] = 0
+            valid = (rr >= 0) & (rr < height) & (cc >= 0) & (cc < width)
+            hi[rr[valid], cc[valid]] = 0.0
+    small = resize(hi, (content_h, content_w), anti_aliasing=True)
+    # 增辉：单根细线降采样后约 70-85% 亮（1024 坐标系 0.3 缩放下占空 0.3），
+    # 乘 2.0 把细线拉回 <128 深灰保持可读（curated 预览跨度测试钉 ink<128）；密区仍近黑
+    boosted = 255.0 - (255.0 - small) * 2.0
+    canvas = np.full((out_h, out_w), 255, dtype=np.uint8)
+    canvas[
+        _PREVIEW_PADDING : _PREVIEW_PADDING + content_h,
+        _PREVIEW_PADDING : _PREVIEW_PADDING + content_w,
+    ] = np.clip(boosted, 0, 255).astype(np.uint8)
     output = BytesIO()
     iio.imwrite(output, canvas, extension=".png")
     return output.getvalue()

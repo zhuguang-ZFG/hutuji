@@ -98,6 +98,17 @@ def test_mid_tone_photo_does_not_flood_page():
     ink = _raster_ink_fraction(polys, w, h)
     assert ink < 0.25, f"中间调照片铺墨失控 ink={ink:.1%}"
 
+def test_hatch_segment_budget_governor():
+    """段数预算闸：病态密集输入（半幅暗噪点，CLAHE 后必大面积触发排线）必须
+    被层距放大压回预算内——2026-09-10 事故原图 CLAHE 后 5508 段 → G-code
+    575KiB 超 §5 512KiB 闸整单 422。钉：排线段（2 点折线）数 ≤ 预算。"""
+    rng = np.random.default_rng(7)
+    arr = np.full((428, 760), 230, dtype=np.uint8)
+    arr[:, : 380] = (rng.random((428, 380)) * 120).astype(np.uint8)
+    polys, _, _ = render_hatch(_png(arr))
+    n_seg = sum(1 for p in polys if len(p) == 2)
+    assert n_seg <= sketch_render._HATCH_SEGMENT_BUDGET, f"预算闸失效 n_seg={n_seg}"
+
 def test_squiggle_amplitude_never_crosses_rows():
     """振幅 < 行距一半：任一波形点离其行基线不超过 max_amp，相邻行永不相撞。"""
     polys, w, h = render_squiggle(_gradient_png())

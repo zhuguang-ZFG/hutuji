@@ -104,7 +104,7 @@
 | 决策 | ① 提示词 v6：按 Qwen-Image-Edit 官方 EDIT_SYSTEM_PROMPT（`src/examples/tools/prompt_utils.py`）重构——指令直述、人像身份约束前置（「其余保持不变」官方范式）、风格特征压句尾、否定排比保留；v5 实证排线词原样保留只调语序。supersede v5。② 骨架算法 zhang→lee：5 张生产精修样本 A/B（`tmp/ab_lee_vs_zhang.py`，样本拉自 `/var/lib/hutuji/draw-portal/` jobs 5198853e/805fa9b7/0c278f1f/5eebf7f9/6c1f3390）抬笔 138→128、144→144、115→99、94→89、130→133，净 -31（3 胜 1 平 1 微负），点数不降反微升=细节未丢 → **仅精修链切 lee**（证据只覆盖精修照片），t2i/QD/写字/笔顺共用描摹维持 zhang 默认。③ 奎享 SquiggleTab 亮度波纹连续线（抬笔≈0）与 l/c.java 路径拼接 = 数量级杠杆候选，本批只做设计定案外的小步；2511 模型/多图 ControlNet 输入被魔搭余额 429 阻塞 |
 | MCP 侧 | `bitmap_svg.trace_bitmap_to_polylines` 加 keyword-only `skeleton_method="zhang"` 透传 skimage；`modelscope_client.py` `I2I_LINE_ART_PROMPT`/`I2I_SPARSE_HATCH_RETRY_PROMPT` v6 |
 | portal 侧 | `pipeline.process_upload_png` 加同名透传参数（默认 zhang，Canny 快出段不变）；`app.py` `_refine_photo_job` 精修描摹传 `skeleton_method="lee"` |
-| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError）；当日程序化渲染+设备日限批再 +21（`test_sketch_render.py` 12、`test_device_daily_limit.py` 9），全套 **1360** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
+| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError）；当日程序化渲染+设备日限批再 +22（`test_sketch_render.py` 13、`test_device_daily_limit.py` 9），全套 **1361** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
 | 验证 | hub 门禁 PASS（1339 + e2e PASS + 指纹 260：2 处行号纯移动 --fix-line-refs 自动（findings/30 两处）、1 处人工核对后 --accept-line-refs（findings/28 计数行内容随批次更新，引用意图不变）） |
 | 部署 | 已完成 02:1x CST：四文件双机 SHA 逐位相符 + 阿里云 mcp/bridge/portal/worker@{1..8} 与京东 mcp/portal restart active + 公网冒烟 + preflight 阿里 24/33·京东 29/33（均符合节点基线，无新 fail 类别；证据 docs/deployment.md 顶部） |
 | 待办 | ① ~~真实照片单观察 v6+lee 抬笔数~~（已被程序化渲染批 supersede——AI 精修链退役，v6+lee 指标不再进生产）② **魔搭次日免费额度恢复后**验证 2511/多图输入 + **Qwen 侧 v6/v7 补验**（2026-09-10 用户拍板：魔搭每日有免费额度、当日用完即停、**不充值**；TCB 混元赛道实证：两臂无可测差异，见下行；补验口径 = **每臂同图 ≥3 次取均值、先量噪声地板再判**）③ ~~SquiggleTab 立项拍板~~（已定案：双风格档位同批落地） |
@@ -119,7 +119,7 @@
 | MCP 侧 | 新增 `sketch_render.py`（排线/波纹双渲染器 + RDP 抽稀出口 + `SketchRenderError` fail-closed；产物契约同 `trace_bitmap_to_polylines`，直进 `polylines_to_svg`）；`config.py` +`draw_per_device_day`（默认 20，校验 1..500）；`draw_queue.py` +`DrawDailyLimitError` + `day_stamp_cst()` + 内存/Redis 双路径日键；`server.py` `hutuji_draw` 进程内路径新增日限闸（此前该路径无任何设备限流） |
 | portal 侧 | `pipeline.process_upload_sketch`（归一 → 渲染 → SVG 白名单 → vpype → §5）；`app.py` `_refine_photo_job` 整体重写为程序化（删 `_race_i2i`/`_attempt`/抬笔门 PREF/HARD/MAX 与 `_tcb_i2i_ready`/`_race_refine_racers`）；`draw_upload` 新增 `style` 表单字段（白名单外静默回落 hatch）；触发条件从「配 token」改为「是照片即精修」；`config.py` 删 `modelscope_token`/`tcb_image_url`/`tcb_api_key`/`tcb_i2i_enabled` 四字段；`index.html` 上传面板加风格单选（排线素描/连续波纹） |
 | 实测 | 5 张生产样本 × 双风格全分辨率 1px 栅格目检通过（排线 = 蚀刻交叉排线、主体可辨；波纹 = 扫描线波形、蛇形并段）；G-code 全部 ≤§5 硬闸（114–298KiB < 512KiB）；排线抬笔 1.9–3.3k/张、波纹 0.4–0.6k/张（蚀刻风固有特性，画图时长显著长于 AI 线稿——已为用户可选档位）；渲染耗时 0.2–0.7s/张。**预览器污染教训已钉进模块 docstring 与 AGENTS.md**（设备预览 0.3×+2px 粗线会糊密排线区，调参只看全分辨率） |
-| 测试 | mcp +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1360** 项全绿（含计数一致性钉）；portal `test_photo_refine.py` 围绕新链重写 18→11（默认 hatch/squiggle 透传/非法回落/无凭据照跑/fail-open/并发闸），全套 **166** 项全绿 |
+| 测试 | mcp +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1361** 项全绿（含计数一致性钉）；portal `test_photo_refine.py` 围绕新链重写 18→11（默认 hatch/squiggle 透传/非法回落/无凭据照跑/fail-open/并发闸），全套 **166** 项全绿 |
 | 部署 | 已完成：`27bd254` 八文件双机 SHA 逐位相符 + 备份 `/root/hutuji-bak-20260910-sketch/` + 阿里云 11 单元/京东 2 单元 restart active + 节点真样本冒烟（双风格过 §5）+ preflight 阿里 24/33·京东 29/33（基线同集合）；证据 docs/deployment.md 顶条 |
 
 ### 程序化渲染黑卡事故修复批（2026-09-10，用户实机反馈「图生图完全不行」附黑卡截图）
@@ -130,9 +130,18 @@
 | 根因定性 | 阈值按「亮背景简单主体」的 5 张样本调参，对任意中间调照片结构性失控；属调参口径错误非链路错误 |
 | 修复 | `sketch_render._normalize_tones`：p2/p98 分位拉伸 + `_TONE_GAMMA=0.6` 提亮中间调（p50 0.56→0.71，面部回阈值之上只吃轮廓）；排线层改 (0.55,45°,6px)/(0.42,-45°,4.5px)/(0.30,45°,3.5px)/(0.18,90°,3px) 亮层稀疏；squiggle 暗度地板 0.06→0.30 |
 | 验证 | 事故原图（从生产 job 目录取回 `tmp/incident-0910/upload.png`）：hatch 墨覆盖 12.5%、squiggle 20.4%，全分辨率 1px 栅格视觉辨认出戴眼镜微笑女孩、面部留白+轮廓、头发排线纹理非实心；5 张原样本回归 6.7–9.5% 覆盖无过曝；pipeline 级 hatch 305KiB/2756 抬笔、squiggle 165KiB/473 抬笔，§5 余量 ≥213KiB |
-| 测试 | `test_sketch_render.py` 12 项（+`test_mid_tone_photo_does_not_flood_page` 事故回归钉墨覆盖 <25%；层叠测试改深灰 40 钉「普通中灰不排线」新语义）；MCP 全套 1360、portal 166 全绿 |
+| 测试 | `test_sketch_render.py` 12 项（+`test_mid_tone_photo_does_not_flood_page` 事故回归钉墨覆盖 <25%；层叠测试改深灰 40 钉「普通中灰不排线」新语义）；MCP 全套 1361、portal 166 全绿 |
 | 教训 | ① 预览器/AA 缩放判读失真第二次咬人（preview mean 255 与「实心黑」并存）——评画风只信全分辨率 1px 栅格，已写进 AGENTS.md 警示；② 阈值调参样本集必须含中间调真实照片，亮背景样本调出的阈值对生产必崩 |
 | 部署 | 已完成：`157bd41` 单文件 sketch_render.py 双机 SHA `7f515e469c78` 逐位相符（备份 `…/sketch_render.py.v1`），双机 restart hutuji-draw-portal active；节点冒烟 hatch 129774B/944 抬笔（修复前同样本 231155B/2085，色调修复实证降载） |
+
+### 黑卡二次修复批：CLAHE + 真密度预览（2026-09-10，用户再反馈「还是不太行」附新截图）
+
+| 项 | 说明 |
+|---|---|
+| 复判定 | 生产 draw.svg 与本地新代码渲染逐点一致（10903 点）→ 新代码确已在线；事故二根因双层：① 全局拉伸+gamma 对**逆光人像**仍不够（面部局部偏暗被整体曲线压住，纸面观感五官糊没、头发近实心）；② 预览器本身失真（0.3×+2px 粗线把密排区并成黑块，用户看到的≠纸面） |
+| 修复①渲染 | `_normalize_tones` 改三段：近纯色短路（纯白 fail-closed 依赖，CLAHE 对平坦输入会放大数值噪声故必须先闸）→ CLAHE 局部均衡（`equalize_adapthist` clip 0.02，逆光脸局部提亮与暗发分离，照片转线稿标准预处理）→ p2/p98 拉伸 → gamma 0.7；全黑极端测 1304 polys/8920 点无 §5 爆闸风险 |
+| 修复②预览 | `bitmap_svg.polylines_to_preview_png` 重写为真密度渲染：内容分辨率 1px 栅格化 → `resize` 面积平均降采样 → 1.4 增辉保细线可读；灰度=真墨密度。影响面=全部链（描摹/curated/quickdraw/写字/笔顺预览同函数），无测试钉像素内容（仅 PNG 魔数/字节透传），旧预览对密排区的实心化是事故判读污染源 |
+| 验证 | 事故原图：hatch 墨覆盖 19.4%、squiggle 27.5%；纸面观感（277px≈1px/mm 面积平均）视觉评判「能非常清晰认出戴眼镜微笑女孩、五官高辨识度、头发纹理非实心、结构性排线非噪点」；新预览卡尺寸下同一结论；5 样本回归 8.6–12.9% 覆盖；MCP 1360 全绿、portal 166 全绿 |
 
 
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
