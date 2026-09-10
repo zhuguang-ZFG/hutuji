@@ -256,6 +256,7 @@ class WriteBody(BaseModel):
     text: str
     size_mm: float | None = None
     line_spacing: float | None = None
+    font: str | None = None  # 字库文件名词（/api/fonts 列表值），空=默认手写体
 
 
 class WriteAiBody(BaseModel):
@@ -1415,6 +1416,15 @@ def create_app() -> FastAPI:
         )
         return {"status": "ok", "mode": mode, "text": article}
 
+    @app.get("/api/fonts", dependencies=phone_secured)
+    async def list_write_fonts() -> dict[str, Any]:
+        """写字可选字库列表（小程序字体选择器）；未配置字库目录 = 503。"""
+        from hutuji_mcp.write_text import list_fonts
+
+        if not config.gfont_dir:
+            raise HTTPException(status_code=503, detail="写字字库未配置")
+        return {"fonts": list_fonts(config.gfont_dir)}
+
     @app.post("/api/draw/write", dependencies=phone_secured)
     async def draw_write(
         body: WriteBody,
@@ -1442,6 +1452,11 @@ def create_app() -> FastAPI:
             )
         except WriteLayoutParamsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        font_name = (body.font or "").strip() or None
+        if font_name is not None and (
+            len(font_name) > 60 or "/" in font_name or "\\" in font_name or ".." in font_name
+        ):
+            raise HTTPException(status_code=400, detail="字体名不合法")
 
         source_name = ("写字: " + safe)[:120]
         job = store.create_draw_job(user_id=user_id, source_name=source_name)
@@ -1454,6 +1469,7 @@ def create_app() -> FastAPI:
                 gfont_dir=config.gfont_dir,
                 layout=layout,
                 stroke_dir=config.stroke_dir or "",
+                font_name=font_name,
             )
             published_pages = await asyncio.to_thread(
                 publish_doc_pages,

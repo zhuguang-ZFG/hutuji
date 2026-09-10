@@ -6,6 +6,8 @@ Page({
     mode: "draw",
     description: "",
     writeText: "",
+    fonts: [],
+    fontIndex: 0,
     teachText: "",
     sizeMm: 12,
     lineSpacing: 1.6,
@@ -84,12 +86,35 @@ Page({
     this.stopRefinePolling();
   },
 
+  // 字库列表懒加载（§10.4.12 字体选择器）：首次进写字模式拉一次；
+  // 失败静默——选择器隐藏，提交不带 font 字段走默认字库。
+  loadFonts() {
+    if (this.data.fonts.length || this._fontsLoading) return;
+    this._fontsLoading = true;
+    api
+      .request("/api/fonts")
+      .then((res) => {
+        this._fontsLoading = false;
+        if (res && res.fonts && res.fonts.length) {
+          this.setData({ fonts: res.fonts, fontIndex: 0 });
+        }
+      })
+      .catch(() => {
+        this._fontsLoading = false;
+      });
+  },
+
+  onFontChange(e) {
+    this.setData({ fontIndex: Number(e.detail.value) || 0 });
+  },
+
   onModeTap(e) {
     const mode = e.currentTarget.dataset.mode;
     if (mode === this.data.mode) return;
     this.stopRefinePolling();
     // 作废在途排版/文档上传：回调靠令牌自灭，避免切模式后 adoptJob 把旧预览写回
     this._writeToken = (this._writeToken || 0) + 1;
+    if (mode === "write") this.loadFonts();
     this.setData({
       mode,
       job: null,
@@ -251,6 +276,9 @@ Page({
           text: this.data.writeText,
           size_mm: this.data.sizeMm,
           line_spacing: this.data.lineSpacing,
+          font: this.data.fonts.length
+            ? this.data.fonts[this.data.fontIndex]
+            : undefined,
         },
       })
       .then((res) => {

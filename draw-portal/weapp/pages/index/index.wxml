@@ -90,6 +90,17 @@
     </view>
 
     <view class="layout-controls">
+      <view class="layout-row" wx:if="{{fonts.length}}">
+        <text class="layout-label">字体</text>
+        <picker
+          class="font-picker"
+          range="{{fonts}}"
+          value="{{fontIndex}}"
+          bindchange="onFontChange"
+        >
+          <view class="font-picker-val">{{fonts[fontIndex]}} ▾</view>
+        </picker>
+      </view>
       <view class="layout-row">
         <text class="layout-label">字号</text>
         <view class="stepper">

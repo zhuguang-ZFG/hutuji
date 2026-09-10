@@ -648,6 +648,19 @@ def _read_font_bytes(path: str) -> bytes:
 _DEFAULT_FONT_PREFERENCE = ("blood8真迹_xiongzai",)
 
 
+def list_fonts(fonts_dir: str) -> list[str]:
+    """列出目录内 .gfont 字库的文件名词（不含扩展名），供 portal 字体选择器。
+    纯文件名扫描不解析内容（多 MB 字库逐份解密只为列表是浪费）；目录缺席/
+    为空回落空列表，由调用方决定 503 还是隐藏选择器。"""
+    if not fonts_dir or not os.path.isdir(fonts_dir):
+        return []
+    return sorted(
+        os.path.splitext(f)[0]
+        for f in os.listdir(fonts_dir)
+        if f.lower().endswith(".gfont")
+    )
+
+
 def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
     """按显示名或文件名词解析字库；name 为空时按 _DEFAULT_FONT_PREFERENCE 优先、
     否则取目录中字数最多的字库。"""

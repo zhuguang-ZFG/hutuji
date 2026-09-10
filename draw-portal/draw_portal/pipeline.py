@@ -168,15 +168,19 @@ def process_write_text(
     gfont_dir: str,
     layout,
     stroke_dir: str = "",
+    font_name: str | None = None,
 ) -> DocPipelineResult:
-    """纯文本 → 文章排版 → 多页产物（kind=write，供 /api/draw/write 调用）。"""
+    """纯文本 → 文章排版 → 多页产物（kind=write，供 /api/draw/write 调用）。
+    font_name 为空走默认偏好（blood8 真迹），具名不存在由 load_font 抛
+    WriteTextError → app 层 400。
+    """
     from hutuji_mcp import write_text
     from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
 
     assert gfont_dir
     if not text.strip():
         raise write_text.WriteTextError("文本为空")
-    font = write_text.load_font(gfont_dir, None)
+    font = write_text.load_font(gfont_dir, font_name or None)
     metrics = write_text.measure_font(font)
     stroke_data = None
     if stroke_dir:

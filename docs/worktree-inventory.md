@@ -104,7 +104,7 @@
 | 决策 | ① 提示词 v6：按 Qwen-Image-Edit 官方 EDIT_SYSTEM_PROMPT（`src/examples/tools/prompt_utils.py`）重构——指令直述、人像身份约束前置（「其余保持不变」官方范式）、风格特征压句尾、否定排比保留；v5 实证排线词原样保留只调语序。supersede v5。② 骨架算法 zhang→lee：5 张生产精修样本 A/B（`tmp/ab_lee_vs_zhang.py`，样本拉自 `/var/lib/hutuji/draw-portal/` jobs 5198853e/805fa9b7/0c278f1f/5eebf7f9/6c1f3390）抬笔 138→128、144→144、115→99、94→89、130→133，净 -31（3 胜 1 平 1 微负），点数不降反微升=细节未丢 → **仅精修链切 lee**（证据只覆盖精修照片），t2i/QD/写字/笔顺共用描摹维持 zhang 默认。③ 奎享 SquiggleTab 亮度波纹连续线（抬笔≈0）与 l/c.java 路径拼接 = 数量级杠杆候选，本批只做设计定案外的小步；2511 模型/多图 ControlNet 输入被魔搭余额 429 阻塞 |
 | MCP 侧 | `bitmap_svg.trace_bitmap_to_polylines` 加 keyword-only `skeleton_method="zhang"` 透传 skimage；`modelscope_client.py` `I2I_LINE_ART_PROMPT`/`I2I_SPARSE_HATCH_RETRY_PROMPT` v6 |
 | portal 侧 | `pipeline.process_upload_png` 加同名透传参数（默认 zhang，Canny 快出段不变）；`app.py` `_refine_photo_job` 精修描摹传 `skeleton_method="lee"` |
-| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError）；当日程序化渲染+设备日限批再 +23（`test_sketch_render.py` 14、`test_device_daily_limit.py` 9），全套 **1362** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
+| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError）；当日程序化渲染+设备日限批再 +24（`test_sketch_render.py` 14、`test_device_daily_limit.py` 9、`test_write_text.py` +1 字体列表），全套 **1363** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
 | 验证 | hub 门禁 PASS（1339 + e2e PASS + 指纹 260：2 处行号纯移动 --fix-line-refs 自动（findings/30 两处）、1 处人工核对后 --accept-line-refs（findings/28 计数行内容随批次更新，引用意图不变）） |
 | 部署 | 已完成 02:1x CST：四文件双机 SHA 逐位相符 + 阿里云 mcp/bridge/portal/worker@{1..8} 与京东 mcp/portal restart active + 公网冒烟 + preflight 阿里 24/33·京东 29/33（均符合节点基线，无新 fail 类别；证据 docs/deployment.md 顶部） |
 | 待办 | ① ~~真实照片单观察 v6+lee 抬笔数~~（已被程序化渲染批 supersede——AI 精修链退役，v6+lee 指标不再进生产）② **魔搭次日免费额度恢复后**验证 2511/多图输入 + **Qwen 侧 v6/v7 补验**（2026-09-10 用户拍板：魔搭每日有免费额度、当日用完即停、**不充值**；TCB 混元赛道实证：两臂无可测差异，见下行；补验口径 = **每臂同图 ≥3 次取均值、先量噪声地板再判**）③ ~~SquiggleTab 立项拍板~~（已定案：双风格档位同批落地） |
@@ -119,7 +119,7 @@
 | MCP 侧 | 新增 `sketch_render.py`（排线/波纹双渲染器 + RDP 抽稀出口 + `SketchRenderError` fail-closed；产物契约同 `trace_bitmap_to_polylines`，直进 `polylines_to_svg`）；`config.py` +`draw_per_device_day`（默认 20，校验 1..500）；`draw_queue.py` +`DrawDailyLimitError` + `day_stamp_cst()` + 内存/Redis 双路径日键；`server.py` `hutuji_draw` 进程内路径新增日限闸（此前该路径无任何设备限流） |
 | portal 侧 | `pipeline.process_upload_sketch`（归一 → 渲染 → SVG 白名单 → vpype → §5）；`app.py` `_refine_photo_job` 整体重写为程序化（删 `_race_i2i`/`_attempt`/抬笔门 PREF/HARD/MAX 与 `_tcb_i2i_ready`/`_race_refine_racers`）；`draw_upload` 新增 `style` 表单字段（白名单外静默回落 hatch）；触发条件从「配 token」改为「是照片即精修」；`config.py` 删 `modelscope_token`/`tcb_image_url`/`tcb_api_key`/`tcb_i2i_enabled` 四字段；`index.html` 上传面板加风格单选（排线素描/连续波纹） |
 | 实测 | 5 张生产样本 × 双风格全分辨率 1px 栅格目检通过（排线 = 蚀刻交叉排线、主体可辨；波纹 = 扫描线波形、蛇形并段）；G-code 全部 ≤§5 硬闸（114–298KiB < 512KiB）；排线抬笔 1.9–3.3k/张、波纹 0.4–0.6k/张（蚀刻风固有特性，画图时长显著长于 AI 线稿——已为用户可选档位）；渲染耗时 0.2–0.7s/张。**预览器污染教训已钉进模块 docstring 与 AGENTS.md**（设备预览 0.3×+2px 粗线会糊密排线区，调参只看全分辨率） |
-| 测试 | mcp +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1362** 项全绿（含计数一致性钉）；portal `test_photo_refine.py` 围绕新链重写 18→11（默认 hatch/squiggle 透传/非法回落/无凭据照跑/fail-open/并发闸），全套 **166** 项全绿 |
+| 测试 | mcp +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1363** 项全绿（含计数一致性钉）；portal `test_photo_refine.py` 围绕新链重写 18→11（默认 hatch/squiggle 透传/非法回落/无凭据照跑/fail-open/并发闸），全套 **166** 项全绿 |
 | 部署 | 已完成：`27bd254` 八文件双机 SHA 逐位相符 + 备份 `/root/hutuji-bak-20260910-sketch/` + 阿里云 11 单元/京东 2 单元 restart active + 节点真样本冒烟（双风格过 §5）+ preflight 阿里 24/33·京东 29/33（基线同集合）；证据 docs/deployment.md 顶条 |
 
 ### 程序化渲染黑卡事故修复批（2026-09-10，用户实机反馈「图生图完全不行」附黑卡截图）
@@ -143,6 +143,17 @@
 | 修复②预览 | `bitmap_svg.polylines_to_preview_png` 重写为真密度渲染：内容分辨率 1px 栅格化 → `resize` 面积平均降采样 → 2.0 增辉保细线可读（curated 跨度测试钉 ink<240「非白存在」语义）；灰度=真墨密度。影响面=全部链（描摹/curated/quickdraw/写字/笔顺预览同函数），无测试钉像素内容（仅 PNG 魔数/字节透传），旧预览对密排区的实心化是事故判读污染源 |
 | 验证 | 事故原图：hatch 墨覆盖 19.4%、squiggle 27.5%；纸面观感（277px≈1px/mm 面积平均）视觉评判「能非常清晰认出戴眼镜微笑女孩、五官高辨识度、头发纹理非实心、结构性排线非噪点」；新预览卡尺寸下同一结论；5 样本回归 8.6–12.9% 覆盖；MCP 1361 全绿、portal 166 全绿；§5 预算闸实证：事故原图 hatch 由超闸 575KiB 压回 433KiB（余量 89KiB） |
 | 部署 | 已完成：`124ad76` 双文件（sketch_render `f41145e46b6d`、bitmap_svg `234752f71c09`）双机 SHA 逐位相符；阿里云 restart mcp+bridge+portal+worker@{1..8} 11 单元 active、京东 mcp+portal active；节点冒烟 hatch 181843B/1397 抬笔过 §5 |
+
+### 写字字体选择器批（2026-09-10，用户原话「小程序写字写文章可以增加选字体吗」）
+
+| 项 | 说明 |
+|---|---|
+| 决策 | §10.4.10 「明确不做·选字库」由用户本句 supersede；MCP `hutuji_write` 早有 font_name 参数，portal 链此前硬编码默认库 |
+| 后端 | `write_text.list_fonts()`（文件名扫描不解析）；`process_write_text(font_name=)` 透传 `load_font`（具名不存在 → WriteTextError → 400）；portal `WriteBody.font`（>60 字符/含 `/` `\` `..` → 400）+ `GET /api/fonts`（phone_secured，未配置 503） |
+| 小程序 | 写字模式「字体」picker（懒加载 /api/fonts，失败静默藏选择器走默认库）；提交带 `font`；脚注 0.3.0/0.2.20 → **v0.3.1**（chat/control/profile/firmware 四处） |
+| 契约 | protocol §10.4.10 请求 JSON 加 font 行 + 字体列表行 + 明确不做行 supersede 盖章 |
+| 测试 | mcp +1（list_fonts stems/排序/坏目录空表）、portal +5（透传/非法 400 矩阵/未知库 400/列表/503）；MCP 1363、portal 171 全绿 |
+| 部署 | 待部署：mcp-server write_text.py + portal app.py/pipeline.py 双机；**weapp 0.3.1 须 CLI 上传 + MP 体验版（用户动作）** |
 
 ### 排线画质/提速优化批（2026-09-10，用户验收「看着还行」后拍板 ①+②）
 

@@ -368,3 +368,21 @@
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
+
+/* 字体选择器（§10.4.12）：与 stepper 同行布局，值域右对齐胶囊 */
+.font-picker {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+.font-picker-val {
+  padding: 8rpx 24rpx;
+  border-radius: 999rpx;
+  background: rgba(11, 12, 19, 0.72);
+  color: #e8e9f0;
+  font-size: 26rpx;
+  max-width: 420rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

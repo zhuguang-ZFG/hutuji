@@ -1069,3 +1069,13 @@ def test_hutuji_write_normalizes_traditional_input(tmp_path, monkeypatch):
     assert payload["missing_chars"] == []
     gcode = (out_dir / payload["url"].rsplit("/", 1)[-1]).read_text(encoding="utf-8")
     validate_gcode(gcode)  # §5 契约不抛即过
+
+
+def test_list_fonts_returns_stems_sorted(tmp_path):
+    """字体选择器数据源：.gfont 文件名词、排序、非 gfont 排除、坏目录空列表。"""
+    (tmp_path / "b体.gfont").write_bytes(b"x")
+    (tmp_path / "a体.gfont").write_bytes(b"x")
+    (tmp_path / "notes.txt").write_text("nope", encoding="utf-8")
+    assert write_text.list_fonts(str(tmp_path)) == ["a体", "b体"]
+    assert write_text.list_fonts(str(tmp_path / "missing")) == []
+    assert write_text.list_fonts("") == []
