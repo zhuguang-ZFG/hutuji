@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,13 +50,10 @@ from draw_portal.passwords import hash_password, verify_password
 from draw_portal.pipeline import (
     copy_saved_preview,
     is_photo_raster,
-    normalize_raster_to_png,
     process_upload,
     process_upload_doc,
-    process_upload_png,
     process_teach_text,
     process_write_text,
-    strip_corner_watermark,
 )
 from draw_portal.teach_chars import extract_teach_chars
 from draw_portal.probe import probe_device_token
@@ -86,13 +82,6 @@ _background_tasks: set[asyncio.Task] = set()
 # 不把突发流量原样堆到上游 API。模块级单例与 _background_tasks 同口径。
 _refine_slots = asyncio.Semaphore(4)
 
-# i2i 精修抬笔门（2026-09-08 夜 supersede）：
-# 生产实证：精修结果常落在 100–130，旧阈 100 把可用素描整批 RefineTooDense；
-# 偏好阈 160（两轮内优先达标），硬阈 220（取最优仍超才 failed——量产不可常失败）。
-REFINE_PEN_LIFT_PREF = 160
-REFINE_PEN_LIFT_HARD = 220
-# 兼容旧测试名
-REFINE_PEN_LIFT_MAX = REFINE_PEN_LIFT_PREF
 
 
 def _spawn_background(coro) -> None:
@@ -1203,109 +1192,28 @@ def create_app() -> FastAPI:
         )
         return published.gcode_url, published.preview_url
 
-    def _tcb_i2i_ready() -> bool:
-        """TCB 混元 i2i 通道就绪 = 显式开关 + URL + key（函数未加 i2i 分支前开关必为 0）。"""
-        return bool(config.tcb_i2i_enabled and config.tcb_image_url and config.tcb_api_key)
+    async def _refine_photo_job(orig_job_id: str, raw: bytes, user_id: str, style: str) -> None:
+        """照片两段式第 2 段：程序化风格渲染（排线 hatch / 波纹 squiggle）→ 独立 refined job。
 
-    async def _race_refine_racers(racers: dict[asyncio.Task, str]) -> bytes:
-        """i2i 多通道对冲：谁先出图用谁，输家取消；全败抛首个异常（fail-open 由调用方兜）。
-
-        与云端 t2i 对冲池同一拍板口径（2026-09-08 用户：ModelScope/TCB 同等地位）。
-        TCB 单次 POST 快（~15-40s）、魔搭排队慢但质量已验证——质量观察期内若 TCB
-        线稿不达标，把 HUTUJI_TCB_I2I_ENABLED 归 0 即回单通道。
+        2026-09-10 拍板替换 AI i2i 链：位图经骨架化必然碎线糊团（提示词调优
+        在 TCB 实测撞 run-to-run 噪声地板），程序化渲染直出矢量折线、零模型费、
+        零付费通道依赖、确定性可复现；魔搭/TCB i2i 客户端模块保留为备用通道，
+        但本链不再调用。原 job 的 Canny 结果已同步回给用户；此处任何失败只把
+        refined_status 置 failed 并记类型名，绝不影响原 job（fail-open 口径不变）。
+        渲染确定性 + §5 字节硬闸在 process_upload_sketch 内——原 AI 链的抬笔门
+        （PREF/HARD 两轮重试）对确定性算法无意义，随链删除。
         """
-        if not racers:
-            raise RuntimeError("无可用精修通道")
-        errors: list[Exception] = []
-        pending = set(racers)
+        from draw_portal.pipeline import process_upload_sketch
+
         try:
-            while pending:
-                done, pending = await asyncio.wait(
-                    pending, return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in done:
-                    try:
-                        result = task.result()
-                    except Exception as exc:  # noqa: BLE001 — 两路窄异常收敛，全败才抛
-                        errors.append(exc)
-                        logger.info(
-                            "照片 AI 精修通道 %s 失败（%s）", racers[task], type(exc).__name__
-                        )
-                        continue
-                    for rest in pending:
-                        rest.cancel()
-                    if pending:
-                        await asyncio.gather(*pending, return_exceptions=True)
-                    logger.info("照片 AI 精修通道 %s 胜出", racers[task])
-                    return result
-        except asyncio.CancelledError:
-            for task in racers:
-                task.cancel()
-            raise
-        raise errors[0]
-
-    async def _refine_photo_job(orig_job_id: str, raw: bytes, user_id: str) -> None:
-        """照片两段式第 2 段：i2i 精修（魔搭/TCB 对冲）→ 独立 refined job（同一条描摹/发布链）。
-
-        原 job 的 Canny 结果已同步回给用户；此处任何失败只把 refined_status
-        置 failed 并记类型名，绝不影响原 job（fail-open，2026-09-08 拍板 UX：
-        先 Canny 预览，AI 精修好了再推送换用）。i2i 输入是「原始照片」的
-        纯 PNG 归一，不是 Canny 输出——模型要照片细节才能画干净线稿。
-
-        抬笔门（2026-09-08 夜 supersede，量产口径）：
-        - 首轮 I2I_LINE_ART_PROMPT v5（必须有长稀疏排线素描感）；
-        - 抬笔 > PREF 再用 I2I_SPARSE_HATCH_RETRY_PROMPT（仍带排线，更稀）；
-        - 两轮取抬笔更低者；≤ HARD 即 ready（生产 107–130 曾被旧阈 100 整批判死）；
-        - 仅两轮都 > HARD 或上游异常才 refined=failed。
-        """
-        from hutuji_mcp import modelscope_client, tcb_i2i
-
-        async def _race_i2i(client: httpx.AsyncClient, plain_png: bytes, prompt: str) -> bytes:
-            racers: dict[asyncio.Task, str] = {}
-            if config.modelscope_token:
-                task = asyncio.create_task(
-                    modelscope_client.generate_i2i_png(
-                        client, config.modelscope_token, plain_png, prompt=prompt
-                    )
-                )
-                racers[task] = "modelscope"
-            if _tcb_i2i_ready():
-                task = asyncio.create_task(
-                    tcb_i2i.generate_i2i_png(
-                        client,
-                        config.tcb_image_url,
-                        config.tcb_api_key,
-                        plain_png,
-                        prompt=prompt,
-                    )
-                )
-                racers[task] = "tcb"
-            return await _race_refine_racers(racers)
-
-        async def _attempt(
-            client: httpx.AsyncClient, plain_png: bytes, prompt: str
-        ) -> tuple[str, int]:
-            """跑一轮 i2i→描摹。返回 (job_id, pen_lifts)；≤HARD 已 publish+ready，否则 failed。"""
-            refined_png = await _race_i2i(client, plain_png, prompt)
-            refined_png = await asyncio.to_thread(
-                normalize_raster_to_png, refined_png, line_art=True
+            refined_job = store.create_draw_job(
+                user_id=user_id, source_name=f"风格精修:{style}"
             )
-            trace_png = await asyncio.to_thread(strip_corner_watermark, refined_png)
-            refined_job = store.create_draw_job(user_id=user_id, source_name="AI 精修")
             refined_path = _job_dir(config.data_dir, refined_job.id)
             try:
                 result = await asyncio.to_thread(
-                    # i2i 线稿走 lee 骨架（生产样本 A/B 抬笔净降 2026-09-10）；
-                    # Canny 快出段不动，维持 zhang。
-                    process_upload_png, trace_png, refined_path, skeleton_method="lee",
+                    process_upload_sketch, raw, refined_path, style=style
                 )
-                refined_path.mkdir(parents=True, exist_ok=True)
-                (refined_path / "upload.png").write_bytes(refined_png)
-                if result.pen_lifts > REFINE_PEN_LIFT_HARD:
-                    store.mark_draw_job_failed(
-                        refined_job.id, error_summary="RefineTooDense"
-                    )
-                    return refined_job.id, result.pen_lifts
                 published = await asyncio.to_thread(
                     publish_job_files,
                     job_dir=refined_path,
@@ -1313,68 +1221,39 @@ def create_app() -> FastAPI:
                     public_base_url=config.public_base_url,
                 )
                 store.mark_draw_job_ready(refined_job.id, basename=published.basename)
-                return refined_job.id, result.pen_lifts
             except Exception as exc:
                 store.mark_draw_job_failed(
                     refined_job.id, error_summary=type(exc).__name__
                 )
                 raise
-
-        try:
-            plain_png = await asyncio.to_thread(
-                normalize_raster_to_png, raw, line_art=False
-            )
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                job_id, lifts = await _attempt(
-                    client, plain_png, modelscope_client.I2I_LINE_ART_PROMPT
-                )
-                if lifts > REFINE_PEN_LIFT_PREF:
-                    logger.info(
-                        "照片精修抬笔 %s 超偏好阈 %s，稀疏排线重试：%s",
-                        lifts,
-                        REFINE_PEN_LIFT_PREF,
-                        orig_job_id,
-                    )
-                    job2, lifts2 = await _attempt(
-                        client,
-                        plain_png,
-                        modelscope_client.I2I_SPARSE_HATCH_RETRY_PROMPT,
-                    )
-                    if lifts2 <= REFINE_PEN_LIFT_HARD and (
-                        lifts > REFINE_PEN_LIFT_HARD or lifts2 < lifts
-                    ):
-                        job_id, lifts = job2, lifts2
-                if lifts > REFINE_PEN_LIFT_HARD:
-                    logger.info(
-                        "精修两轮抬笔仍超硬阈 %s（最优 %s），失败保留 Canny：%s",
-                        REFINE_PEN_LIFT_HARD,
-                        lifts,
-                        orig_job_id,
-                    )
-                    store.set_draw_job_refined(orig_job_id, status="failed")
-                    return
             store.set_draw_job_refined(
-                orig_job_id, status="ready", refined_job_id=job_id
+                orig_job_id, status="ready", refined_job_id=refined_job.id
             )
-            logger.info("照片 AI 精修完成：%s（抬笔 %s）", orig_job_id, lifts)
+            logger.info(
+                "照片风格精修完成：%s（%s，抬笔 %s）", orig_job_id, style, result.pen_lifts
+            )
         except asyncio.CancelledError:
             store.set_draw_job_refined(orig_job_id, status="failed")
             raise
         except Exception as exc:
-            logger.info("照片 AI 精修失败（%s）：%s", type(exc).__name__, orig_job_id)
+            logger.info("照片风格精修失败（%s）：%s", type(exc).__name__, orig_job_id)
             store.set_draw_job_refined(orig_job_id, status="failed")
 
-    async def _refine_photo_job_guarded(orig_job_id: str, raw: bytes, user_id: str) -> None:
+    async def _refine_photo_job_guarded(orig_job_id: str, raw: bytes, user_id: str, style: str) -> None:
         async with _refine_slots:
-            await _refine_photo_job(orig_job_id, raw, user_id)
+            await _refine_photo_job(orig_job_id, raw, user_id, style)
 
     @app.post("/api/draw/upload", dependencies=phone_secured)
     async def draw_upload(
         file: UploadFile = File(...),
         size_mm: str | None = Form(None),
         line_spacing: str | None = Form(None),
+        style: str | None = Form(None),
         user_id: str = Depends(user_dep),
     ) -> dict[str, Any]:
+        # 照片风格精修档位：hatch 排线素描（默认）/ squiggle 连续波纹；
+        # 白名单外的值静默回落默认——风格是体验参数不是安全闸，不值得 400。
+        sketch_style = style if style in ("hatch", "squiggle") else "hatch"
         content_type = (file.content_type or "").split(";")[0].strip().lower()
         filename = file.filename or "upload.bin"
         raw = await file.read()
@@ -1492,16 +1371,15 @@ def create_app() -> FastAPI:
             detail=source_name[:120],
             ok=True,
         )
-        # 照片两段式（2026-09-08 拍板）：Canny 结果已就绪，后台起魔搭 i2i 精修；
-        # 小程序在结果页轮询 /api/draw/jobs/{id} 的 refined 字段。非照片（线稿/
-        # SVG）或未配 token 时 refined=null，前端不展示精修入口。
+        # 照片两段式：Canny 结果已就绪，后台起程序化风格渲染（2026-09-10 起
+        # 替换 AI i2i——零付费通道依赖，任何环境都可精修）；小程序在结果页
+        # 轮询 /api/draw/jobs/{id} 的 refined 字段。非照片（线稿/SVG/文档）
+        # refined=null，前端不展示精修入口。
         refined_payload: dict[str, Any] | None = None
-        if (config.modelscope_token or _tcb_i2i_ready()) and await asyncio.to_thread(
-            is_photo_raster, raw
-        ):
+        if await asyncio.to_thread(is_photo_raster, raw):
             store.set_draw_job_refined(job.id, status="pending")
-            _spawn_background(_refine_photo_job_guarded(job.id, raw, user_id))
-            refined_payload = {"status": "pending"}
+            _spawn_background(_refine_photo_job_guarded(job.id, raw, user_id, sketch_style))
+            refined_payload = {"status": "pending", "style": sketch_style}
         return {
             "status": "ready",
             "job_id": job.id,

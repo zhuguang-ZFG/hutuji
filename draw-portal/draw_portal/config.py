@@ -88,18 +88,8 @@ class Config:
     gfont_dir: str  # 奎享 .gfont 字库目录（文档导入排版用）；空 = 文档导入禁用
     # 标准笔顺目录（与 HUTUJI_STROKE_DIR 同源）；空 = 文档写字回落 gfont 连笔
     stroke_dir: str = ""
-    # 魔搭 token：照片两段式第 2 段（i2i 精修）凭据；空 = 精修禁用，照片
-    # 路径维持单段 Canny（2026-09-08 拍板 UX）。与 MCP 侧 HUTUJI_MODELSCOPE_TOKEN
-    # 同一凭据，两处 env 分别注入。
-    modelscope_token: str = ""
-    # TCB 混元 i2i（2026-09-08 用户指正混元有图生图 API 后接入）：与魔搭同地位
-    # 对冲。两项同配才有通道；tcb_i2i_enabled 是显式开关——云函数加 i2i 分支
-    # 之前旧函数会静默忽略 image 参数退回 t2i（返回与照片无关的图还「成功」），
-    # 故函数部署完成前必须保持 0。与 MCP 侧 HUTUJI_TCB_IMAGE_URL/_API_KEY 同一
-    # 凭据，portal env 单独注入。
-    tcb_image_url: str = ""
-    tcb_api_key: str = ""
-    tcb_i2i_enabled: bool = False
+    # 照片精修已于 2026-09-10 切换程序化风格渲染（sketch_render），零付费凭据
+    # 依赖；魔搭/TCB i2i 客户端模块在 hutuji_mcp 保留为备用通道，portal 不再注入。
     # 微信小程序（2026-09-07）：两项同配才启用 /api/auth/wx-login，空=禁用
     wx_appid: str = ""
     wx_secret: str = ""
@@ -199,7 +189,8 @@ def load_config() -> Config:
             os.environ.get("DRAW_PORTAL_INTERNAL_ALLOW_CIDRS", "")
         ),
         mcp_internal_base_url=_load_mcp_internal_base_url(),
-        generate_daily_limit=int(os.environ.get("DRAW_PORTAL_GENERATE_DAILY_LIMIT", "10")),
+        # 默认 20（2026-09-10 用户拍板「文生图每天用户 20 次」；旧默认 10 过紧）
+        generate_daily_limit=int(os.environ.get("DRAW_PORTAL_GENERATE_DAILY_LIMIT", "20")),
         generate_timeout_seconds=int(
             os.environ.get("DRAW_PORTAL_GENERATE_TIMEOUT_SECONDS", "300")
         ),
@@ -211,13 +202,6 @@ def load_config() -> Config:
             os.environ.get("DRAW_PORTAL_STROKE_DIR")
             or os.environ.get("HUTUJI_STROKE_DIR", "")
         ).strip(),
-        modelscope_token=os.environ.get("HUTUJI_MODELSCOPE_TOKEN", "").strip(),
-        tcb_image_url=os.environ.get("HUTUJI_TCB_IMAGE_URL", "").strip(),
-        tcb_api_key=os.environ.get("HUTUJI_TCB_API_KEY", "").strip(),
-        tcb_i2i_enabled=os.environ.get("HUTUJI_TCB_I2I_ENABLED", "")
-        .strip()
-        .lower()
-        in {"1", "true", "yes"},
         chat_daily_limit=int(os.environ.get("DRAW_PORTAL_CHAT_DAILY_LIMIT", "50")),
         chat_timeout_seconds=int(os.environ.get("DRAW_PORTAL_CHAT_TIMEOUT_SECONDS", "30")),
         firmware_catalog_path=os.environ.get("DRAW_PORTAL_FIRMWARE_CATALOG_PATH", "").strip(),

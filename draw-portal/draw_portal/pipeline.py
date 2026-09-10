@@ -400,6 +400,50 @@ def process_upload_png(
     )
 
 
+def process_upload_sketch(
+    raw: bytes, job_dir: Path, *, style: str = "hatch"
+) -> PipelineResult:
+    """照片 → 程序化风格渲染（排线/波纹）→ SVG 校验 → vpype G-code → §5。
+
+    2026-09-10 拍板替换 AI i2i 精修链：位图经骨架化必然碎线糊团（提示词调优
+    撞 run-to-run 噪声地板），程序化渲染直出矢量折线、零模型费、确定性可复现。
+    输入先归一成 PNG（render 内部自缩到 760px 工作栅格，无需 shrink_oversized）。
+    """
+    from hutuji_mcp.bitmap_svg import polylines_to_preview_png, polylines_to_svg
+    from hutuji_mcp.gcode_gen import svg_to_gcode, validate_gcode
+    from hutuji_mcp.llm_svg import _validate_svg
+    from hutuji_mcp.sketch_render import render_sketch_polylines
+
+    job_dir.mkdir(parents=True, exist_ok=True)
+    plain_png = normalize_raster_to_png(raw, line_art=False)
+    (job_dir / "upload.png").write_bytes(plain_png)
+
+    polys, w, h = render_sketch_polylines(plain_png, style=style)
+    svg = polylines_to_svg(polys, w, h)
+    _validate_svg(svg)
+    preview = polylines_to_preview_png(polys, w, h)
+
+    svg_path = job_dir / "draw.svg"
+    gcode_path = job_dir / "draw.gcode"
+    preview_path = job_dir / "preview.png"
+    svg_path.write_text(svg, encoding="utf-8")
+    preview_path.write_bytes(preview)
+
+    stats = svg_to_gcode(svg_path, gcode_path)
+    gcode_raw = gcode_path.read_bytes()
+    validate_gcode(gcode_raw.decode("ascii"), total_bytes=len(gcode_raw))
+
+    return PipelineResult(
+        lines=stats.lines,
+        bytes=stats.bytes,
+        pen_lifts=stats.pen_lifts,
+        svg_path=svg_path,
+        gcode_path=gcode_path,
+        preview_path=preview_path,
+    )
+
+
+
 def process_upload(
     raw: bytes,
     *,

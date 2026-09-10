@@ -555,6 +555,11 @@
         <strong id="file-label">点击选择，也可拖入 / 粘贴图片或文档</strong>
         <span>选好后点「开始转换」</span>
       </label>
+      <div style="margin-top:.7rem;font-size:.85rem">
+        <span style="color:var(--muted)">照片风格（仅照片生效，精修后替换预览）：</span>
+        <label style="margin-right:.9rem;cursor:pointer"><input type="radio" name="sketch-style" value="hatch" checked> 排线素描</label>
+        <label style="cursor:pointer"><input type="radio" name="sketch-style" value="squiggle"> 连续波纹</label>
+      </div>
       <img id="local-preview" class="preview hidden" alt="所选图片" style="max-height:150px;margin-top:.7rem">
       <div class="btn-row" style="margin-top:.85rem">
         <button id="btn-upload" class="primary" type="button" disabled>开始转换</button>
@@ -1029,6 +1034,7 @@ $('btn-upload').onclick = async () => {
   if (!f) { showMsg($('upload-msg'), '请选择图片', false); return; }
   const fd = new FormData();
   fd.append('file', f);
+  fd.append('style', (document.querySelector('input[name="sketch-style"]:checked') || {}).value || 'hatch');
   $('btn-upload').disabled = true;
   showMsg($('upload-msg'), '转换中…', true);
   $('job-actions').classList.add('hidden');

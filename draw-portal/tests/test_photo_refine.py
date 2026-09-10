@@ -1,9 +1,13 @@
-"""照片两段式契约（2026-09-08 拍板 UX）：Canny 同步先回 + 魔搭 i2i 后台精修。
+"""照片两段式契约（2026-09-10 拍板换链）：Canny 同步先回 + 程序化风格渲染后台精修。
 
-- 上传照片且配 token → 响应 refined={"status":"pending"}，后台任务把精修
-  跑成独立 job 后回填；/api/draw/jobs/{id} 轮询可见 ready + 精修 URL。
-- 无 token / 非照片 → refined=null，响应与现状一致（单段 Canny）。
-- i2i 任何失败 → refined 置 failed，原 job 的 Canny 结果不受影响（fail-open）。
+- 上传照片（is_photo_raster=True）→ 响应 refined={"status":"pending","style":<生效风格>}，
+  后台任务用 process_upload_sketch 把照片渲染成排线/波纹独立 job 后回填；
+  /api/draw/jobs/{id} 轮询可见 ready + 精修 URL。无需魔搭/TCB 任何凭据——
+  新链零付费通道依赖，任何环境都可精修。
+- style 白名单 {"hatch","squiggle"}，之外的值静默回落 "hatch"（体验参数不 400）。
+- 非照片（线稿/SVG/文档）→ refined=null，响应与单段 Canny 一致。
+- 精修任何失败（SketchRenderError 或意外异常）→ refined 置 failed，
+  原 job 的 Canny 结果不受影响（fail-open 口径不变）。
 
 测试基建注意：后台任务挂在事件循环上，TestClient 必须 `with` 进入——否则
 starlette 每个请求新建事件循环，上传响应一落盘循环就关，任务随 loop 被销
@@ -11,9 +15,10 @@ starlette 每个请求新建事件循环，上传响应一落盘循环就关，�
 """
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import io
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -22,16 +27,10 @@ from fastapi.testclient import TestClient
 
 from draw_portal.app import create_app
 from draw_portal.pipeline import PipelineResult, is_photo_raster, normalize_raster_to_png
+from hutuji_mcp.sketch_render import SketchRenderError
 
 
-def _env(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    token: str = "",
-    tcb: bool = False,
-    tcb_enabled: bool = True,
-) -> None:
+def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DRAW_PORTAL_DB", str(tmp_path / "t.db"))
     monkeypatch.setenv("DRAW_PORTAL_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("DRAW_PORTAL_SESSION_SECRET", "test-session-secret")
@@ -43,25 +42,11 @@ def _env(
     monkeypatch.setenv("DRAW_PORTAL_SMTP_HOST", "smtp.example.test")
     monkeypatch.setenv("DRAW_PORTAL_SMTP_FROM", "noreply@example.test")
     monkeypatch.setenv("DRAW_PORTAL_EMAIL_DEV_EXPOSE_CODE", "1")
-    if token:
-        monkeypatch.setenv("HUTUJI_MODELSCOPE_TOKEN", token)
-    if tcb:
-        monkeypatch.setenv("HUTUJI_TCB_IMAGE_URL", "https://tcb.example/fn")
-        monkeypatch.setenv("HUTUJI_TCB_API_KEY", "tcb-key")
-        if tcb_enabled:
-            monkeypatch.setenv("HUTUJI_TCB_I2I_ENABLED", "1")
 
 
 @contextlib.contextmanager
-def _client(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    token: str = "",
-    tcb: bool = False,
-    tcb_enabled: bool = True,
-):
-    _env(monkeypatch, tmp_path, token=token, tcb=tcb, tcb_enabled=tcb_enabled)
+def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    _env(monkeypatch, tmp_path)
     monkeypatch.setattr("draw_portal.app.send_verification_email", lambda **kwargs: None)
     with TestClient(create_app()) as client:
         yield client
@@ -89,13 +74,6 @@ def _fake_process_upload(raw, *, content_type, filename, job_dir):
     return PipelineResult(2, 10, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
 
 
-def _fake_process_upload_png(png_bytes, job_dir, *, skeleton_method="zhang"):
-    job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "draw.gcode").write_text("G21\nG90\nG1 X1 Y1\n", encoding="ascii")
-    (job_dir / "preview.png").write_bytes(png_bytes)
-    return PipelineResult(3, 20, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
-
-
 def _fake_publish(**kwargs):
     basename = f"draw_{kwargs['job_dir'].name}"
     return type("P", (), {
@@ -105,52 +83,67 @@ def _fake_publish(**kwargs):
     })()
 
 
-def _upload(client: TestClient):
-    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
-    return client.post("/api/draw/upload", files={"file": ("photo.png", fake_png, "image/png")})
+_FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+
+
+def _upload(client: TestClient, style: str | None = None):
+    data = {"style": style} if style is not None else None
+    return client.post(
+        "/api/draw/upload",
+        files={"file": ("photo.png", _FAKE_PNG, "image/png")},
+        data=data,
+    )
 
 
 def _poll_until(client: TestClient, job_id: str, statuses: tuple[str, ...], rounds: int = 40):
-    import time
-
     for _ in range(rounds):
         r = client.get(f"/api/draw/jobs/{job_id}")
         assert r.status_code == 200
         refined = r.json().get("refined")
         if refined and refined["status"] in statuses:
             return r.json()
-        # 后台任务走真 to_thread 链（归一/洗白/写盘），瞬发轮询等不到——小睡眠轮询
+        # 后台任务走真 to_thread 链（渲染/写盘），瞬发轮询等不到——小睡眠轮询
         time.sleep(0.05)
     raise AssertionError(f"refined 未进入 {statuses}")
 
 
 def _patch_pipeline(monkeypatch: pytest.MonkeyPatch, *, photo: bool) -> None:
     monkeypatch.setattr("draw_portal.app.process_upload", _fake_process_upload)
-    monkeypatch.setattr("draw_portal.app.process_upload_png", _fake_process_upload_png)
     monkeypatch.setattr("draw_portal.app.publish_job_files", _fake_publish)
     monkeypatch.setattr("draw_portal.app.is_photo_raster", lambda raw: photo)
-    monkeypatch.setattr(
-        "draw_portal.app.normalize_raster_to_png",
-        lambda raw, *, line_art=True: raw,
-    )
 
 
-def test_photo_upload_refines_in_background(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    calls: list[bytes] = []
+def _recording_sketch(calls: list[dict]):
+    """process_upload_sketch 假身：记录 raw/style，落盘最小产物并回 PipelineResult。
 
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
-        assert token == "ms-token"
-        calls.append(image_bytes)
-        return b"\x89PNG\r\n\x1a\nREFINED"
+    app 层在 _refine_photo_job 内局部 import，故必须 patch
+    draw_portal.pipeline.process_upload_sketch（调用时解析模块属性）。
+    """
 
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+    def fake(raw, job_dir, *, style):
+        calls.append({"raw": raw, "style": style})
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "draw.gcode").write_text("G21\nG90\nG1 X1 Y1\n", encoding="ascii")
+        (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\nSKETCH")
+        return PipelineResult(3, 20, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
+
+    return fake
+
+
+def test_photo_upload_refines_in_background_default_hatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """默认档位：不传 style → hatch；精修跑成独立 job 并回填 URL。"""
+    calls: list[dict] = []
+
+    with _client(monkeypatch, tmp_path) as client:
         _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", _recording_sketch(calls))
         _register(client)
 
         up = _upload(client)
         assert up.status_code == 200
-        assert up.json()["refined"] == {"status": "pending"}
+        assert up.json()["refined"] == {"status": "pending", "style": "hatch"}
         job_id = up.json()["job_id"]
 
         final = _poll_until(client, job_id, ("ready",))
@@ -158,96 +151,85 @@ def test_photo_upload_refines_in_background(tmp_path: Path, monkeypatch: pytest.
         assert refined["job_id"]
         assert refined["gcode_url"].endswith(".gcode")
         assert refined["preview_url"].endswith(".png")
-        assert calls, "精修任务必须真正调用魔搭 i2i"
+        # 生效风格与原始照片字节必须原样进渲染链
+        assert calls == [{"raw": _FAKE_PNG, "style": "hatch"}]
         # 精修 job 本身也是完整 job：可直接查询
         r2 = client.get(f"/api/draw/jobs/{refined['job_id']}")
         assert r2.status_code == 200
         assert r2.json()["status"] == "ready"
         assert r2.json()["refined"] is None
 
-def test_refine_jpeg_output_normalized_to_png(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """i2i 通道回 JPEG 时精修不得炸 BitmapError（2026-09-08 生产事故：精修全挂只剩 Canny）。"""
-    import imageio.v3 as iio
-    import numpy as np
 
-    # 近白线稿风 JPEG（避免 normalize 误判照片走 Canny）
-    arr = np.full((32, 32, 3), 255, dtype=np.uint8)
-    arr[8:24, 8:24] = 0
-    buf = io.BytesIO()
-    iio.imwrite(buf, arr, extension=".jpeg")
-    jpeg_bytes = buf.getvalue()
+def test_style_squiggle_passed_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """style=squiggle 必须透传到 process_upload_sketch，不被改写。"""
+    calls: list[dict] = []
 
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
-        return jpeg_bytes
-
-    seen: list[bytes] = []
-
-    def recording_png(raw, job_dir, *, skeleton_method="zhang"):
-        seen.append(raw)
-        return _fake_process_upload_png(raw, job_dir)
-
-    real_normalize = normalize_raster_to_png
-
-    def selective_normalize(raw, *, line_art=True):
-        # 输入侧（line_art=False）保持恒等：上传夹具字节不可解码；
-        # 输出侧（line_art=True）走真归一，正是本测要钉的路径。
-        return real_normalize(raw, line_art=True) if line_art else raw
-
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+    with _client(monkeypatch, tmp_path) as client:
         _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.normalize_raster_to_png", selective_normalize)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", recording_png)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", _recording_sketch(calls))
         _register(client)
 
-        up = _upload(client)
-        job_id = up.json()["job_id"]
-        # 真归一（imageio+skimage 首导入）要墙钟时间，瞬发轮询等不到——带睡眠轮询
-        import time
+        up = _upload(client, style="squiggle")
+        assert up.status_code == 200
+        assert up.json()["refined"] == {"status": "pending", "style": "squiggle"}
 
-        final = None
-        for _ in range(60):
-            r = client.get(f"/api/draw/jobs/{job_id}")
-            refined = r.json().get("refined")
-            if refined and refined["status"] == "ready":
-                final = r.json()
-                break
-            if refined and refined["status"] == "failed":
-                raise AssertionError("精修意外失败：JPEG 归一没生效")
-            time.sleep(0.1)
-        assert final, "精修未就绪"
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
         assert final["refined"]["job_id"]
-        assert seen, "精修产物必须进发布链"
-        assert seen[0][:8] == b"\x89PNG\r\n\x1a\n", "JPEG 精修输出必须先归一成 PNG"
+        assert [c["style"] for c in calls] == ["squiggle"]
 
 
-def test_no_token_keeps_single_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    async def forbidden(*args, **kwargs):  # pragma: no cover - 到场即失败
-        raise AssertionError("无 token 不得调用魔搭")
+def test_invalid_style_silently_falls_back_to_hatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """白名单外的风格值不得 400：静默回落 hatch（风格是体验参数不是安全闸）。"""
+    calls: list[dict] = []
 
-    with _client(monkeypatch, tmp_path) as client:  # 无 token
+    with _client(monkeypatch, tmp_path) as client:
         _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", forbidden)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", _recording_sketch(calls))
+        _register(client)
+
+        up = _upload(client, style="ghibli")
+        assert up.status_code == 200
+        assert up.json()["refined"] == {"status": "pending", "style": "hatch"}
+
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        assert [c["style"] for c in calls] == ["hatch"]
+
+
+def test_refine_runs_without_any_ai_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """2026-09-10 切链核心：零付费通道依赖——无魔搭/TCB 任何凭据也起精修。"""
+    for var in (
+        "HUTUJI_MODELSCOPE_TOKEN",
+        "HUTUJI_TCB_IMAGE_URL",
+        "HUTUJI_TCB_API_KEY",
+        "HUTUJI_TCB_I2I_ENABLED",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    calls: list[dict] = []
+
+    with _client(monkeypatch, tmp_path) as client:
+        _patch_pipeline(monkeypatch, photo=True)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", _recording_sketch(calls))
         _register(client)
 
         up = _upload(client)
         assert up.status_code == 200
-        assert up.json()["refined"] is None
-        job_id = up.json()["job_id"]
-        r = client.get(f"/api/draw/jobs/{job_id}")
-        assert r.json()["status"] == "ready"
-        assert r.json()["refined"] is None
+        assert up.json()["refined"] == {"status": "pending", "style": "hatch"}
+
+        final = _poll_until(client, up.json()["job_id"], ("ready",))
+        assert final["refined"]["job_id"]
+        assert calls, "无任何 AI 凭据也必须真正跑程序化精修"
 
 
 def test_non_photo_keeps_single_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """线稿上传（is_photo_raster=False）即便有 token 也不起精修。"""
+    """线稿上传（is_photo_raster=False）不起精修，响应与单段 Canny 一致。"""
 
-    async def forbidden(*args, **kwargs):  # pragma: no cover - 到场即失败
-        raise AssertionError("非照片不得调用魔搭")
+    def forbidden(*args, **kwargs):  # pragma: no cover - 到场即失败
+        raise AssertionError("非照片不得调用风格渲染")
 
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+    with _client(monkeypatch, tmp_path) as client:
         _patch_pipeline(monkeypatch, photo=False)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", forbidden)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", forbidden)
         _register(client)
 
         up = _upload(client)
@@ -255,15 +237,22 @@ def test_non_photo_keeps_single_stage(tmp_path: Path, monkeypatch: pytest.Monkey
         assert up.json()["refined"] is None
 
 
-def test_i2i_failure_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from hutuji_mcp.modelscope_client import ModelScopeError
+@pytest.mark.parametrize(
+    "boom",
+    [SketchRenderError("照片解码失败"), RuntimeError("渲染器炸了")],
+    ids=["typed", "unexpected"],
+)
+def test_refine_failure_marks_failed_and_keeps_canny(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boom: Exception
+):
+    """精修抛错（类型化或意外）→ refined=failed，原 job 的 Canny 结果不受影响。"""
 
-    async def broken_i2i(*args, **kwargs):
-        raise ModelScopeError("魔搭任务排队超时")
+    def broken_sketch(raw, job_dir, *, style):
+        raise boom
 
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+    with _client(monkeypatch, tmp_path) as client:
         _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", broken_i2i)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", broken_sketch)
         _register(client)
 
         up = _upload(client)
@@ -280,28 +269,34 @@ def test_i2i_failure_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatch: p
 
 
 def test_refine_concurrency_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """课堂 NAT 突发：6 个照片上传同时触发精修，在上游同时在途的不得超过
+    """课堂 NAT 突发：6 个照片上传同时触发精修，同时在途的不得超过
     _refine_slots 名额（4），且排队任务不丢——全部走到 ready。"""
+    lock = threading.Lock()
     active = 0
     peak = 0
 
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
+    def slow_sketch(raw, job_dir, *, style):
         nonlocal active, peak
-        active += 1
-        peak = max(peak, active)
-        await asyncio.sleep(0.05)  # 占住名额，迫使突发并发显形
-        active -= 1
-        return b"\x89PNG\r\n\x1a\nREFINED"
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)  # 占住名额，迫使突发并发显形
+        with lock:
+            active -= 1
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "draw.gcode").write_text("G21\nG90\n", encoding="ascii")
+        (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        return PipelineResult(3, 20, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
 
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
+    with _client(monkeypatch, tmp_path) as client:
         _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
+        monkeypatch.setattr("draw_portal.pipeline.process_upload_sketch", slow_sketch)
         _register(client)
 
         job_ids = [_upload(client).json()["job_id"] for _ in range(6)]
         for jid in job_ids:
             _poll_until(client, jid, ("ready",))
-    assert peak <= 4, f"并发精修越过上游名额：peak={peak}"
+    assert peak <= 4, f"并发精修越过名额闸：peak={peak}"
     assert peak >= 2, "并发闸把精修串行化同样违背设计（名额应被用满）"
 
 
@@ -348,7 +343,7 @@ def test_is_photo_raster_classification() -> None:
 
 
 def test_normalize_line_art_false_preserves_photo_tones() -> None:
-    """i2i 输入必须是原始照片（中间调保留），不是 Canny 黑白稿。"""
+    """精修输入必须是原始照片（中间调保留），不是 Canny 黑白稿。"""
     import imageio.v3 as iio
     import numpy as np
 
@@ -360,277 +355,3 @@ def test_normalize_line_art_false_preserves_photo_tones() -> None:
     cannied = iio.imread(normalize_raster_to_png(raw))
     near_white_canny = float((cannied.astype(float) / 255.0 > 0.9).mean())
     assert near_white_canny > 0.5, "默认口径仍应输出近白 Canny 线稿"
-
-
-# ---------------------------------------------------------------- TCB 混元 i2i 对冲
-
-
-def test_tcb_channel_refines_without_modelscope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """TCB 单通道（无魔搭 token）：照片同样起精修并走 TCB。"""
-    calls: list[bytes] = []
-
-    async def fake_tcb(client_arg, url, key, image_bytes, **kwargs):
-        assert url == "https://tcb.example/fn" and key == "tcb-key"
-        calls.append(image_bytes)
-        return b"\x89PNG\r\n\x1a\nTCB-REFINED"
-
-    async def forbidden_ms(*args, **kwargs):  # pragma: no cover - 到场即失败
-        raise AssertionError("无魔搭 token 不得调用魔搭")
-
-    with _client(monkeypatch, tmp_path, tcb=True) as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", fake_tcb)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", forbidden_ms)
-        _register(client)
-
-        up = _upload(client)
-        assert up.status_code == 200
-        assert up.json()["refined"] == {"status": "pending"}
-        final = _poll_until(client, up.json()["job_id"], ("ready",))
-        assert final["refined"]["job_id"]
-        assert calls, "精修任务必须真正调用 TCB i2i"
-
-
-def test_tcb_creds_without_enable_flag_not_called(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """云函数未加 i2i 分支前（开关=0）：即便配了 URL/key 也不得调 TCB——旧函数
-    会静默忽略 image 参数退回 t2i，返回与照片无关的图还「成功」。"""
-
-    async def forbidden_tcb(*args, **kwargs):  # pragma: no cover - 到场即失败
-        raise AssertionError("开关=0 不得调用 TCB")
-
-    async def fake_ms(client_arg, token, image_bytes, **kwargs):
-        return b"\x89PNG\r\n\x1a\nMS-REFINED"
-
-    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True, tcb_enabled=False) as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", forbidden_tcb)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_ms)
-        _register(client)
-
-        up = _upload(client)
-        assert up.json()["refined"] == {"status": "pending"}
-        final = _poll_until(client, up.json()["job_id"], ("ready",))
-        assert final["refined"]["job_id"]
-
-
-def test_hedge_tcb_wins_and_cancels_modelscope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """双通道对冲：并发发起两侧，TCB 先出图用它，魔搭在途任务被取消。"""
-    state = {"ms_started": False, "ms_cancelled": False, "winner_png": None}
-
-    async def slow_ms(*args, **kwargs):
-        state["ms_started"] = True
-        try:
-            await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            state["ms_cancelled"] = True
-            raise
-        raise AssertionError("魔搭慢任务不应自然跑完")  # pragma: no cover
-
-    async def fast_tcb(*args, **kwargs):
-        return b"\x89PNG\r\n\x1a\nTCB-WIN"
-
-    def recording_png(png_bytes, job_dir, *, skeleton_method="zhang"):
-        state["winner_png"] = png_bytes
-        return _fake_process_upload_png(png_bytes, job_dir)
-
-    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True) as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", recording_png)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", slow_ms)
-        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", fast_tcb)
-        _register(client)
-
-        up = _upload(client)
-        final = _poll_until(client, up.json()["job_id"], ("ready",))
-        assert final["refined"]["job_id"]
-        assert state["ms_started"], "对冲必须并发发起两侧"
-        assert state["ms_cancelled"], "TCB 胜出后魔搭在途任务必须取消"
-        assert state["winner_png"] == b"\x89PNG\r\n\x1a\nTCB-WIN"
-
-
-def test_hedge_tcb_failure_falls_back_to_modelscope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """TCB 失败不拖垮整单：魔搭慢通道照样出结果。"""
-    from hutuji_mcp.tcb_i2i import TcbI2iError
-
-    state = {"winner_png": None}
-
-    async def broken_tcb(*args, **kwargs):
-        raise TcbI2iError("TCB i2i 返回 502")
-
-    async def slow_ms(*args, **kwargs):
-        await asyncio.sleep(0.05)
-        return b"\x89PNG\r\n\x1a\nMS-WIN"
-
-    def recording_png(png_bytes, job_dir, *, skeleton_method="zhang"):
-        state["winner_png"] = png_bytes
-        return _fake_process_upload_png(png_bytes, job_dir)
-
-    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True) as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", recording_png)
-        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", broken_tcb)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", slow_ms)
-        _register(client)
-
-        up = _upload(client)
-        final = _poll_until(client, up.json()["job_id"], ("ready",))
-        assert final["refined"]["job_id"]
-        assert state["winner_png"] == b"\x89PNG\r\n\x1a\nMS-WIN"
-
-
-def test_hedge_both_fail_marks_failed_and_keeps_canny(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """两路全败：refined=failed，原 job 的 Canny 结果不受影响（fail-open）。"""
-    from hutuji_mcp.modelscope_client import ModelScopeError
-    from hutuji_mcp.tcb_i2i import TcbI2iError
-
-    async def broken_ms(*args, **kwargs):
-        raise ModelScopeError("魔搭任务排队超时")
-
-    async def broken_tcb(*args, **kwargs):
-        raise TcbI2iError("TCB i2i 返回 502")
-
-    with _client(monkeypatch, tmp_path, token="ms-token", tcb=True) as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", broken_ms)
-        monkeypatch.setattr("hutuji_mcp.tcb_i2i.generate_i2i_png", broken_tcb)
-        _register(client)
-
-        up = _upload(client)
-        job_id = up.json()["job_id"]
-        final = _poll_until(client, job_id, ("failed",))
-        assert final["refined"] == {"status": "failed"}
-        assert final["status"] == "ready"
-        assert final["gcode_url"].endswith(".gcode")
-
-
-# ---------------------------------------------------------------- 抬笔门 + 稀疏排线重试
-
-
-def _process_with_pen_lifts(lifts_seq: list[int]):
-    """按调用次序返回不同 pen_lifts，供抬笔门/回退测注入。"""
-    state = {"n": 0}
-
-    def fn(png_bytes, job_dir, *, skeleton_method="zhang"):
-        i = state["n"]
-        state["n"] += 1
-        lifts = lifts_seq[min(i, len(lifts_seq) - 1)]
-        job_dir.mkdir(parents=True, exist_ok=True)
-        (job_dir / "draw.gcode").write_text("G21\nG90\nG1 X1 Y1\n", encoding="ascii")
-        (job_dir / "preview.png").write_bytes(png_bytes)
-        return PipelineResult(
-            3, 20, lifts, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png"
-        )
-
-    return fn, state
-
-
-def test_refine_pen_lift_retries_sparse_hatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """首轮超偏好阈 → 稀疏排线重试（仍带排线）；第二轮更优则 ready。"""
-    from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_PREF
-
-    prompts: list[str] = []
-    process_fn, _ = _process_with_pen_lifts([REFINE_PEN_LIFT_PREF + 20, 90])
-
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
-        prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
-        return b"\x89PNG\r\n\x1a\nREFINED"
-
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
-        _register(client)
-
-        up = _upload(client)
-        job_id = up.json()["job_id"]
-        final = _poll_until(client, job_id, ("ready",))
-        assert final["refined"]["job_id"]
-        assert prompts == [
-            modelscope_client.I2I_LINE_ART_PROMPT,
-            modelscope_client.I2I_SPARSE_HATCH_RETRY_PROMPT,
-        ]
-        r2 = client.get(f"/api/draw/jobs/{final['refined']['job_id']}")
-        assert r2.json()["status"] == "ready"
-
-
-def test_refine_accepts_between_pref_and_hard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """生产 107–130 曾被阈 100 整批判死；PREF<lifts≤HARD 必须 ready。"""
-    from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_HARD, REFINE_PEN_LIFT_PREF
-
-    mid = (REFINE_PEN_LIFT_PREF + REFINE_PEN_LIFT_HARD) // 2
-    process_fn, state = _process_with_pen_lifts([mid])
-
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
-        return b"\x89PNG\r\n\x1a\nREFINED"
-
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
-        _register(client)
-
-        up = _upload(client)
-        final = _poll_until(client, up.json()["job_id"], ("ready",))
-        assert final["refined"]["job_id"]
-        # mid > PREF → 会再跑一轮；两轮同 lifts 时仍 ready
-        assert state["n"] >= 1
-
-
-def test_refine_pen_lift_both_over_hard_marks_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """两轮都超硬阈：refined=failed，Canny 原 job 仍 ready。"""
-    from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_HARD
-
-    prompts: list[str] = []
-    process_fn, _ = _process_with_pen_lifts(
-        [REFINE_PEN_LIFT_HARD + 40, REFINE_PEN_LIFT_HARD + 10]
-    )
-
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
-        prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
-        return b"\x89PNG\r\n\x1a\nREFINED"
-
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
-        _register(client)
-
-        up = _upload(client)
-        job_id = up.json()["job_id"]
-        canny_preview = up.json()["preview_url"]
-        final = _poll_until(client, job_id, ("failed",))
-        assert final["refined"] == {"status": "failed"}
-        assert final["status"] == "ready"
-        assert final["preview_url"] == canny_preview
-        assert prompts == [
-            modelscope_client.I2I_LINE_ART_PROMPT,
-            modelscope_client.I2I_SPARSE_HATCH_RETRY_PROMPT,
-        ]
-
-
-def test_refine_pen_lift_under_pref_skips_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """首轮未超偏好阈：只用 v5，不发起稀疏排线重试。"""
-    from hutuji_mcp import modelscope_client
-    from draw_portal.app import REFINE_PEN_LIFT_PREF
-
-    prompts: list[str] = []
-    process_fn, state = _process_with_pen_lifts([REFINE_PEN_LIFT_PREF - 10])
-
-    async def fake_i2i(client_arg, token, image_bytes, **kwargs):
-        prompts.append(kwargs.get("prompt") or modelscope_client.I2I_LINE_ART_PROMPT)
-        return b"\x89PNG\r\n\x1a\nREFINED"
-
-    with _client(monkeypatch, tmp_path, token="ms-token") as client:
-        _patch_pipeline(monkeypatch, photo=True)
-        monkeypatch.setattr("draw_portal.app.process_upload_png", process_fn)
-        monkeypatch.setattr("hutuji_mcp.modelscope_client.generate_i2i_png", fake_i2i)
-        _register(client)
-
-        up = _upload(client)
-        final = _poll_until(client, up.json()["job_id"], ("ready",))
-        assert final["refined"]["job_id"]
-        assert prompts == [modelscope_client.I2I_LINE_ART_PROMPT]
-        assert state["n"] == 1

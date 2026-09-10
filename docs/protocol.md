@@ -496,6 +496,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 - **MCP 生成事务取消所有权（2026-08-20，不升协议号）**：规范化后相同 `description` 的在途 `hutuji_draw` 必须共享一个完整事务（付费生图、中心线描摹、SVG→G-code、产物与返回 JSON）和一个并发名额。客户端 `notifications/cancelled` 只结清对应 JSON-RPC waiter，不得取消已计费事务、提前释放名额或让后续同题重试另起生成；重试搭车原任务，完成后拿同一 capability 结果。共享任务失败/取消后必须从在途表移除，使下一次调用能重新尝试；成功结果仍受 600 秒 capability TTL。该约束只合并同一逻辑生成轮，不取消该轮内已定案的商汤/Agnes/imagefree 并发对冲。
 - **异步生成+完成推送（2026-08-28 决策，默认关闭）**：`HUTUJI_DRAW_ASYNC=1` 且已配 `HUTUJI_XIAOZHI_DEVICE_TOKEN`（或共享文件，见下）时 `hutuji_draw` 立即回 `{"accepted":true,"description":<安全化后>,"eta_seconds":45,"note":"生成完成会自动推送到设备预览，无需重复调用"}`，任务由 `_draw_inflight` 持有生命周期并在 `_run_draw_job` 唯一完成点经 `_chain_device_draw` 自动推送到设备预览（单 flight 复用，同题第二调搭车不另起生成）；缺 token 时回落同步并记一行 warning。
+- **语音画图单设备日限（2026-09-10 用户拍板，与 portal 文生图同口径 20 次/天）**：`hutuji_draw` 在既有每分钟 6 次/设备（`HUTUJI_DRAW_PER_DEVICE_MINUTE`）之上新增**每日 20 次/设备**（`HUTUJI_DRAW_PER_DEVICE_DAY` 默认 20）：UTC+8 自然日键 `device_id:yyyymmdd`，按**入队请求时刻**计数（防滥用闸非精确计费，portal 同款残余风险口径）；空 `device_id` 跳过日限（与分钟限同口径）。三条路径同行为：内存 queue / Redis queue（日键 `...day:<device>:<yyyymmdd>`，48h TTL）/ 进程内回落（模块级 dict）；超限抛 `DrawDailyLimitError` 转白话「今日绘画次数已达上限，明天再来」（`/internal/draw` 映 429）。
 - **语音链式推送自愈（2026-09-08）**：小程序 `send` 走 portal `push_draw_self_heal`（401/403/404 重铸 messaging JWT）；语音/自生成走 MCP `_chain_device_draw`。异步已回 `accepted` 后云端**不会**再调第二步 `hutuji.draw`，链式失败且无自愈 = 屏上永无预览。量产口径：MCP 与 portal 共用 `device_messaging`——优先读 `/var/lib/hutuji/device_messaging.token`（`HUTUJI_DEVICE_TOKEN_FILE` 可覆盖），回落 `HUTUJI_XIAOZHI_DEVICE_TOKEN`；撞 401/403/404 时用控制台 JWT + `HUTUJI_DEVICE_MAC`（或 portal DB `device_bindings` 最新 MAC）重铸并落盘，worker 现读文件无需重启。portal 自愈成功亦写同一文件，避免「小程序能预览、小派自生成不能」。
 ### 5.1 下载完整性契约（先下完 + 校验 + 再发）
 
@@ -755,26 +756,26 @@ Cookie: <session>
 | 生成语义 | 内部端点强制**同步 + 不推送**（`force_sync=True, chain_push=False`）：即使生产开了 `HUTUJI_DRAW_ASYNC=1`，网页单也等完整结果返回，且**不**经全局 device token 推到任何设备（推送由买家显式点「发送到小派」走 §10.4.5）。`_draw_inflight` 以 `(description, chain_push)` 分键，语音单与网页单互不搭车；Redis 队列旧 payload 缺省 `chain_push=true` 向后兼容 |
 | 回包 | `{url, preview_url, lines, bytes, pen_lifts, ttl_seconds}`（同 `hutuji_draw` 同步面）。portal 只取文件名（正则 `draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(gcode\|png)`）从 loopback 基址重拼下载，不经公网回绕；下载限长 512KiB/4MiB（对齐 §5） |
 | 错误 | MCP 侧 400 输入白话 / 429 限流 / 504 超时 / 502 生图失败；portal 只透传 400/429 的 detail，504/502 换固定白话（不回显内部细节，2026-08-31 评审裁决） |
-| 配额 | 成功单记 `web_generate` usage 事件；24h 窗口计数上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 10），超限 429；**失败单不占配额**。check-then-act 并发超发 1–2 单为已知可接受残差 |
+| 配额 | 成功单记 `web_generate` usage 事件；24h 窗口计数上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 **20**，2026-09-10 用户拍板「文生图每天用户 20 次」，旧默认 10 supersede），超限 429；**失败单不占配额**。check-then-act 并发超发 1–2 单为已知可接受残差 |
 | 公网暴露 | `/internal/*` 不经 nginx 反代（uvicorn 只听 loopback），无需 nginx 变更 |
 
 物化后的 job（`draw.gcode` + `preview.png`）与上传流完全同形，`send`/`save` 零改动；语音链路的异步推送行为不受影响。
 
-#### 10.4.9 照片两段式：Canny 先回 + 魔搭 i2i 精修（2026-09-08 落地 hub `6d20f9b`）
+#### 10.4.9 照片两段式：Canny 先回 + 程序化风格精修（2026-09-10 切换，supersede 同节 AI i2i 版）
 
 | 面 | 约定 |
 |----|------|
-| 触发 | `POST /draw-upload/api/draw/upload` 位图经 `is_photo_raster`（近白像素占比 <0.5 判照片）且 portal 配 `HUTUJI_MODELSCOPE_TOKEN`；线稿/SVG/未配 token 走原单段，`refined=null` |
-| 第一段（同步） | Canny 线稿照常同步返回，响应加 `refined={"status":"pending"}`；用户立即可用线稿版发送 |
-| 第二段（后台） | portal 后台任务：原始照片（`normalize_raster_to_png(line_art=False)` 保中间调，**不是** Canny 输出）→ i2i 双通道对冲「谁先出图用谁」（2026-09-08 用户拍板同地位）：① 魔搭 `Qwen/Qwen-Image-Edit-2509`（`POST api-inference.modelscope.cn/v1/images/generations` 字段 `image_url`；轮询 `GET /v1/tasks/{id}` 头 `X-ModelScope-Task-Type: image_generation`）；② TCB 混元 `HY-Image-v3.0-I2I-ToB`（`hutuji_mcp/tcb_i2i.py` → 云函数 `generateImage-cqA3Hl` 的 i2i 分支，单次 POST `{prompt,image(b64),mode:"i2i"}` → `{success,imageUrl}`，入图先缩长边 1024/≤3MiB；开关 `HUTUJI_TCB_I2I_ENABLED`，函数未部署 i2i 分支前必须为 0——旧函数静默忽略 image 退回 t2i 且「成功」）。两路并发发起、败者取消、全败才置 failed；精修位图走**同一条**描摹/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id`。提示词默认 `I2I_LINE_ART_PROMPT` **v5**（轮廓+少组长距平行排线，禁密交叉；必须有排线素描感；supersede v3/v4）；抬笔 > `REFINE_PEN_LIFT_PREF`（160）再用 `I2I_SPARSE_HATCH_RETRY_PROMPT`（仍带排线、更稀）；两轮取更优，≤ `REFINE_PEN_LIFT_HARD`（220）即 ready（量产：旧阈 100 曾把 107–130 整批判 `RefineTooDense`）；仅两轮都 >HARD 或上游异常才 `refined=failed`（保留 Canny） |
-| 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
-| 失败口径 | i2i 任何失败只置 `refined=failed` 并记异常类型名（不回显上游正文/凭据），**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError |
+| 触发 | `POST /draw-upload/api/draw/upload` 位图经 `is_photo_raster`（近白像素占比 <0.5 判照片）即起精修，**不再需要任何付费通道凭据**；线稿/SVG/文档走原单段，`refined=null` |
+| 第一段（同步） | Canny 线稿照常同步返回，响应加 `refined={"status":"pending","style":<生效风格>}`；用户立即可用线稿版发送 |
+| 风格档位 | 表单字段 `style` ∈ `hatch`（排线素描，默认）/ `squiggle`（连续波纹）；白名单外值静默回落 `hatch`（体验参数非安全闸，不 400） |
+| 第二段（后台） | portal 后台任务：原始照片 → `hutuji_mcp.sketch_render` 程序化渲染直出**矢量折线**（iso 亮度等值线轮廓 + 四层累积排线，或行扫描波纹振幅随暗度调制 + 蛇形连接），**描摹环节（skeletonize/sknw）整体消失**，经同一条 `polylines_to_svg`/`_validate_svg`/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id`。零模型费、零下载、确定性可复现（同输入逐点同输出） |
+| 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending","style"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
+| 失败口径 | 渲染任何失败只置 `refined=failed` 并记异常类型名，**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError（fail-open 口径与旧链一致） |
 | 发送 | refined job 是普通 job，`POST .../draw/{refined_job_id}/send` 走 §10.4.5 原路径，无特殊分支 |
-| 明确不做 | v1 不做微信订阅消息推送（需模板申请），用页内轮询；不改 §5 闸任何参数；i2i 提示词固定为艺术家素描（v5 长稀疏排线 / 超偏好阈仍带排线重试），不对用户开放自定义 prompt |
-| 下载闸 | 生图 API 返回的结果图 URL 强制过 `hutuji_mcp/url_guard` 公网 https 闸（https-only + 非 global IP 字面量全拒 + localhost/.local/.internal 域名拒 + 畸形端口 fail-closed）+ 16MiB 流式上限；t2i racer（`bitmap_svg`）与 i2i（`modelscope_client`）共用同一条唯一实现（2026-09-08 加固，IMG-URL-SSRF-GAP） |
-| 并发上限 | portal 后台 i2i 精修经 `_refine_slots`（`asyncio.Semaphore(4)`）排队，超出并发等待不拒绝；防批量照片上传同时打满魔搭免费层（2026-09-08 加固） |
+| 明确不做 | v1 不做微信订阅消息推送，用页内轮询；不改 §5 闸任何参数；风格参数不开放数值调节（只两档枚举）；AI i2i 客户端模块（`modelscope_client`/`tcb_i2i`）保留为备用通道但本链不调用 |
+| 并发上限 | portal 后台精修经 `_refine_slots`（`asyncio.Semaphore(4)`）排队，超出并发等待不拒绝（本地渲染 ~0.2-0.7s/张，排队代价远低于旧付费 API） |
 
-合规面：照片会传输给第三方 AI 服务（魔搭 ModelScope，国内）生成线稿——小程序《用户隐私保护指引》上架前须补此条款（用户 MP 后台动作）；grok/NewAPI 通道因出境+未备案已排除。魔搭 t2i（`Qwen/Qwen-Image`）与 TCB 混元（`hunyuan-image`，`HUTUJI_TCB_IMAGE_URL`+`HUTUJI_TCB_API_KEY` 同配同空）同时作为对冲池 t2i racer 进 `bitmap_svg`（与商汤/agnes/imagefree/硅流同构），默认启用、portal 运营后台可关。
+合规面变化：照片精修不再出服务器（纯本地 numpy/skimage 计算），小程序隐私指引中的「照片传输给第三方 AI 服务」条款随本次切换失去事实基础（魔搭/TCB 条款保留至备用通道彻底移除为止）。旧 AI 链被 supersede 的实证依据：提示词 v6/v7 在 TCB 混元 5 样本配对 A/B 撞 run-to-run 噪声地板（单臂摆幅 76 抬笔 > 全部配对差 14–57），位图→骨架化的信息损耗是结构性的。
 
 #### 10.4.10 小程序手输写字（2026-09-09 落地 hub `981c723` 链；设计 `docs/superpowers/specs/2026-09-09-xiaopai-write-ux-design.md`）
 

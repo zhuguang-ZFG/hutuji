@@ -34,6 +34,10 @@ class DrawQueueBusyError(RuntimeError):
     """队列已满或全局入队速率超限。"""
 
 
+class DrawDailyLimitError(RuntimeError):
+    """单设备当日绘画次数达上限（UTC+8 自然日窗口）。"""
+
+
 @dataclass(frozen=True)
 class DrawJobPayload:
     job_id: str
@@ -56,6 +60,15 @@ def _inflight_material(description: str, chain_push: bool) -> str:
     语音用户干等；反向则网页任务串推到演示设备。分开计键两边各自独立。
     """
     return description if chain_push else description + "\x00nopush"
+
+
+def day_stamp_cst() -> str:
+    """UTC+8 自然日戳 yyyymmdd：日限窗口键，两后端与 server 进程内闸共用。
+
+    固定 +8 而非本地时区：产品只面向国内课堂，部署机时区不该改变窗口边界，
+    也免去 Windows 上 tzdata 依赖。
+    """
+    return time.strftime("%Y%m%d", time.gmtime(time.time() + 8 * 3600))
 
 
 def queue_enabled() -> bool:
@@ -114,6 +127,7 @@ class MemoryDrawQueueBackend:
         self._inflight: dict[str, str] = {}
         self._enqueue_times: list[float] = []
         self._device_minute: dict[str, int] = {}
+        self._device_day: dict[str, int] = {}
 
     async def attach_or_enqueue(
         self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True
@@ -155,6 +169,13 @@ class MemoryDrawQueueBackend:
             if count > settings.draw_per_device_minute:
                 raise DrawQueueBusyError("绘图服务正忙，请稍候再试")
             self._device_minute[bucket] = count
+            # 日限同款「先查后计」：超限的请求不占额（与 portal 失败不占额同口径，
+            # 但计数点取入队时刻——防滥用闸，非精确计费）
+            day_bucket = f"{device_id}:{day_stamp_cst()}"
+            day_count = self._device_day.get(day_bucket, 0) + 1
+            if day_count > settings.draw_per_device_day:
+                raise DrawDailyLimitError("今日绘画次数已达上限，明天再来")
+            self._device_day[day_bucket] = day_count
 
     async def wait_result(self, job_id: str, *, timeout: float) -> str:
         deadline = time.monotonic() + timeout
@@ -259,6 +280,15 @@ class RedisDrawQueueBackend:
                 await client.expire(device_key, 120)
             if device_count > settings.draw_per_device_minute:
                 raise DrawQueueBusyError("绘图服务正忙，请稍候再试")
+            # 日键窗口最长 24h，48h TTL 足够覆盖且省一次月末/次日零点计算；
+            # 与 minute 键同款 incr 后比较（被拒请求也占一格，软限制可接受，
+            # 见上方限流注释的不对称说明）
+            day_key = f"{DEVICE_RATE_PREFIX}day:{device_id}:{day_stamp_cst()}"
+            day_count = await client.incr(day_key)
+            if day_count == 1:
+                await client.expire(day_key, 48 * 3600)
+            if day_count > settings.draw_per_device_day:
+                raise DrawDailyLimitError("今日绘画次数已达上限，明天再来")
 
         for _attempt in range(3):
             if decision == "replace":

@@ -184,6 +184,9 @@ class Settings:
     draw_queue_max_depth: int = 200
     draw_enqueue_per_second: int = 10
     draw_per_device_minute: int = 6
+    # 单设备每日防滥用闸：按入队请求时刻计数（与 portal「成功才计数」口径不同，
+    # 见 draw_queue），自然日窗口固定 UTC+8；空 device_id 只走全局限流。
+    draw_per_device_day: int = 20
     draw_racer_max: int = 0
     # 产物存储：local=本机 output_dir；oss=阿里云 OSS（多 worker 共享）
     output_backend: str = "local"
@@ -306,6 +309,7 @@ class Settings:
             ("draw_queue_max_depth", self.draw_queue_max_depth, 1, 2000),
             ("draw_enqueue_per_second", self.draw_enqueue_per_second, 1, 100),
             ("draw_per_device_minute", self.draw_per_device_minute, 1, 60),
+            ("draw_per_device_day", self.draw_per_device_day, 1, 500),
             ("draw_racer_max", self.draw_racer_max, 0, 8),
             ("pg_retention_days", self.pg_retention_days, 1, 365),
             ("breaker_window_sec", self.breaker_window_sec, 10, 600),
@@ -423,6 +427,7 @@ def load_settings() -> Settings:
         draw_queue_max_depth=_env_int("HUTUJI_DRAW_QUEUE_MAX_DEPTH", "200"),
         draw_enqueue_per_second=_env_int("HUTUJI_DRAW_ENQUEUE_PER_SECOND", "10"),
         draw_per_device_minute=_env_int("HUTUJI_DRAW_PER_DEVICE_MINUTE", "6"),
+        draw_per_device_day=_env_int("HUTUJI_DRAW_PER_DEVICE_DAY", "20"),
         draw_racer_max=_env_int("HUTUJI_DRAW_RACER_MAX", "0"),
         output_backend=os.environ.get("HUTUJI_OUTPUT_BACKEND", "local"),
         oss_endpoint=os.environ.get("HUTUJI_OSS_ENDPOINT", ""),

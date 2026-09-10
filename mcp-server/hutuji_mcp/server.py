@@ -416,6 +416,28 @@ _draw_inflight: dict[str, asyncio.Task[str]] = {}
 # 成功后清零，供 hutuji_status 暴露 last_draw_error（不记异常细节，脱敏硬约定）。
 _draw_last_error: dict[str, object] | None = None
 
+# 进程内（无队列）路径的单设备日限计数；queue 路径由 draw_queue 后端计数，
+# 这里只兜进程内路径。键 = f"{device_id}:{yyyymmdd}"（UTC+8 自然日），按入队
+# 请求时刻 +1——与 portal「成功才计数」口径不同：这是防滥用闸，不是精确计费。
+_device_day_counts: dict[str, int] = {}
+
+
+def _device_daily_limit_reached(device_id: str) -> bool:
+    """进程内单设备日限：超限返回 True；通过才 +1（被拒请求不占额）。
+
+    device_id 为空只走全局限流（与 draw_queue 每分钟/每日限流同口径）。
+    """
+    if not device_id:
+        return False
+    from .draw_queue import day_stamp_cst
+
+    key = f"{device_id}:{day_stamp_cst()}"
+    count = _device_day_counts.get(key, 0) + 1
+    if count > settings.draw_per_device_day:
+        return True
+    _device_day_counts[key] = count
+    return False
+
 
 def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
     """只清掉自己登记的任务，并取走无人等待时的异常。"""
@@ -629,6 +651,7 @@ async def _hutuji_draw_via_queue(
     演示设备预览（推送由 portal 页面显式触发）。
     """
     from .draw_queue import (
+        DrawDailyLimitError,
         DrawQueueBusyError,
         attach_or_enqueue,
         queue_enabled,
@@ -643,6 +666,8 @@ async def _hutuji_draw_via_queue(
             chain_push=chain_push,
         )
     except DrawQueueBusyError as exc:
+        raise DrawLimitError(str(exc)) from exc
+    except DrawDailyLimitError as exc:
         raise DrawLimitError(str(exc)) from exc
 
     if not force_sync and getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
@@ -696,6 +721,11 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
         return await _hutuji_draw_via_queue(
             safe_description, public_base_url, safe_device_id
         )
+
+    # 进程内路径没有 draw_queue 后端的设备限流，日限在此兜底（queue 路径由
+    # attach_or_enqueue 抛 DrawDailyLimitError，文案保持一致）
+    if _device_daily_limit_reached(safe_device_id):
+        raise DrawLimitError("今日绘画次数已达上限，明天再来")
 
     work = _draw_inprocess(safe_description, public_base_url, chain_push=True)
 

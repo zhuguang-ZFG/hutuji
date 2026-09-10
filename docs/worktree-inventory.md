@@ -104,12 +104,25 @@
 | 决策 | ① 提示词 v6：按 Qwen-Image-Edit 官方 EDIT_SYSTEM_PROMPT（`src/examples/tools/prompt_utils.py`）重构——指令直述、人像身份约束前置（「其余保持不变」官方范式）、风格特征压句尾、否定排比保留；v5 实证排线词原样保留只调语序。supersede v5。② 骨架算法 zhang→lee：5 张生产精修样本 A/B（`tmp/ab_lee_vs_zhang.py`，样本拉自 `/var/lib/hutuji/draw-portal/` jobs 5198853e/805fa9b7/0c278f1f/5eebf7f9/6c1f3390）抬笔 138→128、144→144、115→99、94→89、130→133，净 -31（3 胜 1 平 1 微负），点数不降反微升=细节未丢 → **仅精修链切 lee**（证据只覆盖精修照片），t2i/QD/写字/笔顺共用描摹维持 zhang 默认。③ 奎享 SquiggleTab 亮度波纹连续线（抬笔≈0）与 l/c.java 路径拼接 = 数量级杠杆候选，本批只做设计定案外的小步；2511 模型/多图 ControlNet 输入被魔搭余额 429 阻塞 |
 | MCP 侧 | `bitmap_svg.trace_bitmap_to_polylines` 加 keyword-only `skeleton_method="zhang"` 透传 skimage；`modelscope_client.py` `I2I_LINE_ART_PROMPT`/`I2I_SPARSE_HATCH_RETRY_PROMPT` v6 |
 | portal 侧 | `pipeline.process_upload_png` 加同名透传参数（默认 zhang，Canny 快出段不变）；`app.py` `_refine_photo_job` 精修描摹传 `skeleton_method="lee"` |
-| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError），全套 **1339** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
+| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError）；当日程序化渲染+设备日限批再 +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1359** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |
 | 验证 | hub 门禁 PASS（1339 + e2e PASS + 指纹 260：2 处行号纯移动 --fix-line-refs 自动（findings/30 两处）、1 处人工核对后 --accept-line-refs（findings/28 计数行内容随批次更新，引用意图不变）） |
 | 部署 | 已完成 02:1x CST：四文件双机 SHA 逐位相符 + 阿里云 mcp/bridge/portal/worker@{1..8} 与京东 mcp/portal restart active + 公网冒烟 + preflight 阿里 24/33·京东 29/33（均符合节点基线，无新 fail 类别；证据 docs/deployment.md 顶部） |
-| 待办 | ① 真实照片单观察 v6+lee 抬笔数 ② **魔搭次日免费额度恢复后**验证 2511/多图输入 + **Qwen 侧 v6/v7 补验**（2026-09-10 用户拍板：魔搭每日有免费额度、当日用完即停、**不充值**——429 只是当日额度耗尽，非欠费阻塞；TCB 混元赛道实证：两臂无可测差异、单臂 run-to-run 极差最高 76 抬笔>全部配对差，见下行；Qwen-Edit 系行为可能不同，补验口径 = **每臂同图 ≥3 次取均值、先量噪声地板再判**，单运行配对一律不算胜负）③ SquiggleTab 连续线模式立项与否待用户拍板（见风格目标行） |
+| 待办 | ① ~~真实照片单观察 v6+lee 抬笔数~~（已被程序化渲染批 supersede——AI 精修链退役，v6+lee 指标不再进生产）② **魔搭次日免费额度恢复后**验证 2511/多图输入 + **Qwen 侧 v6/v7 补验**（2026-09-10 用户拍板：魔搭每日有免费额度、当日用完即停、**不充值**；TCB 混元赛道实证：两臂无可测差异，见下行；补验口径 = **每臂同图 ≥3 次取均值、先量噪声地板再判**）③ ~~SquiggleTab 立项拍板~~（已定案：双风格档位同批落地） |
 | v7 实证（2026-09-10，TCB 单赛道） | 探针 `tmp/tcb_prompt_ab.py`（节点 /tmp 同名副本）：5 张生产样本 × {v6 否定排比, v7 正向锚定零否定词} 配对 A/B，lee 描摹三指标。首轮配对抬笔 v6 149/128/116/132/148 vs v7 164/185/158/110/162；视觉抽验两张均清晰单线+稀疏修长排线+主体高度可辨，**两臂右下均带混元「AI生成」水印**（生产 `strip_corner_watermark` 已覆盖，探针指标未洗白、两臂同担）。**噪声地板实测推翻配对读数**：0c278f1f 两臂各连跑 3 次——v6 128/204/177（摆幅 76）、v7 185/148/200（摆幅 52），run-to-run 摆幅（52–76）远大于任何配对差（14–57），5 样本配对差全部落在噪声带内。**修正结论：混元赛道 v6/v7 无可测差异，首轮 4/5 是噪声不是效应；维持 v6 属保守惯性（免换提示词重验证），不是实证胜出**。txt2plotter 禁否定句经验在混元上既不证实也不证伪——端点无 seed 控制，单运行配对方法学上限即此；Qwen 侧复验必须先量同法噪声地板再判胜负 |
-| 风格目标（待拍板） | 「排线素描感」（现役 v6 路线，用户 2026-09-08 硬约束「必须有排线素描感」）与「SquiggleTab 亮度波纹单连续线」（抬笔≈0 的另一种艺术形态）是**互斥的两种风格档位**，不是同一链路的强弱版本——先定风格目标再选链路，两者不混用 |
+| 风格目标（已定案） | ~~「排线素描感」与「SquiggleTab 亮度波纹单连续线」互斥待拍板~~ → 2026-09-10 用户拍板 A+B 双风格档位同批落地（hatch 默认 + squiggle 次档），见下行「程序化风格渲染 + 双端日限批」 |
+
+### 程序化风格渲染 + 双端日限批（2026-09-10，用户原话「必须有排线素描感，要有艺术感，这搞的很丑，还有别的方案」「限定文生图每天用户20次」；拍板 A+B 双风格档位 + 限流双端）
+
+| 项 | 说明 |
+|----|------|
+| 决策 | ① **照片精修链从 AI i2i 切到程序化矢量渲染**（`sketch_render.py`）：位图→骨架化的信息损耗是结构性的，提示词调优已撞噪声地板（见上批 v7 实证行），模型路线到天花板；程序化直出矢量折线，风格是算法本体、零模型费、确定性可复现。② 双风格档位：hatch 排线素描（默认，用户硬约束「必须有排线素描感」）+ squiggle 连续波纹（SquiggleTab 方向同批落地，旧「待拍板」关闭）。③ 文生图限流 20 次/天双端：portal `/api/draw/generate` 既有 `generate_daily_limit` 默认 10→**20**；MCP `hutuji_draw` 新增**单设备每日 20 次**（`HUTUJI_DRAW_PER_DEVICE_DAY`，既有每分钟 6 次不动），内存/Redis 队列 + 进程内回落三路径同行为，UTC+8 自然日键、入队时刻计数、超限白话「今日绘画次数已达上限，明天再来」。④ 魔搭/TCB i2i 客户端模块保留为备用通道但链路不再调用（portal config 四个 i2i 字段已删）；合规面：照片精修不再出服务器 |
+| MCP 侧 | 新增 `sketch_render.py`（排线/波纹双渲染器 + RDP 抽稀出口 + `SketchRenderError` fail-closed；产物契约同 `trace_bitmap_to_polylines`，直进 `polylines_to_svg`）；`config.py` +`draw_per_device_day`（默认 20，校验 1..500）；`draw_queue.py` +`DrawDailyLimitError` + `day_stamp_cst()` + 内存/Redis 双路径日键；`server.py` `hutuji_draw` 进程内路径新增日限闸（此前该路径无任何设备限流） |
+| portal 侧 | `pipeline.process_upload_sketch`（归一 → 渲染 → SVG 白名单 → vpype → §5）；`app.py` `_refine_photo_job` 整体重写为程序化（删 `_race_i2i`/`_attempt`/抬笔门 PREF/HARD/MAX 与 `_tcb_i2i_ready`/`_race_refine_racers`）；`draw_upload` 新增 `style` 表单字段（白名单外静默回落 hatch）；触发条件从「配 token」改为「是照片即精修」；`config.py` 删 `modelscope_token`/`tcb_image_url`/`tcb_api_key`/`tcb_i2i_enabled` 四字段；`index.html` 上传面板加风格单选（排线素描/连续波纹） |
+| 实测 | 5 张生产样本 × 双风格全分辨率 1px 栅格目检通过（排线 = 蚀刻交叉排线、主体可辨；波纹 = 扫描线波形、蛇形并段）；G-code 全部 ≤§5 硬闸（114–298KiB < 512KiB）；排线抬笔 1.9–3.3k/张、波纹 0.4–0.6k/张（蚀刻风固有特性，画图时长显著长于 AI 线稿——已为用户可选档位）；渲染耗时 0.2–0.7s/张。**预览器污染教训已钉进模块 docstring 与 AGENTS.md**（设备预览 0.3×+2px 粗线会糊密排线区，调参只看全分辨率） |
+| 测试 | mcp +20（`test_sketch_render.py` 11、`test_device_daily_limit.py` 9），全套 **1359** 项全绿（含计数一致性钉）；portal `test_photo_refine.py` 围绕新链重写 18→11（默认 hatch/squiggle 透传/非法回落/无凭据照跑/fail-open/并发闸），全套 **166** 项全绿 |
+| 契约 | `docs/protocol.md` §10.4.9 整体重写（supersede AI i2i 版）、§10.4.8 配额默认 20、§4 语音链新增单设备日限条；AGENTS.md 计数 1339→1359 / 173→166 / 模块 36→37 + `sketch_render` 条目 + tcb_i2i 备用通道状态 |
+| 部署 | 待部署（本批收口后走 双机 blob 导出→SHA 对账→restart mcp+portal→preflight） |
+
 
 ### 小派文字聊天 + 小程序缺陷收口批（2026-09-09，代码已测全绿 + weapp 0.3.0 CLI 已传（73.0 KB）；未提交、未部署）
 
