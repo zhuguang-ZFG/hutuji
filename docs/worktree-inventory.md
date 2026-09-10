@@ -153,7 +153,7 @@
 | 小程序 | 写字模式「字体」picker（懒加载 /api/fonts，失败静默藏选择器走默认库）；提交带 `font`；脚注 0.3.0/0.2.20 → **v0.3.1**（chat/control/profile/firmware 四处） |
 | 契约 | protocol §10.4.10 请求 JSON 加 font 行 + 字体列表行 + 明确不做行 supersede 盖章 |
 | 测试 | mcp +1（list_fonts stems/排序/坏目录空表）、portal +5（透传/非法 400 矩阵/未知库 400/列表/503）；MCP 1363、portal 171 全绿 |
-| 部署 | 待部署：mcp-server write_text.py + portal app.py/pipeline.py 双机；**weapp 0.3.1 须 CLI 上传 + MP 体验版（用户动作）** |
+| 部署 | 双机后端已完成：`2f0e49f` 三文件 SHA 逐位相符（write_text `5513ab560785`、app `8b48724964b3`、pipeline `02b920efa0fd`），阿里云 11 单元/京东 2 单元 restart active，`/api/fonts` 双机 401（路由在场、phone 闸生效）；**weapp 0.3.1 须 CLI 上传 + MP 体验版（用户动作）** |
 
 ### 排线画质/提速优化批（2026-09-10，用户验收「看着还行」后拍板 ①+②）
 
