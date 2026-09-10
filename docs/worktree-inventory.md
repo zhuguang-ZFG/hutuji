@@ -9,7 +9,7 @@
 
 ---
 
-## 2026-09-10 近期评审七项修复（本地未提交）
+## 2026-09-10 近期评审七项修复（已提交 `5062272`+`a776cc6`，双机已部署；量产机烧录待用户物理配合）
 
 | 项 | 说明 |
 |----|------|
@@ -20,6 +20,9 @@
 | 回归 | MCP 当前收集全套 **1383** 项（37 文件，本批新增 20）全部通过；新增预览资源边界、白带/行间白缺口、并发/取消/accepted 达日限重试、双入口 OTA 静态契约、合成 gfont 真排版；Node 独立运行登录/字体选择测试。最终 **hub PASS（MCP 1383/1383、e2e PASS）、portal 173/173、Node 19/19**，各套件退出码均为 0 |
 | 本地证据 | `results/review-fixes-20260910/`：最终本仓 hub 为 `hub-final.log` / `hub-final-report.{json,md}`（2026-09-10T14:52:26Z，含 MCP 全量 + e2e），pytest 原始输出为 `mcp-pytest-final.log`；`portal-recheck.log`、`weapp.log` 为独立套件；各 `.exit` 记录退出码，`jobs.json` 记录命令、进程与八份实现文件 SHA-256。前两轮 MCP 仅测试计数台账失配，已按 collect 同步；portal 首轮 172 过 / 1 项临时 SQLite 库损坏，单例复跑过、新临时目录全量复跑 **173 过**，损坏原因未归因；Node **19 过**。失败轮次日志原样保留；`results/` 被忽略，证据只在本机 |
 | 保留既有改动 | 开始时 12 份文档的行号调整保留（handoff、daytime、两份 design、六份 kxnx findings、readiness、troubleshooting）；后续门禁重定位单独核对。既有 `tmp/**`、截图、记忆草稿与 `.playwright-mcp/` 保留 |
+| 提交 | `5062272`（37 文件：七项修复 + 文档/白名单/指纹基线）+ `a776cc6`（weapp 0.3.3 脚注）；**origin 未推**：HTTPS 两次 TLS 中断、SSH 鉴权失败，待网络恢复重试 |
+| 部署 | 双机四文件 SHA-256 逐位相符（备份 `/root/hutuji-bak-20260910-review/`）；京东 `:80 /firmware/` 按 HEAD 模板三处同写并 restart nginx，loopback 200/公网 403；preflight 阿里 25/33、京东 30/33（持平加固批基线）；weapp 0.3.3 CLI 上传 TOTAL 106500 B。明细见 `docs/deployment.md` 首条 |
+| 量产机烧录 | 新机在 COM13（CH340；BtWriter 原固件 `VER:1.1.202220207`、BT MAC `4C:C3:82:CC:8A:9E`）；massprod 固件 `eac33b7` 已构建（`Grbl_Esp32-massprod` worktree，1842150 B，Flash 93.7%）。**自动下载仍不进下载模式**：RTS→EN 复位正常（探针见 ROM banner），DTR→IO0 不 latch——慢节奏脚本 ×2（No serial data）、标准 esptool ×1（Wrong boot mode 0x17）、手动 latch 探针 ×2（boot SPI）；探针脚本 `tmp/probe_reset_lines.py`/`tmp/probe_download_mode.py`/`tmp/probe_stock_settings.py`。**待用户**：断电→短接 IO0（25 号焊盘）→GND→上电→通知代理以 `--before no_reset` 烧录，烧完断电撤短接 |
 
 ## 0. 2026-09-09 收口入库（本批提交）
 
