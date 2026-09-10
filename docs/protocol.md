@@ -782,14 +782,14 @@ Cookie: <session>
 | 面 | 约定 |
 |----|------|
 | 入口 | `POST /draw-upload/api/draw/write`（登录态 + **须绑定 phone**，同 §10.4.0） |
-| 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（默认 12）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6）、`font`（字库文件名词，取值来自 `GET /api/fonts`；空=默认 blood8 真迹手写体；>60 字符或含 `/` `\` `..` → 400「字体名不合法」；具名不存在 → WriteTextError → 400） |
+| 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（默认 12）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6）、`font`（字库 id=文件名词，取自 `GET /api/fonts` 的 `id` 字段；空=默认 blood8 真迹手写体；>60 字符或含 `/` `\` `..` → 400「字体名不合法」；具名不存在 → WriteTextError → 400） |
 | 排版 | 字库 = 请求 `font` 或默认偏好（`load_font` 子串解析文件名词）+ `write_text.layout_text`；`max_pages = ARTICLE_MAX_PAGES`（20）；超出截断并 `truncated: true` |
-| 字体列表 | `GET /api/fonts`（`phone_secured`）→ `{fonts:[文件名词…]}`（纯文件名扫描不解析字库内容）；缺 `HUTUJI_GFONT_DIR` → **503** |
+| 字体列表 | `GET /api/fonts`（`phone_secured`）→ `{fonts:[{id, name}…]}`：id=.gfont 文件名词（稳定契约，POST `font` 回传 id）；name=动力巢科技系列显示名（`write_text._FONT_DISPLAY_NAMES` 表驱动，未登记回落 `动力巢科技·<词>`；2026-09-10 用户拍板品牌改名）；纯文件名扫描不解析字库内容；缺 `HUTUJI_GFONT_DIR` → **503** |
 | 产物 | 与文档链同构：`pages/page_NNN.{svg,gcode,png}` + `pages.json` + 首页兼容 `draw.*`/`preview.png`；job 元数据 `kind=write` |
 | 响应 | `{status, job_id, preview_url, gcode_url, lines, bytes, pages[{url, preview_url}], page_count, truncated, missing_chars, doc_kind, doc_mode}` |
 | 复用 | `POST .../draw/{job_id}/send`（自动 confirm）、`POST .../save`、历史列表；与 §10.4.5 上传 job 零分叉 |
 | 错误 | 空文/超长/版式越界 → 400 + 中文 detail；缺 `HUTUJI_GFONT_DIR` → **503**「写字字库未配置」；不回显内部路径 |
-| 小程序 | 创作页「画图 \| 写字 \| 笔顺」三段（写字段行为同本表）；写字模式藏拍照/相册、保留「文档」；排版预览须显式点击；weapp 写字段 **v0.2.13** 起、字体选择器 **v0.3.1** 起、笔顺见 §10.4.11 |
+| 小程序 | 创作页「画图 \| 写字 \| 笔顺」三段（写字段行为同本表）；写字模式藏拍照/相册、保留「文档」；排版预览须显式点击；weapp 写字段 **v0.2.13** 起、字体选择器 **v0.3.1** 起（对象形态 id/name 与品牌名 **v0.3.2**）、笔顺见 §10.4.11 |
 | 明确不做 | ~~选字库~~（2026-09-10 supersede：用户拍板加字体选择器，本表 font/`/api/fonts` 行）、字距；独立 `/api/write/*`；改 MCP `hutuji_write` 签名；改 §5/竖版/转置/换纸 |
 
 **HIL**：纸面笔迹、多页发送、文档版式与收藏再发 **未验证**（见 `docs/release-readiness.md` 文首）。

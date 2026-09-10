@@ -175,7 +175,11 @@ def test_fonts_endpoint_lists_stems(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     _register_and_login(c)
     r = c.get("/api/fonts")
     assert r.status_code == 200
-    assert r.json()["fonts"] == ["blood8真迹_xiongzai", "如果梦万国"]
+    # id=文件名词（POST font 回传它），name=动力巢系列显示名（未登记回落）
+    assert r.json()["fonts"] == [
+        {"id": "blood8真迹_xiongzai", "name": "动力巢科技·blood8真迹_xiongzai"},
+        {"id": "如果梦万国", "name": "动力巢科技·如果梦万国"},
+    ]
 
 
 def test_fonts_endpoint_unconfigured_503(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

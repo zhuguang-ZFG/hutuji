@@ -94,11 +94,11 @@
         <text class="layout-label">字体</text>
         <picker
           class="font-picker"
-          range="{{fonts}}"
+          range="{{fontNames}}"
           value="{{fontIndex}}"
           bindchange="onFontChange"
         >
-          <view class="font-picker-val">{{fonts[fontIndex]}} ▾</view>
+          <view class="font-picker-val">{{fontNames[fontIndex]}} ▾</view>
         </picker>
       </view>
       <view class="layout-row">

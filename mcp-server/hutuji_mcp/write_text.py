@@ -648,18 +648,38 @@ def _read_font_bytes(path: str) -> bytes:
 _DEFAULT_FONT_PREFERENCE = ("blood8真迹_xiongzai",)
 
 
-def list_fonts(fonts_dir: str) -> list[str]:
-    """列出目录内 .gfont 字库的文件名词（不含扩展名），供 portal 字体选择器。
-    纯文件名扫描不解析内容（多 MB 字库逐份解密只为列表是浪费）；目录缺席/
-    为空回落空列表，由调用方决定 503 还是隐藏选择器。"""
+def list_fonts(fonts_dir: str) -> list[dict[str, str]]:
+    """列出目录内 .gfont 字库，供 portal 字体选择器：[{"id","name"}]。
+    id = 文件名词（稳定契约，POST font 回传它）；name = 动力巢科技系列
+    对外显示名（2026-09-10 用户拍板改名，表驱动可再调）。纯文件名扫描
+    不解析内容；目录缺席/为空回落空列表，由调用方决定 503 还是隐藏选择器。"""
     if not fonts_dir or not os.path.isdir(fonts_dir):
         return []
-    return sorted(
+    stems = sorted(
         os.path.splitext(f)[0]
         for f in os.listdir(fonts_dir)
         if f.lower().endswith(".gfont")
     )
+    return [
+        {"id": stem, "name": _FONT_DISPLAY_NAMES.get(stem, f"动力巢科技·{stem}")}
+        for stem in stems
+    ]
 
+
+# 动力巢科技系列对外显示名（2026-09-10 用户拍板「改成动力巢科技系列的」）：
+# key = .gfont 文件名词（id 不变，load_font 偏好与既有契约零迁移）；
+# value 描述风格不虚构——能看出处的沿用出处（陈继世/方正兰亭/如果梦），
+# 奎享自有 blood8 系按手写/速写区分。新入库未登记的字库回落「动力巢科技·<词>」。
+_FONT_DISPLAY_NAMES: dict[str, str] = {
+    "blood8真迹_xiongzai_blood8": "动力巢科技·真迹手写",
+    "blood8真迹2_kvenjoy_blood8": "动力巢科技·真迹行书",
+    "blood8-2_kvenjoy_blood8": "动力巢科技·速写",
+    "陈继世6_kvenjoy_1": "动力巢科技·继世行书",
+    "如果梦万国库_kvenjoy_如果梦": "动力巢科技·梦万手写",
+    "淘宝_kvenjoy_1": "动力巢科技·随写",
+    "方正兰亭超细黑体_kvenjoy_奎享科技": "动力巢科技·兰亭细黑",
+    "符号大全_kvenjoy_奎享科技": "动力巢科技·符号集",
+}
 
 def load_font(fonts_dir: str, name: str | None = None) -> GfontFile:
     """按显示名或文件名词解析字库；name 为空时按 _DEFAULT_FONT_PREFERENCE 优先、

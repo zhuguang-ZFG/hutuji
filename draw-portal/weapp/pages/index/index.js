@@ -7,6 +7,7 @@ Page({
     description: "",
     writeText: "",
     fonts: [],
+    fontNames: [],
     fontIndex: 0,
     teachText: "",
     sizeMm: 12,
@@ -96,7 +97,12 @@ Page({
       .then((res) => {
         this._fontsLoading = false;
         if (res && res.fonts && res.fonts.length) {
-          this.setData({ fonts: res.fonts, fontIndex: 0 });
+          // 服务端回 [{id, name}]：picker 展示动力巢系列显示名，提交回传 id
+          this.setData({
+            fonts: res.fonts,
+            fontNames: res.fonts.map((f) => f.name),
+            fontIndex: 0,
+          });
         }
       })
       .catch(() => {
@@ -277,7 +283,7 @@ Page({
           size_mm: this.data.sizeMm,
           line_spacing: this.data.lineSpacing,
           font: this.data.fonts.length
-            ? this.data.fonts[this.data.fontIndex]
+            ? this.data.fonts[this.data.fontIndex].id
             : undefined,
         },
       })

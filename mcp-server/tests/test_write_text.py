@@ -1072,10 +1072,16 @@ def test_hutuji_write_normalizes_traditional_input(tmp_path, monkeypatch):
 
 
 def test_list_fonts_returns_stems_sorted(tmp_path):
-    """字体选择器数据源：.gfont 文件名词、排序、非 gfont 排除、坏目录空列表。"""
-    (tmp_path / "b体.gfont").write_bytes(b"x")
-    (tmp_path / "a体.gfont").write_bytes(b"x")
+    """字体选择器数据源：id=.gfont 文件名词（稳定契约）、name=动力巢系列
+    显示名（登记在表用表值，未登记回落「动力巢科技·<词>」）、排序、非 gfont
+    排除、坏目录空列表。"""
+    (tmp_path / "blood8真迹_xiongzai_blood8.gfont").write_bytes(b"x")
+    (tmp_path / "未登记体.gfont").write_bytes(b"x")
     (tmp_path / "notes.txt").write_text("nope", encoding="utf-8")
-    assert write_text.list_fonts(str(tmp_path)) == ["a体", "b体"]
+    fonts = write_text.list_fonts(str(tmp_path))
+    assert fonts == [
+        {"id": "blood8真迹_xiongzai_blood8", "name": "动力巢科技·真迹手写"},
+        {"id": "未登记体", "name": "动力巢科技·未登记体"},
+    ]
     assert write_text.list_fonts(str(tmp_path / "missing")) == []
     assert write_text.list_fonts("") == []
