@@ -9,7 +9,7 @@
 
 ---
 
-## 2026-09-10 近期评审七项修复（已提交 `5062272`+`a776cc6`，双机已部署；量产机烧录待用户物理配合）
+## 2026-09-10 近期评审七项修复（已提交已推 `5062272`+`a776cc6`+证据回填 `bba1284`，双机已部署；量产机烧录本机 DTR 链路阻塞）
 
 | 项 | 说明 |
 |----|------|
@@ -20,9 +20,9 @@
 | 回归 | MCP 当前收集全套 **1383** 项（37 文件，本批新增 20）全部通过；新增预览资源边界、白带/行间白缺口、并发/取消/accepted 达日限重试、双入口 OTA 静态契约、合成 gfont 真排版；Node 独立运行登录/字体选择测试。最终 **hub PASS（MCP 1383/1383、e2e PASS）、portal 173/173、Node 19/19**，各套件退出码均为 0 |
 | 本地证据 | `results/review-fixes-20260910/`：最终本仓 hub 为 `hub-final.log` / `hub-final-report.{json,md}`（2026-09-10T14:52:26Z，含 MCP 全量 + e2e），pytest 原始输出为 `mcp-pytest-final.log`；`portal-recheck.log`、`weapp.log` 为独立套件；各 `.exit` 记录退出码，`jobs.json` 记录命令、进程与八份实现文件 SHA-256。前两轮 MCP 仅测试计数台账失配，已按 collect 同步；portal 首轮 172 过 / 1 项临时 SQLite 库损坏，单例复跑过、新临时目录全量复跑 **173 过**，损坏原因未归因；Node **19 过**。失败轮次日志原样保留；`results/` 被忽略，证据只在本机 |
 | 保留既有改动 | 开始时 12 份文档的行号调整保留（handoff、daytime、两份 design、六份 kxnx findings、readiness、troubleshooting）；后续门禁重定位单独核对。既有 `tmp/**`、截图、记忆草稿与 `.playwright-mcp/` 保留 |
-| 提交 | `5062272`（37 文件：七项修复 + 文档/白名单/指纹基线）+ `a776cc6`（weapp 0.3.3 脚注）；**origin 未推**：HTTPS 两次 TLS 中断、SSH 鉴权失败，待网络恢复重试 |
+| 提交 | `5062272`（37 文件：七项修复 + 文档/白名单/指纹基线）+ `a776cc6`（weapp 0.3.3 脚注）；已合远端 PR #9 merge 并推 origin（`d1fcd0e`） |
 | 部署 | 双机四文件 SHA-256 逐位相符（备份 `/root/hutuji-bak-20260910-review/`）；京东 `:80 /firmware/` 按 HEAD 模板三处同写并 restart nginx，loopback 200/公网 403；preflight 阿里 25/33、京东 30/33（持平加固批基线）；weapp 0.3.3 CLI 上传 TOTAL 106500 B。明细见 `docs/deployment.md` 首条 |
-| 量产机烧录 | 新机在 COM13（CH340；BtWriter 原固件 `VER:1.1.202220207`、BT MAC `4C:C3:82:CC:8A:9E`）；massprod 固件 `eac33b7` 已构建（`Grbl_Esp32-massprod` worktree，1842150 B，Flash 93.7%）。**自动下载仍不进下载模式**：RTS→EN 复位正常（探针见 ROM banner），DTR→IO0 不 latch——慢节奏脚本 ×2（No serial data）、标准 esptool ×1（Wrong boot mode 0x17）、手动 latch 探针 ×2（boot SPI）；探针脚本 `tmp/probe_reset_lines.py`/`tmp/probe_download_mode.py`/`tmp/probe_stock_settings.py`。**待用户**：断电→短接 IO0（25 号焊盘）→GND→上电→通知代理以 `--before no_reset` 烧录，烧完断电撤短接 |
+| 量产机烧录 | 新机经 Hub 重插为 COM16（CH340 正版 VID_1A86，驱动 wch.cn 3.9.2024.9，2026-08-07 装）；BtWriter 原固件 `VER:1.1.202220207`、BT MAC `4C:C3:82:CC:8A:9E`；massprod 固件 `eac33b7` 已构建（`Grbl_Esp32-massprod` worktree，1842150 B，Flash 93.7%），三件套+说明在 `tmp/massprod-flash-pack/`（SHA 已录说明内）。**本机下载链路结论（2026-09-11 凌晨取证）**：RTS→EN 复位正常、DTR→IO0 全程不生效（慢节奏 ×2、标准 esptool v3/v5.3.1、手动 300ms latch 探针、FDT 3.9.9 驱动自动化 SYNC→ERROR 2s、USB2 Hub 经转后照旧），FDT 闲置会占 COM 口需关窗；用户实证**另一台电脑用官方 FDT 可正常烧录** → 定性为本机 DTR 链路问题（Win11 26200 + 该驱动的已知坑，esptool issue #790 同症状族），板子无罪。**下一步**：①另一台电脑用 `tmp/massprod-flash-pack/` 刷（最快）；②本机降级 CH340 驱动到 3.5.2019.1（需管理员）后我复测；③保底短接 IO0(25 号焊盘)→GND 上电后我以 `--before no-reset` 接管。探针脚本 `tmp/probe_reset_lines.py`/`probe_download_mode.py`/`probe_stock_settings.py`/`probe_dtr_api_paths.py`，FDT 驱动脚本 `tmp/fdt_drive_{1,2,3}.py`，截图 `tmp/fdt_*.png` 与 `tmp/fdt_frames/` |
 
 ## 0. 2026-09-09 收口入库（本批提交）
 
