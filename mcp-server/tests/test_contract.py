@@ -4833,7 +4833,7 @@ def test_vpype_pipeline_normalizes_layout(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_svg_to_gcode_upscales_and_centers_tiny_drawing(tmp_path: Path) -> None:
-    """角落小图必须被等比放大并居中：10mm 方块 → 放大到版式区短边 170mm、水平垂直双居中。"""
+    """角落小图必须被等比放大并居中：10mm 方块 → 放大到版式区短边（随 LAYOUT_MARGIN_MM 推导）、水平垂直双居中。"""
     from hutuji_mcp import gcode_gen
 
     svg = tmp_path / "tiny.svg"
@@ -4846,8 +4846,10 @@ def test_svg_to_gcode_upscales_and_centers_tiny_drawing(tmp_path: Path) -> None:
     gcode_gen.svg_to_gcode(svg, gcode)
 
     min_x, min_y, max_x, max_y = _gcode_xy_bbox(gcode)
-    # 版式区 257×170：方形受短边 Y 限放大到 170mm，水平居中于 277 版心
-    assert max_x - min_x == pytest.approx(170.0, abs=1.0), "小图必须被放大"
+    # 版式区 (277-2m)×(190-2m)：方形受短边 Y 限放大到 190-2m mm，水平居中于 277 版心
+    assert max_x - min_x == pytest.approx(
+        gcode_gen.MAX_Y_MM - 2 * gcode_gen.LAYOUT_MARGIN_MM, abs=1.0
+    ), "小图必须被放大"
     assert (min_x + max_x) / 2 == pytest.approx(gcode_gen.MAX_X_MM / 2, abs=1.0)
     assert (min_y + max_y) / 2 == pytest.approx(gcode_gen.MAX_Y_MM / 2, abs=1.0)
 
