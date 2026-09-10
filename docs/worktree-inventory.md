@@ -144,6 +144,15 @@
 | 验证 | 事故原图：hatch 墨覆盖 19.4%、squiggle 27.5%；纸面观感（277px≈1px/mm 面积平均）视觉评判「能非常清晰认出戴眼镜微笑女孩、五官高辨识度、头发纹理非实心、结构性排线非噪点」；新预览卡尺寸下同一结论；5 样本回归 8.6–12.9% 覆盖；MCP 1361 全绿、portal 166 全绿；§5 预算闸实证：事故原图 hatch 由超闸 575KiB 压回 433KiB（余量 89KiB） |
 | 部署 | 已完成：`124ad76` 双文件（sketch_render `f41145e46b6d`、bitmap_svg `234752f71c09`）双机 SHA 逐位相符；阿里云 restart mcp+bridge+portal+worker@{1..8} 11 单元 active、京东 mcp+portal active；节点冒烟 hatch 181843B/1397 抬笔过 §5 |
 
+### 量产无换纸 SKU 批（2026-09-10，用户拍板：量产暂时做不换纸机型；基线 commit c896ce5c「Tune Z motion defaults for spring pen axis」由用户指定）
+
+| 项 | 说明 |
+|---|---|
+| 固件 | 新分支 `massprod/nopaper-1.3a`（外仓 Grbl_Esp32，已推 origin）：基线 c896ce5c + `GRBL_VERSION_BUILD` 20211103→**20260910**（`[VER:1.3a.20260910:]` 与现役区分）；树内无 Paper* 换纸代码（无需删改）；PlatformIO release 构建 SUCCESS（firmware.bin 1,842,272B，Flash 93.7%）；WiFi/Telnet/WebUI/出厂 AP 代配面完整（§1.5 零接触配网不受影响） |
+| 系统影响面 | 云端 MCP/portal/小程序**零改动**（产物契约不变）；小派 S3 侧需「无换纸机型」模式：页尾归位保留、M30 段与换纸等待跳过；**多页文章页间行为待用户拍板**（手动换纸确认 / 单页限定 / 同纸续画三案已摆） |
+| 刷机阻塞 | 目标机（COM13，ESP32-S 模组+CH340G，用户给原理图 0820SchDoc.SchDoc 佐证）：**RTS→EN 复位通路实测正常，DTR→IO0 通路不工作**（双极性时序均 boot:0x13 SPI 启动，esptool 标准/慢节奏均败）；用户称同款好板可自动下载 → 判定**本机 DTR→IO0 单元级故障**（Q3 SS8050 虚焊/走线断），原理图全板仅 1 颗三极管须复核设计稿与实际贴装差异；待用户万用表量 IO0 焊盘随 DTR 翻转是否跳变，或镊子短接 IO0(25 号焊盘)→GND 上电进下载模式后由我 no_reset 直刷 |
+| 证据 | 刷机前探针 `tmp/massprod-preflash-probe-com13.txt`（原固件 Grbl 1.1 banner、$130-135=200/200/200/300/300/300、Pn:XY）；烧录脚本 `tmp/flash_massprod.py`（慢节奏复位版，备用）；外仓 worktree `D:/Users/Grbl_Esp32-massprod` |
+
 ### 双机量产安全加固批（2026-09-10，用户原话「把 vps 处理一下，为量产做准备，后续大规模并发，要能扛住冲击和攻击，参考 GitHub 开源项目做法」）
 
 | 项 | 说明 |
