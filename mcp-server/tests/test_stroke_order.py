@@ -146,7 +146,7 @@ def test_hutuji_teach_end_to_end(tmp_path, monkeypatch):
     server._stroke_data_cache.clear()
 
     payload = json.loads(asyncio.run(server.hutuji_teach("中义")))
-    assert payload["total_pages"] == 2
+    assert payload["total_pages"] == 1  # 多字 2026-09-11 起集中单页字帖（用户拍板）
     assert payload["missing_chars"] == []
     # pages_arg 第 0 页必须与 url/preview_url 一致（设备幂等契约）
     assert json.loads(payload["pages_arg"])[0]["url"] == payload["url"]
@@ -158,6 +158,33 @@ def test_hutuji_teach_end_to_end(tmp_path, monkeypatch):
         # 竖版转置后 G-code X = SVG y（≤277），Y = SVG x（≤190）
         xs = [float(m.group(1)) for m in re.finditer(r"X(-?[\d.]+)", (out_dir / name).read_text())]
         assert max(xs) <= 277.0
+
+
+def test_layout_multichar_copybook_single_page(tmp_path):
+    """多字字帖（2026-09-11 用户拍板「集中到单张纸」）：中义 → 1 页 2 格 + 逐笔序号。"""
+    data = StrokeData.load(str(_write_fixture(tmp_path)))
+    res = stroke_order.layout_teach("中义", data)
+    assert not res.truncated and res.missing_chars == []
+    assert len(res.pages) == 1
+    page = res.pages[0]
+    xs = [x for s in page.strokes for x, _ in s.points]
+    ys = [y for s in page.strokes for _, y in s.points]
+    assert min(xs) >= 0 and min(ys) >= 0
+    assert max(xs) <= 190.0 and max(ys) <= 277.0
+    # 每字一个成形田字格（外框闭合 5 点），无渐显面板、无大字头
+    frames = [s for s in page.strokes if len(s.points) == 5 and s.points[0] == s.points[-1]]
+    assert len(frames) == 2
+    # 逐笔序号：中 4 笔 + 义 1 笔 = 5 个「一」字形小对角线（贴笔画起点）
+    diagonals = [
+        s for s in page.strokes
+        if len(s.points) == 2
+        and 2.5 < abs(s.points[1][0] - s.points[0][0]) < 8.0
+        and 2.5 < abs(s.points[1][1] - s.points[0][1]) < 8.0
+    ]
+    assert len(diagonals) == 5
+    # 20 字（服务端上限）→ 地板格分页仍如实上报（18 字/页 + 2 字/页）
+    res20 = stroke_order.layout_teach("中义" * 10, data)
+    assert len(res20.pages) == 2 and not res20.truncated
 
 
 def test_hutuji_teach_rejects_overlong_and_unconfigured(tmp_path, monkeypatch):
