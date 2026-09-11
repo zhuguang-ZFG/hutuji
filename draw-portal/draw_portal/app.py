@@ -31,6 +31,7 @@ from draw_portal.auth import (
 )
 from draw_portal.config import load_config
 from draw_portal import chat as chat_mod
+from draw_portal import xiaopai as xiaopai_mod
 from draw_portal import tg_notify
 from draw_portal import telegram_archive
 from draw_portal.crypto import decrypt_token, encrypt_token
@@ -124,6 +125,18 @@ class ChatBody(BaseModel):
 class LoginBody(BaseModel):
     email: str
     password: str
+
+class XiaopaiSettingBody(BaseModel):
+    """小派音色/模型切换：两字段均可选，至少一项（2026-09-12 §10.4.19）。"""
+
+    tts_voice: str | None = Field(default=None, max_length=64)
+    llm_model: str | None = Field(default=None, max_length=64)
+
+
+class XiaopaiBindBody(BaseModel):
+    """设备验证码绑定：设备屏幕「设置→验证码」6 位数字。"""
+
+    code: str = Field(min_length=6, max_length=6)
 
 
 class BindAnnounceBody(BaseModel):
@@ -2470,6 +2483,134 @@ def create_app() -> FastAPI:
             "draw_intent": result.get("draw_intent"),
             "remaining": config.chat_daily_limit - used - 1,
         }
+
+    # ---- 小派设置：音色/模型切换（2026-09-12 §10.4.19）----
+    # portal 只持共享密钥转发本机 MCP /internal/xiaozhi/*；控制台 JWT 只在 MCP
+    # 侧。用户切换只写自己的克隆 agent（首次个性化时 MCP 从基础 agent 整包
+    # 克隆人格/KB/MCP/记忆档），设备经验证码绑定后生效；未个性化设备走共享
+    # agent 互不影响（用户拍板「不能改所有人的」）。成功才计 usage 限频。
+
+    @app.get("/api/settings/xiaopai", dependencies=phone_secured)
+    async def xiaopai_settings(user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        try:
+            options = await asyncio.to_thread(
+                xiaopai_mod.request_options,
+                base_url=config.mcp_internal_base_url,
+                secret=config.usage_ingest_secret,
+            )
+        except xiaopai_mod.XiaopaiError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+        row = store.xiaopai_settings_get(user_id) or {}
+        return {
+            "voices": options["voices"],
+            "models": options["models"],
+            "tts_voice": row.get("tts_voice", ""),
+            "llm_model": row.get("llm_model", ""),
+            "device_bound": bool(row.get("device_bound", 0)),
+            "agent_ready": bool(row),
+        }
+
+    @app.post("/api/settings/xiaopai", dependencies=phone_secured)
+    async def xiaopai_setting_apply(
+        body: XiaopaiSettingBody, user_id: str = Depends(user_dep)
+    ) -> dict[str, Any]:
+        updates = {
+            k: v.strip()
+            for k, v in (("tts_voice", body.tts_voice), ("llm_model", body.llm_model))
+            if isinstance(v, str) and v.strip()
+        }
+        if not updates:
+            raise HTTPException(status_code=400, detail="tts_voice / llm_model 至少一项")
+        since = time.time() - 86400
+        used = sum(
+            row["count"]
+            for row in store.usage_counts_for_user_since(user_id, since)
+            if row["event_type"] == "xiaopai_setting"
+        )
+        if used >= 20:
+            raise HTTPException(status_code=429, detail="今日设置次数已达上限，明天再来")
+        row = store.xiaopai_settings_get(user_id)
+        if not row:
+            try:
+                clone = await asyncio.to_thread(
+                    xiaopai_mod.request_clone,
+                    base_url=config.mcp_internal_base_url,
+                    secret=config.usage_ingest_secret,
+                )
+            except xiaopai_mod.XiaopaiError as exc:
+                raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+            row = store.xiaopai_settings_insert(
+                user_id, clone["agent_id"], when=time.time()
+            )
+        try:
+            result = await asyncio.to_thread(
+                xiaopai_mod.request_config,
+                base_url=config.mcp_internal_base_url,
+                secret=config.usage_ingest_secret,
+                agent_id=row["agent_id"],
+                updates=updates,
+            )
+        except xiaopai_mod.XiaopaiError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+        row = store.xiaopai_settings_update(user_id, when=time.time(), **updates)
+        _record_portal_usage(
+            store,
+            event_type="xiaopai_setting",
+            user_id=user_id,
+            detail=",".join(sorted(updates)),
+            ok=True,
+        )
+        return {
+            "ok": True,
+            "tts_voice": result.get("tts_voice"),
+            "llm_model": result.get("llm_model"),
+            "device_bound": bool(row.get("device_bound", 0)),
+        }
+
+    @app.post("/api/settings/xiaopai/bind", dependencies=phone_secured)
+    async def xiaopai_setting_bind(
+        body: XiaopaiBindBody, user_id: str = Depends(user_dep)
+    ) -> dict[str, Any]:
+        since = time.time() - 86400
+        used = sum(
+            row["count"]
+            for row in store.usage_counts_for_user_since(user_id, since)
+            if row["event_type"] == "xiaopai_bind"
+        )
+        if used >= 10:
+            raise HTTPException(status_code=429, detail="今日绑定尝试已达上限，明天再来")
+        row = store.xiaopai_settings_get(user_id)
+        if not row:
+            try:
+                clone = await asyncio.to_thread(
+                    xiaopai_mod.request_clone,
+                    base_url=config.mcp_internal_base_url,
+                    secret=config.usage_ingest_secret,
+                )
+            except xiaopai_mod.XiaopaiError as exc:
+                raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+            row = store.xiaopai_settings_insert(
+                user_id, clone["agent_id"], when=time.time()
+            )
+        try:
+            await asyncio.to_thread(
+                xiaopai_mod.request_bind,
+                base_url=config.mcp_internal_base_url,
+                secret=config.usage_ingest_secret,
+                agent_id=row["agent_id"],
+                code=body.code,
+            )
+        except xiaopai_mod.XiaopaiError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+        store.xiaopai_settings_update(user_id, device_bound=1, when=time.time())
+        _record_portal_usage(
+            store,
+            event_type="xiaopai_bind",
+            user_id=user_id,
+            detail="bound",
+            ok=True,
+        )
+        return {"ok": True, "device_bound": True}
 
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

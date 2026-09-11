@@ -1686,6 +1686,165 @@ async def _internal_chat(request: Request) -> Response:
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
     )
 
+# ---- /internal/xiaozhi：小程序「小派」音色/模型切换的本机内部入口（2026-09-12）----
+# 与 /internal/draw、/internal/chat 同一道闸（loopback + 共享密钥，未配密钥 fail-closed
+# 404）。控制台凭据（HUTUJI_XIAOZHI_TOKEN）只在本服务，portal 只持共享密钥转发。
+# 归属语义（2026-09-12 用户拍板「用户不能改所有人的」）：音色/模型是 agent 级
+# 配置，用户切换只写 portal 代管的克隆 agent（/agent/clone 从基础 agent 整包
+# 复制人格/KB/MCP/记忆档），设备经 6 位验证码绑到克隆 agent；本组路由一律
+# 拒绝基础 agent（settings.xiaozhi_agent_id），共享 agent 只能由卖家在控制台改。
+# 生效时机=下一次对话（官方 FAQ Q21）。端点形状见 protocol.md §10.4.19。
+_INTERNAL_XIAOZHI_MAX_BODY_BYTES = 2 * 1024
+
+
+def _xiaozhi_console_ready() -> bool:
+    return bool(
+        getattr(settings, "xiaozhi_console_token", "").strip()
+        and getattr(settings, "xiaozhi_agent_id", "").strip()
+    )
+
+
+def _xiaozhi_response(payload: dict) -> Response:
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False),
+        status_code=200,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/internal/xiaozhi/options")
+async def _internal_xiaozhi_options(request: Request) -> Response:
+    """音色/模型清单（进程内 10 分钟缓存）；鉴权失败一律 404。"""
+    if not _internal_api_authorized(request) or not _xiaozhi_console_ready():
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    from . import xiaozhi_console
+
+    try:
+        payload = await asyncio.to_thread(
+            xiaozhi_console.fetch_options,
+            settings.xiaozhi_console_token,
+            settings.xiaozhi_api_base,
+        )
+    except xiaozhi_console.XiaozhiConsoleError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return _xiaozhi_response(payload)
+
+
+
+
+
+@app.post("/internal/xiaozhi/agent/clone")
+async def _internal_xiaozhi_clone(request: Request) -> Response:
+    """为用户克隆专属 agent（整包复制基础 agent 配置）；失败即 502 不留半套。"""
+    if not _internal_api_authorized(request) or not _xiaozhi_console_ready():
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    from . import xiaozhi_console
+
+    try:
+        result = await asyncio.to_thread(
+            xiaozhi_console.clone_agent,
+            settings.xiaozhi_console_token,
+            settings.xiaozhi_api_base,
+            settings.xiaozhi_agent_id,
+            f"小派-克隆-{int(time.time())}",
+        )
+    except xiaozhi_console.XiaozhiConsoleError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return _xiaozhi_response(result)
+
+
+@app.post("/internal/xiaozhi/config")
+async def _internal_xiaozhi_config(request: Request) -> Response:
+    """切换克隆 agent 的音色/模型：字段须在清单内（fail-closed），未知一律 400。"""
+    if not _internal_api_authorized(request) or not _xiaozhi_console_ready():
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    from . import xiaozhi_console
+
+    body_bytes = await request.body()
+    if len(body_bytes) > _INTERNAL_XIAOZHI_MAX_BODY_BYTES:
+        raise HTTPException(status_code=400, detail="请求体过大")
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    agent_id = payload.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id.strip() or len(agent_id) > 24:
+        raise HTTPException(status_code=400, detail="agent_id 必填")
+    if agent_id == settings.xiaozhi_agent_id:
+        raise HTTPException(status_code=400, detail="共享 agent 不可经此路由修改")
+    updates = {
+        k: payload.get(k)
+        for k in ("tts_voice", "llm_model")
+        if isinstance(payload.get(k), str) and payload.get(k).strip()
+    }
+    if not updates:
+        raise HTTPException(status_code=400, detail="tts_voice / llm_model 至少一项")
+    for k, v in updates.items():
+        if len(v) > 64:
+            raise HTTPException(status_code=400, detail=f"{k} 过长")
+    try:
+        options = await asyncio.to_thread(
+            xiaozhi_console.fetch_options,
+            settings.xiaozhi_console_token,
+            settings.xiaozhi_api_base,
+        )
+        voice_ids = {v["voice_id"] for v in options["voices"] if isinstance(v, dict)}
+        model_names = {m["name"] for m in options["models"] if isinstance(m, dict)}
+        if "tts_voice" in updates and updates["tts_voice"] not in voice_ids:
+            raise HTTPException(status_code=400, detail="未知音色")
+        if "llm_model" in updates and updates["llm_model"] not in model_names:
+            raise HTTPException(status_code=400, detail="未知模型")
+        applied = await asyncio.to_thread(
+            xiaozhi_console.update_agent_config,
+            settings.xiaozhi_console_token,
+            settings.xiaozhi_api_base,
+            agent_id,
+            updates,
+        )
+    except xiaozhi_console.XiaozhiConsoleError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return _xiaozhi_response({"ok": True, "agent_id": agent_id, **applied})
+
+
+@app.post("/internal/xiaozhi/agent/bind")
+async def _internal_xiaozhi_bind(request: Request) -> Response:
+    """6 位验证码绑设备到克隆 agent；无效码 400（服务端无副作用）。"""
+    if not _internal_api_authorized(request) or not _xiaozhi_console_ready():
+        return Response(content=b"not found", status_code=404, media_type="text/plain")
+    from . import xiaozhi_console
+
+    body_bytes = await request.body()
+    if len(body_bytes) > _INTERNAL_XIAOZHI_MAX_BODY_BYTES:
+        raise HTTPException(status_code=400, detail="请求体过大")
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    agent_id = payload.get("agent_id")
+    code = payload.get("verification_code")
+    if not isinstance(agent_id, str) or not agent_id.strip() or len(agent_id) > 24:
+        raise HTTPException(status_code=400, detail="agent_id 必填")
+    if agent_id == settings.xiaozhi_agent_id:
+        raise HTTPException(status_code=400, detail="共享 agent 不可经此路由绑定")
+    if not isinstance(code, str) or not code.isdigit() or len(code) != 6:
+        raise HTTPException(status_code=400, detail="验证码须为 6 位数字")
+    try:
+        result = await asyncio.to_thread(
+            xiaozhi_console.bind_device_by_code,
+            settings.xiaozhi_console_token,
+            settings.xiaozhi_api_base,
+            agent_id,
+            code,
+        )
+    except xiaozhi_console.XiaozhiConsoleError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return _xiaozhi_response({"ok": True, **result})
+
 # 静态文件源：自定义路由（非裸 StaticFiles），以带 protocol §5.1 完整性头
 # Content-Length + X-Hutuji-CRC32。S3 侧下完先比长度再比 CRC32 才开画（见 mcp-server README 组 0.2）。
 # HEAD 必须显式注册（SRV-P3b）：FastAPI @app.get 不自动带 HEAD，而 nginx 反代

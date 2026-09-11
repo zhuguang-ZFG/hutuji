@@ -1,0 +1,68 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="loading">加载中…</view>
+
+  <block wx:else>
+    <view wx:if="{{error}}" class="error-bar">{{error}}</view>
+
+    <view class="section">
+      <view class="section-title">音色</view>
+      <view class="section-desc">选择后点击底部保存，对已绑定设备在下次对话生效</view>
+      <picker mode="selector" range="{{groupNames}}" value="{{groupIndex}}" bindchange="onGroupChange">
+        <view class="group-picker">语言：{{groupNames[groupIndex]}} ▾</view>
+      </picker>
+      <view class="voice-grid" wx:if="{{voiceGroups.length}}">
+        <view
+          wx:for="{{voiceGroups[groupIndex].items}}"
+          wx:key="voice_id"
+          class="chip {{selectedVoice === item.voice_id ? 'chip-on' : ''}}"
+          data-vid="{{item.voice_id}}"
+          data-vname="{{item.voice_name}}"
+          bindtap="onPickVoice"
+        >{{item.voice_name}}</view>
+      </view>
+      <view wx:if="{{selectedVoice}}" class="picked">当前音色：{{selectedVoiceName}}</view>
+    </view>
+
+    <view class="section">
+      <view class="section-title">大模型</view>
+      <view class="section-desc">影响回复风格与思考深度</view>
+      <view class="model-list">
+        <view
+          wx:for="{{models}}"
+          wx:key="name"
+          class="model-item {{selectedModel === item.name ? 'model-on' : ''}}"
+          data-name="{{item.name}}"
+          bindtap="onPickModel"
+        >
+          <view class="model-name">{{item.label}}</view>
+          <view class="model-desc">{{item.description}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="section">
+      <view class="section-title">绑定设备</view>
+      <view wx:if="{{deviceBound}}" class="bound-ok">✔ 设备已绑定本账号设置</view>
+      <view wx:else class="bind-help" bindtap="unbindHint">
+        在设备屏幕「设置→设备验证码」读取 6 位数字（点此查看说明）
+      </view>
+      <view class="bind-row" wx:if="{{!deviceBound}}">
+        <input
+          class="code-input"
+          type="number"
+          maxlength="6"
+          value="{{bindCode}}"
+          placeholder="6 位验证码"
+          bindinput="onCodeInput"
+        />
+        <button class="bind-btn" size="mini" disabled="{{binding || bindCode.length !== 6}}" bindtap="bindDevice">
+          {{binding ? "绑定中…" : "绑定"}}
+        </button>
+      </view>
+    </view>
+
+    <button class="save-btn {{dirty ? 'save-on' : ''}}" disabled="{{!dirty || saving}}" bindtap="save">
+      {{saving ? "保存中…" : "保存设置"}}
+    </button>
+  </block>
+</view>

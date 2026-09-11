@@ -233,6 +233,16 @@ CREATE TABLE IF NOT EXISTS engagement_events (
     created_at REAL NOT NULL,
     PRIMARY KEY (user_id, kind, key)
 );
+CREATE TABLE IF NOT EXISTS xiaopai_settings (
+    user_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    tts_voice TEXT NOT NULL DEFAULT '',
+    llm_model TEXT NOT NULL DEFAULT '',
+    device_bound INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
 
 """
 
@@ -716,6 +726,63 @@ class Store:
             )
             conn.commit()
         return cur.rowcount == 1
+
+    # ---- 小派设置（音色/模型，2026-09-12 §10.4.19）----
+
+    def xiaopai_settings_get(self, user_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM xiaopai_settings WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def xiaopai_settings_insert(
+        self, user_id: str, agent_id: str, *, when: float
+    ) -> dict[str, Any]:
+        """首次个性化登记（克隆 agent 落库）；返回插入后的整行。"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO xiaopai_settings"
+                " (user_id, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (user_id, agent_id, when, when),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM xiaopai_settings WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def xiaopai_settings_update(
+        self,
+        user_id: str,
+        *,
+        tts_voice: str | None = None,
+        llm_model: str | None = None,
+        device_bound: int | None = None,
+        when: float,
+    ) -> dict[str, Any]:
+        sets = ["updated_at = ?"]
+        params: list[Any] = [when]
+        if tts_voice is not None:
+            sets.append("tts_voice = ?")
+            params.append(tts_voice)
+        if llm_model is not None:
+            sets.append("llm_model = ?")
+            params.append(llm_model)
+        if device_bound is not None:
+            sets.append("device_bound = ?")
+            params.append(device_bound)
+        params.append(user_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE xiaopai_settings SET {', '.join(sets)} WHERE user_id = ?",
+                params,
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM xiaopai_settings WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else {}
 
     def platform_stats(self) -> dict[str, Any]:
         with self._connect() as conn:

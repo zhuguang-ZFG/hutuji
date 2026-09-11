@@ -60,6 +60,7 @@
   </scroll-view>
 
   <view class="input-row">
+    <navigator url="/pages/xiaopai/xiaopai" class="gear" hover-class="btn-press">⚙</navigator>
     <input
       class="text-input"
       value="{{textInput}}"

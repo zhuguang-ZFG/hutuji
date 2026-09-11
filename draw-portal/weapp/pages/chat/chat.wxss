@@ -190,6 +190,19 @@
   background: #0b0c13;
 }
 
+/* 设置入口（音色/模型 → 小派设置页） */
+.gear {
+  flex-shrink: 0;
+  width: 64rpx;
+  height: 64rpx;
+  line-height: 64rpx;
+  text-align: center;
+  font-size: 34rpx;
+  color: #9aa3b5;
+  background: #1a1b28;
+  border-radius: 999rpx;
+}
+
 .text-input {
   flex: 1;
   background: #1a1b28;
