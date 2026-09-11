@@ -6,9 +6,10 @@
 #
 # 出路二选一（tg.env 决定，运行期探测）：
 #   直连（阿里云主节点可直达 api.telegram.org）：TG_RELAY_HOST 不配即直连；
-#   HTTP 中继（京东云被 DNS 污染+封 SNI 且 SSH over tailnet 握手挂起，
-#   2026-09-12 实测）：配 TG_RELAY_HOST=100.103.82.78（lima tailnet IP），
-#   可选 TG_RELAY_PORT=8092——对端只跑 tailnet 内 hutuji-tg-relay 服务。
+#   SSH 中继（京东云直连被 DNS 污染+封 SNI，2026-09-12 实测 curl 000）：
+#   配 TG_RELAY_HOST=47.112.162.80（lima 公网 SSH）与 TG_RELAY_KEY=专用 key，
+#   对端 authorized_keys 以 command= 锁死只许跑 tg-relay-recv.sh（stdin 带正文）。
+#   tailnet HTTP 8092 与 tailnet SSH 均被 ACL/HIDS 挡死（同日实测），走公网。
 #
 # 用法: tg-notify.sh <TAG> <TEXT...>      普通调用（TAG 如 unit-failed/token-watch）
 #       tg-notify.sh --stdin             中继接收端：正文读 stdin（≤4KB）
@@ -26,11 +27,11 @@ ENVF=/etc/hutuji/tg.env
 set -a; . "$ENVF"; set +a
 [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]] || exit 0
 FULLTEXT="[$(hostname -s)] ${TAG}: ${TEXT}"
-
-if [[ -n "${TG_RELAY_HOST:-}" ]]; then
-  # 中继路径：正文走 HTTP body 到 tailnet 内 hutuji-tg-relay（wireguard 加密）。
-  printf '%s' "$FULLTEXT" | curl -fsS --max-time 10 -s -o /dev/null \
-    --data-binary @- "http://${TG_RELAY_HOST}:${TG_RELAY_PORT:-8092}/" || true
+if [[ -n "${TG_RELAY_HOST:-}" && -n "${TG_RELAY_KEY:-}" ]]; then
+  # 中继路径：正文走 stdin，避免长文本撞 argv 限额/引号问题。
+  printf '%s' "$FULLTEXT" | ssh -i "$TG_RELAY_KEY" \
+    -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
+    "$TG_RELAY_HOST" >/dev/null 2>&1 || true
   exit 0
 fi
 
