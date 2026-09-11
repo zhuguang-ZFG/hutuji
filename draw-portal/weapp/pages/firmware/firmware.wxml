@@ -24,7 +24,7 @@
     </view>
   </view>
 
-  <view class="weui-cells__title">写字机</view>
+  <view class="weui-cells__title">丹青</view>
   <view class="weui-cells">
     <view class="weui-cell">
       <view class="weui-cell__bd">固件版本</view>
@@ -32,7 +32,7 @@
     </view>
   </view>
   <view class="weui-btn-area tight">
-    <button class="weui-btn weui-btn_default" disabled>写字机升级 · 后续支持</button>
+    <button class="weui-btn weui-btn_default" disabled>丹青升级 · 后续支持</button>
   </view>
 
   <view class="progress-wrap" wx:if="{{upgrading || progress > 0}}">

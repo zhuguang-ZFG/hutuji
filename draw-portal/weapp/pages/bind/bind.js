@@ -58,7 +58,7 @@ Page({
           // 设备绑在别的账号（如网页版邮箱账号）：在场持有屏显码即可强制换绑
           wx.showModal({
             title: "换绑到当前账号？",
-            content: "这台写字机之前绑过别的账号，换绑后那边就不能控制它了",
+            content: "这台丹青之前绑过别的账号，换绑后那边就不能控制它了",
             confirmText: "换绑",
             cancelText: "不换",
             success: (r) => {
@@ -82,8 +82,8 @@ Page({
           }
           this.setData({ submitting: false, step: "input", waitSeconds: 0 });
           wx.showModal({
-            title: "没连上写字机",
-            content: "请确认写字机已联网，再扫一次屏幕上的二维码",
+            title: "没连上丹青",
+            content: "请确认丹青已联网，再扫一次屏幕上的二维码",
             showCancel: false,
             confirmText: "知道了",
           });
@@ -106,7 +106,7 @@ Page({
         if (!m) {
           wx.showModal({
             title: "不是绑定二维码",
-            content: "请扫写字机屏幕上「绑定」状态的二维码",
+            content: "请扫丹青屏幕上「绑定」状态的二维码",
             showCancel: false,
           });
           return;

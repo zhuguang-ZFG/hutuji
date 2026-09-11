@@ -221,7 +221,7 @@
             bindtap="onSend"
             loading="{{sending}}"
             disabled="{{sending || saving}}"
-          >发送到写字机</button>
+          >发送到丹青</button>
         </view>
       </block>
     </view>
@@ -254,7 +254,7 @@
 
   <view class="bind-banner" wx:if="{{!binding}}" bindtap="onGoBind" hover-class="tile-press">
     <view class="bind-copy">
-      <text class="bind-title">还没绑定写字机</text>
+      <text class="bind-title">还没绑定丹青</text>
       <text class="bind-sub">扫码或输码，约 10 秒</text>
     </view>
     <text class="bind-go">去绑定 ›</text>

@@ -196,11 +196,14 @@ def process_write_text(
     stroke_dir: str = "",
     font_name: str | None = None,
     profile=None,
+    fit_single_page: bool = False,
 ) -> DocPipelineResult:
     """纯文本 → 文章排版 → 多页产物（kind=write，供 /api/draw/write 调用）。
     font_name 为空走默认偏好（blood8 真迹），具名不存在由 load_font 抛
     WriteTextError → app 层 400。显式选字体时中文字形也由该字库决定；
-    仅未选字体时沿用标准笔顺覆盖。
+    仅未选字体时沿用标准笔顺覆盖。fit_single_page：未显式传字号时启用
+    （2026-09-11 用户拍板「AI 写字最好也单张纸」）——超页逐轮缩字号凑单页，
+    4mm 地板仍超则回落原字号多页。
     """
     from hutuji_mcp import write_text
     from hutuji_mcp.article_pages import ARTICLE_MAX_PAGES
@@ -218,7 +221,10 @@ def process_write_text(
             stroke_data = stroke_order.StrokeData.load(stroke_dir)
         except stroke_order.StrokeOrderError:
             stroke_data = None
-    laid = write_text.layout_text(
+    layout_fn = (
+        write_text.layout_text_fit_single if fit_single_page else write_text.layout_text
+    )
+    laid = layout_fn(
         text,
         font,
         metrics,

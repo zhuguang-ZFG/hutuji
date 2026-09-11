@@ -390,14 +390,14 @@ Page({
           wx.showModal({
             title: started ? "已开始画" : "已发送",
             content: started
-              ? "写字机正在出图，无需再在小派上点确认"
-              : res.detail || "已推送到写字机",
+              ? "丹青正在出图，无需再在小派上点确认"
+              : res.detail || "已推送到丹青",
             showCancel: false,
           });
         } else {
           wx.showModal({
             title: "发送失败",
-            content: res.detail || "设备未响应，请确认写字机在线",
+            content: res.detail || "设备未响应，请确认丹青在线",
             showCancel: false,
           });
         }
@@ -466,7 +466,7 @@ Page({
     const job = this.data.job;
     if (job && job.previewUrl && this._shareToken) {
       return {
-        title: "看看我刚让写字机画的作品",
+        title: "看看我刚让丹青画的作品",
         path: `/pages/share/share?share=${this._shareToken}`,
         imageUrl: api.mediaUrl(`/api/draw/share/${this._shareToken}/preview.png`),
       };

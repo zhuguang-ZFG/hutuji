@@ -177,6 +177,7 @@ def run_voice_write(
             gfont_dir=gfont_dir,
             layout=layout,
             stroke_dir=stroke_dir or "",
+            fit_single_page=True,
         )
         published_pages = publish_doc_pages(
             job_dir=job_dir,
@@ -211,7 +212,7 @@ def run_voice_write(
     )
     page_note = f"共 {result.page_count} 页。" if result.page_count > 1 else ""
     return (
-        f"已排版{page_note}并推到写字机预览，请在小程序点「开始画」确认；取消则点「取消」。",
+        f"已排版{page_note}并推到丹青预览，请在小程序点「开始画」确认；取消则点「取消」。",
         preview,
     )
 

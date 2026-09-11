@@ -46,7 +46,7 @@ def _setup_user_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, app_pkg=Non
     from draw_portal.pipeline import DocPipelineResult
     from draw_portal.push import PublishResult
 
-    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None):
+    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None, fit_single_page=False):
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "draw.gcode").write_text("G21\n", encoding="ascii")
         (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)

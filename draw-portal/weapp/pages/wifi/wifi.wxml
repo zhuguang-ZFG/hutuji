@@ -2,8 +2,8 @@
   <block wx:if="{{step === 'scan'}}">
     <view class="hero">
       <view class="hero-brand">动力巢科技 · 小派</view>
-      <view class="hero-title">给写字机连<span class="accent">家里 WiFi</span></view>
-      <view class="hero-sub">对写字机说「配网」，屏幕出现二维码后扫它</view>
+      <view class="hero-title">给丹青连<span class="accent">家里 WiFi</span></view>
+      <view class="hero-sub">对丹青说「配网」，屏幕出现二维码后扫它</view>
     </view>
     <view class="weui-btn-area">
       <button class="weui-btn weui-btn_primary" bindtap="onScanAp">扫屏幕配网码</button>
@@ -20,7 +20,7 @@
 
   <block wx:if="{{step === 'manual'}}">
     <view class="weui-cells__title">输入设备热点名</view>
-    <view class="weui-cells__tips">写字机屏幕「配网模式」上显示的热点名</view>
+    <view class="weui-cells__tips">丹青屏幕「配网模式」上显示的热点名</view>
     <view class="weui-cells">
       <view class="weui-cell">
         <view class="weui-cell__bd">
@@ -36,7 +36,7 @@
 
   <block wx:if="{{step === 'aps'}}">
     <view class="weui-cells__title">点选家里 WiFi</view>
-    <view class="weui-cells__tips">以下是写字机搜到的附近 WiFi</view>
+    <view class="weui-cells__tips">以下是丹青搜到的附近 WiFi</view>
     <view class="weui-cells">
       <view
         class="weui-cell link-cell"
@@ -92,7 +92,7 @@
         {{bindState === 'bound' ? '配网 + 绑定都完成了' : '配网已下发'}}
       </view>
       <view class="hero-sub">
-        {{bindState === 'bound' ? '已自动绑定到你的账号，现在可以直接对写字机说话了' : (bindState === 'claiming' || bindState === 'waiting' ? '设备上线后会自动绑定到你的账号，请稍候…' : '设备连上家里 WiFi 后会自动上线，手机也会自动切回家里 WiFi')}}
+        {{bindState === 'bound' ? '已自动绑定到你的账号，现在可以直接对丹青说话了' : (bindState === 'claiming' || bindState === 'waiting' ? '设备上线后会自动绑定到你的账号，请稍候…' : '设备连上家里 WiFi 后会自动上线，手机也会自动切回家里 WiFi')}}
       </view>
     </view>
     <view class="weui-cells" wx:if="{{log}}">

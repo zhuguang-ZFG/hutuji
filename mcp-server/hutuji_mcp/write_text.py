@@ -16,7 +16,6 @@
 
 排版规则（中文文章）：
 - 页区 = (190-左右边距) × (277-上下边距) mm（竖版 B 案：宽 190mm 阅读方向、高 277mm 行推进；
-  转置由 gcode_gen 在 G-code 层做机器 X:=SVG y、Y:=SVG x，墙上站直横读）
 - \n 分段，段首缩进 2 个全宽字；CJK 任意折行，拉丁按空格折行、长词硬断
 - 避头：行首禁「，。！？；：、）】》」…—·」等闭标点——并入上一行末，但以页宽（190mm）为上界，超限让位折行
 - 避尾：行尾禁「（【《「『“‘」等开标点——弹出随下一行行首
@@ -48,6 +47,7 @@ _CJK_RE = re.compile(r"[㐀-鿿豈-﫿＀-￯]")
 _PROBE_HEIGHT_CHAR = "永"
 _PROBE_WIDTH_CHAR = "国"
 
+from dataclasses import dataclass, field, replace
 
 class WriteTextError(Exception):
     """写字排版失败（字体缺失/参数越界/页面溢出前置校验）。"""
@@ -574,6 +574,49 @@ def layout_text(
         missing_chars=cache.missing,
         truncated=truncated,
     )
+
+
+_FIT_SINGLE_MIN_SIZE_MM = 4.0  # 单页适配地板：再小纸上已不可读
+_FIT_SINGLE_STEP_MM = 1.0  # 每轮缩 1mm，12→4 最多 9 轮探排，纯计算无外部调用
+
+
+def layout_text_fit_single(
+    text: str,
+    font: GfontFile,
+    metrics: FontMetrics,
+    layout: WriteLayout,
+    max_pages: int = 20,
+    headings: set[int] | None = None,
+    stroke_data: object | None = None,
+) -> LayoutResult:
+    """单页适配版排版（2026-09-11 用户拍板「AI 写字最好也单张纸」）。
+
+    先按调用方字号排；超 1 页则逐轮缩 1mm 重排（标题字号同比缩），到
+    4mm 地板仍超页则**回落原字号多页**——宁可多页也不静默缩成不可读、
+    也不丢内容（truncated 语义与 layout_text 完全一致）。仅默认字号
+    调用方启用；显式传字号的调用方直接用 layout_text 保持用户意图。
+    """
+    original = layout_text(
+        text, font, metrics, layout, max_pages, headings, stroke_data
+    )
+    if len(original.pages) <= 1 or layout.size_mm <= _FIT_SINGLE_MIN_SIZE_MM:
+        return original
+    size = layout.size_mm
+    while size - _FIT_SINGLE_STEP_MM >= _FIT_SINGLE_MIN_SIZE_MM:
+        size -= _FIT_SINGLE_STEP_MM
+        trial = replace(
+            layout,
+            size_mm=size,
+            heading_size_mm=layout.heading_size_mm * size / layout.size_mm,
+        )
+        result = layout_text(
+            text, font, metrics, trial, max_pages, headings, stroke_data
+        )
+        if len(result.pages) <= 1:
+            return result
+    return original
+
+
 
 
 def page_to_svg(page: LaidOutPage) -> str:

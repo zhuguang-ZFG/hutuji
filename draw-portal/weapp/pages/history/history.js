@@ -158,7 +158,7 @@ Page({
         if (res.tapIndex !== 0) return;
         wx.showModal({
           title: "删除这件作品",
-          content: "删除后不能再发送到写字机，确定？",
+          content: "删除后不能再发送到丹青，确定？",
           confirmText: "删除",
           confirmColor: "#FA5151",
           success: (r) => {
@@ -187,7 +187,7 @@ Page({
   onSend(e) {
     const savedId = e.currentTarget.dataset.id;
     wx.showModal({
-      title: "发送到写字机",
+      title: "发送到丹青",
       content: "将直接开始画，无需再在小派上确认",
       success: (res) => {
         if (!res.confirm) return;

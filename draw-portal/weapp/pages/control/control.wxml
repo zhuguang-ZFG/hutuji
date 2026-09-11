@@ -2,7 +2,7 @@
   <block wx:if="{{!bound}}">
     <view class="empty-panel">
       <view class="empty-glyph"></view>
-      <view class="empty-title">还没绑定写字机</view>
+      <view class="empty-title">还没绑定丹青</view>
       <view class="empty-sub">绑定后才能点动、抬落笔和控制任务</view>
       <button class="weui-btn weui-btn_primary empty-cta" hover-class="btn-press" bindtap="onGoBind">去绑定</button>
     </view>

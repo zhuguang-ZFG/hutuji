@@ -1586,6 +1586,7 @@ def create_app() -> FastAPI:
                 stroke_dir=config.stroke_dir or "",
                 font_name=font_name,
                 profile=profile,
+                fit_single_page=body.size_mm is None,
             )
             published_pages = await asyncio.to_thread(
                 publish_doc_pages,

@@ -1085,3 +1085,48 @@ def test_list_fonts_returns_stems_sorted(tmp_path):
     ]
     assert write_text.list_fonts(str(tmp_path / "missing")) == []
     assert write_text.list_fonts("") == []
+
+
+def test_fit_single_shrinks_multichar_to_one_page():
+    """单页适配：12mm 排出 2 页的文本缩号凑成 1 页（2026-09-11 用户拍板）。"""
+    font = _fixture_font()
+    metrics = _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=12.0)
+    text = "中" * 200
+    base = write_text.layout_text(text, font, metrics, layout)
+    assert len(base.pages) == 2
+    fit = write_text.layout_text_fit_single(text, font, metrics, layout)
+    assert len(fit.pages) == 1
+    assert fit.truncated is False
+    assert fit.missing_chars == base.missing_chars
+
+
+def test_fit_single_floor_falls_back_to_original_pages():
+    """4mm 地板仍超页：回落原字号多页——不静默截断、不出不可读小字。"""
+    font = _fixture_font()
+    metrics = _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=12.0)
+    text = "中" * 2000
+    base = write_text.layout_text(text, font, metrics, layout)
+    assert len(base.pages) == 12
+    fit = write_text.layout_text_fit_single(text, font, metrics, layout)
+    assert len(fit.pages) == 12
+    assert fit.truncated == base.truncated
+
+
+def test_fit_single_passthrough_single_page_and_floor_size():
+    """单页原文直通（不试排）；地板字号（≤4mm）原样返回不试缩。"""
+    font = _fixture_font()
+    metrics = _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=12.0)
+    base = write_text.layout_text("中" * 120, font, metrics, layout)
+    assert len(base.pages) == 1
+    fit = write_text.layout_text_fit_single("中" * 120, font, metrics, layout)
+    assert len(fit.pages) == 1
+    assert [p.strokes for p in fit.pages] == [p.strokes for p in base.pages]
+    floor_layout = write_text.WriteLayout(size_mm=4.0)
+    floor_base = write_text.layout_text("中" * 2000, font, metrics, floor_layout)
+    assert len(floor_base.pages) == 2
+    assert len(
+        write_text.layout_text_fit_single("中" * 2000, font, metrics, floor_layout).pages
+    ) == 2

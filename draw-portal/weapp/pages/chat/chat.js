@@ -64,7 +64,7 @@ Page({
     if (!this.data.messages.length) {
       this._pushMessage(
         "assistant",
-        "我是小派！按住下面按钮说话，或直接打字。我会画画、写字、教笔顺、唱歌、检查更新，也能查写字机状态、记住你告诉我的事~"
+        "我是小派！按住下面按钮说话，或直接打字。我会画画、写字、教笔顺、唱歌、检查更新，也能查丹青状态、记住你告诉我的事~"
       );
     }
   },
@@ -269,14 +269,14 @@ Page({
           wx.showModal({
             title: started ? "已开始画" : "已发送",
             content: started
-              ? "写字机正在出图，无需再点确认"
-              : res.detail || "已推送到写字机",
+              ? "丹青正在出图，无需再点确认"
+              : res.detail || "已推送到丹青",
             showCancel: false,
           });
         } else {
           wx.showModal({
             title: "发送失败",
-            content: res.detail || "设备未响应，请确认写字机在线",
+            content: res.detail || "设备未响应，请确认丹青在线",
             showCancel: false,
           });
         }

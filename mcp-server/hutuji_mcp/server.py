@@ -983,13 +983,15 @@ _stroke_data_cache: dict[str, object] = {}
 async def _run_write_job(
     text: str, font_name: str, size_mm: float, line_spacing: float,
     char_gap_mm: float, public_base_url: str, *, chain_push: bool = True,
-    machine: str = "",
+    machine: str = "", fit_single_page: bool = False,
 ) -> str:
     """写字排版事务：奎享单线字库 → 分页 SVG+PNG → 无版式 vpype → §5 校验 → 产物。
 
     不经 DrawLimiter（本地计算，无付费后端）；vpype 并发仍由 gcode_gen 信号量收口。
     多页时返回 pages 数组，并经 `_chain_device_draw` 把整份 pages 一次推给设备
     （设备侧逐页下载→灌流→M30 换纸→下一页；见 protocol §10.2）。
+    fit_single_page：未显式传字号时启用（hutuji_write size_mm=0 哨兵）——超页
+    逐轮缩字号凑单页（write_text.layout_text_fit_single，4mm 地板回落多页）。
     """
     from . import write_text
     from .llm_svg import _validate_svg
@@ -1023,8 +1025,11 @@ async def _run_write_job(
                 _stroke_data_cache[settings.stroke_dir] = stroke_data
             except stroke_order.StrokeOrderError:
                 stroke_data = None
+    layout_fn = (
+        write_text.layout_text_fit_single if fit_single_page else write_text.layout_text
+    )
     result = await asyncio.to_thread(
-        write_text.layout_text,
+        layout_fn,
         text,
         font,
         metrics,
@@ -1116,7 +1121,7 @@ async def _run_write_job(
 
 @mcp.tool()
 async def hutuji_write(
-    text: str, font: str = "", size_mm: float = 12.0,
+    text: str, font: str = "", size_mm: float = 0.0,
     line_spacing: float = 1.6, char_gap_mm: float = 0.8,
 ) -> str:
     """用奎享字库排版写整段文字（钢笔单线；CJK 有笔顺数据时按标准笔顺逐笔抬笔）。
@@ -1128,16 +1133,19 @@ async def hutuji_write(
     text 是要写的内容（\\n 分段，段首自动缩进两格，自动折行/分页/标点避头）。
     font 字库名（留空默认 blood8 真迹手写体，无该库时回目录内字数最多者）；
     line_spacing 行距倍数（默认 1.6）；char_gap_mm 字距（默认 0.8）。
-    返回分页产物 URL 数组（多页时 S3 逐页下发）；missing_chars 列缺字，
-    truncated=true 表示超长被截断——两者都要如实告知用户。写入前文本统一
-    繁→简规范化（云端文章常混入繁体，纸面简繁混杂难看），不必自己转换。
-    服务端在完成点会自动链式调用设备侧 hutuji.draw 推送预览（含全部页），
-    调用方不要重复推送；仅在自动推送未生效时才自调设备侧 hutuji.draw，且
-    多页必须把返回里的 pages_arg 字段一字不改地作为 pages 参数透传（设备按
-    完全相同参数判幂等，自己重组 JSON 会被 busy 拒绝）。用户明确确认后再调
-    hutuji.confirm。给用户的回复只说一句简短确认（如「写好了，预览已在屏
-    幕上」），不要复述页数/字数/字体——设备要等播报结束才开始下载预览，
-    播报越长预览出现越晚。"""
+    size_mm 留 0（默认）=自动单页适配（2026-09-11 用户拍板「AI 写字最好也
+    单张纸」）：先按 12mm 排，超一页则逐轮缩字号凑单页（4mm 可读地板，
+    地板仍超页回落 12mm 原字号多页——宁可多页也不出不可读小字）；显式传
+    正值则按该字号排版、不缩。返回分页产物 URL 数组（多页时 S3 逐页下发）；
+    missing_chars 列缺字，truncated=true 表示超长被截断——两者都要如实告知
+    用户。写入前文本统一繁→简规范化（云端文章常混入繁体，纸面简繁混杂难看），
+    不必自己转换。服务端在完成点会自动链式调用设备侧 hutuji.draw 推送预览
+    （含全部页），调用方不要重复推送；仅在自动推送未生效时才自调设备侧
+    hutuji.draw，且多页必须把返回里的 pages_arg 字段一字不改地作为 pages
+    参数透传（设备按完全相同参数判幂等，自己重组 JSON 会被 busy 拒绝）。
+    用户明确确认后再调 hutuji.confirm。给用户的回复只说一句简短确认（如
+    「写好了，预览已在屏幕上」），不要复述页数/字数/字体——设备要等播报
+    结束才开始下载预览，播报越长预览出现越晚。"""
     _report_mcp_tool("write")
     from .write_text import WriteTextError
 
@@ -1147,8 +1155,14 @@ async def hutuji_write(
     if len(safe_text) > _WRITE_TEXT_MAX_CHARS:
         raise WriteTextError(f"文本超长：{len(safe_text)} 字符（上限 {_WRITE_TEXT_MAX_CHARS}）")
     public_base_url = validate_public_base_url(settings.public_base_url)
+    fit_single = size_mm <= 0
+    if size_mm <= 0:
+        size_mm = 12.0
+    elif size_mm > 40.0:
+        raise WriteTextError("字号过大（上限 40mm）")
     return await _run_write_job(
         safe_text, font.strip(), size_mm, line_spacing, char_gap_mm, public_base_url,
+        fit_single_page=fit_single,
     )
 
 # 一次教学的汉字上限：教学页每字一页起，小孩注意力/纸张消耗都有限

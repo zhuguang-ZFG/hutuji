@@ -2,8 +2,8 @@
   <block wx:if="{{step === 'input'}}">
     <view class="hero">
       <view class="hero-brand">动力巢科技 · 小派</view>
-      <view class="hero-title">绑定<span class="accent">写字机</span></view>
-      <view class="hero-sub">对写字机说「绑定」，屏幕出现二维码后扫码或手输 6 位码</view>
+      <view class="hero-title">绑定<span class="accent">丹青</span></view>
+      <view class="hero-sub">对丹青说「绑定」，屏幕出现二维码后扫码或手输 6 位码</view>
     </view>
     <view class="weui-btn-area">
       <button class="weui-btn weui-btn_primary" bindtap="onScanBind">扫码一键绑定</button>
@@ -43,7 +43,7 @@
     <view class="hero">
       <view class="hero-brand">动力巢科技 · 小派</view>
       <view class="hero-title">正在连接…</view>
-      <view class="hero-sub">绑定码：{{code}} · 正在等写字机联网确认（已等 {{waitSeconds}} 秒）…</view>
+      <view class="hero-sub">绑定码：{{code}} · 正在等丹青联网确认（已等 {{waitSeconds}} 秒）…</view>
     </view>
     <view class="weui-btn-area">
       <button class="weui-btn weui-btn_default" bindtap="onReset">重新扫码</button>

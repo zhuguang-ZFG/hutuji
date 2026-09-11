@@ -145,7 +145,7 @@ def test_write_endpoint_triggers_notify(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     monkeypatch.setattr("draw_portal.app._notify_subscribe", fake_notify)
 
-    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None):
+    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None, fit_single_page=False):
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "draw.gcode").write_text("G21\n", encoding="ascii")
         (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")

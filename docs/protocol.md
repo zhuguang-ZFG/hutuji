@@ -787,8 +787,8 @@ Cookie: <session>
 | 面 | 约定 |
 |----|------|
 | 入口 | `POST /draw-upload/api/draw/write`（登录态 + **须绑定 phone**，同 §10.4.0） |
-| 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（默认 12）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6）、`font`（字库 id=文件名词，取自 `GET /api/fonts` 的 `id` 字段；空=默认 blood8 真迹手写体；>60 字符或含 `/` `\` `..` → 400「字体名不合法」；具名不存在 → WriteTextError → 400） |
-| 排版 | 字库 = 请求 `font` 或默认偏好（`load_font` 子串解析文件名词）+ `write_text.layout_text`；显式 `font` 的中文字形也取该 gfont，不被 `HUTUJI_STROKE_DIR` 的 medians 覆盖；未选字体时保留已配置标准笔顺的既有行为。`max_pages = ARTICLE_MAX_PAGES`（20）；超出截断并 `truncated: true` |
+| 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（**缺省=自动单页适配**，见下「单页适配」行；显式传值按该字号排版不缩）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6）、`font`（字库 id=文件名词，取自 `GET /api/fonts` 的 `id` 字段；空=默认 blood8 真迹手写体；>60 字符或含 `/` `\` `..` → 400「字体名不合法」；具名不存在 → WriteTextError → 400） |
+| 单页适配 | 2026-09-11 用户拍板「AI 写字最好也单张纸」：**未显式传字号的入口**（portal `size_mm` 缺省、小程序不传、语音 `voice.write`、MCP `hutuji_write` `size_mm=0` 哨兵）启用 `write_text.layout_text_fit_single`——先按 12mm 排，超 1 页逐轮缩 1mm（标题字号同比缩）凑单页，4mm 可读地板仍超页**回落原字号多页**（不静默截断、不出不可读小字）；显式传字号的调用方直接 `layout_text` 保持用户意图。与 §10.4.15 无换纸机「不做多页」同向：短文尽量单页，多页只剩长文 |
 | 字体列表 | `GET /api/fonts`（`phone_secured`）→ `{fonts:[{id, name}…]}`：id=.gfont 文件名词（稳定契约，POST `font` 回传 id）；name=动力巢科技系列显示名（`write_text._FONT_DISPLAY_NAMES` 表驱动，未登记回落 `动力巢科技·<词>`；2026-09-10 用户拍板品牌改名）；纯文件名扫描不解析字库内容；缺 `HUTUJI_GFONT_DIR` → **503** |
 | 默认选择 | 小程序选择器首项为「默认字体」，提交时省略 `font`，由服务端决定偏好及缺席回退；不得把按文件名排序的第一个字库当作默认。用户显式选择其余项才传对应 id，切回默认后再次省略 |
 | 产物 | 与文档链同构：`pages/page_NNN.{svg,gcode,png}` + `pages.json` + 首页兼容 `draw.*`/`preview.png`；job 元数据 `kind=write` |
@@ -796,7 +796,7 @@ Cookie: <session>
 | 复用 | `POST .../draw/{job_id}/send`（自动 confirm）、`POST .../save`、历史列表；与 §10.4.5 上传 job 零分叉 |
 | 错误 | 空文/超长/版式越界 → 400 + 中文 detail；缺 `HUTUJI_GFONT_DIR` → **503**「写字字库未配置」；不回显内部路径 |
 | 小程序 | 创作页「画图 \| 写字 \| 笔顺」三段（写字段行为同本表）；写字模式藏拍照/相册、保留「文档」；排版预览须显式点击；weapp 写字段 **v0.2.13** 起、字体选择器 **v0.3.1** 起（对象形态 id/name 与品牌名 **v0.3.2**）、笔顺见 §10.4.11 |
-| 明确不做 | ~~选字库~~（2026-09-10 supersede：用户拍板加字体选择器，本表 font/`/api/fonts` 行）、字距；独立 `/api/write/*`；改 MCP `hutuji_write` 签名；改 §5/竖版/转置/换纸 |
+| 明确不做 | ~~选字库~~（2026-09-10 supersede：用户拍板加字体选择器，本表 font/`/api/fonts` 行）、字距；独立 `/api/write/*`；~~改 MCP `hutuji_write` 签名~~（2026-09-11 supersede：用户拍板单页适配，`size_mm` 默认改 0 哨兵=自动适配；显式正值语义不变）；改 §5/竖版/转置/换纸 |
 
 **HIL**：纸面笔迹、多页发送、文档版式与收藏再发 **未验证**（见 `docs/release-readiness.md` 文首）。
 

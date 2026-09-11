@@ -71,7 +71,7 @@ Page({
         if (!ssid) {
           wx.showModal({
             title: "没认出这个码",
-            content: "扫到的是：" + (raw.slice(0, 40) || "（空）") + "。请扫写字机屏幕上「配网模式」的二维码，或改用手动输入热点名",
+            content: "扫到的是：" + (raw.slice(0, 40) || "（空）") + "。请扫丹青屏幕上「配网模式」的二维码，或改用手动输入热点名",
             showCancel: false,
           });
           return;
@@ -404,7 +404,7 @@ Page({
           // 与绑定页同口径：设备绑在别的账号时在场（扫到屏显码）即可确认换绑
           wx.showModal({
             title: "换绑到当前账号？",
-            content: "这台写字机之前绑过别的账号，换绑后那边就不能控制它了",
+            content: "这台丹青之前绑过别的账号，换绑后那边就不能控制它了",
             confirmText: "换绑",
             cancelText: "不换",
             success: (r) => {
@@ -437,7 +437,7 @@ Page({
 
   bindDone() {
     this.setData({ bindState: "bound" });
-    this.appendLog("绑定成功！现在可以直接对写字机说话了");
+    this.appendLog("绑定成功！现在可以直接对丹青说话了");
     wx.showToast({ title: "绑定成功", icon: "success" });
   },
 

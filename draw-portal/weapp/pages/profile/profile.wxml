@@ -15,7 +15,7 @@
 
   <block wx:if="{{!loggedOut && needPhone}}">
     <view class="weui-cells__title">使用前请授权手机号</view>
-    <view class="weui-cells__tips">绑机、传图、控制写字机都需要手机号。授权后即可继续。</view>
+    <view class="weui-cells__tips">绑机、传图、控制丹青都需要手机号。授权后即可继续。</view>
     <view class="weui-btn-area">
       <button
         class="weui-btn weui-btn_primary"
@@ -83,13 +83,13 @@
     </view>
 
     <view class="weui-cells__title">网络</view>
-    <view class="weui-cells__tips">新写字机或换了 WiFi 时，一键把设备连上家里网络</view>
+    <view class="weui-cells__tips">新丹青或换了 WiFi 时，一键把设备连上家里网络</view>
     <view class="weui-btn-area tight">
       <button class="weui-btn weui-btn_default" bindtap="onGoWifi">一键配网</button>
     </view>
 
     <view class="weui-cells__title">固件</view>
-    <view class="weui-cells__tips">检查并升级小派固件；写字机远程升级后续支持</view>
+    <view class="weui-cells__tips">检查并升级小派固件；丹青远程升级后续支持</view>
     <view class="weui-btn-area tight">
       <button class="weui-btn weui-btn_default" bindtap="onGoFirmware">固件升级</button>
     </view>
