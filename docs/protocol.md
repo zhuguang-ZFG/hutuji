@@ -877,6 +877,25 @@ Cookie: <session>
 | 读闸分档（2026-09-11 热修） | `/files` 读时复核 `output_store._read_verified_gcode_bytes` **按机型分档放行**：默认档先验，`GcodeError` 再以 `PROFILE_NOPAPER` 重验，任一通过即下发；两档都不成立仍 stale 删除。理由：读时无法知道产物出自哪台机器（文件名无机型成分），只跑单档会把另一机型的合法产物判 stale 联动删除 → 设备 404（2026-09-11 生产事故实锤：nopaper Y>190 合法产物被删、语音画图全灭）。写入侧仍按生成时选定的单档校验，不放松 |
 | 速度金标（2026-09-11 用户拍板提速） | 无换纸机指纹金标 `$110/$111` 5000→**12000** mm/min（与 MK38 换纸机金标同值；同机型同 100 steps/mm 实机现役证据）——G-code F8000（133mm/s）不再被压到 83mm/s。指纹白名单外 4 项同批调过：`$112=3000`（抬笔 50mm/s）、`$120=$121=1500`、`$122=300`（无需固件）。**注意**：Grbl `$RST=$` 恢复出厂回落机头默认 5000 → 指纹失配拒画，刷机/恢复出厂后必须重写 `$110/$111=12000` 并重连；金标与实机 NVS 必须同窗同步，否则任一侧漂移=「参数被改动」拒画 |
 
+#### 10.4.16 小程序订阅消息通知与分享卡片（2026-09-11 批；本仓 `2d81300`）
+
+**订阅消息（`draw_portal/subscribe_notify.py`）**
+
+| 面 | 约定 |
+|----|------|
+| 键位 | 默认模板字段键 `thing1`（描述）/`phrase2`（状态）/`time3`（时间）——MP 后台申请「描述/状态/时间」三字段模板后按号填 `DRAW_PORTAL_WX_SUBSCRIBE_FIELDS`（JSON，坏值回落默认） |
+| 开关 | `DRAW_PORTAL_WX_SUBSCRIBE_TEMPLATE_ID` 空值=**整链禁用**（静默跳过不打扰主链；enabled() 还需 `DRAW_PORTAL_WX_APPID`）；发送走 `chat.get_wx_access_token` 同一凭据，40001/42001 失效重铸一次，43101（用户拒收）静默 |
+| 触发面 | `GET /api/wx/subscribe-config`（登录态）回 `{enabled, template_id}`；`notify_job_result_async` 在 draw_generate/write/teach/upload 文档与位图/voice draw 与 write 各成功+失败分支触发（daemon 线程 fire-and-forget，同 user+status 5s 去重窗，上限 64 条）；**守卫级拒绝（429/未绑定/未配置）不通知**——只有已建任务才通知；thing ≤20 字截断、time `%Y-%m-%d %H:%M` |
+| 前端 | `wx.requestSubscribeMessage` 必须在 tap 回调内同步调用 → `utils/subscribe.js` onLoad 预取模板 ID（缓存 `subscribe_tid`）、各生成/上传/重画/按住说话入口 tap 时请求授权；每次授权只发一条 |
+
+**分享卡片（`draw_portal/share_token.py`，无状态 HMAC）**
+
+| 面 | 约定 |
+|----|------|
+| 令牌 | `issue_token(secret, job_id)` = `b64url("{job_id}:{exp}") + "." + b64url(HMAC-SHA256)`，TTL 24h；`parse_token` compare_digest+exp 校验，任何失败→None（调用方 404）；密钥轮换即全废、不入库 |
+| 端点 | `POST /api/draw/{job_id}/share`（phone_secured，须 ready）→ `{share_token, title}`；`GET /api/draw/share/{token}`（免会话）→ `{title, preview_url, created_at}`；`GET /api/draw/share/{token}/preview.png` → PNG。**只授予只读预览**，不含 G-code；预览经令牌自证端点代理（/files 直链带不上作者 x-session） |
+| 前端 | 落地页 `/pages/share/share` 为独立非 Tab 页（规避 Tab 页 query 兼容）；`adoptJob` 时预取令牌 → `onShareAppMessage` 同步返回（title「看看我刚让写字机画的作品」）；失效态「分享已失效/链接过期或作品已删除」；接收者「我也要画」switchTab 回创作页 |
+
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
 | 面 | 约定 |

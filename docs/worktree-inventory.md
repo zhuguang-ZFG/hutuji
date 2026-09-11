@@ -25,6 +25,17 @@
 | 部署 | 双机四文件 SHA-256 逐位相符（备份 `/root/hutuji-bak-20260910-review/`）；京东 `:80 /firmware/` 按 HEAD 模板三处同写并 restart nginx，loopback 200/公网 403；preflight 阿里 25/33、京东 30/33（持平加固批基线）；weapp 0.3.3 CLI 上传 TOTAL 106500 B。明细见 `docs/deployment.md` 首条 |
 | 量产机烧录 | **已完成（2026-09-11 凌晨）**：短接 IO0 上电 + `--before no-reset` 烧入 massprod 固件（DIO 版；首刷 QIO 看门狗循环已翻案并重刷）；开机 `[VER:1.3a.20260910:]`、`$RST=$` 后金标指纹 12/12 MATCH；本机 DTR 自动下载坏系电脑侧问题（对照板同症、另一台电脑可烧），板子无罪。详见下方「量产无换纸 SKU 批」刷机阻塞行的解决记录 |
 
+## 2026-09-11 小程序改进批（已提交 `2d81300`，双机已部署；weapp 0.3.4 已上传）
+
+| 项 | 说明 |
+|----|------|
+| 提交 | 本仓 `2d81300`（23 文件：portal `app/config/firmware_ota/store/share_token(新)/subscribe_notify(新)` + tests 3 + weapp `app.json`/`utils/subscribe.js(新)`/`pages/share/(新 4)`/`pages/{firmware,index,chat,history}` + `privacy-policy.md` + `weapp-smoke-checklist.md(新)`），领先 origin/main 未推 |
+| 部署 | portal 六文件 HEAD blob SHA-256 双机逐位相符（明细 `docs/deployment.md` 首条）；备份 `/root/hutuji-bak-20260911-weapp/portal/`（双机）；env 订阅两键注释桩（双机 600，空值=禁用） |
+| 小程序 | weapp 0.3.4 CLI 上传 TOTAL 114342 B（`tmp/weapp-upload-0.3.4.json`）；MP 后台选体验版+建订阅模板未做（用户动作） |
+| 测试 | portal 187/187（+12 新增：订阅 8 + 分享 4 + 固件 2 对账）；契约 §10.4.16 |
+| 一次性产物 | `tmp/deploy-20260911-weapp/`（LF 发布候选）、`tmp/weapp-upload-0.3.4.json`；不入库 |
+| 未验证 | 真机冒烟清单 42 项未过（`draw-portal/weapp-smoke-checklist.md`）；订阅消息真实下发（依赖 MP 模板）未验证 |
+
 ## 0. 2026-09-09 收口入库（本批提交）
 
 | 项 | 说明 |
@@ -464,7 +475,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-10 再核）：findings #28 → 本页 `:599`（387 别名键）/`:107`（测试计数行）/`:604`（quickdraw-data 未 ignore 修正），findings #30 → `:670`（08-23 fb2b3b5 COM13 烧录自证）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-11 再核，含 09-11 小程序批小节插入的 +11 行）：findings #28 → 本页 `:134`（测试计数行）/`:641`（quickdraw 387 别名键）/`:646`（quickdraw 计数行），findings #30 → `:713`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:134`（08-30 指纹门禁 COM14 抓包）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
