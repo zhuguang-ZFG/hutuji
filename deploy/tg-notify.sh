@@ -35,8 +35,11 @@ if [[ -n "${TG_RELAY_HOST:-}" && -n "${TG_RELAY_KEY:-}" ]]; then
   exit 0
 fi
 
-curl -fsS --max-time 10 -s -o /dev/null \
+if ! curl -fsS --max-time 10 -s -o /dev/null \
   "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
   --data-urlencode "chat_id=${TG_CHAT_ID}" \
-  --data-urlencode "text=${FULLTEXT}" 2>/dev/null || true
+  --data-urlencode "text=${FULLTEXT}" 2>/dev/null; then
+  # 通知发失败必须留痕（journald），否则「静默=健康」分不清通道死了没。
+  logger -t tg-notify -p user.warning "sendMessage 失败（非 2xx/网络），消息: ${FULLTEXT:0:200}"
+fi
 exit 0
