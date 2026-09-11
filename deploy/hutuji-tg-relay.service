@@ -1,0 +1,14 @@
+[Unit]
+Description=hutuji Telegram relay receiver (loopback behind lima nginx)
+# 只 bind 127.0.0.1：公网/内网直达 8092 不可见，唯一门是 nginx 保密路径
+# （gray conf 只放行 jd 出口 IP）。venv 无第三方依赖，纯 stdlib。
+
+[Service]
+Type=simple
+Environment=TG_RELAY_BIND=127.0.0.1
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python /opt/hutuji/deploy/tg-relay-server.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

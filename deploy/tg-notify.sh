@@ -5,10 +5,12 @@
 # 消息自动带主机名前缀（双机同发时有归属）。
 #
 # 出路二选一（tg.env 决定，运行期探测）：
-#   直连（lima 配 TG_PROXY 经 sing-box 出网）；SSH 中继（京东云，见下）：
-#   对端 authorized_keys 以 command= 锁死只许跑 tg-relay-recv.sh（stdin 带正文）。
-# 直连（或中继落地侧）tg.env 可配 TG_PROXY=http://127.0.0.1:7890（lima sing-box
-#   本机 HTTP 代理）：大陆节点直连 api.telegram.org 2026-09-12 实测全超时，必须走代理。
+#   直连（lima 配 TG_PROXY=http://127.0.0.1:7890 经 sing-box 出网）；
+#   HTTPS 中继（jd）：配 TG_RELAY_URL=https://hutuji.donglicao.com/tg-relay-<秘密>/
+#   正文 POST 给 lima nginx 保密路径（gray conf 只放行 jd 出口 IP），落地
+#   127.0.0.1:8092 由 tg-relay-server 代发（本机走 TG_PROXY 出网）。
+#   京东云直连 TG 被 DNS 污染+SNI 封锁（2026-09-12 实测 curl 000）；SSH 中继
+#   （tailnet :22 握手挂起 + 公网 :22 HIDS 疑似节流 3 连挂死）双双否决。
 #
 # 用法: tg-notify.sh <TAG> <TEXT...>      普通调用（TAG 如 unit-failed/token-watch）
 #       tg-notify.sh --stdin             中继接收端：正文读 stdin（≤4KB）
@@ -26,14 +28,12 @@ ENVF=/etc/hutuji/tg.env
 set -a; . "$ENVF"; set +a
 [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]] || exit 0
 FULLTEXT="[$(hostname -s)] ${TAG}: ${TEXT}"
-if [[ -n "${TG_RELAY_HOST:-}" && -n "${TG_RELAY_KEY:-}" ]]; then
-  # 中继路径：正文走 stdin，避免长文本撞 argv 限额/引号问题。
-  # jd→lima SSH 偶发 KEX 挂起（jd HIDS 疑似节流，2026-09-12 同路径 3 连成功后
-  # 又一次挂起），通知重试 3 次、间隔 2s，全败也静默（通知非业务闸）。
-  local tries=0
-  until printf '%s' "$FULLTEXT" | ssh -i "$TG_RELAY_KEY" \
-    -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
-    "$TG_RELAY_HOST" >/dev/null 2>&1; do
+if [[ -n "${TG_RELAY_URL:-}" ]]; then
+  # 中继路径：正文进 body（≤4096 由接收端把关），不撞 argv/引号面。
+  # jd HIDS 疑似 SSH 节流的教训：偶发失败重试 3 次、间隔 2s，全败仍静默。
+  tries=0
+  until curl -fsS --max-time 10 -s -o /dev/null --data-binary "$FULLTEXT" \
+    "${TG_RELAY_URL}" 2>/dev/null; do
     tries=$((tries + 1))
     [[ $tries -ge 3 ]] && break
     sleep 2
