@@ -910,6 +910,19 @@ Cookie: <session>
 | 通知 | `subscribe_notify.notify_job_result_async(phrase="绘制完成")`：thing=title 或「奎享作品」、phrase=「绘制完成」、time=当时；未启用/openid 缺席静默；同 user+status+phrase 5s 去重窗 |
 | 设备侧 | S3 `hutuji_kdraw_watcher.cc`：UDP :2325 收 §9-H′ beacon，Run 后 `Idle && Changing!=On` 连续 ≥2.5s 判完成 → 本地 Alert（屏显+提示音）+ MCP `notifications/message` 云端转述 + 上述 POST（未绑定 403 静默容忍） |
 
+#### 10.4.18 作品里程碑与连续打卡通知（2026-09-12 粘合性批；portal-only）
+
+| 面 | 约定 |
+|----|------|
+| 触发 | 复用 `_notify_subscribe(status="success")` 全部成功点（语音画/写、文字画、文档写、笔顺、写字）——成功事件即打卡与累计时刻；失败不触发 |
+| 里程碑 | ready 作品累计 ≥1/10/50/100/500 时各推一次（跳档只推最高已跨过档）；文案 `milestones.DRAW_MILESTONE_TEXTS`（第一幅作品/第 N 幅作品）；thing=文案、phrase=「里程碑」 |
+| 连续打卡 | ready 作品按服务器本地日历日去重，今天有作品时向前数连续天 ≥3/7/30 各推一次（`连续打卡 N 天`）；今天缺席不追溯 |
+| 幂等 | `store.engagement_events(user_id, kind, key)` 主键 `INSERT OR IGNORE` 抢占登记，首次登记才推送——重复成功事件/服务重启不重发 |
+| 通知 | 同一模板 thing1/phrase2/time3，phrase=「里程碑」（≤5 字）；与常规「生成成功」通知的 5s 去重键（含 phrase）互不吞并——单次成功最多 3 条（常规+里程碑+打卡），各消耗一条一次性订阅授权，未授权静默 43101 |
+| 数据 | `draw_jobs(status='ready')` 计数/日期即时查询，不落计数快照；`engagement_events` 表仅做已发登记，无清理任务 |
+
+
+
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

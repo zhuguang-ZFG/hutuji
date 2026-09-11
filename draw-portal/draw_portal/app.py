@@ -365,6 +365,96 @@ def _notify_subscribe(
     return True
 
 
+def _notify_subscribe(
+    config: Any,
+    store: Store,
+    *,
+    user_id: str,
+    status: str,
+    title: str,
+    phrase: str | None = None,
+) -> bool:
+    """生成完成/失败 → 一次性订阅消息（fire-and-forget，绝不影响主链）。
+
+    @return True = 已派发后台发送线程（不代表微信侧送达）；False = 未发。
+    """
+    from draw_portal import subscribe_notify
+
+    if not subscribe_notify.enabled(config):
+        return False
+    try:
+        user = store.get_user(user_id)
+    except Exception:
+        return False
+    openid = getattr(user, "wx_openid", None) if user else None
+    if not openid:
+        return False
+    if status == "success":
+        # 粘合性通知（里程碑/连续打卡）：成功事件就是打卡与累计时刻（§10.4.18）
+        _engagement_notify(config, store, user_id=user_id, openid=openid)
+    subscribe_notify.notify_job_result_async(
+        config,
+        user_id=user_id,
+        openid=openid,
+        status=status,
+        title=title,
+        phrase=phrase,
+    )
+    return True
+
+
+def _engagement_notify(
+    config: Any,
+    store: Store,
+    *,
+    user_id: str,
+    openid: str,
+) -> None:
+    """里程碑/连续打卡通知（§10.4.18）：只在作品成功时刻补发，绝不影响主链。
+
+    直接走 subscribe_notify 的 async 入口（phrase=里程碑），与常规成功通知
+    去重键不同互不吞并；已发登记以 store 主键抢占，天然幂等。
+    """
+    from datetime import date
+
+    from draw_portal import milestones, subscribe_notify
+
+    if not subscribe_notify.enabled(config):
+        return
+    try:
+        count = store.count_ready_jobs(user_id)
+        m = milestones.milestone_for_count(count)
+        if m is not None and store.record_engagement_event(
+            user_id, "milestone", f"draw:{m}", when=time.time()
+        ):
+            subscribe_notify.notify_job_result_async(
+                config,
+                user_id=user_id,
+                openid=openid,
+                status="success",
+                title=milestones.draw_milestone_text(m),
+                phrase=milestones.ENGAGEMENT_PHRASE,
+            )
+        days = store.list_ready_job_days(user_id)
+        streak = milestones.streak_for_dates(
+            {date.fromisoformat(d) for d in days}, date.today()
+        )
+        n = milestones.streak_milestone_for(streak)
+        if n is not None and store.record_engagement_event(
+            user_id, "streak", f"streak:{n}", when=time.time()
+        ):
+            subscribe_notify.notify_job_result_async(
+                config,
+                user_id=user_id,
+                openid=openid,
+                status="success",
+                title=milestones.streak_milestone_text(n),
+                phrase=milestones.ENGAGEMENT_PHRASE,
+            )
+    except Exception as exc:
+        logger.warning("engagement notify error: %s", type(exc).__name__)
+
+
 def _is_loopback_client(host: str) -> bool:
     from draw_portal.internal_client import is_loopback_host
 

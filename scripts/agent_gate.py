@@ -87,7 +87,7 @@ ALLOWLIST_REQUIRED_KEYS = [
 ALLOWLIST_EXACT = {
     "version": 1,
     "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
-    "decision_count": 8,
+    "decision_count": 9,
     "grbl_section9_only": [
         "Grbl_Esp32/src/WebUI/TelnetServer.cpp",
         "Grbl_Esp32/src/PaperSystem.cpp",

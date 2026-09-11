@@ -1,7 +1,7 @@
 {
   "version": 1,
   "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
-  "decision_count": 8,
+  "decision_count": 9,
   "recent_review_fixes_20260910_authorized": {
     "note": "2026-09-10 用户针对近期 code review 七项问题回复「解决处理，」，授权修复与回归。范围为预览分配、退出登录竞态、显式字体、波纹白区、重试日限、Tunnel OTA 路由、字体默认项。",
     "paths": [
@@ -227,7 +227,18 @@
       "docs/worktree-inventory.md",
       "docs/templates/weapp-control-smoke.md",
       "docs/superpowers/specs/2026-09-09-weapp-voice-draw-write-design.md",
-      "docs/superpowers/plans/2026-09-09-weapp-voice-draw-write.md",
+      "docs/superpowers/plans/2026-09-09-weapp-voice-draw-write.md"
+    ]
+  },
+  "xiaopai_engagement_authorized": {
+    "note": "2026-09-12 用户授权「多加一些类似的功能，增加用户对小派的粘合性」——作品里程碑（1/10/50/100/500）与连续打卡（3/7/30 天）订阅消息；仅 draw-portal 通知面（milestones 纯函数 + store 计数/登记 + app 成功事件钩子），不改 MCP/固件/换纸，契约 §10.4.18。",
+    "paths": [
+      "draw-portal/draw_portal/milestones.py",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_milestones.py",
+      "docs/protocol.md",
+      "docs/release-readiness.md",
       "docs/agent-edit-allowlist.json"
     ]
   }

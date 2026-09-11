@@ -226,6 +226,14 @@ CREATE TABLE IF NOT EXISTS platform_config_revisions (
     revision INTEGER NOT NULL,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS engagement_events (
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (user_id, kind, key)
+);
+
 """
 
 _USER_MIGRATION_COLUMNS = (
@@ -673,6 +681,41 @@ class Store:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
         return int(row["c"]) if row else 0
+
+    # ---- 粘合性通知（§10.4.18）：ready 作品计数 / 连续打卡日期 / 已发登记 ----
+
+    def count_ready_jobs(self, user_id: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM draw_jobs WHERE user_id = ? AND status = 'ready'",
+                (user_id,),
+            ).fetchone()
+        return int(row["c"]) if row else 0
+
+    def list_ready_job_days(self, user_id: str) -> set[str]:
+        """有 ready 作品的本地日历日（ISO 日期串，去重）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT date(created_at, 'unixepoch', 'localtime') AS day
+                FROM draw_jobs
+                WHERE user_id = ? AND status = 'ready'
+                ORDER BY day
+                """,
+                (user_id,),
+            ).fetchall()
+        return {row["day"] for row in rows if row["day"] is not None}
+
+    def record_engagement_event(self, user_id: str, kind: str, key: str, *, when: float) -> bool:
+        """登记粘合性通知已发；首次登记返回 True，重复（或并发撞主键）返回 False。"""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO engagement_events (user_id, kind, key, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (user_id, kind, key, when),
+            )
+            conn.commit()
+        return cur.rowcount == 1
 
     def platform_stats(self) -> dict[str, Any]:
         with self._connect() as conn:
