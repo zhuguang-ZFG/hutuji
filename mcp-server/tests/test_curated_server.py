@@ -42,7 +42,7 @@ def _patch_settings(monkeypatch, server_dir, curated_dir):
 
 
 def _stub_persist(monkeypatch):
-    async def _fake_svg_to_gcode(_svg, _svg_path, _gcode_path):
+    async def _fake_svg_to_gcode(_svg, _svg_path, _gcode_path, on_raw_text=None, *, profile=None):
         # shadow 分支会读 gcode 文件做指标评测：stub 必须写实文件（对齐生产）。
         _gcode_path.write_text("G21\nG90\nF8000\n", encoding="utf-8")
         return SimpleNamespace(lines=1, bytes=2, pen_lifts=0), "G21\nG90\nF8000\n"

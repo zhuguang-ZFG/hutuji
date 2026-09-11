@@ -69,7 +69,7 @@ def test_upload_doc_table_ignores_layout_params(monkeypatch, tmp_path):
         seen["layout"] = layout
         return FakeLaid()
 
-    def fake_materialize(laid, job_dir, *, kind, mode):
+    def fake_materialize(laid, job_dir, *, kind, mode, profile=None):
         return DocPipelineResult(
             kind=kind,
             mode=mode,

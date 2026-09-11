@@ -43,6 +43,7 @@ async def _process_one() -> bool:
             job.public_base_url,
             job_id=job.job_id,
             chain_push=job.chain_push,
+            machine=job.machine,
         )
         await backend.mark_done(job.job_id, result)
         job_ledger.schedule_done(job_id=job.job_id, result_json=result)
@@ -57,7 +58,9 @@ async def _process_one() -> bool:
         )
     finally:
         job_ledger.reset_job_id(token)
-        await backend.clear_inflight(job.description, job.job_id, chain_push=job.chain_push)
+        await backend.clear_inflight(
+            job.description, job.job_id, chain_push=job.chain_push, machine=job.machine
+        )
     return True
 
 

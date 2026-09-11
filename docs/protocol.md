@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:647-650` 与 `hutuji_recovery_core.h:1119-1201`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:668-671` 与 `hutuji_recovery_core.h:1140-1222`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -868,8 +868,12 @@ Cookie: <session>
 | S3 页尾 | 无换纸机型：页尾旁路归位 `G1G90 X0Y0F8000` 保留（回原点不触发任何换纸），**M30 段与「等换纸完成」整段跳过**——画完即停，用户手动取纸；`paper_change_notified_` 武装/播报路径不进入 |
 | 多页任务 | 无换纸机型**不做多页**（用户拍板）：`pages>1` 的写字/笔顺/文档任务在确认环节拒绝，话术「这台机器一次只能画一页哦」；单页任务（语音画图/传图/单页写字）零改动 |
 | 云端/小程序 | 产物契约、§5、错峰 TTL、pages 推送格式**零改动**；按机型藏功能依赖能力标志位（S3 announce 上报 SKU → portal 绑定表存机型 → 小程序按机型显隐多页入口），该面**待首台点亮联调后定案**，当前两机型共用现 UI |
-| 文案 | 换纸相关屏幕提示/播报在无换纸机型整段不进入（随页尾跳过）；小程序「共 N 页/超 20 页截断」等通用多页文案保留（换纸机仍在用） |
-| HIL | **未验证**（首台刷机阻塞于 IO0 下载模式，见 worktree-inventory 量产 SKU 批）；S3 侧代码已落地 xiaozhi `eb56138`（host 3 例绿 + release 构建过），待刷机后实机联调 |
+| 机型词汇（2026-09-11 定稿） | 字面量 `"nopaper"` \| `"paper"`；未知/缺席一律按 `"paper"`（现役 MK38 行为）。S3 `hutuji.status` 回包自 1.0.9 起带 `plotter_sku`（`pipe.IsNopaperMachine()`）；bind announce 自 1.0.9 起随 body 上报 `plotter_sku`（旧固件缺席 → portal 默认 paper） |
+| 生成选档（2026-09-11） | `gcode_gen.MachineProfile`（transpose_xy/max_x_mm/max_y_mm）+ `PROFILE_NOPAPER = (False, 205.0, 290.0)`——物理 210×297 减 5mm 边；**不转置**（nopaper 竖放、X≈210/Y≈297，用户拍板 nopaper 取消转置）。paper/未知 = `None`（现役 MK38 默认档：转置 + 277/190）。语音路径 = 设备 `hutuji.status` 探测（60s 进程内缓存，失败也缓存）；显式 machine（portal `/internal/draw` body）优先于探测；非法值 400 |
+| 防串图 | G-code 内容缓存键与 inflight 键均含机型成分（`_profile_cache_marker` / `_inflight_key_for`）：同 SVG/同题跨机型不得互串产物 |
+| portal 学习 | `bind_sessions.plotter_sku` 随 announce 落库 → `_finalize_binding` 转存 `device_bindings.machine_type`（旧库迁移默认 `'paper'`）；portal 各生成入口按绑定机型选档：位图/SVG/文档/写字/笔顺/精修本地穿 profile，AI 生图把 machine 显式传 MCP |
+| S3 点动包线 | `DecideJog` 增显式限幅重载 + `MachineJogEnvelope(nopaper)`：nopaper 205/290（镜像 PROFILE_NOPAPER，R17-XREPO-01 双侧同步）、paper 277/190；VER 未达 = 保守 paper 档。工具侧预检与 ManualTask 纵深防御同源改参 |
+| 状态 | MCP/portal 代码面 + 回归绿（`test_contract.py` machine 白名单/缓存成分/inflight 隔离/probe 缓存 4 例 + nopaper profile 3 例；draw-portal 173 项全绿）；S3 host 点动测试绿；**实机 HIL 未做**（nopaper 不转置、205/290、MK38 双向不变），归 todo「构建 1.0.9 + 实机验证」 |
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

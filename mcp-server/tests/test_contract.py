@@ -503,7 +503,7 @@ def test_internal_draw_auth_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     body = json.dumps({"description": "一只猫"}).encode()
     marker = '{"url": "http://127.0.0.1:8300/files/x.gcode"}'
 
-    async def fake_sync(description: str) -> str:
+    async def fake_sync(description: str, machine: str = "") -> str:
         return marker
 
     monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
@@ -534,7 +534,7 @@ def test_internal_draw_validates_body(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _enable_internal_draw(monkeypatch)
 
-    async def fake_sync(description: str) -> str:  # 不应被触达
+    async def fake_sync(description: str, machine: str = "") -> str:  # 不应被触达
         raise AssertionError("鉴权后前置校验必须先拦")
 
     monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
@@ -568,7 +568,7 @@ def test_internal_draw_error_mapping(
 
     _enable_internal_draw(monkeypatch)
 
-    async def fake_sync(description: str) -> str:
+    async def fake_sync(description: str, machine: str = "") -> str:
         raise exc_factory()
 
     monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
@@ -577,6 +577,88 @@ def test_internal_draw_error_mapping(
     with pytest.raises(HTTPException) as ei:
         asyncio.run(server._internal_draw(_internal_draw_request(body)))
     assert ei.value.status_code == status
+
+
+def test_internal_draw_machine_whitelist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """machine 字段白名单（2026-09-11 §10.4.15）：合法值透传给选档，
+    非法值 400 且不触达生成链。"""
+    from fastapi import HTTPException
+
+    _enable_internal_draw(monkeypatch)
+    seen: dict = {}
+
+    async def fake_sync(description: str, machine: str = "") -> str:
+        seen["machine"] = machine
+        return '{"url": "http://127.0.0.1:8300/files/x.gcode"}'
+
+    monkeypatch.setattr(server, "_draw_internal_sync", fake_sync)
+
+    for machine in ("nopaper", "paper", ""):
+        seen.clear()
+        body = json.dumps({"description": "一只猫", "machine": machine}).encode()
+        asyncio.run(server._internal_draw(_internal_draw_request(body)))
+        assert seen["machine"] == machine, machine
+
+    for bad in ("nopaper ", "NOPAPER", "mk38", 123, None):
+        body = json.dumps({"description": "一只猫", "machine": bad}).encode()
+        with pytest.raises(Exception) as ei:
+            asyncio.run(server._internal_draw(_internal_draw_request(body)))
+        assert getattr(ei.value, "status_code", None) == 400, bad
+
+
+def test_profile_cache_marker_distinguishes_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """G-code 内容缓存键的机型成分：同 SVG 换机型不得互串（转置/限幅不同）。"""
+    from hutuji_mcp.gcode_gen import PROFILE_NOPAPER
+
+    marker_none = server._profile_cache_marker(None)
+    marker_nopaper = server._profile_cache_marker(PROFILE_NOPAPER)
+    assert marker_none == "default"
+    assert marker_nopaper != marker_none
+    assert marker_nopaper.count("|") == 2  # t{x}|x{}|y{} 形状
+    assert marker_nopaper.startswith("tFalse|")
+
+
+def test_probe_plotter_profile_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """探测结果（含失败）进 60s 缓存：TTL 内第二次调用不重打网络；
+    云抖动不得逐请求探测。token/api_base 未配置也走同一路径写缓存。"""
+    from types import SimpleNamespace
+
+    from hutuji_mcp.gcode_gen import PROFILE_NOPAPER
+
+    monkeypatch.setattr(
+        server, "settings", SimpleNamespace(xiaozhi_api_base="", xiaozhi_device_token="")
+    )
+    monkeypatch.setattr(server, "_plotter_sku_cache", None)
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(server.time, "monotonic", lambda: clock["t"])
+
+    # 第一调：token 缺席 → sku="" → None，且写缓存。
+    assert asyncio.run(server._probe_plotter_profile()) is None
+    assert server._plotter_sku_cache is not None
+    assert server._plotter_sku_cache[1] == ""
+
+    # TTL 内第二次：直接命中缓存（手动塞 nopaper 验证缓存键驱动选档）。
+    monkeypatch.setattr(server, "_plotter_sku_cache", (clock["t"], "nopaper"))
+    assert asyncio.run(server._probe_plotter_profile()) is PROFILE_NOPAPER
+
+    # TTL 过后：重新探测（token 仍缺席 → 仍 None，覆盖为空档）。
+    clock["t"] += server._PLOTTER_SKU_TTL_SECONDS + 1.0
+    assert asyncio.run(server._probe_plotter_profile()) is None
+
+
+
+
+def test_inflight_key_separates_machine() -> None:
+    """inflight 键含机型：nopaper 与 MK38 的同题任务互不搭车；
+    machine="" 与旧键逐字节一致（现役行为不变）。"""
+    base = server._inflight_key_for("一只猫", True)
+    assert server._inflight_key_for("一只猫", True, "") == base
+    assert server._inflight_key_for("一只猫", True, "nopaper") == base + "\x00nopaper"
+    assert server._inflight_key_for("一只猫", True, "nopaper") != server._inflight_key_for(
+        "一只猫", True, "paper"
+    )
+
 
 
 def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -598,8 +680,8 @@ def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(draw_queue, "queue_enabled", lambda: True)
     captured: dict = {}
 
-    async def fake_attach(desc, url, *, device_id="", chain_push=True):
-        captured.update(desc=desc, device_id=device_id, chain_push=chain_push)
+    async def fake_attach(desc, url, *, device_id="", chain_push=True, machine=""):
+        captured.update(desc=desc, device_id=device_id, chain_push=chain_push, machine=machine)
         return "job-1"
 
     async def fake_wait(job_id, *, timeout):
@@ -617,6 +699,7 @@ def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatc
         "device_id": "",
         "chain_push": False,
         "job_id": "job-1",
+        "machine": "",
     }
 
 
@@ -626,7 +709,7 @@ def test_draw_inprocess_inflight_separates_chain_push(
     """进程内去重键：同题 chain_push 不同 → 两条任务互不搭车（理由同队列侧）。"""
     release = asyncio.Event()
 
-    async def fake_job(desc, url, *, chain_push=True):
+    async def fake_job(desc, url, *, chain_push=True, machine=""):
         await release.wait()
         return f"done:{chain_push}"
 
@@ -901,7 +984,7 @@ def test_draw_uses_normalized_injected_public_origin(
     async def fake_generate_svg(_description: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
-    async def fake_svg_to_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_svg_to_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -932,7 +1015,7 @@ def test_draw_result_includes_ttl_seconds(
     async def fake_bitmap(_desc: str, **_kw) -> SimpleNamespace:
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -994,7 +1077,7 @@ def test_draw_returns_matching_png_preview_capability(
     async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -1033,7 +1116,7 @@ def _stub_draw_pipeline(monkeypatch, stem: str) -> None:
     async def fake_bitmap(_desc: str, **_kw) -> bitmap_svg.BitmapResult:
         return bitmap_svg.BitmapResult(svg="<svg/>", preview_png=b"\x89PNG\r\n\x1a\npreview")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -1177,7 +1260,7 @@ def test_draw_reuses_gcode_content_for_same_svg(
                   "draw_20260819_120001_bbbbbbbbbbbbbbbbbbbbbb"])
     converts = 0
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         nonlocal converts
         converts += 1
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
@@ -1219,7 +1302,7 @@ def test_draw_does_not_cache_failed_gcode(
                   "draw_20260819_120003_dddddddddddddddddddddd"])
     converts = 0
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         nonlocal converts
         converts += 1
         if converts == 1:
@@ -1847,7 +1930,7 @@ def test_draw_limit_covers_vpype_conversion(
         both_started = asyncio.Event()
         release = asyncio.Event()
 
-        async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+        async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
             nonlocal started
             started += 1
             if started == 2:
@@ -1904,7 +1987,7 @@ def test_draw_cancelled_retries_share_one_job_and_limiter_slot(
         await release.wait()
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         nonlocal convert_calls
         convert_calls += 1
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
@@ -1989,7 +2072,7 @@ def test_draw_cancellation_removes_partial_outputs(
     async def exercise() -> None:
         started = asyncio.Event()
 
-        async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> None:
+        async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> None:
             gcode_path.write_text("partial", encoding="utf-8")
             started.set()
             await asyncio.Event().wait()
@@ -2080,7 +2163,7 @@ def test_hutuji_draw_uses_bitmap_route(
     async def fake_llm(_desc: str) -> str:
         raise AssertionError("draw 不得走 LLM 直写路线")
 
-    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None) -> SimpleNamespace:
+    async def fake_convert(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None) -> SimpleNamespace:
         gcode_path.write_text(_minimal_gcode(), encoding="utf-8")
         return SimpleNamespace(lines=6, bytes=gcode_path.stat().st_size, pen_lifts=0)
 
@@ -5013,6 +5096,65 @@ def test_transpose_gcode_xy_rejects_modal_or_multi_xy(bad_line: str) -> None:
 
     with pytest.raises(gcode_gen.GcodeError, match="竖版转置"):
         gcode_gen._transpose_gcode_xy(bad_line)
+
+
+def test_svg_to_gcode_nopaper_profile_disables_transpose(tmp_path: Path) -> None:
+    """量产无换纸机（§10.4.15）不转置：转置是给墙面竖装的 MK38 的方向修正，
+    对量产机（物理 X≈210/Y≈297，2026-09-11 用户实机确认）它是横竖颠倒 +
+    出界顶框的双重错误。同一 SVG 下，PROFILE_NOPAPER 产出必须保持
+    机器 X=撰写 x、机器 Y=撰写 y（与现役默认的互换输出互为镜像判别）。"""
+    from hutuji_mcp import gcode_gen
+
+    svg = tmp_path / "orient.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="190mm" '
+        'viewBox="0 0 190 190">'
+        '<path d="M10,8L50,8" fill="none" stroke="black"/>'
+        '<path d="M100,180L140,180" fill="none" stroke="black"/></svg>',
+        encoding="utf-8",
+    )
+    gcode = tmp_path / "orient.gcode"
+    gcode_gen.svg_to_gcode(svg, gcode, normalize=False, profile=gcode_gen.PROFILE_NOPAPER)
+    moves = [
+        (float(m.group(1)), float(m.group(2)))
+        for m in re.finditer(r"^G1 X([\d.]+)Y([\d.]+)F8000$", gcode.read_text(), re.M)
+    ]
+    assert len(moves) == 2
+    # 不转置：顶线 x∈[10,50] 保持 X 段（X=50 为末端）、Y=8；底线 X=140、Y=180
+    assert moves[0][0] == pytest.approx(50.0, abs=0.01)
+    assert moves[0][1] == pytest.approx(8.0, abs=0.01)
+    assert moves[1][0] == pytest.approx(140.0, abs=0.01)
+    assert moves[1][1] == pytest.approx(180.0, abs=0.01)
+
+
+def test_nopaper_profile_constants_pinned() -> None:
+    """nopaper 档常量钉死：物理 X≈210/Y≈297 留 5mm 安全边（与 S3 点动包线分机型
+    表镜像，R17-XREPO-01 纪律同族）。改数值必须重证据并同步双侧。"""
+    from hutuji_mcp import gcode_gen
+
+    assert gcode_gen.PROFILE_NOPAPER.transpose_xy is False
+    assert gcode_gen.PROFILE_NOPAPER.max_x_mm == pytest.approx(205.0)
+    assert gcode_gen.PROFILE_NOPAPER.max_y_mm == pytest.approx(290.0)
+
+
+def test_validate_gcode_profile_limits_override() -> None:
+    """机型限幅按 profile 生效且默认不变：X250 在默认 277 下过、在 nopaper 205 下拒；
+    Y250 在默认 190 下拒、在 nopaper 290 下过。默认行为（无 profile）保持现役口径。"""
+    from hutuji_mcp import gcode_gen
+
+    doc_x250 = _minimal_gcode(
+        "G0 X250.0Y10.0F8000\nG1G90 Z5.0F10000\nG1 X249.0Y10.0F8000\n"
+    )
+    gcode_gen.validate_gcode(doc_x250)  # 默认 X≤277 放行
+    with pytest.raises(gcode_gen.GcodeError, match="越界"):
+        gcode_gen.validate_gcode(doc_x250, profile=gcode_gen.PROFILE_NOPAPER)
+
+    doc_y250 = _minimal_gcode(
+        "G0 X10.0Y250.0F8000\nG1G90 Z5.0F10000\nG1 X10.0Y249.0F8000\n"
+    )
+    with pytest.raises(gcode_gen.GcodeError, match="越界"):
+        gcode_gen.validate_gcode(doc_y250)  # 默认 Y≤190 拒
+    gcode_gen.validate_gcode(doc_y250, profile=gcode_gen.PROFILE_NOPAPER)
 
 
 def test_gwrite_profile_head_and_segments_accepted_by_validator() -> None:
@@ -10064,7 +10206,7 @@ def test_draw_async_without_token_falls_back_sync(tmp_path, monkeypatch, caplog)
     server._draw_last_error = None
     async def fake_bitmap(_desc, **_kw):
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
-    async def fake_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None):
+    async def fake_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None):
         gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
         return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
     monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
@@ -10123,7 +10265,7 @@ def test_draw_last_error_recorded_and_cleared(tmp_path, monkeypatch):
     from pathlib import Path
     async def ok_bitmap(_desc, **_kw):
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
-    async def ok_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None):
+    async def ok_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None):
         gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
         return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
     monkeypatch.setattr(server, "generate_bitmap", ok_bitmap)

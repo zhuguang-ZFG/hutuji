@@ -289,7 +289,7 @@ def test_send_single_page_has_no_pages_argument(
     )
     client = _doc_client(monkeypatch, tmp_path)
 
-    def fake_pipeline(raw, *, content_type, filename, job_dir):
+    def fake_pipeline(raw, *, content_type, filename, job_dir, profile=None):
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "draw.gcode").write_text("G21\n", encoding="ascii")
         (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")

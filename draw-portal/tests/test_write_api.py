@@ -23,7 +23,7 @@ def test_write_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     client = _auth(monkeypatch, tmp_path)
     captured: dict = {}
 
-    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None):
+    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None):
         captured["text"] = text
         captured["size"] = layout.size_mm
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +97,7 @@ def _fake_write_ok(captured: dict):
     from draw_portal.pipeline import DocPipelineResult
     from draw_portal.push import PublishResult
 
-    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None):
+    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None):
         captured["font_name"] = font_name
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "pages").mkdir(exist_ok=True)
@@ -155,7 +155,7 @@ def test_write_font_unknown_400(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 
     client = _auth(monkeypatch, tmp_path)
 
-    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None):
+    def fake_process(text, job_dir, *, gfont_dir, layout, stroke_dir="", font_name=None, profile=None):
         raise WriteTextError(f"找不到字库「{font_name}」（目录内 9 个）")
 
     monkeypatch.setattr("draw_portal.app.process_write_text", fake_process)

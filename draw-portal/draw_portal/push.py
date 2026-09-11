@@ -140,6 +140,42 @@ def push_tool_call(
     except URLError as exc:
         return False, f"网络 {type(exc.reason).__name__}"
 
+def probe_plotter_sku(
+    *,
+    api_base: str,
+    device_token: str,
+    timeout: int = 15,
+) -> str | None:
+    """经 hutuji.status 探测设备机型词汇（protocol §10.4.15）。
+
+    命中 plotter_sku 字段返回其值；字段缺席（1.0.8 旧固件）/状态异常/网络失败
+    一律 None（调用方回落库值 "paper"，不写库）。
+    """
+    import json
+
+    from draw_portal.mcp_result import unwrap_tool_text
+
+    ok, raw = push_tool_call(
+        api_base=api_base,
+        device_token=device_token,
+        name="hutuji.status",
+        arguments={},
+        timeout=timeout,
+    )
+    if not ok:
+        return None
+    try:
+        payload = json.loads(unwrap_tool_text(raw))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    sku = payload.get("plotter_sku")
+    if sku in ("nopaper", "paper"):
+        return str(sku)
+    return None
+
+
 
 def push_draw_to_device(
     *,

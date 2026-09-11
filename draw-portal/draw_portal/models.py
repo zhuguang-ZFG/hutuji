@@ -46,6 +46,9 @@ class BindSession:
     device_token_enc: str
     expires_at: float
     consumed_at: float | None
+    # 设备随 announce 上报的机型（1.0.9 起；旧固件缺席 = "paper"）。完成绑定
+    # 时随 _finalize_binding 落进 DeviceBinding.machine_type。
+    plotter_sku: str = "paper"
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,10 @@ class DeviceBinding:
     bound_at: float
     last_push_at: float | None
     token_probe_ok: bool | None
+    # 机型词汇（2026-09-11 量产无换纸机）："nopaper" | "paper"；缺省 "paper"
+    # = 现役换纸机行为。真值源 = 设备侧 hutuji.status 的 plotter_sku / 绑定
+    # announce 的 plotter_sku（S3 以 $I VER build 段识别）。
+    machine_type: str = "paper"
 
 
 @dataclass(frozen=True)

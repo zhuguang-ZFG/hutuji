@@ -130,6 +130,7 @@ def _inprocess_harness(tmp_path, monkeypatch: pytest.MonkeyPatch, *, day: int) -
         *,
         job_id: str | None = None,
         chain_push: bool = True,
+        machine: str = "",
     ) -> str:
         return json.dumps({"url": f"{public_base_url}/files/x.gcode"}, ensure_ascii=False)
 
@@ -354,6 +355,7 @@ def test_queue_path_daily_limit_surfaces_draw_limit_error(
         *,
         device_id: str = "",
         chain_push: bool = True,
+        machine: str = "",
     ) -> str:
         raise draw_queue.DrawDailyLimitError("今日绘画次数已达上限，明天再来")
 

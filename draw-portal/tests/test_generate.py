@@ -59,7 +59,7 @@ def test_generate_happy_path_publishes_and_counts(
     client = _gen_client(monkeypatch, tmp_path)
     captured: dict = {}
 
-    def fake_request(*, base_url, secret, description, timeout_seconds):
+    def fake_request(*, base_url, secret, description, timeout_seconds, machine=""):
         captured.update(
             base_url=base_url, secret=secret,
             description=description, timeout_seconds=timeout_seconds,

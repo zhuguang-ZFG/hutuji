@@ -67,7 +67,7 @@ def _register(client: TestClient) -> None:
     assert client.post("/api/auth/bind-phone", json={"phone": "13800138000"}).status_code == 200
 
 
-def _fake_process_upload(raw, *, content_type, filename, job_dir):
+def _fake_process_upload(raw, *, content_type, filename, job_dir, profile=None):
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "draw.gcode").write_text("G21\nG90\n", encoding="ascii")
     (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -120,7 +120,7 @@ def _recording_sketch(calls: list[dict]):
     draw_portal.pipeline.process_upload_sketch（调用时解析模块属性）。
     """
 
-    def fake(raw, job_dir, *, style):
+    def fake(raw, job_dir, *, style, profile=None):
         calls.append({"raw": raw, "style": style})
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "draw.gcode").write_text("G21\nG90\nG1 X1 Y1\n", encoding="ascii")
@@ -275,7 +275,7 @@ def test_refine_concurrency_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     active = 0
     peak = 0
 
-    def slow_sketch(raw, job_dir, *, style):
+    def slow_sketch(raw, job_dir, *, style, profile=None):
         nonlocal active, peak
         with lock:
             active += 1

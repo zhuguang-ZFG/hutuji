@@ -168,7 +168,7 @@ def _stub_job(monkeypatch, tmp_path, gcode_queue, attempts, gate=True):
 
     monkeypatch.setattr(server, "generate_bitmap", fake_generate)
 
-    async def fake_gcode(svg, svg_path, gcode_path):
+    async def fake_gcode(svg, svg_path, gcode_path, *, profile=None):
         text = gcode_queue.pop(0)
         gcode_path.write_text(text, encoding="utf-8")
         lifts = text.count("G1G90 Z0.0F10000")
@@ -246,7 +246,7 @@ def test_reject_evicts_attempt_bitmap_cache(monkeypatch, tmp_path):
 
     monkeypatch.setattr(server, "generate_bitmap", fake_generate)
 
-    async def fake_gcode(svg, svg_path, gcode_path):
+    async def fake_gcode(svg, svg_path, gcode_path, *, profile=None):
         gcode_path.write_text(_REJECT_GCODE, encoding="utf-8")
         return SimpleNamespace(lines=10, bytes=10, pen_lifts=45), _REJECT_GCODE
 

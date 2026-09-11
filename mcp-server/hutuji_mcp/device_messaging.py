@@ -130,6 +130,52 @@ async def post_device_tool(
     return resp.status_code, f"http_{resp.status_code}"
 
 
+async def post_device_tool_json(
+    *,
+    api_base: str,
+    device_token: str,
+    name: str,
+    arguments: dict[str, str],
+    timeout: float = 15.0,
+) -> tuple[int, dict | None]:
+    """tools/call 并解析回包正文（机型探测用，2026-09-11）。
+
+    与 post_device_tool 同一请求面，但要拿到 status 对象里的字段
+    （plotter_sku），故解析信封：小智官方 data 信封优先，MCP CallToolResult
+    content 次之（与 draw-portal unwrap_tool_text 同形状认知，但此处只解
+    JSON 对象，不解文本，避免复制 portal 的全量信封逻辑）。
+    返回 (status_code, dict|None)：HTTP 200 且信封里解出 JSON 对象才有值。
+    """
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            f"{api_base.rstrip('/')}/messaging/device/tools/call",
+            json={"name": name, "arguments": arguments},
+            headers={"Authorization": f"Bearer {device_token}"},
+        )
+    if resp.status_code != 200:
+        return resp.status_code, None
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp.status_code, None
+    if not isinstance(data, dict):
+        return resp.status_code, None
+    inner: object = data.get("data", data)
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except ValueError:
+            inner = None
+    if isinstance(inner, dict) and isinstance(inner.get("text"), str):
+        try:
+            text_payload = json.loads(inner["text"])
+        except ValueError:
+            text_payload = None
+        if isinstance(text_payload, dict):
+            return resp.status_code, text_payload
+    return resp.status_code, inner if isinstance(inner, dict) else None
+
+
 async def chain_hutuji_draw(
     *,
     api_base: str,

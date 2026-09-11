@@ -24,7 +24,7 @@ def test_teach_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     client = _auth(monkeypatch, tmp_path)
     captured: dict = {}
 
-    def fake_process(chars, job_dir, *, stroke_dir):
+    def fake_process(chars, job_dir, *, stroke_dir, profile=None):
         captured["chars"] = chars
         captured["stroke_dir"] = stroke_dir
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -94,7 +94,7 @@ def test_teach_no_stroke_dir_503(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 def test_teach_stroke_order_error_400(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     client = _auth(monkeypatch, tmp_path)
 
-    def fail_process(chars, job_dir, *, stroke_dir):
+    def fail_process(chars, job_dir, *, stroke_dir, profile=None):
         raise StrokeOrderError("全部缺字：龘")
 
     monkeypatch.setattr("draw_portal.app.process_teach_text", fail_process)

@@ -48,13 +48,19 @@ def request_internal_draw(
     secret: str,
     description: str,
     timeout_seconds: int,
+    machine: str = "",
 ) -> dict:
     """调 MCP /internal/draw，返回解析后的结果 dict。
 
     错误映射与 MCP 侧约定一致：400 输入白话 / 429 限流 / 504 超时 /
     502 生图侧失败；其余（含网络）一律塌成 502，不回显内部细节。
+    machine 空串 = MCP 侧按设备 status 自行探测；显式机型优先于探测
+    （portal 已在本地探过一次，不再让 MCP 打第二枪）。
     """
-    body = json.dumps({"description": description}, ensure_ascii=False).encode("utf-8")
+    payload = {"description": description}
+    if machine:
+        payload["machine"] = machine
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = Request(
         f"{base_url}/internal/draw",
         data=body,

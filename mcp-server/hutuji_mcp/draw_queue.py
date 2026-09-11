@@ -47,19 +47,25 @@ class DrawJobPayload:
     # 推送由买家在页面上显式触发，不该串到运营 demo 机的预览）。
     # 2026-08-31 新增字段；缺省 True 保持语音路径与旧 payload 行为不变。
     chain_push: bool = True
+    # 显式机型（2026-09-11）：portal /internal/draw 传 "nopaper"/"paper"，
+    # 语音路径 "" = worker 侧 status 探测。缺省空串兼容旧 payload。
+    machine: str = ""
 
 
 def _description_hash(description: str) -> str:
     return hashlib.sha256(description.encode("utf-8")).hexdigest()
 
 
-def _inflight_material(description: str, chain_push: bool) -> str:
-    """inflight 去重键的原料：chain_push 不同的同名任务不得互相搭车。
+def _inflight_material(description: str, chain_push: bool, machine: str = "") -> str:
+    """inflight 去重键的原料：chain_push/机型不同的同名任务不得互相搭车。
 
     语音（chain_push=True）搭上网页（False）的任务，完成时不会推设备预览，
     语音用户干等；反向则网页任务串推到演示设备。分开计键两边各自独立。
+    机型同理（2026-09-11）：nopaper 搭上 MK38 档同题任务会拿到转置错向产物。
+    machine 为空不追加（保持与旧键逐字节一致，语音路径键不漂移）。
     """
-    return description if chain_push else description + "\x00nopush"
+    material = description if chain_push else description + "\x00nopush"
+    return material if not machine else material + "\x00" + machine
 
 
 def day_stamp_cst() -> str:
@@ -79,8 +85,8 @@ def _job_key(job_id: str) -> str:
     return f"{JOB_PREFIX}{job_id}"
 
 
-def _inflight_key(description: str, chain_push: bool = True) -> str:
-    return f"{INFLIGHT_PREFIX}{_description_hash(_inflight_material(description, chain_push))}"
+def _inflight_key(description: str, chain_push: bool = True, machine: str = "") -> str:
+    return f"{INFLIGHT_PREFIX}{_description_hash(_inflight_material(description, chain_push, machine))}"
 
 def _decide_attach(existing_job_id: str | None, status: str | None) -> str:
     """同题 inflight 的处置决策（纯函数，两后端共用，便于参数化回归）。
@@ -101,7 +107,8 @@ def _decide_attach(existing_job_id: str | None, status: str | None) -> str:
 
 class DrawQueueBackend(Protocol):
     async def attach_or_enqueue(
-        self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True
+        self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True,
+        machine: str = "",
     ) -> str: ...
 
     async def wait_result(self, job_id: str, *, timeout: float) -> str: ...
@@ -114,7 +121,9 @@ class DrawQueueBackend(Protocol):
 
     async def mark_failed(self, job_id: str, exc: BaseException) -> None: ...
 
-    async def clear_inflight(self, description: str, job_id: str, *, chain_push: bool = True) -> None: ...
+    async def clear_inflight(
+        self, description: str, job_id: str, *, chain_push: bool = True, machine: str = ""
+    ) -> None: ...
 
 
 class MemoryDrawQueueBackend:
@@ -128,12 +137,12 @@ class MemoryDrawQueueBackend:
         self._enqueue_times: list[float] = []
         self._device_minute: dict[str, int] = {}
         self._device_day: dict[str, int] = {}
-
     async def attach_or_enqueue(
-        self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True
+        self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True,
+        machine: str = "",
     ) -> str:
         async with self._lock:
-            inflight_key = _description_hash(_inflight_material(description, chain_push))
+            inflight_key = _description_hash(_inflight_material(description, chain_push, machine))
             existing = self._inflight.get(inflight_key)
             if existing is not None:
                 job = self._jobs.get(existing)
@@ -147,9 +156,10 @@ class MemoryDrawQueueBackend:
                 "description": description,
                 "public_base_url": public_base_url,
                 "device_id": device_id,
+                "machine": machine,
             }
             self._inflight[inflight_key] = job_id
-            payload = DrawJobPayload(job_id, description, public_base_url, chain_push)
+            payload = DrawJobPayload(job_id, description, public_base_url, chain_push, machine)
         await self._queue.put(payload)
         return job_id
 
@@ -220,9 +230,11 @@ class MemoryDrawQueueBackend:
                 job["error_type"] = type(exc).__name__
                 job["error_message"] = str(exc)
 
-    async def clear_inflight(self, description: str, job_id: str, *, chain_push: bool = True) -> None:
+    async def clear_inflight(
+        self, description: str, job_id: str, *, chain_push: bool = True, machine: str = ""
+    ) -> None:
         async with self._lock:
-            inflight_key = _description_hash(_inflight_material(description, chain_push))
+            inflight_key = _description_hash(_inflight_material(description, chain_push, machine))
             if self._inflight.get(inflight_key) == job_id:
                 del self._inflight[inflight_key]
 
@@ -245,10 +257,11 @@ class RedisDrawQueueBackend:
         return client
 
     async def attach_or_enqueue(
-        self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True
+        self, description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True,
+        machine: str = "",
     ) -> str:
         client = self._client()
-        inflight = _inflight_key(description, chain_push)
+        inflight = _inflight_key(description, chain_push, machine)
 
         existing = await client.get(inflight)
         status = await client.hget(_job_key(existing), "status") if existing else None
@@ -305,6 +318,7 @@ class RedisDrawQueueBackend:
                     "description": description,
                     "public_base_url": public_base_url,
                     "device_id": device_id,
+                    "machine": machine,
                 },
             )
             pipe.expire(job_key, JOB_TTL_SECONDS)
@@ -317,6 +331,7 @@ class RedisDrawQueueBackend:
                         "description": description,
                         "public_base_url": public_base_url,
                         "chain_push": chain_push,
+                        "machine": machine,
                     },
                     ensure_ascii=False,
                 )
@@ -361,8 +376,10 @@ class RedisDrawQueueBackend:
             job_id=str(data["job_id"]),
             description=str(data["description"]),
             public_base_url=str(data["public_base_url"]),
-            # 旧 payload（本字段 2026-08-31 才加入）缺省 True，保持语音推送行为。
+            # 旧 payload（chain_push 2026-08-31 才加入）缺省 True，保持语音推送行为。
             chain_push=bool(data.get("chain_push", True)),
+            # 旧 payload（machine 2026-09-11 才加入）缺省空串 = 语音路径探测。
+            machine=str(data.get("machine", "")),
         )
 
     async def mark_processing(self, job_id: str) -> None:
@@ -394,9 +411,11 @@ class RedisDrawQueueBackend:
         pipe.expire(job_key, JOB_TTL_SECONDS)
         await pipe.execute()
 
-    async def clear_inflight(self, description: str, job_id: str, *, chain_push: bool = True) -> None:
+    async def clear_inflight(
+        self, description: str, job_id: str, *, chain_push: bool = True, machine: str = ""
+    ) -> None:
         client = self._client()
-        inflight = _inflight_key(description, chain_push)
+        inflight = _inflight_key(description, chain_push, machine)
         current = await client.get(inflight)
         if current == job_id:
             await client.delete(inflight)
@@ -444,10 +463,12 @@ def reset_backend_for_tests() -> None:
 
 
 async def attach_or_enqueue(
-    description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True
+    description: str, public_base_url: str, *, device_id: str = "", chain_push: bool = True,
+    machine: str = "",
 ) -> str:
     job_id = await get_backend().attach_or_enqueue(
-        description, public_base_url, device_id=device_id, chain_push=chain_push
+        description, public_base_url, device_id=device_id, chain_push=chain_push,
+        machine=machine,
     )
     from . import job_ledger
 

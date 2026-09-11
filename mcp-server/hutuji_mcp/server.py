@@ -38,7 +38,13 @@ from .cloud_bridge import WATCHDOG_POLL_SECONDS, read_health_status
 from .config import settings
 from .config import validate_public_base_url
 from .usage_report import record_tool_usage
-from .gcode_gen import GcodeError, svg_to_gcode_async, validate_gcode
+from .gcode_gen import (
+    GcodeError,
+    MachineProfile,
+    PROFILE_NOPAPER,
+    svg_to_gcode_async,
+    validate_gcode,
+)
 from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
 from . import paper_risk
 from . import t2s
@@ -365,16 +371,29 @@ async def _generate_svg_limited(description: str) -> str:
 # 字节写进新的随机 capability 文件，跳过 ~0.7s 子进程。键是 SVG 内容哈希，
 # 与 _new_basename 解耦；TTL/容量与位图结果缓存同口径。只缓存校验通过
 # 后的字节，失败不落表。
+
+def _profile_cache_marker(profile: MachineProfile | None) -> str:
+    """缓存键的机型成分：同 SVG 不同机型产物不同（转置/限幅），混键会串图。"""
+    if profile is None:
+        return "default"
+    return f"t{profile.transpose_xy}|x{profile.max_x_mm}|y{profile.max_y_mm}"
+
 _GCODE_CACHE_TTL_SECONDS = 600.0
 _GCODE_CACHE_MAX_ENTRIES = 16
 _gcode_cache: OrderedDict[str, tuple[float, bytes, object]] = OrderedDict()
 _gcode_cache_clock = time.monotonic
 
 
-async def _svg_to_gcode_cached(svg: str, svg_path: Path, gcode_path: Path):
+async def _svg_to_gcode_cached(
+    svg: str, svg_path: Path, gcode_path: Path,
+    profile: MachineProfile | None = None,
+):
     """返回 (stats, raw_text)：raw_text 是塌缩/转置/弧拟合前的 vpype 原文，
-    paper_risk 闸的标定面（08-26/27 样本）。缓存随条目存原文，命中不重跑。"""
-    key = hashlib.sha256(svg.encode("utf-8")).hexdigest()
+    paper_risk 闸的标定面（08-26/27 样本）。缓存随条目存原文，命中不重跑。
+    键含机型成分（_profile_cache_marker），不同机型的同 SVG 不互串。"""
+    key = hashlib.sha256(
+        (svg + "\x00" + _profile_cache_marker(profile)).encode("utf-8")
+    ).hexdigest()
     now = _gcode_cache_clock()
     hit = _gcode_cache.get(key)
     if hit is not None:
@@ -387,7 +406,7 @@ async def _svg_to_gcode_cached(svg: str, svg_path: Path, gcode_path: Path):
         del _gcode_cache[key]
     raw_holder: list[str] = []
     stats = await svg_to_gcode_async(
-        svg_path, gcode_path, on_raw_text=raw_holder.append
+        svg_path, gcode_path, on_raw_text=raw_holder.append, profile=profile
     )
     # 回调在 _read_generated_gcode 成功解码后必发一次；stub 不发时退化为终稿
     raw_text = (
@@ -496,11 +515,80 @@ async def _chain_device_draw(
         logger.warning("设备链式调用失败 %s（回落云端两步）", detail)
         _report_mcp_tool("draw_push", ok=False, detail=detail)
 
+
+# ---- 按机型选生成档（2026-09-11 量产无换纸机联调）----
+# 真值源 = 设备侧 hutuji.status 的 plotter_sku（1.0.9 起上报；S3 以 $I VER build
+# 段识别机型）。探测经设备 messaging API——token 绑定的那台机正是链式推送的
+# 收件机，生成产物只会发给它，探测它就是探测收件方。60s 进程内缓存：探测失败
+# （未配 token/网络/HTTP 错）也进缓存，避免云 API 抖动时每次画图都白打一轮。
+# 字段缺席（1.0.8 旧固件）= "paper" 档 = 现役 MK38 行为，与既有产物全兼容。
+_PLOTTER_SKU_TTL_SECONDS = 60.0
+_plotter_sku_cache: tuple[float, str] | None = None
+_PLOTTER_SKU_VALUES = ("nopaper", "paper")
+_MACHINE_VALUES = _PLOTTER_SKU_VALUES + ("",)
+
+
+def _profile_for_machine(machine: str) -> MachineProfile | None:
+    if machine == "nopaper":
+        return PROFILE_NOPAPER
+    return None
+
+
+async def _probe_plotter_profile() -> MachineProfile | None:
+    """语音/云路径的机型档解析：status 探测 + 短缓存；失败回落现役行为。"""
+    global _plotter_sku_cache
+    now = time.monotonic()
+    if _plotter_sku_cache is not None and now - _plotter_sku_cache[0] < _PLOTTER_SKU_TTL_SECONDS:
+        return _profile_for_machine(_plotter_sku_cache[1])
+    from . import device_messaging
+
+    sku = ""
+    api_base = getattr(settings, "xiaozhi_api_base", "")
+    token = (
+        device_messaging.load_device_token(
+            env_fallback=getattr(settings, "xiaozhi_device_token", "")
+        )
+        if api_base
+        else ""
+    )
+    if token and api_base:
+        try:
+            status, payload = await device_messaging.post_device_tool_json(
+                api_base=api_base,
+                device_token=token,
+                name="hutuji.status",
+                arguments={},
+                timeout=8.0,
+            )
+        except (httpx.HTTPError, ValueError):
+            status, payload = 0, None
+        if status == 200 and isinstance(payload, dict):
+            raw = payload.get("plotter_sku")
+            if isinstance(raw, str) and raw in _PLOTTER_SKU_VALUES:
+                sku = raw
+        else:
+            logger.info("机型探测未拿到 plotter_sku（status=%s）", status)
+    _plotter_sku_cache = (now, sku)
+    return _profile_for_machine(sku)
+
+
+async def _resolve_plotter_profile(machine: str) -> MachineProfile | None:
+    """入口统一选档：显式 machine（portal /internal/draw）优先，空串走探测。"""
+    if machine:
+        return _profile_for_machine(machine)
+    return await _probe_plotter_profile()
+
 async def _run_draw_job(
     description: str, public_base_url: str, *, job_id: str | None = None,
-    chain_push: bool = True,
+    chain_push: bool = True, machine: str = "",
 ) -> str:
-    """完整生成事务；生命周期独立于任一 JSON-RPC waiter。"""
+    """完整生成事务；生命周期独立于任一 JSON-RPC waiter。
+
+    machine 显式机型（portal /internal/draw 传入；"" = 语音/云路径走 status
+    探测），定档进 _svg_to_gcode_cached（转置/限幅随机型，见 gcode_gen
+    MachineProfile）。
+    """
+    profile = await _resolve_plotter_profile(machine)
     global _draw_last_error
     from . import job_ledger
     from .output_store import JobPaths, get_output_store
@@ -519,7 +607,7 @@ async def _run_draw_job(
             paths.preview_path.write_bytes(bitmap.preview_png)
             gcode_t0 = time.monotonic()
             job_stats, _raw = await _svg_to_gcode_cached(
-                bitmap.svg, paths.svg_path, paths.gcode_path
+                bitmap.svg, paths.svg_path, paths.gcode_path, profile=profile
             )
             logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
             # OSS 模式须在 with 块内 finalize；local 模式 finalize 为空操作。
@@ -555,7 +643,7 @@ async def _run_draw_job(
                         paths.preview_path.write_bytes(bitmap.preview_png)
                         gcode_t0 = time.monotonic()
                         stats, raw_gcode_text = await _svg_to_gcode_cached(
-                            bitmap.svg, paths.svg_path, paths.gcode_path
+                            bitmap.svg, paths.svg_path, paths.gcode_path, profile=profile
                         )
                         logger.info("G-code 段耗时 %.1fs", time.monotonic() - gcode_t0)
                         # 闸吃塌缩前 vpype 原文（标定面），pen_lifts 对后处理不变
@@ -643,7 +731,7 @@ async def _run_draw_job(
 
 async def _hutuji_draw_via_queue(
     safe_description: str, public_base_url: str, device_id: str, *,
-    force_sync: bool = False, chain_push: bool = True,
+    force_sync: bool = False, chain_push: bool = True, machine: str = "",
 ) -> str:
     """Redis 队列模式：MCP 只入队/等待，实际生成由 draw-worker 执行。
 
@@ -664,7 +752,7 @@ async def _hutuji_draw_via_queue(
     try:
         job_id = await attach_or_enqueue(
             safe_description, public_base_url, device_id=device_id,
-            chain_push=chain_push,
+            chain_push=chain_push, machine=machine,
         )
     except DrawQueueBusyError as exc:
         raise DrawLimitError(str(exc)) from exc
@@ -742,20 +830,23 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
     return await _await_draw_work(work, log_label="mcp")
 
 
-def _inflight_key_for(safe_description: str, chain_push: bool) -> str:
-    """进程内去重键：chain_push 不同的同名任务不得互相搭车（理由同 draw_queue）。
+def _inflight_key_for(safe_description: str, chain_push: bool, machine: str = "") -> str:
+    """进程内去重键：chain_push/机型不同的同名任务不得互相搭车。
 
     语音（True）搭上网页（False）的任务完成时不推设备预览，语音用户干等；
-    反向则网页任务串推到演示设备。与 draw_queue._inflight_material 同口径。
+    反向则网页任务串推到演示设备。机型同理（2026-09-11）：nopaper 搭上 MK38
+    档的同题任务会拿到转置错向的产物。与 draw_queue._inflight_material 同口径。
     """
-    return safe_description if chain_push else safe_description + "\x00nopush"
+    material = safe_description if chain_push else safe_description + "\x00nopush"
+    return material if not machine else material + "\x00" + machine
 
 
 def _draw_inprocess(
-    safe_description: str, public_base_url: str, *, chain_push: bool, device_id: str = ""
+    safe_description: str, public_base_url: str, *, chain_push: bool, device_id: str = "",
+    machine: str = "",
 ) -> "asyncio.Task[str]":
     """进程内（无队列）共享任务表登记；同题 waiter 搭同一事务。"""
-    key = _inflight_key_for(safe_description, chain_push)
+    key = _inflight_key_for(safe_description, chain_push, machine)
     work = _draw_inflight.get(key)
     if work is not None and work.get_loop() is not asyncio.get_running_loop():
         # 测试/嵌入调用可能轮换事件循环；生产单 loop 不会走此分支。
@@ -770,7 +861,10 @@ def _draw_inprocess(
         if _device_daily_limit_reached(device_id):
             raise DrawLimitError("今日绘画次数已达上限，明天再来")
         work = asyncio.create_task(
-            _run_draw_job(safe_description, public_base_url, chain_push=chain_push)
+            _run_draw_job(
+                safe_description, public_base_url, chain_push=chain_push,
+                machine=machine,
+            )
         )
         _draw_inflight[key] = work
         work.add_done_callback(
@@ -790,8 +884,7 @@ async def _await_draw_work(work: "asyncio.Task[str]", *, log_label: str) -> str:
         logger.warning("绘图生成超时（%s waiter=%ss）", log_label, DRAW_WAITER_DEADLINE_SECONDS)
         raise DrawTimeoutError("绘图生成超时，请稍后重试") from None
 
-
-async def _draw_internal_sync(description: str) -> str:
+async def _draw_internal_sync(description: str, machine: str = "") -> str:
     """draw-portal 网页生图的本机内部入口（/internal/draw）。
 
     与语音路径同一条生成链，但两点刻意不同：
@@ -799,6 +892,8 @@ async def _draw_internal_sync(description: str) -> str:
       页面要自己拿 preview_url 展示，推送也由买家显式触发）；
     - chain_push=False：完成时不链式推演示设备（运营 demo 机不该收到买家
       网页生图的预览）。
+    machine：portal 侧解析出的机型（"nopaper"/"paper"/""，"" 不应出现——
+    portal 无绑定用户也回 "paper"，此处仍容空串）。
     不计 _report_mcp_tool：portal 侧以 web_generate 自行记账，避免双计。
     """
     public_base_url = validate_public_base_url(settings.public_base_url)
@@ -809,9 +904,11 @@ async def _draw_internal_sync(description: str) -> str:
     if queue_enabled():
         return await _hutuji_draw_via_queue(
             safe_description, public_base_url, "",
-            force_sync=True, chain_push=False,
+            force_sync=True, chain_push=False, machine=machine,
         )
-    work = _draw_inprocess(safe_description, public_base_url, chain_push=False)
+    work = _draw_inprocess(
+        safe_description, public_base_url, chain_push=False, machine=machine
+    )
     return await _await_draw_work(work, log_label="internal")
 
 
@@ -886,6 +983,7 @@ _stroke_data_cache: dict[str, object] = {}
 async def _run_write_job(
     text: str, font_name: str, size_mm: float, line_spacing: float,
     char_gap_mm: float, public_base_url: str, *, chain_push: bool = True,
+    machine: str = "",
 ) -> str:
     """写字排版事务：奎享单线字库 → 分页 SVG+PNG → 无版式 vpype → §5 校验 → 产物。
 
@@ -898,6 +996,7 @@ async def _run_write_job(
     from .output_store import get_output_store
 
     cache_key = (settings.gfont_dir, font_name)
+    profile = await _resolve_plotter_profile(machine)
     font = _gfont_cache.get(cache_key)
     if font is None:
         font = await asyncio.to_thread(write_text.load_font, settings.gfont_dir, font_name or None)
@@ -963,7 +1062,7 @@ async def _run_write_job(
             paths.preview_path.write_bytes(preview_png)
             # normalize=False：写字链版式自排，layout 会让字号随内容量漂移
             stats = await svg_to_gcode_async(
-                paths.svg_path, paths.gcode_path, normalize=False
+                paths.svg_path, paths.gcode_path, normalize=False, profile=profile
             )
             # 单页保持写盘时刻语义（既有行为）；多页连第 1 页也带确认补贴——
             # 确认延迟卡住的是第 1 页的首次下载本身，只补贴后续页等于没建模。
@@ -1057,7 +1156,7 @@ _TEACH_MAX_CHARS = 20
 
 
 async def _run_teach_job(
-    text: str, public_base_url: str, *, chain_push: bool = True,
+    text: str, public_base_url: str, *, chain_push: bool = True, machine: str = "",
 ) -> str:
     """笔顺教学事务：标准笔顺中心线 → 渐显面板页 → 无版式 vpype → §5 校验 → 产物。
 
@@ -1068,6 +1167,7 @@ async def _run_teach_job(
     from .llm_svg import _validate_svg
     from .output_store import get_output_store
 
+    profile = await _resolve_plotter_profile(machine)
     if not settings.stroke_dir:
         raise stroke_order.StrokeOrderError("笔顺数据未配置（HUTUJI_STROKE_DIR 为空）")
     data = _stroke_data_cache.get(settings.stroke_dir)
@@ -1094,7 +1194,7 @@ async def _run_teach_job(
             paths.svg_path.write_text(svg, encoding="utf-8")
             paths.preview_path.write_bytes(preview_png)
             stats = await svg_to_gcode_async(
-                paths.svg_path, paths.gcode_path, normalize=False
+                paths.svg_path, paths.gcode_path, normalize=False, profile=profile
             )
             store.finalize_job(
                 paths,
@@ -1513,8 +1613,11 @@ async def _internal_draw(request: Request) -> Response:
     description = payload.get("description") if isinstance(payload, dict) else None
     if not isinstance(description, str) or not description.strip():
         raise HTTPException(status_code=400, detail="description 必填")
+    machine = payload.get("machine", "") if isinstance(payload, dict) else ""
+    if not isinstance(machine, str) or machine not in _MACHINE_VALUES:
+        raise HTTPException(status_code=400, detail="machine 取值不合法")
     try:
-        result = await _draw_internal_sync(description)
+        result = await _draw_internal_sync(description, machine=machine)
     except LlmError as exc:
         # 输入类白话（空描述/超长/控制字符），回 400 让页面向用户展示
         raise HTTPException(status_code=400, detail=str(exc)) from None

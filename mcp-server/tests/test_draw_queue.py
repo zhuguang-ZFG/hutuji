@@ -46,6 +46,7 @@ def test_queue_single_flight_and_worker(memory_queue, monkeypatch):
         *,
         job_id: str | None = None,
         chain_push: bool = True,
+        machine: str = "",
     ) -> str:
         calls.append((description, chain_push))
         return json.dumps({"url": f"{public_base_url}/files/draw_test.gcode"}, ensure_ascii=False)
@@ -369,6 +370,7 @@ def test_chain_push_flag_separates_jobs_and_propagates(memory_queue, monkeypatch
         *,
         job_id: str | None = None,
         chain_push: bool = True,
+        machine: str = "",
     ) -> str:
         calls.append((description, chain_push))
         return json.dumps({"url": f"{public_base_url}/files/draw_test.gcode"})

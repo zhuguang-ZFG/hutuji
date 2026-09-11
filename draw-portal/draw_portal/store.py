@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS bind_sessions (
     device_mac TEXT NOT NULL,
     device_token_enc TEXT NOT NULL,
     expires_at REAL NOT NULL,
-    consumed_at REAL
+    consumed_at REAL,
+    plotter_sku TEXT NOT NULL DEFAULT 'paper'
 );
 
 CREATE TABLE IF NOT EXISTS bind_claims (
@@ -87,7 +88,8 @@ CREATE TABLE IF NOT EXISTS device_bindings (
     device_token_enc TEXT NOT NULL,
     bound_at REAL NOT NULL,
     last_push_at REAL,
-    token_probe_ok INTEGER
+    token_probe_ok INTEGER,
+    machine_type TEXT NOT NULL DEFAULT 'paper'
 );
 
 CREATE TABLE IF NOT EXISTS firmware_ota_sessions (
@@ -273,6 +275,24 @@ class Store:
         for name, ddl in _DRAW_JOB_MIGRATION_COLUMNS:
             if name not in job_cols:
                 conn.execute(f"ALTER TABLE draw_jobs ADD COLUMN {name} {ddl}")
+        session_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(bind_sessions)").fetchall()
+        }
+        if "plotter_sku" not in session_cols:
+            conn.execute(
+                "ALTER TABLE bind_sessions ADD COLUMN plotter_sku TEXT NOT NULL DEFAULT 'paper'"
+            )
+        binding_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(device_bindings)").fetchall()
+        }
+        # 2026-09-11 机型列：旧库缺省 'paper'（现役换纸机行为），由 announce/
+        # status 探测按真值刷新。
+        if "machine_type" not in binding_cols:
+            conn.execute(
+                "ALTER TABLE device_bindings ADD COLUMN machine_type TEXT NOT NULL DEFAULT 'paper'"
+            )
         conn.commit()
 
     @staticmethod
@@ -314,6 +334,11 @@ class Store:
             device_token_enc=row["device_token_enc"],
             expires_at=row["expires_at"],
             consumed_at=consumed,
+            plotter_sku=(
+                row["plotter_sku"]
+                if "plotter_sku" in row.keys() and (row["plotter_sku"] or "")
+                else "paper"
+            ),
         )
 
     @staticmethod
@@ -336,6 +361,11 @@ class Store:
             bound_at=row["bound_at"],
             last_push_at=row["last_push_at"],
             token_probe_ok=None if probe is None else bool(probe),
+            machine_type=(
+                row["machine_type"]
+                if "machine_type" in row.keys() and (row["machine_type"] or "")
+                else "paper"
+            ),
         )
 
     @staticmethod
@@ -681,7 +711,6 @@ class Store:
                 (action, target_user_id, detail, time.time()),
             )
             conn.commit()
-
     def upsert_bind_session(
         self,
         *,
@@ -689,6 +718,7 @@ class Store:
         device_mac: str,
         device_token_enc: str,
         expires_at: float,
+        plotter_sku: str = "paper",
     ) -> BindSession:
         code = normalize_bind_code(bind_code)
         mac = normalize_mac(device_mac)
@@ -696,22 +726,19 @@ class Store:
             conn.execute(
                 """
                 INSERT INTO bind_sessions (
-                    bind_code, device_mac, device_token_enc, expires_at, consumed_at
-                ) VALUES (?, ?, ?, ?, NULL)
+                    bind_code, device_mac, device_token_enc, expires_at, consumed_at, plotter_sku
+                ) VALUES (?, ?, ?, ?, NULL, ?)
                 ON CONFLICT(bind_code) DO UPDATE SET
                     device_mac=excluded.device_mac,
                     device_token_enc=excluded.device_token_enc,
                     expires_at=excluded.expires_at,
-                    consumed_at=NULL
+                    consumed_at=NULL,
+                    plotter_sku=excluded.plotter_sku
                 """,
-                (code, mac, device_token_enc, expires_at),
+                (code, mac, device_token_enc, expires_at, plotter_sku),
             )
             conn.commit()
-            row = conn.execute(
-                "SELECT * FROM bind_sessions WHERE bind_code = ?", (code,)
-            ).fetchone()
-        assert row is not None
-        return self._row_bind_session(row)
+        return self.get_bind_session(code)
 
     def get_bind_session(self, bind_code: str) -> BindSession | None:
         code = normalize_bind_code(bind_code)
@@ -822,6 +849,7 @@ class Store:
         device_token_enc: str,
         bound_at: float,
         token_probe_ok: bool | None,
+        machine_type: str = "paper",
     ) -> DeviceBinding:
         mac = normalize_mac(device_mac)
         probe_val = None if token_probe_ok is None else int(token_probe_ok)
@@ -829,16 +857,34 @@ class Store:
             conn.execute(
                 """
                 INSERT INTO device_bindings (
-                    user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok
-                ) VALUES (?, ?, ?, ?, NULL, ?)
+                    user_id, device_mac, device_token_enc, bound_at, last_push_at,
+                    token_probe_ok, machine_type
+                ) VALUES (?, ?, ?, ?, NULL, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     device_mac=excluded.device_mac,
                     device_token_enc=excluded.device_token_enc,
                     bound_at=excluded.bound_at,
                     last_push_at=NULL,
-                    token_probe_ok=excluded.token_probe_ok
+                    token_probe_ok=excluded.token_probe_ok,
+                    machine_type=excluded.machine_type
                 """,
-                (user_id, mac, device_token_enc, bound_at, probe_val),
+                (user_id, mac, device_token_enc, bound_at, probe_val, machine_type),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM device_bindings WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        assert row is not None
+        return self._row_binding(row)
+
+    def set_binding_machine_type(self, user_id: str, machine_type: str) -> None:
+        """按设备上报刷新机型词汇；非法值一律 ValueError（白名单纪律）。"""
+        if machine_type not in ("nopaper", "paper"):
+            raise ValueError(f"未知机型：{machine_type!r}")
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE device_bindings SET machine_type = ? WHERE user_id = ?",
+                (machine_type, user_id),
             )
             conn.commit()
             row = conn.execute(

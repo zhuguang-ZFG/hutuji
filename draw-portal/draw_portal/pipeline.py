@@ -101,7 +101,33 @@ def _materialize_laid_pages(
     *,
     kind: str,
     mode: str,
+    profile=None,
 ) -> DocPipelineResult:
+    """排版结果 → 每页 SVG/G-code/预览 + pages.json + 第 1 页兼容名。"""
+    import json as _json
+
+    from hutuji_mcp import write_text
+    from hutuji_mcp.gcode_gen import svg_to_gcode, validate_gcode
+    from hutuji_mcp.llm_svg import _validate_svg
+
+    job_dir.mkdir(parents=True, exist_ok=True)
+    pages_dir = job_dir / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    page_lines: list[int] = []
+    total_lines = 0
+    total_bytes = 0
+    for i, page in enumerate(laid.pages, start=1):
+        svg = write_text.page_to_svg(page)
+        _validate_svg(svg)
+        svg_path = pages_dir / f"page_{i:03d}.svg"
+        gcode_path = pages_dir / f"page_{i:03d}.gcode"
+        preview_path = pages_dir / f"page_{i:03d}.png"
+        svg_path.write_text(svg, encoding="utf-8")
+        stats = svg_to_gcode(svg_path, gcode_path, normalize=False, profile=profile)
+        gcode_raw = gcode_path.read_bytes()
+        validate_gcode(
+            gcode_raw.decode("ascii"), total_bytes=len(gcode_raw), profile=profile
+        )
     """排版结果 → 每页 SVG/G-code/预览 + pages.json + 第 1 页兼容名。"""
     import json as _json
 
@@ -169,6 +195,7 @@ def process_write_text(
     layout,
     stroke_dir: str = "",
     font_name: str | None = None,
+    profile=None,
 ) -> DocPipelineResult:
     """纯文本 → 文章排版 → 多页产物（kind=write，供 /api/draw/write 调用）。
     font_name 为空走默认偏好（blood8 真迹），具名不存在由 load_font 抛
@@ -199,14 +226,16 @@ def process_write_text(
         max_pages=ARTICLE_MAX_PAGES,
         stroke_data=stroke_data,
     )
-    return _materialize_laid_pages(laid, job_dir, kind="write", mode="article")
-
+    return _materialize_laid_pages(
+        laid, job_dir, kind="write", mode="article", profile=profile
+    )
 
 def process_teach_text(
     chars: str,
     job_dir: Path,
     *,
     stroke_dir: str,
+    profile=None,
 ) -> DocPipelineResult:
     """笔顺教学 → 田字格多页产物（kind=teach，供 /api/draw/teach 调用）。"""
     from hutuji_mcp import stroke_order
@@ -217,7 +246,9 @@ def process_teach_text(
         raise stroke_order.StrokeOrderError("没有可教的汉字")
     data = stroke_order.StrokeData.load(stroke_dir)
     laid = stroke_order.layout_teach(chars, data, ARTICLE_MAX_PAGES)
-    return _materialize_laid_pages(laid, job_dir, kind="teach", mode="article")
+    return _materialize_laid_pages(
+        laid, job_dir, kind="teach", mode="article", profile=profile
+    )
 
 
 def process_upload_doc(
@@ -229,6 +260,7 @@ def process_upload_doc(
     stroke_dir: str = "",
     size_mm: float | None = None,
     line_spacing: float | None = None,
+    profile=None,
 ) -> DocPipelineResult:
     """文档 → 解析 → 排版 → 每页 SVG/G-code/预览（多页，pages/ 目录 + pages.json）。
 
@@ -274,10 +306,14 @@ def process_upload_doc(
             write_text.WriteLayout(size_mm=8.0, line_spacing=1.25, char_gap_mm=0.5),
             max_pages=ARTICLE_MAX_PAGES,
         )
-    return _materialize_laid_pages(laid, job_dir, kind=doc.kind, mode=doc.mode)
+    return _materialize_laid_pages(
+        laid, job_dir, kind=doc.kind, mode=doc.mode, profile=profile
+    )
 
 
-def process_upload_svg(svg_bytes: bytes, job_dir: Path) -> PipelineResult:
+def process_upload_svg(
+    svg_bytes: bytes, job_dir: Path, *, profile=None
+) -> PipelineResult:
     from hutuji_mcp.curated import _preview_from_svg
     from hutuji_mcp.gcode_gen import svg_to_gcode, validate_gcode
     from hutuji_mcp.llm_svg import _validate_svg
@@ -290,11 +326,9 @@ def process_upload_svg(svg_bytes: bytes, job_dir: Path) -> PipelineResult:
     gcode_path = job_dir / "draw.gcode"
     preview_path = job_dir / "preview.png"
     svg_path.write_text(text, encoding="utf-8")
-    preview_path.write_bytes(_preview_from_svg(text))
-
-    stats = svg_to_gcode(svg_path, gcode_path)
+    stats = svg_to_gcode(svg_path, gcode_path, profile=profile)
     raw = gcode_path.read_bytes()
-    validate_gcode(raw.decode("ascii"), total_bytes=len(raw))
+    validate_gcode(raw.decode("ascii"), total_bytes=len(raw), profile=profile)
 
     return PipelineResult(
         lines=stats.lines,
@@ -359,7 +393,7 @@ def shrink_oversized_png(png_bytes: bytes, *, max_mpx: float = 4.8) -> bytes:
 
 
 def process_upload_png(
-    png_bytes: bytes, job_dir: Path, *, skeleton_method: str = "zhang"
+    png_bytes: bytes, job_dir: Path, *, skeleton_method: str = "zhang", profile=None
 ) -> PipelineResult:
     """PNG → 描摹 → SVG 校验 → vpype G-code → validate_gcode。
 
@@ -391,9 +425,9 @@ def process_upload_png(
     svg_path.write_text(svg, encoding="utf-8")
     preview_path.write_bytes(preview)
 
-    stats = svg_to_gcode(svg_path, gcode_path)
+    stats = svg_to_gcode(svg_path, gcode_path, profile=profile)
     raw = gcode_path.read_bytes()
-    validate_gcode(raw.decode("ascii"), total_bytes=len(raw))
+    validate_gcode(raw.decode("ascii"), total_bytes=len(raw), profile=profile)
 
     return PipelineResult(
         lines=stats.lines,
@@ -406,7 +440,7 @@ def process_upload_png(
 
 
 def process_upload_sketch(
-    raw: bytes, job_dir: Path, *, style: str = "hatch"
+    raw: bytes, job_dir: Path, *, style: str = "hatch", profile=None
 ) -> PipelineResult:
     """照片 → 程序化风格渲染（排线/波纹）→ SVG 校验 → vpype G-code → §5。
 
@@ -434,9 +468,11 @@ def process_upload_sketch(
     svg_path.write_text(svg, encoding="utf-8")
     preview_path.write_bytes(preview)
 
-    stats = svg_to_gcode(svg_path, gcode_path)
+    stats = svg_to_gcode(svg_path, gcode_path, profile=profile)
     gcode_raw = gcode_path.read_bytes()
-    validate_gcode(gcode_raw.decode("ascii"), total_bytes=len(gcode_raw))
+    validate_gcode(
+        gcode_raw.decode("ascii"), total_bytes=len(gcode_raw), profile=profile
+    )
 
     return PipelineResult(
         lines=stats.lines,
@@ -455,16 +491,17 @@ def process_upload(
     content_type: str,
     filename: str,
     job_dir: Path,
+    profile=None,
 ) -> PipelineResult:
     kind = detect_upload_kind(raw, content_type, filename)
     if kind == "svg":
-        return process_upload_svg(raw, job_dir)
+        return process_upload_svg(raw, job_dir, profile=profile)
     # 描摹只吃 PNG 魔数（trace_bitmap_to_polylines 开头硬闸）；JPEG 直传会在闸上炸
     # BitmapError（2026-09-07 iPhone 拍照 422「图片转换失败」实证）。按魔数判定，
     # 不信客户端 content_type。
     if raw[:8] == b"\x89PNG\r\n\x1a\n":
-        return process_upload_png(raw, job_dir)
-    return process_upload_png(normalize_raster_to_png(raw), job_dir)
+        return process_upload_png(raw, job_dir, profile=profile)
+    return process_upload_png(normalize_raster_to_png(raw), job_dir, profile=profile)
 
 
 def copy_saved_preview(

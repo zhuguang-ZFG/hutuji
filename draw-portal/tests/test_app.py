@@ -263,7 +263,7 @@ def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         lambda **kwargs: (True, "mock ok"),
     )
 
-    def fake_pipeline(raw, *, content_type, filename, job_dir):
+    def fake_pipeline(raw, *, content_type, filename, job_dir, profile=None):
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "draw.gcode").write_text("G21\nG90\n", encoding="ascii")
         (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")

@@ -61,6 +61,7 @@ from draw_portal.push import (
     _install_capability_pair,
     publish_doc_pages,
     publish_job_files,
+    probe_plotter_sku,
     push_draw_self_heal,
     push_for_user_binding,
     push_tool_call,
@@ -127,6 +128,9 @@ class BindAnnounceBody(BaseModel):
     mac: str
     bind_code: str
     device_token: str = Field(min_length=8)
+    # 机型词汇（2026-09-11，§10.4.15）：S3 1.0.9 起随 announce 上报（$I VER
+    # build 段识别）；1.0.8 旧固件缺席 → "paper"。
+    plotter_sku: str = Field(default="paper", pattern="^(nopaper|paper)$")
 
 
 class BindCompleteBody(BaseModel):
@@ -589,6 +593,7 @@ def create_app() -> FastAPI:
             device_mac=mac,
             device_token_enc=enc,
             expires_at=now + config.bind_code_ttl_seconds,
+            plotter_sku=body.plotter_sku,
         )
         bound = store.get_user_id_for_mac(mac) is not None
         if not bound:
@@ -1072,6 +1077,7 @@ def create_app() -> FastAPI:
             device_token_enc=token_enc,
             bound_at=now,
             token_probe_ok=ok,
+            machine_type=session.plotter_sku,
         )
         _record_portal_usage(
             store,
@@ -1185,6 +1191,40 @@ def create_app() -> FastAPI:
         if firmware_ota_mod.is_upgrading(store, user_id):
             raise HTTPException(status_code=400, detail="固件升级中，请稍后再出图")
 
+
+    def _machine_profile_for_user(user_id: str) -> tuple[object, str]:
+        """按绑定机型选 G-code 生成档（protocol §10.4.15，2026-09-11）。
+
+        知识源优先级：设备 status 探测（现值，命中回写库）→ 库值
+        （announce 学习 / 默认 paper）；探测失败（离线 / 1.0.8 旧固件无字段）
+        回落库值不写库。返回 (profile, machine)：paper → (None, "paper")，
+        传 None 保持 MK38 默认档与 G-code 内容缓存键逐字节兼容；nopaper →
+        PROFILE_NOPAPER（不转置、限幅 205/290）。
+        """
+        from hutuji_mcp.gcode_gen import PROFILE_NOPAPER
+
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            return None, "paper"
+        machine = binding.machine_type or "paper"
+        try:
+            sku = probe_plotter_sku(
+                api_base=config.xiaozhi_api_base,
+                device_token=decrypt_token(
+                    config.token_cipher_key, binding.device_token_enc
+                ),
+            )
+        except Exception:
+            sku = None
+        if sku is not None:
+            machine = sku
+            try:
+                store.set_binding_machine_type(user_id, sku)
+            except ValueError:
+                pass
+        if machine == "nopaper":
+            return PROFILE_NOPAPER, "nopaper"
+        return None, "paper"
     def _publish_from_job(job_id: str) -> tuple[str, str]:
         published = publish_job_files(
             job_dir=_job_dir(config.data_dir, job_id),
@@ -1212,8 +1252,15 @@ def create_app() -> FastAPI:
             )
             refined_path = _job_dir(config.data_dir, refined_job.id)
             try:
+                profile, _machine = await asyncio.to_thread(
+                    _machine_profile_for_user, user_id
+                )
                 result = await asyncio.to_thread(
-                    process_upload_sketch, raw, refined_path, style=style
+                    process_upload_sketch,
+                    raw,
+                    refined_path,
+                    style=style,
+                    profile=profile,
                 )
                 published = await asyncio.to_thread(
                     publish_job_files,
@@ -1292,6 +1339,9 @@ def create_app() -> FastAPI:
                 store.mark_draw_job_failed(job.id, error_summary="WriteLayoutParamsError")
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             try:
+                profile, _machine = await asyncio.to_thread(
+                    _machine_profile_for_user, user_id
+                )
                 result = await asyncio.to_thread(
                     process_upload_doc,
                     raw,
@@ -1301,6 +1351,7 @@ def create_app() -> FastAPI:
                     stroke_dir=config.stroke_dir,
                     size_mm=doc_size_mm,
                     line_spacing=doc_line_spacing,
+                    profile=profile,
                 )
                 published_pages = await asyncio.to_thread(
                     publish_doc_pages,
@@ -1344,12 +1395,16 @@ def create_app() -> FastAPI:
             }
 
         try:
+            profile, _machine = await asyncio.to_thread(
+                _machine_profile_for_user, user_id
+            )
             result = await asyncio.to_thread(
                 process_upload,
                 raw,
                 content_type=content_type,
                 filename=filename,
                 job_dir=job_path,
+                profile=profile,
             )
             published = await asyncio.to_thread(
                 publish_job_files,
@@ -1462,6 +1517,9 @@ def create_app() -> FastAPI:
         job = store.create_draw_job(user_id=user_id, source_name=source_name)
         job_path = _job_dir(config.data_dir, job.id)
         try:
+            profile, _machine = await asyncio.to_thread(
+                _machine_profile_for_user, user_id
+            )
             result = await asyncio.to_thread(
                 process_write_text,
                 safe,
@@ -1470,6 +1528,7 @@ def create_app() -> FastAPI:
                 layout=layout,
                 stroke_dir=config.stroke_dir or "",
                 font_name=font_name,
+                profile=profile,
             )
             published_pages = await asyncio.to_thread(
                 publish_doc_pages,
@@ -1530,11 +1589,15 @@ def create_app() -> FastAPI:
         job = store.create_draw_job(user_id=user_id, source_name=source_name)
         job_path = _job_dir(config.data_dir, job.id)
         try:
+            profile, _machine = await asyncio.to_thread(
+                _machine_profile_for_user, user_id
+            )
             result = await asyncio.to_thread(
                 process_teach_text,
                 chars,
                 job_path,
                 stroke_dir=config.stroke_dir,
+                profile=profile,
             )
             published_pages = await asyncio.to_thread(
                 publish_doc_pages,
@@ -1642,12 +1705,16 @@ def create_app() -> FastAPI:
         )
         job_path = _job_dir(config.data_dir, job.id)
         try:
+            _profile, machine_type = await asyncio.to_thread(
+                _machine_profile_for_user, user_id
+            )
             result = await asyncio.to_thread(
                 request_internal_draw,
                 base_url=config.mcp_internal_base_url,
                 secret=config.usage_ingest_secret,
                 description=description,
                 timeout_seconds=config.generate_timeout_seconds,
+                machine=machine_type,
             )
             generated = await asyncio.to_thread(
                 materialize_generated_job,

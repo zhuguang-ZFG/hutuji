@@ -31,7 +31,7 @@ def test_process_teach_text_forwards_layout(monkeypatch, tmp_path):
         seen["max_pages"] = max_pages
         return FakeLaid()
 
-    def fake_materialize(laid, job_dir, *, kind, mode):
+    def fake_materialize(laid, job_dir, *, kind, mode, profile=None):
         seen["kind"] = kind
         seen["mode"] = mode
         seen["truncated"] = laid.truncated

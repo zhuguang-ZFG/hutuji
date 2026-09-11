@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 import logging
 import math
 import re
@@ -95,6 +96,31 @@ _ARC_MIN_CHORD_MM = 0.5
 # 放行（包围盒退化成端点），固件却画出整圆——圆越大越致命，本机无限位开关，
 # 这道校验是唯一防线。阈值必须与固件逐字一致，改动要与 Grbl 侧同步评审。
 _ARC_FULL_CIRCLE_EPSILON_RAD = 5e-7
+
+# 按机型的出图方向与安全限幅（2026-09-11 量产无换纸机联调引入）。transpose_xy=None
+# 时回落 hutuji_gwrite.toml 的开关（现役 MK38 行为）；max_*_mm=None 时回落上方
+# MAX_*_MM 常量——默认行为对全部既有调用方与测试保持不变。
+@dataclass(frozen=True)
+class MachineProfile:
+    transpose_xy: bool | None = None
+    max_x_mm: float | None = None
+    max_y_mm: float | None = None
+
+
+# 量产无换纸机（§10.4.15，物理 X≈210 / Y≈297，2026-09-11 用户实机确认）：墙面
+# 竖装转置对它是「横竖颠倒 + 出界顶框」的双重错误（实机两案目击），故不转置；
+# 机器坐标限幅按物理行程留 5mm 安全边（无 soft limit 可依赖，MCP 限幅是唯一防线，
+# 与 MAX_*_MM 同纪律；点动包线同值由 xiaozhi recovery_core 分机型表镜像）。
+PROFILE_NOPAPER = MachineProfile(transpose_xy=False, max_x_mm=205.0, max_y_mm=290.0)
+
+
+def _resolve_limits(profile: MachineProfile | None) -> tuple[float, float]:
+    if profile is None:
+        return MAX_X_MM, MAX_Y_MM
+    return (
+        MAX_X_MM if profile.max_x_mm is None else profile.max_x_mm,
+        MAX_Y_MM if profile.max_y_mm is None else profile.max_y_mm,
+    )
 
 # 单文件大小上限（protocol §5，S3 侧 PSRAM 缓冲硬约束；恰好 512KiB 放行，再多一字节才拒）
 MAX_BYTES = 512 * 1024
@@ -523,7 +549,7 @@ def _transpose_gcode_xy(text: str) -> str:
     return "".join(out)
 
 
-def _read_generated_gcode(gcode_path: Path, on_raw_text=None) -> GcodeStats:
+def _read_generated_gcode(gcode_path: Path, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
     """读取 vpype 成功退出后的产物，并统一成合同错误。
 
     **必须按字节读**，不能用 `read_text()`：后者走 universal newlines，把 CRLF 塌成
@@ -556,7 +582,8 @@ def _read_generated_gcode(gcode_path: Path, on_raw_text=None) -> GcodeStats:
     # B 案竖版转置（toml `transpose_xy`）：塌缩后、弧拟合前——流中只有 G0/G1
     # 完整 XY 对，弧由拟合在转置后几何上生成（旋向天然正确）。转置在撰写系
     # 内部是反射（det −1），恰与墙上竖装的奇象限相消，纸面站直横读。
-    transposed = _transpose_gcode_xy(collapsed) if _transpose_xy_enabled() else collapsed
+    transpose = _transpose_xy_enabled() if profile is None or profile.transpose_xy is None else profile.transpose_xy
+    transposed = _transpose_gcode_xy(collapsed) if transpose else collapsed
     fitted = fit_gcode_arcs(transposed)
     if fitted != text:
         try:
@@ -566,10 +593,10 @@ def _read_generated_gcode(gcode_path: Path, on_raw_text=None) -> GcodeStats:
             raise GcodeError("G-code 后处理写回失败") from None
         text = fitted
         raw = fitted.encode("utf-8")
-    return validate_gcode(text, total_bytes=len(raw))
+    return validate_gcode(text, total_bytes=len(raw), profile=profile)
 
 
-def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None) -> GcodeStats:
+def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
     """跑 vpype 管线生成 G-code，随后做 §5 合同校验。
 
     normalize=False 仅写字/表格排版链使用（跳过 layout 保字号，与
@@ -594,10 +621,10 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True, on_ra
     if proc.returncode != 0:
         logger.error("vpype 转换失败（exit %d）：%s", proc.returncode, proc.stderr[-500:])
         raise GcodeError(f"vpype 转换失败（exit {proc.returncode}）")
-    return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text)
+    return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text, profile=profile)
 
 
-async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None) -> GcodeStats:
+async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
     """可取消地运行 vpype；请求取消或超时都必须回收子进程。"""
     try:
         process = await asyncio.create_subprocess_exec(
@@ -646,19 +673,19 @@ async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normal
         tail = stderr.decode("utf-8", errors="replace")[-500:]
         logger.error("vpype 转换失败（exit %d）：%s", process.returncode, tail)
         raise GcodeError(f"vpype 转换失败（exit {process.returncode}）")
-    return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text)
+    return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text, profile=profile)
 
 
-async def svg_to_gcode_async(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None) -> GcodeStats:
+async def svg_to_gcode_async(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
     """可取消地运行 vpype；最多两个子进程并发，取消时仍回收已启动进程。
 
     normalize=False 仅写字排版链使用（跳过 layout 保字号），其余调用方不得传。
     """
     async with _vpype_semaphore():
-        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path, normalize, on_raw_text=on_raw_text)
+        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path, normalize, on_raw_text=on_raw_text, profile=profile)
 
 
-def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
+def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
     """逐行断言 docs/protocol.md §5 契约，违规抛 GcodeError（带行号）。
 
     `total_bytes` 是**落盘后的真实字节数**，由调用方按 `len(read_bytes())` 传入。
@@ -675,6 +702,8 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()  # 文件末尾换行符产生的空尾段不是一行
+    max_x_mm, max_y_mm = _resolve_limits(profile)
+
     lines = [l[:-1] if l.endswith("\r") else l for l in lines]
     if not lines or not any(l.strip() for l in lines):
         raise GcodeError("G-code 为空")
@@ -915,7 +944,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
                 seen_xy_motion = True
         if has_motion:
             for axis, val in coords:
-                limit = MAX_X_MM if axis == "X" else MAX_Y_MM
+                limit = max_x_mm if axis == "X" else max_y_mm
                 if val < 0.0 or val > limit:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{limit}mm）：{line}")
 
@@ -944,7 +973,7 @@ def validate_gcode(text: str, total_bytes: int | None = None) -> GcodeStats:
                 clockwise=active_motion == "G2",
             )
             for label, lo, hi in (("X", min_x, max_x), ("Y", min_y, max_y)):
-                limit = MAX_X_MM if label == "X" else MAX_Y_MM
+                limit = max_x_mm if label == "X" else max_y_mm
                 if lo < -_GEOMETRY_EPS_MM or hi > limit + _GEOMETRY_EPS_MM:
                     raise GcodeError(
                         f"第 {idx} 行圆弧 {label} 包围盒 [{lo:.3f}, {hi:.3f}] "
