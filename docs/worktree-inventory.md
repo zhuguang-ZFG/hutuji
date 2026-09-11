@@ -9,6 +9,17 @@
 
 ---
 
+## 2026-09-12 深夜 TG 运维通知面双机上线（已提交系列，双机已部署+端到端投递有证）
+
+| 项 | 说明 |
+|----|------|
+| 提交 | 本仓 `29d6ea8`→`e069216`→`6095279`→`2fee942`→`ced9292`→`8e93fde`（deploy/tg-notify.sh + tg-relay-server.py + hutuji-tg-relay.service + tg-ops-check/xiaozhi-token-watch 出口收敛 + 注释口径 + readiness/deployment/inventory + 指纹基线） |
+| 授权 | 用户原话「做一个 tg 的 bot，我们双机部署有什么异常都能推到我 telegram」（2026-09-12） |
+| 服务器运行态（不入库） | lima：`hutuji-tg-relay.service` enabled+active（bind 127.0.0.1:8092）；gray conf 公网 vhost 插保密 location（allow jd IP，备份 /tmp/hutuji-gray.conf.bak-tg）；`/etc/hutuji/tg.env`（TG_BOT_TOKEN/TG_CHAT_ID/TG_PROXY）。jd：`tg.env`（TG_RELAY_URL）。双机 `hutuji-notify@.service` + OnFailure drop-ins、cron `41 * * * * tg-ops-check` + `3 8 * * * --digest`（jd 带 JD_HOT_STANDBY=1） |
+| 已清场 | tailnet HTTP 收口（8092 被 tailnet ACL 挡死）、SSH 中继（tailnet :22 握手挂起、公网 :22 jd HIDS 疑似节流 3 连 KEX 挂死）：lima authorized_keys 条目、jd 中继 key、tg-relay-recv.sh 全删 |
+| 证据 | lima 直发 ok:true message_id:2；jd 中继自检/digest/unit 模板自启（01:31:39 tg-relay: req）零告警；hub PASS（1397 pytest + e2e PASS + 指纹 262 全对） |
+| 未验证 | 通知告警阈值语义化、真实 unit failed 触发复测（模板路径已实测） |
+
 ## 2026-09-12 小派人格批：丹青改名 + 无换纸口径（已提交 `94a91cf`，双机已热更，云控制台已 sync）
 
 | 项 | 说明 |
