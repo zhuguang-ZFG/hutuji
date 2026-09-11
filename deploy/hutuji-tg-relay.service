@@ -1,0 +1,14 @@
+[Unit]
+Description=hutuji Telegram relay receiver (tailnet only)
+# 只 bind tailnet IP：暴露面 = tailnet 成员（本方三节点）。tailscale 未起时
+# bind 失败 → Restart=on-failure 拉起重试， 直连路径不受影响（jd 失败静默）。
+
+[Service]
+Type=simple
+Environment=TG_RELAY_BIND=100.103.82.78
+ExecStart=/opt/hutuji/mcp-server/.venv/bin/python /opt/hutuji/deploy/tg-relay-server.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
