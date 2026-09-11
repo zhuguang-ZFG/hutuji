@@ -105,6 +105,56 @@ def test_local_store_finalize_created_at_shifts_mtime(
         assert paths.gcode_path.stat().st_mtime < future - 600.0
 
 
+def test_read_verified_accepts_nopaper_profile_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """§5 服务时复核必须按机型分档放行（§10.4.15）。
+
+    2026-09-11 生产事故：nopaper 档产物（Y 可到 290）落盘合法，读闸却只跑
+    默认档（Y≤190）——合法产物被当 stale 删掉、设备下载必 404，语音画图
+    「文件已过期或不存在」全灭。读时无法知道产物出自哪台机器，故两档任一
+    成立即放行；两档都不成立（盘上被改写/常量收紧旧产物）仍拒。
+    """
+    base = load_settings()
+    patched = Settings(
+        **{**base.__dict__, "output_dir": tmp_path, "output_backend": "local"}
+    )
+    monkeypatch.setattr(server, "settings", patched)
+    reset_output_store_for_tests()
+    store = get_output_store()
+    token = "C" * 22
+    stem = f"draw_20260911_204245_{token}"
+    nopaper_body = "\n".join(
+        [
+            "G21",
+            "G90",
+            "F8000",
+            "G1G90 Z0.0F10000",
+            "G1G90 Z0.0F10000",
+            "G0 X10 Y10 F8000",
+            "G1G90 Z5.0F10000",
+            "G1G90 X100 Y250 F8000",  # Y=250：默认档越界、nopaper 档合法
+            "G1G90 Z0.0F10000",
+        ]
+    ) + "\n"
+    with store.job_workspace(stem) as paths:
+        paths.gcode_path.write_bytes(nopaper_body.encode("utf-8"))
+        paths.svg_path.write_text("<svg></svg>", encoding="utf-8")
+        paths.preview_path.write_bytes(b"png")
+        store.finalize_job(paths)
+        name = paths.gcode_path.name
+    data, _mtime = store.read_verified(name)  # 不抛 = 放行
+    assert b"Y250" in data
+
+    # 两档都不成立仍拒（盘上被改写的旧口径产物，如 Y=300 超出任何机器）
+    over = nopaper_body.replace("Y250", "Y300")
+    name_over = stem.replace(token, "C" * 22) + ".gcode"
+    (tmp_path / name_over).write_bytes(over.encode("utf-8"))
+    with pytest.raises(Exception) as exc_info:
+        store.read_verified(name_over)
+    assert "Y300" in str(exc_info.value)
+
+
 class _FakeObj:
     def __init__(self, key: str, last_modified: float) -> None:
         self.key = key

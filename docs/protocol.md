@@ -874,6 +874,7 @@ Cookie: <session>
 | portal 学习 | `bind_sessions.plotter_sku` 随 announce 落库 → `_finalize_binding` 转存 `device_bindings.machine_type`（旧库迁移默认 `'paper'`）；portal 各生成入口按绑定机型选档：位图/SVG/文档/写字/笔顺/精修本地穿 profile，AI 生图把 machine 显式传 MCP |
 | S3 点动包线 | `DecideJog` 增显式限幅重载 + `MachineJogEnvelope(nopaper)`：nopaper 205/290（镜像 PROFILE_NOPAPER，R17-XREPO-01 双侧同步）、paper 277/190；VER 未达 = 保守 paper 档。工具侧预检与 ManualTask 纵深防御同源改参 |
 | 状态 | MCP/portal 代码面 + 回归绿（`test_contract.py` machine 白名单/缓存成分/inflight 隔离/probe 缓存 4 例 + nopaper profile 3 例；draw-portal 173 项全绿）；S3 host 点动测试绿；**实机 HIL 未做**（nopaper 不转置、205/290、MK38 双向不变），归 todo「构建 1.0.9 + 实机验证」 |
+| 读闸分档（2026-09-11 热修） | `/files` 读时复核 `output_store._read_verified_gcode_bytes` **按机型分档放行**：默认档先验，`GcodeError` 再以 `PROFILE_NOPAPER` 重验，任一通过即下发；两档都不成立仍 stale 删除。理由：读时无法知道产物出自哪台机器（文件名无机型成分），只跑单档会把另一机型的合法产物判 stale 联动删除 → 设备 404（2026-09-11 生产事故实锤：nopaper Y>190 合法产物被删、语音画图全灭）。写入侧仍按生成时选定的单档校验，不放松 |
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

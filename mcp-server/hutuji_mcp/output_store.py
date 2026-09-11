@@ -13,7 +13,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Iterator
 
-from .gcode_gen import GcodeError, validate_gcode
+from .gcode_gen import GcodeError, PROFILE_NOPAPER, validate_gcode
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +93,18 @@ def _read_verified_gcode_bytes(data: bytes, mtime: float) -> tuple[bytes, float]
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise StaleOutputStoreError("G-code 无法按 UTF-8 解码", mtime) from exc
+    # §5 复核按机型分档（§10.4.15）：产物是哪台机器生成、读时就无法知道，
+    # 故「默认档过了直接放行，没过再看 nopaper 档」——两档任一成立即合法
+    # （内容所出自的生成期校验本来就带正确 profile；这里复核防的是盘上
+    # 被改写/常量收紧后的旧产物）。任一档都不成立时保留默认档的报错文案，
+    # 日志语义与单机型时代逐字一致。
     try:
         validate_gcode(text, total_bytes=len(data))
-    except GcodeError as exc:
-        raise StaleOutputStoreError(str(exc), mtime) from exc
+    except GcodeError as default_err:
+        try:
+            validate_gcode(text, total_bytes=len(data), profile=PROFILE_NOPAPER)
+        except GcodeError:
+            raise StaleOutputStoreError(str(default_err), mtime) from None
     return data, mtime
 
 
