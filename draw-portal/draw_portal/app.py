@@ -401,6 +401,9 @@ def create_app() -> FastAPI:
     config = load_config()
     store = Store(config.db_path, provider_cipher_key=config.provider_cipher_key)
 
+    # 启动恢复（评审②）：上次进程重启丢掉内存队列的 pending 行重新入队。
+    telegram_archive.enqueue_pending_on_boot(store)
+
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     def user_dep(
@@ -1210,6 +1213,33 @@ def create_app() -> FastAPI:
         binding = _try_auto_bind(mac, user_id, body.force, now)
         if binding is not None:
             return {"status": "bound", "binding": store.binding_status_dict(binding)}
+        return {"status": "claimed", "expires_at": claim.expires_at}
+
+    @app.get("/api/user/bind/claim/status", dependencies=phone_secured)
+    def bind_claim_status(mac: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        """返回当前用户对某台设备的一次扫码认领进度。
+
+        小程序在设备重启、切回家庭 Wi‑Fi 的窗口内轮询此接口；不回显
+        认领人的信息，也不把 MAC 当作授权凭据。已绑定时直接返回 bound，
+        认领过期时返回 expired，便于客户端给出可恢复的重试按钮。
+        """
+        try:
+            normalized = normalize_mac(mac)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        binding = store.get_binding_for_user(user_id)
+        if binding is not None and binding.device_mac == normalized:
+            return {"status": "bound", "binding": store.binding_status_dict(binding)}
+        now = time.time()
+        claim = store.get_bind_claim(normalized, now=now)
+        if claim is None:
+            # 认领可能已被 announce 消费；再次检查 MAC 归属以保持幂等。
+            if store.get_user_id_for_mac(normalized) == user_id:
+                binding = store.get_binding_for_user(user_id)
+                return {"status": "bound", "binding": store.binding_status_dict(binding)}
+            return {"status": "expired"}
+        if claim.user_id != user_id:
+            return {"status": "pending"}
         return {"status": "claimed", "expires_at": claim.expires_at}
 
     @app.post("/api/user/bind/unbind", dependencies=phone_secured)

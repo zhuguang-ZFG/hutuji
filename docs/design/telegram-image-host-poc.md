@@ -67,8 +67,9 @@ draw-portal 保存预览 PNG
 
 | 变量 | 说明 |
 |------|------|
-| `HUTUJI_TG_BOT_TOKEN` | @BotFather 签发 |
-| `HUTUJI_TG_CHANNEL_ID` | 私有频道 chat_id（bot 为管理员） |
+| `TG_BOT_TOKEN` | @BotFather 签发（与运维通知面同凭据面，2026-09-12 实测口径：模块读 `TG_*`，不是 `HUTUJI_TG_*`） |
+| `TG_CHANNEL_ID` | 私有频道 chat_id（bot 为管理员） |
+| `TG_PROXY` | 出网代理（lima=`http://127.0.0.1:7890`；缺它 python 直发 curl 直连被墙 http=0） |
 | `HUTUJI_TG_UPLOAD_ENABLED` | `0/1`，默认 0 |
 
 ### 5.3 验收判据

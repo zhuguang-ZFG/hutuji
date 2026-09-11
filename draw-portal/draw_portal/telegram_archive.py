@@ -94,19 +94,7 @@ def delete_message_async(saved: Any) -> None:
     """图库删除时尽力撤回频道副本（用户要求删除 → 第三方也不留）。fire-and-forget。"""
     if not enabled() or not saved.tg_message_id:
         return
-    message_id = int(saved.tg_message_id)
-
-    def _run() -> None:
-        try:
-            _api_call(
-                "deleteMessage",
-                {"chat_id": os.environ["TG_CHANNEL_ID"], "message_id": str(message_id)},
-                timeout=_API_TIMEOUT_S,
-            )
-        except Exception as exc:  # noqa: BLE001 尽力而为；失败仅日志。
-            logger.warning("tg-archive delete failed type=%s", type(exc).__name__)
-
-    threading.Thread(target=_run, daemon=True, name="hutuji-tg-archive-delete").start()
+    _delete_channel_copy_async(int(saved.tg_message_id))
 
 
 def _ensure_worker() -> None:
@@ -135,6 +123,9 @@ def _process(store: Any, task: _Task) -> None:
     except OSError:
         store.mark_preview_telegram(task.saved_id, state="failed", file_id=None, message_id=None)
         return
+    # 入队后行可能已被用户删除（进程慢/重启久）：不再上传，直接放弃。
+    if store.get_saved_preview(task.saved_id, user_id=task.user_id) is None:
+        return
     file_id = message_id = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
@@ -153,21 +144,44 @@ def _process(store: Any, task: _Task) -> None:
         ok = _verify_download(file_id, src_sha)
     except Exception:  # noqa: BLE001 校验网络失败等同失败态，本地仍在。
         ok = False
-    if ok:
-        store.mark_preview_telegram(
-            task.saved_id, state="uploaded", file_id=file_id, message_id=message_id
-        )
-        store.append_archive_log(
-            saved_id=task.saved_id,
-            user_id=task.user_id,
-            title=task.title,
-            preview_path=str(task.path),
-            tg_file_id=file_id,
-            tg_message_id=message_id,
-        )
-        logger.info("tg-archive uploaded saved=%s", task.saved_id)
-    else:
+    if not ok:
         store.mark_preview_telegram(task.saved_id, state="failed", file_id=file_id, message_id=message_id)
+        return
+    # 删除/归档竞态收口（2026-09-12 评审①）：mark 返回行是否存在；台账 INSERT
+    # 以行仍存在为守卫。任何一步发现行已删 → 立即尽力撤回频道副本，不落台账
+    # （recall 以台账为准，无台账 = 不可复活），尊重删除意愿。
+    if not store.mark_preview_telegram(
+        task.saved_id, state="uploaded", file_id=file_id, message_id=message_id
+    ):
+        _delete_channel_copy_async(message_id)
+        return
+    if not store.append_archive_log(
+        saved_id=task.saved_id,
+        user_id=task.user_id,
+        title=task.title,
+        preview_path=str(task.path),
+        tg_file_id=file_id,
+        tg_message_id=message_id,
+    ):
+        _delete_channel_copy_async(message_id)
+        return
+    logger.info("tg-archive uploaded saved=%s", task.saved_id)
+
+
+def _delete_channel_copy_async(message_id: int) -> None:
+    """撤回频道副本（尽力，fire-and-forget）；失败仅日志。"""
+
+    def _run() -> None:
+        try:
+            _api_call(
+                "deleteMessage",
+                {"chat_id": os.environ["TG_CHANNEL_ID"], "message_id": str(message_id)},
+                timeout=_API_TIMEOUT_S,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("tg-archive delete failed type=%s", type(exc).__name__)
+
+    threading.Thread(target=_run, daemon=True, name="hutuji-tg-archive-delete").start()
 
 
 def _verify_tmp() -> Path:
@@ -251,10 +265,15 @@ def _download_document(file_id: str, dest: Path) -> bytes | None:
         f"https://api.telegram.org/file/bot{token}/{file_path}",
     ]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=_API_TIMEOUT_S + 5, check=False)
+        # 预删目标 + 要求退出码 0：curl 失败残留旧文件会导致校验假阳性（评审④）。
+        try:
+            dest.unlink()
+        except FileNotFoundError:
+            pass
+        proc = subprocess.run(cmd, capture_output=True, timeout=_API_TIMEOUT_S + 5, check=False)
     except subprocess.TimeoutExpired:
         return None
-    if not dest.is_file():
+    if proc.returncode != 0 or not dest.is_file():
         return None
     return dest.read_bytes()
 
@@ -278,6 +297,19 @@ def _verify_download(file_id: str, src_sha: str) -> bool:
 # 仅预览无 G-code 副本——按 §10.4.5 契约不可再次发送出图）、用户主动删除的
 # 行（频道副本已撤 + 台账标记 removed → 召回时跳过，尊重用户删除意愿）。
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 重试（评审②）：failed 的归档提供人工重试入口；pending 由启动恢复兜底。
+# ---------------------------------------------------------------------------
+
+
+def retry_user(store: Any, user_id: str) -> dict[str, Any]:
+    """把该用户 pending/failed 且文件在场的行重新入队（CLI 人工触发）。"""
+    rows = store.list_retryable_previews(user_id)
+    for saved in rows:
+        enqueue_preview(store, saved)
+    return {"user_id": user_id, "enqueued": len(rows)}
 
 
 def restore_user(store: Any, user_id: str, *, limit: int | None = None) -> dict[str, Any]:
@@ -357,10 +389,22 @@ def _saved_dir_for(user_id: str) -> Path:
     return Path(data_dir) / "saved" / user_id
 
 
+def enqueue_pending_on_boot(store: Any) -> int:
+    """启动恢复（评审②）：扫描 tg_state='pending' 且文件在场的行重新入队。
+    任务只存在内存队列，入队后进程重启会让行永久卡在 pending——启动时兜底。"""
+    if not enabled():
+        return 0
+    rows = store.list_pending_previews()
+    for saved in rows:
+        enqueue_preview(store, saved)
+    return len(rows)
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="TG 频道归档召回（分用户）")
+    parser = argparse.ArgumentParser(description="TG 频道归档（分用户召回/重试）")
     parser.add_argument("--db", required=True, help="draw-portal SQLite 路径")
-    parser.add_argument("--restore-user", required=True, help="user_id")
+    parser.add_argument("--restore-user", default=None, help="按台账召回该用户")
+    parser.add_argument("--retry-user", default=None, help="重试该用户的 pending/failed 归档")
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
     if not enabled():
@@ -369,7 +413,13 @@ def main() -> int:
     from draw_portal.store import Store
 
     store = Store(Path(args.db))
-    summary = restore_user(store, args.restore_user, limit=args.limit)
+    if args.restore_user:
+        summary = restore_user(store, args.restore_user, limit=args.limit)
+    elif args.retry_user:
+        summary = retry_user(store, args.retry_user)
+    else:
+        parser.error("需要 --restore-user 或 --retry-user")
+        return 2
     print(json.dumps(summary, ensure_ascii=False))
     return 0
 

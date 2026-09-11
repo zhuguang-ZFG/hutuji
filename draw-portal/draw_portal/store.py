@@ -1231,12 +1231,13 @@ class Store:
         state: str,
         file_id: str | None,
         message_id: int | None,
-    ) -> None:
-        """归档 worker 回写：只认 in ('pending','uploaded','failed')，防脏值。"""
+    ) -> bool:
+        """归档 worker 回写：只认 in ('pending','uploaded','failed')，防脏值。
+        返回 False = 行已被删除（回写落空），worker 据此撤回频道副本。"""
         if state not in {"pending", "uploaded", "failed"}:
-            return
+            return False
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE saved_previews
                 SET tg_state = ?, tg_file_id = ?, tg_message_id = ?, tg_checked_at = ?
@@ -1245,7 +1246,7 @@ class Store:
                 (state, file_id, message_id, time.time(), saved_id),
             )
             conn.commit()
-
+            return cur.rowcount > 0
 
     def append_archive_log(
         self,
@@ -1256,23 +1257,52 @@ class Store:
         preview_path: str,
         tg_file_id: str,
         tg_message_id: int,
-    ) -> None:
-        """上传成功即记台账（分用户召回的唯一凭据）；行删除不删台账。"""
+    ) -> bool:
+        """上传成功即记台账（分用户召回的唯一凭据）；行删除不删台账。
+        INSERT 以 saved_previews 行仍存在为守卫（单语句原子）——用户在上传
+        期间删行时这里落空，worker 据此撤回频道副本，不留下可复活的台账。"""
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT INTO telegram_archive_log (
                     saved_id, user_id, title, preview_path,
                     tg_file_id, tg_message_id, archived_at, tg_removed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                )
+                SELECT ?, ?, ?, ?, ?, ?, ?, NULL
+                WHERE EXISTS (SELECT 1 FROM saved_previews WHERE id = ?)
                 ON CONFLICT(saved_id) DO UPDATE SET
                     tg_file_id = excluded.tg_file_id,
                     tg_message_id = excluded.tg_message_id,
                     tg_removed_at = NULL
                 """,
-                (saved_id, user_id, title, preview_path, tg_file_id, tg_message_id, time.time()),
+                (
+                    saved_id, user_id, title, preview_path,
+                    tg_file_id, tg_message_id, time.time(), saved_id,
+                ),
             )
             conn.commit()
+            return cur.rowcount > 0
+
+    def list_pending_previews(self) -> list[SavedPreview]:
+        """启动恢复用：全库 tg_state='pending'（进程重启丢队列的行）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_previews WHERE tg_state = 'pending' ORDER BY saved_at ASC"
+            ).fetchall()
+        return [self._row_saved_preview(r) for r in rows]
+
+    def list_retryable_previews(self, user_id: str) -> list[SavedPreview]:
+        """人工重试用：该用户 pending/failed 且仍须归档的行。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM saved_previews
+                WHERE user_id = ? AND tg_state IN ('pending', 'failed')
+                ORDER BY saved_at ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [self._row_saved_preview(r) for r in rows]
 
     def mark_archive_log_removed(self, saved_id: str) -> None:
         """用户主动删除 → 频道副本撤回 + 台账标记；召回时跳过该行。"""
