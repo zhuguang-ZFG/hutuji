@@ -208,6 +208,13 @@ def _api_call(method: str, fields: dict[str, str], *, timeout: float) -> dict[st
         raise RuntimeError(f"tg api {method} http={code}")
     return data
 
+def _json_or_none(body: str) -> Any:
+    try:
+        return json.loads(body)
+    except (ValueError, TypeError):
+        return None
+
+
 
 def _upload_document(path: Path) -> tuple[str, int | None]:
     data = _api_call(
