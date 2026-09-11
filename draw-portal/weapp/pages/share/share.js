@@ -55,6 +55,6 @@ Page({
         path: "/pages/share/share?share=" + this._token,
       };
     }
-    return { title: "动力巢", path: "/pages/index/index" };
+    return { title: "动力巢科技", path: "/pages/index/index" };
   },
 });

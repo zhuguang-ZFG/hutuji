@@ -27,6 +27,6 @@
       <view wx:else class="preview preview-loading sk-pulse"></view>
     </view>
     <button class="go-btn" bindtap="onGoDraw">我也要画</button>
-    <view class="tips">打开「动力巢」，一句话就能让写字机画画</view>
+    <view class="tips">打开「动力巢科技」，一句话就能让写字机画画</view>
   </block>
 </view>

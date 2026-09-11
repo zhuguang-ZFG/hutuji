@@ -471,7 +471,7 @@ Page({
         imageUrl: api.mediaUrl(`/api/draw/share/${this._shareToken}/preview.png`),
       };
     }
-    return { title: "动力巢", path: "/pages/index/index" };
+    return { title: "动力巢科技", path: "/pages/index/index" };
   },
 
   // 精修轮询：5 秒一轮、最多 36 轮（≈3 分钟，覆盖免费层排队耗时）。
