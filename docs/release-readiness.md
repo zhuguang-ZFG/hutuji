@@ -278,7 +278,7 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-09-11**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1391 passed**、e2e `PASS`；docs 指纹 **261** 处全对（读闸热修批 5 处半漂移：inventory 三处纯移动 + AGENTS.md:156-158 两处随计数 1390→1391 内容更新人工核对后 `--accept-line-refs` 重登），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条（含读闸热修 `output_store.py` 双机）；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-09-11**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1391 passed**、e2e `PASS`；docs 指纹 **261** 处全对（读闸热修批 5 处半漂移：inventory 三处纯移动 + AGENTS.md:157 两处随计数 1390→1391 内容更新人工核对后 `--accept-line-refs` 重登），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条（含读闸热修 `output_store.py` 双机）；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
