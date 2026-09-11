@@ -1,5 +1,5 @@
 {
-  "git_head": "4f1ce5f81b279b169b5ea4b243e280e6de32e5d4",
+  "git_head": "2c871b0728f40ab333e4689c917de57893693628",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -541,17 +541,17 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:122": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:123": {
       "sha8": "bcb9fcf6",
       "source": "| 测试 | mcp `test_contract.py` 631→**632**（+lee 契约：非空折线/量纲 0.5–2×/bogus 方法 fail-closed 收 BitmapError）；当日程序化渲染+设备日限批再 +24（`test_sketch_render.py` 14、`test_device_daily_limit.py` 9、`test_write_text.py` +1 字体列表），全套 **1363** 项全绿；portal `test_photo_refine.py` 假函数补 kwarg（签名适配，无语义变更），全套 **173** 项全绿 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:628": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:630": {
       "sha8": "271b0458",
       "source": "| `mcp-server/hutuji_mcp/quickdraw.py` | 运行时模块：类目映射 + 笔画加载 + 复用位图产物面 |",
       "target": "docs/worktree-inventory.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:633": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:635": {
       "sha8": "6cb99411",
       "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1145** 项（2026-08-31 写字排版批 +16：test_write_text.py；2026-08-31 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死；2026-08-30 停机宽限批 +1：worker unit TimeoutStopSec 形状钉死；2026-08-30 优雅停机批 +3：test_draw_queue.py 17→20，worker stop 事件迭代边界退出/画途中跑完当前 job/main 接线子进程回归；2026-08-30 评审修复批 +13：test_draw_queue.py 4→17，_decide_attach 决策矩阵 + Redis inflight 残留 replace/NX 冲突重判回归；此前 2026-08-30 高并发 Phase-1/2/3a +19：`test_draw_queue.py` 4、`test_output_store.py` 2、`test_breaker.py` 4、`test_job_ledger.py` 5、`test_queue_metrics.py` 1、`test_portal_settings.py` 4；2026-08-30 +6：`test_draw_limits_config.py` 3、`test_usage_report.py` 2、`test_field_tools.py` 92→93；2026-08-30 晚 +1：`文档已存在` 幂等；余下历史批次见 git 历史） |",
       "target": "docs/worktree-inventory.md"
@@ -731,7 +731,7 @@
       "source": "def test_gate_rejects_weakened_edit_allowlist(",
       "target": "mcp-server/tests/test_contract.py"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:699": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:701": {
       "sha8": "546bd5f2",
       "source": "- **2026-08-22 换新写字机（COM13，CH340）**：烧前已完整取证并备份——原厂整片镜像 `results/local-only/2026-08-22/new-plotter-factory-backup.bin`（4MB，esptool read_flash）、串口证据 `new-plotter-serial-evidence.log`（烧前 `$I`/`$$`/`$102`/`$130`/`$131`：厂商默认 `$130/$131=200/200`；烧后 `$$` 快照为 fork 机型默认 `$130=210/$131=297`，`$20=0` 软限关闭，云端 190/190 限幅不受影响；X 长边/短边仍待装纸后单轴点动实测量尺）。烧入 app-only `0x10000`（`e3b1cad` 经 worktree 重建 `release`，PlatformIO SUCCESS，esptool `Hash of data verified`），未整片擦写，授权 NVS 保留（启动日志 `[License] Authorized (restored from NVS)`，ChipID `00002C876AE9BFB4`）。注意：本机 scoop mingw 16.1 对 fz 门禁不可用——rt_v14 的 `pthread.h`→`limits.h` 头链把 Grbl `src/limits.h` 经 `include_next` 卷入系统链（`-iquote` 下同样触发，实测复现），且该 winlibs 构建不附 libasan/libubsan（mingw-gcc 无 ASan 属社区已知，msys2/MINGW-packages#3163）；**解法：PATH 前置 scoop llvm `22.1.8/bin`（fz `find_compiler` 原生优先 clang++），fz `standard` 实测 overall=pass**（`wokwi_startup` 可选云层红，用 `.pio` 旧镜像、不含 E′，按仓规不阻断）。故新机用已验证基线 `e3b1cad` 而非当时的 HEAD；E′（`fb2b3b5`）已过 fz standard host SIL，**未烧录、未实机复现物理并发**，板上基线不变。配网走 AP 模式（`GRBL_ESP`，WebUI/命令行），静态 IP 待配网完成后按实读网段写 `.13`。",
       "target": "docs/worktree-inventory.md"
@@ -1307,6 +1307,6 @@
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     }
   },
-  "updated": "2026-09-11T12:57:48Z",
+  "updated": "2026-09-11T13:44:02Z",
   "version": 1
 }
