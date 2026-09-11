@@ -39,6 +39,7 @@ last_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
 if [[ "$code" == "200" ]]; then
   if [[ "$last_state" == "invalid" ]]; then
     logger -t hutuji-device-token-watch -p user.info "小智设备 token 已恢复有效"
+    /opt/hutuji/deploy/tg-notify.sh token-watch "小智设备 token 已恢复有效"
   fi
   echo "ok" > "$STATE_FILE"
   exit 0
@@ -58,6 +59,7 @@ if [[ "$code" == "401" || "$code" == "403" ]]; then
       "小智设备 token 已失效（HTTP $code）：链式推送 hutuji.draw/hutuji.write 将静默回落两步衔接（多页文章两步回落不可用）。" \
       "请在 xiaozhi.me/console 打开设备「主题配置」面板重新签发 URL，取其中 token 更新双机 mcp.env 的" \
       "HUTUJI_XIAOZHI_DEVICE_TOKEN 并 restart hutuji-mcp。"
+    /opt/hutuji/deploy/tg-notify.sh token-watch "小智设备 token 已失效(HTTP $code)：链式推送将静默回落两步衔接，需控制台「主题配置」重签并更新双机 mcp.env（详见 journal）"
     echo "$now" > "$ALERT_FILE"
   fi
   echo "invalid" > "$STATE_FILE"

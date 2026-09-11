@@ -2,6 +2,7 @@
 Description=hutuji draw-admin (buyer ops console)
 After=network-online.target hutuji-draw-portal.service
 Wants=network-online.target
+OnFailure=hutuji-notify@%n.service
 
 [Service]
 Type=simple

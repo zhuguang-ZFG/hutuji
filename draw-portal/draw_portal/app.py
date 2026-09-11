@@ -31,6 +31,7 @@ from draw_portal.auth import (
 )
 from draw_portal.config import load_config
 from draw_portal import chat as chat_mod
+from draw_portal import tg_notify
 from draw_portal.crypto import decrypt_token, encrypt_token
 from draw_portal.email_verify import (
     generate_email_code,
@@ -1121,6 +1122,12 @@ def create_app() -> FastAPI:
             token_probe_ok=ok,
             machine_type=session.plotter_sku,
         )
+        if existing is None:
+            # 注册监控（TG）：新用户首次绑定 = 注册完成的业务事实；重绑/换机不推。
+            tg_notify.notify_async(
+                f"新用户绑定设备 mac={binding.device_mac} 事件={event_type}",
+                dedupe_key=user_id,
+            )
         _record_portal_usage(
             store,
             event_type=event_type,

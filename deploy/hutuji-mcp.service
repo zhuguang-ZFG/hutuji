@@ -9,6 +9,7 @@ Wants=network-online.target
 # 注意这两个键属 [Unit] 段，写在 [Service] 里会被静默忽略。
 StartLimitIntervalSec=300
 StartLimitBurst=5
+OnFailure=hutuji-notify@%n.service
 
 [Service]
 Type=simple

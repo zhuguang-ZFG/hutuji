@@ -3,6 +3,7 @@ Description=hutuji Xiaozhi MCP cloud bridge
 Documentation=file:///opt/hutuji/docs/deployment.md
 After=network-online.target hutuji-mcp.service
 Wants=network-online.target
+OnFailure=hutuji-notify@%n.service
 Requires=hutuji-mcp.service
 # PartOf：hutuji-mcp stop/restart 时本服务一并 stop/restart。Requires= 只管启动
 # 依赖、对 restart 不传播——运维单独 restart hutuji-mcp 后，本服务里的 mcp-proxy

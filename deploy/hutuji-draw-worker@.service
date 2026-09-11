@@ -2,6 +2,7 @@
 Description=hutuji draw-worker instance %i (Redis queue consumer)
 After=network-online.target redis.service
 Wants=network-online.target
+OnFailure=hutuji-notify@%n.service
 PartOf=hutuji-draw-worker.target
 
 [Service]

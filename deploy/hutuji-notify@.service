@@ -1,0 +1,10 @@
+[Unit]
+Description=hutuji Telegram notify on %i failure
+# 被 OnFailure=hutuji-notify@%n.service 引用：%n = 肇事 unit 全名。
+# 通知面独立于业务：本 unit 失败只静默，不连锁报警。
+
+[Service]
+Type=oneshot
+# systemd 会把 %n 展开进 argv；tg-notify.sh 把两段拼成一条消息。
+ExecStart=/opt/hutuji/deploy/tg-notify.sh unit-failed "%i 在本机变为 failed（systemd OnFailure）"
+TimeoutStartSec=20

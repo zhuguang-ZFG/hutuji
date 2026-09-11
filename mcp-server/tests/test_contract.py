@@ -9683,6 +9683,60 @@ def test_relay_bind_success(tmp_path: Path, monkeypatch) -> None:
     ar.invalidate_device_list_cache()
 
 
+def test_relay_bind_success_fires_tg_notify(tmp_path: Path, monkeypatch) -> None:
+    """新设备代绑成功 → TG 通知（daemon 线程）；未配置 env=通知面禁用静默。"""
+    from hutuji_mcp import activation_relay as ar
+    import httpx as _httpx
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.method == "GET":
+            payload = [{"mac_address": "aa:bb:cc:dd:ee:ff"}] if posted else []
+            return _httpx.Response(200, json={"data": payload})
+        posted.append(request)
+        return _httpx.Response(200, json={"success": True, "data": {}})
+
+    posted: list[object] = []
+    _mock_async_client(monkeypatch, handler)
+    ar.invalidate_device_list_cache()
+    s = _relay_settings(tmp_path)
+    sent = []
+    monkeypatch.setenv("TG_BOT_TOKEN", "tok")
+    monkeypatch.setenv("TG_CHAT_ID", "42")
+    monkeypatch.setattr(ar, "_tg_post", lambda t, c, x: sent.append((t, c, x)))
+
+
+    class _SyncThread:
+        def __init__(self, target, args=(), daemon: bool = True) -> None:
+            self._target = target
+            self._args = args
+
+        def start(self) -> None:
+            self._target(*self._args)
+
+    monkeypatch.setattr(ar.threading, "Thread", _SyncThread)
+    assert asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456")) == "bound"
+    assert len(sent) == 1
+    assert sent[0][1] == "42"
+    assert "aa:bb:cc:dd:ee:ff" in sent[0][2]
+
+    # already_bound（重复开机上报）不得再推：注册事实只属于首次绑定。
+    sent.clear()
+    assert asyncio.run(ar.bind_device(s, "aa:bb:cc:dd:ee:ff", "123456")) == "already_bound"
+    assert sent == []
+    ar.invalidate_device_list_cache()
+
+
+def test_relay_tg_notify_disabled_without_env(tmp_path: Path, monkeypatch) -> None:
+    from hutuji_mcp import activation_relay as ar
+
+    monkeypatch.delenv("TG_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TG_CHAT_ID", raising=False)
+    sent = []
+    monkeypatch.setattr(ar, "_tg_post", lambda t, c, x: sent.append(x))
+    ar.notify_bound_async("aa:bb:cc:dd:ee:ff")
+    assert sent == []
+
+
 def test_relay_invalid_code_mapped(tmp_path: Path, monkeypatch) -> None:
     from hutuji_mcp import activation_relay as ar
     import httpx as _httpx

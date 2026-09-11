@@ -2,6 +2,7 @@
 Description=hutuji draw-worker (single instance, optional)
 After=network-online.target redis.service
 Wants=network-online.target
+OnFailure=hutuji-notify@%n.service
 
 [Service]
 Type=simple

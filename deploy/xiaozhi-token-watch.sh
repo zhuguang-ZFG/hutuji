@@ -28,6 +28,7 @@ last_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
 if [[ "$code" == "200" ]]; then
   if [[ "$last_state" == "invalid" ]]; then
     logger -t hutuji-token-watch -p user.info "小智控制台 JWT 已恢复有效"
+    /opt/hutuji/deploy/tg-notify.sh token-watch "小智控制台 JWT 已恢复有效"
   fi
   echo "ok" > "$STATE_FILE"
   exit 0
@@ -48,6 +49,7 @@ if [[ "$code" == "401" || "$code" == "403" ]]; then
       exit 0
     fi
     logger -t hutuji-token-watch -p user.warning "小智控制台 JWT 自动续期失败，回落人工路径"
+    /opt/hutuji/deploy/tg-notify.sh token-watch "小智控制台 JWT 自动续期失败，回落人工路径（详见 journal）"
   fi
   # 翻转时必报；持续失效只在整点（分钟<10，cron 10 分钟一拍即每小时一次）续报。
   if [[ "$last_state" != "invalid" || "$minute" -lt 10 ]]; then
@@ -55,6 +57,7 @@ if [[ "$code" == "401" || "$code" == "403" ]]; then
       "小智控制台 JWT 已失效（HTTP $code）：/register 无感激活与 KB 同步将失败。" \
       "请登录 xiaozhi.me/console 浏览器控制台 localStorage.getItem('token') 取新值，" \
       "然后运行 /opt/hutuji/deploy/refresh-xiaozhi-token.sh '<token>'"
+    /opt/hutuji/deploy/tg-notify.sh token-watch "小智控制台 JWT 已失效(HTTP $code)：自动续期未接管，需人工登录控制台换 token（详见 journal 与 refresh 脚本）"
   fi
   echo "invalid" > "$STATE_FILE"
   exit 1

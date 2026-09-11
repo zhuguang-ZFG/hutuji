@@ -14,12 +14,46 @@ verificationCode，见 docs 记录）。
 from __future__ import annotations
 
 import logging
+import os
 import re
+import threading
 import time
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_TG_TIMEOUT_S = 5.0
+
+
+def _tg_post(token: str, chat_id: str, text: str) -> None:
+    """发一条 Telegram 运维通知；失败只落日志（异常可能带 URL/凭据，只记类型）。"""
+    try:
+        with httpx.Client(timeout=_TG_TIMEOUT_S) as client:
+            client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data={"chat_id": chat_id, "text": text},
+            )
+    except Exception as exc:  # noqa: BLE001 通知面绝不掀主链
+        logger.warning("activate-relay: tg-notify send failed type=%s", type(exc).__name__)
+
+
+def notify_bound_async(mac: str) -> None:
+    """新设备代绑成功 → Telegram 即时通知（fire-and-forget，daemon 线程）。
+
+    凭据走 TG_BOT_TOKEN/TG_CHAT_ID 环境变量（/etc/hutuji/tg.env，仅生产）；
+    未配置=通知面禁用，静默返回，不影响绑定主链。
+    """
+    token = os.environ.get("TG_BOT_TOKEN", "")
+    chat_id = os.environ.get("TG_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    hostname = os.environ.get("HUTUJI_TG_HOST_LABEL", "hutuji")
+    threading.Thread(
+        target=_tg_post,
+        args=(token, chat_id, f"[{hostname}] 新设备激活绑定 mac={mac}"),
+        daemon=True,
+    ).start()
 
 _MAC_RE = re.compile(r"^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$")
 # 小智 OTA 激活码实测为 6 位数字；放宽到 4~8 位以免服务端改长度时误拒。
@@ -120,6 +154,7 @@ async def bind_device(settings, mac: str, code: str) -> str:
         raise UpstreamError(type(exc).__name__) from exc
     if resp.status_code == 200:
         invalidate_device_list_cache()
+        notify_bound_async(mac)
         logger.info("activate-relay: mac=%s bound", mac)
         return "bound"
     if resp.status_code == 400:
