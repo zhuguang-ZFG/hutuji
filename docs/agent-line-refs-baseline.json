@@ -1,5 +1,5 @@
 {
-  "git_head": "27369b7b324c4b66c673c1c6a54dd4119c18c2e9",
+  "git_head": "560de1d97aee9692d7c58ed7084cf8f4f3ec8841",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -681,7 +681,7 @@
       "source": "            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:2203-2248": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:2301-2346": {
       "sha8": "efda6524",
       "source": "    @app.post(\"/api/device/conversation/report\")\n    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:\n        try:\n            mac = normalize_mac(body.mac)\n            session_id = body.session_id.strip()[:64]\n        except ValueError as exc:\n            raise HTTPException(status_code=400, detail=str(exc)) from exc\n        user_id = store.get_user_id_for_mac(mac)\n        if user_id is None:\n            raise HTTPException(status_code=403, detail=\"设备未绑定呼图账号\")\n        now = time.time()\n        store.purge_conversation_before(\n            retention_cutoff(retention_days=config.conversation_retention_days)\n        )\n        accepted = 0\n        for turn in body.events:\n            try:\n                role = normalize_role(turn.role)\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            content = truncate_conversation_content(\n                turn.content, max_len=config.conversation_max_content\n            )\n            if not content:\n                continue\n            client_ts = turn.client_ts if turn.client_ts is not None else now\n            key = conversation_dedupe_key(\n                device_mac=mac,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n            )\n            if store.insert_conversation_event(\n                dedupe_key=key,\n                device_mac=mac,\n                user_id=user_id,\n                session_id=session_id,\n                role=role,\n                content=content,\n                client_ts=client_ts,\n                created_at=now,\n            ):\n                accepted += 1\n        return {\"status\": \"ok\", \"accepted\": accepted, \"total\": len(body.events)}\n",
       "target": "draw-portal/draw_portal/app.py"
@@ -1312,6 +1312,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-11T19:05:52Z",
+  "updated": "2026-09-11T19:24:47Z",
   "version": 1
 }
