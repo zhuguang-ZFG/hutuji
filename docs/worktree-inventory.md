@@ -31,7 +31,7 @@
 |----|------|
 | 提交 | 本仓 `2d81300`（23 文件：portal `app/config/firmware_ota/store/share_token(新)/subscribe_notify(新)` + tests 3 + weapp `app.json`/`utils/subscribe.js(新)`/`pages/share/(新 4)`/`pages/{firmware,index,chat,history}` + `privacy-policy.md` + `weapp-smoke-checklist.md(新)`），领先 origin/main 未推 |
 | 部署 | portal 六文件 HEAD blob SHA-256 双机逐位相符（明细 `docs/deployment.md` 首条）；备份 `/root/hutuji-bak-20260911-weapp/portal/`（双机）；env 订阅两键注释桩（双机 600，空值=禁用） |
-| 小程序 | weapp 0.3.4 CLI 上传 TOTAL 114342 B（`tmp/weapp-upload-0.3.4.json`）；同日更名批 `a00f1dd`（品牌 `动力巢`→`动力巢科技` + 页脚 v0.3.3→v0.3.5，0.3.4 批漏页脚 bump 用户点名）→ weapp **0.3.5** CLI 上传 TOTAL **114432 B**（`tmp/weapp-upload-0.3.5.json`）；MP 后台选体验版+建订阅模板未做（用户动作） |
+| 小程序 | weapp 0.3.4 CLI 上传 TOTAL 114342 B（`tmp/weapp-upload-0.3.4.json`）；同日更名批 `a00f1dd`（品牌 `动力巢`→`动力巢科技` + 页脚 v0.3.3→v0.3.5，0.3.4 批漏页脚 bump 用户点名）→ weapp **0.3.5** CLI 上传 TOTAL **114432 B**（`tmp/weapp-upload-0.3.5.json`）；更名批 `93ad7f6`（结果卡可见分享按钮 + 页脚运行时版本根治漏 bump）→ weapp **0.3.6** CLI 上传 TOTAL **115239 B**（`tmp/weapp-upload-0.3.6.json`）；**MP 后台选体验版仍为用户动作（0.3.4–0.3.6 均躺在开发版本列表，用户看到的仍是旧体验版）**；建订阅模板未做 |
 | 测试 | portal 187/187（+12 新增：订阅 8 + 分享 4 + 固件 2 对账）；契约 §10.4.16 |
 | 一次性产物 | `tmp/deploy-20260911-weapp/`（LF 发布候选）、`tmp/weapp-upload-0.3.4.json`；不入库 |
 | 未验证 | 真机冒烟清单 42 项未过（`draw-portal/weapp-smoke-checklist.md`）；订阅消息真实下发（依赖 MP 模板）未验证 |
