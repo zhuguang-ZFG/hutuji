@@ -9,6 +9,19 @@
 
 ---
 
+## 2026-09-12 小派人格批：丹青改名 + 无换纸口径（已提交 `94a91cf`，双机已热更，云控制台已 sync）
+
+| 项 | 说明 |
+|----|------|
+| 提交 | 本仓 `94a91cf`（15 文件：role-prompt/KB/chat.py/portal 5 文件 + test_contract 改钉 + xiaozhi-agent README + readiness/inventory/deployment/protocol/行号基线）；父 `a09aa2d` |
+| 授权 | 用户原话「没有换纸功能了呀，这（提示词）还是说自动换页写字机」「继续」（2026-09-12）；改 prompt/KB 属上云文案面 |
+| 触及面 | `docs/xiaozhi-agent/role-prompt.md`（丹青自称+删换纸播报+写字单页口径）、`knowledge-base.md`（呼图机半区 10 处换纸承诺→停笔/手动取纸、可画区 190×277、半区统一丹青；奎享厂商半区不动）；mcp `chat.py` 与 portal `voice_agent.py` SYSTEM_PROMPT、portal `app.py` 绑定话术/`voice_jobs.py` 推送话术/`static/index.html` 出图文案；`tests/test_contract.py` 换纸时序测试改钉反向声明 |
+| 回归 | portal **183/183**（33s）；mcp test_contract+test_chat **668 passed**（24.5s）；门禁 hub 复跑见本日末行 |
+| 部署 | 双机 5 文件（chat.py/app/voice_agent/voice_jobs/index.html）HEAD blob LF 导出 SHA-256 逐位相符（本地 `sha256.txt`：chat `925def30…` app `83799c6e…` voice_agent `00a8ba28…` voice_jobs `e4c4b58e…` index `7439dbcd…`），备份 `/root/hutuji-bak-20260912-persona/`；py_compile 过；重启阿里 mcp+bridge+portal+admin+worker@{1..8} 12 active、京东 mcp+portal active；公网 portal/admin 200、`/mcp` 404、bridge 云 ping 正常（journal 00:31:45 ping/response 2） |
+| 云控制台 | JWT 取自 lima `/etc/hutuji/mcp.env` `HUTUJI_XIAOZHI_TOKEN`（仅内存，不落盘不打印）；`sync 2094251` 成功：角色提示 2771 字符更新、KB 新文档 md5 `77d1d824ee76…`（旧 `publish_tmp.md` id=70008 已删）；`recall` 3/3：没纸→停笔条、画完会自动换纸吗→「不支持自动换纸」第 1 命中、丹青能画彩色吗→丹青命名条 |
+| 一次性产物 | `tmp/deploy_persona_0912.sh`（ssh/scp 部署脚本）、`tmp/deploy-20260912-persona/`（发布候选）；paramiko 密码路已死（09-10 双机关密码登录），后续部署一律走 ssh 别名/公钥 |
+| 未验证 | 真机语音复听（设备自称为丹青、无换纸话术）——下次设备开机复听；KB 语义质量仅召回验证，未过真机端到端 |
+
 ## 2026-09-12 AI 写字单页适配 + 设备文案「丹青」批（已提交 `a09aa2d`，双机已部署；weapp 0.3.7 已上传）
 
 | 项 | 说明 |
@@ -489,7 +502,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:136`（08-30 指纹门禁 COM14 抓包，随 09-12 readiness 首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:137`（08-30 指纹门禁 COM14 抓包，随 09-12 readiness 首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
