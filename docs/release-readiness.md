@@ -263,7 +263,7 @@
 | 16 | G2/G3 弧拟合（`arc_fit.py`） | 🟡 云端已随双机部署上线生产（部署批次见 `docs/deployment.md`）；写字页砍行 45–50%、偏差 ≤146µm（`test_arc_fit.py` 9 项钉死：直线塌缩/已知圆单弧/342° 急回折拒弧/S 形保终点/端到端真 vpype 过 §5）；**纸面 ΔT 与画质 HIL 未执行**；画图链「描摹密度直连弧拟合」A/B 实测 -22% 已证伪不投（2026-09-05 凌晨批） |
 | 17 | 笔顺教学链（`hutuji_teach`，hanzi-writer-data@2.0.1 中心线） | 🟡 `bde425c` 双机上线、生产冒烟 SMOKE PASS 逐位相同；`test_stroke_order.py` 8 项钉死（渐显面板/边界 277×190/缺字拒绝/端到端真 vpype+§5+pages_arg 幂等）；真机 HIL 未执行（待装纸在场） |
 | 18 | 小派远程 OTA（自建 HTTPS catalog + 小程序一键 + 设备 `hutuji.ota_*`） | 🟡 **HIL①–⑦ 软件面已有证**：板上/catalog=`hutuji.1.0.3`；①纯网升 ✅；②下载失败 ✅；③忙拒 ✅；④错板 ✅；⑤自检只查 ✅；⑥poison→PENDING_VERIFY 回滚到 1.0.3 ✅；⑦Grbl 禁用 ✅。语音冒烟未跑。毒包 `1.0.4` 已撤出 latest。**不得宣称**可出货；出货签核 #7 仍 🔴 |
-| 19 | 按机型画幅（nopaper 生成选档 + 机型词汇全链） | 🟡 **代码面全绿（2026-09-11）**：MCP `MachineProfile`/`PROFILE_NOPAPER`（不转置、X≤205/Y≤290）+ `/internal/draw` machine 白名单 + status 探测 60s 缓存 + 缓存/inflight 键机型成分；portal 绑定表机型学习（announce→库）+ 生成入口穿 profile；S3 1.0.9 面：status/announce `plotter_sku` + 点动包线分机型（205/290 vs 277/190，R17-XREPO-01 双侧同步）。回归：mcp 1390 项（count claims 钉死）、portal 173 项、host 点动测试绿。**未做**：1.0.9 构建发布、portal 生产部署、实机 HIL（nopaper 不转置/205/290、MK38 双向不变）、语音全链按机型验证 |
+| 19 | 按机型画幅（nopaper 生成选档 + 机型词汇全链） | 🟡 **代码面全绿 + 云端已上线（2026-09-11，本仓 `310f9e2`）**：MCP `MachineProfile`/`PROFILE_NOPAPER`（不转置、X≤205/Y≤290）+ `/internal/draw` machine 白名单（生产实测 `mk38`→400、`nopaper`→200 真出图）+ status 探测 60s 缓存 + 缓存/inflight 键机型成分；portal 绑定表机型学习（announce→库）+ 生成入口穿 profile——11 文件双机热更（deployment.md 首条，SHA 逐位相符、preflight 与 09-10 基线持平）。S3 1.0.9 面：status/announce `plotter_sku` + 点动包线分机型（205/290 vs 277/190，R17-XREPO-01 双侧同步）；1.0.9 双板镜像已构建（freenove/lichuang-dev RELEASE_RC=0 真编译）**未发 OTA**——发版需用户在场（设备自检自升、量产机在用）。回归：mcp 1390 项（count claims 钉死）、portal 173 项、host 点动测试绿、hub 门禁 PASS。**未做**：1.0.9 OTA 发布、实机 HIL（nopaper 不转置/205/290、MK38 双向不变）、语音全链按机型验证 |
 
 > **BLE 修复实现边界**：只改 `hutuji_ble_diag.cc` 的 NimBLE 广播刷新生命周期：停止广播后把数据设置与重启排到独立 host event；快照刷新与地址轮换共用 pending event，轮换优先；过期 event 无动作返回；定时器重挂失败继续 fail-closed；`Shutdown()` 幂等并移除排队事件。WiFi/Telnet/job 路径未改。
 
@@ -272,11 +272,11 @@
 > **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-09-08**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1276 passed**、e2e `PASS`；docs 指纹 **261** 处全对（2026-09-08 SSRF/并发加固文档批 7 处位移：4 处 `--fix-line-refs` 自动重定位 + findings/28 共 3 处人工改指——AGENTS.md 第 149-151 行 计数行块仅计数演进、inventory:395/397 两行内容逐字一致——重登基线），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条；生产命中率统计与真实语音 HIL 仍未执行
+- 本仓 `hub` 最近通过：**2026-09-11**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1390 passed**、e2e `PASS`；docs 指纹 **260** 处全对（按机型画幅批 33 处半漂移：31 处 `--fix-line-refs` 自动重定位 + findings/28→AGENTS.md:156-158 与 findings/30→inventory:698 两处人工改指后重登），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条；生产命中率统计与真实语音 HIL 仍未执行
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-09-08**（`profile=hub` `overall=pass`：pytest **1276 passed**、e2e `PASS`、docs 指纹 260 处全对、外仓文档引用 247 处全在范围；末轮 hub 在 `d0db04d` 提交后运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub/full 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线 2026-09-08 随 SSRF/并发加固文档批重登（261 处，7 处位移：4 处自动重定位、3 处人工改指；另 1 处新登记=readiness 自身对 AGENTS.md 第 149-151 行 的新引用）
+- 本仓 `hub` 最近通过：**2026-09-11**（`profile=hub` `overall=pass`：pytest **1390 passed**、e2e `PASS`、docs 指纹 260 处全对、外仓文档引用 247 处全在范围；末轮 hub 在 `310f9e2` 提交后运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub/full 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线 2026-09-11 随按机型画幅批重登（260 处；33 处半漂移 31 自动 + 2 人工改指）
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）
