@@ -924,6 +924,20 @@ Cookie: <session>
 
 
 
+#### 10.4.19 小派设置：音色/模型切换（2026-09-12 落地；用户拍板「用户不能改所有人的」）
+
+| 面 | 约定 |
+|----|------|
+| 归属 | 音色/模型是**控制台 agent 级**配置（会话参数，固件零改动，生效=下一次对话，官方 FAQ Q21）。用户切换只写**自己的克隆 agent**；未个性化设备继续走共享 agent 2094251，互不影响。共享 agent 只能由卖家在小智控制台改——MCP 内部路由对基础 agent 一律 400 |
+| 克隆 | 首次个性化（改音色/模型或绑设备）时 MCP `xiaozhi_console.clone_agent()` 从基础 agent 新建专属 agent 并**整包复制** 11 字段（language/tts_voice/character/asr_speed/tts_speech_speed/tts_pitch/llm_model/memory_type/teen_mode/mcp_endpoints/knowledge_base_ids）；白名单外字段拒写（`update_agent_config` 只收 tts_voice/llm_model） |
+| 绑定 | weapp 小派设置页引导读设备屏幕「设置→设备验证码」6 位数字 → `POST /api/agents/{clone}/devices {"verificationCode"}`（控制台同款换绑语义）；无效码 400 `INVALID_VERIFICATION_CODE`（服务端无副作用） |
+| 端点 | portal `GET/POST /api/settings/xiaopai`（phone_secured；POST 只收 tts_voice/llm_model，至少一项，清单内 fail-closed 未知 400）+ `POST /api/settings/xiaopai/bind`（code 6 位数字）→ 本机 MCP `GET /internal/xiaozhi/options`、`POST /internal/xiaozhi/config|agent/clone|agent/bind`（loopback+共享密钥同闸；404 fail-closed） |
+| 凭据 | 控制台 JWT 只在 MCP 侧 env（HUTUJI_XIAOZHI_TOKEN，与激活中转共用；token-auto 续期后 restart 即新值）；portal 只持共享密钥转发 |
+| 限频 | portal usage 事件限频：切换 20 次/日、绑定尝试 10 次/日（成功才计数）；`agent_id` 不出 portal（回包只有 tts_voice/llm_model/device_bound） |
+| 克隆成本 | 每个个性化用户占控制台 1 个 agent 位（人格/KB/MCP/记忆档随克隆带入；聊天历史清零、`hutuji.remember` 按 device_id 分桶不受重绑影响）；测试克隆用完即删，探针已验证建/写/绑/删四形状 |
+| 部署 | lima+jd 双节点 2026-09-12 实测：options 200（61 中文音色）、clone→config 写入 200、无效码 400、共享 agent 拒改；jd 的 mcp.env `HUTUJI_USAGE_INGEST_SECRET` 曾与 portal 不一致（热备无流量未暴露），本次对齐后 jd options 200 |
+| 入口 | weapp 聊小派页左下 ⚙ → 小派设置页（音色按语言分组 61 中文起步、模型 xz-lite/deepseek/qwen/doubao 四选、绑定卡） |
+
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
 | 面 | 约定 |
