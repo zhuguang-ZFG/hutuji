@@ -9,13 +9,11 @@
   重复一条，可接受——注册是低频事件，不值得引入持久化去重）。
 """
 from __future__ import annotations
-
 import logging
 import os
 import threading
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from urllib.parse import urlencode
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +24,6 @@ _DEDUPE_CAP = 10_000
 
 _seen_lock = threading.Lock()
 _seen: set[str] = set()
-
-
-def configured() -> bool:
-    return bool(os.environ.get("TG_BOT_TOKEN") and os.environ.get("TG_CHAT_ID"))
 
 
 def _dedupe_consume(key: str) -> bool:
@@ -44,16 +38,16 @@ def _dedupe_consume(key: str) -> bool:
 
 
 def _post(token: str, chat_id: str, text: str) -> None:
+    """httpx 而非 urllib：Telegram 域名有 AAAA 记录，境内无 IPv6 路由时
+    urllib 一次 getaddrinfo 取首地址失败即弃（无 happy-eyeballs），
+    2026-09-12 阿里云实测 URLError(101)；anyio 连接器逐地址回退 IPv4。"""
     try:
-        req = Request(
-            _API.format(token=token),
-            data=urlencode({"chat_id": chat_id, "text": text}).encode("utf-8"),
-            headers={"content-type": "application/x-www-form-urlencoded"},
-        )
-        with urlopen(req, timeout=_TIMEOUT_S):
-            pass
-    except (HTTPError, URLError, OSError) as exc:
-        # 网络类失败只记类型；URL/token 不落日志。
+        with httpx.Client(timeout=_TIMEOUT_S) as client:
+            client.post(
+                _API.format(token=token),
+                data={"chat_id": chat_id, "text": text},
+            )
+    except Exception as exc:  # noqa: BLE001 网络类失败只记类型；URL/token 不落日志。
         logger.warning("tg-notify send failed type=%s", type(exc).__name__)
 
 
