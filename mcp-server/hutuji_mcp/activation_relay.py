@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
 import threading
 import time
 
@@ -23,17 +24,23 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_TG_TIMEOUT_S = 5.0
+_TG_TIMEOUT_S = 15.0
+# 出口收敛到 tg-notify.sh：直连/jd 经 lima SSH 中继只在该脚本一处维护；
+# 2026-09-12 实测 urllib/httpx 无 happy-eyeballs，Telegram AAAA 在无 IPv6
+# 路由节点不可达（Errno 101），curl 可达。
+_TG_NOTIFY_SH = "/opt/hutuji/deploy/tg-notify.sh"
 
 
 def _tg_post(token: str, chat_id: str, text: str) -> None:
-    """发一条 Telegram 运维通知；失败只落日志（异常可能带 URL/凭据，只记类型）。"""
+    """发一条 Telegram 运维通知；失败只落日志（不回显细节）。"""
     try:
-        with httpx.Client(timeout=_TG_TIMEOUT_S) as client:
-            client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                data={"chat_id": chat_id, "text": text},
-            )
+        subprocess.run(
+            [_TG_NOTIFY_SH, "activate-relay", text],
+            timeout=_TG_TIMEOUT_S,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception as exc:  # noqa: BLE001 通知面绝不掀主链
         logger.warning("activate-relay: tg-notify send failed type=%s", type(exc).__name__)
 
