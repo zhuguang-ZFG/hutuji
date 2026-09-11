@@ -6,7 +6,7 @@
 - 发送 fire-and-forget（daemon 线程）：任何失败只落日志（只记类型名，
   不回显），绝不阻塞/抛回绑定主链。
 - _post 统一走 /opt/hutuji/deploy/tg-notify.sh 子进程：出口策略（直连 /
-  jd 经 lima SSH 中继）只在该脚本一处维护；token 不进 python 进程 env。
+  jd 经 lima HTTPS 中继）只在该脚本一处维护；token 不进 python 进程 env。
   2026-09-12 实测：urllib/httpx 都没有 happy-eyeballs，Telegram AAAA 在
   无 IPv6 路由节点不可达（URLError/ConnectError 101），curl 可达。
 - dedupe_key 非空时进程内去重（注册类事件一个主键只推一次；重启进程最多

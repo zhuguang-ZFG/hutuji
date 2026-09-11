@@ -25,9 +25,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _TG_TIMEOUT_S = 15.0
-# 出口收敛到 tg-notify.sh：直连/jd 经 lima SSH 中继只在该脚本一处维护；
-# 2026-09-12 实测 urllib/httpx 无 happy-eyeballs，Telegram AAAA 在无 IPv6
-# 路由节点不可达（Errno 101），curl 可达。
+# 出口收敛到 tg-notify.sh：直连（lima 经 TG_PROXY）/jd 经 lima HTTPS 中继，只在
+# 该脚本一处维护；2026-09-12 实测 urllib/httpx 无 happy-eyeballs，Telegram AAAA
+# 在无 IPv6 路由节点不可达（Errno 101），curl 可达。
 _TG_NOTIFY_SH = "/opt/hutuji/deploy/tg-notify.sh"
 
 
