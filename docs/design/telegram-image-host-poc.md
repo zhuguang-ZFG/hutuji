@@ -107,3 +107,20 @@ draw-portal 保存预览 PNG
 1. 用户提供 Bot token + 私有频道（**勿入库**）
 2. 实现 `tmp/telegram_upload_probe.py` 本地探针
 3. 通过后挂 draw-portal 可选备份，默认 `HUTUJI_TG_UPLOAD_ENABLED=0`
+
+## 9. 探针复核（2026-09-12 深夜，条件已变化）
+
+与 08-30 调研时的差异：TG bot 已现役（`/etc/hutuji/tg.env`，双机通知面共用凭据面）、lima sing-box（127.0.0.1:7890）已实证出网。当日用现有 bot 在 lima 跑了三轮真实链路探针（临时脚本 `tmp/tg_probe.py` 思路，curl 直发，**非用户数据**：确定性噪声 PNG）：
+
+| 样本 | 上传 | getFile→下载 | sha256 一致 |
+|------|------|--------------|-------------|
+| 3.4KB PNG | — | 1.45s | ✅（`f0aab7ab…`） |
+| 600KB 随机 PNG | 4.6s | 2.35s | ✅（`521c1916…`） |
+| 同一 file_id 连续两次 getFile | — | 两次均成功 | — |
+
+结论维持第 7 节不变，新增两条实测注脚：
+
+1. **file_path URL 1h 时效不构成检索障碍**：file_id 长期有效、可随时重新 `getFile` 换新 URL（2026-09-12 两次连发实测），归档读取语义成立；但 file_id 只属于签发它的 bot，删 bot 即失效（PoC §6 已记）。
+2. **代理吞吐 ≈130/255KB/s**（600KB 上传 4.6s / 下载 2.35s，经 sing-box）：适合后台逐张归档，**不适合**实时预览热路径。
+
+进度状态仍是 **未接入生产**；若用户拍板做 §8 的 PoC，工作量与验收判据照旧（~1.5d，`HUTUJI_TG_UPLOAD_ENABLED` 默认 0）。
