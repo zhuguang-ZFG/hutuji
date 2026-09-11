@@ -88,11 +88,18 @@ def test_process_happy_path_marks_uploaded(
     monkeypatch.setattr(ta, "_upload_document", fake_upload)
     monkeypatch.setattr(ta, "_verify_download", fake_verify)
     monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
-    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t"))
+    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t", user_id="u1", store=store))
     row = store.get_saved_preview(saved.id, user_id="u1")
     assert row.tg_state == "uploaded"
     assert row.tg_file_id == "FAKEID"
     assert row.tg_message_id == 77
+    entries = store.list_archive_log_for_user("u1")
+    assert len(entries) == 1
+    assert entries[0]["saved_id"] == saved.id
+    assert entries[0]["user_id"] == "u1"
+    assert entries[0]["tg_file_id"] == "FAKEID"
+    assert entries[0]["tg_message_id"] == 77
+    assert entries[0]["tg_removed_at"] is None
     import sqlite3
 
     conn = sqlite3.connect(tmp_path / "data.db")
@@ -113,7 +120,7 @@ def test_process_sha_mismatch_marks_failed(
     monkeypatch.setattr(ta, "_upload_document", lambda _p: ("FAKEID", 78))
     monkeypatch.setattr(ta, "_verify_download", lambda _f, _s: False)
     monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
-    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t"))
+    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t", user_id="u1", store=store))
     row = store.get_saved_preview(saved.id, user_id="u1")
     assert row.tg_state == "failed"
     assert row.tg_file_id == "FAKEID"
@@ -134,7 +141,7 @@ def test_process_upload_exhaustion_marks_failed(
     monkeypatch.setattr(ta, "_upload_document", flaky)
     monkeypatch.setattr(ta, "_verify_download", lambda _f, _s: True)
     monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
-    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t"))
+    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t", user_id="u1", store=store))
     assert len(attempts) == ta._MAX_ATTEMPTS
     assert store.get_saved_preview(saved.id, user_id="u1").tg_state == "failed"
 
@@ -147,7 +154,7 @@ def test_process_missing_file_marks_failed(
     saved = _saved(tmp_path, store)
     Path(saved.preview_path).unlink()
     monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
-    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t"))
+    ta._process(store, ta._Task(saved_id=saved.id, path=Path(saved.preview_path), title="t", user_id="u1", store=store))
     assert store.get_saved_preview(saved.id, user_id="u1").tg_state == "failed"
 
 
@@ -166,7 +173,7 @@ def test_delete_message_async_skips_without_message(
     saved = _saved(tmp_path, store)  # tg_message_id=None
     fired: list[int] = []
     monkeypatch.setattr(ta, "_api_call", lambda m, f, *, timeout: fired.append(f))
-    ta.delete_message_async(store, saved)
+    ta.delete_message_async(saved)
     time.sleep(0.05)
     assert fired == []
 
@@ -186,7 +193,7 @@ def test_delete_message_async_fires_with_message_id(
         return {"ok": True}
 
     monkeypatch.setattr(ta, "_api_call", fake_api)
-    ta.delete_message_async(store, saved)
+    ta.delete_message_async(saved)
     deadline = time.time() + 2.0
     while not fired and time.time() < deadline:
         time.sleep(0.02)
@@ -204,3 +211,121 @@ def test_saved_list_api_exposes_tg_backup(
     items = store.list_saved_previews(saved.user_id)
     assert items[0].tg_state is None
     assert items[0].tg_file_id is None
+
+
+def test_enqueue_task_binds_own_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """评审修复回归：worker 不全局绑定首个 Store——Store 随任务入队，
+    同进程两个库各自回写各自的行（2026-09-12 单例横库缺陷）。"""
+    _set_env(monkeypatch, on=True)
+    monkeypatch.setattr(ta, "_ensure_worker", lambda: None)  # 只钉队列边界，不起线程。
+    store_a = _store(tmp_path / "a")
+    store_b = _store(tmp_path / "b")
+    saved_a = _saved(tmp_path, store_a)
+    saved_b = _saved(tmp_path, store_b)
+    ta.enqueue_preview(store_a, saved_a)
+    ta.enqueue_preview(store_b, saved_b)
+    task_a = ta._queue.get_nowait()
+    task_b = ta._queue.get_nowait()
+    assert task_a.store is store_a
+    assert task_b.store is store_b
+    assert task_a.user_id == "u1"
+    monkeypatch.setattr(ta, "_upload_document", lambda _p: ("FAKEID", 1))
+    monkeypatch.setattr(ta, "_verify_download", lambda _f, _s: True)
+    monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
+    ta._process(task_b.store, task_b)
+    assert store_b.get_saved_preview(saved_b.id, user_id="u1").tg_state == "uploaded"
+    # B 的任务不得写进 A 的库；A 行保持 pending（fail-open 的原始语义）。
+    assert store_a.get_saved_preview(saved_a.id, user_id="u1").tg_state == "pending"
+
+
+def test_restore_missing_local_file_restored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _set_env(monkeypatch, on=True)
+    monkeypatch.setenv("DRAW_PORTAL_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
+    store = _store(tmp_path)
+    saved = _saved(tmp_path, store)
+    png = Path(saved.preview_path)
+    blob = png.read_bytes()
+    store.mark_preview_telegram(saved.id, state="uploaded", file_id="F1", message_id=11)
+    store.append_archive_log(
+        saved_id=saved.id, user_id="u1", title=saved.title,
+        preview_path=saved.preview_path, tg_file_id="F1", tg_message_id=11,
+    )
+    png.unlink()
+    monkeypatch.setattr(ta, "_download_document", lambda _f, _dest: blob)
+    summary = ta.restore_user(store, "u1")
+    assert summary["restored"] == 1 and summary["failed"] == 0
+    assert png.read_bytes() == blob
+    assert store.get_saved_preview(saved.id, user_id="u1").tg_state == "uploaded"
+
+
+def test_restore_trimmed_row_recreated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _set_env(monkeypatch, on=True)
+    monkeypatch.setenv("DRAW_PORTAL_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
+    store = _store(tmp_path)
+    blob = b"\x89PNG\r\n\x1a\n" + b"y" * 32
+    store.append_archive_log(
+        saved_id="archived1", user_id="u1", title="旧图",
+        preview_path=str(tmp_path / "gone.png"),
+        tg_file_id="F2", tg_message_id=12,
+    )
+    monkeypatch.setattr(ta, "_download_document", lambda _f, _dest: blob)
+    summary = ta.restore_user(store, "u1")
+    assert summary["recreated"] == 1
+    row = store.get_saved_preview("archived1", user_id="u1")
+    assert row is not None
+    assert row.tg_state == "uploaded"
+    assert row.gcode_path is None  # 只归档预览：召回行不可再次发送出图。
+    assert (tmp_path / "saved" / "u1" / "archived1.png").read_bytes() == blob
+
+
+def test_restore_skips_removed_and_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _set_env(monkeypatch, on=True)
+    monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
+    store = _store(tmp_path)
+    saved = _saved(tmp_path, store)
+    store.mark_preview_telegram(saved.id, state="uploaded", file_id="F3", message_id=13)
+    store.append_archive_log(
+        saved_id=saved.id, user_id="u1", title=saved.title,
+        preview_path=saved.preview_path, tg_file_id="F3", tg_message_id=13,
+    )
+    downloaded: list[str] = []
+    monkeypatch.setattr(
+        ta, "_download_document", lambda f, _d: downloaded.append(f) or b"z" * 8
+    )
+    # 在库且文件完好 → 跳过（不重复下载）。
+    summary = ta.restore_user(store, "u1")
+    assert summary["skipped"] == 1 and summary["restored"] == 0
+    assert downloaded == []
+    # 用户删图（撤回 + 台账标记）→ 台账行消失，召回不再可见。
+    store.mark_archive_log_removed(saved.id)
+    summary2 = ta.restore_user(store, "u1")
+    assert summary2["restored"] == 0 and summary2["skipped"] == 0
+    assert store.list_archive_log_for_user("u1") == []
+    assert downloaded == []
+
+
+def test_restore_download_failure_counts_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _set_env(monkeypatch, on=True)
+    monkeypatch.setattr(ta.time, "sleep", lambda _s: None)
+    store = _store(tmp_path)
+    store.append_archive_log(
+        saved_id="gone1", user_id="u1", title="x",
+        preview_path=str(tmp_path / "x.png"),
+        tg_file_id="F4", tg_message_id=14,
+    )
+    monkeypatch.setattr(ta, "_download_document", lambda _f, _d: None)
+    summary = ta.restore_user(store, "u1")
+    assert summary["failed"] == 1
+    assert store.get_saved_preview("gone1", user_id="u1") is None

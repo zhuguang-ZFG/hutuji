@@ -12,10 +12,17 @@
 - 上传后强制 getFile 下载回读并 sha256 逐字节校验（PoC §5.3 判据 1）；429 按
   retry_after 退避重试 ≤3 次；条间 spacing 1.0s（顺序单 worker，Bot API 宽限内）。
 - caption 用固定标记+日期，绝不带用户标题/ID——频道是第三方存储，用户可读文本
-  只进图、不进元数据；隐私口径见 draw-portal/privacy-policy.md「可选冷备份」。
+  只进图、不进元数据；隐私见 privacy-policy.md「可选冷备份」条款。
+- **worker 不绑定任何 Store**（2026-09-12 评审修复）：Store 实例随任务入队，
+  worker 只用任务自带的实例回写——同进程多 app/多库（测试、迁移脚本）不会
+  把任务写进第一个库。
+- 成功上传追加 telegram_archive_log 台账（upload 时刻写入，行删除不删台账）：
+  台账是「分用户批量召回」的唯一凭据——saved_previews 行被 trim/删除后，
+  本地与 DB 都没副本，只有台账还留着 file_id→用户 的映射。
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import logging
@@ -48,6 +55,8 @@ class _Task:
     saved_id: str
     path: Path
     title: str
+    user_id: str
+    store: Any  # 行所属库：worker 只用任务自带实例回写，绝不全局绑定
 
 
 def enabled() -> bool:
@@ -73,11 +82,15 @@ def enqueue_preview(store: Any, saved: Any) -> None:
             return
     except OSError:
         return
-    _queue.put(_Task(saved_id=saved.id, path=path, title=saved.title))
-    _ensure_worker(store)
+    _queue.put(
+        _Task(
+            saved_id=saved.id, path=path, title=saved.title, user_id=saved.user_id, store=store
+        )
+    )
+    _ensure_worker()
 
 
-def delete_message_async(store: Any, saved: Any) -> None:
+def delete_message_async(saved: Any) -> None:
     """图库删除时尽力撤回频道副本（用户要求删除 → 第三方也不留）。fire-and-forget。"""
     if not enabled() or not saved.tg_message_id:
         return
@@ -85,27 +98,31 @@ def delete_message_async(store: Any, saved: Any) -> None:
 
     def _run() -> None:
         try:
-            _api_call("deleteMessage", {"message_id": str(message_id)}, timeout=_API_TIMEOUT_S)
+            _api_call(
+                "deleteMessage",
+                {"chat_id": os.environ["TG_CHANNEL_ID"], "message_id": str(message_id)},
+                timeout=_API_TIMEOUT_S,
+            )
         except Exception as exc:  # noqa: BLE001 尽力而为；失败仅日志。
             logger.warning("tg-archive delete failed type=%s", type(exc).__name__)
 
     threading.Thread(target=_run, daemon=True, name="hutuji-tg-archive-delete").start()
 
 
-def _ensure_worker(store: Any) -> None:
+def _ensure_worker() -> None:
     global _worker_started
     with _worker_lock:
         if _worker_started:
             return
         _worker_started = True
-    threading.Thread(target=_worker_loop, args=(store,), daemon=True, name="hutuji-tg-archive").start()
+    threading.Thread(target=_worker_loop, daemon=True, name="hutuji-tg-archive").start()
 
 
-def _worker_loop(store: Any) -> None:
+def _worker_loop() -> None:
     while True:
         task = _queue.get()
         try:
-            _process(store, task)
+            _process(task.store, task)
         except Exception as exc:  # noqa: BLE001 通知面永不掀主链。
             logger.warning("tg-archive task failed type=%s", type(exc).__name__)
         finally:
@@ -113,7 +130,6 @@ def _worker_loop(store: Any) -> None:
 
 
 def _process(store: Any, task: _Task) -> None:
-    src_sha = ""
     try:
         src_sha = hashlib.sha256(task.path.read_bytes()).hexdigest()
     except OSError:
@@ -141,9 +157,21 @@ def _process(store: Any, task: _Task) -> None:
         store.mark_preview_telegram(
             task.saved_id, state="uploaded", file_id=file_id, message_id=message_id
         )
+        store.append_archive_log(
+            saved_id=task.saved_id,
+            user_id=task.user_id,
+            title=task.title,
+            preview_path=str(task.path),
+            tg_file_id=file_id,
+            tg_message_id=message_id,
+        )
         logger.info("tg-archive uploaded saved=%s", task.saved_id)
     else:
         store.mark_preview_telegram(task.saved_id, state="failed", file_id=file_id, message_id=message_id)
+
+
+def _verify_tmp() -> Path:
+    return Path(os.environ.get("DRAW_PORTAL_DATA_DIR", "/tmp")) / "tg-archive-verify.tmp"
 
 
 class _RateLimited(Exception):
@@ -199,49 +227,145 @@ def _upload_document(path: Path) -> tuple[str, int | None]:
     return file_id, int(message_id) if isinstance(message_id, int) else None
 
 
-def _verify_download(file_id: str, src_sha: str) -> bool:
+def _download_document(file_id: str, dest: Path) -> bytes | None:
+    """getFile → file/bot…/<path> 下载到 dest；返回字节或 None（网络/非 2xx）。"""
     data = _api_call("getFile", {"file_id": file_id}, timeout=_API_TIMEOUT_S)
     file_path = str(data.get("result", {}).get("file_path") or "")
     if not file_path:
-        return False
+        return None
     token = os.environ["TG_BOT_TOKEN"]
-    # 下载落临时文件再校验 sha256（判据：备份必须逐字节一致才算 uploaded）。
-    tmp = Path(os.environ.get("DRAW_PORTAL_DATA_DIR", "/tmp")) / "tg-archive-verify.tmp"
+    cmd = ["curl", "-sS"]
+    proxy = os.environ.get("TG_PROXY", "").strip()
+    if proxy:
+        cmd += ["--proxy", proxy]
+    cmd += [
+        "--max-time", str(int(_API_TIMEOUT_S)),
+        "-o", str(dest),
+        f"https://api.telegram.org/file/bot{token}/{file_path}",
+    ]
     try:
-        cmd = ["curl", "-sS"]
-        proxy = os.environ.get("TG_PROXY", "").strip()
-        if proxy:
-            cmd += ["--proxy", proxy]
-        cmd += [
-            "--max-time", str(int(_API_TIMEOUT_S)),
-            "-o", str(tmp),
-            f"https://api.telegram.org/file/bot{token}/{file_path}",
-        ]
-        try:
-            subprocess.run(cmd, capture_output=True, timeout=_API_TIMEOUT_S + 5, check=False)
-        except subprocess.TimeoutExpired:
+        subprocess.run(cmd, capture_output=True, timeout=_API_TIMEOUT_S + 5, check=False)
+    except subprocess.TimeoutExpired:
+        return None
+    if not dest.is_file():
+        return None
+    return dest.read_bytes()
+
+
+def _verify_download(file_id: str, src_sha: str) -> bool:
+    tmp = _verify_tmp()
+    try:
+        blob = _download_document(file_id, tmp)
+        if blob is None:
             return False
-        if not tmp.is_file():
-            return False
-        return hashlib.sha256(tmp.read_bytes()).hexdigest() == src_sha
+        return hashlib.sha256(blob).hexdigest() == src_sha
     finally:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
 
+# ---------------------------------------------------------------------------
+# 分用户批量召回（2026-09-12）：从频道把某用户已归档的预览拉回图库。
+# 覆盖三类：本地文件丢失的在库行（就地补文件）、被 trim 清掉的行（重建行，
+# 仅预览无 G-code 副本——按 §10.4.5 契约不可再次发送出图）、用户主动删除的
+# 行（频道副本已撤 + 台账标记 removed → 召回时跳过，尊重用户删除意愿）。
+# ---------------------------------------------------------------------------
 
-def _retry_after(body: str) -> float:
+
+def restore_user(store: Any, user_id: str, *, limit: int | None = None) -> dict[str, Any]:
+    """按台账召回；返回计数摘要。网络失败逐条记录、继续其余（部分成功语义）。"""
+    entries = store.list_archive_log_for_user(user_id)
+    if limit is not None:
+        entries = entries[:limit]
+    summary = {"user_id": user_id, "restored": 0, "recreated": 0, "skipped": 0, "failed": 0}
+    tmp = _verify_tmp()
+    for entry in entries:
+        try:
+            _restore_one(store, user_id, entry, tmp, summary)
+        except Exception as exc:  # noqa: BLE001 逐条隔离，不整批中断。
+            summary["failed"] += 1
+            logger.warning("tg-archive restore failed type=%s", type(exc).__name__)
+        time.sleep(_SPACING_S)
     try:
-        data = json.loads(body)
-        params = data.get("parameters") or {}
-        return float(params.get("retry_after") or 5.0)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return 5.0
+        tmp.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return summary
 
 
-def _json_or_none(body: str) -> Any:
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError:
-        return None
+def _restore_one(store: Any, user_id: str, entry: dict[str, Any], tmp: Path, summary: dict[str, Any]) -> None:
+    saved_id = str(entry["saved_id"])
+    file_id = str(entry["tg_file_id"])
+    live = store.get_saved_preview(saved_id, user_id=user_id)
+    if live is not None:
+        if Path(live.preview_path).is_file():
+            summary["skipped"] += 1
+            return
+        dest = Path(live.preview_path)
+        action = "restored"
+    else:
+        dest = _saved_dir_for(user_id) / f"{saved_id}.png"
+        action = "recreated"
+    blob = _download_with_retry(file_id)
+    if blob is None:
+        summary["failed"] += 1
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(blob)
+    if live is None:
+        store.restore_saved_preview(
+            user_id=user_id,
+            saved_id=saved_id,
+            title=str(entry["title"]),
+            preview_path=str(dest),
+            saved_at=float(entry["archived_at"]),
+            tg_file_id=file_id,
+            tg_message_id=int(entry["tg_message_id"]),
+        )
+    summary[action] += 1
+
+
+def _download_with_retry(file_id: str) -> bytes | None:
+    tmp = _verify_tmp()
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            blob = _download_document(file_id, tmp)
+        except _RateLimited as exc:
+            if attempt >= _MAX_ATTEMPTS:
+                return None
+            time.sleep(min(exc.retry_after, 30.0))
+            continue
+        except Exception:  # noqa: BLE001
+            return None
+        if blob is not None:
+            return blob
+        time.sleep(_SPACING_S)
+    return None
+
+
+def _saved_dir_for(user_id: str) -> Path:
+    """与 app._saved_dir 同构（data_dir/saved/<user_id>）；重建行必须同约定。"""
+    data_dir = os.environ.get("DRAW_PORTAL_DATA_DIR", "/var/lib/hutuji/draw-portal")
+    return Path(data_dir) / "saved" / user_id
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="TG 频道归档召回（分用户）")
+    parser.add_argument("--db", required=True, help="draw-portal SQLite 路径")
+    parser.add_argument("--restore-user", required=True, help="user_id")
+    parser.add_argument("--limit", type=int, default=None)
+    args = parser.parse_args()
+    if not enabled():
+        print("tg-archive disabled（缺 TG_BOT_TOKEN/TG_CHANNEL_ID/HUTUJI_TG_UPLOAD_ENABLED）")
+        return 2
+    from draw_portal.store import Store
+
+    store = Store(Path(args.db))
+    summary = restore_user(store, args.restore_user, limit=args.limit)
+    print(json.dumps(summary, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

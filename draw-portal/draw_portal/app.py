@@ -2181,7 +2181,9 @@ def create_app() -> FastAPI:
         if item is None:
             raise HTTPException(status_code=404, detail="不存在")
         # 频道副本尽力撤回（用户删图 → 第三方不留）；失败仅日志，不回滚本地删除。
-        telegram_archive.delete_message_async(store, item)
+        # 台账同步标记 removed：召回时跳过该行（尊重删除意愿），先于 fire-and-forget。
+        store.mark_archive_log_removed(saved_id)
+        telegram_archive.delete_message_async(item)
         for path in (item.preview_path, item.gcode_path):
             if path:
                 try:

@@ -124,6 +124,20 @@ CREATE TABLE IF NOT EXISTS saved_previews (
     saved_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS telegram_archive_log (
+    saved_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    preview_path TEXT NOT NULL,
+    tg_file_id TEXT NOT NULL,
+    tg_message_id INTEGER NOT NULL,
+    archived_at REAL NOT NULL,
+    tg_removed_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_archive_user
+    ON telegram_archive_log(user_id, archived_at DESC);
+
 CREATE TABLE IF NOT EXISTS admin_audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL,
@@ -1229,6 +1243,79 @@ class Store:
                 WHERE id = ?
                 """,
                 (state, file_id, message_id, time.time(), saved_id),
+            )
+            conn.commit()
+
+
+    def append_archive_log(
+        self,
+        *,
+        saved_id: str,
+        user_id: str,
+        title: str,
+        preview_path: str,
+        tg_file_id: str,
+        tg_message_id: int,
+    ) -> None:
+        """上传成功即记台账（分用户召回的唯一凭据）；行删除不删台账。"""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO telegram_archive_log (
+                    saved_id, user_id, title, preview_path,
+                    tg_file_id, tg_message_id, archived_at, tg_removed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(saved_id) DO UPDATE SET
+                    tg_file_id = excluded.tg_file_id,
+                    tg_message_id = excluded.tg_message_id,
+                    tg_removed_at = NULL
+                """,
+                (saved_id, user_id, title, preview_path, tg_file_id, tg_message_id, time.time()),
+            )
+            conn.commit()
+
+    def mark_archive_log_removed(self, saved_id: str) -> None:
+        """用户主动删除 → 频道副本撤回 + 台账标记；召回时跳过该行。"""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE telegram_archive_log SET tg_removed_at = ? WHERE saved_id = ?",
+                (time.time(), saved_id),
+            )
+            conn.commit()
+
+    def list_archive_log_for_user(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM telegram_archive_log
+                WHERE user_id = ? AND tg_removed_at IS NULL
+                ORDER BY archived_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def restore_saved_preview(
+        self,
+        *,
+        user_id: str,
+        saved_id: str,
+        title: str,
+        preview_path: str,
+        saved_at: float,
+        tg_file_id: str,
+        tg_message_id: int,
+    ) -> None:
+        """召回重建行：沿用原 saved_id（台账主键连贯），无 gcode 副本不可再发送。"""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO saved_previews (
+                    id, user_id, job_id, title, preview_path, gcode_path, saved_at,
+                    tg_state, tg_file_id, tg_message_id, tg_checked_at
+                ) VALUES (?, ?, NULL, ?, ?, NULL, ?, 'uploaded', ?, ?, ?)
+                """,
+                (saved_id, user_id, title, preview_path, saved_at, tg_file_id, tg_message_id, time.time()),
             )
             conn.commit()
 
