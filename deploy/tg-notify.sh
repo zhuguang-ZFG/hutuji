@@ -28,9 +28,16 @@ set -a; . "$ENVF"; set +a
 FULLTEXT="[$(hostname -s)] ${TAG}: ${TEXT}"
 if [[ -n "${TG_RELAY_HOST:-}" && -n "${TG_RELAY_KEY:-}" ]]; then
   # 中继路径：正文走 stdin，避免长文本撞 argv 限额/引号问题。
-  printf '%s' "$FULLTEXT" | ssh -i "$TG_RELAY_KEY" \
+  # jd→lima SSH 偶发 KEX 挂起（jd HIDS 疑似节流，2026-09-12 同路径 3 连成功后
+  # 又一次挂起），通知重试 3 次、间隔 2s，全败也静默（通知非业务闸）。
+  local tries=0
+  until printf '%s' "$FULLTEXT" | ssh -i "$TG_RELAY_KEY" \
     -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
-    "$TG_RELAY_HOST" >/dev/null 2>&1 || true
+    "$TG_RELAY_HOST" >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    [[ $tries -ge 3 ]] && break
+    sleep 2
+  done
   exit 0
 fi
 
