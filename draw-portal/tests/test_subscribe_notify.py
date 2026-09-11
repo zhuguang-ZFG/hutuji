@@ -6,12 +6,11 @@ import time
 from pathlib import Path
 
 import pytest
-
 from draw_portal import subscribe_notify
 from draw_portal.pipeline import DocPipelineResult
 from draw_portal.push import PublishResult
 
-from test_app import _client, _register_and_login  # noqa: E402
+from test_app import _client, _mock_probe_ok, _register_and_login  # noqa: E402
 
 
 class _FakeConfig:
@@ -182,3 +181,72 @@ def test_write_endpoint_triggers_notify(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert r.status_code == 200, r.text
     assert recorded and recorded[-1][0] == "success"
     assert recorded[-1][1] == "春眠不觉晓"
+
+
+def test_notify_custom_phrase(monkeypatch: pytest.MonkeyPatch):
+    """自有事件（奎享完成）传自有文案；缺省仍落生成成功/失败。"""
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        subscribe_notify,
+        "_post_subscribe_send",
+        lambda **kw: (sent.append(kw), 0)[1],
+    )
+    subscribe_notify.notify_job_result(
+        _FakeConfig(), openid="oX-1", status="success", title="奎享作品",
+        phrase="绘制完成",
+    )
+    assert sent[0]["data"]["phrase2"]["value"] == "绘制完成"
+    assert sent[0]["data"]["thing1"]["value"] == "奎享作品"
+
+
+def test_kdraw_done_endpoint_notifies_bound_device(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DRAW_PORTAL_WX_APPID", "wx-test-appid")
+    monkeypatch.setenv("DRAW_PORTAL_WX_SECRET", "wx-test-secret")
+    monkeypatch.setenv("DRAW_PORTAL_WX_SUBSCRIBE_TEMPLATE_ID", "TPL-1")
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client)
+    claim = client.post("/api/user/bind/claim", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert claim.status_code == 200
+    assert client.post(
+        "/api/device/bind/announce",
+        json={"mac": "aa:bb:cc:dd:ee:ff", "bind_code": "ABC123",
+              "device_token": "test-device-token-abcdef1234"},
+    ).json()["bound"] is True
+
+    # email 用户无 wx_openid；同 test_wx_login 先例直接落库补齐。
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "t.db")
+    conn.execute("UPDATE users SET wx_openid = 'oX-1' WHERE email = 'buyer@qq.com'")
+    conn.commit()
+    conn.close()
+
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        subscribe_notify,
+        "_post_subscribe_send",
+        lambda **kw: (sent.append(kw), 0)[1],
+    )
+    r = client.post("/api/device/kdraw/done",
+                    json={"mac": "aa:bb:cc:dd:ee:ff", "title": "一匹马"})
+    assert r.status_code == 200, r.text
+    assert r.json()["notified"] is True
+    assert sent[0]["openid"]
+    assert sent[0]["data"]["phrase2"]["value"] == "绘制完成"
+    assert sent[0]["data"]["thing1"]["value"] == "一匹马"
+
+
+def test_kdraw_done_rejects_unbound_and_bad_mac(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DRAW_PORTAL_WX_APPID", "wx-test-appid")
+    monkeypatch.setenv("DRAW_PORTAL_WX_SECRET", "wx-test-secret")
+    monkeypatch.setenv("DRAW_PORTAL_WX_SUBSCRIBE_TEMPLATE_ID", "TPL-1")
+    client = _client(monkeypatch, tmp_path)
+    r = client.post("/api/device/kdraw/done", json={"mac": "aa:bb:cc:dd:ee:ff"})
+    assert r.status_code == 403
+    r2 = client.post("/api/device/kdraw/done", json={"mac": "bad"})
+    assert r2.status_code == 400

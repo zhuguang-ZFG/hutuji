@@ -103,8 +103,13 @@ def notify_job_result(
     status: str,
     title: str,
     fields: dict[str, str] | None = None,
+    phrase: str | None = None,
 ) -> None:
-    """同步发送一次订阅消息；未启用/openid 缺失直接跳过，失败只落日志。"""
+    """同步发送一次订阅消息；未启用/openid 缺失直接跳过，失败只落日志。
+
+    phrase：模板「状态」文案；缺省按 status 落「生成成功/生成失败」，
+    奎享完成等自有事件传自有文案（微信 phrase ≤5 字，超长由 _clip 截）。
+    """
     if not enabled(config):
         return
     if not openid or status not in ("success", "failed"):
@@ -113,9 +118,13 @@ def notify_job_result(
     secret = str(config.wx_secret)
     template_id = str(config.subscribe_template_id)
     keys = fields or dict(_DEFAULT_FIELDS)
+    if phrase:
+        phrase_text = phrase
+    else:
+        phrase_text = "生成成功" if status == "success" else "生成失败"
     data = {
         keys["thing"]: {"value": _clip(title, 20)},
-        keys["phrase"]: {"value": "生成成功" if status == "success" else "生成失败"},
+        keys["phrase"]: {"value": phrase_text},
         keys["time"]: {"value": time.strftime("%Y-%m-%d %H:%M")},
     }
     errcode = _post_subscribe_send(
@@ -134,16 +143,24 @@ def notify_job_result(
     logger.warning("subscribe send failed errcode=%s", errcode)
 
 
-def notify_job_result_async(config: Any, *, user_id: str, openid: str, status: str, title: str) -> None:
-    """fire-and-forget 入口；同用户 5s 窗口内的重复通知只保留最近一条。"""
+def notify_job_result_async(
+    config: Any,
+    *,
+    user_id: str,
+    openid: str,
+    status: str,
+    title: str,
+    phrase: str | None = None,
+) -> None:
+    """fire-and-forget 入口；同用户同文案 5s 窗口内的重复通知只保留最近一条。"""
     if not enabled(config) or not openid:
         return
     now = time.monotonic()
     with _jobs_lock:
-        last = _recent.get(f"{user_id}:{status}", 0.0)
+        last = _recent.get(f"{user_id}:{status}:{phrase or ''}", 0.0)
         if now - last < _RECENT_WINDOW_SECONDS:
             return
-        _recent[f"{user_id}:{status}"] = now
+        _recent[f"{user_id}:{status}:{phrase or ''}"] = now
         # 惰性清理：留最近 64 条即可
         if len(_recent) > 64:
             keep = sorted(_recent.items(), key=lambda kv: kv[1])[-64:]
@@ -152,8 +169,12 @@ def notify_job_result_async(config: Any, *, user_id: str, openid: str, status: s
 
     def _run() -> None:
         try:
-            notify_job_result(config, openid=openid, status=status, title=title)
+            notify_job_result(
+                config, openid=openid, status=status, title=title, phrase=phrase
+            )
         except Exception as exc:  # 通知绝不冒泡进主链
             logger.warning("subscribe notify error: %s", type(exc).__name__)
 
     threading.Thread(target=_run, daemon=True, name="hutuji-subscribe-notify").start()
+
+

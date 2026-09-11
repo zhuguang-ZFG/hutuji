@@ -145,6 +145,14 @@ class BindClaimBody(BaseModel):
     force: bool = False  # 与 bind/complete 同口径：跨账号换绑须显式确认（在场证据=扫到屏显配网 QR）
 
 
+class BindUnbindBody(BaseModel):
+    device_mac: str | None = None
+
+
+class DeviceSelectBody(BaseModel):
+    device_mac: str
+
+
 class WxProfileBody(BaseModel):
     nickname: str = Field(min_length=1, max_length=32)
 
@@ -239,6 +247,11 @@ class ConversationTurnBody(BaseModel):
     client_ts: float | None = None
 
 
+class KdrawDoneBody(BaseModel):
+    mac: str
+    title: str | None = Field(default=None, max_length=60)
+
+
 class ConversationReportBody(BaseModel):
     mac: str
     session_id: str = Field(min_length=1, max_length=64)
@@ -324,26 +337,32 @@ def _notify_subscribe(
     user_id: str,
     status: str,
     title: str,
-) -> None:
-    """生成完成/失败 → 一次性订阅消息（fire-and-forget，绝不影响主链）。"""
+    phrase: str | None = None,
+) -> bool:
+    """生成完成/失败 → 一次性订阅消息（fire-and-forget，绝不影响主链）。
+
+    @return True = 已派发后台发送线程（不代表微信侧送达）；False = 未发。
+    """
     from draw_portal import subscribe_notify
 
     if not subscribe_notify.enabled(config):
-        return
+        return False
     try:
         user = store.get_user(user_id)
     except Exception:
-        return
+        return False
     openid = getattr(user, "wx_openid", None) if user else None
     if not openid:
-        return
+        return False
     subscribe_notify.notify_job_result_async(
         config,
         user_id=user_id,
         openid=openid,
         status=status,
         title=title,
+        phrase=phrase,
     )
+    return True
 
 
 def _is_loopback_client(host: str) -> bool:
@@ -592,6 +611,10 @@ def create_app() -> FastAPI:
             "phone_bound": phone_bound,
             "avatar_url": f"/api/auth/avatar/{user.id}" if user.avatar_path else None,
             "binding": store.binding_status_dict(binding),
+            "devices": [
+                {**store.binding_status_dict(item), "device_mac": item.device_mac}
+                for item in store.list_bindings_for_user(user_id)
+            ],
         }
 
     @app.get("/api/device/bind/session")
@@ -1239,13 +1262,26 @@ def create_app() -> FastAPI:
                 return {"status": "bound", "binding": store.binding_status_dict(binding)}
             return {"status": "expired"}
         if claim.user_id != user_id:
-            return {"status": "pending"}
+            # 不向其他账号泄露认领窗口是否存在。
+            return {"status": "expired"}
         return {"status": "claimed", "expires_at": claim.expires_at}
 
     @app.post("/api/user/bind/unbind", dependencies=phone_secured)
-    def bind_unbind(user_id: str = Depends(user_dep)) -> dict[str, str]:
+    def bind_unbind(body: BindUnbindBody | None = None, user_id: str = Depends(user_dep)) -> dict[str, str]:
         binding = store.get_binding_for_user(user_id)
-        if not store.delete_binding_for_user(user_id):
+        if body is not None and body.device_mac:
+            try:
+                target = store.select_binding_for_user(user_id, body.device_mac)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if target is None:
+                raise HTTPException(status_code=404, detail="设备未绑定到当前账号")
+            removed = store.delete_binding_for_mac(target.device_mac)
+            if removed:
+                store.select_binding_for_user(user_id, next((x.device_mac for x in store.list_bindings_for_user(user_id)), target.device_mac))
+        else:
+            removed = store.delete_binding_for_user(user_id)
+        if not removed:
             raise HTTPException(status_code=404, detail="未绑定设备")
         if binding is not None:
             _record_portal_usage(
@@ -1260,6 +1296,27 @@ def create_app() -> FastAPI:
     def bind_status(user_id: str = Depends(user_dep)) -> dict[str, Any]:
         binding = store.get_binding_for_user(user_id)
         return store.binding_status_dict(binding)
+
+    @app.get("/api/user/devices", dependencies=phone_secured)
+    def list_user_devices(user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        devices = []
+        active = store.get_binding_for_user(user_id)
+        for item in store.list_bindings_for_user(user_id):
+            status = store.binding_status_dict(item)
+            status["device_mac"] = item.device_mac
+            status["active"] = bool(active and active.device_mac == item.device_mac)
+            devices.append(status)
+        return {"devices": devices}
+
+    @app.post("/api/user/devices/select", dependencies=phone_secured)
+    def select_user_device(body: DeviceSelectBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        try:
+            binding = store.select_binding_for_user(user_id, body.device_mac)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if binding is None:
+            raise HTTPException(status_code=404, detail="设备未绑定到当前账号")
+        return {"status": "selected", "binding": store.binding_status_dict(binding)}
 
     def _require_binding(user_id: str):
         binding = store.get_binding_for_user(user_id)
@@ -2157,6 +2214,31 @@ def create_app() -> FastAPI:
             ):
                 accepted += 1
         return {"status": "ok", "accepted": accepted, "total": len(body.events)}
+
+    @app.post("/api/device/kdraw/done")
+    def kdraw_done(body: KdrawDoneBody) -> dict[str, Any]:
+        """奎享完成守护云端通知（设备→portal 反向，2026-09-12）。
+
+        鉴权口径与 conversation/report 同一先例：MAC 必须已绑定呼图账号，
+        未绑定一律 403，不区分「未绑定/胡报 MAC」。mac 在此面属弱凭证——
+        本端点只触发一次性订阅消息（不落库、不暴露数据），伪造收益趋零，
+        故不引 device_token（避免 token 轮换 401 丢通知）。
+        """
+        try:
+            mac = normalize_mac(body.mac)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        user_id = store.get_user_id_for_mac(mac)
+        if user_id is None:
+            raise HTTPException(status_code=403, detail="设备未绑定呼图账号")
+        title = (body.title or "").strip()[:20] or "奎享作品"
+        notified = _notify_subscribe(
+            config, store, user_id=user_id, status="success",
+            title=title, phrase="绘制完成",
+        )
+        logger.info("kdraw done: mac_suffix=%s user=%s notified=%s",
+                    mac[-5:], user_id, bool(notified))
+        return {"status": "ok", "notified": bool(notified)}
 
     @app.post("/api/internal/usage")
     def usage_ingest(
