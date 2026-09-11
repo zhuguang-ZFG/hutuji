@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const { displayVersion } = require("../../utils/version.js");
 
 // 设计稿 §2.4 / 失败表 F1–F8 的 reason token → 中文
 const REASON_ZH = {
@@ -31,6 +32,7 @@ function reasonText(token) {
 
 Page({
   data: {
+    footVersion: "v0.3.6",
     current: "",
     latest: "",
     notes: "",
@@ -45,6 +47,7 @@ Page({
   },
 
   onShow() {
+    this.setData({ footVersion: displayVersion("v0.3.6") });
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
       if (!ok) return;
       this._ensureBound().then((bound) => {

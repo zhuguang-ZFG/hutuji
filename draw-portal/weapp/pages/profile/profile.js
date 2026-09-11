@@ -1,8 +1,10 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const { displayVersion } = require("../../utils/version.js");
 
 Page({
   data: {
+    footVersion: "v0.3.6",
     me: null,
     avatarSrc: "",
     nicknameDraft: "",
@@ -12,6 +14,7 @@ Page({
   },
 
   onShow() {
+    this.setData({ footVersion: displayVersion("v0.3.6") });
     const loggedOut = !!wx.getStorageSync("logged_out");
     this.setData({ loggedOut });
     if (!loggedOut) this.refresh();

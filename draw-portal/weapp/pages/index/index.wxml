@@ -211,6 +211,11 @@
             disabled="{{saving || sending}}"
           >收藏</button>
           <button
+            class="weui-btn weui-btn_default action-inline"
+            hover-class="btn-press"
+            open-type="share"
+          >分享</button>
+          <button
             class="weui-btn weui-btn_primary action-inline"
             hover-class="btn-press"
             bindtap="onSend"

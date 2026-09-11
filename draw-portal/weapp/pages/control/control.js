@@ -1,12 +1,14 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const mcpResult = require("../../utils/mcp_result");
+const { displayVersion } = require("../../utils/version.js");
 const jobProgress = require("../../utils/job_progress");
 
 // 设备控制：WeUI 官方模板布局 + 奎享同构能力
 // 状态轮询 + 点动/步距/抬落笔/试笔 + 任务 暂停/继续/停止/重画 + 预览确认
 Page({
   data: {
+    footVersion: "v0.3.6",
     bound: false,
     status: null,
     step: 10,
@@ -35,6 +37,7 @@ Page({
   },
 
   onShow() {
+    this.setData({ footVersion: displayVersion("v0.3.6") });
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
       if (!ok) return;
       this._reschedulePoll(jobProgress.POLL_MS_IDLE);

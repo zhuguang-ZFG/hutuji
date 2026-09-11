@@ -102,5 +102,5 @@
 
   </block>
 
-  <view class="page-foot muted">动力巢科技 · v0.3.5</view>
+  <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>

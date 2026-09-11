@@ -5,6 +5,7 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
+const { displayVersion } = require("../../utils/version.js");
 
 const SESSION_KEY = "voice_session_id";
 const SESSION_LEN = 22;
@@ -34,6 +35,7 @@ function formatToolTraces(traces) {
 
 Page({
   data: {
+    footVersion: "v0.3.6",
     messages: [],
     recording: false,
     busy: false,
@@ -42,6 +44,7 @@ Page({
   },
 
   onLoad() {
+    this.setData({ footVersion: displayVersion("v0.3.6") });
     subscribe.prepare();
     this._sessionId = ensureSessionId();
     this._msgSeq = 0;
