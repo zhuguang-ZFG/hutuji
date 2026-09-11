@@ -5,11 +5,10 @@
 # 消息自动带主机名前缀（双机同发时有归属）。
 #
 # 出路二选一（tg.env 决定，运行期探测）：
-#   直连（阿里云主节点可直达 api.telegram.org）：TG_RELAY_HOST 不配即直连；
-#   SSH 中继（京东云直连被 DNS 污染+封 SNI，2026-09-12 实测 curl 000）：
-#   配 TG_RELAY_HOST=47.112.162.80（lima 公网 SSH）与 TG_RELAY_KEY=专用 key，
+#   直连（lima 配 TG_PROXY 经 sing-box 出网）；SSH 中继（京东云，见下）：
 #   对端 authorized_keys 以 command= 锁死只许跑 tg-relay-recv.sh（stdin 带正文）。
-#   tailnet HTTP 8092 与 tailnet SSH 均被 ACL/HIDS 挡死（同日实测），走公网。
+# 直连（或中继落地侧）tg.env 可配 TG_PROXY=http://127.0.0.1:7890（lima sing-box
+#   本机 HTTP 代理）：大陆节点直连 api.telegram.org 2026-09-12 实测全超时，必须走代理。
 #
 # 用法: tg-notify.sh <TAG> <TEXT...>      普通调用（TAG 如 unit-failed/token-watch）
 #       tg-notify.sh --stdin             中继接收端：正文读 stdin（≤4KB）
@@ -35,7 +34,9 @@ if [[ -n "${TG_RELAY_HOST:-}" && -n "${TG_RELAY_KEY:-}" ]]; then
   exit 0
 fi
 
-if ! curl -fsS --max-time 10 -s -o /dev/null \
+PROXY_ARGS=()
+[[ -n "${TG_PROXY:-}" ]] && PROXY_ARGS=(--proxy "$TG_PROXY")
+if ! curl -fsS --max-time 10 -s -o /dev/null "${PROXY_ARGS[@]}" \
   "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
   --data-urlencode "chat_id=${TG_CHAT_ID}" \
   --data-urlencode "text=${FULLTEXT}" 2>/dev/null; then
