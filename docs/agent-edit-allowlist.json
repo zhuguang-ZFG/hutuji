@@ -1,7 +1,7 @@
 {
   "version": 1,
   "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
-  "decision_count": 7,
+  "decision_count": 8,
   "recent_review_fixes_20260910_authorized": {
     "note": "2026-09-10 用户针对近期 code review 七项问题回复「解决处理，」，授权修复与回归。范围为预览分配、退出登录竞态、显式字体、波纹白区、重试日限、Tunnel OTA 路由、字体默认项。",
     "paths": [
@@ -29,7 +29,11 @@
     "Grbl_Esp32/src/ProcessSettings.cpp",
     "Grbl_Esp32/src/GCode.cpp",
     "Grbl_Esp32/src/WebUI/BTConfig.cpp",
-    "Grbl_Esp32/src/WebUI/WebSettings.cpp"
+    "Grbl_Esp32/src/WebUI/WebSettings.cpp",
+    "Grbl_Esp32/src/WebUI/StatusBeacon.h",
+    "Grbl_Esp32/src/WebUI/StatusBeacon.cpp",
+    "Grbl_Esp32/src/WebUI/WifiServices.cpp",
+    "Grbl_Esp32/src/Config.h"
   ],
   "grbl_user_authorized_extras": [
     "Grbl_Esp32/src/WebUI/WifiConfig.cpp",

@@ -87,7 +87,7 @@ ALLOWLIST_REQUIRED_KEYS = [
 ALLOWLIST_EXACT = {
     "version": 1,
     "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
-    "decision_count": 7,
+    "decision_count": 8,
     "grbl_section9_only": [
         "Grbl_Esp32/src/WebUI/TelnetServer.cpp",
         "Grbl_Esp32/src/PaperSystem.cpp",
@@ -97,6 +97,11 @@ ALLOWLIST_EXACT = {
         "Grbl_Esp32/src/GCode.cpp",
         "Grbl_Esp32/src/WebUI/BTConfig.cpp",
         "Grbl_Esp32/src/WebUI/WebSettings.cpp",
+        # §9-H′（2026-09-12 用户授权奎享守护）：状态 UDP 广播新文件 + 宏 + 三挂钩
+        "Grbl_Esp32/src/WebUI/StatusBeacon.h",
+        "Grbl_Esp32/src/WebUI/StatusBeacon.cpp",
+        "Grbl_Esp32/src/WebUI/WifiServices.cpp",
+        "Grbl_Esp32/src/Config.h",
     ],
     # findings #30 R2（2026-08-31 用户批准补录）：两个 §9 清单外但有用户点名授权
     # 记录的触面——WifiConfig.cpp（0e1b7ed commit 内记 2026-08-24 用户点名批准
