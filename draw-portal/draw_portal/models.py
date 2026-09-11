@@ -113,7 +113,10 @@ class SavedPreview:
     preview_path: str
     gcode_path: str | None
     saved_at: float
-
+    # TG 频道冷备份（2026-09-12 PoC）：None=未启用；pending/uploaded/failed。
+    tg_state: str | None = None
+    tg_file_id: str | None = None
+    tg_message_id: int | None = None
 
 @dataclass(frozen=True)
 class UserSummary:

@@ -230,6 +230,14 @@ _DRAW_JOB_MIGRATION_COLUMNS = (
     ("refined_status", "TEXT"),
     ("refined_job_id", "TEXT"),
 )
+_SAVED_PREVIEW_TELEGRAM_COLUMNS = (
+    # 2026-09-12 图库 TG 频道冷备份（PoC）：状态 NULL=未启用 / pending /
+    # uploaded / failed；file_id 只属于签发 bot，删 bot 即失效（无恢复 SLA）。
+    ("tg_state", "TEXT"),
+    ("tg_file_id", "TEXT"),
+    ("tg_message_id", "INTEGER"),
+    ("tg_checked_at", "REAL"),
+)
 
 
 
@@ -293,6 +301,14 @@ class Store:
             conn.execute(
                 "ALTER TABLE device_bindings ADD COLUMN machine_type TEXT NOT NULL DEFAULT 'paper'"
             )
+        # 2026-09-12 TG 冷备份列（PoC，默认 NULL=未启用，不回填旧图）。
+        preview_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(saved_previews)").fetchall()
+        }
+        for name, ddl in _SAVED_PREVIEW_TELEGRAM_COLUMNS:
+            if name not in preview_cols:
+                conn.execute(f"ALTER TABLE saved_previews ADD COLUMN {name} {ddl}")
         conn.commit()
 
     @staticmethod
@@ -404,6 +420,9 @@ class Store:
             preview_path=row["preview_path"],
             gcode_path=row["gcode_path"],
             saved_at=row["saved_at"],
+            tg_state=row["tg_state"],
+            tg_file_id=row["tg_file_id"],
+            tg_message_id=row["tg_message_id"],
         )
 
     def create_user(
@@ -1157,6 +1176,7 @@ class Store:
         title: str,
         preview_path: str,
         gcode_path: str | None,
+        tg_pending: bool = False,
     ) -> SavedPreview:
         saved = SavedPreview(
             id=str(uuid.uuid4()),
@@ -1166,13 +1186,15 @@ class Store:
             preview_path=preview_path,
             gcode_path=gcode_path,
             saved_at=time.time(),
+            tg_state="pending" if tg_pending else None,
         )
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO saved_previews (
-                    id, user_id, job_id, title, preview_path, gcode_path, saved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    id, user_id, job_id, title, preview_path, gcode_path, saved_at,
+                    tg_state
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     saved.id,
@@ -1182,10 +1204,33 @@ class Store:
                     saved.preview_path,
                     saved.gcode_path,
                     saved.saved_at,
+                    saved.tg_state,
                 ),
             )
             conn.commit()
         return saved
+
+    def mark_preview_telegram(
+        self,
+        saved_id: str,
+        *,
+        state: str,
+        file_id: str | None,
+        message_id: int | None,
+    ) -> None:
+        """归档 worker 回写：只认 in ('pending','uploaded','failed')，防脏值。"""
+        if state not in {"pending", "uploaded", "failed"}:
+            return
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE saved_previews
+                SET tg_state = ?, tg_file_id = ?, tg_message_id = ?, tg_checked_at = ?
+                WHERE id = ?
+                """,
+                (state, file_id, message_id, time.time(), saved_id),
+            )
+            conn.commit()
 
     def list_saved_previews(self, user_id: str) -> list[SavedPreview]:
         with self._connect() as conn:

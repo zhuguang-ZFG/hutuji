@@ -1,6 +1,6 @@
 # Telegram 图床 PoC 调研（2026-08-30）
 
-> 状态：**调研完成，未接入生产**。结论：可作个人/备份降本实验，**不替代** `hutuji.donglicao.com/files/` 与 draw-portal 图库主链路。
+> 状态：**PoC 已接入（2026-09-12，频道 @danqing45，lima 节点 `HUTUJI_TG_UPLOAD_ENABLED=1`）**：`draw_portal/telegram_archive.py` 图库保存后台归档 + 图库删除尽力撤回 + 列表 `tg_backup` 状态字段；可作个人/备份降本实验，**不替代** `hutuji.donglicao.com/files/` 与 draw-portal 图库主链路（主链路契约一字未动）。
 
 ## 1. 用户诉求
 
@@ -123,4 +123,4 @@ draw-portal 保存预览 PNG
 1. **file_path URL 1h 时效不构成检索障碍**：file_id 长期有效、可随时重新 `getFile` 换新 URL（2026-09-12 两次连发实测），归档读取语义成立；但 file_id 只属于签发它的 bot，删 bot 即失效（PoC §6 已记）。
 2. **代理吞吐 ≈130/255KB/s**（600KB 上传 4.6s / 下载 2.35s，经 sing-box）：适合后台逐张归档，**不适合**实时预览热路径。
 
-进度状态仍是 **未接入生产**；若用户拍板做 §8 的 PoC，工作量与验收判据照旧（~1.5d，`HUTUJI_TG_UPLOAD_ENABLED` 默认 0）。
+§8 已按此实施（频道由用户提供：@danqing45 / chat_id -1004350290412，写入服务器 env 不入库；探针改为真实频道复跑，500KB 上传 3.0s、sha256 一致、`message_id=4`）。上线范围 = §5.1 的 PoC 形态（默认关、仅 lima 启用），`tg_backup` 状态经 `/api/draw/saved` 暴露，weapp 展示层后批再挂。

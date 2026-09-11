@@ -32,6 +32,7 @@ from draw_portal.auth import (
 from draw_portal.config import load_config
 from draw_portal import chat as chat_mod
 from draw_portal import tg_notify
+from draw_portal import telegram_archive
 from draw_portal.crypto import decrypt_token, encrypt_token
 from draw_portal.email_verify import (
     generate_email_code,
@@ -1921,7 +1922,11 @@ def create_app() -> FastAPI:
             title=title[:120],
             preview_path=preview_rel,
             gcode_path=gcode_path,
+            tg_pending=telegram_archive.enabled(),
         )
+        # TG 频道冷备份（PoC）：enabled 才动作（行已带 pending 态），daemon
+        # 顺序上传+逐字节校验；任何失败只落日志，绝不影响保存主链。
+        telegram_archive.enqueue_preview(store, saved)
         for path in store.trim_saved_previews(
             user_id, limit=config.saved_preview_limit
         ):
@@ -1954,6 +1959,8 @@ def create_app() -> FastAPI:
                     "saved_at": it.saved_at,
                     "has_gcode": bool(it.gcode_path),
                     "preview_url": f"/api/draw/saved/{it.id}/preview.png",
+                    # TG 冷备份状态（PoC）：null=未启用；pending/uploaded/failed。
+                    "tg_backup": it.tg_state,
                 }
                 for it in items
             ]
@@ -1970,6 +1977,7 @@ def create_app() -> FastAPI:
             "saved_at": item.saved_at,
             "has_gcode": bool(item.gcode_path),
             "preview_url": f"/api/draw/saved/{item.id}/preview.png",
+            "tg_backup": item.tg_state,
         }
 
     @app.get("/api/draw/saved/{saved_id}/preview.png", dependencies=phone_secured)
@@ -2172,6 +2180,8 @@ def create_app() -> FastAPI:
         item = store.delete_saved_preview(saved_id, user_id=user_id)
         if item is None:
             raise HTTPException(status_code=404, detail="不存在")
+        # 频道副本尽力撤回（用户删图 → 第三方不留）；失败仅日志，不回滚本地删除。
+        telegram_archive.delete_message_async(store, item)
         for path in (item.preview_path, item.gcode_path):
             if path:
                 try:
