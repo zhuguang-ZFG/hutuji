@@ -60,7 +60,7 @@ def _push_preview(
         auto_confirm=False,
     )
     if not ok:
-        raise VoiceJobError(f"推送到写字机失败：{summary}", status=502)
+        raise VoiceJobError(f"推送到丹青失败：{summary}", status=502)
 
 
 def run_voice_draw(
@@ -134,7 +134,7 @@ def run_voice_draw(
         on_token_minted=on_token_minted,
     )
     return (
-        "已生成并推到写字机预览，请在小程序点「开始画」确认；取消则点「取消」。",
+        "已生成并推到丹青预览，请在小程序点「开始画」确认；取消则点「取消」。",
         preview,
     )
 

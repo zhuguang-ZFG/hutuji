@@ -816,7 +816,7 @@ def create_app() -> FastAPI:
         def push_tool(name: str, arguments: dict[str, Any]) -> str:
             tok = token_holder["token"]
             if tok is None:
-                return "请先绑定写字机"
+                return "请先绑定丹青"
             ok, result = push_tool_call(
                 api_base=config.xiaozhi_api_base,
                 device_token=tok,
@@ -848,7 +848,7 @@ def create_app() -> FastAPI:
             name: str, arguments: dict[str, Any]
         ) -> tuple[str, dict[str, str] | None]:
             if binding is None or enc_holder["enc"] is None or device_mac is None:
-                raise VoiceJobError("请先绑定写字机")
+                raise VoiceJobError("请先绑定丹青")
 
             def on_token_minted(new_enc: str) -> None:
                 store.update_binding_token(user_id, device_token_enc=new_enc)
@@ -993,7 +993,7 @@ def create_app() -> FastAPI:
 
         binding = store.get_binding_for_user(user_id)
         if binding is None:
-            raise HTTPException(status_code=400, detail="请先绑定写字机")
+            raise HTTPException(status_code=400, detail="请先绑定丹青")
         token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
         ok, result = push_tool_call(
             api_base=config.xiaozhi_api_base,

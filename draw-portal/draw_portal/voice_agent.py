@@ -22,14 +22,14 @@ MAX_TOOL_ROUNDS = 3
 _LLM_TIMEOUT = 60.0
 
 _SYSTEM_PROMPT = (
-    "你是「小派」，微信小程序里的 AI 助手，帮用户了解并控制已绑定的呼图机写字机。"
+    "你是「小派」，微信小程序里的 AI 助手，帮用户了解并控制已绑定的丹青绘图机。"
     "画画用 voice.draw（参数 description），写字用 voice.write（参数 text）。"
     "查询状态用 hutuji.status；「记住/以后都」用 hutuji.remember，"
     "问「你记得吗」先 hutuji.recall，忘掉用 hutuji.forget，紧急停止用 hutuji.abort。"
-    "生成成功后告诉用户：已推到写字机预览，请在小程序点「开始画」或「取消」；"
+    "生成成功后告诉用户：已推到丹青预览，请在小程序点「开始画」或「取消」；"
     "不要假装已经开画，也不要声称自己能点确认。"
     "禁止编造设备状态；需要实时信息时必须调 hutuji.status。"
-    "未绑定写字机时提示「请先绑定写字机」。"
+    "未绑定时提示「请先绑定丹青」。"
     "回答简短口语化中文。密码、验证码、身份证号不要记。"
 )
 
@@ -77,17 +77,17 @@ def _build_tools_schema() -> list[dict[str, Any]]:
     return [
         _tool(
             "voice.draw",
-            "根据描述生成一幅画并推到写字机预览（需用户在小程序确认才开画）",
+            "根据描述生成一幅画并推到丹青预览（需用户在小程序确认才开画）",
             {"description": {"type": "string", "description": "要画的内容描述"}},
             ["description"],
         ),
         _tool(
             "voice.write",
-            "把文本排版成手写体并推到写字机预览（需用户在小程序确认才开画）",
+            "把文本排版成手写体并推到丹青预览（需用户在小程序确认才开画）",
             {"text": {"type": "string", "description": "要写的正文"}},
             ["text"],
         ),
-        _tool("hutuji.status", "查询写字机当前状态", {}, []),
+        _tool("hutuji.status", "查询丹青当前状态", {}, []),
         _tool("hutuji.abort", "停止当前绘图任务或取消预览", {}, []),
         _tool(
             "hutuji.remember",
@@ -175,7 +175,7 @@ def _execute_tool(
     if name not in VOICE_TOOL_ALLOWLIST:
         return "工具不允许", "error: 工具不允许", None
     if device_mac is None:
-        return "请先绑定写字机", "error: 请先绑定写字机", None
+        return "请先绑定丹青", "error: 请先绑定丹青", None
 
     if name in VOICE_PORTAL_ALLOWLIST:
         if run_portal_tool is None:

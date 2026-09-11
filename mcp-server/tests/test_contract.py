@@ -7029,15 +7029,23 @@ def test_deploy_guidance_explicitly_restarts_active_application_services() -> No
     assert "enable --now hutuji-mcp hutuji-cloud-bridge nginx" not in readme
 
 
-def test_xiaozhi_knowledge_base_uses_protocol_paper_change_timing() -> None:
+def test_xiaozhi_knowledge_base_has_no_auto_paper_change_claim() -> None:
+    """量产无换纸 SKU（2026-09-12 用户口径「没有换纸功能了」）：KB 不得承诺自动换纸。
+
+    本测试旧版钉的是换纸机 MK38 的换纸时序（≥60 秒/90 秒应答上限）；现役产品
+    画完自动停笔、手动取纸，KB 的反向声明才是用户可观察的契约。
+    """
     root = Path(__file__).resolve().parents[2]
     knowledge = (root / "docs" / "xiaozhi-agent" / "knowledge-base.md").read_text(
         encoding="utf-8"
     )
 
     assert "换纸（约 10 秒）" not in knowledge
-    assert "通常需要 60 秒以上" in knowledge
-    assert "90 秒换纸应答上限" in knowledge
+    assert "通常需要 60 秒以上" not in knowledge
+    assert "90 秒换纸应答上限" not in knowledge
+    assert "不会自动换纸" in knowledge
+    assert "不支持自动换纸" in knowledge
+    assert "丹青" in knowledge
 
 
 def test_install_script_keeps_package_index_tls_verification() -> None:

@@ -9,6 +9,20 @@
 
 ---
 
+## 2026-09-12 AI 写字单页适配 + 设备文案「丹青」批（已提交 `a09aa2d`，双机已部署；weapp 0.3.7 已上传）
+
+| 项 | 说明 |
+|----|------|
+| 提交 | 本仓 `a09aa2d`（30 文件：write_text/server/test_write_text + portal pipeline/app/voice_jobs + 5 处测试 stub + 新 `tests/test_write_pipeline.py` + weapp 16 文件改名 + AGENTS/protocol/inventory）；领先 origin/main 未推 |
+| 授权 | 用户原话「AI 写字的最好也是单张纸」「小程序的文案不要写写字机，起个高大上的名字」（2026-09-11）；设备名「丹青」实施后已告知 |
+| 触及面 | mcp `write_text.py`（`layout_text_fit_single` + `replace` import）、`server.py`（`hutuji_write size_mm=0` 哨兵 + `_run_write_job fit_single_page`）；portal `pipeline.py`（`process_write_text fit_single_page`）、`app.py`（`body.size_mm is None` → fit）、`voice_jobs.py`（恒 fit + 推送文案「丹青」）；weapp 全量「写字机」→「丹青」 |
+| 回归 | MCP 全套 **1395/1395**（test_write_text 47→50：2 页缩号成 1 页/4mm 地板回落 12 页/单页与地板字号直通）；portal **183/183**（新 `test_write_pipeline.py` 2 项路由 + 5 处 stub 补 kwarg）；`test_test_count_claims_self_consistent` 钉 AGENTS↔inventory 一致（曾 1 红→台账同步后绿） |
+| 部署 | 双机 5 文件 HEAD blob SHA-256 逐位相符（明细 `docs/deployment.md` 首条）；备份 `/root/hutuji-bak-20260912-writefit/`（双机）；重启阿里 mcp+bridge+portal+admin+worker@{1..8} 全 active、京东 mcp+portal active；冒烟 bridge-health 200/portal 200/admin 200 |
+| 生产冒烟 | 双机 venv+真数据直调：阿里 `layout_teach("中义你我他")`→1 页（**09-11 笔顺批漏重启 portal 的存量问题随之收口**——portal 进程内 import mcp 模块，模块变更必须连 portal 重启）、`layout_text_fit_single` 200 字 2 页→1 页；京东同款 1 页/1 页 |
+| 小程序 | weapp **0.3.7** CLI 上传 TOTAL **115128 B**（`tmp/weapp-upload-0.3.7.json`）；16 文件 38 处「写字机」→「丹青」（含转发标题/发送按钮/导航标题/绑定配网话术/项目描述）；`node --check` + JSON parse 全过；**MP 后台选 0.3.7 体验版是用户动作** |
+| 一次性产物 | `tmp/deploy-20260912-writefit/`（LF 发布候选）、`tmp/weapp-upload-0.3.7.json`；不入库 |
+| 未验证 | 实机纸面（缩号后的字号观感、长文回落多页行为）；真机冒烟清单 42 项未过 |
+
 ## 2026-09-10 近期评审七项修复（已提交已推 `5062272`+`a776cc6`+证据回填 `bba1284`，双机已部署；量产机已烧录点亮）
 
 | 项 | 说明 |
@@ -475,7 +489,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-11 再核，含 09-11 小程序批小节插入的 +11 行）：findings #28 → 本页 `:134`（测试计数行）/`:641`（quickdraw 387 别名键）/`:646`（quickdraw 计数行），findings #30 → `:713`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:135`（08-30 指纹门禁 COM14 抓包）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:136`（08-30 指纹门禁 COM14 抓包，随 09-12 readiness 首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
