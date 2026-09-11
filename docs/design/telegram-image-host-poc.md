@@ -124,3 +124,18 @@ draw-portal 保存预览 PNG
 2. **代理吞吐 ≈130/255KB/s**（600KB 上传 4.6s / 下载 2.35s，经 sing-box）：适合后台逐张归档，**不适合**实时预览热路径。
 
 §8 已按此实施（频道由用户提供：@danqing45 / chat_id -1004350290412，写入服务器 env 不入库；探针改为真实频道复跑，500KB 上传 3.0s、sha256 一致、`message_id=4`）。上线范围 = §5.1 的 PoC 形态（默认关、仅 lima 启用），`tg_backup` 状态经 `/api/draw/saved` 暴露，weapp 展示层后批再挂。
+
+## 10. 已实施记录（2026-09-12 同日深夜，`f89fa25`→`e19eecb`）
+
+按 §5.1 形态上线（默认关 `HUTUJI_TG_UPLOAD_ENABLED=0`，仅 lima=1；jd 不启用），契约落 `docs/protocol.md` §10.4.5。上线当晚两次升级：
+
+1. **worker 横库缺陷修复**（用户评审发现）：原实现 `_ensure_worker(store)` 首次入队永久绑定 Store 实例，同进程多 app/多库（测试、迁移脚本、多租户）会把后续任务写进第一个库。修复 = `_Task` 自带 `store`/`user_id`，worker 只用任务自带实例回写；回归测试 `test_enqueue_task_binds_own_store` 钉双库路由。
+2. **分用户批量召回**（用户原话「要做分用户批量召回照片的功能」）：新表 `telegram_archive_log` 台账（上传成功即记 saved_id/user_id/title/file_id/message_id/archived_at，行删除不删台账；用户删图撤回频道副本时标 `tg_removed_at`）。召回面 = `restore_user(store, user_id)` + CLI：
+
+   ```
+   python -m draw_portal.telegram_archive --db /var/lib/hutuji/draw-portal/data.db --restore-user <uid>
+   ```
+
+   三类处置：文件丢失的在库行就地回拉；trim 清掉的行按台账重建（**仅预览、`gcode_path=NULL`，按 §10.4.5 契约不可再次发送**）；用户主动删除（台账 removed）跳过。逐条 fail-open，`{"restored":N,"recreated":N,"skipped":N,"failed":N}` JSON 摘要。
+
+生产证据：真实用户行归档 message_id=8 → sha256 一致 → `uploaded`+台账；召回演练（删 PNG → CLI → 文件回位 sha256 逐位一致）。部署坑两条：draw-portal.env 缺 `TG_PROXY` 直连被墙；模块重写曾漏 `_json_or_none`（生产 `_upload_document` NameError，`e19eecb` 补回）。

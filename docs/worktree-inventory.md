@@ -20,15 +20,15 @@
 | 证据 | lima 直发 ok:true message_id:2；jd 中继自检/digest/unit 模板自启（01:31:39 tg-relay: req）零告警；hub PASS（1397 pytest + e2e PASS + 指纹 262 全对） |
 | 未验证 | 通知告警阈值语义化、真实 unit failed 触发复测（模板路径已实测） |
 
-## 2026-09-12 深夜 图库 TG 频道冷备份 PoC（已提交 `f89fa25` 系列，lima 已部署+生产路径实测）
+## 2026-09-12 深夜 图库 TG 频道冷备份 PoC + 同日升级召回（已提交 `f89fa25`/`5785c66`/`e19eecb` 系列，lima 已部署+生产召回演练）
 
 | 项 | 说明 |
 |----|------|
-| 提交 | `f89fa25`（telegram_archive.py 新 + app/store/models + test_telegram_archive 10 项 + privacy-policy 第 4 条 + PoC 设计稿状态翻转）→ `cfe154f`/`ca2cdab`（protocol §10.4.5 契约行 + readiness/deployment 登记 + 指纹重登） |
-| 授权 | 用户原话「电报无限图床可以做吗」「无限图床只能用频道吧」+ 频道 `t.me/danqing45`（2026-09-12） |
+| 提交 | `f89fa25`（telegram_archive.py 新 + app/store/models + test_telegram_archive 10 项 + privacy-policy 第 4 条 + PoC 设计稿状态翻转）→ `cfe154f`/`ca2cdab`（protocol §10.4.5 契约行 + readiness/deployment 登记 + 指纹重登）→ `5785c66`（worker 不再全局绑定首个 Store——`_Task` 自带 store/user_id，修横库缺陷；新表 `telegram_archive_log` 台账 + 四方法；`restore_user` 分用户召回 + `__main__` CLI；删除端点同步标台账 removed；归档测试 15 项）→ `e19eecb`（补回重写遗漏的 `_json_or_none`——生产 `_upload_document` NameError 实测抓到） |
+| 授权 | 用户原话「电报无限图床可以做吗」「无限图床只能用频道吧」+ 频道 `t.me/danqing45`（2026-09-12）；同日风险核实原话「归档 worker 是模块级单例…后续任务可能写入第一个数据库」「要做分用户批量召回照片的功能」 |
 | 服务器运行态（不入库） | lima draw-portal.env 增 `TG_CHANNEL_ID=-1004350290412` / `TG_PROXY=http://127.0.0.1:7890` / `HUTUJI_TG_UPLOAD_ENABLED=1`（TG_PROXY 是本批 env 坑：python 直发 curl 无代理 → http=0）；tg.env 增 TG_CHANNEL_ID；jd 不启用（无代理） |
-| 证据 | 频道探针 500KB sha256 一致（message_id=4，后撤回）；生产路径实测：真实预览 6.9KB → `message_id=5` → `uploaded`+file_id；portal 197/197；hub PASS（1397 + e2e + 指纹 262） |
-| 未验证 | 存量图库回填归档、weapp `tg_backup` 徽标、连发 50 张 429 实测（退避逻辑有单测） |
+| 证据 | 频道探针 500KB sha256 一致（message_id=4，后撤回）；生产归档：真实预览 `_process` 全链 → message_id=8 → sha256 一致 → `uploaded`+台账入账；**生产召回演练**：删盘上 PNG → CLI `--restore-user` → `{"restored":1}` → 文件回位 sha256 与删除前逐位一致（`e1e4f682…`）；portal **202/202**；本机 scp 工作副本 CRLF 与 blob 不符——发布候选一律 `git cat-file blob` 导出（第二次传） |
+| 未验证 | 存量图库回填归档、weapp `tg_backup` 徽标、连发 50 张 429 实测（退避有单测）、trim 重建行生产实测（单测有钉） |
 
 ## 2026-09-12 小派人格批：丹青改名 + 无换纸口径（已提交 `94a91cf`，双机已热更，云控制台已 sync）
 

@@ -733,9 +733,11 @@ Cookie: <session>
 | 上传 | `POST /draw-upload/api/draw/upload` multipart；PNG/JPEG/WebP/GIF/BMP/SVG（≤4MB）；Word/Excel/PPT/CSV/TXT 文档链；描摹或 SVG 直转 + `validate_gcode` 同 §5。**article**（txt/docx/pptx）可选 form 字段 `size_mm`（2–40，默认 12）、`line_spacing`（1.0–3.0，默认 1.6）；**table**（xlsx/csv）忽略这两项 |
 | 推送 | `POST .../draw/{job_id}/send` → `hutuji.draw` 后**自动** `hutuji.confirm`（小程序已预览）；失败时 detail 含「自动开始画未完成」可改用控制页 |
 | **保存预览** | `POST .../draw/{job_id}/save` → 将 PNG（及可选 G-code 副本）复制到用户域持久化路径；**不依赖** §5.1 的 600s `/files/` TTL |
-| 图库 | `GET .../draw/saved`；可再次 `send` 或 `DELETE`；响应含 `tg_backup`（`null`=未启用 / `pending` / `uploaded` / `failed`——2026-09-12 TG 频道冷备份 PoC 状态字段，仅预览图、逐字节校验后才算 uploaded；`DELETE` 时频道副本尽力撤回；**不替换**本行主链路，`/files/` 与设备下载一字未动） |
+| 图库 | `GET .../draw/saved`；可再次 `send` 或 `DELETE`；响应含 `tg_backup`（`null`=未启用 / `pending` / `uploaded` / `failed`——2026-09-12 TG 频道冷备份 PoC 状态字段，仅预览图、逐字节校验后才算 uploaded；`DELETE` 时频道副本尽力撤回并同步 `telegram_archive_log` 台账 `tg_removed_at`；**不替换**本行主链路，`/files/` 与设备下载一字未动） |
 
 保存预览的 G-code 副本仅用于「再次发送到小派」；须仍过 §5 校验。仅保存 PNG 而无 gcode 副本时，不得发送出图。
+
+**召回（2026-09-12 同日）**：上传成功即写 `telegram_archive_log` 台账（saved_id 主键、user_id/title/file_id/message_id/archived_at，行删除不删台账）；运维侧按用户批量召回 `python -m draw_portal.telegram_archive --db <path> --restore-user <id>`——本地文件丢失的在库行就地回拉、被 trim 清掉的行按台账重建（仅预览、`gcode_path=NULL` 故不可再发送）、用户主动删除（台账 removed）跳过。召回是 fail-open 恢复面，不是备份 SLA。
 
 #### 10.4.6 与异步推送的关系
 
