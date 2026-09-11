@@ -1123,6 +1123,14 @@ class Store:
             ).fetchone()
         return self._row_draw_job(row) if row else None
 
+    def get_draw_job_any(self, job_id: str) -> DrawJob | None:
+        """分享令牌校验后的无属主读取（share 端点专用；令牌已盖到 job_id）。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM draw_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        return self._row_draw_job(row) if row else None
+
     def update_binding_last_push(self, user_id: str, *, when: float) -> None:
         with self._connect() as conn:
             conn.execute(

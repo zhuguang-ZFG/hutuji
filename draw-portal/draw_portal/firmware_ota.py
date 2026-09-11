@@ -265,6 +265,12 @@ def start_upgrade(
         timeout=_OTA_START_TIMEOUT,
     )
     if not ok:
+        uncertain = result == "HTTP 504" or str(result).startswith("网络 timeout")
+        if uncertain:
+            # 设备消息网关 504/读超时 ≠ 未送达（2026-09-11 实证：504 当轮设备
+            # 已进入下载并自升成功）。会话保持 upgrading，由 ota_status 轮询
+            # 与版本对账给出真实终态；前端收到 unknown 继续轮询不报错。
+            return {"status": "unknown", "target_version": version, "detail": result}
         store.upsert_firmware_ota_session(
             user_id=binding.user_id,
             device_mac=binding.device_mac,
@@ -371,6 +377,34 @@ def get_ota_status(
                 out["progress"] = int(progress)
         out["firmware_version"] = status.get("firmware_version")
         out["device_state"] = status.get("state")
+    # 升级重启后设备 ota 状态复位为 idle，上设备终态对账不触发；此时以
+    # 「设备 firmware_version == 会话 target_version」兜底收口为 ok。
+    if (
+        ok
+        and session
+        and session.state == "upgrading"
+        and session.target_version
+        and str(out.get("firmware_version") or "").strip() == session.target_version
+    ):
+        store.upsert_firmware_ota_session(
+            user_id=binding.user_id,
+            device_mac=binding.device_mac,
+            state="ok",
+            progress=100,
+            reason=None,
+            target_version=session.target_version,
+        )
+        session = store.get_firmware_ota_session(binding.user_id)
+        if session:
+            out.update(
+                {
+                    "state": session.state,
+                    "progress": session.progress,
+                    "reason": session.reason,
+                    "target_version": session.target_version,
+                    "updated_at": session.updated_at,
+                }
+            )
     return out
 
 

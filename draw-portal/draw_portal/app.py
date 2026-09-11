@@ -315,6 +315,35 @@ def _record_portal_usage(
     )
 
 
+def _notify_subscribe(
+    config: Any,
+    store: Store,
+    *,
+    user_id: str,
+    status: str,
+    title: str,
+) -> None:
+    """生成完成/失败 → 一次性订阅消息（fire-and-forget，绝不影响主链）。"""
+    from draw_portal import subscribe_notify
+
+    if not subscribe_notify.enabled(config):
+        return
+    try:
+        user = store.get_user(user_id)
+    except Exception:
+        return
+    openid = getattr(user, "wx_openid", None) if user else None
+    if not openid:
+        return
+    subscribe_notify.notify_job_result_async(
+        config,
+        user_id=user_id,
+        openid=openid,
+        status=status,
+        title=title,
+    )
+
+
 def _is_loopback_client(host: str) -> bool:
     from draw_portal.internal_client import is_loopback_host
 
@@ -845,28 +874,33 @@ def create_app() -> FastAPI:
                     user_id=user_id, source_name=("语音画: " + desc)[:120]
                 )
                 job_path = _job_dir(config.data_dir, job.id)
-                summary, preview = run_voice_draw(
-                    description=desc,
-                    user_id=user_id,
-                    job_id=job.id,
-                    job_dir=job_path,
-                    mcp_internal_base_url=config.mcp_internal_base_url,
-                    usage_ingest_secret=config.usage_ingest_secret,
-                    generate_timeout_seconds=config.generate_timeout_seconds,
-                    mcp_output_dir=config.mcp_output_dir,
-                    public_base_url=config.public_base_url,
-                    mark_ready=lambda jid, base: store.mark_draw_job_ready(
-                        jid, basename=base
-                    ),
-                    mark_failed=lambda jid, err: store.mark_draw_job_failed(
-                        jid, error_summary=err
-                    ),
-                    api_base=config.xiaozhi_api_base,
-                    token_cipher_key=config.token_cipher_key,
-                    device_mac=device_mac,
-                    device_token_enc=enc_holder["enc"],
-                    on_token_minted=on_token_minted,
-                )
+                try:
+                    summary, preview = run_voice_draw(
+                        description=desc,
+                        user_id=user_id,
+                        job_id=job.id,
+                        job_dir=job_path,
+                        mcp_internal_base_url=config.mcp_internal_base_url,
+                        usage_ingest_secret=config.usage_ingest_secret,
+                        generate_timeout_seconds=config.generate_timeout_seconds,
+                        mcp_output_dir=config.mcp_output_dir,
+                        public_base_url=config.public_base_url,
+                        mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                            jid, basename=base
+                        ),
+                        mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                            jid, error_summary=err
+                        ),
+                        api_base=config.xiaozhi_api_base,
+                        token_cipher_key=config.token_cipher_key,
+                        device_mac=device_mac,
+                        device_token_enc=enc_holder["enc"],
+                        on_token_minted=on_token_minted,
+                    )
+                except Exception:
+                    # 已建任务后的失败才通知（守卫级 429/未绑定不打扰）
+                    _notify_subscribe(config, store, user_id=user_id, status="failed", title=desc)
+                    raise
                 _record_portal_usage(
                     store,
                     event_type="web_generate",
@@ -875,6 +909,7 @@ def create_app() -> FastAPI:
                     detail=desc[:120],
                     ok=True,
                 )
+                _notify_subscribe(config, store, user_id=user_id, status="success", title=desc)
                 return summary, preview.as_dict()
 
             if name == "voice.write":
@@ -883,27 +918,31 @@ def create_app() -> FastAPI:
                     user_id=user_id, source_name=("语音写: " + raw_text.strip())[:120]
                 )
                 job_path = _job_dir(config.data_dir, job.id)
-                summary, preview = run_voice_write(
-                    text=raw_text,
-                    user_id=user_id,
-                    job_id=job.id,
-                    job_dir=job_path,
-                    gfont_dir=config.gfont_dir or "",
-                    stroke_dir=config.stroke_dir or "",
-                    mcp_output_dir=config.mcp_output_dir,
-                    public_base_url=config.public_base_url,
-                    mark_ready=lambda jid, base: store.mark_draw_job_ready(
-                        jid, basename=base
-                    ),
-                    mark_failed=lambda jid, err: store.mark_draw_job_failed(
-                        jid, error_summary=err
-                    ),
-                    api_base=config.xiaozhi_api_base,
-                    token_cipher_key=config.token_cipher_key,
-                    device_mac=device_mac,
-                    device_token_enc=enc_holder["enc"],
-                    on_token_minted=on_token_minted,
-                )
+                try:
+                    summary, preview = run_voice_write(
+                        text=raw_text,
+                        user_id=user_id,
+                        job_id=job.id,
+                        job_dir=job_path,
+                        gfont_dir=config.gfont_dir or "",
+                        stroke_dir=config.stroke_dir or "",
+                        mcp_output_dir=config.mcp_output_dir,
+                        public_base_url=config.public_base_url,
+                        mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                            jid, basename=base
+                        ),
+                        mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                            jid, error_summary=err
+                        ),
+                        api_base=config.xiaozhi_api_base,
+                        token_cipher_key=config.token_cipher_key,
+                        device_mac=device_mac,
+                        device_token_enc=enc_holder["enc"],
+                        on_token_minted=on_token_minted,
+                    )
+                except Exception:
+                    _notify_subscribe(config, store, user_id=user_id, status="failed", title=raw_text)
+                    raise
                 _record_portal_usage(
                     store,
                     event_type="web_write",
@@ -911,6 +950,9 @@ def create_app() -> FastAPI:
                     device_mac=device_mac,
                     detail=("语音写: " + raw_text.strip())[:100],
                     ok=True,
+                )
+                _notify_subscribe(
+                    config, store, user_id=user_id, status="success", title=raw_text
                 )
                 return summary, preview.as_dict()
 
@@ -1363,9 +1405,11 @@ def create_app() -> FastAPI:
                 store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
             except (DocIngestError, WriteTextError, WriteLayoutParamsError) as exc:
                 store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+                _notify_subscribe(config, store, user_id=user_id, status="failed", title=source_name)
                 raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
             except Exception as exc:
                 store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+                _notify_subscribe(config, store, user_id=user_id, status="failed", title=source_name)
                 raise HTTPException(status_code=422, detail="文档转换失败") from exc
 
             _record_portal_usage(
@@ -1375,6 +1419,7 @@ def create_app() -> FastAPI:
                 detail=f"doc:{kind}:{source_name[:100]}",
                 ok=True,
             )
+            _notify_subscribe(config, store, user_id=user_id, status="success", title=source_name)
             first = published_pages[0]
             return {
                 "status": "ready",
@@ -1418,6 +1463,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="不支持的文件格式") from None
         except Exception as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=source_name)
             raise HTTPException(status_code=422, detail="图片转换失败") from exc
 
         _record_portal_usage(
@@ -1427,6 +1473,7 @@ def create_app() -> FastAPI:
             detail=source_name[:120],
             ok=True,
         )
+        _notify_subscribe(config, store, user_id=user_id, status="success", title=source_name)
         # 照片两段式：Canny 结果已就绪，后台起程序化风格渲染（2026-09-10 起
         # 替换 AI i2i——零付费通道依赖，任何环境都可精修）；小程序在结果页
         # 轮询 /api/draw/jobs/{id} 的 refined 字段。非照片（线稿/SVG/文档）
@@ -1480,6 +1527,16 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail="写字字库未配置")
         return {"fonts": list_fonts(config.gfont_dir)}
 
+
+    @app.get("/api/wx/subscribe-config", dependencies=phone_secured)
+    def wx_subscribe_config() -> dict[str, Any]:
+        """小程序启动时拉订阅消息模板 ID；空模板 = 通知未启用（前端静默跳过）。"""
+        from draw_portal import subscribe_notify
+
+        return {
+            "enabled": subscribe_notify.enabled(config),
+            "template_id": config.subscribe_template_id or None,
+        }
     @app.post("/api/draw/write", dependencies=phone_secured)
     async def draw_write(
         body: WriteBody,
@@ -1539,9 +1596,11 @@ def create_app() -> FastAPI:
             store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
         except WriteTextError as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=safe)
             raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
         except Exception as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=safe)
             raise HTTPException(status_code=422, detail="写字转换失败") from exc
 
         _record_portal_usage(
@@ -1551,6 +1610,7 @@ def create_app() -> FastAPI:
             detail=source_name[:100],
             ok=True,
         )
+        _notify_subscribe(config, store, user_id=user_id, status="success", title=safe)
         first = published_pages[0]
         return {
             "status": "ready",
@@ -1608,9 +1668,11 @@ def create_app() -> FastAPI:
             store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
         except StrokeOrderError as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=safe)
             raise HTTPException(status_code=400, detail=str(exc)[:120]) from None
         except Exception as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=safe)
             raise HTTPException(status_code=422, detail="笔顺转换失败") from exc
 
         _record_portal_usage(
@@ -1620,6 +1682,7 @@ def create_app() -> FastAPI:
             detail=source_name[:100],
             ok=True,
         )
+        _notify_subscribe(config, store, user_id=user_id, status="success", title=chars)
         first = published_pages[0]
         return {
             "status": "ready",
@@ -1731,6 +1794,7 @@ def create_app() -> FastAPI:
             store.mark_draw_job_ready(job.id, basename=published.basename)
         except GenerateError as exc:
             store.mark_draw_job_failed(job.id, error_summary="GenerateError")
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=description)
             # 只透传 400/429 的输入白话；504/502 一律固定文案，防上游细节外泄（2026-08-31 评审裁决）
             if exc.status in (400, 429):
                 detail = str(exc)
@@ -1741,6 +1805,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=exc.status, detail=detail) from exc
         except Exception as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
+            _notify_subscribe(config, store, user_id=user_id, status="failed", title=description)
             raise HTTPException(status_code=502, detail="生图服务异常") from exc
 
         _record_portal_usage(
@@ -1750,6 +1815,7 @@ def create_app() -> FastAPI:
             detail=description[:120],
             ok=True,
         )
+        _notify_subscribe(config, store, user_id=user_id, status="success", title=description)
         return {
             "status": "ready",
             "job_id": job.id,
@@ -1950,6 +2016,56 @@ def create_app() -> FastAPI:
         )
         return {"status": "sent" if ok else "push_failed", "detail": summary}
 
+
+    # ---- 分享卡片（2026-09-11）：HMAC 无状态令牌，接收者免会话只读预览 ----
+    # 令牌只盖 job_id + 过期时间；预览图经本端点代理（/files 直链带不上
+    # x-session，接收者会话不属于作者，必须走令牌自证）。失败一律 404。
+    @app.post("/api/draw/{job_id}/share", dependencies=phone_secured)
+    def draw_share_create(job_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        from draw_portal import share_token
+
+        job = store.get_draw_job(job_id, user_id=user_id)
+        if job is None or job.status != "ready":
+            raise HTTPException(status_code=404, detail="任务不存在或未就绪")
+        token = share_token.issue_token(config.session_secret, job.id)
+        return {
+            "share_token": token,
+            "title": (job.source_name or "作品").strip(),
+        }
+
+    @app.get("/api/draw/share/{share_token}")
+    def draw_share_view(share_token: str) -> dict[str, Any]:
+        from draw_portal import share_token as st_mod
+
+        job_id = st_mod.parse_token(config.session_secret, share_token)
+        if not job_id:
+            raise HTTPException(status_code=404, detail="分享已失效")
+        job = store.get_draw_job_any(job_id)
+        if job is None or job.status != "ready":
+            raise HTTPException(status_code=404, detail="分享已失效")
+        preview_file = _job_dir(config.data_dir, job.id) / "preview.png"
+        if not preview_file.is_file():
+            raise HTTPException(status_code=404, detail="预览已丢失")
+        return {
+            "title": (job.source_name or "作品").strip(),
+            "preview_url": f"/api/draw/share/{share_token}/preview.png",
+            "created_at": job.created_at,
+        }
+
+    @app.get("/api/draw/share/{share_token}/preview.png")
+    def draw_share_preview_png(share_token: str) -> FileResponse:
+        from draw_portal import share_token as st_mod
+
+        job_id = st_mod.parse_token(config.session_secret, share_token)
+        if not job_id:
+            raise HTTPException(status_code=404, detail="分享已失效")
+        job = store.get_draw_job_any(job_id)
+        if job is None or job.status != "ready":
+            raise HTTPException(status_code=404, detail="分享已失效")
+        preview_file = _job_dir(config.data_dir, job.id) / "preview.png"
+        if not preview_file.is_file():
+            raise HTTPException(status_code=404, detail="预览已丢失")
+        return FileResponse(preview_file, media_type="image/png")
     @app.post("/api/device/conversation/report")
     def conversation_report(body: ConversationReportBody) -> dict[str, Any]:
         try:

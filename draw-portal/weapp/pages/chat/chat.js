@@ -4,6 +4,7 @@
 // 画图卡，生成/发送/收藏复用既有 /api/draw/* 接口，不发明第二条出图链。
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const subscribe = require("../../utils/subscribe");
 
 const SESSION_KEY = "voice_session_id";
 const SESSION_LEN = 22;
@@ -41,6 +42,7 @@ Page({
   },
 
   onLoad() {
+    subscribe.prepare();
     this._sessionId = ensureSessionId();
     this._msgSeq = 0;
     this._recorder = wx.getRecorderManager();
@@ -114,6 +116,8 @@ Page({
 
   onHoldStart() {
     if (this.data.busy || this.data.recording) return;
+    // 语音可能触发长链画/写；用户松手离开 app 时靠订阅消息召回
+    subscribe.requestAtTap();
     try {
       this._recorder.start({
         format: "mp3",

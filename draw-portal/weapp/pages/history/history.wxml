@@ -23,8 +23,23 @@
     <view class="slim-head">
       <text class="slim-title">我的作品</text>
     </view>
-    <view class="weui-cells">
-      <view class="weui-cell work-cell" wx:for="{{jobs}}" wx:key="savedId" hover-class="row-press" bindlongpress="onLongPress" data-id="{{item.savedId}}" data-idx="{{index}}">
+    <view class="chips">
+      <view
+        wx:for="{{kinds}}"
+        wx:key="key"
+        class="chip {{filterKind === item.key ? 'chip-on' : ''}}"
+        bindtap="onFilter"
+        data-kind="{{item.key}}"
+      >{{item.label}}</view>
+    </view>
+    <block wx:if="{{!filtered.length}}">
+      <view class="empty-panel">
+        <view class="empty-title">该类暂无作品</view>
+        <view class="empty-sub">切换筛选或去「创作」生成</view>
+      </view>
+    </block>
+    <view class="weui-cells" wx:else>
+      <view class="weui-cell work-cell" wx:for="{{filtered}}" wx:key="savedId" hover-class="row-press" bindlongpress="onLongPress" data-id="{{item.savedId}}" data-idx="{{index}}">
         <view class="weui-cell__hd">
           <image
             wx:if="{{item.previewUrl}}"
@@ -41,6 +56,7 @@
           <view class="muted">{{item.createdAt}}</view>
         </view>
         <view class="weui-cell__ft row-actions">
+          <button wx:if="{{item.kind}}" class="redraw-btn" size="mini" hover-class="btn-press" bindtap="onRedraw" data-idx="{{index}}">重画</button>
           <button class="del-btn" size="mini" hover-class="btn-press" bindtap="onDelete" data-id="{{item.savedId}}">删除</button>
           <button class="send-btn" size="mini" hover-class="btn-press" bindtap="onSend" data-id="{{item.savedId}}">发送</button>
         </view>

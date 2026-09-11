@@ -21,7 +21,10 @@ function reasonText(token) {
   if (!token) return "";
   const key = String(token).trim();
   if (REASON_ZH[key]) return REASON_ZH[key];
-  // HTTP / 网络类 detail 原样截断展示
+  // 网关瞬态（502/504/读超时）：设备可能已在升级，不要当失败报
+  if (/^HTTP\s+50[234]/i.test(key) || /^网络\s+timeout/i.test(key)) {
+    return "连接不稳，设备可能仍在升级，请稍后";
+  }
   if (/^HTTP\s+\d+/i.test(key) || /网络/.test(key)) return key.slice(0, 40);
   return key.slice(0, 40);
 }
@@ -172,13 +175,20 @@ Page({
     api
       .request("/api/device/firmware/upgrade", { method: "POST" })
       .then((data) => {
-        if (!data || data.status !== "started") {
+        if (!data || (data.status !== "started" && data.status !== "unknown")) {
           const token = (data && data.detail) || "check_failed";
           const msg = reasonText(token) || "升级未能开始";
+          // 设备已是最新时后端会拒升，按钮状态同步复位，避免再次误点
+          if (token === "up_to_date") this.setData({ updateAvailable: false });
           this.setData({ upgrading: false, progress: 0 });
           this._setTip(msg, "warn");
           wx.showToast({ title: msg.slice(0, 20), icon: "none" });
           return;
+        }
+        // unknown = 网关超时但命令可能已送达（实证：504 当轮设备已开下载）
+        // → 不报错，继续轮询 ota_status 等真实终态
+        if (data.status === "unknown") {
+          this._setTip("下发结果确认中，继续等待设备…", "");
         }
         if (data.target_version) {
           this.setData({ targetVersion: data.target_version });
@@ -188,7 +198,17 @@ Page({
         this._pollOnce();
       })
       .catch((err) => {
-        const msg = reasonText((err && err.detail) || "") || (err && err.detail) || "升级失败";
+        const detail = (err && err.detail) || "";
+        const msg = reasonText(detail) || detail || "升级失败";
+        // 网关瞬态（502/504/读超时）设备可能已在升级：不清 UI，继续轮询对账
+        const transient =
+          /^HTTP\s+50[234]/i.test(String(detail)) || /^网络\s+timeout/i.test(String(detail));
+        if (transient) {
+          this._setTip("下发结果确认中，继续等待设备…", "");
+          this._pollCount = 0;
+          this._pollOnce();
+          return;
+        }
         this.setData({ upgrading: false, progress: 0 });
         this._setTip(msg, "warn");
         wx.showToast({ title: String(msg).slice(0, 20), icon: "none" });

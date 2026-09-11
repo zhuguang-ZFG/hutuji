@@ -247,3 +247,59 @@ def test_push_failure_session_reason_not_check_failed(
     assert body["state"] == "failed"
     assert body["reason"] != "check_failed"
     assert body["reason"] is None
+
+
+def test_upgrade_gateway_504_keeps_session_upgrading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """504 = 命令可能已送达（2026-09-11 实证）：会话保持 upgrading，前端等对账。"""
+    _, c2 = _clients(monkeypatch, tmp_path)
+    _announce(c2, "KKKK01")
+    assert c2.post("/api/user/bind/complete", json={"bind_code": "KKKK01"}).status_code == 200
+
+    def fake_push(**kw):
+        if kw.get("name") == "hutuji.status":
+            return True, _status_json()
+        return False, "HTTP 504"
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", fake_push)
+    r = c2.post("/api/device/firmware/upgrade")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "unknown"
+    assert body["target_version"] == "hutuji.1.0.1"
+
+    st = c2.get("/api/device/firmware/ota_status")
+    assert st.status_code == 200
+    assert st.json()["state"] == "upgrading"
+
+
+def test_ota_status_reconciles_on_version_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """升级重启后设备 ota 态复位 idle，靠 firmware_version==target 收口为 ok。"""
+    _, c2 = _clients(monkeypatch, tmp_path)
+    _announce(c2, "LLLL01")
+    assert c2.post("/api/user/bind/complete", json={"bind_code": "LLLL01"}).status_code == 200
+
+    def idle_push(**kw):
+        if kw.get("name") == "hutuji.status":
+            return True, _status_json(ota={"state": "idle", "progress": 0})
+        return True, json.dumps({"ok": True})
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", idle_push)
+    assert c2.post("/api/device/firmware/upgrade").json()["status"] == "started"
+
+    def upgraded_push(**kw):
+        if kw.get("name") == "hutuji.status":
+            return True, _status_json(version="hutuji.1.0.1", ota={"state": "idle", "progress": 0})
+        return True, json.dumps({"ok": True})
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", upgraded_push)
+    st = c2.get("/api/device/firmware/ota_status")
+    assert st.status_code == 200
+    body = st.json()
+    assert body["state"] == "ok"
+    assert body["progress"] == 100
+    assert body["reason"] is None
+    assert body["firmware_version"] == "hutuji.1.0.1"

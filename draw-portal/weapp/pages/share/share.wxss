@@ -1,0 +1,109 @@
+.page {
+  min-height: 100vh;
+  padding: 32rpx 32rpx 48rpx;
+  box-sizing: border-box;
+  background: #0b0c13;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sk-panel {
+  width: 100%;
+  padding-top: 20vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sk-box {
+  width: 560rpx;
+  height: 560rpx;
+  border-radius: 24rpx;
+  background: #14161f;
+}
+
+.sk-pulse {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.sk-line {
+  margin-top: 24rpx;
+  height: 24rpx;
+  border-radius: 8rpx;
+  background: #14161f;
+}
+
+.w50 {
+  width: 300rpx;
+}
+
+.failed-title {
+  margin-top: 6vh;
+  color: #e6e9f2;
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.failed-sub {
+  margin-top: 16rpx;
+  color: #6b7385;
+  font-size: 26rpx;
+}
+
+.card {
+  width: 100%;
+  background: #14161f;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.work-title {
+  color: #e6e9f2;
+  font-size: 32rpx;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.work-date {
+  margin-top: 8rpx;
+  color: #6b7385;
+  font-size: 24rpx;
+}
+
+.preview {
+  margin-top: 24rpx;
+  width: 100%;
+  border-radius: 16rpx;
+  background: #0b0c13;
+}
+
+.preview-loading {
+  height: 560rpx;
+}
+
+.go-btn {
+  margin-top: 48rpx;
+  width: 80%;
+  background: #00d1e5 !important;
+  color: #061016 !important;
+  border-radius: 48rpx;
+  font-weight: 600;
+}
+
+.tips {
+  margin-top: 20rpx;
+  color: #6b7385;
+  font-size: 24rpx;
+}

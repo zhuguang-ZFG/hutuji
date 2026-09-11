@@ -1,0 +1,32 @@
+<view class="page">
+  <block wx:if="{{loading}}">
+    <view class="sk-panel">
+      <view class="sk-box sk-pulse"></view>
+      <view class="sk-line w50 sk-pulse"></view>
+    </view>
+  </block>
+
+  <block wx:elif="{{failed}}">
+    <view class="sk-panel">
+      <view class="failed-title">分享已失效</view>
+      <view class="failed-sub">链接过期或作品已删除</view>
+      <button class="go-btn" bindtap="onGoDraw">我也要画</button>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="card">
+      <view class="work-title">{{title}}</view>
+      <view class="work-date" wx:if="{{createdAt}}">{{createdAt}}</view>
+      <image
+        wx:if="{{previewUrl}}"
+        class="preview"
+        src="{{previewUrl}}"
+        mode="widthFix"
+      />
+      <view wx:else class="preview preview-loading sk-pulse"></view>
+    </view>
+    <button class="go-btn" bindtap="onGoDraw">我也要画</button>
+    <view class="tips">打开「动力巢」，一句话就能让写字机画画</view>
+  </block>
+</view>

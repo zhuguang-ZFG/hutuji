@@ -46,6 +46,7 @@
   flex-shrink: 0;
 }
 
+.redraw-btn,
 .send-btn,
 .del-btn {
   border-radius: 999rpx !important;
@@ -70,6 +71,36 @@
 .send-btn::after,
 .del-btn::after {
   border: none;
+}
+
+.redraw-btn {
+  background: transparent !important;
+  color: #00d1e5 !important;
+  border: 1rpx solid rgba(0, 209, 229, 0.6) !important;
+}
+
+.redraw-btn::after {
+  border: none;
+}
+
+.chips {
+  display: flex;
+  gap: 14rpx;
+  padding: 4rpx 32rpx 20rpx;
+}
+
+.chip {
+  font-size: 24rpx;
+  color: #9aa3b5;
+  background: #14161f;
+  border-radius: 999rpx;
+  padding: 8rpx 26rpx;
+}
+
+.chip-on {
+  color: #061016;
+  background: #00d1e5;
+  font-weight: 600;
 }
 
 .empty-panel {

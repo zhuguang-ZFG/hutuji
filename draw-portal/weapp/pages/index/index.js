@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const subscribe = require("../../utils/subscribe");
 
 Page({
   data: {
@@ -33,6 +34,13 @@ Page({
       if (ok) this.refreshStatus();
     });
     this.resumeJobState();
+    // 历史页「重画」等跨页结果交接：pendingAdopt 存在则上屏一次并清掉
+    const app = getApp();
+    if (app.globalData.pendingAdopt) {
+      const data = app.globalData.pendingAdopt;
+      app.globalData.pendingAdopt = null;
+      this.adoptJob(data);
+    }
   },
 
   // 精修回屏恢复（2026-09-09）：onHide 停链后 job 仍挂在 data 上，回到页面时
@@ -68,6 +76,7 @@ Page({
 
 
   onLoad() {
+    subscribe.prepare();
     // 轮询句柄与作废令牌挂在页面实例上：不放进 data，避免无关字段触发渲染
     this._refineTimer = null;
     this._refineToken = 0;
@@ -184,6 +193,7 @@ Page({
 
   onGenerate() {
     if (this.data.generating || !this.data.description) return;
+    subscribe.requestAtTap();
     this.setData({ generating: true });
     api
       .request("/api/draw/generate", {
@@ -211,6 +221,7 @@ Page({
   onTeachGenerate() {
     if (this.data.teaching || !this.data.teachText) return;
     const token = this._writeToken;
+    subscribe.requestAtTap();
     this.setData({ teaching: true });
     api
       .request("/api/draw/teach", {
@@ -430,10 +441,37 @@ Page({
     if (data.refined && data.refined.status === "pending") {
       job.refining = true;
     }
-    this.setData({ job, pageIndex: 0 });
+    this.setData({ job, pageIndex: 0, shareToken: null });
     if (job.refining) {
       this.startRefinePolling(job.jobId);
     }
+    this._prefetchShareToken(job.jobId);
+  },
+
+  // 分享令牌预取（2026-09-11）：onShareAppMessage 必须同步返回，token 在
+  // 出结果时先拿好；失败只回退默认分享文案，不打扰画图主链。
+  _prefetchShareToken(jobId) {
+    this._shareToken = null;
+    if (!jobId) return;
+    api
+      .request(`/api/draw/${jobId}/share`, { method: "POST" })
+      .then((res) => {
+        this._shareToken = (res && res.share_token) || null;
+        this.setData({ shareToken: this._shareToken });
+      })
+      .catch(() => {});
+  },
+
+  onShareAppMessage() {
+    const job = this.data.job;
+    if (job && job.previewUrl && this._shareToken) {
+      return {
+        title: "看看我刚让写字机画的作品",
+        path: `/pages/share/share?share=${this._shareToken}`,
+        imageUrl: api.mediaUrl(`/api/draw/share/${this._shareToken}/preview.png`),
+      };
+    }
+    return { title: "动力巢", path: "/pages/index/index" };
   },
 
   // 精修轮询：5 秒一轮、最多 36 轮（≈3 分钟，覆盖免费层排队耗时）。
@@ -478,7 +516,7 @@ Page({
             finish({ "job.refineFailed": "timeout" }); // 超时同样回落草图，但说明 AI 还可能好
             return;
           }
-          this._refineTimer = setTimeout(poll, 5000);
+          this._refineTimer = setTimeout(poll, refineDelayMs(round));
         })
         .catch(() => {
           if (token !== this._refineToken) return;
@@ -487,10 +525,16 @@ Page({
             finish({ "job.refineFailed": "timeout" });
             return;
           }
-          this._refineTimer = setTimeout(poll, 5000);
+          this._refineTimer = setTimeout(poll, refineDelayMs(round));
         });
     };
-    this._refineTimer = setTimeout(poll, 5000);
+    this._refineTimer = setTimeout(poll, refineDelayMs(round));
+  },
+
+  // 精修轮询退避（2026-09-11）：前 6 轮 5s，之后 10s——免费层排队常 >30s，
+  // 恒频 5s 拉满请求量换不来提前量。
+  refineDelayMs(round) {
+    return round <= 6 ? 5000 : 10000;
   },
 
   stopRefinePolling() {
@@ -504,6 +548,7 @@ Page({
 
   onPickFile() {
     if (this.data.uploading) return;
+    subscribe.requestAtTap();
     wx.chooseMessageFile({
       count: 1,
       type: "file",
@@ -548,6 +593,7 @@ Page({
   // 拍照/相册绘图：chooseMedia → 压缩 → 走 /api/draw/upload（同传图链）
   onTakePhoto(e) {
     if (this.data.uploading) return;
+    subscribe.requestAtTap();
     const source = (e.currentTarget.dataset.source || "camera") === "album" ? ["album"] : ["camera"];
     wx.chooseMedia({
       count: 1,

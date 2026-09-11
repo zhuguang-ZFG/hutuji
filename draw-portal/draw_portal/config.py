@@ -101,6 +101,10 @@ class Config:
     firmware_public_base: str = ""
     firmware_allowed_hosts: tuple[str, ...] = ()
     firmware_signing_secret: str = ""
+    # 一次性订阅消息（2026-09-11）：模板 ID 空 = 通知禁用；字段键位与 MP
+    # 后台建模板的取号顺序对齐（描述/状态/时间 → thing1/phrase2/time3）
+    subscribe_template_id: str = ""
+    subscribe_fields: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -216,14 +220,23 @@ def load_config() -> Config:
         firmware_signing_secret=os.environ.get(
             "DRAW_PORTAL_FIRMWARE_SIGNING_SECRET", ""
         ).strip(),
+        subscribe_template_id=os.environ.get(
+            "DRAW_PORTAL_WX_SUBSCRIBE_TEMPLATE_ID", ""
+        ).strip(),
+        subscribe_fields=_parse_subscribe_fields(
+            os.environ.get("DRAW_PORTAL_WX_SUBSCRIBE_FIELDS", "")
+        ),
     )
 
+
+def _parse_subscribe_fields(raw: str) -> dict[str, str]:
+    from draw_portal.subscribe_notify import parse_fields
+
+    return parse_fields(raw)
 
 def load_admin_config() -> AdminConfig:
     db_raw = os.environ.get("DRAW_PORTAL_DB", "/var/lib/hutuji/draw-portal/data.db")
     admin_password = os.environ.get("DRAW_ADMIN_PASSWORD", "").strip()
-    if not admin_password:
-        raise RuntimeError("DRAW_ADMIN_PASSWORD 未配置")
     session_secret = os.environ.get("DRAW_ADMIN_SESSION_SECRET") or secrets.token_hex(32)
     host = os.environ.get("DRAW_ADMIN_HOST", "127.0.0.1")
     if not _is_loopback_host(host.lower()):
