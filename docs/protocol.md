@@ -901,6 +901,16 @@ Cookie: <session>
 | 端点 | `POST /api/draw/{job_id}/share`（phone_secured，须 ready）→ `{share_token, title}`；`GET /api/draw/share/{token}`（免会话）→ `{title, preview_url, created_at}`；`GET /api/draw/share/{token}/preview.png` → PNG。**只授予只读预览**，不含 G-code；预览经令牌自证端点代理（/files 直链带不上作者 x-session） |
 | 前端 | 落地页 `/pages/share/share` 为独立非 Tab 页（规避 Tab 页 query 兼容）；`adoptJob` 时预取令牌 → `onShareAppMessage` 同步返回（title「看看我刚让写字机画的作品」）；失效态「分享已失效/链接过期或作品已删除」；接收者「我也要画」switchTab 回创作页 |
 
+#### 10.4.17 奎享完成守护云端通知（2026-09-12；§9-H′ S3 观察端对接）
+
+| 面 | 约定 |
+|----|------|
+| 端点 | 设备 `POST /draw-upload/api/device/kdraw/done`，body `{mac, title?}`（title ≤60，截 20 入模板） |
+| 受理 | MAC 归一化查绑定表（同 §10.5 先例）：**未绑定一律 403**、坏 MAC 400；mac 属弱凭证——本端点只触发一次性订阅消息（不落库、无数据面），不引 device_token（避免 token 轮换 401 丢通知） |
+| 通知 | `subscribe_notify.notify_job_result_async(phrase="绘制完成")`：thing=title 或「奎享作品」、phrase=「绘制完成」、time=当时；未启用/openid 缺席静默；同 user+status+phrase 5s 去重窗 |
+| 设备侧 | S3 `hutuji_kdraw_watcher.cc`：UDP :2325 收 §9-H′ beacon，Run 后 `Idle && Changing!=On` 连续 ≥2.5s 判完成 → 本地 Alert（屏显+提示音）+ MCP `notifications/message` 云端转述 + 上述 POST（未绑定 403 静默容忍） |
+
+
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
 | 面 | 约定 |
