@@ -9,6 +9,15 @@
 
 ---
 
+## 2026-09-12 登录事故热修：补 f71d347 隐藏依赖（已提交 `e05b796`，双机已部署）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户报「现在搞的小程序登录都有问题了」+ `f71d347` 的 app 侧调用点已提交（既有 commit 契约要求 store 方法存在） |
+| 提交 | 本仓 `e05b796` 仅 store.py（+94/−2）：`user_device_bindings` DDL + `list/select/_sync_active_binding`（逐字取自 bind-claim WIP）+ select 兜底抄入主表 + `delete_binding_for_mac` HEAD 签名双表清 + users 迁移 `active_device_mac`+回填；用 `git hash-object`+`update-index` 提交，**bind-claim WIP 工作树一字未动** |
+| 部署 | 双机 store.py `9d5752b2` LF blob SHA 逐位相符 restart active；lima 真库直调读出真实绑定；nginx `/draw-upload/api/auth/me` 未登录 401（原 500） |
+| 遗留 | bind-claim WIP（app.py/models.py 全量 + device_identities/bind_identity_challenges 流）仍在工作树未提交——deploy-from-HEAD 规则下再次全量部署会再断 /auth/me；待用户批次收口提交后重部署 |
+
 ## 2026-09-12 小派设置批：音色/模型切换 per-user 克隆 agent（已提交 `8970f4a`，双机已部署+控制台四形状生产探针）
 
 | 项 | 说明 |
