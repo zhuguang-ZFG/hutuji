@@ -9,24 +9,24 @@
 
 ---
 
-## 2026-09-12 照片精修结构线与几何保真（🟡 本地候选，未部署）
+## 2026-09-12 照片精修结构线与几何保真（🟡 已提交 `e9006ea` + 双机部署+生产冒烟；真机纸面 ☐）
 
 | 项 | 说明 |
 |---|---|
 | 授权/契约 | 用户「图生图服务……质量还不行，有解决方案吗」后连续「继续」；`docs/protocol.md` §10.4.9；设计与证据 `docs/design/photo-sketch-quality-20260912.md` |
 | 本批代码 | `mcp-server/hutuji_mcp/sketch_render.py`（结构线、hatch 明暗、实际尾端/整桥白区检查、排线不再 RDP、预览保真）；`bitmap_svg.py`（SVG/预览新增默认 True 的 smooth 关键字）；`draw-portal/draw_portal/pipeline.py` **仅 process_upload_sketch 的 smooth=False hunk**；对应 `mcp-server/tests/test_sketch_render.py` 25 项与 `draw-portal/tests/test_photo_refine.py` 13 项；新增 `mcp-server/scripts/sketch_eval.py` |
-| 本地证据 | 完整 hub **overall=pass/exit=0**：MCP **1441/1441**、e2e **PASS**、指纹 **259/259**（同树共享运行 `2026-09-12T10:01:45Z`，HEAD `cdfc6a68`，含本批未提交改动）；定向 MCP 75/75、portal 全套 287/287。2 张真实人像×双风格在 MK38/nopaper 均过 §5，3 张随库实拍×双风格过 §5；软件/纸面状态不混用 |
+| 本地证据 | 完整 hub **overall=pass/exit=0**：MCP **1441/1441**、e2e **PASS**、指纹 **259/259**（同树共享运行 `2026-09-12T10:01:45Z`，HEAD `cdfc6a68`+本批在树）；定向 MCP 75/75、portal 全套 287/287。2 张真实人像×双风格在 MK38/nopaper 均过 §5，3 张随库实拍×双风格过 §5；部署+冒烟证据见 `deployment.md` 2026-09-12 照片精修条 |
 | 本机私有资产 | `results/local-only/2026-09-12/sketch-quality-final/`（nopaper 最终回放、原图、SVG、G-code、metrics.json）、`sketch-quality-candidate/`（MK38 转换）、`sketch-quality-reference/`（3 张 scikit-image 0.26.0 CC0 参考图）；`sketch-quality-gates/hub-20260912T100145Z.{json,md}` 为完整门禁原报告，`manifest.json` 登记来源/时间/HEAD/六文件哈希；同目录 `sketch-quality-before/` 与 `sketch-structure-experiment/` 为中间诊断，不代替最终导出证据。图片均不入库 |
-| 并发工作树 | 手写抖动/手绘画板批的 write_text/server/weapp 与 pipeline 写字 hunk 归原会话；本批保留，不代管或提交。此处只登记本批新增的精修 hunk |
-| 未验证 | 本批生产部署、用户随手拍 ≥5、纸面 ≥2；未实现语义主体分割，不宣称所有照片已达艺术家素描质量 |
+| 并发工作树 | 已全部收编：手写抖动批 `cdfc6a6`（write_text/server/weapp 与 pipeline 写字 hunk），照片精修批 `e9006ea`（精修 hunk + `sketch_eval.py` + 设计文档）；运行时 5 文件已双机部署 |
+| 未验证 | 用户随手拍 ≥5、纸面 ≥2（双机部署+生产冒烟已完成）；未实现语义主体分割，不宣称所有照片已达艺术家素描质量 |
 
-## 2026-09-12 手写抖动 + weapp 手绘画板（🟡 代码+测试+文档+0.3.9 上传已收口，未提交；门禁与提交在本批末）
+## 2026-09-12 手写抖动 + weapp 手绘画板（🟡 已提交 `cdfc6a6`；mcp/portal 运行时文件已随照片精修批部署；真机纸面 ☐、MP 0.3.9 体验版 ☐）
 
 | 项 | 说明 |
 |----|------|
 | 授权 | 用户 2026-09-12 对「手写随机抖动 + 手绘画板」批回复「同意」（白名单 `weapp_drawpad_hand_jitter_20260912_authorized`） |
-| 脏树改动（本批） | `mcp-server/hutuji_mcp/write_text.py`（`_HAND_JITTER_*` 常量 + `_jitter_strokes` + `layout_text(handwriting=)`/`layout_text_fit_single` 透传）、`mcp-server/hutuji_mcp/server.py`（`hutuji_write` 开抖动）、`mcp-server/tests/test_write_text.py`（50→55：确定性/默认关/最近点包线 0.115em/分页页界/笔顺路径/fit_single 透传 + 端到端 margin 改抖动预算）、`draw-portal/draw_portal/pipeline.py`（`process_write_text` 开抖动；该文件另含并发会话 sketch hunk 本批不提交）、`draw-portal/weapp/`（新 `pages/drawpad/` 四件 + `app.json` + 创作页三件第 4 格「手绘」+ adopt 回流）、`docs/protocol.md` §10.4.10 抖动行 + §10.4.20 手绘画板、`AGENTS.md` 计数 1441 与功能行、`docs/agent-edit-allowlist.json`、本文件与 `docs/release-readiness.md` 新条目 |
-| 并发会话（不代管不提交） | codex 在飞：`mcp-server/hutuji_mcp/{bitmap_svg.py,sketch_render.py}`、`mcp-server/tests/{test_sketch_render.py(25 项),test_photo_refine.py}`；`pipeline.py` sketch hunk；计数同步已按 2026-09-12 新鲜 collect **1441** 项对齐（含其 +8），commit message 注明 |
+| 脏树改动（本批） | `mcp-server/hutuji_mcp/write_text.py`（`_HAND_JITTER_*` 常量 + `_jitter_strokes` + `layout_text(handwriting=)`/`layout_text_fit_single` 透传）、`mcp-server/hutuji_mcp/server.py`（`hutuji_write` 开抖动）、`mcp-server/tests/test_write_text.py`（50→55：确定性/默认关/最近点包线 0.115em/分页页界/笔顺路径/fit_single 透传 + 端到端 margin 改抖动预算）、`draw-portal/draw_portal/pipeline.py`（`process_write_text` 开抖动；sketch hunk 由 `e9006ea` 收编）、`draw-portal/weapp/`（新 `pages/drawpad/` 四件 + `app.json` + 创作页三件第 4 格「手绘」+ adopt 回流）、`docs/protocol.md` §10.4.10 抖动行 + §10.4.20 手绘画板、`AGENTS.md` 计数 1441 与功能行、`docs/agent-edit-allowlist.json`、本文件与 `docs/release-readiness.md` 新条目 |
+| 并发会话（已收编） | codex 批已随 `e9006ea` 提交并部署：`{bitmap_svg.py,sketch_render.py}`、`test_sketch_render.py(25 项)+test_photo_refine.py`、`pipeline.py` sketch hunk；计数同步已按 2026-09-12 新鲜 collect **1441** 项对齐（含其 +8），commit message 注明 |
 | 本地证据 | `test_write_text.py` **55/55**；draw-portal 全套 **287/287**（PYTHONPATH=mcp-server）；mcp 全量 collect **1441**（38 文件）；`node --check` drawpad.js/index.js OK |
 | 上传证据 | weapp **0.3.9** CLI upload exit 0、AppID `wxbf3c1e0013b46343`、TOTAL **141802 B**（`tmp/weapp-upload-0.3.9.json`；0.3.7 115128→+26.7KB drawpad 页）；MP 后台选体验版是用户动作 |
 | 保留既有改动 | `tmp/weapp_upload_039.bat`、`tmp/make_upload_039.py`、用户杂物（arena-*.png、memory_*.json 等）不动 |
