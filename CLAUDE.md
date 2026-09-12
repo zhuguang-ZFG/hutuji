@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 这是什么
 
+照片精修约定（2026-09-12）：`hatch` 从原始亮度提结构线；程序化排线/波纹导出 SVG 与预览都传 `smooth=False`，稀疏拐点不能再套描摹均值滤波。连接须检查真实尾端与整座桥。依据和离线对比入口见 `docs/design/photo-sketch-quality-20260912.md`，部署/纸面状态看 readiness。
+
 **hutuji** = AI 绘图自动换纸写字机：语音 → 云端 AI 生成 G-code → 写字机执行并自动换纸。
 
 本仓库是**枢纽仓库**，只放 MCP 生成服务、协议文档、硬件说明（`docs/hardware.md`）、部署脚本、联调 SOP。**固件本体不在这里**——分散在两个独立 fork，且不向本仓库合并：

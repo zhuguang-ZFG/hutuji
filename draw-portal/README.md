@@ -29,6 +29,8 @@ node --test tests/weapp/session.test.js tests/weapp/font_picker.test.js tests/we
 
 ## 生产部署（阿里云，一期）
 
+照片精修的 `process_upload_sketch` 必须在 SVG 和 PNG 两处同步使用 `smooth=False`，保留渲染器给出的稀疏排线/波纹拐点；`test_photo_refine.py` 用真实 vpype 覆盖两种风格的导出几何。画质证据与未完成项见 [`../docs/design/photo-sketch-quality-20260912.md`](../docs/design/photo-sketch-quality-20260912.md)。
+
 | 项 | 值 |
 |---|---|
 | systemd | `hutuji-draw-portal`（模板 `deploy/hutuji-draw-portal.service`） |

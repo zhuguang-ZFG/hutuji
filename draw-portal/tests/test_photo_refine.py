@@ -355,3 +355,27 @@ def test_normalize_line_art_false_preserves_photo_tones() -> None:
     cannied = iio.imread(normalize_raster_to_png(raw))
     near_white_canny = float((cannied.astype(float) / 255.0 > 0.9).mean())
     assert near_white_canny > 0.5, "默认口径仍应输出近白 Canny 线稿"
+
+
+@pytest.mark.parametrize("style", ["hatch", "squiggle"])
+def test_sketch_pipeline_preserves_rendered_geometry(tmp_path, monkeypatch, style):
+    """真实精修管线的预览/SVG/G-code 共用稀疏折线，不再送进描摹均值滤波。"""
+    import xml.etree.ElementTree as ET
+
+    import numpy as np
+    from draw_portal.pipeline import process_upload_sketch
+    from hutuji_mcp import sketch_render
+    from hutuji_mcp.gcode_gen import validate_gcode
+
+    poly = np.array(
+        [[20, 20], [180, 20], [180, 40], [20, 40], [20, 60], [180, 60], [180, 80], [20, 80]],
+        dtype=np.float64,
+    )
+    monkeypatch.setattr(sketch_render, "render_sketch_polylines", lambda raw, **kwargs: ([poly], 200, 100))
+    result = process_upload_sketch(_gradient_photo_png(), tmp_path / style, style=style)
+    node = next(n for n in ET.parse(result.svg_path).iter() if n.tag.endswith("polyline"))
+    exported = np.array([list(map(float, xy.split(","))) for xy in node.attrib["points"].split()])
+    np.testing.assert_array_equal(exported, poly)
+    assert result.preview_path.read_bytes() == sketch_render.render_sketch_preview([poly], 200, 100)
+    data = result.gcode_path.read_bytes()
+    validate_gcode(data.decode("ascii"), total_bytes=len(data))

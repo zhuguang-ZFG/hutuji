@@ -8,6 +8,8 @@
 
 ## 架构（双芯片）
 
+照片精修的结构线、排线连接和预览/SVG 几何保真约定见 [`docs/design/photo-sketch-quality-20260912.md`](docs/design/photo-sketch-quality-20260912.md)；本机对比与生产、纸面验收分别登记，当前状态仍看 release-readiness。
+
 ```
 用户语音
    │

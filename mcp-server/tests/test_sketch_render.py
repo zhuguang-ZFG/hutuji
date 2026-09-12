@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import io
+import xml.etree.ElementTree as ET
 
 import imageio.v3 as iio
 import numpy as np
@@ -131,6 +132,36 @@ def test_tone_normalization_keeps_subject_order_against_background():
     assert background - subject > 0.08
 
 
+def test_structure_contours_ignore_smooth_lighting_gradient():
+    """同一平面缓慢受光不能被切成几条等高线。"""
+    gray = np.tile(np.linspace(0.2, 0.95, 240, dtype=np.float32), (160, 1))
+    assert sketch_render._structure_contours(gray) == []
+
+
+def test_structure_contours_keep_bright_thin_features():
+    """亮调上的细镜框即使不跨固定亮度阈值，也必须保留两侧边缘。"""
+    gray = np.full((160, 240), 0.8, dtype=np.float32)
+    gray[30:130, 110:116] = 0.95
+    polys = sketch_render._structure_contours(gray)
+    length = sum(float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum()) for p in polys)
+    assert length > 160, "亮调细边缘被固定亮度档漏掉"
+    assert all(p[:, 0].min() > 100 and p[:, 0].max() < 126 for p in polys)
+
+
+def test_structure_contours_reject_texture_without_erasing_object():
+    """弱细纹背景不出碎线，实物的强轮廓仍须存在。"""
+    y, x = np.mgrid[:180, :260]
+    gray = (0.75 + 0.025 * np.sin(x * 2 * np.pi / 3) * np.sin(y * 2 * np.pi / 3)).astype(np.float32)
+    gray[40:140, 80:180] = 0.25
+    polys = sketch_render._structure_contours(gray)
+    assert polys, "背景降噪时误删了主体轮廓"
+    length = sum(float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum()) for p in polys)
+    assert length > 300
+    for poly in polys:
+        assert poly[:, 0].min() > 70 and poly[:, 0].max() < 190
+        assert poly[:, 1].min() > 30 and poly[:, 1].max() < 150
+
+
 def test_hatch_segment_budget_governor(monkeypatch):
     """段数预算闸：病态密集输入（半幅暗噪点，CLAHE 后必大面积触发排线）必须
     被层距放大压回预算内——2026-09-10 事故原图 CLAHE 后 5508 段 → G-code
@@ -150,6 +181,96 @@ def test_hatch_chaining_collapses_pen_lifts():
     左半黑 200×120：串链前 ~百级独立段，串链后总折线数必须量级收敛。"""
     polys, w, h = render_hatch(_half_black_png())
     assert len(polys) < 40, f"串链失效，折线数={len(polys)}"
+
+
+def test_hatch_reversed_segment_does_not_draw_across_white_notch():
+    """反向接入后须从真实尾端续接，不能从上一段另一端校验白区。"""
+    mask = np.ones((12, 18), dtype=bool)
+    mask[4:7, 10:13] = False
+    segs = [
+        np.array([[2, 2], [2, 8]], dtype=np.float64),
+        np.array([[8, 2], [8, 8]], dtype=np.float64),
+        np.array([[14, 8], [14, 2]], dtype=np.float64),
+    ]
+    polys = sketch_render._chain_hatch_segments(segs, mask)
+    from skimage.draw import line
+
+    for poly in polys:
+        for a, b in zip(poly[:-1], poly[1:]):
+            (xa, ya), (xb, yb) = np.rint([a, b]).astype(int)
+            rr, cc = line(ya, xa, yb, xb)
+            assert mask[rr, cc].all(), "反向接入使连接线穿过白色缺口"
+
+
+def test_hatch_link_checks_white_pixels_between_quarter_samples():
+    """仅验连接线三个分点会漏掉窄白带；8px 的桥第 1px 即为反例。"""
+    mask = np.ones((12, 14), dtype=bool)
+    mask[8, 3] = False
+    segs = [
+        np.array([[2, 2], [2, 8]], dtype=np.float64),
+        np.array([[10, 2], [10, 8]], dtype=np.float64),
+    ]
+    polys = sketch_render._chain_hatch_segments(segs, mask)
+    assert len(polys) == 2, "排线跨过未检查到的白像素连成了一笔"
+
+
+def test_hatch_final_paths_do_not_simplify_across_white_notch(monkeypatch):
+    """串链已绕开 1px 留白，再对稀疏拐点抽稀会把它压成穿白区的直线。"""
+    gray = np.zeros((32, 32), dtype=np.uint8)
+    gray[2, 14] = 255
+    segs = [
+        np.array([[2, 2], [10, 2]], dtype=np.float64),
+        np.array([[10, 3], [18, 3]], dtype=np.float64),
+        np.array([[18, 2], [26, 2]], dtype=np.float64),
+    ]
+    monkeypatch.setattr(sketch_render, "_structure_contours", lambda gray: [])
+    monkeypatch.setattr(sketch_render, "_normalize_tones", lambda gray, **kwargs: gray)
+    monkeypatch.setattr(sketch_render, "_gaussian_for_mask", lambda gray: gray)
+    monkeypatch.setattr(sketch_render, "_hatch_layer", lambda *args: segs)
+    polys, _, _ = render_hatch(_png(gray))
+    from skimage.draw import line
+
+    for poly in polys:
+        for a, b in zip(poly[:-1], poly[1:]):
+            (xa, ya), (xb, yb) = np.rint([a, b]).astype(int)
+            rr, cc = line(ya, xa, yb, xb)
+            assert not np.any((rr == 2) & (cc == 14)), "最终抽稀重新切入白色缺口"
+
+
+def _serpentine_polyline() -> np.ndarray:
+    return np.array(
+        [[20, 20], [180, 20], [180, 40], [20, 40], [20, 60], [180, 60], [180, 80], [20, 80]],
+        dtype=np.float64,
+    )
+
+
+def test_programmatic_svg_preserves_turns_and_trace_default_still_smooths():
+    """稀疏回折逐点透传；未选择程序化模式的既有描摹调用继续平滑。"""
+    from hutuji_mcp.bitmap_svg import polylines_to_svg
+
+    poly = _serpentine_polyline()
+    def points(svg):
+        node = next(n for n in ET.fromstring(svg).iter() if n.tag.endswith("polyline"))
+        return np.array([list(map(float, xy.split(","))) for xy in node.attrib["points"].split()])
+    np.testing.assert_array_equal(points(polylines_to_svg([poly], 200, 100, smooth=False)), poly)
+    assert not np.array_equal(points(polylines_to_svg([poly], 200, 100)), poly)
+
+
+def test_programmatic_preview_preserves_serpentine_white_gaps(monkeypatch):
+    """把预览设成 1:1 栅格，四行蛇形应保持四行，不能被均值压成中间斜线。"""
+    from hutuji_mcp import bitmap_svg
+
+    padding = bitmap_svg._PREVIEW_PADDING
+    monkeypatch.setattr(bitmap_svg, "_PREVIEW_MAX_WIDTH", 200 + 2 * padding)
+    monkeypatch.setattr(bitmap_svg, "_PREVIEW_MAX_HEIGHT", 100 + 2 * padding)
+    raw = sketch_render.render_sketch_preview([_serpentine_polyline()], 200, 100)
+    actual = iio.imread(raw)[padding:-padding, padding:-padding]
+    expected = np.full((100, 200), 255, dtype=np.uint8)
+    expected[[20, 40, 60, 80], 20:181] = 0
+    expected[20:41, 180] = 0
+    expected[40:61, 20] = 0
+    expected[60:81, 180] = 0
+    np.testing.assert_array_equal(actual, expected)
 
 
 def test_squiggle_amplitude_never_crosses_rows():
@@ -249,7 +370,7 @@ def test_end_to_end_svg_gcode_passes_section5(tmp_path):
 
     for style in ("hatch", "squiggle"):
         polys, w, h = render_sketch_polylines(_gradient_png(), style=style)
-        svg = polylines_to_svg(polys, w, h)
+        svg = polylines_to_svg(polys, w, h, smooth=False)
         _validate_svg(svg)
         svg_path = tmp_path / f"{style}.svg"
         gcode_path = tmp_path / f"{style}.gcode"

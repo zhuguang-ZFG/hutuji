@@ -803,7 +803,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 触发 | `POST /draw-upload/api/draw/upload` 位图经 `is_photo_raster`（近白像素占比 <0.5 判照片）即起精修，**不再需要任何付费通道凭据**；线稿/SVG/文档走原单段，`refined=null` |
 | 第一段（同步） | Canny 线稿照常同步返回，响应加 `refined={"status":"pending","style":<生效风格>}`；用户立即可用线稿版发送 |
 | 风格档位 | 表单字段 `style` ∈ `hatch`（排线素描，默认）/ `squiggle`（连续波纹）；白名单外值静默回落 `hatch`（体验参数非安全闸，不 400） |
-| 第二段（后台） | portal 后台任务：原始照片 → `hutuji_mcp.sketch_render` 程序化渲染直出**矢量折线**（iso 亮度等值线轮廓 + 四层累积排线，或行扫描波纹振幅随暗度调制 + 蛇形连接），**描摹环节（skeletonize/sknw）整体消失**，经同一条 `polylines_to_svg`/`_validate_svg`/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id`。零模型费、零下载、确定性可复现（同输入逐点同输出） |
+| 第二段（后台） | portal 后台任务：原始照片 → `hutuji_mcp.sketch_render` 程序化渲染直出**矢量折线**（2026-09-12 起 hatch 用原始亮度双尺度差的结构边缘 + 四层累积排线，supersede 固定亮度等高线；squiggle 沿用等值线 + 行扫描波纹 + 蛇形连接），**描摹环节（skeletonize/sknw）整体消失**，经同一条 `polylines_to_svg`/`_validate_svg`/vpype/§5 闸成独立 refined job → 回填原 job 的 `refined_status/refined_job_id`。零模型费、零下载、确定性可复现（同输入逐点同输出） |
+| 稀疏几何保真 | 程序化折线的 SVG 与预览均显式 `smooth=False`，不得再套密集描摹点的五点均值平滑。排线串链从实际尾端出发（含反向段），整座连接桥按半像素间隔验本层暗区；结构线继续抽稀，已经串链的排线不再 RDP，防止重新切入白色缺口。hatch 明暗 gamma=0.55、波纹=0.7；对比依据见 `docs/design/photo-sketch-quality-20260912.md`，没有主体分割或去背景承诺 |
 | 波纹连接 | 仅前一行末段与紧邻下一行首段可蛇形连接，且整条回折线采样都须处于暗区；同一行由白带隔开的段、空行和两行间白色缺口必须抬笔。行距、振幅和抽稀容差沿用既有值 |
 | 轮询面 | `GET /draw-upload/api/draw/jobs/{job_id}`（登录态，属主校验，否则 404）→ `{job_id,status,gcode_url,preview_url,refined}`；refined ∈ `null` / `{"status":"pending","style"}` / `{"status":"failed"}` / `{"status":"ready",job_id,gcode_url,preview_url}`。小程序结果页 ~5s×36 轮轮询 |
 | 失败口径 | 渲染任何失败只置 `refined=failed` 并记异常类型名，**绝不影响**已交付的 Canny job；停机取消同样置 failed 后再抛 CancelledError（fail-open 口径与旧链一致） |
@@ -875,7 +876,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 密钥 | `DRAW_PORTAL_TENCENT_SECRET_ID` / `DRAW_PORTAL_TENCENT_SECRET_KEY` / `DRAW_PORTAL_TENCENT_ASR_APP_ID` **只**落 portal env；**禁止**进 weapp / 日志明文 |
 | 禁用 | 三键任一为空 → ASR **503**；LLM 缺配置 → turn **503** |
 | 小程序 | chat 页按住说话 + 预览卡「开始画/取消」；weapp **v0.2.19** |
-| 明确不做 | 小程序直连设备麦/喇叭；旁路官方云自建 WSS；TTS（P1.5）；语音链路自动开画（与相册 send 的 auto_confirm 区分） |
+| 明确不做 | 小程序直连设备麦/喇叭；旁路官方云自建 WSS；TTS（2026-09-12 用户拍板不做，原 P1.5 排期取消——小程序里小派只出文字）；语音链路自动开画（与相册 send 的 auto_confirm 区分） |
 
 **HIL**：真机画/写→预览卡→确认开画 **未验证**。
 

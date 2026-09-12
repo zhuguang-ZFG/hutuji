@@ -465,9 +465,10 @@ def process_upload_sketch(
     (job_dir / "upload.png").write_bytes(plain_png)
 
     polys, w, h = render_sketch_polylines(plain_png, style=style)
-    svg = polylines_to_svg(polys, w, h)
+    # 渲染器已经给出稀疏矢量拐点；描摹链的均值平滑会挪走回折和五官。
+    svg = polylines_to_svg(polys, w, h, smooth=False)
     _validate_svg(svg)
-    preview = polylines_to_preview_png(polys, w, h)
+    preview = polylines_to_preview_png(polys, w, h, smooth=False)
 
     svg_path = job_dir / "draw.svg"
     gcode_path = job_dir / "draw.gcode"

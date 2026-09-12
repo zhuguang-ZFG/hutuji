@@ -723,11 +723,13 @@ def _smooth_polyline(pts: np.ndarray) -> np.ndarray:
     return np.stack([xs, ys], axis=1)
 
 
-def polylines_to_svg(polys: list[np.ndarray], width: int, height: int) -> str:
-    """折线列表 → 单线 SVG 文本（元素只含 svg/polyline，过 `_validate_svg`）。"""
+def polylines_to_svg(
+    polys: list[np.ndarray], width: int, height: int, *, smooth: bool = True,
+) -> str:
+    """折线列表 → 单线 SVG；程序化稀疏折线须 smooth=False，保留回折位置。"""
     parts = []
     for pts in polys:
-        smoothed = _smooth_polyline(pts)
+        smoothed = _smooth_polyline(pts) if smooth else pts
         str_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in smoothed)
         parts.append(f'<polyline points="{str_pts}"/>')
     return (
@@ -766,7 +768,9 @@ def _clip_preview_segment(
     return point(enter), point(leave)
 
 
-def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -> bytes:
+def polylines_to_preview_png(
+    polys: list[np.ndarray], width: int, height: int, *, smooth: bool = True,
+) -> bytes:
     """把同一组中心线栅格成适合 480×320 设备屏幕的紧凑 PNG。
 
     2026-09-10 起改为真密度渲染：旧实现在 ~308px 目标尺寸直接画 1px+右下
@@ -774,7 +778,8 @@ def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -
     真相严重不符（两次黑卡事故的判读污染源）。现按内容分辨率 1px 栅格化
     后面积平均降采样：灰度 = 真实墨密度，疏区细线仍可读（轻度增辉曲线），
     密区呈灰而非死黑。源尺寸超过 2048 时等比缩入有界栅格；先裁线再画，
-    防止用户 SVG 的巨大 viewBox 或越界端点耗尽进程内存。
+    防止用户 SVG 的巨大 viewBox 或越界端点耗尽进程内存。smooth 必须与 SVG
+    导出一致；程序化排线/波纹已是稀疏路径，均值平滑会改变笔迹而非降噪。
     """
     try:
         import imageio.v3 as iio
@@ -809,7 +814,7 @@ def polylines_to_preview_png(polys: list[np.ndarray], width: int, height: int) -
     )
     hi = np.full((raster_h, raster_w), 255.0, dtype=np.float32)
     for pts in polys:
-        smoothed = _smooth_polyline(pts)
+        smoothed = _smooth_polyline(pts) if smooth else pts
         if not np.isfinite(smoothed).all():
             raise BitmapError("预览线段坐标必须是有限数")
         for start, end in zip(smoothed[:-1], smoothed[1:]):

@@ -40,19 +40,28 @@ _HATCH_SAMPLE_STEP_PX = 1.0  # 沿线采样步长，决定段端点精度
 _HATCH_MASK_SIGMA = 1.0      # mask 前平滑，压阈值附近噪点碎段
 _HATCH_SEGMENT_BUDGET = 3500  # 段数预算：边际 ≈70B/段 + 固定轮廓/vpype ≈189KiB（事故原图双点校准），3500 段 ≈ 434KiB 留 §5 余量 ~78KiB
 
-# 色调归一化：近纯色闸 → CLAHE 局部均衡 → p2/p98 分位拉伸 → gamma 提亮。
+# 色调归一化：近纯色闸 → 全局/局部均衡分别拉伸、按 0.65/0.35 混合 → gamma。
 # 2026-09-10 两次生产黑卡事故定案：① 裸亮度阈值对中间调照片结构性失控
 # （室内人像 p50=0.54 撞 0.78 首层整页铺黑）；② 全局拉伸+gamma 仍救不了
-# 逆光人像（面部局部偏暗被整体曲线压住，纸面观感五官糊没）。CLAHE 按局部
-# 邻域抬对比（逆光脸被局部提亮、与暗发/暗背景分离）是照片转线稿的标准
-# 预处理；拉伸把背景抬回纸白；gamma 0.7 再护中间调。CLAHE 对平坦输入会放大
+# 逆光人像（面部局部偏暗被整体曲线压住，纸面观感五官糊没）。局部均衡负责
+# 补暗部细节，保留全局权重避免背景纹理被独立拉成黑块。CLAHE 对平坦输入会放大
 # 数值噪声，故近纯色必须在 CLAHE 之前短路（纯白全靠下游空产出 fail-closed）。
 _TONE_STRETCH_LO_PCT = 2.0
 _TONE_STRETCH_HI_PCT = 98.0
 _TONE_STRETCH_MIN_RANGE = 0.05
 _CLAHE_CLIP_LIMIT = 0.02
 _TONE_GAMMA = 0.7
+# 2026-09-12 两张逆光人像 A/B：0.55 让面部中间调更多留白，五官由结构线
+# 保留；旧 0.7 的面颊/眼周排线盖住结构。只影响 hatch，波纹保留原亮度档。
+_HATCH_TONE_GAMMA = 0.55
 _HATCH_TONE_SIGMA = 2.2
+
+# 排线结构线取原始亮度的双尺度差零交叉，不把均衡后的等亮度边界当五官。
+# 工作栅格上 σ2/3.6 压掉衣物细纹；梯度 0.014 拒绝缓慢光照变化（等高线），
+# 仍保留 2 张本机人像的镜框/眼睛/嘴边。证据见 2026-09-12 画质对比记录。
+_STRUCTURE_SIGMA = 2.0
+_STRUCTURE_COARSE_RATIO = 1.8
+_STRUCTURE_MIN_CONTRAST = 0.014
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
 # 3 级 tone 边界 + 较强平滑：2026-09-10 小样 A/B（事故人像，4 组合目检）
@@ -112,8 +121,8 @@ def _load_gray(image_bytes: bytes) -> np.ndarray:
     return np.clip(gray, 0.0, 1.0)
 
 
-def _normalize_tones(gray: np.ndarray) -> np.ndarray:
-    """近纯色短路 → CLAHE → p2/p98 拉伸 → gamma 提亮；纯白等原样返回供下游拒。"""
+def _normalize_tones(gray: np.ndarray, *, gamma: float = _TONE_GAMMA) -> np.ndarray:
+    """保留全局层次并混入局部对比；近纯色原样返回，避免放大数值噪声。"""
     lo0, hi0 = np.percentile(gray, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
     if hi0 - lo0 < _TONE_STRETCH_MIN_RANGE:
         return gray
@@ -126,7 +135,7 @@ def _normalize_tones(gray: np.ndarray) -> np.ndarray:
     lo, hi = np.percentile(clahe, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
     local_stretched = np.clip((clahe - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     mixed = 0.65 * global_stretched + 0.35 * local_stretched
-    return (mixed ** _TONE_GAMMA).astype(np.float32)
+    return (mixed ** gamma).astype(np.float32)
 
 
 def _simplify(polys: list[np.ndarray], tolerance: float) -> list[np.ndarray]:
@@ -160,10 +169,41 @@ def _iso_contours(gray: np.ndarray) -> list[np.ndarray]:
 
 
 def _gaussian_for_mask(gray: np.ndarray) -> np.ndarray:
-    """排线 mask 前的轻平滑：照片噪点在阈值附近抖出碎段，1px 高斯压掉。"""
+    """排线明暗场用 σ2.2 平滑，压掉阈值附近的照片噪点碎段。"""
     from skimage.filters import gaussian
 
     return gaussian(gray, sigma=_HATCH_TONE_SIGMA, preserve_range=True)
+
+
+def _structure_contours(gray: np.ndarray) -> list[np.ndarray]:
+    """原始亮度的结构边缘 → 连续矢量线；弱对比区断开，不勾描光照色块。"""
+    from skimage.filters import gaussian, sobel
+    from skimage.measure import find_contours
+
+    if min(gray.shape) < 2:
+        return []
+    fine = gaussian(gray, sigma=_STRUCTURE_SIGMA, preserve_range=True)
+    coarse = gaussian(
+        gray, sigma=_STRUCTURE_SIGMA * _STRUCTURE_COARSE_RATIO, preserve_range=True,
+    )
+    response = fine - coarse
+    contrast = sobel(fine)
+    out: list[np.ndarray] = []
+    for contour in find_contours(response, level=0):
+        if len(contour) < _CONTOUR_MIN_POINTS:
+            continue
+        pixels = np.rint(contour).astype(int)
+        live = contrast[pixels[:, 0], pixels[:, 1]] >= _STRUCTURE_MIN_CONTRAST
+        edges = np.flatnonzero(np.diff(np.r_[False, live, False].astype(np.int8)))
+        runs = [contour[start:end] for start, end in edges.reshape(-1, 2)]
+        # 闭环的起点是算法任意选的；跨起点的同一条可见边缘须合回，不能断两截。
+        if len(runs) > 1 and live[0] and live[-1] and np.array_equal(contour[0], contour[-1]):
+            runs = [np.vstack((runs[-1], runs[0][1:]))] + runs[1:-1]
+        out.extend(
+            run[:, ::-1].astype(np.float64)
+            for run in runs if len(run) >= _CONTOUR_MIN_POINTS
+        )
+    return out
 
 
 def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.ndarray]:
@@ -215,7 +255,7 @@ def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.
 
 # 排线串链：相邻段在暗区边界处首尾仅隔一个层距（≈2-3mm），每段独立起笔
 # 是纯浪费（事故人像 3672 抬笔）。贪心近邻串链把「间距 ≤ 上限且连线全程在
-# 最亮排线 mask（膨胀 2px）内」的段落笔连成一笔——连线藏在暗区内，视觉上
+# 本层排线 mask 内」的段落笔连成一笔——连线藏在暗区内，视觉上
 # 是蚀刻填充经典的边界蛇形回折，不污染白区。2026-09-10 用户拍板的提速项。
 _CHAIN_MAX_GAP_PX = 10.0  # ≈3.6mm：串链连线上限
 
@@ -224,13 +264,11 @@ def _chain_hatch_segments(
     segs: list[np.ndarray], dark_mask: np.ndarray
 ) -> list[np.ndarray]:
     """2 点排线段 → 串链折线。贪心：从段 0 尾端出发，每步取最近未用端点，
-    间距 ≤_CHAIN_MAX_GAP_PX 且连线 1/4、1/2、3/4 三点都在 dark_mask 内则落笔
+    间距 ≤_CHAIN_MAX_GAP_PX 且连线半像素采样全在 dark_mask 内则落笔
     并入当前链（段必要时翻转），否则另起新链（=一次抬笔）。段序固定 +
     argmin 平局取小索引，同输入逐点复现。"""
     if len(segs) < 2:
         return segs
-    from scipy.ndimage import binary_dilation
-
     mask = dark_mask
     mh, mw = mask.shape
     starts = np.array([s[0] for s in segs])
@@ -238,12 +276,12 @@ def _chain_hatch_segments(
     used = np.zeros(len(segs), dtype=bool)
 
     def linkable(a: np.ndarray, b: np.ndarray) -> bool:
-        for t in (0.25, 0.5, 0.75):
-            p = a + (b - a) * t
-            x, y = int(round(p[0])), int(round(p[1]))
-            if not (0 <= x < mw and 0 <= y < mh) or not mask[y, x]:
-                return False
-        return True
+        # 三个分点会漏掉眼镜、衣领等窄留白；连线实际经过的像素也须全暗。
+        count = int(np.ceil(np.max(np.abs(b - a)) * 2)) + 1
+        xy = np.rint(np.linspace(a, b, count)).astype(int)
+        if not ((xy[:, 0] >= 0) & (xy[:, 0] < mw) & (xy[:, 1] >= 0) & (xy[:, 1] < mh)).all():
+            return False
+        return bool(mask[xy[:, 1], xy[:, 0]].all())
 
     chains: list[np.ndarray] = []
     cur = segs[0].copy()
@@ -263,7 +301,8 @@ def _chain_hatch_segments(
         if dist <= _CHAIN_MAX_GAP_PX and linkable(pos, nxt[0]):
             cur = np.vstack([cur, nxt])
             used[j] = True
-            pos = ends[j]
+            # nxt 可能反向；原段 ends[j] 此时是刚接入的头，不能再当作尾端。
+            pos = nxt[-1]
         else:
             chains.append(cur)
             free = np.flatnonzero(~used)
@@ -276,13 +315,14 @@ def _chain_hatch_segments(
 
 
 def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
-    """排线素描：iso 轮廓 + 四层累积排线，RDP 抽稀后返回 (polys, w, h)。
+    """排线素描：原图结构线 + 四层累积排线，返回 (polys, w, h)。
 
     段数预算闸：CLAHE 后暗部多的照片排线段数可撞爆 §5 512KiB（2026-09-10
     事故原图 5508 段 → 575KiB 超闸 422）。段数 ≈ 字节/104（实测线性），超预算
     按段数比线性放大层距重渲一次（段数 ∝ 1/层距已实测），确定性收敛。
     """
-    gray = _normalize_tones(_load_gray(image_bytes))
+    original = _load_gray(image_bytes)
+    gray = _normalize_tones(original, gamma=_HATCH_TONE_GAMMA)
     h, w = gray.shape
     smooth = _gaussian_for_mask(gray)
     layers = [_hatch_layer(smooth < th, ang, sp) for th, ang, sp in _HATCH_LAYERS]
@@ -292,7 +332,7 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
         layers = [
             _hatch_layer(smooth < th, ang, sp * factor) for th, ang, sp in _HATCH_LAYERS
         ]
-    polys = _iso_contours(gray)
+    polys = _simplify(_structure_contours(original), _RDP_TOLERANCE_PX)
     # 最亮层（面部稀疏排线）不串链：连线会落在明调区边缘成可见回折环
     # （2026-09-10 小样目检）；暗三层用本层 mask 串链，连线藏同暗度带内。
     polys.extend(layers[0])
@@ -300,7 +340,8 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
         polys.extend(_chain_hatch_segments(segs, smooth < th))
     if not polys:
         raise SketchRenderError("排线渲染产出为空（图片可能为纯色）")
-    return _simplify(polys, _RDP_TOLERANCE_PX), w, h
+    # 排线原本就是直线段；串链后再次 RDP 会切过刚校验的留白缺口。
+    return polys, w, h
 
 
 def _squiggle_link_stays_dark(start: np.ndarray, end: np.ndarray, darkness: np.ndarray) -> bool:
@@ -387,7 +428,7 @@ def render_sketch_preview(polys: list[np.ndarray], w: int, h: int) -> bytes:
     """复用描摹链同款预览渲染，保持产物面一致（RGB PNG，黑线白底）。"""
     from hutuji_mcp.bitmap_svg import polylines_to_preview_png
 
-    return polylines_to_preview_png(polys, w, h)
+    return polylines_to_preview_png(polys, w, h, smooth=False)
 
 
 def encode_png(gray_or_rgb: np.ndarray) -> bytes:

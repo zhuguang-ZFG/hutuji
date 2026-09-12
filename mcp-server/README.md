@@ -13,6 +13,8 @@
 
 ## 架构
 
+照片精修走 `sketch_render`：结构线与稀疏排线几何约定见 [`../docs/design/photo-sketch-quality-20260912.md`](../docs/design/photo-sketch-quality-20260912.md)。离线对比命令（仓库根执行）：`.\mcp-server\.venv\Scripts\python.exe -X utf8 mcp-server/scripts/sketch_eval.py <本机照片路径> --output results/local-only/sketch-eval --baseline-ref <基线提交> --profile nopaper`。报告保留原图、SVG 1px 栅格、最终 G-code 回放与 §5 结果，不调用模型或设备。
+
 ```
 小智云 LLM ──MCP──► 本服务 :8300
                       ├─ /mcp    MCP 工具端点（streamable-http）

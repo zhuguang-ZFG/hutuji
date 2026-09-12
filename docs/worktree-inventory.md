@@ -9,6 +9,17 @@
 
 ---
 
+## 2026-09-12 照片精修结构线与几何保真（🟡 本地候选，未部署）
+
+| 项 | 说明 |
+|---|---|
+| 授权/契约 | 用户「图生图服务……质量还不行，有解决方案吗」后连续「继续」；`docs/protocol.md` §10.4.9；设计与证据 `docs/design/photo-sketch-quality-20260912.md` |
+| 本批代码 | `mcp-server/hutuji_mcp/sketch_render.py`（结构线、hatch 明暗、实际尾端/整桥白区检查、排线不再 RDP、预览保真）；`bitmap_svg.py`（SVG/预览新增默认 True 的 smooth 关键字）；`draw-portal/draw_portal/pipeline.py` **仅 process_upload_sketch 的 smooth=False hunk**；对应 `mcp-server/tests/test_sketch_render.py` 25 项与 `draw-portal/tests/test_photo_refine.py` 13 项；新增 `mcp-server/scripts/sketch_eval.py` |
+| 本地证据 | 完整 hub **overall=pass/exit=0**：MCP **1441/1441**、e2e **PASS**、指纹 **259/259**（同树共享运行 `2026-09-12T10:01:45Z`，HEAD `cdfc6a68`，含本批未提交改动）；定向 MCP 75/75、portal 全套 287/287。2 张真实人像×双风格在 MK38/nopaper 均过 §5，3 张随库实拍×双风格过 §5；软件/纸面状态不混用 |
+| 本机私有资产 | `results/local-only/2026-09-12/sketch-quality-final/`（nopaper 最终回放、原图、SVG、G-code、metrics.json）、`sketch-quality-candidate/`（MK38 转换）、`sketch-quality-reference/`（3 张 scikit-image 0.26.0 CC0 参考图）；`sketch-quality-gates/hub-20260912T100145Z.{json,md}` 为完整门禁原报告，`manifest.json` 登记来源/时间/HEAD/六文件哈希；同目录 `sketch-quality-before/` 与 `sketch-structure-experiment/` 为中间诊断，不代替最终导出证据。图片均不入库 |
+| 并发工作树 | 手写抖动/手绘画板批的 write_text/server/weapp 与 pipeline 写字 hunk 归原会话；本批保留，不代管或提交。此处只登记本批新增的精修 hunk |
+| 未验证 | 本批生产部署、用户随手拍 ≥5、纸面 ≥2；未实现语义主体分割，不宣称所有照片已达艺术家素描质量 |
+
 ## 2026-09-12 手写抖动 + weapp 手绘画板（🟡 代码+测试+文档+0.3.9 上传已收口，未提交；门禁与提交在本批末）
 
 | 项 | 说明 |
@@ -587,7 +598,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:148`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:150`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
