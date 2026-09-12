@@ -49,6 +49,10 @@ class BindSession:
     # 设备随 announce 上报的机型（1.0.9 起；旧固件缺席 = "paper"）。完成绑定
     # 时随 _finalize_binding 落进 DeviceBinding.machine_type。
     plotter_sku: str = "paper"
+    device_id: str | None = None
+    public_key: str | None = None
+    nonce: str | None = None
+    identity_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,10 @@ class BindClaim:
     force: bool
     expires_at: float
     created_at: float
+    device_id: str | None = None
+    nonce: str | None = None
+    public_key: str | None = None
+    identity_version: int | None = None
 
 
 @dataclass(frozen=True)

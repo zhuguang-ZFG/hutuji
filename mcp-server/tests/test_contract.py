@@ -7768,6 +7768,18 @@ def test_gate_main_rejects_concurrent_run_without_clearing_owner_mark(
     assert [layer["id"] for layer in report["layers"]] == ["probe"]
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows 探活不得发送控制台信号")
+def test_gate_pid_probe_never_signals_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """探活当前进程只能查询状态，不能把信号 0 当作 POSIX 的无信号探测。"""
+    gate = _load_agent_gate()
+
+    def forbid_signal(_pid, _sig):
+        raise AssertionError("Windows PID 探活调用了 os.kill")
+
+    monkeypatch.setattr(gate.os, "kill", forbid_signal)
+    assert gate._pid_is_alive(os.getpid()) is True
+
+
 def test_gate_pid_permission_error_is_treated_as_alive(monkeypatch: pytest.MonkeyPatch) -> None:
     """无权探测 PID 时必须保守认为仍存活，禁止覆盖其他运行者的 tombstone。"""
     gate = _load_agent_gate()
@@ -7775,8 +7787,89 @@ def test_gate_pid_permission_error_is_treated_as_alive(monkeypatch: pytest.Monke
     def deny(_pid, _sig):
         raise PermissionError("access denied")
 
-    monkeypatch.setattr(gate.os, "kill", deny)
+    monkeypatch.setattr(gate, "os", SimpleNamespace(name="posix", kill=deny))
     assert gate._pid_is_alive(12345) is True
+
+
+@pytest.mark.parametrize(
+    "handle,wait_result,error,expected",
+    [
+        (1 << 40, 258, 0, True),
+        (1 << 40, 0, 0, False),
+        (1 << 40, 0xFFFFFFFF, 0, True),
+        (0, None, 87, False),
+        (0, None, 5, True),
+        (0, None, 6, True),
+    ],
+)
+def test_gate_windows_pid_probe_is_read_only_and_closes_handle(
+    monkeypatch: pytest.MonkeyPatch, handle, wait_result, error, expected
+) -> None:
+    """只申请等待权；退出、拒绝访问、未知错误和 64 位句柄均不发送信号。"""
+    import ctypes
+    from ctypes import wintypes
+
+    gate = _load_agent_gate()
+    calls = []
+
+    def open_process(access, inherit, pid):
+        calls.append(("open", access, inherit, pid))
+        return handle
+
+    def wait_process(process_handle, timeout):
+        calls.append(("wait", process_handle, timeout))
+        return wait_result
+
+    def close_handle(process_handle):
+        calls.append(("close", process_handle))
+        return True
+
+    api = SimpleNamespace(OpenProcess=open_process, WaitForSingleObject=wait_process,
+                          CloseHandle=close_handle)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **kw: api, raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: error, raising=False)
+
+    assert gate._windows_pid_is_alive(12345) is expected
+    assert api.OpenProcess.restype is wintypes.HANDLE
+    expected_calls = [("open", 0x00100000, False, 12345)]
+    if handle:
+        expected_calls.extend([("wait", handle, 0), ("close", handle)])
+    assert calls == expected_calls
+
+
+@pytest.mark.parametrize("pid", [None, True, 0, -1, "12345", 1 << 32])
+def test_gate_pid_probe_rejects_invalid_windows_pid(
+    monkeypatch: pytest.MonkeyPatch, pid
+) -> None:
+    """坏标记不能发起探测；尤其不能截断 DWORD 后误认另一个进程。"""
+    gate = _load_agent_gate()
+    monkeypatch.setattr(gate, "os", SimpleNamespace(name="nt"))
+
+    def forbid_probe(_pid):
+        raise AssertionError("无效 PID 进入 Win32 查询")
+
+    monkeypatch.setattr(gate, "_windows_pid_is_alive", forbid_probe)
+    assert gate._pid_is_alive(pid) is False
+
+
+def test_gate_pid_probe_tracks_real_child_lifecycle() -> None:
+    """真实子进程退出前后判据相反，检查不能改变进程生命周期。"""
+    import subprocess
+    import sys
+
+    gate = _load_agent_gate()
+    with subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ) as child:
+        try:
+            assert gate._pid_is_alive(child.pid) is True
+            assert child.poll() is None
+        finally:
+            child.terminate()
+            child.wait(timeout=5)
+        assert gate._pid_is_alive(child.pid) is False
 
 
 def test_gate_required_files_derives_governance_docs(

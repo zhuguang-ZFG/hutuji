@@ -4,6 +4,8 @@
 
 近期评审修复涉及预览资源边界、波纹白区保护、登录回包隔离、字体选择、重试日限与 Tunnel 固件回源。行为契约见 [`docs/protocol.md`](docs/protocol.md)，本地验证及部署状态见 [`docs/release-readiness.md`](docs/release-readiness.md)；小程序回归命令见 [`draw-portal/README.md`](draw-portal/README.md)。
 
+2026-09-12 一次扫码绑定扩展：S3 持久化 P-256 身份与单次 nonce，小程序自动切网/认领/恢复，portal 按真实连接就绪完成绑定并支持一账号多机；新旧版本兼容及回滚边界见 [`docs/design/device-identity-rollout.md`](docs/design/device-identity-rollout.md)。固件源码仍只在独立 fork，本地软件验证不代表生产或手机验收。
+
 ## 架构（双芯片）
 
 ```

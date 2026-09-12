@@ -89,16 +89,21 @@
     <view class="hero">
       <view class="hero-brand">动力巢科技 · 小派</view>
       <view class="hero-title">
-        {{bindState === 'bound' ? '配网 + 绑定都完成了' : '配网已下发'}}
+        {{bindState === 'bound' ? '配网和绑定完成了' : '正在确认设备联网'}}
       </view>
       <view class="hero-sub">
-        {{bindState === 'bound' ? '已自动绑定到你的账号，现在可以直接对丹青说话了' : (bindState === 'claiming' || bindState === 'waiting' ? '设备上线后会自动绑定到你的账号，请稍候…' : '设备连上家里 WiFi 后会自动上线，手机也会自动切回家里 WiFi')}}
+        {{bindState === 'bound' ? '已绑定到你的账号，现在可以使用这台设备了' : (bindState === 'claiming' || bindState === 'waiting' ? '设备上线后会自动完成绑定，请稍候…' : '请根据下方提示继续')}}
       </view>
     </view>
     <view class="weui-cells" wx:if="{{log}}">
       <view class="log done-log">{{log}}</view>
     </view>
-    <view class="weui-btn-area" wx:if="{{bindState !== 'bound'}}">
+    <view class="weui-btn-area" wx:if="{{bindState === 'manual' && deviceMac}}">
+      <button class="weui-btn weui-btn_primary" bindtap="onRetryBind">重试绑定</button>
+      <button class="weui-btn weui-btn_default" bindtap="onEditWifi">修改 Wi-Fi 信息</button>
+      <button class="weui-btn weui-btn_default" bindtap="openWifiSettings">打开手机 Wi-Fi 设置</button>
+    </view>
+    <view class="weui-btn-area" wx:if="{{bindState !== 'bound' && !deviceMac}}">
       <button class="weui-btn weui-btn_primary" bindtap="onGoBind">下一步：绑定设备</button>
     </view>
     <view class="weui-btn-area tight">

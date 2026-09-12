@@ -22,10 +22,10 @@ $env:PYTHONPATH="D:\Users\hutuji\mcp-server"
 $env:PYTHONIOENCODING="utf-8"
 $env:PYTHONUTF8="1"
 D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
-node --test tests/weapp/session.test.js tests/weapp/font_picker.test.js
+node --test tests/weapp/session.test.js tests/weapp/font_picker.test.js tests/weapp/wifi.test.js
 ```
 
-小程序回归使用 Node 内置测试运行器和 wx 桩，覆盖登录/退出回包竞态及默认字体提交；测试放在 `tests/weapp/`，不进入小程序包。`process_write_text` 的字体回归使用合成 gfont 和真实排版，验证显式字体对中文生效、未选字体仍沿用标准笔顺。完整交互与纸面效果另按真机清单验收。
+小程序回归使用 Node 内置测试运行器和 wx 桩，覆盖登录/退出回包竞态、默认字体、扫码身份、UTF-8 TCP 分帧及切网/重扫/卸载恢复；测试放在 `tests/weapp/`，不进入小程序包。`test_device_identity.py` 用真实 P-256 签名验证正反例、挑战消费和 token 就绪；`test_device_bindings.py` 覆盖旧库迁移、多设备回写与事务回滚。`process_write_text` 的字体回归使用合成 gfont 和真实排版，验证显式字体对中文生效、未选字体仍沿用标准笔顺。完整交互与纸面效果另按真机清单验收。
 
 ## 生产部署（阿里云，一期）
 
@@ -39,17 +39,22 @@ node --test tests/weapp/session.test.js tests/weapp/font_picker.test.js
 
 更新代码：`scp` 到 `/opt/hutuji/draw-portal/`，`systemctl restart hutuji-draw-portal`。
 
+身份 v2 批次必须整体部署 `app/config/models/store/firmware_ota/device_identity` 模块及对应小程序工具/页面，先备份 SQLite，不可只拷接口而漏 Store/模型依赖。保持 `DRAW_PORTAL_DEVICE_IDENTITY_REQUIRED=0` 兼容尚未升级设备；已登记身份不允许降级。迁移与回滚顺序见 [`../docs/design/device-identity-rollout.md`](../docs/design/device-identity-rollout.md)。本地构建不代表已部署，状态只看 [`../docs/release-readiness.md`](../docs/release-readiness.md)。
+
 ## 用户流程要点
 
 1. 登录后**默认进图库网格**（个人作品墙）；绑机收进顶栏「绑机」面板。
 2. 右下角「+」打开面板（两个页签）：「上传图片」转换（>4MB 位图本地自动压缩，支持拖拽/粘贴），或「文字生图」——描述一句话转发本机 MCP `/internal/draw`（loopback + 共享密钥），AI 生成单线稿后走同一预览/发送/保存流。
 3. 顶栏四色圆点可切换主题（墨 / 天 / 苔 / 暮），偏好存 `localStorage`。
 4. **须在设备屏点「开始画」**（或说「开始画」）才落笔；`hutuji.draw` 不自动出图。
-5. 设备维护页「绑定呼图账号」→ QR + 6 位码 → 网页确认绑定。
+5. 新版小程序：扫设备配网码 → 选家庭 Wi-Fi、输入一次密码 → 系统切网、认领、校验连接并确认绑定；授权/重试保留整份二维码，密码不落本地存储。设备维护页 QR + 6 位码入口仍保留。
+6. 「我的」可列出并切换本账号设备；切换只改变默认控制目标，解绑只影响目标设备，跨账号转让须设备的新证明与确认。
 
 ## messaging token 运维
 
 绑定表内的 `device_token` 须为控制台「主题配置 / assets-generator」URL 的 `token=`（JWT `purpose=messaging`），**不是** NVS `websocket.token`。主题配置每次重开会作废旧 token；探活失败时可在设备上重新绑机，或运维脚本更新绑定表（值勿入库）。
+
+身份 v2 不要求消费者提供 token：签名可覆盖空 token，由服务端自动铸造。复用旧 token 或铸新后均须探活，未就绪回 `503 binding_pending` 自动重试；历史探活标记不能作为成功依据。服务端控制台 JWT 仍须运维续期，不能宣称完全脱离小智平台凭据。
 
 契约与设计：`docs/protocol.md` §10.4、`docs/design/draw-portal-bind.md`、`docs/design/conversation-capture.md`。
 

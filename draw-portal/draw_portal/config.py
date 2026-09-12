@@ -105,6 +105,8 @@ class Config:
     # 后台建模板的取号顺序对齐（描述/状态/时间 → thing1/phrase2/time3）
     subscribe_template_id: str = ""
     subscribe_fields: dict[str, str] | None = None
+    device_identity_required: bool = False
+    device_identity_nonce_ttl_seconds: int = 600
 
 
 @dataclass(frozen=True)
@@ -226,6 +228,8 @@ def load_config() -> Config:
         subscribe_fields=_parse_subscribe_fields(
             os.environ.get("DRAW_PORTAL_WX_SUBSCRIBE_FIELDS", "")
         ),
+        device_identity_required=os.environ.get("DRAW_PORTAL_DEVICE_IDENTITY_REQUIRED", "0").strip().lower() in {"1", "true", "yes"},
+        device_identity_nonce_ttl_seconds=min(600, max(60, int(os.environ.get("DRAW_PORTAL_DEVICE_IDENTITY_NONCE_TTL", "600")))),
     )
 
 

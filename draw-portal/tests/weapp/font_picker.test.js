@@ -13,7 +13,8 @@ async function setup(statusCode = 200) {
   h.page.onLoad();
   h.page.adoptJob = () => {};
   h.page.loadFonts();
-  h.requests[0].success({ statusCode, data: { fonts } });
+  // 页面初始化还会预取订阅配置；按端点匹配，避免把字库响应喂给别的请求。
+  h.requests.find((request) => request.url.endsWith("/api/fonts")).success({ statusCode, data: { fonts } });
   await flush();
   h.page.setData({ writeText: "测试文字" });
   return h;

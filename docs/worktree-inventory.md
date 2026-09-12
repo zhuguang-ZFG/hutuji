@@ -9,6 +9,21 @@
 
 ---
 
+## 2026-09-12 一次扫码身份 v2 与中断恢复（工作树候选，部署/刷机待验证）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户连续要求「扫码、选 WiFi、输入一次密码，剩下的状态确认、认领、重试和恢复全部由系统完成」「开始把固件也改了啊，事情要做完」；联调指定 Freenove 2.8 寸。随后要求查明会话中断并修复、继续原任务 |
+| 本仓改动 | `draw-portal` 六个后端模块（含新增 `device_identity.py`）、身份/多设备/页面回归、小程序绑定/配网/设备选择及公共工具；契约 §10.4.0/§10.4.2–4，设计 `docs/design/device-identity-rollout.md`；白名单 `device_identity_20260912_authorized`。并保留登录事故热修 `e05b796` 的旧镜像提升逻辑，冲突时主表所有权优先 |
+| 外仓改动 | xiaozhi 独立 fork：P-256 身份与 NVS 会话、签名 worker、三板入口、应用回调和版本 `hutuji.1.0.11`；未并入枢纽。Grbl 既有 `.gitignore` 改动及 fz 未跟踪仿真文件原样保留 |
+| 软件证据 | portal `portal-final.xml`：285/285；小程序 `weapp-release.xml`：63/63、exit 0；S3 host `firmware-host-20260912-121822-223914.log`：172/172。完整 hub `hub-pass-before-release.{json,md}` **overall=pass、exit=0**：MCP **1427/1427**（38 文件，`test_contract.py` 656 项）、e2e PASS、指纹 262/262；完整控制台 `hub-20260912-resume.log` |
+| 三板真实构建 | `firmware-builds-20260912-121822-223914.json`：lichuang/Freenove/Waveshare 各 215 个 CXX 编译、exit 0；app SHA-256 分别 `2f7e13bd…142f779f` / `17ae2921…db3a3cc7` / `5e2210f8…e6e11dc`。完整哈希与 app/配置/日志在同目录；host PSA 替身不等于芯片密码学实测 |
+| 门禁中断修复 | `scripts/agent_gate.py` 改 Windows PID 探活为 `OpenProcess(SYNCHRONIZE)` + 零等待 + `CloseHandle`，无权/未知错误保守保留占有标记；POSIX 仍用信号 0。`pid-probe-red.xml` 1 项失败、`pid-probe-green.xml` 16 项通过；本轮独立隐藏控制台探活 exit 0、signals 为空。中断与旧信号调用相符，但独立旧版探针未复现会话退出，不将同时发生的模型限流武断归于此 |
+| 本地证据 | 全部在 `results/20260912-device-identity/`，整目录被 gitignore，证据仅本机；`tmp/probe_pid_liveness_isolated.py` 为隔离诊断辅助。未完成构建保留于外仓 `build.identity-incomplete-20260912-111426-299161/`，未删除 |
+| hub 单失败根因 | `gate-pytest-diagnostic-20260912-142633.log` 重现 1 fail/1426 pass：队列启动测试继承门禁 `PYTHONIOENCODING=utf-8`，但父进程按 GBK 解码中文 stderr，读取线程异常后得到 None。`test_draw_queue.py` 成对设子输出/父解码 UTF-8；`queue-encoding-green.xml` 在 `PYTHONUTF8=0` 下 1/1，随后完整 hub 通过。生产队列行为未改，不能把独立测试曾通过称为瞬态问题 |
+| 升级前实态 | `serial-COM15-20260912-143452.log`：25 秒、零写入、DTR/RTS 均 False，持续 Idle；`production-before-lima.json`：目标 MAC `b8:1f:3f:c4:58:2c`、Freenove 2.8、1.0.10、idle、连接/就绪/授权/指纹全 true，绑定仅在旧镜像表。`production-before-jdcloud.json`：热备绑定空库；双机尚无身份模块。两份预检只返回文件哈希、结构和状态，不含 token |
+| 待执行 | 兼容模式整批发布（先 SQLite 一致性备份并验证旧镜像迁移）、保留 NVS 的 Freenove 试升级与手机一次扫码 HIL；旧 merged ZIP 不可用作保留 NVS 的刷机输入 |
+
 ## 2026-09-12 曲库扩容批：fluidsynth 公版旋律 40 首（数据+文档，双机已部署）
 
 | 项 | 说明 |
@@ -551,7 +566,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:144`（08-30 指纹门禁 COM14 抓包，随 09-12 readiness 首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:146`（08-30 指纹门禁 COM14 抓包，随 09-12 readiness 首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）

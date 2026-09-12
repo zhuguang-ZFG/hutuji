@@ -5,13 +5,44 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "../../weapp");
 
-function createWeapp() {
-  const storage = new Map();
+function createClock(now = 1800000000000) {
+  let sequence = 0;
+  const pending = new Map();
+  return {
+    get now() { return now; },
+    pending,
+    setTimeout(fn, delay = 0) {
+      const id = ++sequence;
+      pending.set(id, { fn, at: now + delay });
+      return id;
+    },
+    clearTimeout(id) { pending.delete(id); },
+    advance(duration) {
+      const until = now + duration;
+      let count = 0;
+      while (pending.size) {
+        const [id, task] = [...pending].sort((a, b) => a[1].at - b[1].at)[0];
+        if (task.at > until) break;
+        if (++count > 1000) throw new Error("测试定时器未收敛");
+        pending.delete(id);
+        now = task.at;
+        task.fn();
+      }
+      now = until;
+    },
+  };
+}
+
+function createWeapp(options = {}) {
+  const storage = options.storage || new Map();
   const logins = [];
   const requests = [];
   const uploads = [];
   const toasts = [];
   const tabs = [];
+  const modals = [];
+  const navigations = [];
+  const scans = [];
   let app;
   let page;
   const wx = {
@@ -22,19 +53,28 @@ function createWeapp() {
     request: (options) => requests.push(options),
     uploadFile: (options) => uploads.push(options),
     showToast: (options) => toasts.push(options),
-    showModal() {},
+    showModal: (options) => modals.push(options),
     switchTab: (options) => tabs.push(options),
+    navigateTo: (options) => navigations.push(options),
+    redirectTo: (options) => navigations.push(options),
+    scanCode: (options) => scans.push(options),
   };
+  const clock = options.clock;
   const context = vm.createContext({
     wx,
     App: (definition) => { app = definition; },
     Page: (definition) => {
       page = definition;
-      page.setData = (data) => Object.assign(page.data, data);
+      page.setData = (data) => Object.assign(definition.data, data);
     },
     getApp: () => app,
-    setTimeout,
-    clearTimeout,
+    getCurrentPages: () => page ? [page] : [],
+    setTimeout: clock ? clock.setTimeout : setTimeout,
+    clearTimeout: clock ? clock.clearTimeout : clearTimeout,
+    Date: clock ? class extends Date {
+      constructor(...args) { super(...(args.length ? args : [clock.now])); }
+      static now() { return clock.now; }
+    } : Date,
   });
   const modules = new Map();
   function load(relative, parent = ROOT) {
@@ -51,11 +91,11 @@ function createWeapp() {
   }
   load("app.js");
   return {
-    app, load, storage, logins, requests, uploads, toasts, tabs,
+    app, load, storage, logins, requests, uploads, toasts, tabs, wx, modals, navigations, scans,
     get page() { return page; },
   };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-module.exports = { createWeapp, flush };
+module.exports = { createWeapp, createClock, flush };

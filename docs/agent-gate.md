@@ -268,6 +268,15 @@ pytest 与 `e2e_local.py` 各带超时（600s / 300s）：卡死（如 e2e 的�
 半截/错配报告；子进程输出强制 `PYTHONIOENCODING=utf-8` 且门禁自身 stdout 重配 UTF-8，
 避免 Windows GBK 终端打印 `\ufffd` 崩溃。
 
+**测试再启动 Python 子进程时必须成对指定编码**：子环境设
+`PYTHONIOENCODING=utf-8`，父侧 `subprocess.run(..., text=True, encoding="utf-8")`。
+只设前者不会改变父进程管道的解码器。2026-09-12 门禁连续失败的
+`test_worker_main_wiring_subprocess` 就是子进程输出中文 UTF-8、父线程按 GBK
+读取，先抛 `UnicodeDecodeError`，再因 `stderr=None` 抛 `TypeError`；独立运行
+时父子同为 GBK 或同开 UTF-8 又会通过。定向回归显式设 `PYTHONUTF8=0`
+仍通过，完整 hub 1427 项通过；保留“缺队列配置必须明确退出、无 traceback”的断言。
+只见门禁末行计数时先捕获同参数的完整失败输出，不能把独立通过当作瞬态已消失。
+
 退出码：`0` = overall pass；非 0 = fail（不得宣称本 profile 通过）。**退出码是「本轮是否通过」的唯一真值**，报告文件只是展示——读报告前先确认它是本轮产物：
 
 - 开工时门禁先写 `results/.hutuji_gate_running`（含 profile、计划层清单、pid、HEAD），两份报告都落盘后才删除；**该标记在场 = 上次没跑完**（崩溃/断电/Ctrl+C），旁边的报告一律不得当作结论。再次启动时若发现标记残留，门禁会打印提示并覆盖。

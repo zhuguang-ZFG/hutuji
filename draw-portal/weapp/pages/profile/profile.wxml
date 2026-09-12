@@ -67,6 +67,12 @@
   <block wx:if="{{!loggedOut && !needPhone}}">
     <view class="weui-cells__title">设备</view>
     <view class="weui-cells">
+      <block wx:for="{{me.devices}}" wx:key="device_mac">
+        <view class="weui-cell link-cell" data-mac="{{item.device_mac}}" bindtap="onSelectDevice">
+          <view class="weui-cell__bd">设备 {{item.device_mac}}</view>
+          <view class="weui-cell__ft">{{item.active ? '当前使用' : '切换'}}</view>
+        </view>
+      </block>
       <view class="weui-cell" wx:if="{{me && me.binding && me.binding.bound}}">
         <view class="weui-cell__bd">已绑定</view>
         <view class="weui-cell__ft">设备尾号 {{me.binding.macSuffix || me.binding.deviceMac}}</view>

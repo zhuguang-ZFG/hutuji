@@ -1,165 +1,191 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const identity = require("../../utils/bind_identity");
 
 Page({
-  data: {
-    step: "input", // input | waiting | bound
-    code: "",
-    submitting: false,
-    macSuffix: "",
-    waitSeconds: 0, // waiting 态已等待秒数（进度可见，不闷等）
-  },
+  data: { step: "input", code: "", submitting: false, macSuffix: "", waitSeconds: 0 },
 
-
-  // 微信「扫一扫」直接扫设备绑定码（mp 后台「扫普通链接二维码打开小程序」规则：
-  // https://hutuji.donglicao.com/draw-upload/bind?c=XXXXXX → 本页带 c 参数拉起）→ 免输码自动绑
   onLoad(options) {
-    const c = (options && options.c ? String(options.c) : "").toUpperCase().replace(/[^0-9A-Z]/g, "");
-    if (c.length === 6) {
-      this.setData({ code: c });
-      this.doBind(false);
+    this._generation = 0;
+    this._timers = new Set();
+    this._unloaded = false;
+    this._begin();
+    try {
+      const scan = identity.fromLaunch(options, "bind");
+      const saved = scan ? null : identity.restore("bind");
+      this._scan = scan || (saved && saved.scan);
+      if (this._scan) this.setData({ code: this._scan.code });
+    } catch (e) {
+      identity.clearPending();
+      wx.showToast({ title: e.message, icon: "none" });
     }
+    this.ensureAuth();
   },
+
   onShow() {
-    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
-      if (ok) this.pollStatus();
-    });
+    if (this._sessionGeneration !== getApp()._sessionGeneration) {
+      this._begin();
+      this._authReady = false;
+    }
+    if (!this._authReady) this.ensureAuth();
+  },
+  onUnload() { this._unloaded = true; this._begin(); },
+
+  _begin() {
+    this._generation = (this._generation || 0) + 1;
+    if (this._timers) this._timers.forEach((timer) => clearTimeout(timer));
+    this._timers = new Set();
+    this._sessionGeneration = getApp()._sessionGeneration;
+    return this._generation;
+  },
+  _current(generation) {
+    return !this._unloaded && generation === this._generation && this._sessionGeneration === getApp()._sessionGeneration;
+  },
+  _later(generation, action, delay) {
+    const timer = setTimeout(() => {
+      this._timers.delete(timer);
+      if (this._current(generation)) action();
+    }, delay);
+    this._timers.add(timer);
+  },
+
+  ensureAuth() {
+    if (this._authPending === this._generation || this._unloaded) return;
+    const generation = this._generation;
+    this._authPending = generation;
+    identity.remember(this._scan, "bind", "scan", true);
+    const login = getApp().ensureSession();
+    this._sessionGeneration = getApp()._sessionGeneration;
+    login.then((me) => {
+      if (!this._current(generation)) return false;
+      if (!me) { phoneGate.redirectToPhoneGate("请先登录"); return false; }
+      return phoneGate.ensurePhoneOrRedirect(api, () => this._current(generation));
+    }).then((ok) => {
+      if (!ok || !this._current(generation)) return;
+      this._authReady = true;
+      this._sessionGeneration = getApp()._sessionGeneration;
+      identity.remember(this._scan, "bind", "scan", false);
+      if (this.data.code) this.doBind(false);
+      else this.pollStatus();
+    }).catch(() => {}).finally(() => { if (this._authPending === generation) this._authPending = false; });
   },
 
   onCodeInput(e) {
-    this.setData({
-      code: (e.detail.value || "")
-        .toUpperCase()
-        .replace(/[^0-9A-Z]/g, ""),
+    this._begin();
+    this._scan = null;
+    identity.clearPending();
+    this.setData({ code: String(e.detail.value || "").toUpperCase().replace(/[^0-9A-Z]/g, ""), submitting: false });
+  },
+
+  doBind(force, retried, generation) {
+    if (!this._authReady) { this.ensureAuth(); return; }
+    if (generation === undefined) {
+      if (this.data.submitting || !/^[0-9A-Z]{6,8}$/.test(this.data.code)) return;
+      generation = this._begin();
+    }
+    if (!this._current(generation)) return;
+    this.setData({ submitting: true });
+    const code = this.data.code;
+    api.request("/api/user/bind/complete", {
+      method: "POST", timeout: 12000,
+      data: Object.assign({ bind_code: code, force: !!force }, identity.fieldsFor(this._scan)),
+    }).then((res) => {
+      if (!this._current(generation)) return;
+      identity.clearPending();
+      this._boundMac = res.device_mac || (this._scan && this._scan.mac);
+      this.setData({ submitting: false, step: "bound", macSuffix: this._boundMac ? this._boundMac.slice(-5) : "" });
+      wx.showToast({ title: "绑定成功", icon: "success" });
+      this._later(generation, () => wx.switchTab({ url: "/pages/index/index", fail: () => {} }), 1500);
+    }).catch((err) => {
+      if (!this._current(generation)) return;
+      if (err.code === "binding_conflict") {
+        this.setData({ submitting: false });
+        wx.showModal({
+          title: "换绑到当前账号？", content: "这台设备已绑定其他账号，换绑后原账号将不能控制它。",
+          confirmText: "换绑", cancelText: "取消",
+          success: (res) => { if (res.confirm && this._current(generation)) this.doBind(true); },
+        });
+        return;
+      }
+      const attempt = retried || 0;
+      if ((err.code === "binding_pending" || !err.status || err.status >= 500) && attempt < 30) {
+        this.setData({ step: "waiting", waitSeconds: (attempt + 1) * 2 });
+        this._later(generation, () => this.doBind(force, attempt + 1, generation), 2000);
+        return;
+      }
+      this.setData({ submitting: false, step: "input", waitSeconds: 0 });
+      if (err.status === 401 || err.code === "phone_required") {
+        this._authReady = false;
+        this.ensureAuth();
+        return;
+      }
+      wx.showModal({ title: "暂未完成绑定", content: err.detail || "请确认设备已联网，再重新扫描屏幕二维码", showCancel: false });
     });
   },
 
-  // 儿童友好核心：「无效或已过期」多半是设备 announce 还在路上（固件 3s 重试环），
-  // 静默重试而非报错——孩子只需要「等一下」，永远不该看到技术性失败。
-  doBind(force, retried) {
-    if (this.data.submitting || this.data.code.length !== 6) return;
-    this.setData({ submitting: true });
-    api
-      .request("/api/user/bind/complete", {
-        method: "POST",
-        data: { bind_code: this.data.code, force: !!force },
-      })
-      .then((res) => {
-        this.setData({ submitting: false, step: "bound", macSuffix: res.mac_suffix || "" });
-        wx.showToast({ title: "绑定成功", icon: "success" });
-        // 孩子不该还要点「返回」——自动回首页
-        setTimeout(() => {
-          wx.switchTab({ url: "/pages/index/index", fail: () => {} });
-        }, 1500);
-      })
-      .catch((err) => {
-        if (err.status === 409) {
-          this.setData({ submitting: false });
-          // 设备绑在别的账号（如网页版邮箱账号）：在场持有屏显码即可强制换绑
-          wx.showModal({
-            title: "换绑到当前账号？",
-            content: "这台丹青之前绑过别的账号，换绑后那边就不能控制它了",
-            confirmText: "换绑",
-            cancelText: "不换",
-            success: (r) => {
-              if (r.confirm) this.doBind(true, 0);
-            },
-          });
-          return;
-        }
-        const d = err.detail || "";
-        if (/无效|已过期|pending|等待|设备/.test(d) || err.status === 404 || err.status === 400) {
-          // 设备 announce 在途：静默重试 30 次×2s（60s 覆盖常见在途窗口），
-          // 等待秒数上屏让用户看见进展；超过仍没等到就给明确指引，不闷死。
-          const n = (retried || 0) + 1;
-          if (n <= 30) {
-            this.setData({ step: "waiting", waitSeconds: n * 2 });
-            setTimeout(() => {
-              this.setData({ submitting: false });
-              this.doBind(force, n);
-            }, 2000);
-            return;
-          }
-          this.setData({ submitting: false, step: "input", waitSeconds: 0 });
-          wx.showModal({
-            title: "没连上丹青",
-            content: "请确认丹青已联网，再扫一次屏幕上的二维码",
-            showCancel: false,
-            confirmText: "知道了",
-          });
-          return;
-        }
-        this.setData({ submitting: false });
-        wx.showModal({ title: "绑定失败", content: d || "请重试", showCancel: false });
-      });
-  },
+  onSubmit() { this.doBind(false); },
 
-  onSubmit() {
-    this.doBind(false);
-  },
-
-  // 一键扫码绑定：设备屏「绑定」二维码内容是 https://…/draw-upload/bind?c=XXXXXX
   onScanBind() {
+    const generation = this._begin();
+    this.setData({ submitting: false });
     wx.scanCode({
       success: (res) => {
-        const m = /[?&]c=([0-9A-Za-z]{6})/.exec(res.result || "");
-        if (!m) {
-          wx.showModal({
-            title: "不是绑定二维码",
-            content: "请扫丹青屏幕上「绑定」状态的二维码",
-            showCancel: false,
-          });
-          return;
+        if (!this._current(generation)) return;
+        try {
+          this._scan = identity.parseQr(res.result, "bind");
+          this.setData({ code: this._scan.code, step: "input" });
+          identity.remember(this._scan, "bind", "scan", !this._authReady);
+          this.doBind(false);
+        } catch (e) {
+          this._scan = null;
+          identity.clearPending();
+          this.setData({ code: "", step: "input" });
+          wx.showModal({ title: "请扫描设备绑定码", content: e.message, showCancel: false });
         }
-        this.setData({ code: m[1].toUpperCase() });
-        this.doBind(false);
-      },
-      fail: () => {},
+      }, fail: () => {},
     });
   },
 
   pollStatus() {
-    api
-      .request("/api/auth/me")
-      .then((me) => {
-        if (me.binding && me.binding.deviceMac) {
-          this.setData({
-            step: "bound",
-            macSuffix: (me.binding.macSuffix || me.binding.deviceMac).slice(-5),
-          });
-        }
-      })
-      .catch(() => {});
+    // 有目标二维码时只能等该次绑定，不能把账号的另一台设备当作扫码成功。
+    if (this.data.code || this._scan) return;
+    const generation = this._generation;
+    api.request("/api/user/devices").then((res) => {
+      if (!this._current(generation) || this.data.code) return;
+      const active = (res.devices || []).find((device) => device.active);
+      if (active) {
+        this._boundMac = active.device_mac;
+        this.setData({ step: "bound", macSuffix: active.device_mac.slice(-5) });
+      }
+    }).catch(() => {});
   },
 
-  onRefresh() {
-    this.pollStatus();
-  },
-
+  onRefresh() { if (this.data.code) this.doBind(false); else this.pollStatus(); },
   onReset() {
-    this.setData({ step: "input", code: "" });
+    this._begin();
+    this._scan = null;
+    identity.clearPending();
+    this.setData({ step: "input", code: "", submitting: false, waitSeconds: 0 });
   },
 
   onUnbind() {
+    const generation = this._generation;
     wx.showModal({
-      title: "解绑设备",
-      content: "解绑后将无法通过小程序发送任务，确定？",
+      title: "解绑设备", content: "解绑后将无法通过小程序发送任务，确定？",
       success: (res) => {
-        if (!res.confirm) return;
-        api
-          .request("/api/user/bind/unbind", { method: "POST" })
-          .then(() => {
-            this.setData({ step: "input", code: "", macSuffix: "" });
-            wx.showToast({ title: "已解绑", icon: "success" });
-          })
-          .catch((err) => {
-            wx.showModal({ title: "解绑失败", content: err.detail, showCancel: false });
-          });
+        if (!res.confirm || !this._current(generation)) return;
+        api.request("/api/user/bind/unbind", {
+          method: "POST", data: this._boundMac ? { device_mac: this._boundMac } : {},
+        }).then(() => {
+          if (!this._current(generation)) return;
+          this.onReset();
+          wx.showToast({ title: "已解绑", icon: "success" });
+        }).catch((err) => {
+          if (this._current(generation)) wx.showModal({ title: "解绑失败", content: err.detail, showCancel: false });
+        });
       },
     });
   },
 
-  onBack() {
-    wx.navigateBack({ fail: () => wx.switchTab({ url: "/pages/index/index" }) });
-  },
+  onBack() { wx.navigateBack({ fail: () => wx.switchTab({ url: "/pages/index/index" }) }); },
 });

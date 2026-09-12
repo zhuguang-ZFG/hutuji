@@ -64,7 +64,8 @@ def test_bind_conflict_409_then_force_rebind(tmp_path: Path, monkeypatch: pytest
     _announce(c1, "BBBBBB")
     no_force = c2.post("/api/user/bind/complete", json={"bind_code": "BBBBBB"})
     assert no_force.status_code == 409
-    assert "强制换绑" in no_force.json()["detail"]
+    assert no_force.json()["detail"]["code"] == "binding_conflict"
+    assert "换绑" in no_force.json()["detail"]["message"]
     # 409 不得消费会话：同码仍可查询为 pending
     assert c2.get("/api/device/bind/session", params={"bind_code": "BBBBBB"}).json()["status"] == "pending"
 

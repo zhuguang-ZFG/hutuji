@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > 本仓库文档与注释一律用**中文**（项目约定）。
 
+2026-09-12 扫码绑定身份 v2 与一账号多机：契约见 `docs/protocol.md` §10.4.0/§10.4.2–4，字节序、迁移、回滚及测试断言见 `docs/design/device-identity-rollout.md`。签名流只有本次 nonce 与 token 当前探活同时通过才报成功；异步回写锁定 user+MAC，旧镜像不能覆盖主表所有权。小程序密码不落 storage，扫码/授权/切网均按代次恢复。独立固件候选构建不等于部署或实机验收，状态看 `docs/release-readiness.md`。
+
 ## 这是什么
 
 **hutuji** = AI 绘图自动换纸写字机：语音 → 云端 AI 生成 G-code → 写字机执行并自动换纸。

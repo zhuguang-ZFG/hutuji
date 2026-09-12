@@ -1,451 +1,389 @@
-// 一键配网：扫设备屏 WiFi 码（或手输热点名）→ 手机连设备热点 →
-// TCP socket 直发 AP 配置接口（LAN IP 走不了 wx.request 白名单，socket 不受限）→
-// 设备上家网。回退路径：浏览器连热点开 http://192.168.4.1
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const identity = require("../../utils/bind_identity");
+const transport = require("../../utils/wifi_transport");
 
 Page({
   data: {
-    step: "scan", // scan → manual → (连热点+扫列表) → aps → creds → working → done
-    apSsid: "",
-    homeSsid: "",
-    homePassword: "",
-    apList: [],
-    wifiLocked: false, // 从设备扫描列表点选的 WiFi 不允许改名
-    deviceMac: "", // 2026-09-08 起配网码带 &m=<MAC>：配网成功后自动认领绑定
-    bindState: "", // "" | claiming | waiting | bound | manual（仅 done 页展示用）
-    log: "", // 配网进度日志（working/done 页可见）
+    step: "scan", apSsid: "", homeSsid: "", homePassword: "", apList: [],
+    wifiLocked: false, deviceMac: "", bindState: "", log: "", authReady: false,
   },
 
-  // 微信「扫一扫」直接扫设备配网码（mp 后台「扫普通链接二维码打开小程序」规则：
-  // https://hutuji.donglicao.com/draw-upload/wifi?s=<ssid> → 本页带 s 参数拉起）→ 免扫码直进
   onLoad(options) {
-    phoneGate.ensurePhoneOrRedirect(api);
-    const s = options && options.s ? String(options.s) : "";
-    if (s) {
-      let ssid = s;
-      try { ssid = decodeURIComponent(s); } catch (e) {}
-      this.setData({ apSsid: ssid });
+    this._generation = 0;
+    this._timers = new Set();
+    this._unloaded = false;
+    this._begin();
+    try {
+      const scan = identity.fromLaunch(options, "wifi");
+      const saved = scan ? null : identity.restore("wifi");
+      this._scan = scan || (saved && saved.scan);
+      this._phase = saved ? saved.phase : "scan";
+      if (this._scan) this.applyScan(this._scan);
+    } catch (e) {
+      identity.clearPending();
+      wx.showToast({ title: e.message, icon: "none" });
     }
-    const m = options && options.m ? String(options.m) : "";
-    if (m) {
-      let mac = m;
-      try { mac = decodeURIComponent(m); } catch (e) {}
-      this.setData({ deviceMac: mac.trim() });
-    }
-    wx.startWifi({ success: () => {}, fail: () => {} });
-    // Android 可预填当前 WiFi 名；iOS 多半拿不到，手输即可
-    wx.getConnectedWifi({
-      success: (r) => {
-        if (r.wifi && r.wifi.SSID) this.setData({ homeSsid: r.wifi.SSID });
-      },
-      fail: () => {},
-    });
+    this.ensureAuthAndInit();
   },
 
-  appendLog(t) {
-    this.setData({ log: (this.data.log ? this.data.log + "\n" : "") + t });
+  onShow() {
+    if (this._sessionGeneration !== getApp()._sessionGeneration) {
+      this._begin();
+      this.setData({ authReady: false });
+    }
+    if (!this.data.authReady) this.ensureAuthAndInit();
+  },
+
+  onUnload() {
+    this._unloaded = true;
+    this._begin();
+    this.data.homePassword = "";
+  },
+
+  _begin() {
+    this._generation = (this._generation || 0) + 1;
+    if (this._timers) this._timers.forEach((timer) => clearTimeout(timer));
+    this._timers = new Set();
+    if (this._cancelTcp) this._cancelTcp();
+    this._cancelTcp = null;
+    this._sessionGeneration = getApp()._sessionGeneration;
+    return this._generation;
+  },
+
+  _current(generation) {
+    return !this._unloaded && generation === this._generation &&
+      this._sessionGeneration === getApp()._sessionGeneration;
+  },
+
+  _later(generation, action, delay) {
+    const timer = setTimeout(() => {
+      this._timers.delete(timer);
+      if (this._current(generation)) action();
+    }, delay);
+    this._timers.add(timer);
+  },
+
+  ensureAuthAndInit() {
+    if (this._authPending === this._generation || this._unloaded) return;
+    const generation = this._generation;
+    this._authPending = generation;
+    if (this._scan) identity.remember(this._scan, "wifi", this._phase, true);
+    // switchTab 会销毁本页；扫码信息先落短期恢复记录，授权后由「我的」自动返回。
+    const login = getApp().ensureSession();
+    // ensureSession 会同步开启新登录代次；记录它，后续退出/重登再换代即作废。
+    this._sessionGeneration = getApp()._sessionGeneration;
+    login.then((me) => {
+      if (!this._current(generation)) return false;
+      if (!me) { phoneGate.redirectToPhoneGate("请先登录"); return false; }
+      return phoneGate.ensurePhoneOrRedirect(api, () => this._current(generation));
+    }).then((ok) => {
+      if (!this._current(generation) || !ok) return;
+      this._sessionGeneration = getApp()._sessionGeneration;
+      this.setData({ authReady: true });
+      if (this._scan) identity.remember(this._scan, "wifi", this._phase, false);
+      if (this._phase === "waiting") { this.autoBind(); return; }
+      wx.startWifi({
+        success: () => {
+          if (!this._current(generation)) return;
+          wx.getConnectedWifi({
+            success: (res) => {
+              if (this._current(generation) && !this.data.homeSsid && res.wifi &&
+                  res.wifi.SSID !== this.data.apSsid) this.setData({ homeSsid: res.wifi.SSID });
+            },
+            fail: () => {},
+          });
+          if (this._scan) this.onStart();
+        },
+        fail: () => {
+          if (this._current(generation)) this.onConnectFail();
+        },
+      });
+    }).catch(() => {
+      if (this._current(generation)) wx.showToast({ title: "请先登录，再继续配网", icon: "none" });
+    }).finally(() => { if (this._authPending === generation) this._authPending = false; });
+  },
+
+  applyScan(scan) {
+    this._scan = scan;
+    this.setData({ apSsid: scan.ssid, deviceMac: scan.mac, bindState: "" });
+  },
+
+  appendLog(text) {
+    this.setData({ log: (this.data.log ? this.data.log + "\n" : "") + text });
   },
 
   onScanAp() {
+    const generation = this._begin();
     wx.scanCode({
       success: (res) => {
-        const raw = String(res.result || "").trim();
-        // 三种形态：① 设备屏 URL 码（5431a15 起：…/draw-upload/wifi?s=<ssid>，与微信扫一扫规则同源）
-        // ② 标准 WIFI 码（旧固件：WIFI:T:nopass;S:<ssid>;;）③ 纯热点名/带空格变体
-        let ssid = "";
-        const mu = /^https:\/\/hutuji\.donglicao\.com\/draw-upload\/wifi\?(?:[^&\s]*&)*s=([^&\s]+)/i.exec(raw);
-        if (mu) {
-          try { ssid = decodeURIComponent(mu[1]); } catch (e) { ssid = mu[1]; }
-          const mm = /^https:\/\/hutuji\.donglicao\.com\/draw-upload\/wifi\?(?:[^&\s]*&)*m=([^&\s]+)/i.exec(raw);
-          if (mm) {
-            let mac = mm[1];
-            try { mac = decodeURIComponent(mm[1]); } catch (e) {}
-            this.setData({ deviceMac: mac.trim() });
-          }
+        if (!this._current(generation)) return;
+        try {
+          const scan = identity.parseQr(res.result, "wifi");
+          this._phase = "scan";
+          this.applyScan(scan);
+          identity.remember(scan, "wifi", "scan", !this.data.authReady);
+          if (this.data.authReady) this.onStart();
+          else this.ensureAuthAndInit();
+        } catch (e) {
+          this._scan = null;
+          identity.clearPending();
+          this.setData({ apSsid: "", deviceMac: "", bindState: "" });
+          wx.showModal({ title: "请扫设备配网码", content: e.message, showCancel: false });
         }
-        if (!ssid) {
-          const m = /WIFI:T:[^;]*;S:([^;]*);/i.exec(raw);
-          ssid = m ? m[1] : (/^[\x20-\x7e]{1,32}$/.test(raw) && raw.indexOf("http") !== 0 ? raw : "");
-        }
-        if (!ssid) {
-          wx.showModal({
-            title: "没认出这个码",
-            content: "扫到的是：" + (raw.slice(0, 40) || "（空）") + "。请扫丹青屏幕上「配网模式」的二维码，或改用手动输入热点名",
-            showCancel: false,
-          });
-          return;
-        }
-        // 扫到设备热点名 → 直接开始（连热点→扫列表→点选）
-        this.setData({ apSsid: ssid });
-        this.onStart();
       },
       fail: () => {},
     });
   },
 
   onManualAp() {
-    this.setData({ step: "manual" });
+    this._begin();
+    this._scan = null;
+    identity.clearPending();
+    this.setData({ step: "manual", apSsid: "", deviceMac: "", bindState: "" });
   },
 
   onApInput(e) {
-    this.setData({ apSsid: e.detail.value.trim() });
+    this._scan = null;
+    identity.clearPending();
+    this.setData({ apSsid: e.detail.value, deviceMac: "" });
   },
+  onSsidInput(e) { this.setData({ homeSsid: e.detail.value }); },
+  onPwdInput(e) { this.setData({ homePassword: e.detail.value }); },
 
-  onSsidInput(e) {
-    this.setData({ homeSsid: e.detail.value.trim() });
-  },
-
-  onPwdInput(e) {
-    this.setData({ homePassword: e.detail.value });
-  },
-
-  // 儿童友好：连上设备热点后自动 /scan 拿设备搜到的 WiFi 列表，孩子点选+只输密码
   onStart() {
-    if (!this.data.apSsid) {
-      wx.showToast({ title: "先扫设备配网码或填热点名", icon: "none" });
-      return;
-    }
-    this.setData({ step: "working", log: "" });
-    this.appendLog("连接设备热点 " + this.data.apSsid + " …");
-    // 官方要求先 startWifi（缺省报 errCode 12000 not init）；
-    // password 是文档必填项，开放热点传空串，省略在 iOS 上直接 fail
+    if (!this.data.authReady) { this.ensureAuthAndInit(); return; }
+    if (!this.data.apSsid) { wx.showToast({ title: "请先扫描设备配网码", icon: "none" }); return; }
+    const generation = this._begin();
+    this.setData({ step: "working", log: "正在连接设备热点…", apList: [] });
+    this.connectDevice(generation, 0, () => this.scanAps(generation));
+  },
+
+  connectDevice(generation, attempt, next) {
+    if (!this._current(generation)) return;
     wx.startWifi({
       success: () => {
+        if (!this._current(generation)) return;
         wx.connectWifi({
-          SSID: this.data.apSsid,
-          password: "",
-          success: () => {
-            this.appendLog("已连上设备热点，读取附近 WiFi…");
-            setTimeout(() => this.scanAps(), 1500);
+          SSID: this.data.apSsid, password: "",
+          success: () => this._later(generation, next, 1200),
+          fail: () => {
+            if (!this._current(generation)) return;
+            if (attempt < 1) this._later(generation, () => this.connectDevice(generation, attempt + 1, next), 1500);
+            else this.onConnectFail();
           },
-          fail: (err) => this.onConnectFail(err),
         });
       },
-      fail: (err) => this.onConnectFail(err),
+      fail: () => { if (this._current(generation)) this.onConnectFail(); },
     });
   },
 
-  onConnectFail(err) {
-    this.appendLog("连热点失败：" + (err.errMsg || ""));
-    this.setData({ step: "manual" });
+  onConnectFail() {
+    this.setData({ step: this.data.homeSsid ? "creds" : "manual" });
+    this.appendLog("暂时连不上设备热点，请保持设备在配网页面后重试");
+    const generation = this._generation;
     wx.showModal({
-      title: "连不上设备热点",
-      content:
-        "可以改用浏览器配网：手机 WiFi 设置里手动连接「" +
-        this.data.apSsid +
-        "」，浏览器打开 192.168.4.1 填家里 WiFi",
-      showCancel: false,
+      title: "连接设备热点", content: "请在手机 Wi-Fi 设置中连接「" + this.data.apSsid + "」，再回到这里继续。",
+      confirmText: "打开设置", cancelText: "稍后重试",
+      success: (res) => { if (res.confirm && this._current(generation)) this.openWifiSettings(); },
     });
   },
 
-  // TCP GET /scan → {aps:[{ssid,rssi,authmode}]}；失败回落手输
-  scanAps() {
-    const http =
-      "GET /scan HTTP/1.1\r\nHost: 192.168.4.1\r\nConnection: close\r\n\r\n";
-    const tcp = wx.createTCPSocket();
-    let got = "";
-    let finished = false;
-    const finish = (list) => {
-      if (finished) return;
-      finished = true;
-      try {
-        tcp.close();
-      } catch (e) {}
-      if (list && list.length) {
-        this.appendLog("找到 " + list.length + " 个 WiFi，点选家里的");
-        this.setData({ step: "aps", apList: list });
-      } else {
-        this.appendLog("读不到列表，改手输 WiFi 名");
-        this.setData({ step: "creds" });
-      }
-    };
-    const timer = setTimeout(() => finish(null), 10000);
-    tcp.onConnect(() => {
-      tcp.write(http);
-    });
-    tcp.onMessage((res) => {
-      got += res.message ? String(res.message) : "";
-      const i = got.indexOf("\r\n\r\n");
-      if (i < 0) return;
-      const body = got.slice(i + 4);
-      if (body.indexOf("]}") < 0) return; // JSON 未齐
-      clearTimeout(timer);
-      try {
-        const j = JSON.parse(body);
-        const aps = (j.aps || [])
-          .filter((a) => a && a.ssid)
+  openWifiSettings() {
+    if (typeof wx.openSystemWifiSetting === "function") wx.openSystemWifiSetting({ fail: () => {} });
+    else wx.showToast({ title: "请打开手机的 Wi-Fi 设置", icon: "none" });
+  },
+
+  scanAps(generation) {
+    if (!this._current(generation)) return;
+    this.appendLog("正在读取附近 Wi-Fi…");
+    this._cancelTcp = transport.request({
+      method: "GET", path: "/scan", timeout: 12000,
+      done: (res) => {
+        if (!this._current(generation)) return;
+        const aps = res.status === 200 && res.data && Array.isArray(res.data.aps) ? res.data.aps : [];
+        const list = aps.filter((ap) => ap && typeof ap.ssid === "string" && ap.ssid)
           .sort((a, b) => (b.rssi || 0) - (a.rssi || 0));
-        finish(aps);
-      } catch (e) {
-        finish(null);
-      }
+        this.setData({ step: list.length ? "aps" : "creds", apList: list });
+        if (!list.length) this.appendLog("暂时读不到列表，可以直接输入家里的 Wi-Fi 名称");
+      },
     });
-    tcp.onClose(() => {
-      clearTimeout(timer);
-      if (!finished) {
-        try {
-          const i = got.indexOf("\r\n\r\n");
-          const j = JSON.parse(got.slice(i + 4));
-          finish((j.aps || []).filter((a) => a && a.ssid));
-        } catch (e) {
-          finish(null);
-        }
-      }
-    });
-    tcp.onError(() => {
-      clearTimeout(timer);
-      finish(null);
-    });
-    tcp.connect({ address: "192.168.4.1", port: 80, timeout: 8 });
   },
 
-  onPickAp(e) {
-    const ssid = e.currentTarget.dataset.ssid || "";
-    this.setData({ homeSsid: ssid, wifiLocked: true, step: "creds" });
-  },
-
-  onManualSsid() {
-    this.setData({ homeSsid: "", wifiLocked: false, step: "creds" });
-  },
+  onPickAp(e) { this.setData({ homeSsid: e.currentTarget.dataset.ssid || "", wifiLocked: true, step: "creds" }); },
+  onManualSsid() { this.setData({ homeSsid: "", wifiLocked: false, step: "creds" }); },
 
   onSubmitCreds() {
-    if (!this.data.homeSsid) {
-      wx.showToast({ title: "先选家里 WiFi", icon: "none" });
-      return;
-    }
-    this.setData({ step: "working" });
-    this.appendLog("下发家里 WiFi 凭据…");
-    this.ensureOnDeviceAp(0, () => this.submitCreds());
+    if (!this.data.homeSsid) { wx.showToast({ title: "先选家里 Wi-Fi", icon: "none" }); return; }
+    const generation = this._begin();
+    this.setData({ step: "working", bindState: "" });
+    this.appendLog("正在把网络信息发送给设备…");
+    this.ensureOnDeviceAp(generation, () => this.submitCreds(generation, 0));
   },
 
-  // iOS 会把「无互联网」的热点几秒内切回有网 WiFi（2026-09-08 实机抓包：手机 join
-  // 设备热点 9s 后 leave，用户输完密码点下发时已不在热点 → TCP 连不上 192.168.4.1）。
-  // 下发前先确认还挂在设备热点上，不在就重新 connectWifi 拉回，最多重试 2 次。
-  ensureOnDeviceAp(n, next) {
+  ensureOnDeviceAp(generation, next) {
     wx.getConnectedWifi({
-      success: (r) => {
-        if (r.wifi && r.wifi.SSID === this.data.apSsid) {
-          next();
-          return;
-        }
-        this.rejoinDeviceAp(n, next);
+      success: (res) => {
+        if (!this._current(generation)) return;
+        if (res.wifi && res.wifi.SSID === this.data.apSsid) next();
+        else this.connectDevice(generation, 0, next);
       },
-      fail: () => this.rejoinDeviceAp(n, next),
+      fail: () => { if (this._current(generation)) this.connectDevice(generation, 0, next); },
     });
   },
 
-  rejoinDeviceAp(n, next) {
-    if (n >= 2) {
-      this.appendLog("手机离开了设备热点");
-      this.setData({ step: "creds" });
-      wx.showModal({
-        title: "手机离开了设备热点",
-        content:
-          "iPhone 会把没网的热点自动切走：弹「此无线局域网似乎未接入互联网」时选「仍要使用」；或在系统 WiFi 设置里手动连上「" +
-          this.data.apSsid +
-          "」再回来点一键配网",
-        showCancel: false,
-      });
-      return;
-    }
-    this.appendLog("重新连接设备热点…");
-    wx.startWifi({
+  submitCreds(generation, attempt) {
+    if (!this._current(generation)) return;
+    this._cancelTcp = transport.request({
+      method: "POST", path: "/submit", timeout: 20000,
+      body: { ssid: this.data.homeSsid, password: this.data.homePassword },
+      done: (res) => {
+        if (!this._current(generation)) return;
+        if ((res.data && res.data.success === false) || res.status >= 400) {
+          this.setData({ step: "creds" });
+          this.appendLog("设备未接受网络信息，请核对 Wi-Fi 名称和密码后重试");
+          return;
+        }
+        if (!res.sent && attempt < 1) {
+          this.connectDevice(generation, 0, () => this.submitCreds(generation, attempt + 1));
+          return;
+        }
+        // AP 关闭/连接中断只说明发送结果不确定，必须等本次身份绑定完成才显示成功。
+        this._phase = "waiting";
+        identity.remember(this._scan, "wifi", "waiting", false);
+        this.setData({ step: "done", bindState: "waiting" });
+        this.appendLog("正在等待设备联网，并让手机回到家里的 Wi-Fi…");
+        this._later(generation, () => this.restoreHome(generation, 0), 2500);
+      },
+    });
+  },
+
+  restoreHome(generation, attempt) {
+    if (!this._current(generation)) return;
+    if (!this.data.homeSsid) { this.autoBind(generation); return; }
+    wx.connectWifi({
+      SSID: this.data.homeSsid, password: this.data.homePassword,
       success: () => {
-        wx.connectWifi({
-          SSID: this.data.apSsid,
-          password: "",
-          success: () => setTimeout(next, 1200),
-          fail: () => this.rejoinDeviceAp(n + 1, next),
-        });
+        if (!this._current(generation)) return;
+        this.appendLog("手机已连接家里的 Wi-Fi，正在确认设备状态…");
+        this.autoBind(generation);
       },
-      fail: () => this.rejoinDeviceAp(n + 1, next),
+      fail: () => {
+        if (!this._current(generation)) return;
+        if (attempt < 1) this._later(generation, () => this.restoreHome(generation, attempt + 1), 3000);
+        else {
+          this.appendLog("正在尝试通过当前网络确认绑定，请保持手机联网");
+          this.autoBind(generation);
+        }
+      },
     });
   },
 
-  submitCreds() {
-    const payload = JSON.stringify({ ssid: this.data.homeSsid, password: this.data.homePassword });
-    const http =
-      "POST /submit HTTP/1.1\r\nHost: 192.168.4.1\r\nContent-Type: application/json\r\nContent-Length: " +
-      payload.length +
-      "\r\nConnection: close\r\n\r\n" +
-      payload;
-    const tcp = wx.createTCPSocket();
-    let got = "";
-    let finished = false;
-    // ok=true 成功；msg 非空=设备显式拒绝；其余（掉线/对端先拆/超时）=歧义 → AP 消失判定。
-    // 2026-09-08 实机：设备收到凭据立刻拆 AP，手机常收不到成功应答，
-    // 旧逻辑把「配网成功」报成「连不上设备配置口」，用户完全不知道其实成功了。
-    const finish = (ok, msg) => {
-      if (finished) return;
-      finished = true;
-      try {
-        tcp.close();
-      } catch (e) {}
-      if (ok) {
-        this.appendLog("已下发，设备正在连家里 WiFi（约 10-30 秒）");
-        this.setData({ step: "done" });
-        this.autoBind();
-      } else if (msg) {
-        this.appendLog("下发失败：" + msg);
-        this.setData({ step: "creds" });
-        wx.showModal({ title: "配网失败", content: msg, showCancel: false });
-      } else {
-        this.appendLog("等待设备连家里 WiFi，确认识别中…");
-        this.confirmProvision(0);
-      }
-    };
-    const timer = setTimeout(() => finish(false), 20000);
-    tcp.onConnect(() => {
-      tcp.write(http);
-    });
-    tcp.onMessage((res) => {
-      got += res.message ? String(res.message) : "";
-      if (got.indexOf('"success":true') >= 0) {
-        clearTimeout(timer);
-        finish(true);
-      } else if (got.indexOf('"success":false') >= 0) {
-        clearTimeout(timer);
-        finish(false, "设备拒绝：请核对 WiFi 名称和密码");
-      }
-    });
-    tcp.onClose(() => {
-      clearTimeout(timer);
-      finish(got.indexOf('"success":true') >= 0);
-    });
-    tcp.onError(() => {
-      clearTimeout(timer);
-      finish(false);
-    });
-    tcp.connect({ address: "192.168.4.1", port: 80, timeout: 8 });
-  },
+  onClaimOnly() { this.autoBind(); },
+  onRetryBind() { this.autoBind(); },
 
-  // AP 消失判定：下发后设备热点还在=凭据没生效（可重试）；热点没了=设备已上家网（成功）。
-  // 两轮探测防 iOS connectWifi 抖动误判；全程 ~20s，期间页面显示「确认识别中」而非报错。
-  confirmProvision(n) {
-    setTimeout(() => {
-      wx.startWifi({
-        success: () => {
-          wx.connectWifi({
-            SSID: this.data.apSsid,
-            password: "",
-            success: () => {
-              if (n < 1) {
-                this.confirmProvision(n + 1);
-                return;
-              }
-              this.appendLog("设备还在配网模式：密码可能被拒，请核对后重试（手机已回设备热点）");
-              this.setData({ step: "creds" });
-              wx.showModal({
-                title: "设备没连上家里 WiFi",
-                content: "请核对 WiFi 名称和密码再试一次",
-                showCancel: false,
-              });
-            },
-            fail: () => {
-              if (n < 1) {
-                this.confirmProvision(n + 1);
-                return;
-              }
-              this.appendLog("设备热点已关闭，已连上家里 WiFi");
-              this.setData({ step: "done" });
-              this.autoBind();
-            },
-          });
-        },
-        fail: () => {
-          if (n < 1) {
-            this.confirmProvision(n + 1);
-          } else {
-            this.setData({ step: "creds" });
-          }
-        },
-      });
-    }, n === 0 ? 12000 : 8000);
-  },
-
-  // 兜底：凭据其实已生效但页面没走到 done（或用户走浏览器配好了），扫过码就能直接认领
-  onClaimOnly() {
-    this.autoBind();
-  },
-
-  // 一次扫码合一（2026-09-08 定案）：配网码带设备 MAC（在场证明），配网成功后
-  // 直接认领；设备上线 announce 由 portal 撮合完成绑定。旧固件码/未登录 → 手动降级。
-  autoBind() {
-    const mac = this.data.deviceMac;
-    if (!mac) {
-      this.appendLog("这个码没带设备身份，可点下方按钮手动绑定");
+  autoBind(generation) {
+    if (generation === undefined) generation = this._begin();
+    if (!this._current(generation)) return;
+    this.setData({ step: "done", bindState: "claiming" });
+    if (!this._scan || !this._scan.mac) {
+      this.setData({ bindState: "manual" });
+      this.appendLog("设备联网后，请打开下方的绑定页面继续");
       return;
     }
-    if (!api.getSession()) {
-      this.appendLog("登录后会自动绑定，也可稍后点下方按钮手动绑定");
+    this._phase = "waiting";
+    identity.remember(this._scan, "wifi", "waiting", false);
+    this._bindDeadline = Date.now() + 300000;
+    this.claimMac(this._scan, false, 0, generation);
+  },
+
+  claimMac(scan, force, attempt, generation) {
+    if (!this._current(generation)) return;
+    api.request("/api/user/bind/claim", {
+      method: "POST", data: identity.claimPayload(scan, force), timeout: 12000,
+    }).then((res) => {
+      if (!this._current(generation)) return;
+      if (res.status === "bound" || res.status === "already_bound") { this.bindDone(); return; }
+      this.setData({ bindState: "waiting" });
+      if (res.expires_at) this._bindDeadline = Math.min(this._bindDeadline, res.expires_at * 1000);
+      this.pollBound(scan, generation);
+    }).catch((err) => {
+      if (!this._current(generation)) return;
+      if (err.code === "binding_conflict") {
+        wx.showModal({
+          title: "换绑到当前账号？", content: "这台设备已绑定其他账号，换绑后原账号将不能控制它。",
+          confirmText: "换绑", cancelText: "取消",
+          success: (res) => {
+            if (!this._current(generation)) return;
+            if (res.confirm) this.claimMac(scan, true, 0, generation);
+            else this.setData({ bindState: "manual" });
+          },
+        });
+        return;
+      }
+      if ((!err.status || err.status >= 500 || err.status === 429) && attempt < 5) {
+        this._later(generation, () => this.claimMac(scan, force, attempt + 1, generation), Math.min(1500 * Math.pow(2, attempt), 10000));
+        return;
+      }
+      this.bindError(err);
+    });
+  },
+
+  pollBound(scan, generation) {
+    if (!this._current(generation)) return;
+    if (Date.now() >= this._bindDeadline) {
+      this.bindError({ detail: "还未确认设备上线。请检查设备屏幕，密码有误时可返回修改。" });
       return;
     }
-    this.setData({ bindState: "claiming" });
-    this.appendLog("正在为你绑定这台设备…");
-    this.claimMac(mac, false);
-  },
-
-  claimMac(mac, force) {
-    api
-      .request("/api/user/bind/claim", { method: "POST", data: { mac, force: !!force } })
-      .then((res) => {
-        if (res.status === "bound" || res.status === "already_bound") {
-          this.bindDone();
-          return;
-        }
-        // claimed：等设备重启上线 announce 自动撮合（重启+激活约 1-2 分钟）
-        this.setData({ bindState: "waiting" });
-        this.appendLog("配网完成，设备上线后会自动完成绑定…");
-        this.pollBound(0);
-      })
-      .catch((err) => {
-        if (err.status === 409) {
-          // 与绑定页同口径：设备绑在别的账号时在场（扫到屏显码）即可确认换绑
-          wx.showModal({
-            title: "换绑到当前账号？",
-            content: "这台丹青之前绑过别的账号，换绑后那边就不能控制它了",
-            confirmText: "换绑",
-            cancelText: "不换",
-            success: (r) => {
-              if (r.confirm) this.claimMac(mac, true);
-            },
-          });
-          return;
-        }
-        // 认领没抵达服务器：不阻断配网成功，留手动降级
-        this.appendLog("自动绑定没连上服务器，可点下方按钮手动绑定");
-        this.setData({ bindState: "manual" });
+    this._later(generation, () => {
+      const query = identity.query(Object.assign({ mac: scan.mac }, identity.fieldsFor(scan)));
+      api.request("/api/user/bind/claim/status?" + query, { timeout: 12000 }).then((res) => {
+        if (!this._current(generation)) return;
+        if (res.status === "bound") this.bindDone();
+        else if (res.status === "expired") this.bindError({ code: "binding_expired" });
+        else this.pollBound(scan, generation);
+      }).catch((err) => {
+        if (!this._current(generation)) return;
+        if (!err.status || err.status >= 500 || err.status === 429) this.pollBound(scan, generation);
+        else this.bindError(err);
       });
-  },
-
-  pollBound(n) {
-    if (n >= 24 || this.data.bindState === "bound") return; // ~2 分钟等设备上线
-    setTimeout(() => {
-      api
-        .request("/api/auth/me", { timeout: 15000 })
-        .then((me) => {
-          if (me.binding && me.binding.bound) {
-            this.bindDone();
-            return;
-          }
-          this.pollBound(n + 1);
-        })
-        .catch(() => this.pollBound(n + 1));
     }, 5000);
   },
 
+  bindError(err) {
+    this.setData({ bindState: "manual" });
+    if (err.status === 401 || err.code === "phone_required") {
+      identity.remember(this._scan, "wifi", "waiting", true);
+      this.setData({ authReady: false });
+      this.ensureAuthAndInit();
+      return;
+    }
+    this.appendLog(err.code === "binding_expired" ? "本次二维码已过期，请在设备上重新打开配网并扫码。" :
+      err.detail || "暂时无法确认绑定。请让手机联网后点“重试绑定”，无需重输密码。");
+  },
+
   bindDone() {
-    this.setData({ bindState: "bound" });
-    this.appendLog("绑定成功！现在可以直接对丹青说话了");
+    this._begin();
+    identity.clearPending();
+    this.setData({ step: "done", bindState: "bound", homePassword: "" });
+    this.appendLog("绑定成功，现在可以使用这台设备了");
     wx.showToast({ title: "绑定成功", icon: "success" });
   },
 
-  onGoBind() {
-    wx.redirectTo({ url: "/pages/bind/bind" });
+  onEditWifi() {
+    this._begin();
+    this._phase = "scan";
+    identity.remember(this._scan, "wifi", "scan", false);
+    this.setData({ step: "creds", bindState: "" });
   },
 
+  onGoBind() { wx.redirectTo({ url: "/pages/bind/bind" }); },
+
   onRestart() {
-    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, homeSsid: "", homePassword: "", apSsid: "" });
+    this._begin();
+    this._scan = null;
+    this._phase = "scan";
+    identity.clearPending();
+    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, homeSsid: "", homePassword: "", apSsid: "", deviceMac: "", bindState: "" });
   },
 });

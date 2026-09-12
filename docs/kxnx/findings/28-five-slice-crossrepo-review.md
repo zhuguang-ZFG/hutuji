@@ -116,9 +116,9 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 
 | 项 | 实测 | 处置 |
 |---|---|---|
-| `mcp-server/tmp/` 未 ignore | `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 列 314 文件（约 20MB，含 298 个 quickdraw-data `.jsonl`）；**0 staged** | `docs/worktree-inventory.md:723` 原写「gitignored 目录内」= 谎报，已改为实测真相。同日用户 advisory 点名窄例外：`edf68e7`「不新增忽略规则」对**整目录忽略 tmp/** 仍成立（整目录方案被否决——AGENTS.md 引用根 `tmp/` 刷机/抓包工具），`.gitignore` 仅新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条；实测数据集对 `git add -A` 不可见，剩余 12 个实验/工具件仍未忽略 → **禁止 `git add .`** 不变 |
-| quickdraw 键数演进 | 实测 **387 别名键 → 298 类目 ↔ 298 个 `.jsonl`**，双向零差；较复核时 373 键新增 14 个多字别名 | `AGENTS.md:123`、`docs/worktree-inventory.md:717` 已同步 387 键；2026-08-25 v4 批后演进为 402 键（礼貌前缀循环剥离 + 15 个「小X」别名），见 hub readiness 行 13 |
-| 测试计数演进 | `test_quickdraw` **34 项**、全套 **976/976** | `AGENTS.md:157`、`docs/worktree-inventory.md:210` 已同步；2026-08-25 v4 批后演进为 test_quickdraw 39 项、全套 981/981（C 组合质量路由 +2）；计数不变量测试批后 test_contract 592 项、全套 982/982；2026-08-28 全套 **1035**（含 `test_gcode_min_segment` 3 项）；2026-08-30 晚全套 **1070** |
+| `mcp-server/tmp/` 未 ignore | `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 列 314 文件（约 20MB，含 298 个 quickdraw-data `.jsonl`）；**0 staged** | `docs/worktree-inventory.md:738` 原写「gitignored 目录内」= 谎报，已改为实测真相。同日用户 advisory 点名窄例外：`edf68e7`「不新增忽略规则」对**整目录忽略 tmp/** 仍成立（整目录方案被否决——AGENTS.md 引用根 `tmp/` 刷机/抓包工具），`.gitignore` 仅新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条；实测数据集对 `git add -A` 不可见，剩余 12 个实验/工具件仍未忽略 → **禁止 `git add .`** 不变 |
+| quickdraw 键数演进 | 实测 **387 别名键 → 298 类目 ↔ 298 个 `.jsonl`**，双向零差；较复核时 373 键新增 14 个多字别名 | `AGENTS.md:124`、`docs/worktree-inventory.md:732` 已同步 387 键；2026-08-25 v4 批后演进为 402 键（礼貌前缀循环剥离 + 15 个「小X」别名），见 hub readiness 行 13 |
+| 测试计数演进 | `test_quickdraw` **34 项**、全套 **976/976** | `AGENTS.md:158`、`docs/worktree-inventory.md:225` 已同步；2026-08-25 v4 批后演进为 test_quickdraw 39 项、全套 981/981（C 组合质量路由 +2）；计数不变量测试批后 test_contract 592 项、全套 982/982；2026-08-28 全套 **1035**（含 `test_gcode_min_segment` 3 项）；2026-08-30 晚全套 **1070** |
 
 ## 六、门禁面观察（已修根因；候选项仍不动作）
 
@@ -127,7 +127,7 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
   引用的奎享行号在三层（越界 / 外仓 / 指纹）全部不可见，是**人工维护的死引用**。
 - **KXNX_ROOT 纳入门禁的量化**：Python 实测 `decompiled_full/` 单树索引下 125 条去重
   引用 → **88 唯一命中 / 33 重名 / 4 缺失**；重名与缺失由既有 skip 语义安全跳过，
-  不会像 inkscape 那样退化成假绿（`scripts/agent_gate.py:897` `_EXTERNAL_REPOS` 注释
+  不会像 inkscape 那样退化成假绿（`scripts/agent_gate.py:928` `_EXTERNAL_REPOS` 注释
   记的正是该坑）。**但**：① 改门禁属评审范围外的行为变更；② 即便纳入，仍需先给
   `.java` 开扩展名白名单，两步都会扩大判红面。故仅登记为候选。
 - **basename 唯一性破裂 → 本仓引用假绿（本轮已修根因）**：根 `tmp/` 的部署/发布暂存副本此前不在 `_REF_SKIP_DIRS`，导致裸 basename 行号引用因同名多份被三层静默跳过；`scripts/agent_gate.py` 现将 `tmp` 纳入跳过目录，并由 `test_gate_repo_index_skips_tmp_staging_copies` 回归钉死。本文原 5 处引用已先路径限定并登记指纹；本轮根因修复后，后续暂存副本不再污染 basename 唯一性。若未来引用暂存树内文件，仍应使用明确路径或按散文式「文件名 第 NNN 行」说明。

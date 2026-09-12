@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const bindIdentity = require("../../utils/bind_identity");
 const { displayVersion } = require("../../utils/version.js");
 
 Page({
@@ -62,6 +63,7 @@ Page({
       ? api.mediaUrl(me.avatar_url) + "?t=" + Date.now()
       : "";
     this.setData({ me, nicknameDraft: (me && me.nickname) || "", needPhone, avatarSrc });
+    if (!needPhone) bindIdentity.resumeAfterAuth();
   },
 
   refresh() {
@@ -134,6 +136,17 @@ Page({
       return;
     }
     wx.navigateTo({ url: "/pages/bind/bind" });
+  },
+
+  onSelectDevice(e) {
+    const mac = e.currentTarget.dataset.mac;
+    if (!mac) return;
+    api.request("/api/user/devices/select", { method: "POST", data: { device_mac: mac } })
+      .then(() => {
+        wx.showToast({ title: "已切换设备", icon: "success" });
+        this.refresh();
+      })
+      .catch((err) => wx.showToast({ title: err.detail || "切换失败", icon: "none" }));
   },
 
   onGoWifi() {

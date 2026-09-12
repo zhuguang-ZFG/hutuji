@@ -4,10 +4,12 @@ import secrets
 import sqlite3
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from draw_portal.draw_limits import DRAW_LIMIT_KEYS, validate_draw_limit_overrides
+from draw_portal.device_identity import DeviceIdentity
 from draw_portal.image_backends import (
     IMAGE_BACKEND_DB_KEYS,
     IMAGE_BACKEND_NAMES,
@@ -80,6 +82,8 @@ CREATE TABLE IF NOT EXISTS bind_claims (
     force INTEGER NOT NULL DEFAULT 0,
     expires_at REAL NOT NULL,
     created_at REAL NOT NULL
+    ,device_id TEXT
+    ,nonce TEXT
 );
 
 CREATE TABLE IF NOT EXISTS device_bindings (
@@ -92,6 +96,7 @@ CREATE TABLE IF NOT EXISTS device_bindings (
     machine_type TEXT NOT NULL DEFAULT 'paper'
 );
 
+-- 多设备扩展表：保留 device_bindings 作为旧版本兼容镜像，新的绑定全部落此表。
 CREATE TABLE IF NOT EXISTS user_device_bindings (
     user_id TEXT NOT NULL,
     device_mac TEXT NOT NULL,
@@ -103,6 +108,34 @@ CREATE TABLE IF NOT EXISTS user_device_bindings (
     PRIMARY KEY (user_id, device_mac),
     UNIQUE (device_mac)
 );
+
+CREATE TABLE IF NOT EXISTS device_identities (
+    device_id TEXT PRIMARY KEY,
+    device_mac TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    first_seen_at REAL NOT NULL,
+    last_seen_at REAL NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS bind_identity_challenges (
+    device_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    device_mac TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    bind_code TEXT NOT NULL,
+    challenge TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    request_ip TEXT NOT NULL,
+    consumed_at REAL,
+    user_id TEXT,
+    PRIMARY KEY (device_id, nonce)
+);
+CREATE INDEX IF NOT EXISTS idx_bind_challenge_ip_time
+    ON bind_identity_challenges(request_ip, created_at);
+CREATE INDEX IF NOT EXISTS idx_bind_challenge_mac_time
+    ON bind_identity_challenges(device_mac, created_at);
 
 CREATE TABLE IF NOT EXISTS firmware_ota_sessions (
     user_id TEXT PRIMARY KEY,
@@ -269,10 +302,15 @@ _USER_MIGRATION_COLUMNS = (
     ("nickname", "TEXT"),
     ("phone", "TEXT"),
     ("avatar_path", "TEXT"),
+    ("active_device_mac", "TEXT"),
 )
 _DRAW_JOB_MIGRATION_COLUMNS = (
     ("refined_status", "TEXT"),
     ("refined_job_id", "TEXT"),
+)
+_BIND_IDENTITY_COLUMNS = (
+    ("device_id", "TEXT"), ("nonce", "TEXT"),
+    ("public_key", "TEXT"), ("identity_version", "INTEGER"),
 )
 _SAVED_PREVIEW_TELEGRAM_COLUMNS = (
     # 2026-09-12 图库 TG 频道冷备份（PoC）：状态 NULL=未启用 / pending /
@@ -282,19 +320,15 @@ _SAVED_PREVIEW_TELEGRAM_COLUMNS = (
     ("tg_message_id", "INTEGER"),
     ("tg_checked_at", "REAL"),
 )
-_USER_MIGRATION_COLUMNS = (
-    ("status", "TEXT NOT NULL DEFAULT 'active'"),
-    ("email_verified_at", "REAL"),
-    ("last_login_at", "REAL"),
-    ("banned_at", "REAL"),
-    ("ban_reason", "TEXT"),
-    ("admin_note", "TEXT"),
-    ("wx_openid", "TEXT"),
-    ("nickname", "TEXT"),
-    ("phone", "TEXT"),
-    ("avatar_path", "TEXT"),
-    ("active_device_mac", "TEXT"),
-)
+
+
+
+class BindStateError(ValueError):
+    def __init__(self, message: str, *, status: int = 409, code: str = "identity_mismatch"):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+
 
 class Store:
     def __init__(self, db_path: Path, *, provider_cipher_key: bytes | None = None) -> None:
@@ -319,6 +353,25 @@ class Store:
         for name, ddl in _USER_MIGRATION_COLUMNS:
             if name not in cols:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {ddl}")
+        # 先补旧表列再迁移数据，否则早于机型字段的生产库启动即失败。
+        binding_cols = {row[1] for row in conn.execute("PRAGMA table_info(device_bindings)")}
+        if "machine_type" not in binding_cols:
+            conn.execute("ALTER TABLE device_bindings ADD COLUMN machine_type TEXT NOT NULL DEFAULT 'paper'")
+        identity_cols = {row[1] for row in conn.execute("PRAGMA table_info(device_identities)")}
+        if "active" not in identity_cols:
+            conn.execute("ALTER TABLE device_identities ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_active_mac ON device_identities(device_mac) WHERE active=1")
+        # 将旧的一用户一设备表平滑镜像到多设备表；重复执行安全。
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO user_device_bindings
+                (user_id, device_mac, device_token_enc, bound_at, last_push_at,
+                 token_probe_ok, machine_type)
+            SELECT user_id, device_mac, device_token_enc, bound_at, last_push_at,
+                   token_probe_ok, machine_type
+            FROM device_bindings
+            """
+        )
         conn.execute(
             """
             UPDATE users SET active_device_mac = (
@@ -354,6 +407,13 @@ class Store:
             conn.execute(
                 "ALTER TABLE bind_sessions ADD COLUMN plotter_sku TEXT NOT NULL DEFAULT 'paper'"
             )
+        for name, ddl in _BIND_IDENTITY_COLUMNS:
+            if name not in session_cols:
+                conn.execute(f"ALTER TABLE bind_sessions ADD COLUMN {name} {ddl}")
+        claim_cols = {row[1] for row in conn.execute("PRAGMA table_info(bind_claims)").fetchall()}
+        for name, ddl in _BIND_IDENTITY_COLUMNS:
+            if name not in claim_cols:
+                conn.execute(f"ALTER TABLE bind_claims ADD COLUMN {name} {ddl}")
         binding_cols = {
             row[1]
             for row in conn.execute("PRAGMA table_info(device_bindings)").fetchall()
@@ -418,6 +478,10 @@ class Store:
                 if "plotter_sku" in row.keys() and (row["plotter_sku"] or "")
                 else "paper"
             ),
+            device_id=row["device_id"],
+            public_key=row["public_key"],
+            nonce=row["nonce"],
+            identity_version=row["identity_version"],
         )
 
     @staticmethod
@@ -428,6 +492,10 @@ class Store:
             force=bool(row["force"]),
             expires_at=row["expires_at"],
             created_at=row["created_at"],
+            device_id=row["device_id"] if "device_id" in row.keys() else None,
+            nonce=row["nonce"] if "nonce" in row.keys() else None,
+            public_key=row["public_key"] if "public_key" in row.keys() else None,
+            identity_version=row["identity_version"] if "identity_version" in row.keys() else None,
         )
 
     @staticmethod
@@ -893,23 +961,39 @@ class Store:
         device_token_enc: str,
         expires_at: float,
         plotter_sku: str = "paper",
+        identity: DeviceIdentity | None = None,
     ) -> BindSession:
         code = normalize_bind_code(bind_code)
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute("SELECT * FROM bind_sessions WHERE bind_code = ?", (code,)).fetchone()
+            if previous is not None:
+                same = previous["device_mac"] == mac and previous["device_id"] == (identity.device_id if identity else None)
+                same = same and previous["nonce"] == (identity.nonce if identity else None)
+                if not same:
+                    raise BindStateError("绑定码冲突，请在设备上重新打开绑定")
+                # 重试只重发完成状态，不复活旧短码，也不延长其原始到期时间。
+                if previous["consumed_at"] is not None:
+                    return self._row_bind_session(previous)
+                expires_at = min(expires_at, previous["expires_at"])
             conn.execute(
                 """
                 INSERT INTO bind_sessions (
-                    bind_code, device_mac, device_token_enc, expires_at, consumed_at, plotter_sku
-                ) VALUES (?, ?, ?, ?, NULL, ?)
+                    bind_code, device_mac, device_token_enc, expires_at, consumed_at, plotter_sku,
+                    device_id, public_key, nonce, identity_version
+                ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
                 ON CONFLICT(bind_code) DO UPDATE SET
                     device_mac=excluded.device_mac,
                     device_token_enc=excluded.device_token_enc,
                     expires_at=excluded.expires_at,
-                    consumed_at=NULL,
                     plotter_sku=excluded.plotter_sku
                 """,
-                (code, mac, device_token_enc, expires_at, plotter_sku),
+                (code, mac, device_token_enc, expires_at, plotter_sku,
+                 identity.device_id if identity else None,
+                 identity.public_key if identity else None,
+                 identity.nonce if identity else None,
+                 identity.identity_version if identity else None),
             )
             conn.commit()
         return self.get_bind_session(code)
@@ -928,40 +1012,45 @@ class Store:
             return None
         if session.consumed_at is not None:
             return None
-        if session.expires_at < now:
+        if session.expires_at <= now:
             return None
         with self._connect() as conn:
             cur = conn.execute(
                 """
                 UPDATE bind_sessions SET consumed_at = ?
-                WHERE bind_code = ? AND consumed_at IS NULL AND expires_at >= ?
+                WHERE bind_code = ? AND consumed_at IS NULL AND expires_at > ?
                 """,
                 (now, session.bind_code, now),
             )
             conn.commit()
             if cur.rowcount != 1:
                 return None
-        return BindSession(
-            bind_code=session.bind_code,
-            device_mac=session.device_mac,
-            device_token_enc=session.device_token_enc,
-            expires_at=session.expires_at,
-            consumed_at=now,
-        )
+        return replace(session, consumed_at=now)
 
-    def get_live_bind_session_for_mac(self, device_mac: str, *, now: float) -> BindSession | None:
+    def get_live_bind_session_for_mac(self, device_mac: str, *, now: float,
+                                     claim: BindClaim | None = None) -> BindSession | None:
         """claim 侧撮合：找该 MAC 最新一条未消费、未过期的 announce 会话。"""
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 """
                 SELECT * FROM bind_sessions
-                WHERE device_mac = ? AND consumed_at IS NULL AND expires_at >= ?
-                ORDER BY expires_at DESC LIMIT 1
+                WHERE device_mac = ? AND consumed_at IS NULL AND expires_at > ?
+                ORDER BY expires_at DESC
                 """,
                 (mac, now),
-            ).fetchone()
-        return self._row_bind_session(row) if row else None
+            ).fetchall()
+        for row in rows:
+            session = self._row_bind_session(row)
+            if claim is None or self._claim_matches_session(claim, session):
+                return session
+        return None
+
+    @staticmethod
+    def _claim_matches_session(claim: BindClaim, session: BindSession) -> bool:
+        return (claim.device_id, claim.public_key, claim.nonce, claim.identity_version) == (
+            session.device_id, session.public_key, session.nonce, session.identity_version
+        )
 
     def upsert_bind_claim(
         self,
@@ -971,20 +1060,37 @@ class Store:
         force: bool,
         expires_at: float,
         created_at: float,
+        device_id: str | None = None,
+        nonce: str | None = None,
+        public_key: str | None = None,
+        identity_version: int | None = None,
     ) -> BindClaim:
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute("SELECT * FROM bind_claims WHERE device_mac=?", (mac,)).fetchone()
+            if previous is not None and (
+                previous["user_id"], previous["device_id"], previous["public_key"],
+                previous["nonce"], previous["identity_version"]
+            ) == (user_id, device_id, public_key, nonce, identity_version):
+                # 切网重试保留原窗口；确认换绑可以升级 force，但不能续命旧二维码。
+                expires_at = min(expires_at, previous["expires_at"])
+                created_at = previous["created_at"]
             conn.execute(
                 """
-                INSERT INTO bind_claims (device_mac, user_id, force, expires_at, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO bind_claims (device_mac, user_id, force, expires_at, created_at, device_id, nonce, public_key, identity_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_mac) DO UPDATE SET
                     user_id=excluded.user_id,
                     force=excluded.force,
                     expires_at=excluded.expires_at,
-                    created_at=excluded.created_at
+                    created_at=excluded.created_at,
+                    device_id=excluded.device_id,
+                    nonce=excluded.nonce,
+                    public_key=excluded.public_key,
+                    identity_version=excluded.identity_version
                 """,
-                (mac, user_id, int(force), expires_at, created_at),
+                (mac, user_id, int(force), expires_at, created_at, device_id, nonce, public_key, identity_version),
             )
             conn.commit()
             row = conn.execute(
@@ -994,7 +1100,7 @@ class Store:
         return self._row_bind_claim(row)
 
     def get_bind_claim(self, device_mac: str, *, now: float) -> BindClaim | None:
-        """读取未过期认领；过期行顺手删除（与产物 TTL 同口径：访问时清理，无后台线程）。"""
+        """读取未过期认领；保留单个 MAC 的旧记录，避免重复请求续期。"""
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
             row = conn.execute(
@@ -1002,9 +1108,7 @@ class Store:
             ).fetchone()
             if row is None:
                 return None
-            if row["expires_at"] < now:
-                conn.execute("DELETE FROM bind_claims WHERE device_mac = ?", (mac,))
-                conn.commit()
+            if row["expires_at"] <= now:
                 return None
         return self._row_bind_claim(row)
 
@@ -1014,6 +1118,33 @@ class Store:
             cur = conn.execute("DELETE FROM bind_claims WHERE device_mac = ?", (mac,))
             conn.commit()
             return cur.rowcount > 0
+
+    @staticmethod
+    def _write_binding(conn: sqlite3.Connection, *, user_id: str, device_mac: str,
+                       device_token_enc: str, bound_at: float, token_probe_ok: bool | None,
+                       machine_type: str) -> DeviceBinding:
+        probe = None if token_probe_ok is None else int(token_probe_ok)
+        values = (user_id, device_mac, device_token_enc, bound_at, probe, machine_type)
+        conn.execute(
+            """INSERT INTO user_device_bindings
+               (user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok, machine_type)
+               VALUES (?, ?, ?, ?, NULL, ?, ?)
+               ON CONFLICT(user_id, device_mac) DO UPDATE SET
+               device_token_enc=excluded.device_token_enc, bound_at=excluded.bound_at,
+               last_push_at=NULL, token_probe_ok=excluded.token_probe_ok, machine_type=excluded.machine_type""",
+            values,
+        )
+        conn.execute(
+            """INSERT INTO device_bindings
+               (user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok, machine_type)
+               VALUES (?, ?, ?, ?, NULL, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET device_mac=excluded.device_mac,
+               device_token_enc=excluded.device_token_enc, bound_at=excluded.bound_at,
+               last_push_at=NULL, token_probe_ok=excluded.token_probe_ok, machine_type=excluded.machine_type""",
+            values,
+        )
+        conn.execute("UPDATE users SET active_device_mac = ? WHERE id = ?", (device_mac, user_id))
+        return DeviceBinding(user_id, device_mac, device_token_enc, bound_at, None, token_probe_ok, machine_type)
 
     def set_device_binding(
         self,
@@ -1026,45 +1157,80 @@ class Store:
         machine_type: str = "paper",
     ) -> DeviceBinding:
         mac = normalize_mac(device_mac)
-        probe_val = None if token_probe_ok is None else int(token_probe_ok)
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO device_bindings (
-                    user_id, device_mac, device_token_enc, bound_at, last_push_at,
-                    token_probe_ok, machine_type
-                ) VALUES (?, ?, ?, ?, NULL, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    device_mac=excluded.device_mac,
-                    device_token_enc=excluded.device_token_enc,
-                    bound_at=excluded.bound_at,
-                    last_push_at=NULL,
-                    token_probe_ok=excluded.token_probe_ok,
-                    machine_type=excluded.machine_type
-                """,
-                (user_id, mac, device_token_enc, bound_at, probe_val, machine_type),
+            conn.execute("BEGIN IMMEDIATE")
+            binding = self._write_binding(
+                conn, user_id=user_id, device_mac=mac, device_token_enc=device_token_enc,
+                bound_at=bound_at, token_probe_ok=token_probe_ok, machine_type=machine_type,
             )
             conn.commit()
-            row = conn.execute(
-                "SELECT * FROM device_bindings WHERE user_id = ?", (user_id,)
-            ).fetchone()
-        assert row is not None
-        return self._row_binding(row)
+        return binding
 
-    def set_binding_machine_type(self, user_id: str, machine_type: str) -> None:
-        """按设备上报刷新机型词汇；非法值一律 ValueError（白名单纪律）。"""
-        if machine_type not in ("nopaper", "paper"):
-            raise ValueError(f"未知机型：{machine_type!r}")
+    def create_identity_challenge(self, identity: DeviceIdentity, *, mac: str, bind_code: str,
+                                  request_ip: str, now: float, ttl: int) -> dict[str, Any]:
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM bind_identity_challenges WHERE device_id=? AND nonce=?",
+                (identity.device_id, identity.nonce),
+            ).fetchone()
+            if row is not None:
+                if row["device_mac"] != mac or row["public_key"] != identity.public_key or row["bind_code"] != bind_code:
+                    raise BindStateError("设备绑定会话不一致，请重新扫码")
+                if row["expires_at"] <= now and row["consumed_at"] is None:
+                    raise BindStateError("绑定窗口已过期，请在设备上重新打开配网", status=410, code="binding_expired")
+                return dict(row)
+            # nonce 台账保留，不能清理后重新签发同一 nonce。重试不占新增额度。
+            count = conn.execute(
+                "SELECT COUNT(*) FROM bind_identity_challenges WHERE created_at>? AND (request_ip=? OR device_mac=?)",
+                (now - 300, request_ip, mac),
+            ).fetchone()[0]
+            if count >= 20:
+                raise BindStateError("绑定尝试过于频繁，请稍后再试", status=429, code="binding_rate_limit")
             conn.execute(
-                "UPDATE device_bindings SET machine_type = ? WHERE user_id = ?",
-                (machine_type, user_id),
+                """INSERT INTO bind_identity_challenges
+                   (device_id, nonce, device_mac, public_key, bind_code, challenge, created_at, expires_at, request_ip)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (identity.device_id, identity.nonce, mac, identity.public_key, bind_code,
+                 secrets.token_urlsafe(32), now, now + ttl, request_ip),
             )
             conn.commit()
+            row = conn.execute("SELECT * FROM bind_identity_challenges WHERE device_id=? AND nonce=?",
+                               (identity.device_id, identity.nonce)).fetchone()
+        return dict(row)
+
+    def get_identity_challenge(self, identity: DeviceIdentity) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM bind_identity_challenges WHERE device_id=? AND nonce=?",
+                               (identity.device_id, identity.nonce)).fetchone()
+        return dict(row) if row else None
+
+    def get_device_identity(self, device_mac: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM device_identities WHERE device_mac=? AND active=1",
+                               (normalize_mac(device_mac),)).fetchone()
+        return dict(row) if row else None
+
+    def get_binding_for_mac(self, device_mac: str) -> DeviceBinding | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_device_bindings WHERE device_mac=?",
+                               (normalize_mac(device_mac),)).fetchone()
+        return self._row_binding(row) if row else None
+
+    def get_completed_identity_binding(self, identity: DeviceIdentity, *, mac: str,
+                                       user_id: str | None = None) -> DeviceBinding | None:
+        """只确认这次仪式产生的绑定；解绑后重新绑定也不能复用前次成功回包。"""
+        with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM device_bindings WHERE user_id = ?", (user_id,)
+                """SELECT b.* FROM user_device_bindings b
+                   JOIN device_identities i ON i.device_mac=b.device_mac AND i.active=1
+                   JOIN bind_identity_challenges c ON c.device_id=i.device_id
+                   WHERE b.device_mac=? AND i.device_id=? AND i.public_key=? AND c.nonce=?
+                     AND c.user_id=b.user_id AND c.consumed_at=b.bound_at""",
+                (normalize_mac(mac), identity.device_id, identity.public_key, identity.nonce),
             ).fetchone()
-        assert row is not None
+        if row is None or (user_id is not None and row["user_id"] != user_id):
+            return None
         return self._row_binding(row)
 
     @staticmethod
@@ -1082,6 +1248,121 @@ class Store:
             columns = "user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok, machine_type"
             conn.execute(f"INSERT INTO device_bindings ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)",
                          tuple(row[name] for name in columns.split(", ")))
+
+    def complete_binding(self, bind_code: str, *, user_id: str, force: bool,
+                         device_token_enc: str, token_probe_ok: bool, now: float,
+                         require_claim: bool = False) -> DeviceBinding:
+        """短码/nonce 消费、所有权转移与身份登记同一事务，失败保留原绑定。"""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM bind_sessions WHERE bind_code=?", (bind_code,)).fetchone()
+            if row is None or row["consumed_at"] is not None or row["expires_at"] <= now:
+                raise BindStateError("绑定码无效或已过期", status=400, code="binding_expired")
+            session = self._row_bind_session(row)
+            mac = session.device_mac
+            claim_row = conn.execute("SELECT * FROM bind_claims WHERE device_mac=?", (mac,)).fetchone()
+            if require_claim and (claim_row is None or claim_row["user_id"] != user_id or
+                                  claim_row["expires_at"] <= now or
+                                  not self._claim_matches_session(self._row_bind_claim(claim_row), session)):
+                raise BindStateError("认领与设备二维码不匹配，请重新扫码")
+            if require_claim:
+                force = bool(claim_row["force"])
+            owner_id = self._check_binding_owner(conn, session, user_id, force)
+            known = conn.execute("SELECT * FROM device_identities WHERE device_mac=? AND active=1", (mac,)).fetchone()
+            if session.device_id is not None:
+                if known is not None and known["device_id"] != session.device_id:
+                    conn.execute("UPDATE device_identities SET active=0 WHERE device_mac=?", (mac,))
+                challenge = conn.execute("SELECT * FROM bind_identity_challenges WHERE device_id=? AND nonce=?",
+                                         (session.device_id, session.nonce)).fetchone()
+                if challenge is None or challenge["consumed_at"] is not None or challenge["expires_at"] <= now:
+                    raise BindStateError("绑定窗口已过期，请重新扫码", status=410, code="binding_expired")
+                if (challenge["device_mac"], challenge["public_key"], challenge["bind_code"]) != (
+                    mac, session.public_key, session.bind_code
+                ):
+                    raise BindStateError("认领与设备挑战不匹配，请重新扫码")
+                conn.execute(
+                    """INSERT INTO device_identities
+                       (device_id, device_mac, public_key, first_seen_at, last_seen_at, active)
+                       VALUES (?, ?, ?, ?, ?, 1)
+                       ON CONFLICT(device_id) DO UPDATE SET last_seen_at=excluded.last_seen_at""",
+                    (session.device_id, mac, session.public_key, now, now),
+                )
+                conn.execute("UPDATE bind_identity_challenges SET consumed_at=?, user_id=? WHERE device_id=? AND nonce=?",
+                             (now, user_id, session.device_id, session.nonce))
+            if owner_id is not None and owner_id != user_id:
+                conn.execute("DELETE FROM user_device_bindings WHERE device_mac=?", (mac,))
+                conn.execute("DELETE FROM device_bindings WHERE device_mac=?", (mac,))
+                self._sync_active_binding(conn, owner_id)
+            binding = self._write_binding(
+                conn, user_id=user_id, device_mac=mac, device_token_enc=device_token_enc,
+                bound_at=now, token_probe_ok=token_probe_ok, machine_type=session.plotter_sku,
+            )
+            conn.execute("UPDATE bind_sessions SET consumed_at=? WHERE bind_code=?", (now, bind_code))
+            conn.execute("DELETE FROM bind_claims WHERE device_mac=? AND user_id=?", (mac, user_id))
+            conn.commit()
+        return binding
+
+    @staticmethod
+    def _check_binding_owner(conn: sqlite3.Connection, session: BindSession,
+                             user_id: str, force: bool) -> str | None:
+        mac = session.device_mac
+        owner = conn.execute("SELECT user_id FROM user_device_bindings WHERE device_mac=?", (mac,)).fetchone()
+        owner_id = owner["user_id"] if owner else None
+        known = conn.execute("SELECT * FROM device_identities WHERE device_mac=? AND active=1", (mac,)).fetchone()
+        if known is not None and session.device_id is None:
+            raise BindStateError("该设备需要身份验证，请重新扫描设备二维码")
+        if session.device_id is not None:
+            registered = conn.execute("SELECT * FROM device_identities WHERE device_id=?", (session.device_id,)).fetchone()
+            if registered and (not registered["active"] or registered["device_mac"] != mac or
+                               registered["public_key"] != session.public_key):
+                raise BindStateError("设备身份已失效，请联系原绑定账号恢复")
+            if known and known["device_id"] != session.device_id and owner_id not in (None, user_id):
+                raise BindStateError("设备身份已重置，请由原绑定账号重新扫码恢复")
+        if owner_id not in (None, user_id) and not force:
+            raise BindStateError("该设备已绑定其他账号，确认后可换绑", code="binding_conflict")
+        return owner_id
+
+    def check_binding_owner(self, session: BindSession, *, user_id: str, force: bool) -> None:
+        # 铸 token 会使旧 token 失效，必须先拒掉错误身份；落库时事务内再校验一次。
+        with self._connect() as conn:
+            self._check_binding_owner(conn, session, user_id, force)
+
+    def _update_binding_field(self, user_id: str, field: str, value: Any,
+                              device_mac: str | None) -> None:
+        if field not in {"machine_type", "token_probe_ok", "last_push_at", "device_token_enc"}:
+            raise ValueError("不支持的绑定字段")
+        if device_mac is None:
+            binding = self.get_binding_for_user(user_id)
+            if binding is None:
+                return
+            device_mac = binding.device_mac
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            for table in ("device_bindings", "user_device_bindings"):
+                conn.execute(f"UPDATE {table} SET {field}=? WHERE user_id=? AND device_mac=?",
+                             (value, user_id, mac))
+            conn.commit()
+
+    def set_binding_machine_type(self, user_id: str, machine_type: str, *, device_mac: str | None = None) -> None:
+        """按设备上报刷新机型词汇；非法值一律 ValueError（白名单纪律）。"""
+        if machine_type not in ("nopaper", "paper"):
+            raise ValueError(f"未知机型：{machine_type!r}")
+        self._update_binding_field(user_id, "machine_type", machine_type, device_mac)
+
+    def get_binding_for_user(self, user_id: str) -> DeviceBinding | None:
+        with self._connect() as conn:
+            user = conn.execute("SELECT active_device_mac FROM users WHERE id = ?", (user_id,)).fetchone()
+            active = user["active_device_mac"] if user and user["active_device_mac"] else None
+            if active:
+                row = conn.execute(
+                    "SELECT * FROM user_device_bindings WHERE user_id = ? AND device_mac = ?",
+                    (user_id, active),
+                ).fetchone()
+            else:
+                row = None
+            if row is None:
+                row = conn.execute("SELECT * FROM user_device_bindings WHERE user_id = ? ORDER BY bound_at DESC LIMIT 1", (user_id,)).fetchone()
+        return self._row_binding(row) if row else None
 
     def list_bindings_for_user(self, user_id: str) -> list[DeviceBinding]:
         with self._connect() as conn:
@@ -1107,56 +1388,43 @@ class Store:
                     (user_id, mac),
                 ).fetchone()
                 if row is not None:
-                    # 热修复：旧镜像行的首次选用先抄入主表，防止 sync 兜底把既有绑定当孤儿清掉。
+                    # 旧镜像行先升入主表；冲突时主表归属优先，不能用旧镜像抢回设备。
                     columns = "user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok, machine_type"
-                    conn.execute(f"INSERT OR REPLACE INTO user_device_bindings ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    conn.execute(f"INSERT OR IGNORE INTO user_device_bindings ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)",
                                  tuple(row[name] for name in columns.split(", ")))
+                    row = conn.execute(
+                        "SELECT * FROM user_device_bindings WHERE user_id=? AND device_mac=?",
+                        (user_id, mac),
+                    ).fetchone()
             if row is None:
                 return None
             conn.execute("UPDATE users SET active_device_mac = ? WHERE id = ?", (mac, user_id))
             self._sync_active_binding(conn, user_id)
             conn.commit()
         return self._row_binding(row)
-    def get_binding_for_user(self, user_id: str) -> DeviceBinding | None:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM device_bindings WHERE user_id = ?", (user_id,)
-            ).fetchone()
-        return self._row_binding(row) if row else None
 
     def delete_binding_for_user(self, user_id: str) -> bool:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM device_bindings WHERE user_id = ?", (user_id,))
+            cur2 = conn.execute("DELETE FROM user_device_bindings WHERE user_id = ?", (user_id,))
+            conn.execute("UPDATE users SET active_device_mac = NULL WHERE id = ?", (user_id,))
             conn.commit()
-            return cur.rowcount > 0
+        return cur.rowcount > 0 or cur2.rowcount > 0
 
-    def delete_binding_for_mac(self, device_mac: str) -> bool:
-        """按设备 MAC 删绑定（不限用户）——仅 bind_complete 的 force 换绑路径调用，
-        前置授权证据 = 调用方持有未消费、未过期的设备屏显 bind_code（持有即在场证明）。"""
+    def delete_binding_for_mac(self, device_mac: str, *, user_id: str) -> bool:
+        """所有权检查与解绑同事务，防止检查后换绑导致删掉别人的设备。"""
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            owner = conn.execute(
-                "SELECT user_id FROM device_bindings WHERE device_mac = ?", (mac,)
-            ).fetchone()
-            if owner is None:
-                owner = conn.execute(
-                    "SELECT user_id FROM user_device_bindings WHERE device_mac = ?", (mac,)
-                ).fetchone()
-            cur = conn.execute("DELETE FROM device_bindings WHERE device_mac = ?", (mac,))
-            conn.execute("DELETE FROM user_device_bindings WHERE device_mac = ?", (mac,))
-            if owner is not None:
-                self._sync_active_binding(conn, owner["user_id"])
+            cur = conn.execute("DELETE FROM device_bindings WHERE device_mac=? AND user_id=?", (mac, user_id))
+            cur2 = conn.execute("DELETE FROM user_device_bindings WHERE device_mac=? AND user_id=?", (mac, user_id))
+            self._sync_active_binding(conn, user_id)
+            conn.execute("DELETE FROM bind_claims WHERE device_mac=? AND user_id=?", (mac, user_id))
             conn.commit()
-            return cur.rowcount > 0
+            return cur.rowcount > 0 or cur2.rowcount > 0
 
-    def update_binding_probe(self, user_id: str, *, ok: bool) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE device_bindings SET token_probe_ok = ? WHERE user_id = ?",
-                (int(ok), user_id),
-            )
-            conn.commit()
+    def update_binding_probe(self, user_id: str, *, ok: bool, device_mac: str | None = None) -> None:
+        self._update_binding_field(user_id, "token_probe_ok", int(ok), device_mac)
 
     def binding_status_dict(self, binding: DeviceBinding | None) -> dict:
         if binding is None:
@@ -1366,23 +1634,13 @@ class Store:
             ).fetchone()
         return self._row_draw_job(row) if row else None
 
-    def update_binding_last_push(self, user_id: str, *, when: float) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE device_bindings SET last_push_at = ? WHERE user_id = ?",
-                (when, user_id),
-            )
-            conn.commit()
+    def update_binding_last_push(self, user_id: str, *, when: float, device_mac: str | None = None) -> None:
+        self._update_binding_field(user_id, "last_push_at", when, device_mac)
 
-    def update_binding_token(self, user_id: str, *, device_token_enc: str) -> None:
+    def update_binding_token(self, user_id: str, *, device_token_enc: str, device_mac: str | None = None) -> None:
         """push 401 自愈重铸 messaging token 后回写（announce 上报值不可信，
         2026-09-07 绑定表惊现 test-token 占位导致全量推送 401）。"""
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE device_bindings SET device_token_enc = ? WHERE user_id = ?",
-                (device_token_enc, user_id),
-            )
-            conn.commit()
+        self._update_binding_field(user_id, "device_token_enc", device_token_enc, device_mac)
 
     def create_saved_preview(
         self,
@@ -1612,9 +1870,14 @@ class Store:
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT user_id FROM device_bindings WHERE device_mac = ?",
+                "SELECT user_id FROM user_device_bindings WHERE device_mac = ?",
                 (mac,),
             ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "SELECT user_id FROM device_bindings WHERE device_mac = ?",
+                    (mac,),
+                ).fetchone()
         return str(row["user_id"]) if row else None
 
     def purge_conversation_before(self, cutoff_ts: float) -> int:

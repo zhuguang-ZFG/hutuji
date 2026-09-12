@@ -145,6 +145,49 @@ def test_bind_claim_then_announce_auto_binds(tmp_path: Path, monkeypatch: pytest
     assert again.json()["bound"] is True
     assert client.get("/api/auth/me").json()["binding"]["bound"] is True
 
+
+def test_bind_claim_status_tracks_claim_and_bound(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """一次扫码向导可用单一状态接口等待设备上线，并保持幂等。"""
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client)
+    mac = "aa:bb:cc:dd:ee:ff"
+
+    claim = client.post("/api/user/bind/claim", json={"mac": mac})
+    assert claim.status_code == 200
+    status = client.get("/api/user/bind/claim/status", params={"mac": mac})
+    assert status.status_code == 200
+    assert status.json()["status"] == "claimed"
+
+    announced = _announce(client, mac=mac)
+    assert announced.json()["bound"] is True
+    status = client.get("/api/user/bind/claim/status", params={"mac": mac})
+    assert status.json()["status"] == "bound"
+    assert status.json()["binding"]["bound"] is True
+
+
+def test_bind_claim_status_rejects_bad_mac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _client(monkeypatch, tmp_path)
+    _register_and_login(client)
+    response = client.get("/api/user/bind/claim/status", params={"mac": "bad"})
+    assert response.status_code == 400
+
+
+def test_user_devices_supports_selecting_multiple_bindings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _client(monkeypatch, tmp_path)
+    _mock_probe_ok(monkeypatch)
+    _register_and_login(client)
+    for idx, mac in enumerate(("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02")):
+        _announce(client, mac=mac, code=f"AB{idx}123")
+        complete = client.post("/api/user/bind/complete", json={"bind_code": f"AB{idx}123"})
+        assert complete.status_code == 200
+    devices = client.get("/api/user/devices")
+    assert devices.status_code == 200
+    assert len(devices.json()["devices"]) == 2
+    selected = client.post("/api/user/devices/select", json={"device_mac": "aa:bb:cc:dd:ee:01"})
+    assert selected.status_code == 200
+    assert client.get("/api/auth/me").json()["binding"]["device_mac"].endswith("01")
+
 def test_bind_mints_messaging_token_when_probe_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """绑定期铸 token（2026-09-08 量产口径）：announce 上报 token 探活失败时现场铸
     messaging JWT 落绑定——用户首次推送不再先吃一轮 401 再等自愈。"""

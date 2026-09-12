@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import shutil
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -30,6 +32,7 @@ from draw_portal.auth import (
     set_session_cookie,
 )
 from draw_portal.config import load_config
+from draw_portal.device_identity import DeviceIdentityError, parse_identity, verify_announce
 from draw_portal import chat as chat_mod
 from draw_portal import xiaopai as xiaopai_mod
 from draw_portal import tg_notify
@@ -70,7 +73,7 @@ from draw_portal.push import (
     push_tool_call,
 )
 from draw_portal.upload_kinds import detect_upload_kind
-from draw_portal.store import Store
+from draw_portal.store import BindStateError, Store
 from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
 from draw_portal import firmware_ota as firmware_ota_mod
 
@@ -85,6 +88,10 @@ _background_tasks: set[asyncio.Task] = set()
 # 循环挂出一串轮询协程（每个还握着原始照片字节）。名额之外的精修排队等位，
 # 不把突发流量原样堆到上游 API。模块级单例与 _background_tasks 同口径。
 _refine_slots = asyncio.Semaphore(4)
+
+# 同一设备的 claim/announce/status 会同时完成；串行铸 token，避免后一次使前一次失效。
+# 固定分片避免匿名 MAC 使锁表无限增长；当前 portal 为单进程服务。
+_bind_locks = tuple(threading.Lock() for _ in range(64))
 
 
 
@@ -142,20 +149,43 @@ class XiaopaiBindBody(BaseModel):
 class BindAnnounceBody(BaseModel):
     mac: str
     bind_code: str
-    device_token: str = Field(min_length=8)
+    device_token: str = Field(default="", max_length=4096)
     # 机型词汇（2026-09-11，§10.4.15）：S3 1.0.9 起随 announce 上报（$I VER
     # build 段识别）；1.0.8 旧固件缺席 → "paper"。
     plotter_sku: str = Field(default="paper", pattern="^(nopaper|paper)$")
+    device_id: str | None = Field(default=None, max_length=128)
+    identity_version: int | None = Field(default=None, ge=1, le=10)
+    public_key: str | None = Field(default=None, max_length=4096)
+    nonce: str | None = Field(default=None, max_length=256)
+    signature: str | None = Field(default=None, max_length=4096)
+    challenge: str | None = Field(default=None, max_length=64)
+
+
+class BindChallengeBody(BaseModel):
+    mac: str
+    bind_code: str
+    device_id: str = Field(max_length=32)
+    identity_version: int
+    public_key: str = Field(max_length=87)
+    nonce: str = Field(max_length=22)
 
 
 class BindCompleteBody(BaseModel):
     bind_code: str
     force: bool = False  # 设备已绑他人时强制换绑（授权证据=屏显 bind_code 在场持有）
+    device_id: str | None = Field(default=None, max_length=128)
+    public_key: str | None = Field(default=None, max_length=128)
+    nonce: str | None = Field(default=None, max_length=256)
+    identity_version: int | None = None
 
 
 class BindClaimBody(BaseModel):
     mac: str
     force: bool = False  # 与 bind/complete 同口径：跨账号换绑须显式确认（在场证据=扫到屏显配网 QR）
+    device_id: str | None = Field(default=None, max_length=128)
+    nonce: str | None = Field(default=None, max_length=256)
+    public_key: str | None = Field(default=None, max_length=128)
+    identity_version: int | None = None
 
 
 class BindUnbindBody(BaseModel):
@@ -196,6 +226,15 @@ _CONTROL_TOOL_WHITELIST = frozenset({
     "hutuji.pause", "hutuji.resume", "hutuji.repeat",
 })
 _WX_ACCESS_TOKEN_CACHE: dict[str, Any] = {"token": None, "expires_at": 0.0}
+
+
+def _identity_from_body(body):
+    return parse_identity(device_id=body.device_id, public_key=body.public_key,
+                          nonce=body.nonce, identity_version=body.identity_version)
+
+
+def _bind_error(exc: BindStateError) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)})
 
 
 def _wx_access_token(config: Any) -> str:
@@ -736,6 +775,23 @@ def create_app() -> FastAPI:
             return {"status": "expired"}
         return {"status": "pending", "expires_at": session.expires_at}
 
+    @app.post("/api/device/bind/challenge")
+    def bind_challenge(body: BindChallengeBody, request: Request) -> dict[str, Any]:
+        try:
+            mac = normalize_mac(body.mac)
+            code = normalize_bind_code(body.bind_code)
+            identity = _identity_from_body(body)
+            row = store.create_identity_challenge(
+                identity, mac=mac, bind_code=code,
+                request_ip=request.client.host if request.client else "unknown",
+                now=time.time(), ttl=config.device_identity_nonce_ttl_seconds,
+            )
+        except BindStateError as exc:
+            raise _bind_error(exc) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return {"challenge": row["challenge"], "expires_at": row["expires_at"]}
+
     @app.post("/api/device/bind/announce")
     def bind_announce(body: BindAnnounceBody) -> dict[str, Any]:
         try:
@@ -744,24 +800,46 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         token = body.device_token.strip()
-        if not token:
-            raise HTTPException(status_code=400, detail="device_token 为空")
         now = time.time()
+        identity = None
+        expires_at = now + config.bind_code_ttl_seconds
+        supplied = any(value is not None for value in (
+            body.device_id, body.public_key, body.nonce, body.signature, body.challenge, body.identity_version
+        ))
+        known = store.get_device_identity(mac)
+        if config.device_identity_required or supplied or known is not None:
+            try:
+                identity = _identity_from_body(body)
+                verify_announce(identity, challenge=body.challenge, signature=body.signature,
+                                bind_code=code, mac=mac, plotter_sku=body.plotter_sku, device_token=token)
+            except DeviceIdentityError as exc:
+                raise HTTPException(status_code=401, detail=str(exc)) from None
+            challenge = store.get_identity_challenge(identity)
+            if (challenge is None or challenge["device_mac"] != mac or
+                challenge["public_key"] != identity.public_key or challenge["bind_code"] != code or
+                not secrets.compare_digest(challenge["challenge"], body.challenge)):
+                raise HTTPException(status_code=401, detail="设备绑定挑战不匹配，请重新扫码")
+            expires_at = min(expires_at, challenge["expires_at"])
+            if challenge["consumed_at"] is not None:
+                if store.get_completed_identity_binding(identity, mac=mac) is None:
+                    raise _bind_error(BindStateError("该绑定码已使用，请重新扫描设备二维码", status=410, code="binding_expired"))
+                return {"status": "announced", "bound": True, "expires_at": expires_at, "mac_suffix": mac[-5:]}
+            if challenge["expires_at"] <= now:
+                raise _bind_error(BindStateError("绑定窗口已过期，请在设备上重新打开配网", status=410, code="binding_expired"))
+        elif len(token) < 8:
+            raise HTTPException(status_code=400, detail="旧版设备缺少连接凭据")
         enc = encrypt_token(config.token_cipher_key, token)
-        session = store.upsert_bind_session(
-            bind_code=code,
-            device_mac=mac,
-            device_token_enc=enc,
-            expires_at=now + config.bind_code_ttl_seconds,
-            plotter_sku=body.plotter_sku,
-        )
-        bound = store.get_user_id_for_mac(mac) is not None
-        if not bound:
-            # 一次扫码合一流程的 announce 侧撮合：配网会话内用户已按 MAC 认领
-            # （在场证明），announce 携 device_token（身份证明）到达即双证齐全。
+        try:
+            session = store.upsert_bind_session(
+                bind_code=code, device_mac=mac, device_token_enc=enc,
+                expires_at=expires_at, plotter_sku=body.plotter_sku, identity=identity,
+            )
+            # 已有所有者也要处理新扫码的换绑认领；不能直接回 bound 截断新会话。
             claim = store.get_bind_claim(mac, now=now)
-            if claim is not None:
-                bound = _try_auto_bind(mac, claim.user_id, claim.force, now) is not None
+            matched = _try_auto_bind(mac, claim.user_id, claim.force, now) if claim else None
+        except BindStateError as exc:
+            raise _bind_error(exc) from None
+        bound = matched is not None or (identity is None and store.get_user_id_for_mac(mac) is not None)
         return {
             "status": "announced",
             "expires_at": session.expires_at,
@@ -870,7 +948,7 @@ def create_app() -> FastAPI:
                 from draw_portal.crypto import encrypt_token
 
                 store.update_binding_token(
-                    user_id, device_token_enc=encrypt_token(config.token_cipher_key, fresh)
+                    user_id, device_token_enc=encrypt_token(config.token_cipher_key, fresh), device_mac=binding.device_mac
                 )
                 ok, result = push_tool_call(
                     api_base=config.xiaozhi_api_base,
@@ -961,7 +1039,7 @@ def create_app() -> FastAPI:
                 )
                 if fresh:
                     new_enc = encrypt_token(config.token_cipher_key, fresh)
-                    store.update_binding_token(user_id, device_token_enc=new_enc)
+                    store.update_binding_token(user_id, device_token_enc=new_enc, device_mac=binding.device_mac)
                     token_holder["token"] = fresh
                     enc_holder["enc"] = new_enc
                     ok, result = push_tool_call(
@@ -982,7 +1060,7 @@ def create_app() -> FastAPI:
                 raise VoiceJobError("请先绑定丹青")
 
             def on_token_minted(new_enc: str) -> None:
-                store.update_binding_token(user_id, device_token_enc=new_enc)
+                store.update_binding_token(user_id, device_token_enc=new_enc, device_mac=binding.device_mac)
                 enc_holder["enc"] = new_enc
                 token_holder["token"] = decrypt_token(config.token_cipher_key, new_enc)
 
@@ -1141,6 +1219,7 @@ def create_app() -> FastAPI:
                 store.update_binding_token(
                     user_id,
                     device_token_enc=encrypt_token(config.token_cipher_key, fresh),
+                    device_mac=binding.device_mac,
                 )
                 ok, result = push_tool_call(
                     api_base=config.xiaozhi_api_base,
@@ -1211,29 +1290,56 @@ def create_app() -> FastAPI:
             token_cipher_key=config.token_cipher_key,
         )
 
-    def _finalize_binding(session: BindSession, user_id: str, now: float, event_type: str) -> DeviceBinding:
+    def _finalize_binding(session: BindSession, user_id: str, now: float, event_type: str,
+                          *, force: bool = False, require_claim: bool = False) -> DeviceBinding:
+        with _bind_locks[int(session.device_mac.replace(":", ""), 16) % len(_bind_locks)]:
+            current = store.get_bind_session(session.bind_code)
+            if current and current.consumed_at is not None:
+                binding = store.get_binding_for_mac(current.device_mac)
+                if binding and binding.user_id == user_id and binding.bound_at == current.consumed_at:
+                    return binding
+            if current is None or current.consumed_at is not None or current.expires_at <= time.time():
+                raise BindStateError("绑定码无效或已过期", status=410, code="binding_expired")
+            store.check_binding_owner(current, user_id=user_id, force=force)
+            return _finalize_binding_locked(current, user_id, now, event_type,
+                                            force=force, require_claim=require_claim)
+
+    def _finalize_binding_locked(session: BindSession, user_id: str, now: float, event_type: str,
+                                 *, force: bool, require_claim: bool) -> DeviceBinding:
         """探活 + 旧 token 保留 + 落绑定 + usage 埋点：抽屉码与自动撮合共用一条完成路径。"""
+        announced_token = decrypt_token(config.token_cipher_key, session.device_token_enc)
         ok, _summary = probe_device_token(
-            api_base=config.xiaozhi_api_base,
-            device_token=decrypt_token(config.token_cipher_key, session.device_token_enc),
-        )
+            api_base=config.xiaozhi_api_base, device_token=announced_token,
+        ) if announced_token else (False, "missing")
         token_enc = session.device_token_enc
         existing = store.get_binding_for_user(user_id)
+        same_device = store.get_binding_for_mac(session.device_mac)
         if (
             not ok
-            and existing is not None
-            and existing.token_probe_ok
-            and existing.device_mac == session.device_mac
+            and same_device is not None
+            and same_device.user_id == user_id
+            and same_device.token_probe_ok
         ):
             # 固件 announce 仍可能上报 websocket token（非 messaging JWT）；
-            # 探活失败时保留已验证可用的旧 token，避免重绑把推送打坏。
-            token_enc = existing.device_token_enc
-            ok = True
+            # 旧设备维持兼容行为；签名流须重新探活，历史成功标记不代表当前仍在线。
+            old_ok = True
+            if session.device_id is not None:
+                try:
+                    old_token = decrypt_token(config.token_cipher_key, same_device.device_token_enc)
+                except ValueError:
+                    old_ok = False
+                else:
+                    old_ok, _summary = probe_device_token(
+                        api_base=config.xiaozhi_api_base, device_token=old_token,
+                    )
+            if old_ok:
+                token_enc = same_device.device_token_enc
+                ok = True
         if not ok:
             # 绑定期现场铸 messaging token（2026-09-08 量产口径）：announce 上报的常是
             # NVS websocket token（≠ messaging JWT），等推送 401 再自愈则用户第一单必
             # 失败；控制台 JWT 经 draw-portal.env 注入（refresh 脚本已互联），铸新失败
-            # 按原样落绑定，推送侧自愈仍兜底。
+            # 仅旧版按原样落绑定；签名流在下方保持 pending，等实际连通再消费证明。
             from draw_portal.push import mint_messaging_token
             from draw_portal.crypto import encrypt_token
 
@@ -1244,13 +1350,17 @@ def create_app() -> FastAPI:
             if fresh:
                 token_enc = encrypt_token(config.token_cipher_key, fresh)
                 ok = True
-        binding = store.set_device_binding(
-            user_id=user_id,
-            device_mac=session.device_mac,
-            device_token_enc=token_enc,
-            bound_at=now,
-            token_probe_ok=ok,
-            machine_type=session.plotter_sku,
+                if session.device_id is not None:
+                    ok, _summary = probe_device_token(
+                        api_base=config.xiaozhi_api_base, device_token=fresh,
+                    )
+        if session.device_id is not None and not ok:
+            # 身份确认不等于连接就绪；保留短码与 nonce，让切网后的自动重试继续。
+            raise BindStateError("设备连接正在准备，请稍候",
+                                 status=503, code="binding_pending")
+        binding = store.complete_binding(
+            session.bind_code, user_id=user_id, force=force, device_token_enc=token_enc,
+            token_probe_ok=ok, now=time.time(), require_claim=require_claim,
         )
         if existing is None:
             # 注册监控（TG）：新用户首次绑定 = 注册完成的业务事实；重绑/换机不推。
@@ -1271,22 +1381,16 @@ def create_app() -> FastAPI:
         """claim（用户在场证明）× session（设备身份证明）双向撮合。
         跨账号冲突未确认时不越权：claim 保留，等用户 force 重认领或走抽屉码。"""
         other_user = store.get_user_id_for_mac(mac)
-        if other_user == user_id:
-            store.delete_bind_claim(mac)
-            return store.get_binding_for_user(user_id)
-        if other_user is not None and not force:
+        if other_user is not None and other_user != user_id and not force:
             return None
-        session = store.get_live_bind_session_for_mac(mac, now=now)
+        claim = store.get_bind_claim(mac, now=now)
+        if claim is None or claim.user_id != user_id:
+            return None
+        session = store.get_live_bind_session_for_mac(mac, now=now, claim=claim)
         if session is None:
             return None
-        consumed = store.consume_bind_session(session.bind_code, now=now)
-        if consumed is None:
-            return None
-        if other_user is not None:
-            store.delete_binding_for_mac(mac)
-        binding = _finalize_binding(consumed, user_id, now, "bind_auto_complete")
-        store.delete_bind_claim(mac)
-        return binding
+        return _finalize_binding(session, user_id, now, "bind_auto_complete",
+                                 force=force, require_claim=True)
 
     @app.post("/api/user/bind/complete", dependencies=phone_secured)
     def bind_complete(body: BindCompleteBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
@@ -1297,18 +1401,27 @@ def create_app() -> FastAPI:
         now = time.time()
         # 先偷看不消费：跨账号冲突要 409 且不烧掉会话，用户一键确认后同码强制换绑
         peek = store.get_bind_session(code)
-        if peek is None or peek.consumed_at is not None or peek.expires_at < now:
-            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
+        if peek is None:
+            raise _bind_error(BindStateError("设备正在联网，请稍候", status=400, code="binding_pending"))
+        if any(value is not None for value in (body.device_id, body.public_key, body.nonce, body.identity_version)):
+            try:
+                identity = _identity_from_body(body)
+            except DeviceIdentityError as exc:
+                raise _bind_error(BindStateError(str(exc))) from None
+            if (peek.device_id, peek.public_key, peek.nonce) != (identity.device_id, identity.public_key, identity.nonce):
+                raise _bind_error(BindStateError("扫码信息与设备不匹配，请重新扫码"))
+        if config.device_identity_required and peek.device_id is None:
+            raise _bind_error(BindStateError("该设备需要升级身份固件"))
         other_user = store.get_user_id_for_mac(peek.device_mac)
         if other_user is not None and other_user != user_id:
             if not body.force:
-                raise HTTPException(status_code=409, detail="该设备已绑定其他账号，确认后可强制换绑")
-            store.delete_binding_for_mac(peek.device_mac)
-        session = store.consume_bind_session(code, now=now)
-        if session is None:
-            raise HTTPException(status_code=400, detail="bind_code 无效或已过期")
-        binding = _finalize_binding(session, user_id, now, "bind_complete")
-        return {"status": "bound", "binding": store.binding_status_dict(binding)}
+                raise _bind_error(BindStateError("该设备已绑定其他账号，确认后可换绑", code="binding_conflict"))
+        try:
+            binding = _finalize_binding(peek, user_id, now, "bind_complete", force=body.force)
+        except BindStateError as exc:
+            raise _bind_error(exc) from None
+        return {"status": "bound", "binding": store.binding_status_dict(binding),
+                "device_mac": binding.device_mac, "mac_suffix": binding.device_mac[-5:]}
 
     @app.post("/api/user/bind/claim", dependencies=phone_secured)
     def bind_claim(body: BindClaimBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
@@ -1320,29 +1433,61 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         now = time.time()
         other_user = store.get_user_id_for_mac(mac)
-        if other_user == user_id:
-            existing_binding = store.get_binding_for_user(user_id)
+        known = store.get_device_identity(mac)
+        identity = None
+        supplied = any(value is not None for value in (body.device_id, body.public_key, body.nonce, body.identity_version))
+        if config.device_identity_required or supplied or known is not None:
+            try:
+                identity = _identity_from_body(body)
+            except DeviceIdentityError as exc:
+                raise _bind_error(BindStateError(str(exc))) from None
+            if known and known["device_id"] != identity.device_id and other_user not in (None, user_id):
+                raise _bind_error(BindStateError("设备身份已重置，请由原绑定账号重新扫码恢复"))
+            challenge = store.get_identity_challenge(identity)
+            if challenge and (challenge["device_mac"] != mac or challenge["public_key"] != identity.public_key):
+                raise _bind_error(BindStateError("二维码与设备不匹配，请重新扫码"))
+            if challenge and (challenge["expires_at"] <= now or challenge["consumed_at"] is not None):
+                existing = store.get_completed_identity_binding(identity, mac=mac, user_id=user_id)
+                if existing is None:
+                    raise _bind_error(BindStateError("绑定窗口已过期，请重新扫描设备二维码", status=410, code="binding_expired"))
+                return {"status": "already_bound", "binding": store.binding_status_dict(existing)}
+        if other_user == user_id and identity is None:
+            existing_binding = store.get_binding_for_mac(mac)
             if existing_binding is not None:
                 return {
                     "status": "already_bound",
                     "binding": store.binding_status_dict(existing_binding),
                 }
         if other_user is not None and not body.force:
-            raise HTTPException(status_code=409, detail="该设备已绑定其他账号，确认后可强制换绑")
+            if other_user != user_id:
+                raise _bind_error(BindStateError("该设备已绑定其他账号，确认后可换绑", code="binding_conflict"))
+        expires_at = now + (min(config.bind_claim_ttl_seconds, config.device_identity_nonce_ttl_seconds)
+                            if identity else config.bind_claim_ttl_seconds)
+        if identity and challenge:
+            expires_at = min(expires_at, challenge["expires_at"])
         claim = store.upsert_bind_claim(
             device_mac=mac,
             user_id=user_id,
             force=body.force,
-            expires_at=now + config.bind_claim_ttl_seconds,
+            expires_at=expires_at,
             created_at=now,
+            device_id=body.device_id,
+            nonce=body.nonce,
+            public_key=body.public_key,
+            identity_version=body.identity_version,
         )
-        binding = _try_auto_bind(mac, user_id, body.force, now)
+        try:
+            binding = _try_auto_bind(mac, user_id, body.force, now)
+        except BindStateError as exc:
+            raise _bind_error(exc) from None
         if binding is not None:
             return {"status": "bound", "binding": store.binding_status_dict(binding)}
         return {"status": "claimed", "expires_at": claim.expires_at}
 
     @app.get("/api/user/bind/claim/status", dependencies=phone_secured)
-    def bind_claim_status(mac: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+    def bind_claim_status(mac: str, device_id: str | None = None, public_key: str | None = None,
+                          nonce: str | None = None, identity_version: int | None = None,
+                          user_id: str = Depends(user_dep)) -> dict[str, Any]:
         """返回当前用户对某台设备的一次扫码认领进度。
 
         小程序在设备重启、切回家庭 Wi‑Fi 的窗口内轮询此接口；不回显
@@ -1353,15 +1498,36 @@ def create_app() -> FastAPI:
             normalized = normalize_mac(mac)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        binding = store.get_binding_for_user(user_id)
-        if binding is not None and binding.device_mac == normalized:
-            return {"status": "bound", "binding": store.binding_status_dict(binding)}
         now = time.time()
+        identity = None
+        if any(value is not None for value in (device_id, public_key, nonce, identity_version)):
+            try:
+                identity = parse_identity(device_id=device_id, public_key=public_key,
+                                          nonce=nonce, identity_version=identity_version)
+            except DeviceIdentityError as exc:
+                raise _bind_error(BindStateError(str(exc))) from None
+            binding = store.get_completed_identity_binding(identity, mac=normalized, user_id=user_id)
+            if binding:
+                return {"status": "bound", "binding": store.binding_status_dict(binding)}
         claim = store.get_bind_claim(normalized, now=now)
+        if claim is not None and claim.user_id == user_id:
+            if identity is None and claim.device_id is not None:
+                raise _bind_error(BindStateError("请重新扫描设备二维码"))
+            if identity and (claim.device_id, claim.public_key, claim.nonce, claim.identity_version) != (
+                identity.device_id, identity.public_key, identity.nonce, identity.identity_version
+            ):
+                return {"status": "expired"}
+            try:
+                matched = _try_auto_bind(normalized, user_id, claim.force, now)
+            except BindStateError as exc:
+                raise _bind_error(exc) from None
+            if matched is not None:
+                return {"status": "bound", "binding": store.binding_status_dict(matched)}
+            return {"status": "claimed", "expires_at": claim.expires_at}
         if claim is None:
             # 认领可能已被 announce 消费；再次检查 MAC 归属以保持幂等。
-            if store.get_user_id_for_mac(normalized) == user_id:
-                binding = store.get_binding_for_user(user_id)
+            if identity is None and store.get_device_identity(normalized) is None and store.get_user_id_for_mac(normalized) == user_id:
+                binding = store.get_binding_for_mac(normalized)
                 return {"status": "bound", "binding": store.binding_status_dict(binding)}
             return {"status": "expired"}
         if claim.user_id != user_id:
@@ -1374,16 +1540,13 @@ def create_app() -> FastAPI:
         binding = store.get_binding_for_user(user_id)
         if body is not None and body.device_mac:
             try:
-                target = store.select_binding_for_user(user_id, body.device_mac)
+                target = store.get_binding_for_mac(body.device_mac)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
-            if target is None:
+            if target is None or target.user_id != user_id:
                 raise HTTPException(status_code=404, detail="设备未绑定到当前账号")
-            removed = store.delete_binding_for_mac(target.device_mac)
-            if removed:
-                store.select_binding_for_user(user_id, next((x.device_mac for x in store.list_bindings_for_user(user_id)), target.device_mac))
-        else:
-            removed = store.delete_binding_for_user(user_id)
+            binding = target
+        removed = store.delete_binding_for_mac(binding.device_mac, user_id=user_id) if binding else False
         if not removed:
             raise HTTPException(status_code=404, detail="未绑定设备")
         if binding is not None:
@@ -1459,7 +1622,7 @@ def create_app() -> FastAPI:
         if sku is not None:
             machine = sku
             try:
-                store.set_binding_machine_type(user_id, sku)
+                store.set_binding_machine_type(user_id, sku, device_mac=binding.device_mac)
             except ValueError:
                 pass
         if machine == "nopaper":
@@ -2065,11 +2228,11 @@ def create_app() -> FastAPI:
             gcode_url=gcode_url,
             preview_url=preview_url,
             pages_arg=pages_arg,
-            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc),
+            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc, device_mac=binding.device_mac),
             auto_confirm=True,
         )
         if ok:
-            store.update_binding_last_push(user_id, when=time.time())
+            store.update_binding_last_push(user_id, when=time.time(), device_mac=binding.device_mac)
         _record_portal_usage(
             store,
             event_type="web_send",
@@ -2208,11 +2371,11 @@ def create_app() -> FastAPI:
             device_token_enc=binding.device_token_enc,
             gcode_url=published.gcode_url,
             preview_url=published.preview_url,
-            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc),
+            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc, device_mac=binding.device_mac),
             auto_confirm=True,
         )
         if ok:
-            store.update_binding_last_push(user_id, when=time.time())
+            store.update_binding_last_push(user_id, when=time.time(), device_mac=binding.device_mac)
         _record_portal_usage(
             store,
             event_type="web_saved_send",

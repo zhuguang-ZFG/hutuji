@@ -1,5 +1,7 @@
 # 呼图云 draw-portal：买家绑机 + 网页传图（设计稿）
 
+> 2026-09-12：本文保留一期历史设计；扫码身份、一次扫码恢复和一账号多机部分由 [device-identity-rollout.md](device-identity-rollout.md) 与 `../protocol.md` §10.4.2–4 supersede。旧「一用户一设备」不能用于约束新实现，部署与实测只看 `../release-readiness.md`。
+
 > 状态：**P0 已上线（阿里云 2026-08-29）**；契约正文：`docs/protocol.md` §10.4（DRAW-BIND schema v1）。  
 > 契约正文：`docs/protocol.md` §10.4（DRAW-BIND schema v1）。  
 > 与 kb-admin（售后 FAQ 运维后台）**分产品面**；draw-portal 须完整用户体系。

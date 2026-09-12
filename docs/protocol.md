@@ -674,6 +674,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 |----|------|
 | 会话 | `wx.login` → `/api/auth/wx-login` 仍可建会话（小程序 x-session / 网页 cookie）；邮箱注册验证同前 |
 | 小程序退出/重登 | 退出清 token、会话标记与用户/手机号态，置 `logged_out` 阻止静默重登；显式重登才清此标记。每轮登录及退出递增会话代次，并发 `ensureSession` 共用一轮请求；旧 `wx.login`、换会话和 `/me` 的成功/失败回包均失效。请求/上传的 401 只可清除发起时所属的当前 token 与代次，不能清掉后续登录（同秒重签 token 相同也须隔离） |
+| 配网授权恢复（2026-09-12） | 手机号复查同样校验会话代次；配网/绑定页再叠加页面代次，重扫、卸载与退出后的回包/定时器不得写用户态或跳转。`ensureSession()` 会同步递增登录代次，页面须在调用后捕获它；授权在途标记也按页面代次持有，旧请求收尾不能清掉新请求 |
 | 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、`/api/draw/write`、`/api/draw/write/ai`、`/api/draw/teach`、文字生图、`send`/saved、`/api/device/control` |
 | 放行 | `/api/auth/me`、`wx-phone`、`bind-phone`（仅非微信邮箱账号补绑 11 位）、`wx-profile`/`wx-avatar`、登录注册登出 |
 | 错误 | 产品面无号 → **403**，`detail={"code":"phone_required","message":"…"}`（稳定码供小程序统一跳「我的」） |
@@ -685,7 +686,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 组件 | 职责 |
 |------|------|
-| draw-portal（阿里云，`/draw-upload/`） | 买家账号、绑机、上传、**保存预览**、按用户 token 推设备 |
+| draw-portal（阿里云，`/draw-upload/`） | 买家账号、多设备绑定、上传、**保存预览**、按用户拥有的目标设备 token 推送 |
 | MCP `output/` + `/files/` | 短时 capability URL（默认 TTL 600s）；**已保存预览**须复制到用户域存储，不得仅 bookmark 公网 URL |
 | S3 固件 | QR 绑机 UI + `bind/announce`；出图仍 `hutuji.draw` → 哑管道 |
 | 小智官方云 | `/messaging/device/tools/call`，**每设备**一个 messaging token |
@@ -693,10 +694,16 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 #### 10.4.2 QR 与 bind_code
 
-- 设备本地维护动作进入「绑定呼图账号」→ 生成 **6～8 位** `bind_code`，**TTL 10 分钟**，屏显 QR + 大字码。
-- QR 载荷：`https://hutuji.donglicao.com/draw-upload/bind?c=<bind_code>`（HTTPS）。
-- `bind_code` 单次消费；过期作废。
-- 设备配网 QR（xiaozhi `5431a15` 起 URL 形态，与绑机码同族）：`https://hutuji.donglicao.com/draw-upload/wifi?s=<urlencode(AP SSID)>`。消费双通道：① 微信「扫一扫」经 mp 后台「扫普通链接二维码打开小程序」规则带 `s` 参数拉起配网页（`wifi.js onLoad(options.s)`，weapp 0.1.7 起消费）；② 小程序内「扫屏幕配网码」`wx.scanCode` 解析同一形态（weapp 0.1.7 起；旧固件 `WIFI:T:nopass;S:<ssid>;;` 与纯 SSID 形态继续兼容）。5431a15 只改固件未同步小程序内解析属回归，0.1.7 收口。**2026-09-08 起 QR 追加 `&m=<urlencode(整机 MAC)>`**（冒号编 `%3A`）作为「用户扫到这张屏显码」的近场证明，供一次扫码合一自动绑定（见 §10.4.4「一次扫码合一」）；小程序 0.1.8 起 `onLoad(options.m)` 与 `onScanAp` 双通道消费，`m` 缺失的旧码自动回落手动绑定。
+**2026-09-12 identity v2 supersede 仅凭 MAC 撮合新设备的旧口径**。版本只属于 DRAW-BIND 身份扩展，板间 Telnet 仍 v0.5；源码/本地测试与生产、手机实测状态分开看 `release-readiness.md`。
+
+- 设备本地进入配网或「绑定呼图账号」时生成一个持久化会话：**6～8 位** `bind_code` + 16 字节随机 `nonce`。服务端挑战窗口至多 **10 分钟**；短码和 nonce 单次消费，重试不延长窗口。
+- 新绑定码：`https://hutuji.donglicao.com/draw-upload/bind?c=<code>&m=<MAC>&v=2&d=<device_id>&k=<public_key>&n=<nonce>`；新配网码将 `bind?c=<code>` 换为 `wifi?s=<AP SSID>`，其余字段相同。各值独立 URL 编码。
+- S3 在 NVS `hutuji_identity` 保持独立 P-256 私钥；`public_key` 是 65 字节 SEC1 非压缩点，`device_id` 是公钥 SHA-256 前 16 字节的小写十六进制。公钥/nonce 均为无填充 canonical base64url。私钥不出设备；普通换网不换密钥，完成只清会话。
+- 扫普通链接 `options.q`（含整体 URL 编码）、直接参数和小程序内 `wx.scanCode` 共用 `bind_identity.js`，按键解析、不依赖参数顺序；重复键、部分身份字段和未知版本拒绝。新扫码整体替换旧记录，手输/旧码必须清除旧 MAC 与 nonce。
+- 旧 `bind?c=...`、`wifi?s=...&m=...`、只含 `s`、`WIFI:T:nopass;S:...;;` 和纯 SSID 继续解析；无 MAC 只能回落手动短码。**MAC 本身不是设备身份证明**；旧版兼容是否允许由 §10.4.3 决定。
+- 二维码/阶段可本地保存最多 10 分钟用于授权返回；重复保存不续期。Wi-Fi 密码只在当前页面内存，成功或卸载后清空，不写 storage、URL 或日志。
+
+算法依据、NVS 失败与擦除后的恢复边界见 `design/device-identity-rollout.md`；不宣称软件密钥具备厂商证书链或抗物理提取能力。
 
 #### 10.4.3 设备 announce（S3 → draw-portal）
 
@@ -708,9 +715,14 @@ Content-Type: application/json
 ```
 
 - 传输仅 HTTPS；日志**禁止**打印 `device_token` 与完整 `bind_code`（可记 mac + 结果）。
-- 服务端写入短期 `bind_sessions`；限速按 MAC + IP。
+- 上例是旧版请求。identity v2 先 `POST /api/device/bind/challenge`，提交 `mac/bind_code/device_id/public_key/nonce/identity_version=2`，取得随机 `challenge` 与服务端 `expires_at`；同一 nonce 重试返回同一挑战，不续期。新挑战按 MAC 或请求 IP 的 5 分钟窗口最多 20 个，重复获取不重复扣额；不能因清理 nonce 台账而复活已用证明。
+- 新 announce 另带上述身份字段及 `challenge/signature`；ECDSA P-256/SHA-256 签名为 64 字节大端 `r||s` 的 canonical base64url，签 UTF-8 文本 `hutuji-bind-v2|device_id|nonce|challenge|bind_code|mac|plotter_sku|sha256(device_token)`。MAC 小写带冒号、码大写、token 去首尾空白，token 摘要为小写十六进制。签名覆盖机型和 token，不得替换后复用。
+- 验签与挑战关联通过后才写 `bind_sessions`；**成功绑定时**才登记 MAC/公钥身份。部分字段、未知版本、篡改、错误挑战拒绝，不能匿名 challenge/announce 抢占 MAC 身份。已登记身份的 MAC 即使兼容模式也必须验签。
 - **token 真值（2026-08-29 HIL）**：小智 `/messaging/device/tools/call` 须 **messaging JWT**（控制台「主题配置 / assets-generator」URL 的 `token=` 参数，`purpose=messaging`）。固件 announce 当前仍可能上报 NVS `websocket.token`（WSS 连接用，**≠ messaging JWT**）→ 绑定后 `hutuji.status` 探活 401。**处置（2026-09-08 起，量产口径）**：`_finalize_binding` 探活失败即现场铸新（控制台 `POST /agents/generate-messaging-token {macAddress}`；控制台 JWT 从 portal 进程 env `DRAW_PORTAL_XIAOZHI_TOKEN` 读，`refresh-xiaozhi-token.sh` 已互联写入 draw-portal.env 并重启 portal——旧路径「等推送 401 再自愈」使用户第一单必失败，且自愈曾长期读 root:root 600 的 kb-admin.env、被 hutuji 用户进程级拒读而在生产从未成功）；铸新失败按原样落绑定。**推送/控制自愈触发面 = 401/403/404**（2026-09-08 扩：整片刷机擦 NVS 会重生设备 client UUID，旧 messaging token 指向失效 clientId → `404 Device not online`，重铸取注册表当前 clientId；真离线重试仍败不误报）。complete 时已有同 MAC 且探活正常的旧 token 仍保留（防重绑覆盖）。长期：固件 `ReadDeviceToken()` 优先 `messaging.token`、OTA 解析 `messaging` 段（xiaozhi 工作树未提交）。主题配置重签 token 后须更新绑定表。
-- 响应 2026-09-08 起新增 `"bound": bool`：该 MAC 已绑定（含本次 announce 触发认领撮合成功）时为 true，固件无头轮询据此停止并屏显「已绑定呼图账号」；老固件忽略多余字段，向后兼容。
+- **2026-09-12 token 就绪闸 supersede 新版的「铸新失败也落绑定」**：签名流允许 token 为空，由服务端自动铸造；复用历史正常 token 和新铸 token 都须实际探活。尚不可调用时回 **503**、`detail.code=binding_pending`，保留短码/nonce/原绑定供自动重试；不能把历史 `token_probe_ok` 或「拿到 token 字符串」当作当前在线。旧版 unsigned 流保留原兼容行为。控制台 JWT 仍是服务端依赖，由现有续期机制维护，用户不复制 token。
+- `bound:true` 对签名流仅表示**该 nonce 对应的绑定事务**已完成，不能因为同 MAC 曾绑定而提前停轮询。消费后的重复签名可恢复丢失的成功响应，但解绑、转让或后续重绑后不能用旧证明恢复绑定。
+- 配置：`DRAW_PORTAL_DEVICE_IDENTITY_REQUIRED=0` 默认只兼容尚未登记身份的旧设备；`=1` 拒绝旧版绑定。`DRAW_PORTAL_DEVICE_IDENTITY_NONCE_TTL` 默认 600 秒、限在 60～600 秒。先部署兼容服务，再小程序与 S3，手机/设备实测后才按批次启用强制模式。
+- 三板共用手动/无头 worker，网络连接与激活回调恢复 NVS 会话；重启/切网不另造 nonce。请求、worker 与 UI 回调按 generation 隔离，停止只通知 worker 正常退出，不在 HTTP/NVS 中外部删任务。首 12 轮间隔 5 秒，随后 30 秒，听/说期间让路；收到当前证明的成功才清会话。
 
 #### 10.4.4 用户 complete（浏览器 → draw-portal，须登录）
 
@@ -722,10 +734,26 @@ Cookie: <session>
 ```
 
 - 匹配未消费的 announce → 建立 `user_id` ↔ `device_mac` ↔ `device_token`（**加密存储**）。
-- 一期：**一用户一台设备**。
+- **2026-09-12 supersede 一用户一台设备**：一账号可多台、每台只有一个当前所有者。`user_device_bindings` 是主表（MAC 唯一），`users.active_device_mac` 只选默认控制目标；`device_bindings` 保留当前设备的旧客户端镜像。旧库先补列再按列名回填，重复迁移不覆盖主表；遗留镜像首次选择须先升入主表，冲突时不能覆盖主表所有权。
 - 可选：用控制台 JWT 校验 `mac` 已在 agent 设备列表（与 `/register` 激活一致）。
 
-**一次扫码合一（claim 自动绑定，2026-09-08 定案；ESP RainMaker「配网会话内交换身份」/ Tuya 扫码即绑同族）**：用户扫配网 QR（`m=<MAC>` 在场证明）→ 小程序配网成功后 `POST /draw-upload/api/user/bind/claim`（须登录）`{"mac":"aa:bb:...","force":false}` 写入 `bind_claims`（MAC 主键，TTL 默认 1800s，`DRAW_PORTAL_BIND_CLAIM_TTL_SECONDS`；窗口放宽是因设备重启+激活重试环最长 ~10 分钟才 announce）。设备侧每次开机激活完成事件起无头 announce 轮（5s×120，仅 waveshare/freenove 编译面，不屏显 QR）；announce 检出同 MAC 未过期认领即消费自身会话完成绑定（usage 事件 `bind_auto_complete`，与 complete 共用 `_finalize_binding` 完成路径），claim 先到 announce 后到为常态时序；announce 先到则 claim 当场撮合回 `status:"bound"`。跨账号冲突与 complete 同口径：409 + `force:true` 确认换绑（在场证据=扫到屏显配网码）。三端任一缺失（旧固件 QR 无 `m`、用户未登录、旧小程序不消费 `m`）自动回落抽屉输码 complete 路径，该路径永久保留。
+**一次扫码合一（2026-09-12 更新，旧 MAC-only 路径仅兼容未登记身份设备）**：扫码 → 先完成登录/手机号闸并保留扫码上下文 → 连接设备 AP → TCP HTTP `/scan` 选家网、`/submit` 输入一次密码 → 自动重连家网 → `POST /api/user/bind/claim`。签名流 claim 带 `mac/force/device_id/public_key/nonce/identity_version`，与 announce 逐项匹配；两者任意先到均可完成。身份 claim 窗口不超过挑战窗口，旧版仍用 `DRAW_PORTAL_BIND_CLAIM_TTL_SECONDS` 默认 1800 秒；重复 claim 不续期。短码消费、nonce 消费、归属转移和身份登记同一 SQLite 事务，失败回滚保留原绑定。
+
+小程序 HTTP 的 Content-Length 按 UTF-8 **字节**算；ArrayBuffer 先拼字节再解 JSON，支持定长与 chunked 帧，响应总量上限 64KiB、关闭/超时/取消只结算一次。AP 断连只代表提交结果不确定，**不代表配网成功**。claim 网络/5xx/429 最多额外重试 5 次；状态轮询每 5 秒、至多约 5 分钟并受服务端到期时间约束。系统 Wi-Fi 权限或切网受限时给出系统设置入口；不承诺绕过 iOS/Android 权限确认。
+
+| API / 错误 | 契约 |
+|---|---|
+| `GET /api/user/bind/claim/status` | query 与 claim 的身份字段一致；仅返回本用户本次证明的 `claimed/bound/expired`，不拿账号另一台设备冒充成功，不暴露他人信息 |
+| `POST /api/user/bind/complete` | 手动短码入口保留；新二维码同时传完整身份字段，校验与已验签 session 一致；页面只对 `binding_conflict` 弹换绑确认 |
+| `409 binding_conflict` | 其他账号已占有，**新会话证明**加 `force:true` 才能转让；旧已消费证明不允许转让 |
+| `409 identity_mismatch` | 二维码串台、身份重置归属不符等；不得自动强制换绑。NVS 全擦新密钥由原所有者恢复；原所有者解除绑定后可由新持有人重新登记，旧密钥随替换退役 |
+| `410 binding_expired` | nonce 过期或已消费且不能恢复原成功；重新打开设备配网/绑定页再扫码 |
+| `503 binding_pending` | 连接凭据尚未真正可调用；自动重试，不消费证明、不假报成功 |
+| `GET /api/user/devices` | 当前账号设备列表，返回完整 MAC 与 `active`，不返回 token；`/api/auth/me.binding` 继续为脱敏当前设备摘要 |
+| `POST /api/user/devices/select` | `{device_mac}`，只可选择本人设备，否则 404；切换不换绑 |
+| `POST /api/user/bind/unbind` | 可选 `{device_mac}`，缺省解绑当前设备；事务内校验所有者，修复剩余设备的当前选择，旧账号迟到的解绑不得删除新所有者的设备 |
+
+token、探活、机型和最后推送时间的异步回写必须绑定发起时捕获的 **user_id + MAC**，不能在回调时重新取当前选择。部署必须整批带上 Store/model/身份模块与调用方，不能再次出现只发布接口而漏掉 Store 方法的跨版本半更新。详细迁移/回滚及测试矩阵见 `design/device-identity-rollout.md`。
 
 #### 10.4.5 网页传图与保存预览
 
@@ -743,7 +771,7 @@ Cookie: <session>
 #### 10.4.6 与异步推送的关系
 
 - 语音链路仍走 MCP `hutuji_draw` + 全局或 per-deployment 设备 token（现网 `HUTUJI_XIAOZHI_DEVICE_TOKEN`）。
-- draw-portal 推送**必须**用绑定表内 **per-user device_token**；不得误用全局 token 推到他人设备。
+- draw-portal 推送**必须**用绑定表内 **per-user + per-device token**；不得误用全局 token，或把切换后的设备 token 回写到另一台。
 - 两入口可并存；推送 API 相同（`hutuji.draw` 双参数）。
 
 #### 10.4.7 明确不做（本面）
@@ -751,7 +779,7 @@ Cookie: <session>
 - draw-portal 不生成/不编辑 G-code 规则（限幅/TTL 仍 §5）。
 - 不经 draw-portal 向浏览器下发 device_token。
 - 不用 BLE/USB 替代绑机 QR。
-- 一期不做一账号多机、一机多账号。
+- 不做一机同时多账号共享；一账号多机已由 2026-09-12 用户授权 supersede，见 §10.4.4。
 
 #### 10.4.8 网页文字生图与 MCP `/internal/draw`（2026-08-31 落地）
 

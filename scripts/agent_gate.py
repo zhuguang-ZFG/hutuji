@@ -303,9 +303,40 @@ def _git_head() -> str | None:
         return None
     return out.stdout.strip() or None
 
+
+def _windows_pid_is_alive(pid: int) -> bool:
+    """只读等待进程句柄；Windows 的信号 0 是 Ctrl+C，不能用 os.kill 探活。"""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    # SYNCHRONIZE 只允许等待退出，不申请终止/修改进程的权限。
+    handle = kernel32.OpenProcess(0x00100000, False, pid)
+    if not handle:
+        # ERROR_INVALID_PARAMETER(87) 表示 PID 不存在；拒绝访问或未知错误
+        # 都不能证明已退出，保守保留原门禁的占有标记。
+        return ctypes.get_last_error() != 87
+    try:
+        # 等待 0ms 不阻塞；仅 WAIT_OBJECT_0(0) 证明进程已退出。
+        # WAIT_TIMEOUT(258) 或 WAIT_FAILED 均按仍存活处理。
+        return kernel32.WaitForSingleObject(handle, 0) != 0
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _pid_is_alive(pid: object) -> bool:
-    if not isinstance(pid, int) or pid <= 0:
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
+    if os.name == "nt":
+        # Win32 PID 是 DWORD；拒绝溢出，避免 ctypes 截断后探测另一进程。
+        return pid <= 0xFFFFFFFF and _windows_pid_is_alive(pid)
     try:
         os.kill(pid, 0)
     except PermissionError:

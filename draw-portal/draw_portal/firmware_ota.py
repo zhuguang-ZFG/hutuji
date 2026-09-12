@@ -74,7 +74,7 @@ def _push_healed(
         fresh = mint_messaging_token(api_base=api_base, mac=binding.device_mac)
         if fresh:
             enc = encrypt_token(token_cipher_key, fresh)
-            store.update_binding_token(binding.user_id, device_token_enc=enc)
+            store.update_binding_token(binding.user_id, device_token_enc=enc, device_mac=binding.device_mac)
             if on_token_minted:
                 on_token_minted(enc)
             ok, result = push_tool_call(

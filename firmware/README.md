@@ -3,6 +3,10 @@
 > 补丁本体不在本仓库；位于 `D:/Users/xiaozhi-esp32` fork。本文只记录边界、构建入口和验证状态。  
 > 全项目接手防呆：`../docs/agent-handoff.md`。状态：`../docs/release-readiness.md`。
 
+## 一次扫码身份候选（2026-09-12）
+
+独立 fork 新增 `hutuji_bind_identity.{h,cc}`/`hutuji_bind_identity_core.h`，三板共用 `hutuji_draw_bind` worker；P-256 软件私钥、NVS 持久化 nonce、HTTPS challenge+签名 announce，不要求消费者搬运 token。候选 `hutuji.1.0.11` 已完成 lichuang-dev、Freenove 2.8、Waveshare 3.5 的 SDK 构建，仍未由本批刷入设备或发布 OTA 推荐。字节契约、SDK 来源与限制见 `../docs/design/device-identity-rollout.md`；镜像/日志哈希登记于 `../docs/worktree-inventory.md`。保持 Grbl、Telnet、换纸及 GPIO 不变。
+
 ## 当前链路与契约
 
 - 板型：`lichuang-dev`（立创实战派 ESP32-S3）。
