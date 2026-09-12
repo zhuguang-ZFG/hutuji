@@ -9,25 +9,25 @@
 
 ---
 
-## 2026-09-12 提速批（xy 轴 3 倍）：云端契约 F24000 + 双固件金标（🟡 代码+测试在树；云端部署/固件刷机/机器写入 ☐）
+## 2026-09-12 提速批（xy 轴 3 倍）：云端契约 F24000 + 双固件金标（🟡 已提交 `8dfe00e` + 云端双机部署/生产冒烟/nginx 310s；固件刷机/机器写入 ☐）
 
 | 项 | 说明 |
 |---|---|
 | 授权 | 用户 2026-09-12「写字机需要提速3倍左右太慢了，xy轴运动的」+「继续」；hub `docs/protocol.md` §5 448/469-470 + §6.1 545 |
-| 本仓改动 | mcp `{gcode_gen.py（F24000 契约 + G0 原点/换纸闸危险度先判：Z 混入 > 原点 > 进给失配，旧 F8000 注入仍报「自动换纸」而非低危进给提示）,hutuji_gwrite.toml,grbl_sim.py,arc_fit.py,bitmap_svg.py 注释,paper_risk.py 注释,sim_server.py}` + 测试 7 文件 F 值改钉；`AGENTS.md` 105/157/159 行（计数 1451、test_bitmap_busy 条目）；`deploy/nginx-hutuji.conf` `/draw-upload/` 加 `proxy_read_timeout 310s`（忙批 300s 等待轮询须盖过，未部署） |
+| 本仓改动 | mcp `{gcode_gen.py（F24000 契约 + G0 原点/换纸闸危险度先判：Z 混入 > 原点 > 进给失配，旧 F8000 注入仍报「自动换纸」而非低危进给提示）,hutuji_gwrite.toml,grbl_sim.py,arc_fit.py,bitmap_svg.py 注释,paper_risk.py 注释,sim_server.py}` + 测试 7 文件 F 值改钉；`AGENTS.md` 105/157/159 行（计数 1451、test_bitmap_busy 条目）；`deploy/nginx-hutuji.conf` `/draw-upload/` 加 `proxy_read_timeout 310s`（忙批 300s 等待轮询须盖过；2026-09-12 双机生产侧 120s→310s 已生效，详见 deployment.md 首条） |
 | Grbl_Esp32 脏树 | `Grbl_Esp32/src/Machines/custom_3axis_hr4988.h`：DEFAULT_X/Y_MAX_RATE 12000→**24000**、DEFAULT_X/Y_ACCELERATION 3000→**12000**（+提速注释；Z 不动；G′ 锁拒写故须固件重建，`pio run -e release` 2026-09-12 已构建 `firmware.bin` 1857648B + `firmware_full_0x0.bin`）；既有 `.gitignore`（clangd 行）为用户既有改动原样保留 |
 | xiaozhi 脏树 | `main/boards/lichuang-dev/hutuji_recovery_core.h`（paper 金标 $110/$111 12000→24000）、`hutuji_nopaper_core.h`（nopaper 表同步 24000 + 注释）、`scripts/tests/test_hutuji_nopaper_core.py`（钉 24000）；host 测试 111/111 OK（CXX=`D:/zhugu-home/mingw64/mingw64/bin/g++.exe`；默认 esp-clang 路线本机环境预存在失败，与本批无关，基线对照 git stash 复核） |
 | 拒画窗口 | §6.1：金标改动须 Grbl+S3 同批刷机（任一侧先变= `grbl_settings_mismatch` 拒画，fail-closed 预期）；过渡期云端 F24000 被机上 12000 钳到 200mm/s（1.5×），无错误 |
-| 未验证 | 机器侧 `$RST=$`/`$$` 回读/定时盒形冒烟/双机刷机（后续条目回填） |
+| 未验证 | 机器侧 `$RST=$`/`$$` 回读/定时盒形冒烟/双机刷机（后续条目回填）；S3 1.0.12 已真构建 215 CXX（`releases/vhutuji.1.0.12_lichuang-dev.zip`，`xiaozhi.bin` SHA `ec4b70fc…356764d7`，double `24000.0`×4/`12000.0`×0 取证）待 COM14 刷入 |
 
-## 2026-09-12 忙批（全忙重试 + 429 链路）：代码+测试在树（🟡 未提交；部署随本批合并）
+## 2026-09-12 忙批（全忙重试 + 429 链路）：已提交 `c7a43ed` + 双机部署/生产冒烟（🟡 真实后端全忙触发 ☐）
 
 | 项 | 说明 |
 |---|---|
 | 授权 | 用户 2026-09-12 报「几分钟内连续画就 502 内部错误」后拍板「处理」 |
 | 改动 | mcp `{bitmap_svg.py（忙类判定 `_all_errors_busy`/`_generate_bitmap_uncached` 首 fetch sleep+真重试一次）,server.py（/internal/draw BitmapBusyError→429 固定白话）,draw_queue.py（按类名重建 BitmapBusyError）}` + 新增 `tests/test_bitmap_busy.py` **10 项**；portal `app.py`（429 静默不推）+ `tests/test_generate.py`；weapp `chat.js/index.js`（生成两调用 300s）；protocol §10.4.8 |
 | 本地证据 | `test_bitmap_busy.py` 10 passed；test_generate 14 passed；portal 289 passed；e2e PASS |
-| 未验证 | 生产部署（随本批） |
+| 未验证 | 真实对冲后端全忙场景的生产触发（单测覆盖；on-node 符号在场冒烟过，见 deployment.md 首条） |
 
 ## 2026-09-12 照片精修结构线与几何保真（🟡 已提交 `e9006ea` + 双机部署+生产冒烟；真机纸面 ☐）
 
