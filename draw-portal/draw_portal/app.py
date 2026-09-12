@@ -140,6 +140,14 @@ class XiaopaiSettingBody(BaseModel):
     llm_model: str | None = Field(default=None, max_length=64)
 
 
+class MachineSpeedBody(BaseModel):
+    """写字机空走速度调整（2026-09-12 §10.4.21）：3000-16000 毫米/分钟，
+    范围真值在设备侧（hutuji.speed 工具），portal 只透传。"""
+
+    rate: int
+
+
+
 class XiaopaiBindBody(BaseModel):
     """设备验证码绑定：设备屏幕「设置→验证码」6 位数字。"""
 
@@ -2624,6 +2632,57 @@ def create_app() -> FastAPI:
     # 侧。用户切换只写自己的克隆 agent（首次个性化时 MCP 从基础 agent 整包
     # 克隆人格/KB/MCP/记忆档），设备经验证码绑定后生效；未个性化设备走共享
     # agent 互不影响（用户拍板「不能改所有人的」）。成功才计 usage 限频。
+
+    @app.post("/api/settings/machine-speed", dependencies=phone_secured)
+    def machine_speed_set(
+        body: MachineSpeedBody, user_id: str = Depends(require_phone)
+    ) -> dict[str, Any]:
+        # 写字机速度下放（2026-09-12）：调设备 hutuji.speed 写 $110/$111，
+        # 不落库不持久化；401/403/404 自愈与 _voice_device_tool 同链。
+        from draw_portal.mcp_result import unwrap_tool_text
+        from draw_portal.push import mint_messaging_token
+
+        binding = store.get_binding_for_user(user_id)
+        if binding is None:
+            raise HTTPException(status_code=400, detail="请先绑定丹青")
+        token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
+        ok, result = push_tool_call(
+            api_base=config.xiaozhi_api_base,
+            device_token=token,
+            name="hutuji.speed",
+            arguments={"rate": body.rate},
+            timeout=30,
+        )
+        if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
+            fresh = mint_messaging_token(
+                api_base=config.xiaozhi_api_base, mac=binding.device_mac
+            )
+            if fresh:
+                store.update_binding_token(
+                    user_id,
+                    device_token_enc=encrypt_token(config.token_cipher_key, fresh),
+                    device_mac=binding.device_mac,
+                )
+                ok, result = push_tool_call(
+                    api_base=config.xiaozhi_api_base,
+                    device_token=fresh,
+                    name="hutuji.speed",
+                    arguments={"rate": body.rate},
+                    timeout=30,
+                )
+        if not ok:
+            detail = result if isinstance(result, str) else str(result)
+            raise HTTPException(status_code=502, detail=detail[:120])
+        text = unwrap_tool_text(result)
+        _record_portal_usage(
+            store,
+            event_type="web_machine_speed",
+            user_id=user_id,
+            device_mac=binding.device_mac,
+            detail=str(body.rate),
+            ok=True,
+        )
+        return {"status": "ok", "result": text}
 
     @app.get("/api/settings/xiaopai", dependencies=phone_secured)
     async def xiaopai_settings(user_id: str = Depends(user_dep)) -> dict[str, Any]:

@@ -82,6 +82,26 @@
       <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort}}">停止</button>
     </view>
 
+    <view class="speed-block">
+      <view class="speed-meta">
+        <text class="speed-label">移动速度</text>
+        <text class="speed-val">{{speedRate}} 毫米/分</text>
+      </view>
+      <slider
+        class="speed-slider"
+        min="3000"
+        max="16000"
+        step="500"
+        value="{{speedRate}}"
+        activeColor="#00d1e5"
+        backgroundColor="rgba(255,255,255,0.08)"
+        block-size="22"
+        disabled="{{speedSaving}}"
+        bindchange="onSpeedChange"
+      />
+      <view class="speed-hint">画图和空走都受这个上限限制，数值越大越快；写字机重启后失效</view>
+    </view>
+
     <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
   </block>
 </view>

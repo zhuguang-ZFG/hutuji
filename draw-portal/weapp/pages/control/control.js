@@ -34,6 +34,8 @@ Page({
     elapsedLabel: "",
     etaLabel: "",
     otaLine: "",
+    speedRate: 16000,
+    speedSaving: false,
   },
 
   onShow() {
@@ -281,6 +283,32 @@ Page({
         if (r.confirm) this.fire("hutuji.abort");
       },
     });
+  },
+
+  onSpeedChange(e) {
+    // 拖动即生效：POST /api/settings/machine-speed → 设备 hutuji.speed 写
+    // $110/$111。失败时 slider 会因 value 未变而回弹，无需手动还原。
+    const rate = e.detail.value;
+    if (this.data.speedSaving) return;
+    this.setData({ speedSaving: true });
+    api
+      .request("/api/settings/machine-speed", { method: "POST", data: { rate } })
+      .then((r) => {
+        if (r && r.status === "ok") {
+          this.setData({ speedSaving: false, speedRate: rate });
+          wx.showToast({ title: "已调整", icon: "success" });
+        } else {
+          this.setData({ speedSaving: false });
+          wx.showToast({
+            title: (r && r.detail && r.detail.slice(0, 12)) || "调整失败",
+            icon: "none",
+          });
+        }
+      })
+      .catch(() => {
+        this.setData({ speedSaving: false });
+        wx.showToast({ title: "网络不可用", icon: "none" });
+      });
   },
 
   onGoBind() {

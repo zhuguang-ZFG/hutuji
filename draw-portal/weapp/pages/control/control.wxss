@@ -320,3 +320,35 @@
   background: #00d1e5;
   border-radius: 6rpx;
 }
+
+.speed-block {
+  margin: 24rpx 28rpx 0;
+  padding: 18rpx 22rpx;
+  border-radius: 18rpx;
+  background: #14151f;
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+}
+
+.speed-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8rpx;
+}
+
+.speed-label {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #fff;
+}
+
+.speed-val {
+  font-size: 24rpx;
+  color: #00d1e5;
+}
+
+.speed-hint {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #9aa3b5;
+}
