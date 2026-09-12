@@ -9,6 +9,15 @@
 
 ---
 
+## 2026-09-12 曲库扩容批：fluidsynth 公版旋律 40 首（数据+文档，双机已部署）
+
+| 项 | 说明 |
+|----|------|
+| 授权 | 用户「唱歌不要只限于儿歌」+ ask 选「全量 40 首一次到位」（2026-09-12）；版权红线（现代流行歌不可上）重申 |
+| 内容 | `mcp-server/songs/` 40 ogg + catalog.json 40 条（旧 3 首换装 id 不变）；生成器 `tmp/songs_melodies.py`/`tmp/songs_make.py`/`tmp/render_songs.sh`（工艺脚本不入库维护面，旋律为手写简谱转录） |
+| 服务器运行态（不入库） | 双机 `$HUTUJI_OUTPUT_DIR/songs/` 40 ogg+catalog tar 同批落盘，备份 `/tmp/songs-bak-*`；公网 canon/silent 200、穿越 404 |
+| 未验证 | 真机点播实听（音色/响度/节奏）；曲名语音召回实机 |
+
 ## 2026-09-12 登录事故热修：补 f71d347 隐藏依赖（已提交 `e05b796`，双机已部署）
 
 | 项 | 说明 |

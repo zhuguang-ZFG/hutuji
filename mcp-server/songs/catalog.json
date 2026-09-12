@@ -1,22 +1,244 @@
 {
   "songs": [
     {
-      "id": "twinkle",
-      "title": "小星星",
-      "file": "twinkle.ogg",
-      "duration_seconds": 25.2
-    },
-    {
-      "id": "tigers",
-      "title": "两只老虎",
-      "file": "tigers.ogg",
-      "duration_seconds": 17.0
+      "id": "bee",
+      "title": "小蜜蜂",
+      "file": "bee.ogg",
+      "duration_seconds": 18.7
     },
     {
       "id": "birthday",
       "title": "生日快乐",
       "file": "birthday.ogg",
-      "duration_seconds": 13.4
+      "duration_seconds": 16.4
+    },
+    {
+      "id": "canon",
+      "title": "卡农",
+      "file": "canon.ogg",
+      "duration_seconds": 19.7
+    },
+    {
+      "id": "danube",
+      "title": "蓝色多瑙河",
+      "file": "danube.ogg",
+      "duration_seconds": 22.5
+    },
+    {
+      "id": "farewell",
+      "title": "送别",
+      "file": "farewell.ogg",
+      "duration_seconds": 27.1
+    },
+    {
+      "id": "furelise",
+      "title": "致爱丽丝",
+      "file": "furelise.ogg",
+      "duration_seconds": 12.1
+    },
+    {
+      "id": "gavotte",
+      "title": "加沃特舞曲",
+      "file": "gavotte.ogg",
+      "duration_seconds": 24.3
+    },
+    {
+      "id": "gymnopedie",
+      "title": "吉诺佩蒂一号",
+      "file": "gymnopedie.ogg",
+      "duration_seconds": 39.2
+    },
+    {
+      "id": "habanera",
+      "title": "哈巴涅拉",
+      "file": "habanera.ogg",
+      "duration_seconds": 21.6
+    },
+    {
+      "id": "hungarian5",
+      "title": "匈牙利舞曲五号",
+      "file": "hungarian5.ogg",
+      "duration_seconds": 19.7
+    },
+    {
+      "id": "jasmine",
+      "title": "茉莉花",
+      "file": "jasmine.ogg",
+      "duration_seconds": 25.4
+    },
+    {
+      "id": "jingle",
+      "title": "铃儿响叮当",
+      "file": "jingle.ogg",
+      "duration_seconds": 21.6
+    },
+    {
+      "id": "kangding",
+      "title": "康定情歌",
+      "file": "kangding.ogg",
+      "duration_seconds": 30.7
+    },
+    {
+      "id": "lambs",
+      "title": "玛丽有只小羊羔",
+      "file": "lambs.ogg",
+      "duration_seconds": 19.9
+    },
+    {
+      "id": "littleswans",
+      "title": "四小天鹅",
+      "file": "littleswans.ogg",
+      "duration_seconds": 8.1
+    },
+    {
+      "id": "london",
+      "title": "伦敦桥",
+      "file": "london.ogg",
+      "duration_seconds": 24.9
+    },
+    {
+      "id": "lullaby",
+      "title": "摇篮曲",
+      "file": "lullaby.ogg",
+      "duration_seconds": 31.7
+    },
+    {
+      "id": "mengjiang",
+      "title": "孟姜女",
+      "file": "mengjiang.ogg",
+      "duration_seconds": 24.1
+    },
+    {
+      "id": "minuetg",
+      "title": "小步舞曲",
+      "file": "minuetg.ogg",
+      "duration_seconds": 21.6
+    },
+    {
+      "id": "moonlight",
+      "title": "月光曲",
+      "file": "moonlight.ogg",
+      "duration_seconds": 24.3
+    },
+    {
+      "id": "mountainking",
+      "title": "山魔王的大厅",
+      "file": "mountainking.ogg",
+      "duration_seconds": 21.6
+    },
+    {
+      "id": "newworld",
+      "title": "念故乡",
+      "file": "newworld.ogg",
+      "duration_seconds": 29.9
+    },
+    {
+      "id": "newyear",
+      "title": "新年好",
+      "file": "newyear.ogg",
+      "duration_seconds": 24.9
+    },
+    {
+      "id": "odetojoy",
+      "title": "欢乐颂",
+      "file": "odetojoy.ogg",
+      "duration_seconds": 24.9
+    },
+    {
+      "id": "paint",
+      "title": "粉刷匠",
+      "file": "paint.ogg",
+      "duration_seconds": 14.1
+    },
+    {
+      "id": "rowboat",
+      "title": "划船歌",
+      "file": "rowboat.ogg",
+      "duration_seconds": 21.1
+    },
+    {
+      "id": "serenade",
+      "title": "小夜曲",
+      "file": "serenade.ogg",
+      "duration_seconds": 28.8
+    },
+    {
+      "id": "silent",
+      "title": "平安夜",
+      "file": "silent.ogg",
+      "duration_seconds": 45.3
+    },
+    {
+      "id": "spring",
+      "title": "四季·春",
+      "file": "spring.ogg",
+      "duration_seconds": 22.7
+    },
+    {
+      "id": "swanlake",
+      "title": "天鹅湖",
+      "file": "swanlake.ogg",
+      "duration_seconds": 20.6
+    },
+    {
+      "id": "tantan",
+      "title": "圣诞树",
+      "file": "tantan.ogg",
+      "duration_seconds": 24.1
+    },
+    {
+      "id": "tigers",
+      "title": "两只老虎",
+      "file": "tigers.ogg",
+      "duration_seconds": 15.1
+    },
+    {
+      "id": "toreador",
+      "title": "斗牛士之歌",
+      "file": "toreador.ogg",
+      "duration_seconds": 21.1
+    },
+    {
+      "id": "turkish",
+      "title": "土耳其进行曲",
+      "file": "turkish.ogg",
+      "duration_seconds": 13.8
+    },
+    {
+      "id": "twinkle",
+      "title": "小星星",
+      "file": "twinkle.ogg",
+      "duration_seconds": 34.0
+    },
+    {
+      "id": "williamtell",
+      "title": "威廉退尔序曲",
+      "file": "williamtell.ogg",
+      "duration_seconds": 14.9
+    },
+    {
+      "id": "wuxijing",
+      "title": "无锡景",
+      "file": "wuxijing.ogg",
+      "duration_seconds": 24.1
+    },
+    {
+      "id": "xiuhebao",
+      "title": "绣荷包",
+      "file": "xiuhebao.ogg",
+      "duration_seconds": 22.3
+    },
+    {
+      "id": "yimeng",
+      "title": "沂蒙山小调",
+      "file": "yimeng.ogg",
+      "duration_seconds": 22.5
+    },
+    {
+      "id": "zizhu",
+      "title": "紫竹调",
+      "file": "zizhu.ogg",
+      "duration_seconds": 22.5
     }
   ]
 }
