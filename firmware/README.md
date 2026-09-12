@@ -3,6 +3,10 @@
 > 补丁本体不在本仓库；位于 `D:/Users/xiaozhi-esp32` fork。本文只记录边界、构建入口和验证状态。  
 > 全项目接手防呆：`../docs/agent-handoff.md`。状态：`../docs/release-readiness.md`。
 
+## 1.0.14 评审修复候选（2026-09-13）
+
+三板共用后台调速与可查询终态，只有无换纸量产机可调；奎享观察端校验已知目标、Seq 与连续新 Idle。174 项 host 回归通过，立创/Freenove/Waveshare 三板各真实编译 215 个 CXX 单元通过。量产目标为 COM15 / MAC `b8:1f:3f:c4:58:2c` 的 Freenove 2.8，镜像 SHA `499bcd44…a09568b`；本段仅记候选，板上部署证据由 `release-readiness.md` 登记。Grbl 换纸分支恢复独立 build 标识 `20211103`，不得刷到量产 `20260910` 机型。
+
 ## 一次扫码身份候选（2026-09-12）
 
 独立 fork 新增 `hutuji_bind_identity.{h,cc}`/`hutuji_bind_identity_core.h`，三板共用 `hutuji_draw_bind` worker；P-256 软件私钥、NVS 持久化 nonce、HTTPS challenge+签名 announce，不要求消费者搬运 token。候选 `hutuji.1.0.11` 已完成 lichuang-dev、Freenove 2.8、Waveshare 3.5 的 SDK 构建，仍未由本批刷入设备或发布 OTA 推荐。字节契约、SDK 来源与限制见 `../docs/design/device-identity-rollout.md`；镜像/日志哈希登记于 `../docs/worktree-inventory.md`。保持 Grbl、Telnet、换纸及 GPIO 不变。

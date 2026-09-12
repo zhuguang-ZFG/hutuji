@@ -84,7 +84,7 @@
 
     <view class="speed-block">
       <view class="speed-meta">
-        <text class="speed-label">移动速度</text>
+        <text class="speed-label">设置移动速度</text>
         <text class="speed-val">{{speedRate}} 毫米/分</text>
       </view>
       <slider
@@ -96,10 +96,10 @@
         activeColor="#00d1e5"
         backgroundColor="rgba(255,255,255,0.08)"
         block-size="22"
-        disabled="{{speedSaving}}"
+        disabled="{{speedSaving || !!busyAction || !canSetSpeed}}"
         bindchange="onSpeedChange"
       />
-      <view class="speed-hint">画图和空走都受这个上限限制，数值越大越快；写字机重启后失效</view>
+      <view class="speed-hint">画图和空走都受这个上限限制，数值越大越快；调整后重启仍保留，恢复出厂会重置</view>
     </view>
 
     <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>

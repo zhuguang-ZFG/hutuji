@@ -2,6 +2,8 @@
 
 语音说一句话，云端 AI 生成绘图内容，写字机自动画出来、自动换纸。
 
+2026-09-13 三仓评审修复：调速改为后台事务并等待两轴确认，普通重启保留速度；奎享完成只接受目标机器的连续新广播；云端主备以 `HUTUJI_BRIDGE_ACTIVE` 保持单 bridge。问题、回归与交付证据见 [`评审记录`](docs/design/crossrepo-review-20260913.md)，当前部署状态仍以 release-readiness 为准。
+
 近期评审修复涉及预览资源边界、波纹白区保护、登录回包隔离、字体选择、重试日限与 Tunnel 固件回源。行为契约见 [`docs/protocol.md`](docs/protocol.md)，本地验证及部署状态见 [`docs/release-readiness.md`](docs/release-readiness.md)；小程序回归命令见 [`draw-portal/README.md`](draw-portal/README.md)。
 
 2026-09-12 一次扫码绑定扩展：S3 持久化 P-256 身份与单次 nonce，小程序自动切网/认领/恢复，portal 按真实连接就绪完成绑定并支持一账号多机；新旧版本兼容及回滚边界见 [`docs/design/device-identity-rollout.md`](docs/design/device-identity-rollout.md)。固件源码仍只在独立 fork，本地软件验证不代表生产或手机验收。

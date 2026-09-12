@@ -54,9 +54,9 @@
 
 | 位置 | 行为 |
 |------|------|
-| `hutuji_pipe.cc:791-802` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
-| `hutuji_job.cc:3380-3393` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`hutuji_job.cc:133`） |
-| `hutuji_job.cc:3518-3529` | 窗口化普通行分支：`Failed/Deferred` 先发 `!`、清窗并标记 Quiesced（调用点 `hutuji_job.cc:3644-3650`），退出流循环后同步受控 reset，再发布失败终态；不再只改软件状态 |
+| `hutuji_pipe.cc:795-806` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
+| `hutuji_job.cc:3483-3496` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`hutuji_job.cc:135`） |
+| `hutuji_job.cc:3621-3632` | 窗口化普通行分支：`Failed/Deferred` 先发 `!`、清窗并标记 Quiesced（调用点 `hutuji_job.cc:3747-3753`），退出流循环后同步受控 reset，再发布失败终态；不再只改软件状态 |
 
 **由此证伪一条假设**（我今晚提出后自行推翻，记在此处防止重走）：「run1 的 A/B 对调 = error:8 触发重发把 A 排到 B 之后」。当前窗口化分支收到 `error:8` 会先物理停机并受控 reset，而不是重发；run1 是完整走完的，且日志无 error。已同步记入 `docs/troubleshooting.md` 的证伪表。
 
@@ -65,7 +65,7 @@
 | 项 | 奎享 | 我方 | 取舍理由 |
 |----|------|------|----------|
 | 断线恢复 | `pollLast()` 挪到队尾（缺陷） | 断连后从第 1 行整体重画 | 正确性优先；重画代价是废一张纸，错序代价是废一张纸**且不自知** |
-| 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:3420-3421`） |
+| 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:3523-3524`） |
 | 出图收尾 | `machine/grbl/a.java:298-301` `b()` = `G90G0 X0Y0` 回原点（字面量在 `:300`） | 文件只抬笔；S3 页尾旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，2026-08-14 归位决策）+ `M30` 换纸 | 本机固件把 `G0 X0Y0` 判为换纸触发，见 `docs/protocol.md` §5 |
 | stop/reset | 普通 stop 队尾追加抬笔+回原点；独立 reset2 才由 `machine/grbl/a.java:365-373` 发 `0x18` | 发 `!` 后按 Hold/Idle/任务状态处理 | 奎享 stop 非实时，reset2 又无安全 Hold；均不对齐（findings/20） |
 | 笔控落点 | `GrblSettings.java` 默认 `zOn=2.0 / zOff=0.0 / zSpeed=3000` | 实测 `zOn=5.0 / zOff=0.0 / F10000` | **结构对齐、数值按本机实测**；奎享默认值是出厂缺省，不是本机可用值 |

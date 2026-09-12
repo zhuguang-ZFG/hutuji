@@ -4,6 +4,11 @@
 > 真实密钥、密码、`MCP_ENDPOINT` **禁止**写入本目录已跟踪文件。  
 > 规范：`../docs/deployment.md`；值守：`../docs/operations.md`。
 
+`bridge.env` 必须显式设置 `HUTUJI_BRIDGE_ACTIVE`：阿里云主节点为 `1`，京东云热备为 `0`。
+unit 默认 `0`，通过 `ExecCondition` 拦住热备启动；仅 `disable` 无法阻止 `PartOf` 在 MCP 重启时拉起 bridge。
+主备切换须先停旧主并设为 `0`，确认其 MainPID 为 `0` 后再将新主设为 `1` 并启动。
+部署 unit 后执行 `daemon-reload`，再重启 MCP；验收同时核对主节点双连接健康与热备 `inactive`、MainPID=`0`。
+
 ## 状态
 
 | 项 | 状态 |
@@ -56,7 +61,7 @@
 | `install-from-repo.sh` | 代码到位后：venv + systemd + nginx 站点 |
 | `preflight.sh` | 本机冒烟（HTTPS 前缀、loopback、活动 nginx、下载长度/CRC32、未公网听 8300） |
 | `env.mcp.example` | → `/etc/hutuji/mcp.env`（LLM + `/files` 相关） |
-| `env.bridge.example` | → `/etc/hutuji/bridge.env`（仅 `MCP_ENDPOINT`） |
+| `env.bridge.example` | → `/etc/hutuji/bridge.env`（`MCP_ENDPOINT`、本机 MCP URL 与主备启用开关） |
 | `hutuji-mcp.service` | uvicorn 固定 `127.0.0.1:8300` |
 | `hutuji-cloud-bridge.service` | 小智云 WSS ↔ 本机 `/mcp` |
 | `hutuji-curated-prep.service` | 离线精选 SVG 灌库（写 `/opt/hutuji/curated`；暗部署期与出图路径解耦） |

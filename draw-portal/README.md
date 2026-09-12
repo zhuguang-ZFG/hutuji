@@ -22,7 +22,7 @@ $env:PYTHONPATH="D:\Users\hutuji\mcp-server"
 $env:PYTHONIOENCODING="utf-8"
 $env:PYTHONUTF8="1"
 D:\Users\hutuji\mcp-server\.venv\Scripts\python.exe -m pytest -q
-node --test tests/weapp/session.test.js tests/weapp/font_picker.test.js tests/weapp/wifi.test.js
+node --test tests/weapp/*.test.js
 ```
 
 小程序回归使用 Node 内置测试运行器和 wx 桩，覆盖登录/退出回包竞态、默认字体、扫码身份、UTF-8 TCP 分帧及切网/重扫/卸载恢复；测试放在 `tests/weapp/`，不进入小程序包。`test_device_identity.py` 用真实 P-256 签名验证正反例、挑战消费和 token 就绪；`test_device_bindings.py` 覆盖旧库迁移、多设备回写与事务回滚。`process_write_text` 的字体回归使用合成 gfont 和真实排版，验证显式字体对中文生效、未选字体仍沿用标准笔顺。完整交互与纸面效果另按真机清单验收。

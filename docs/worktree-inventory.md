@@ -8,6 +8,14 @@
 > 2026-08-24 合并说明：旧版全文存档于 `tmp/inventory_head.md`；以下各「HEAD 存档并入」小节为旧版证据/决策原样保留（其中日期快照以当时为准）。
 
 ---
+## 2026-09-13 三仓评审修复（提交与部署收尾中）
+
+- 用户授权：三仓 code review、修复、验证、部署、提交；修复清单见 `docs/design/crossrepo-review-20260913.md`。
+- 枢纽现有速度批已由并发会话提交至 `f40a497`，S3 至 `77348e9`；本批保留这些提交，只纳入调速事务/回包、完成观察、单 bridge 与必要文档/测试。既有未跟踪 tmp、Grbl `.gitignore` 不纳入提交。
+- Grbl 换纸分支 `d06dd45` 仅恢复 `Grbl.h` build=20211103；量产 worktree `6221502` 不动，不向量产机刷换纸镜像。
+- fz 仅修正 `chip_sim/run_wokwi_smoke.py` 的完整 flash 装载与其测试/说明；原 app-only 12 次复位的证据保留，未改产品使仿真通过。
+- MCP 当前全套 **1453** 项；证据仅本机：`results/20260913-crossrepo-review/`（速度红测、SKU 红测、portal321、weapp68、S3 host174/三板构建、Grbl build、fz 首轮与复验、Wokwi 官方说明快照、行号重定位日志）。三板 bin：立创 b0931b63…872ab、Waveshare 7b314bbb…53c9b、Freenove 499bcd44…9568b。生产与板上结果收口后在本节追加，旧快照不得当现役版本。
+
 ## 2026-09-12 忙批评审补漏（已提交 main 本地、未推送）：语音画 429 静默 + 阿里云 nginx 片段超时对齐
 
 | 项 | 说明 |
@@ -525,7 +533,7 @@
 | 证据（results/local-only/2026-09-05/，gitignored） | `hil-speed-com14.log`（COM14 全量，含两次同页灌流与埋点直方图）、`bf-watch-com13-121023.log`（Bf 第一段 12:10–12:42，S1/S4 窗口）、`bf-watch-com13-125528.log`（Bf 第二段 12:55 起，**含 13:08 重画灌流窗 t+757–784 全轨迹**，cap-bf3 退出时正常落盘）、`tmp/cat_124322.{svg,gcode}`（生产 SVG 拉回本地经 svg_to_gcode 确定性重生成，343 行与实流一致） |
 | 实测结论（S4/S1/双跑） | S4 串口 50mm 单动 1.03s → A′（$$ 失真）排除；S1 串口 200 行 3.17s（ok 齐 0.66s=3.2ms/行）→ D（Grbl 逐行失速）排除；同一张 343 行猫页 ON 变体（日志压制）灌流两次：发送段 26s/25s；运动地板按真实 gcode 算 25.0s（绘制 15.5+Z 3.4+G0 6.1）——**灌流段贴运动地板，残差 ~1s 级**；页尾段（归位→M30→换纸→done）12–13s 内出现 7–8 次 1000ms 应答超时，**全部落在 `state=paper_change` 之后——等的是换纸机构物理动作 + M30 应答，不是协议空转**（advisory 纠正，此前「纯等待/确定收益」措辞作废）；该段是否含可压缩余量须先以 COM13 侧换纸时序取证机械耗时再定 |
 | Bf 轨迹关键读数 | 6.7Hz 采样下 planner 全程未满（Bf 最低 100，多数 200–249）；曾抓到 0.15s 内 Bf 249→174（75 块）——**经 fable Round-5 纠正并本地复核定案：这不是 75 行 ok 爆发（在途上限 32 行，物理不可能），而是一条 G3 弧被 $12=0.002 切成数十根弦逐块入 planner（每弦 plan_buffer_line+recalc ≈2ms）**，「telnet 快路径」证据不成立；稳态 ok 节拍 ~73ms/行（埋点直方图 ok 延迟均 1387–1455ms、在途 17–32 行窗口顶满）。两端 TCP_NODELAY 均已源码确认（xiaozhi `hutuji_pipe.cc` setsockopt / Grbl `TelnetServer.cpp:94` setNoDelay）。**fable 否决延迟 ACK/Nagle 归因**（双端 NODELAY + lwIP quick-ack 每 2 段即 ACK + 双向捎带，互锁不成立）；候选收敛为「ok 在执行时而非入 planner 时送达」的未知队列（Grbl→S3 TX 方向或 fork 内 loopTask 每行写路径） |
-| 心跳发现 | S3 的 `?` 探活是**静默触发**（`hutuji_pipe.cc:251` recv 超时分支才发），灌流期间 ok 流不断 → 全程不发 `?` → 今晚数据无灌流期 `?` RTT（fable 指定的 C/D 判别字段）；灌流 25s 内 Grbl 状态报告零到达属预期行为非扣留证据。Bf 第二字段在全部采样点 = 1200（telnet RX 空，但无灌流中采样）。判别改由明日 PC-telnet 对照实验注入 150ms 周期 `?` 取得 |
+| 心跳发现 | S3 的 `?` 探活是**静默触发**（`hutuji_pipe.cc:252` recv 超时分支才发），灌流期间 ok 流不断 → 全程不发 `?` → 今晚数据无灌流期 `?` RTT（fable 指定的 C/D 判别字段）；灌流 25s 内 Grbl 状态报告零到达属预期行为非扣留证据。Bf 第二字段在全部采样点 = 1200（telnet RX 空，但无灌流中采样）。判别改由明日 PC-telnet 对照实验注入 150ms 周期 `?` 取得 |
 | 会诊状态 | fable Round-5 已收齐（通道两次挂起后第三次成功）：纠正两处误读（弧爆发/猫页残差≈0）、否决延迟 ACK 归因、给出「?」RTT 判别表（5–30ms→D loopTask 逐行服务器；≈1.4s→C TCP；请求快但回包与 ok 同批→Grbl→S3 TX 方向）、写字页 58ms/行残差若明日复现则锁定「loopTask 每行固定开销」（WiFiClient::write 等可写/Telnet_Server::write 末尾 wait(0)/每行状态报告写），并指出合包吞 ok 旧案更可能是 S3 解析器按 recv 边界计数的 bug 而非协议问题（值得回头查） |
 | 明日待办（判决） | ① 先用今天固件状态经 S3 重跑写字页前 1000 行——113ms/行若消失则整套 TCP 议题无回报（fable 预测矩阵：健康≈47s / Grbl 固定开销≈110s）；② PC→Grbl telnet 三文件对照（S1 200 行 + 猫页 343 行 + 写字页 1000 行），PC 侧 TCP_NODELAY + 150ms 周期 `?` + 同字段记录 + Wireshark 抓包，S3 物理离线（含 WebUI 页全关）；③ S3→PC 假 Grbl + Wireshark（零固件改动，可先跑）；④ 页尾段先取证再定论：COM13 侧抓换纸机构机械时序（M30→纸动作→PaperStatus→ok），有机械外余量才谈优化；⑤ **预览二次 HTTPS 卡死（服务端 200 已发、设备 60s 收不到头、内部堆水位 1151B）是最高优先用户可见缺陷** |
 
@@ -639,7 +647,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:153`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:155`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）

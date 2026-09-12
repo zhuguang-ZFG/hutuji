@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:592-734`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:597-739`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -938,7 +938,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 端点 | 设备 `POST /draw-upload/api/device/kdraw/done`，body `{mac, title?}`（title ≤60，截 20 入模板） |
 | 受理 | MAC 归一化查绑定表（同 §10.5 先例）：**未绑定一律 403**、坏 MAC 400；mac 属弱凭证——本端点只触发一次性订阅消息（不落库、无数据面），不引 device_token（避免 token 轮换 401 丢通知） |
 | 通知 | `subscribe_notify.notify_job_result_async(phrase="绘制完成")`：thing=title 或「奎享作品」、phrase=「绘制完成」、time=当时；未启用/openid 缺席静默；同 user+status+phrase 5s 去重窗 |
-| 设备侧 | S3 `hutuji_kdraw_watcher.cc`：UDP :2325 收 §9-H′ beacon，Run 后 `Idle && Changing!=On` 连续 ≥2.5s 判完成 → 本地 Alert（屏显+提示音）+ MCP `notifications/message` 云端转述 + 上述 POST（未绑定 403 静默容忍） |
+| 设备侧 | S3 `hutuji_kdraw_watcher.cc`：UDP :2325 只收已由 Telnet banner 验证的目标 IP（允许其 NVS 缓存）与源端口 2325；严格要求 `Changing=On/Off`、uint32 `Seq`，拒缺字段/重复字段/畸形数值。仅同源、单调新 Seq（允许 uint32 环回）推进；Run 后连续新 `Idle && Changing=Off` ≥2.5s 判完成 → 本地 Alert（屏显+提示音）+ MCP `notifications/message` 云端转述 + 上述 POST（未绑定 403 静默容忍）。重复/乱序不续期；2.5s 失联、换目标或 Alarm/Check 清掉完成证据，收包超时永不触发完成 |
 
 #### 10.4.18 作品里程碑与连续打卡通知（2026-09-12 粘合性批；portal-only）
 
@@ -985,13 +985,15 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 
 | 面 | 约定 |
 |----|------|
-| 金表 | `kGrblSettingGoldensNopaper` 删除 `$110/$111`（12→10 项，2026-09-12 用户拍板）：速度不是安全项（调坏只影响快慢，不会撞机错位），探活只锁安全项（步进/行程/笔程/无限位/使能/方向），**速度调整永不再触发 `grbl_settings_mismatch` 拒画**——此前 2000/18000 实验时「小程序一直报写字机error」即该失配 |
-| 设备 | `hutuji.speed` MCP 工具（rate 3000–16000 毫米/分钟；下限防 0 停转，上限为当日实机失步实证拍板值）：`Job::RequestSpeed` settled 态闸（idle/done/error/aborted）+ busy_ + IsConnected/IsReady/IsAuthorized → 依次 `SendLine("$110=v")`/`"$111=v"` + `WaitResponse`（5s，kSpeedWriteTimeoutMs）；成功回 `{"rate":N}`。**不持久化**（`$RST=$` 恢复出厂回机头默认 24000，不拒画，速度需按需重调） |
-| 门户 | portal `POST /api/settings/machine-speed {rate}`（phone_secured，`MachineSpeedBody`；401/403/404 token 自愈与 `_voice_device_tool` 同链；usage 事件 `web_machine_speed`，不限频）→ 设备 `hutuji.speed` |
-| 小程序 | 控制页（`pages/control`）slider 3000–16000 步进 500，拖动即生效；文案钉「画图和空走都受这个上限限制」——`$110/$111` 是 Grbl 全局 max-rate，`G1 F24000` 段按它钳制，画线/空走无差别 |
+| 金表 | `kGrblSettingGoldensNopaper` 删除 `$110/$111`（12→10 项，2026-09-12 用户拍板）：探活只锁步进/行程/笔程/无限位/使能/方向，**速度调整永不再触发 `grbl_settings_mismatch` 拒画**。速度过高会失步，工具仍受已拍板的 3000–16000 范围约束；换纸机 §9-G′ 锁表不变 |
+| 设备 | `hutuji.speed` 仅开放无换纸量产机，rate 必须为 3000–16000 毫米/分钟；`Job::RequestSpeed` try-lock + busy + settled（idle/done/error/aborted）+ connected/ready/authorized/settings 闸，主线程立即回 `{"status":"accepted","request_id":N,"rate":V}`。后台先发 `?` 等新鲜 Idle（6s），绑定同一连接序号，依次写 `$110/$111` 并核对每轴应答（各 5s）；期间禁重连探针，失败关闭旧连接防迟到 ok 污染，部分写入不回全成功 |
+| 结果 | `hutuji.status.speed` 为 `{state:idle/pending/done/error, request_id, requested_rate, rate?, reason?}`；只认匹配 request_id 的 done 和实际 rate。调速期间 abort 明确拒绝，不走绘图 reset。失败可能已写入一轴，须重新查参数或重试 |
+| 持久化 | 两 Grbl 分支的 `FloatSetting::setStringValue` 写 NVS，**普通重启保留**；`$RST=$` 恢复该机型编译默认。当前量产 `massprod/nopaper-1.3a@6221502` 默认 **5000**，换纸分支默认 24000；不得混写为量产恢复 24000 |
+| 门户 | portal `POST /api/settings/machine-speed {rate, device_mac?}`（phone_secured；严格整数/范围闸；传 device_mac 时必须匹配当前绑定；401/403/404 自愈重试前复核所有权）。兼容旧同步 `{rate:N}`；新 accepted 最多 25s/50 轮查 status，匹配终态后才回 `{status:"ok",rate:N,result:"…"}` 并记 `web_machine_speed`；HTTP 200 内设备错误、错任务/错速率/超时均失败，错误不回显上游正文 |
+| 小程序 | 控制页 slider 3000–16000、步进 500，拖动提交后等待实际 rate 确认才提示成功；错误还原原生 slider，页面/会话/设备代次拦旧回包，隐藏页面不恢复轮询；仅就绪无换纸机型可调。文案「画图和空走都受这个上限限制」——Grbl 全局 max-rate 同时钳制画线/空走；普通重启保留 |
 | 边界 | 速度与 §5 G-code 契约解耦：指令级 `F24000` 语义不变（校验上限仍 24000），实际推进由机器侧 `$110/$111` 钳制；JD=0.01 结节段爬行（10–17mm/s）依旧存在，速度上限不改善爬行 |
 | 落机 | 量产机（freenove 2.8 寸，2026-09-13 凌晨）：`hutuji.1.0.13`（金表 10 项 + speed 工具注册，`xiaozhi.bin` SHA `370478cb…`）刷入后串口复验 `Grbl 设置指纹通过（10 项）`+`MCP: Add tool: hutuji.speed`，`$110/$111=16000` 过检、此前 24000 金表失配拒画解除；lichuang 写字机离线待插（1.0.12 bin 备好）。金表值见 §10.4.21 上表与 `hutuji_nopaper_core.h`（速度项已删，断言有"不得回流"测试钉死） |
-| 未验证 | 设备 `hutuji.speed` 真机链路（刷机后 HIL）、小程序 slider 端到端、portal 真机调用——见 release-readiness 文首 |
+| 证据边界 | 1.0.13 原速度批实测与 1.0.14 本轮异步事务的部署/板上结论分别登记 `release-readiness.md` 与 `deployment.md`；手机 slider 目视交互须单独取证 |
 
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）

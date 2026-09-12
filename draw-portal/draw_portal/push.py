@@ -111,11 +111,12 @@ def push_tool_call(
     api_base: str,
     device_token: str,
     name: str,
-    arguments: dict[str, str],
+    arguments: dict[str, object],
     timeout: int = 30,
 ) -> tuple[bool, str]:
     """经小智设备消息 API 调设备侧 MCP 工具（tools/call 通用面）。"""
     import json
+    from http.client import HTTPException
     from urllib.error import HTTPError, URLError
     from urllib.request import Request, urlopen
 
@@ -134,11 +135,18 @@ def push_tool_call(
         with urlopen(req, timeout=timeout) as resp:
             if resp.status != 200:
                 return False, f"HTTP {resp.status}"
-            return True, resp.read().decode("utf-8", "replace")
+            raw = resp.read().decode("utf-8", "replace")
+            from draw_portal.mcp_result import tool_result_failed
+
+            if tool_result_failed(raw):
+                return False, "设备未执行该操作，请检查设备状态"
+            return True, raw
     except HTTPError as exc:
         return False, f"HTTP {exc.code}"
     except URLError as exc:
         return False, f"网络 {type(exc.reason).__name__}"
+    except (TimeoutError, ConnectionError, HTTPException) as exc:
+        return False, f"网络 {type(exc).__name__}"
 
 def probe_plotter_sku(
     *,

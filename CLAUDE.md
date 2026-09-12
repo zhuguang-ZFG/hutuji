@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > 本仓库文档与注释一律用**中文**（项目约定）。
 
+2026-09-13 评审约定：`hutuji.speed` 的 accepted 仅代表接单，portal 须核对 `hutuji.status.speed` 的 request_id/done/rate；量产速度由 Grbl NVS 保留，恢复出厂默认 5000（massprod 6221502）。奎享完成须同源新 Seq 的持续 Idle/Changing=Off，超时不能算完成。bridge 主 1/备 0，经 unit ExecCondition 闸启动。契约见 `docs/protocol.md` §10.4.17/§10.4.21，证据见 `docs/design/crossrepo-review-20260913.md`。
+
 2026-09-12 扫码绑定身份 v2 与一账号多机：契约见 `docs/protocol.md` §10.4.0/§10.4.2–4，字节序、迁移、回滚及测试断言见 `docs/design/device-identity-rollout.md`。签名流只有本次 nonce 与 token 当前探活同时通过才报成功；异步回写锁定 user+MAC，旧镜像不能覆盖主表所有权。小程序密码不落 storage，扫码/授权/切网均按代次恢复。独立固件候选构建不等于部署或实机验收，状态看 `docs/release-readiness.md`。
 
 ## 这是什么

@@ -36,23 +36,36 @@ Page({
     otaLine: "",
     speedRate: 16000,
     speedSaving: false,
+    canSetSpeed: false,
+    bindingMac: "",
   },
 
   onShow() {
-    this.setData({ footVersion: displayVersion("v0.3.6") });
+    this._visible = true;
+    const generation = this._viewGeneration = (this._viewGeneration || 0) + 1;
+    const session = getApp()._sessionGeneration;
+    this.setData({ footVersion: displayVersion("v0.3.6"), speedSaving: false });
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
-      if (!ok) return;
+      if (!ok || !this._isCurrentView(generation, session)) return;
       this._reschedulePoll(jobProgress.POLL_MS_IDLE);
       this.refresh();
     });
   },
 
   onHide() {
+    this._visible = false;
+    this._viewGeneration = (this._viewGeneration || 0) + 1;
     this._clearPoll();
   },
 
   onUnload() {
-    this._clearPoll();
+    this.onHide();
+  },
+
+  _isCurrentView(generation, session) {
+    return this._visible !== false &&
+      (this._viewGeneration || 0) === generation &&
+      getApp()._sessionGeneration === session;
   },
 
   _clearPoll() {
@@ -64,6 +77,7 @@ Page({
   },
 
   _reschedulePoll(pollMs) {
+    if (this._visible === false) return;
     const ms = pollMs || jobProgress.POLL_MS_IDLE;
     if (this._timer && this._pollMs === ms) return;
     this._clearPoll();
@@ -115,6 +129,8 @@ Page({
         : "";
     const prog = jobProgress.deriveProgressView(status);
     return {
+      canSetSpeed: !!(linkOk && status && status.plotter_sku === "nopaper" &&
+        ["idle", "done", "error", "aborted"].includes(state)),
       canConfirm,
       canAbort,
       canPause,
@@ -140,16 +156,25 @@ Page({
   },
 
   refresh(silent) {
+    const generation = this._viewGeneration || 0;
+    const session = getApp()._sessionGeneration;
     api
       .request("/api/auth/me")
       .then((me) => {
+        if (!this._isCurrentView(generation, session)) return;
         const bound = !!(me.binding && me.binding.bound);
-        this.setData({ bound });
+        const bindingMac = (me.binding && (me.binding.device_mac || me.binding.mac)) || "";
+        if (bindingMac !== this.data.bindingMac) {
+          this._speedGeneration = (this._speedGeneration || 0) + 1;
+          this.setData({ speedRate: 16000, speedSaving: false });
+        }
+        this.setData({ bound, bindingMac });
         if (!bound) {
           this._clearPoll();
           return;
         }
         return this.control("hutuji.status", null, true).then((r) => {
+          if (!this._isCurrentView(generation, session)) return;
           if (r && r.result) {
             const status = mcpResult.parseToolJson(r.result);
             if (status) {
@@ -189,6 +214,7 @@ Page({
         });
       })
       .catch(() => {
+        if (!this._isCurrentView(generation, session)) return;
         this._reschedulePoll(jobProgress.POLL_MS_IDLE);
       });
   },
@@ -286,29 +312,36 @@ Page({
   },
 
   onSpeedChange(e) {
-    // 拖动即生效：POST /api/settings/machine-speed → 设备 hutuji.speed 写
-    // $110/$111。失败时 slider 会因 value 未变而回弹，无需手动还原。
+    // 回包必须属于同一页面、登录和设备；失败显式回写 value 才能还原原生滑块。
     const rate = e.detail.value;
     if (this.data.speedSaving) return;
+    const previous = this.data.speedRate;
+    const generation = this._viewGeneration || 0;
+    const session = getApp()._sessionGeneration;
+    const speedGeneration = this._speedGeneration || 0;
+    const current = () => this._isCurrentView(generation, session) &&
+      (this._speedGeneration || 0) === speedGeneration;
+    const fail = (detail) => {
+      if (!current()) return;
+      this.setData({ speedSaving: false, speedRate: previous });
+      wx.showToast({ title: detail || "调整失败，请重试", icon: "none" });
+    };
     this.setData({ speedSaving: true });
     api
-      .request("/api/settings/machine-speed", { method: "POST", data: { rate } })
+      .request("/api/settings/machine-speed", {
+        method: "POST",
+        data: { rate, device_mac: this.data.bindingMac || undefined },
+      })
       .then((r) => {
-        if (r && r.status === "ok") {
-          this.setData({ speedSaving: false, speedRate: rate });
+        if (!current()) return;
+        if (r && r.status === "ok" && Number.isInteger(r.rate) && r.rate === rate) {
+          this.setData({ speedSaving: false, speedRate: r.rate });
           wx.showToast({ title: "已调整", icon: "success" });
         } else {
-          this.setData({ speedSaving: false });
-          wx.showToast({
-            title: (r && r.detail && r.detail.slice(0, 12)) || "调整失败",
-            icon: "none",
-          });
+          fail(r && r.detail);
         }
       })
-      .catch(() => {
-        this.setData({ speedSaving: false });
-        wx.showToast({ title: "网络不可用", icon: "none" });
-      });
+      .catch((error) => fail(error && error.detail));
   },
 
   onGoBind() {

@@ -25,6 +25,10 @@ User=hutuji
 Group=hutuji
 WorkingDirectory=/opt/hutuji/mcp-server
 EnvironmentFile=/etc/hutuji/bridge.env
+# PartOf 的 restart 传播可能启动已 disable 的热备服务；部署重启也必须守住单 WSS。
+# 主节点=1，热备 bridge.env 必须设 0；切换时先停旧主再将目标设 1。
+Environment=HUTUJI_BRIDGE_ACTIVE=0
+ExecCondition=/usr/bin/test ${HUTUJI_BRIDGE_ACTIVE} = 1
 Environment=HUTUJI_BRIDGE_READY_FILE=/run/hutuji/cloud-bridge.ready
 Environment=HUTUJI_BRIDGE_STATUS_FILE=/run/hutuji/cloud-bridge.status.json
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python -m hutuji_mcp.cloud_bridge

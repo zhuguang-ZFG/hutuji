@@ -141,11 +141,10 @@ class XiaopaiSettingBody(BaseModel):
 
 
 class MachineSpeedBody(BaseModel):
-    """写字机空走速度调整（2026-09-12 §10.4.21）：3000-16000 毫米/分钟，
-    范围真值在设备侧（hutuji.speed 工具），portal 只透传。"""
+    """写字机移动速度上限；与设备侧共同拒绝越界与非整数输入。"""
 
-    rate: int
-
+    rate: int = Field(ge=3000, le=16000, strict=True)
+    device_mac: str | None = Field(default=None, max_length=17)
 
 
 class XiaopaiBindBody(BaseModel):
@@ -2637,14 +2636,18 @@ def create_app() -> FastAPI:
     def machine_speed_set(
         body: MachineSpeedBody, user_id: str = Depends(require_phone)
     ) -> dict[str, Any]:
+        import json
+
         # 写字机速度下放（2026-09-12）：调设备 hutuji.speed 写 $110/$111，
-        # 不落库不持久化；401/403/404 自愈与 _voice_device_tool 同链。
-        from draw_portal.mcp_result import unwrap_tool_text
+        # 参数由 Grbl 持久化；401/403/404 自愈与 _voice_device_tool 同链。
+        from draw_portal.machine_speed import MachineSpeedError, wait_for_speed
         from draw_portal.push import mint_messaging_token
 
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定丹青")
+        if body.device_mac and body.device_mac.lower() != binding.device_mac.lower():
+            raise HTTPException(status_code=409, detail="控制设备已切换，请刷新后重试")
         token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
         ok, result = push_tool_call(
             api_base=config.xiaozhi_api_base,
@@ -2658,11 +2661,15 @@ def create_app() -> FastAPI:
                 api_base=config.xiaozhi_api_base, mac=binding.device_mac
             )
             if fresh:
+                owner = store.get_binding_for_mac(binding.device_mac)
+                if owner is None or owner.user_id != user_id:
+                    raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
                 store.update_binding_token(
                     user_id,
                     device_token_enc=encrypt_token(config.token_cipher_key, fresh),
                     device_mac=binding.device_mac,
                 )
+                token = fresh
                 ok, result = push_tool_call(
                     api_base=config.xiaozhi_api_base,
                     device_token=fresh,
@@ -2671,18 +2678,30 @@ def create_app() -> FastAPI:
                     timeout=30,
                 )
         if not ok:
-            detail = result if isinstance(result, str) else str(result)
-            raise HTTPException(status_code=502, detail=detail[:120])
-        text = unwrap_tool_text(result)
+            raise HTTPException(status_code=502, detail="写字机未完成速度调整，请检查设备状态")
+        try:
+            confirmed = wait_for_speed(
+                result,
+                body.rate,
+                lambda timeout: push_tool_call(
+                    api_base=config.xiaozhi_api_base,
+                    device_token=token,
+                    name="hutuji.status",
+                    arguments={},
+                    timeout=timeout,
+                ),
+            )
+        except MachineSpeedError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from None
         _record_portal_usage(
             store,
             event_type="web_machine_speed",
             user_id=user_id,
             device_mac=binding.device_mac,
-            detail=str(body.rate),
+            detail=str(confirmed),
             ok=True,
         )
-        return {"status": "ok", "result": text}
+        return {"status": "ok", "rate": confirmed, "result": json.dumps({"rate": confirmed})}
 
     @app.get("/api/settings/xiaopai", dependencies=phone_secured)
     async def xiaopai_settings(user_id: str = Depends(user_dep)) -> dict[str, Any]:

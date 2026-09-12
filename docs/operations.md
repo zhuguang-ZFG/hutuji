@@ -1,6 +1,6 @@
 # 运维与值守
 
-> 生产落点：京东云 `117.72.118.95`。部署见 `deployment.md`。事件不得靠口头闭环。
+> 生产落点：阿里云 `47.112.162.80` 主节点，京东云 `117.72.118.95` 热备。部署见 `deployment.md`。事件不得靠口头闭环。
 
 ## 常驻进程
 
@@ -12,11 +12,16 @@
 
 上线前准备 / 安装脚本：`../deploy/prepare-host.sh`、`install-from-repo.sh`、`preflight.sh`。
 
+**单 bridge 约束（2026-09-13）**：`/etc/hutuji/bridge.env` 的 `HUTUJI_BRIDGE_ACTIVE` 在主节点为 `1`、热备为 `0`，unit 默认 `0`。
+`PartOf=hutuji-mcp.service` 会传播 restart，服务即使 disabled 也可能被拉起；`ExecCondition` 才是热备的启动闸。
+切换顺序：停止旧主 bridge → 将旧主开关设 `0` 并确认 MainPID=`0` → 新主设 `1` 后启动 → 核对新主 `/bridge-health` 双连接及旧主 inactive。
+不得先启动新主再停止旧主。凭据文件保持 600，读取配置不使用 `source`/`eval`。
+
 ## 监控（最低集）
 
 - 磁盘：`HUTUJI_OUTPUT_DIR` 与根分区（TTL 应对涨，但仍告警）
-- 进程：上述三个 unit `active`
-- bridge 工具面：每 5 分钟本机请求 `/bridge-health`；HTTP 503、任一连接字段为 false 或快照超过 60 秒未刷新时告警。该路由只接受 loopback，不经 nginx 公网暴露。
+- 进程：主节点上述三个 unit `active`；热备 MCP/nginx active，bridge 必须 inactive 且 MainPID=`0`。
+- bridge 工具面：主节点每 5 分钟本机请求 `/bridge-health`；HTTP 503、任一连接字段为 false 或快照超过 60 秒未刷新时告警。热备检查 bridge 未运行；该路由只接受 loopback，不经 nginx 公网暴露。
 - 证书：TLS 到期前 ≥14 天告警
 - 🔬 可选：5 分钟一次本机 `hutuji_status`；公网 HEAD 探测（勿扫枚举 `/files`）
 
