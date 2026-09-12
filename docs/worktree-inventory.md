@@ -8,17 +8,26 @@
 > 2026-08-24 合并说明：旧版全文存档于 `tmp/inventory_head.md`；以下各「HEAD 存档并入」小节为旧版证据/决策原样保留（其中日期快照以当时为准）。
 
 ---
+## 2026-09-12 忙批评审补漏（🟡 未提交）：语音画 429 静默 + 阿里云 nginx 片段超时对齐
 
-## 2026-09-12 提速批（xy 轴 3 倍）：云端契约 F24000 + 双固件金标（🟡 已提交 `8dfe00e` + 云端双机部署/生产冒烟/nginx 310s；固件刷机/机器写入 ☐）
+| 项 | 说明 |
+|---|---|
+| 授权 | 用户「继续」评审忙批部署改动并处理发现项；`draw-portal/draw_portal/app.py` 在白名单（xiaopai_voice_draw_write_authorized / device_identity_20260912） |
+| 改动 | ① `app.py` voice.draw 失败通知加 429 豁免（VoiceJobError status==429 不推「生成失败」，与 /api/draw/generate 同口径：守卫级日限 429 在建任务前已拦，忙批全忙 429 在建任务后漏拦，会发出误导性失败推送）+ `tests/test_voice_api.py` 参数化 2 例（429 静默 / 502 照推）；② `deploy/nginx-draw-portal-snippet.conf` `proxy_read_timeout` 120s→310s——test_contract 钉「模板口径与片段同源」，模板已 310s 而片段未同步（生产阿里云 gray conf 已 310s，见 deployment.md 2026-09-12 提速批+忙批条），按片段重建阿里云 vhost 会把该修复回退成 120s |
+| 本地证据 | portal 全套 **291 passed**（289 基线 + 新增 2 例）；hub 门禁结果随提交回填 |
+| 发现未动 | breaker.py `_recent_samples_async` 全仓零调用且函数体缺 `import asyncio`（潜在 NameError，死代码，非忙批引入；breaker.py 不在白名单，未动，建议删）；store.py `_connect` 无 WAL/busy_timeout（课堂 NAT 并发下读写互斥风险；改库级行为须用户拍板，未动） |
+
+
+## 2026-09-12 提速批（xy 轴 3 倍）：云端契约 F24000 + 双固件金标（🟡 已提交 `8dfe00e` + 云端双机部署/生产冒烟/nginx 310s；fleet 固件刷机/机器写入 ☐，bench 机器侧已闭环——量产机 `$110/$111=24000` + freenove S3 换装 1.0.12，见文末「提速批 bench 落机」节）
 
 | 项 | 说明 |
 |---|---|
 | 授权 | 用户 2026-09-12「写字机需要提速3倍左右太慢了，xy轴运动的」+「继续」；hub `docs/protocol.md` §5 448/469-470 + §6.1 545 |
 | 本仓改动 | mcp `{gcode_gen.py（F24000 契约 + G0 原点/换纸闸危险度先判：Z 混入 > 原点 > 进给失配，旧 F8000 注入仍报「自动换纸」而非低危进给提示）,hutuji_gwrite.toml,grbl_sim.py,arc_fit.py,bitmap_svg.py 注释,paper_risk.py 注释,sim_server.py}` + 测试 7 文件 F 值改钉；`AGENTS.md` 105/157/159 行（计数 1451、test_bitmap_busy 条目）；`deploy/nginx-hutuji.conf` `/draw-upload/` 加 `proxy_read_timeout 310s`（忙批 300s 等待轮询须盖过；2026-09-12 双机生产侧 120s→310s 已生效，详见 deployment.md 首条） |
 | Grbl_Esp32 脏树 | `Grbl_Esp32/src/Machines/custom_3axis_hr4988.h`：DEFAULT_X/Y_MAX_RATE 12000→**24000**、DEFAULT_X/Y_ACCELERATION 3000→**12000**（+提速注释；Z 不动；G′ 锁拒写故须固件重建，`pio run -e release` 2026-09-12 已构建 `firmware.bin` 1857648B + `firmware_full_0x0.bin`）；既有 `.gitignore`（clangd 行）为用户既有改动原样保留 |
-| xiaozhi 脏树 | `main/boards/lichuang-dev/hutuji_recovery_core.h`（paper 金标 $110/$111 12000→24000）、`hutuji_nopaper_core.h`（nopaper 表同步 24000 + 注释）、`scripts/tests/test_hutuji_nopaper_core.py`（钉 24000）；host 测试 111/111 OK（CXX=`D:/zhugu-home/mingw64/mingw64/bin/g++.exe`；默认 esp-clang 路线本机环境预存在失败，与本批无关，基线对照 git stash 复核） |
-| 拒画窗口 | §6.1：金标改动须 Grbl+S3 同批刷机（任一侧先变= `grbl_settings_mismatch` 拒画，fail-closed 预期）；过渡期云端 F24000 被机上 12000 钳到 200mm/s（1.5×），无错误 |
-| 未验证 | 机器侧 `$RST=$`/`$$` 回读/定时盒形冒烟/双机刷机（后续条目回填）；S3 1.0.12 已真构建 215 CXX（`releases/vhutuji.1.0.12_lichuang-dev.zip`，`xiaozhi.bin` SHA `ec4b70fc…356764d7`，double `24000.0`×4/`12000.0`×0 取证）待 COM14 刷入 |
+| xiaozhi 脏树 | 金标批已提交 `9c4a218`（2026-09-12 19:54：`hutuji_recovery_core.h`/`hutuji_nopaper_core.h` 双表 $110/$111 24000 + 注释、`test_hutuji_nopaper_core.py` 钉 24000、`PROJECT_VER=hutuji.1.0.12`；工作树现净，仅余 untracked tmp 构建残留）；host 测试 111/111 OK（CXX=`D:/zhugu-home/mingw64/mingw64/bin/g++.exe`；默认 esp-clang 路线本机环境预存在失败，与本批无关，基线对照 git stash 复核） |
+| 拒画窗口 | §6.1：金标改动须 Grbl+S3 同批刷机（任一侧先变= `grbl_settings_mismatch` 拒画，fail-closed 预期）；过渡期云端 F24000 被机上 12000 钳到 200mm/s（1.5×），无错误——bench 侧该窗口已解除（2026-09-12 晚三件套对齐，见文末节），fleet MK38 到场前其机上值仍适用 |
+| 未验证 | fleet 机器 `$RST=$`/双机刷机/定时盒形冒烟（MK38 到场后回填）；lichuang 1.0.12 已真构建 215 CXX（`releases/vhutuji.1.0.12_lichuang-dev.zip`，`xiaozhi.bin` SHA `ec4b70fc…356764d7`，double `24000.0`×4 取证）待 COM14 刷入；bench 侧已验证项见文末「提速批 bench 落机」节 |
 
 ## 2026-09-12 忙批（全忙重试 + 429 链路）：已提交 `c7a43ed` + 双机部署/生产冒烟（🟡 真实后端全忙触发 ☐）
 
@@ -1166,3 +1175,22 @@
 | S3 侧 | xiaozhi-esp32（基线 `d0d2c8d`）新 `hutuji_kdraw_watcher.{h,cc}` + CMakeLists/board 接线：UDP :2325 收 §9-H′ beacon，Run→`Idle && !Changing` ≥2.5s 判完成 → Alert 屏显+提示音 + MCP notifications/message + `POST /api/device/kdraw/done`；lichuang-dev release 构建过 `d26f52d`（`releases/vhutuji.1.0.10_lichuang-dev.zip` 2799829B，bin sha `C2367ECF…`、214 CXX 全量实编；假绿坑连踩三次——zip 残留致 skip，改名后重编实证） |
 | 云端层 | 本仓 `f71d347`：portal `POST /api/device/kdraw/done`（§10.4.17）+ `subscribe_notify` phrase 参数；lima 部署 app `6fbd2028…`/subscribe_notify `91807448…` 逐位相符、坏 MAC 实测 400 |
 | 粘合性批 | 本仓粘合性提交：`milestones.py` 纯函数 + `engagement_events` 幂等表 + `_notify_subscribe` 成功事件钩子（里程碑 1/10/50/100/500 + 打卡 3/7/30 天，§10.4.18）；portal 223/223（+9）；白名单 decision_count 9；lima+jd 双节点部署（app `84e45b81…`/store `952109ae…`/milestones `31bcc3d9…`；jd 曾缺 TG 批文件启动失败，补齐后 reset-failed 恢复，健康 200） |
+
+## 量产机「小程序控不动」定案修复批（2026-09-12 晚；固件/云端零代码变更，机器参数 $110/$111=12000 落机）
+
+| 项 | 内容 |
+|---|---|
+| 本仓 | 零 tracked 变更；deployment.md 首条新增当日晚条目 |
+| 机器侧 | COM3（量产无换纸机 ESP32-D0WD-V3，固件 1.3a.20260910 量产分支 6221502）：串口写 `$110=12000`/`$111=12000` 回读核对、`[ESP444]RESTART` 重启 ×2、`$$` 复查；COM15 esptool `read_mac --after hard-reset` 复位 S3 ×2 |
+| 证据（tmp，不入库） | `tmp/com15-wiretap2.log`（窗口内仅 Idle 心跳——设备侧工具执行不进串口日志）、`tmp/com15-bootprobe.log`（断连→重连→版本/授权/指纹探针全日志，指纹失配 `（$110）` 实证）、`tmp/com15-wiretap-20260912.log`（首窗口） |
+| 排障链 | nginx access_log（hutuji-gray）→ portal journal（`/api/device/control` 200 波）→ 生产文件 token 直推 `hutuji.status`（通）→ 推 `hutuji.manual`（`grbl_settings_mismatch`:"110"）→ 源码 `hutuji_nopaper_core.h`/`hutuji_pipe.cc` 指纹闸定位 → 24000 失配/12000 过检二分 → 端到端 jog 实动验证 |
+
+## 提速批 bench 落机（2026-09-12 晚；freenove S3 1.0.12 + 量产机 $110/$111=24000，全链探针过检）
+
+| 项 | 内容 |
+|---|---|
+| 本仓 | 零 tracked 变更；deployment.md 首条新增晚条目 + readiness 提速批条目 bench 闭环注记 |
+| S3 侧 | xiaozhi HEAD `9c4a218`（金标 24000 + `PROJECT_VER=hutuji.1.0.12`）freenove 目标真构建：host 测试 RC=0、215 CXX 增量、`xiaozhi.bin` SHA `64ed127f…5cc10` 3,038,992 B、zip `vhutuji.1.0.12_freenove-esp32s3-display-2.8-lcd.zip`；COM15 只写 app@0x20000+otadata@0xd000（NVS 保留身份批 P-256），`Hash of data verified` ×2（exit=1 装饰性既定）；1.0.11 原件备份 `results/20260912-device-identity/freenove-esp32s3-display-2.8-lcd-xiaozhi.identity-1011.bak`（SHA `17ae2921…`） |
+| 机器侧 | COM3 写 `$110/$111=24000` + `$$` 回读逐项相符（RATE-VERIFIED）；COM15 esptool 复位重探后 `hutuji.status` 文件 token 直推 → `firmware_version:hutuji.1.0.12`、`grbl_settings_ok:true`、Idle 0,0,0；`hutuji.manual jog_x+` → `MPos:10.000` 实动 → `G1 G90 X0 F8000` 归零 |
+| 证据（tmp，不入库） | `tmp/build_speed_freenove.cmd`（构建封装）、`results/20260912-device-identity/freenove-esp32s3-display-2.8-lcd-build-20260912-205556-418916.log`（构建日志）、`tmp/flash-speed-1012-com15.ps1` + `tmp/flash-speed-1012-com15.log`（刷机）、`tmp/write_rate_serial.py`（参数写入器）、`tmp/idf-export-speed.log` |
+| 未验证 | 真实画图任务 400mm/s 纸面效果（待用户实画）；fleet MK38 固件刷机（金标批 `firmware.bin` 1857648B 已备） |
