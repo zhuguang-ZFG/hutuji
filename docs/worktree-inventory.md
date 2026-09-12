@@ -9,14 +9,15 @@
 
 ---
 
-## 2026-09-12 笔顺多字版式「分解行+成形格」（🟡 未提交、未部署）
+## 2026-09-12 笔顺多字版式「分解行+成形格」（🟡 已提交 `4c1c25e`、双机已部署+生产冒烟；真机纸面待用户）
 
 | 项 | 说明 |
 |----|------|
 | 授权 | 用户 2026-09-12 实机拍板（多字输入「明天」得到 09-11 成形字帖、无逐笔渐显）+ ask 选「单页混合：分解行+成形格」，supersede 09-11「集中到单张纸」（仅多字路径） |
 | 脏树改动 | `mcp-server/hutuji_mcp/stroke_order.py`（删 `_layout_copybook`/`_emit_stroke_numbers`/`_COPYBOOK_*`/`_STROKE_NUM_MM`，新增 `_layout_mixed_rows`）、`mcp-server/hutuji_mcp/server.py`（`hutuji_teach` docstring）、`mcp-server/tests/test_stroke_order.py`（多字测试改钉混合行+折行并入，9 项不变）、`mcp-server/hutuji_mcp/sketch_render.py`（`_normalize_tones` 全局/CLAHE 0.65/0.35 混合 + 排线 mask σ2.2；09-10 评审批遗留未提交）、`mcp-server/tests/test_sketch_render.py`（+主体层次保留回归，配套上述模块改动；本轮随批收编）、`docs/protocol.md` §10.4.11 排版行、`AGENTS.md` test_stroke_order 条目、本文件与 `docs/release-readiness.md` 新条目 |
 | 本地证据 | MCP 全量 pytest（见本轮收口输出）+ 视觉复核 `tmp/teach-repro/{mingtian,niLiangYiQi}-mixed-p0.png`；`tmp/agents-head.md` 为 AGENTS 行重建临时对照（可删） |
-| 未验证 | 双机部署后生产 teach 链路、真机纸面（用户拍板版式以预览+几何断言为准） |
+| 部署证据 | 三文件 HEAD blob SHA 双机逐位相符 CR=0（stroke_order `d2903669…e50`、server `63ee8a97…db7`、sketch_render `33ad02ae…0a6`，部署前与 `4c8296b` 零漂移）；备份 `/root/hutuji-bak-20260912-teach/hutuji_mcp/`（双机）；重启 lima mcp/bridge/portal/admin、jd mcp/portal 全 active；冒烟：双机 `layout_teach("明天")`=1 页 missing=[]、阿里 sketch_render 层次序+18 polys；mcp.env XIAOZHI 四键双机哈希一致 |
+| 未验证 | 真机纸面、真机 teach 推送（用户拍板版式以预览+几何断言为准） |
 
 ## 2026-09-12 一次扫码身份 v2 与中断恢复（兼容批已双机部署 + 1.0.11 刷入自证有证；手机一次扫码 HIL 待用户）
 

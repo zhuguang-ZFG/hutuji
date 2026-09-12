@@ -116,9 +116,9 @@ draw 13253B/1086。若改 2dp：字节 −7.74%/−7.93%/−8.19%，最大几何
 
 | 项 | 实测 | 处置 |
 |---|---|---|
-| `mcp-server/tmp/` 未 ignore | `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 列 314 文件（约 20MB，含 298 个 quickdraw-data `.jsonl`）；**0 staged** | `docs/worktree-inventory.md:747` 原写「gitignored 目录内」= 谎报，已改为实测真相。同日用户 advisory 点名窄例外：`edf68e7`「不新增忽略规则」对**整目录忽略 tmp/** 仍成立（整目录方案被否决——AGENTS.md 引用根 `tmp/` 刷机/抓包工具），`.gitignore` 仅新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条；实测数据集对 `git add -A` 不可见，剩余 12 个实验/工具件仍未忽略 → **禁止 `git add .`** 不变 |
-| quickdraw 键数演进 | 实测 **387 别名键 → 298 类目 ↔ 298 个 `.jsonl`**，双向零差；较复核时 373 键新增 14 个多字别名 | `AGENTS.md:126`、`docs/worktree-inventory.md:742` 已同步 387 键；2026-08-25 v4 批后演进为 402 键（礼貌前缀循环剥离 + 15 个「小X」别名），见 hub readiness 行 13 |
-| 测试计数演进 | `test_quickdraw` **34 项**、全套 **976/976** | `AGENTS.md:160`、`docs/worktree-inventory.md:746` 已同步；2026-08-25 v4 批后演进为 test_quickdraw 39 项、全套 981/981（C 组合质量路由 +2）；计数不变量测试批后 test_contract 592 项、全套 982/982；2026-08-28 全套 **1035**（含 `test_gcode_min_segment` 3 项）；2026-08-30 晚全套 **1070** |
+| `mcp-server/tmp/` 未 ignore | `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 列 314 文件（约 20MB，含 298 个 quickdraw-data `.jsonl`）；**0 staged** | `docs/worktree-inventory.md:748` 原写「gitignored 目录内」= 谎报，已改为实测真相。同日用户 advisory 点名窄例外：`edf68e7`「不新增忽略规则」对**整目录忽略 tmp/** 仍成立（整目录方案被否决——AGENTS.md 引用根 `tmp/` 刷机/抓包工具），`.gitignore` 仅新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条；实测数据集对 `git add -A` 不可见，剩余 12 个实验/工具件仍未忽略 → **禁止 `git add .`** 不变 |
+| quickdraw 键数演进 | 实测 **387 别名键 → 298 类目 ↔ 298 个 `.jsonl`**，双向零差；较复核时 373 键新增 14 个多字别名 | `AGENTS.md:126`、`docs/worktree-inventory.md:743` 已同步 387 键；2026-08-25 v4 批后演进为 402 键（礼貌前缀循环剥离 + 15 个「小X」别名），见 hub readiness 行 13 |
+| 测试计数演进 | `test_quickdraw` **34 项**、全套 **976/976** | `AGENTS.md:160`、`docs/worktree-inventory.md:747` 已同步；2026-08-25 v4 批后演进为 test_quickdraw 39 项、全套 981/981（C 组合质量路由 +2）；计数不变量测试批后 test_contract 592 项、全套 982/982；2026-08-28 全套 **1035**（含 `test_gcode_min_segment` 3 项）；2026-08-30 晚全套 **1070** |
 
 ## 六、门禁面观察（已修根因；候选项仍不动作）
 
