@@ -943,7 +943,7 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
         if has_motion and not (seen_g21 and seen_g90):
             raise GcodeError(f"第 {idx} 行运动前缺少精确 G21/G90（§5 自包含要求）：{line}")
 
-        # 坐标限幅 A4（X≤190mm Y≤190mm），越界即拒。裸轴字同样是模态运动，
+        # 坐标限幅 A4（X≤277mm 长边 / Y≤190mm 宽边，§6.1；2026-09-04 用户实机确认 X 长 Y 宽），越界即拒。裸轴字同样是模态运动，
         # 不能因本行没有显式 G 字而跳过。
         # 零运动闸要求实际位移（GC-01）：目标点 != 当前坐标才算有内容（含 G2/G3
         # 终点）；零行程（终点 == 起点，如定位同点后的 G2 X100 Y100 I0 J0 /
