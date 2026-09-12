@@ -18,7 +18,7 @@
 | 发现未动 | breaker.py `_recent_samples_async` 全仓零调用且函数体缺 `import asyncio`（潜在 NameError，死代码，非忙批引入；breaker.py 不在白名单，未动，建议删）；store.py `_connect` 无 WAL/busy_timeout（课堂 NAT 并发下读写互斥风险；改库级行为须用户拍板，未动） |
 
 
-## 2026-09-13 速度下放批收口：金表 10 项 + `hutuji.speed` 工具 + 量产机 1.0.13 落机（🟡 代码+host 测试+双构建+量产机刷机复验有证；设备真机调速度/portal 部署/weapp 发版 ☐）
+## 2026-09-13 速度下放批收口：金表 10 项 + `hutuji.speed` 工具 + 量产机 1.0.13 落机（🟡 代码+host 测试+双构建+量产机刷机+真机调速度链路+portal 部署+weapp 0.3.10 上传有证；用户端 slider/语音 HIL ☐）
 
 | 项 | 说明 |
 |---|---|
@@ -27,9 +27,10 @@
 | host 测试 | `test_hutuji_nopaper_core.py` 3/3 + `test_hutuji_recovery_core.py` 108/108 OK（CXX=`D:/zhugu-home/mingw64/mingw64/bin/g++.exe`，python3=scoop shim） |
 | 构建/刷机 | lichuang 1.0.12 重建（3081968B SHA `50361dbd…`，zip `vhutuji.1.0.12_lichuang-dev.zip`，工具描述修正）**留写字机待插**；量产机 1.0.13 freenove 真构建 215 CXX（`tmp/build_speed_freenove.cmd` HOST_RC=0，`xiaozhi.bin` SHA `370478cb…` 3040736B）→ esptool read-mac 核对 `b8:1f:3f:c4:58:2c` 后 COM15 刷入（app@0x20000+otadata@0xd000，NVS 保身份与绑定）→ 串口复验 `hutuji.1.0.13`/SKU=freenove/**`Grbl 设置指纹通过（10 项）`**/`MCP: Add tool: hutuji.speed`/Idle——量产机 $110/$111=16000 过检、当晚「小程序一直报写字机error」（金表 24000 vs 机器 16000 失配）拒画解除 |
 | 事故登记 | 同晚 COM15 实插量产机却刷 lichuang-config bin（MAC 台账教训：刷机前必须 esptool read-mac 核对；`--after=no-reset` 收尾会让 USJ 芯片停留 boot 模式屏黑假象）——已恢复+重刷收口，明细 deployment.md 深夜两条 |
-| 未做 | 设备真机 `hutuji.speed` 调用、portal `/api/settings/machine-speed` 双机部署、weapp slider 发版；lichuang 写字机刷机（离线） |
+| 已闭环（2026-09-13 凌晨追加） | portal `app.py`（blob `7cc9985a…`）双机部署+restart active+公网 401 冒烟；生产 messaging token lima 现场直推 `hutuji.speed rate=16000` → `{"success":true,"data":{"rate":16000}}`；COM3 `$$` 交叉核对 `$110/$111=16000.000`/`$130/$131=200/200`/`Ver 1.3a Date 20260910`；xiaozhi 提交 `77348e9` 已推 origin，本仓 `239b816`+`a64a72f`；weapp **0.3.10** CLI 上传 exit 0（140.0 KB）。**仍 ☐**：用户端 HIL（小程序 slider/语音口令真机体验）、体验版勾选 |
 
 ## 2026-09-12 提速批（xy 轴 3 倍）：云端契约 F24000 + 双固件金标（🟡 已提交 `8dfe00e` + 云端双机部署/生产冒烟/nginx 310s；fleet 固件刷机/机器写入 ☐，bench 机器侧已闭环——量产机 `$110/$111=24000` + freenove S3 换装 1.0.12，见文末「提速批 bench 落机」节）
+
 
 | 项 | 说明 |
 |---|---|
