@@ -18,6 +18,17 @@
 | 发现未动 | breaker.py `_recent_samples_async` 全仓零调用且函数体缺 `import asyncio`（潜在 NameError，死代码，非忙批引入；breaker.py 不在白名单，未动，建议删）；store.py `_connect` 无 WAL/busy_timeout（课堂 NAT 并发下读写互斥风险；改库级行为须用户拍板，未动） |
 
 
+## 2026-09-13 速度下放批收口：金表 10 项 + `hutuji.speed` 工具 + 量产机 1.0.13 落机（🟡 代码+host 测试+双构建+量产机刷机复验有证；设备真机调速度/portal 部署/weapp 发版 ☐）
+
+| 项 | 说明 |
+|---|---|
+| xiaozhi 脏树（本批未提交） | 8 个修改文件：`CMakeLists.txt`（PROJECT_VER→`hutuji.1.0.13`）、`main/boards/freenove-esp32s3-display-2.8-lcd/freenove-esp32s3-display-2.8-lcd.cc`（+`hutuji.speed` AddTool 注册，描述与 lichuang 逐字一致）、`main/boards/lichuang-dev/{hutuji_job.h,hutuji_job.cc}`（+`Job::RequestSpeed`，3000–16000 钳制、settled 态闸、`$110/$111` 写 + WaitResponse 5s、不持久化）、`main/boards/lichuang-dev/hutuji_nopaper_core.h`（金表 12→10 项：删 `$110/$111`，c896ce5c 指纹注释同步）、`main/boards/lichuang-dev/lichuang_dev_board.cc`（lichuang 板同工具注册）、`scripts/tests/{test_hutuji_nopaper_core.py（金表断言 12→10+速度项不得回流）,test_hutuji_recovery_core.py（busy 措辞计数 4→5）}`；既有 untracked tmp 构建残留原样保留 |
+| 授权 | 用户原话「速度设置放小程序里，每次刷机太不方便」「量产机啊，只搞量产机」+ 拍板 16000（COM3 `$$` 已证写机） |
+| host 测试 | `test_hutuji_nopaper_core.py` 3/3 + `test_hutuji_recovery_core.py` 108/108 OK（CXX=`D:/zhugu-home/mingw64/mingw64/bin/g++.exe`，python3=scoop shim） |
+| 构建/刷机 | lichuang 1.0.12 重建（3081968B SHA `50361dbd…`，zip `vhutuji.1.0.12_lichuang-dev.zip`，工具描述修正）**留写字机待插**；量产机 1.0.13 freenove 真构建 215 CXX（`tmp/build_speed_freenove.cmd` HOST_RC=0，`xiaozhi.bin` SHA `370478cb…` 3040736B）→ esptool read-mac 核对 `b8:1f:3f:c4:58:2c` 后 COM15 刷入（app@0x20000+otadata@0xd000，NVS 保身份与绑定）→ 串口复验 `hutuji.1.0.13`/SKU=freenove/**`Grbl 设置指纹通过（10 项）`**/`MCP: Add tool: hutuji.speed`/Idle——量产机 $110/$111=16000 过检、当晚「小程序一直报写字机error」（金表 24000 vs 机器 16000 失配）拒画解除 |
+| 事故登记 | 同晚 COM15 实插量产机却刷 lichuang-config bin（MAC 台账教训：刷机前必须 esptool read-mac 核对；`--after=no-reset` 收尾会让 USJ 芯片停留 boot 模式屏黑假象）——已恢复+重刷收口，明细 deployment.md 深夜两条 |
+| 未做 | 设备真机 `hutuji.speed` 调用、portal `/api/settings/machine-speed` 双机部署、weapp slider 发版；lichuang 写字机刷机（离线） |
+
 ## 2026-09-12 提速批（xy 轴 3 倍）：云端契约 F24000 + 双固件金标（🟡 已提交 `8dfe00e` + 云端双机部署/生产冒烟/nginx 310s；fleet 固件刷机/机器写入 ☐，bench 机器侧已闭环——量产机 `$110/$111=24000` + freenove S3 换装 1.0.12，见文末「提速批 bench 落机」节）
 
 | 项 | 说明 |
@@ -627,7 +638,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:152`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:153`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）

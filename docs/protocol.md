@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:589-731`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:592-734`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -979,6 +979,20 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 回流 | 事件通道 `adopt` 回传 job 数据到创作页 `adoptJob`（SVG 无精修轮询，`refined=null` 直通）；订阅消息预授权在入口 tap 时点请求 |
 
 **HIL**：手绘出图纸面效果 **未验证**（见 `docs/release-readiness.md` 文首）。
+
+
+#### 10.4.21 写字机速度下放（2026-09-12 批，用户拍板「速度设置放小程序里，每次刷机太不方便」）
+
+| 面 | 约定 |
+|----|------|
+| 金表 | `kGrblSettingGoldensNopaper` 删除 `$110/$111`（12→10 项，2026-09-12 用户拍板）：速度不是安全项（调坏只影响快慢，不会撞机错位），探活只锁安全项（步进/行程/笔程/无限位/使能/方向），**速度调整永不再触发 `grbl_settings_mismatch` 拒画**——此前 2000/18000 实验时「小程序一直报写字机error」即该失配 |
+| 设备 | `hutuji.speed` MCP 工具（rate 3000–16000 毫米/分钟；下限防 0 停转，上限为当日实机失步实证拍板值）：`Job::RequestSpeed` settled 态闸（idle/done/error/aborted）+ busy_ + IsConnected/IsReady/IsAuthorized → 依次 `SendLine("$110=v")`/`"$111=v"` + `WaitResponse`（5s，kSpeedWriteTimeoutMs）；成功回 `{"rate":N}`。**不持久化**（`$RST=$` 恢复出厂回机头默认 24000，不拒画，速度需按需重调） |
+| 门户 | portal `POST /api/settings/machine-speed {rate}`（phone_secured，`MachineSpeedBody`；401/403/404 token 自愈与 `_voice_device_tool` 同链；usage 事件 `web_machine_speed`，不限频）→ 设备 `hutuji.speed` |
+| 小程序 | 控制页（`pages/control`）slider 3000–16000 步进 500，拖动即生效；文案钉「画图和空走都受这个上限限制」——`$110/$111` 是 Grbl 全局 max-rate，`G1 F24000` 段按它钳制，画线/空走无差别 |
+| 边界 | 速度与 §5 G-code 契约解耦：指令级 `F24000` 语义不变（校验上限仍 24000），实际推进由机器侧 `$110/$111` 钳制；JD=0.01 结节段爬行（10–17mm/s）依旧存在，速度上限不改善爬行 |
+| 落机 | 量产机（freenove 2.8 寸，2026-09-13 凌晨）：`hutuji.1.0.13`（金表 10 项 + speed 工具注册，`xiaozhi.bin` SHA `370478cb…`）刷入后串口复验 `Grbl 设置指纹通过（10 项）`+`MCP: Add tool: hutuji.speed`，`$110/$111=16000` 过检、此前 24000 金表失配拒画解除；lichuang 写字机离线待插（1.0.12 bin 备好）。金表值见 §10.4.21 上表与 `hutuji_nopaper_core.h`（速度项已删，断言有"不得回流"测试钉死） |
+| 未验证 | 设备 `hutuji.speed` 真机链路（刷机后 HIL）、小程序 slider 端到端、portal 真机调用——见 release-readiness 文首 |
+
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 
