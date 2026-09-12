@@ -77,7 +77,7 @@ def test_run_scenario_normal_svg_embeds_verifiable_artifact() -> None:
     artifact = result["embedded_artifact"]
     assert artifact["name"] == "normal_svg.gcode"
     assert artifact["mime_type"] == "text/x-gcode"
-    assert artifact["text"].replace("\r\n", "\n").startswith("G21\nG90\nF8000\n")
+    assert artifact["text"].replace("\r\n", "\n").startswith("G21\nG90\nF24000\n")
     assert len(artifact["sha256"]) == 64
 
 
@@ -391,7 +391,7 @@ def test_validate_gcode_call_keeps_event_loop_responsive(
                 call = asyncio.create_task(
                     session.call_tool(
                         "validate_gcode",
-                        {"text": sim_server._minimal_gcode("G1 X10 Y10 F8000\n")},
+                        {"text": sim_server._minimal_gcode("G1 X10 Y10 F24000\n")},
                     ),
                 )
                 await asyncio.to_thread(entered.wait, 10.0)
@@ -491,7 +491,7 @@ def test_stdio_mcp_initialize_list_and_call() -> None:
     [
         ("G0 X0 Y0", "error:20"),          # 回原点触发自动换纸（§5 最高危文件缺陷）
         ("G0 X0Y0Z0", "error:20"),
-        ("G0 X0.001Y0.001F8000", "error:20"),
+        ("G0 X0.001Y0.001F24000", "error:20"),
         ("G92 Z0", "error:20"),
         ("M3", "error:20"),
         ("M5", "error:20"),
@@ -501,16 +501,16 @@ def test_stdio_mcp_initialize_list_and_call() -> None:
         ("G4 P0.2", "error:20"),
         ("G53 G1 X0", "error:20"),
         ("G20", "error:20"),
-        ("G1 X278 Y10 F8000", "error:20"),  # 越出 §5 契约值 277
-        ("G1 X-1 Y10 F8000", "error:20"),   # 负 X：本机无限位开关，MCP 限幅唯一防线
-        ("G1 X10 Y191 F8000", "error:20"),
+        ("G1 X278 Y10 F24000", "error:20"),  # 越出 §5 契约值 277
+        ("G1 X-1 Y10 F24000", "error:20"),   # 负 X：本机无限位开关，MCP 限幅唯一防线
+        ("G1 X10 Y191 F24000", "error:20"),
         ("G1G90 Z7.0F10000", "error:20"),   # Z 只允许 0/5
         ("G1 X1 Y1 F0", "error:20"),
         ("G1 X1 Y1 F-1", "error:20"),
-        ("G1 X1 Y1 F10001", "error:20"),
-        ("G1 X1e400 Y1 F8000", "error:20"),  # 非有限数值
-        ("G1 X1.5.5 Y1 F8000", "error:20"),  # 畸形坐标
-        ("G1 X10 Y10 Q5 F8000", "error:20"),  # 未知字母
+        ("G1 X1 Y1 F24001", "error:20"),
+        ("G1 X1e400 Y1 F24000", "error:20"),  # 非有限数值
+        ("G1 X1.5.5 Y1 F24000", "error:20"),  # 畸形坐标
+        ("G1 X10 Y10 Q5 F24000", "error:20"),  # 未知字母
     ],
 )
 def test_grbl_sim_contract_boundary_rejects_forbidden_lines(line: str, expected: str) -> None:
@@ -527,15 +527,15 @@ def test_grbl_sim_contract_boundary_rejects_forbidden_lines(line: str, expected:
     [
         "G21",
         "G90",
-        "F8000",
+        "F24000",
         "G1G90 Z0.0F10000",
         "G1G90 Z5.0F10000",
-        "G0 X5.5Y3.2F8000",
-        "G1 X10.0Y10.0F8000",
-        "G0 X277Y190F8000",       # 契约边界值允许（X 长边 277）
-        "G1 X0Y190F8000",
-        "G2 X10 Y10 I5 J0 F8000",  # 圆弧白名单内；包围盒不建模（validate_gcode 覆盖）
-        "G1 X10 Y10 F8000 ;move",  # 行内注释剥离
+        "G0 X5.5Y3.2F24000",
+        "G1 X10.0Y10.0F24000",
+        "G0 X277Y190F24000",       # 契约边界值允许（X 长边 277）
+        "G1 X0Y190F24000",
+        "G2 X10 Y10 I5 J0 F24000",  # 圆弧白名单内；包围盒不建模（validate_gcode 覆盖）
+        "G1 X10 Y10 F24000 ;move",  # 行内注释剥离
         ";only comment",
         "",
     ],
@@ -564,7 +564,7 @@ def test_grbl_sim_non_ascii_replies_error11() -> None:
     见 test_grbl_sim_realtime_characters_are_silent 对照）。"""
     from hutuji_mcp import grbl_sim
 
-    assert grbl_sim._contract_violation("G1 X10 Y10 中文 F8000") == "error:11"
+    assert grbl_sim._contract_violation("G1 X10 Y10 中文 F24000") == "error:11"
 
 
 def test_env_float_rejects_nan_and_inf(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -662,7 +662,7 @@ def test_grbl_sim_realtime_characters_are_silent(char: bytes) -> None:
 def test_grbl_sim_realtime_bypasses_contract() -> None:
     """F-SIM-01：实时旁路先于契约判定——'?' 行首即使带越界内容也只回状态行，
     不产生 error:20/error:11。"""
-    responses = asyncio.run(_drive_sim([b"?G1 X191 Y10 F8000\n"], read_timeout_s=0.3))
+    responses = asyncio.run(_drive_sim([b"?G1 X191 Y10 F24000\n"], read_timeout_s=0.3))
     assert responses[0] == "<Idle|MPos:0.000,0.000,0.000|Bf:249,1200|FS:0,0>", responses
     assert "error:20" not in responses, responses
 
@@ -687,11 +687,11 @@ def test_grbl_sim_m30_with_padding_triggers_paper_change(line: bytes) -> None:
 
 
 def test_grbl_sim_g1_origin_return_is_not_paper_change() -> None:
-    """页尾归位行契约钉死（2026-08-14 归位决策）：S3 旁路 `G1G90 X0Y0F8000`
+    """页尾归位行契约钉死（2026-08-14 归位决策）：S3 旁路 `G1G90 X0Y0F24000`
     归位必须回普通 ok、不触发换纸建模——与真机「回原点后换纸」触发的 G1 豁免
     一致（GCode.cpp 页尾分支仅认实际执行的 G0/G28/G30 落点 XY≈0）。若本用例
     变红，说明仿真的换纸触发面与真机的 G1 豁免漂移，S3 归位行会意外换纸。"""
-    responses = asyncio.run(_drive_sim([b"G1G90 X0Y0F8000\n"], read_timeout_s=1.0))
+    responses = asyncio.run(_drive_sim([b"G1G90 X0Y0F24000\n"], read_timeout_s=1.0))
     assert "ok" in responses, responses
     assert "[MSG:[PaperStatus]" not in " ".join(responses), responses
 
@@ -718,7 +718,7 @@ def test_grbl_sim_empty_line_replies_ok() -> None:
     """空行回 ok：真机 execute_line() 对 line[0]==0 直接 Error::Ok
     （Protocol.cpp:84-86，§3 CRLF 双 ok 同因）；此前仿真静默丢弃，
     手工 Telnet 敲回车会无任何应答。"""
-    responses = asyncio.run(_drive_sim([b"\nG0 X10 Y10 F8000\n\n"], read_timeout_s=0.3))
+    responses = asyncio.run(_drive_sim([b"\nG0 X10 Y10 F24000\n\n"], read_timeout_s=0.3))
     assert responses[0] == "ok", responses  # 首个空行
     assert responses[1] == "ok", responses  # G0 行
     assert responses[2] == "ok", responses  # 第二个空行
@@ -737,7 +737,7 @@ def test_grbl_sim_motion_buffered_during_paper_window_replies_error8() -> None:
     逐字对齐（R13-SIM-07）：行首 G 字首位数 0-3 即运动行。"""
     responses = asyncio.run(
         _drive_sim(
-            [b"M30\nG1 X10 Y10 F8000\n"],
+            [b"M30\nG1 X10 Y10 F24000\n"],
             paper_delay_s=2.0,
             idle_timeout_s=1.0,
             read_timeout_s=10.0,
@@ -767,7 +767,7 @@ def test_grbl_sim_motion_after_paper_window_is_accepted() -> None:
     def resume(responses: list[str]) -> bytes | None:
         if not sent["g1"] and "[MSG:[PaperStatus] 0]" in responses and "ok" in responses:
             sent["g1"] = True
-            return b"G1 X10 Y10 F8000\n"
+            return b"G1 X10 Y10 F24000\n"
         return None
 
     responses = asyncio.run(
@@ -845,10 +845,10 @@ def test_pipe_sim_strips_inline_comments() -> None:
     """R9-SIM-06：`;` 行内注释必须转发前剥掉（§3）；整行注释剥成空。"""
     from hutuji_mcp import pipe_sim
 
-    assert pipe_sim._clean_gcode_line("G1 X10 Y10 F8000 ;move") == "G1 X10 Y10 F8000"
+    assert pipe_sim._clean_gcode_line("G1 X10 Y10 F24000 ;move") == "G1 X10 Y10 F24000"
     assert pipe_sim._clean_gcode_line("  ;x") == ""
     assert pipe_sim._clean_gcode_line("(full line)") == ""
-    assert pipe_sim._clean_gcode_line("G1 X1 Y1 (note) F8000") == "G1 X1 Y1  F8000"
+    assert pipe_sim._clean_gcode_line("G1 X1 Y1 (note) F24000") == "G1 X1 Y1  F24000"
     assert pipe_sim._clean_gcode_line("") == ""
 
 
@@ -886,7 +886,7 @@ def _run_pipe_sim_against(script: list[list[str]], *, delay_s: float = 0.01, tmp
         server = await asyncio.start_server(fake.handle, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         gcode = tmp_path / "job.gcode"
-        gcode.write_text("G1 X10 Y10 F8000\n", encoding="utf-8")
+        gcode.write_text("G1 X10 Y10 F24000\n", encoding="utf-8")
         loop = asyncio.get_running_loop()
         try:
             return await loop.run_in_executor(

@@ -1,7 +1,7 @@
 """纸面风险闸契约：阈值、reason token、状态机与 §5 validate 的抬笔一致性。
 
 fixture 逐字对齐 `hutuji_gwrite.toml` 模板（segment_first = G0 空走 +
-G1G90 Z5.0 落笔；segment = G1 X..Y..F8000；line_end = G1G90 Z0.0 抬笔），
+G1G90 Z5.0 落笔；segment = G1 X..Y..F24000；line_end = G1G90 Z0.0 抬笔），
 保证状态机解析的是生产真实形态，而非自造格式。
 """
 from __future__ import annotations
@@ -13,17 +13,17 @@ import pytest
 from hutuji_mcp import paper_risk
 from hutuji_mcp.gcode_gen import validate_gcode
 
-_HEADER = "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+_HEADER = "G21\nG90\nF24000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
 
 
 def _gcode(strokes: list[list[tuple[float, float]]]) -> str:
     """strokes = 每笔的落笔点序列；首点经 G0 空走到达（对齐 segment_first）。"""
     parts = [_HEADER]
     for stroke in strokes:
-        parts.append(f"G0 X{stroke[0][0]:.3f}Y{stroke[0][1]:.3f}F8000\n")
+        parts.append(f"G0 X{stroke[0][0]:.3f}Y{stroke[0][1]:.3f}F24000\n")
         parts.append("G1G90 Z5.0F10000\n")
         for x, y in stroke[1:]:
-            parts.append(f"G1 X{x:.3f}Y{y:.3f}F8000\n")
+            parts.append(f"G1 X{x:.3f}Y{y:.3f}F24000\n")
         parts.append("G1G90 Z0.0F10000\n")
     parts.append("G1G90 Z0.0F10000\n")
     return "".join(parts)

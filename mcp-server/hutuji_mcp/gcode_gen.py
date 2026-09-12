@@ -147,7 +147,7 @@ PEN_LIFT_WARN_THRESHOLD = 50
 # 线简化容差（mm）：直接决定 G1 行数，从而决定逐行流控下的出图流畅度。
 # 机器笔触精度约 0.1mm，0.2mm 在笔宽量级内，肉眼看不出差别。
 # 实测同一张图：无简化 9266 行 → 0.1mm 143 行 → 0.2mm 172 行 → 0.5mm 116 行。
-# 逐行流控下每行一次 WiFi 往返（~25ms），F8000=133mm/s。
+# 逐行流控下每行一次 WiFi 往返（~25ms），F24000=400mm/s（2026-09-12 提速批）。
 # 拐点在 0.1mm：运动时间(~4.8s)刚好盖过往返(~3.6s)，0.05mm 以下往返反超开始卡顿。
 # 奎享靠窗口化流控保留 0.02mm；S3 已落地窗口=512（`15f73c9`），
 # 故 S4 把容差从 0.1mm 回降到 0.05mm，靠窗口化吸收往返，向奎享画质靠拢。
@@ -155,8 +155,8 @@ LINESIMPLIFY_TOLERANCE_MM = 0.05
 # 碎笔画合并容差（mm）：对齐奎享 nearDst=0.3，减少抬落笔次数。
 # 合并端点几乎相接的线；0.3mm 内并笔不改变构图（奎享现役值，实测安全）。
 LINEMERGE_TOLERANCE_MM = 0.3
-# 落笔态最短 G1（mm）：压住本机 `$1=25` + 弹簧笔架空窗。F8000≈133mm/s 时
-# 1.0mm≈7.5ms；连续 21 段≈157ms ≫ 25ms。AI 描摹 worst21≈89ms 曾虚笔，
+# 落笔态最短 G1（mm）：压住本机 `$1=25` + 弹簧笔架空窗。F24000≈400mm/s 时
+# 1.0mm≈2.5ms；连续 21 段≈53ms 仍盖过单次 25ms 往返空档。AI 描摹 worst21 曾虚笔，
 # curated≈575ms 实笔——同 Z5 字面量，差在段能否撑住 planner（2026-08-28）。
 # 不改 $1/Z5 契约；只在 gwrite 之后塌缩落笔短段。笔画末点始终保留。
 MIN_PEN_DOWN_G1_MM = 1.0
@@ -352,9 +352,10 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
         "linesort",
         # linesimplify：SVG 曲线默认离散得极密（实测一张图 9266 行 G1，步长
         # 0.12mm）。逐行流控下每行都要一次 Telnet 往返（~25ms），而 0.12mm @
-        # F8000（133mm/s）只需 0.9ms 执行——电机走完就干等，表现为「笔走停停」。
-        # 简化到笔宽量级内可把行数降一个数量级，肉眼无差别。
-        # 进给以生产 profile 为准（hutuji_gwrite.toml:33-35 全是 F8000）；早先
+        # F24000（400mm/s，2026-09-12 提速批）只需 0.3ms 执行——电机走完就干等，
+        # 表现为「笔走停停」，提速后该矛盾更突出。简化到笔宽量级内可把行数降
+        # 一个数量级，肉眼无差别。
+        # 进给以生产 profile 为准（hutuji_gwrite.toml:58-61 全是 F24000）；早先
         # 这里写的 F1500/~20ms 是 profile 定稿前的旧口径，与上方 25ms 自相矛盾。
         "linesimplify", "--tolerance", f"{LINESIMPLIFY_TOLERANCE_MM}mm",
         "gwrite", "--profile", "hutuji", str(gcode_path),
@@ -390,7 +391,7 @@ def _collapse_short_pen_down_segments(
 ) -> str:
     """把落笔态连续短 G1 塌到 ≥ min_mm，末点保留；不跨越抬笔/G0。
 
-    动机：亚毫米 G1 @ F8000 使 planner 空档触发 `$1` 失能与弹簧抬笔，逻辑 Z
+    动机：亚毫米 G1 @ F24000 使 planner 空档触发 `$1` 失能与弹簧抬笔，逻辑 Z
     仍可为 5，纸面呈「虚实交替」。缓存长笔画撑得住，故同 profile 表现不同。
 
     换行风格原样保留（CRLF 不得塌成 LF），否则会改磁盘字节数，绕过 §5
@@ -404,7 +405,7 @@ def _collapse_short_pen_down_segments(
     cur_x: float | None = None
     cur_y: float | None = None
     pen_down = False
-    cur_feed = 8000.0
+    cur_feed = 24000.0
     last_emit_x: float | None = None
     last_emit_y: float | None = None
     pending: tuple[float, float, float] | None = None  # (x, y, 设 pending 那行的 F)
@@ -455,8 +456,8 @@ def _collapse_short_pen_down_segments(
             if nx is None or ny is None:
                 out.append(line)
                 continue
-            # 塌缩写回的 F 继承本行（缺 F 回落模态值，再兜底 8000）——硬编码
-            # F8000 会让非 F8000 profile/夹具的进给实验失真（2026-08-28 review）。
+            # 塌缩写回的 F 继承本行（缺 F 回落模态值，再兜底 24000）——硬编码
+            # F24000 会让非 F24000 profile/夹具的进给实验失真（2026-08-28 review）。
             line_feed = _f_from_words(words)
             if line_feed is not None:
                 cur_feed = line_feed
@@ -717,8 +718,8 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
         )
 
     # §5 精确文件头/尾是产物形状契约，不是语法合法性：剥注释/空行后的前 5 个
-    # 代码块必须逐字对齐 hutuji_gwrite.toml 的 document_start（G21/G90/F8000 +
-    # 两次 G1G90 Z0.0F10000 幂等抬笔）。G210/G900 这类子串、F 值不为 8000、
+    # 代码块必须逐字对齐 hutuji_gwrite.toml 的 document_start（G21/G90/F24000 +
+    # 两次 G1G90 Z0.0F10000 幂等抬笔）。G210/G900 这类子串、F 值不为 24000、
     # 抬笔数值不是 0.0/10000，都会在这里被拒，而不是等宽松的允许列表兜底。
     # 抬笔行的「等价写法」只放宽空白（G1 G90 Z0.0 F10000），数值字面量不放松。
     code_lines: list[tuple[int, str]] = []
@@ -730,7 +731,7 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
     expected_head = (
         "G21",
         "G90",
-        "F8000",
+        "F24000",
         "G1G90 Z0.0F10000",  # 第 1 次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路）
         "G1G90 Z0.0F10000",  # 第 2 次幂等抬笔
     )
@@ -839,8 +840,10 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
             if letter == "Z" and value not in (0.0, 5.0):
                 raise GcodeError(f"第 {idx} 行 Z{value} 非生产笔位（只允许 Z0/Z5）：{line}")
             if letter == "F":
-                if value <= 0 or value > 10000:
-                    raise GcodeError(f"第 {idx} 行 F{value} 超出生产进给范围 0<F≤10000：{line}")
+                # 2026-09-12 提速批：XY 生产进给 F24000（400mm/s，3× 旧 F8000），
+                # Z 笔控行仍恒 F10000；总范围闸按文件最大允许值 24000 收口。
+                if value <= 0 or value > 24000:
+                    raise GcodeError(f"第 {idx} 行 F{value} 超出生产进给范围 0<F≤24000：{line}")
             if letter not in ("G", "M"):
                 continue
             if not value.is_integer():
@@ -897,6 +900,13 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
         # 下载文件不是泛用 G-code：笔控和 XY 运动必须逐行对齐 production profile。
         # F 是 Grbl modal 字，若允许继承，任何中间行都可悄悄沿用落笔 F10000 或
         # 外部注入的低速值；XY 与 Z 同块则会在移动途中落/抬笔。两者均违背 §5。
+        # 危险度排序：Z 混入 XY 运动（行程中落/抬笔）> G0 落点 (0,0)（触发本机
+        # 自动换纸，机械动作）> 进给失配。提速批后旧 F8000 注入若先命中「XY 运动
+        # 必须 F24000」，最高危的换纸触发会被低危消息盖住，故原点闸在 G0/G1
+        # 进给检查内先判；终点缺轴取 cur，任一未知则不在此判定，由下方 G0 完整
+        # 终点闸 fail closed。
+        target_x = xy.get("X", cur_x)
+        target_y = xy.get("Y", cur_y)
         if has_axis_words:
             if z_values:
                 if coords or active_motion != "G1" or "G90" not in codes or feed != 10000:
@@ -904,9 +914,18 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
                         f"第 {idx} 行笔控必须是纯 G1G90 Z0/Z5 F10000：{line}"
                     )
             elif active_motion in {"G0", "G1"}:
-                if not coords or feed != 8000:
+                if (
+                    active_motion == "G0"
+                    and coords
+                    and target_x is not None
+                    and target_y is not None
+                    and abs(target_x) < _GEOMETRY_EPS_MM
+                    and abs(target_y) < _GEOMETRY_EPS_MM
+                ):
+                    raise GcodeError(f"第 {idx} 行 G0 落点 X0 Y0（触发自动换纸，§5 禁止）：{line}")
+                if not coords or feed != 24000:
                     raise GcodeError(
-                        f"第 {idx} 行 XY 运动必须本行带 F8000，且不得混入 Z：{line}"
+                        f"第 {idx} 行 XY 运动必须本行带 F24000，且不得混入 Z：{line}"
                     )
             elif active_motion in {"G2", "G3"} and feed is None:
                 # G2/G3 仅保留给既有外部 G-code 限幅回归；即使不由 profile 产出，
@@ -948,11 +967,10 @@ def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "Machi
                 if val < 0.0 or val > limit:
                     raise GcodeError(f"第 {idx} 行 {axis}{val} 越界（限幅 0~{limit}mm）：{line}")
 
-        target_x = xy.get("X", cur_x)
-        target_y = xy.get("Y", cur_y)
 
         # G0 必须能解析出完整 XY 实际终点；任一轴未知时无法证明不会落到 (0,0)，
-        # 而本机该落点会触发自动换纸，故 fail closed。完整终点为原点同样拒绝。
+        # 而本机该落点会触发自动换纸，故 fail closed。原点已在进给检查内先判，
+        # 此处补 G0 无轴字（裸 G0 继承 cur）的落点。
         if has_motion and active_motion == "G0":
             if target_x is None or target_y is None:
                 raise GcodeError(f"第 {idx} 行 G0 缺少已知完整 XY 起点/目标（无法排除自动换纸）：{line}")

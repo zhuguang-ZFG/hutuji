@@ -19,9 +19,9 @@ _WORD = re.compile(r"([A-Z])([+-]?(?:\d+\.?\d*|\.\d+))")
 
 def _pen_down_run(points, feed=8000):
     """造一段合法落笔 run：G0 到起点 + Z5 + 逐点 G1 + Z0。"""
-    lines = ["G21", "G90", "F8000", "G1G90 Z0.0F10000", "G1G90 Z0.0F10000"]
+    lines = ["G21", "G90", "F24000", "G1G90 Z0.0F10000", "G1G90 Z0.0F10000"]
     x0, y0 = points[0]
-    lines.append(f"G0 X{x0:.3f}Y{y0:.3f}F8000")
+    lines.append(f"G0 X{x0:.3f}Y{y0:.3f}F24000")
     lines.append("G1G90 Z5.0F10000")
     for x, y in points[1:]:
         lines.append(f"G1 X{x:.3f}Y{y:.3f}F{feed}")

@@ -266,7 +266,7 @@ def _run_stream_e2e() -> dict[str, Any]:
 
 def _minimal_gcode(extra: str = "") -> str:
     return (
-        "G21\nG90\nF8000\n"
+        "G21\nG90\nF24000\n"
         "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
         f"{extra}"
         "G1G90 Z0.0F10000\n"
@@ -313,7 +313,7 @@ def _line_payload_254(_output_dir: Path) -> dict[str, Any]:
     # 前置一条 XY 运动行满足零运动闸（GC-P3b）：本场景验证的是行长边界，不是空产物。
     return _expect_valid(
         "line_payload_254",
-        _minimal_gcode("G1 X10 Y10 F8000\n" + line + "\n"),
+        _minimal_gcode("G1 X10 Y10 F24000\n" + line + "\n"),
         ["docs/protocol.md §3", "docs/protocol.md §5"],
     )
 
@@ -334,7 +334,7 @@ def _reject_g92(_output_dir: Path) -> dict[str, Any]:
 def _reject_out_of_bounds(_output_dir: Path) -> dict[str, Any]:
     return _expect_rejected(
         "reject_out_of_bounds",
-        _minimal_gcode("G1 X278 Y0 F8000\n"),
+        _minimal_gcode("G1 X278 Y0 F24000\n"),
         ["docs/protocol.md §5"],
     )
 

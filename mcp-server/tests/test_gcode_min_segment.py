@@ -14,20 +14,20 @@ from hutuji_mcp.gcode_gen import validate_gcode
 
 
 def _stroke_with_micro_g1() -> str:
-    """Z5 后一串 0.1mm 级 G1（F8000 下每段 ~0.75ms），模拟阶梯/碎描摹。"""
+    """Z5 后一串 0.1mm 级 G1（F24000 下每段 ~0.25ms），模拟阶梯/碎描摹。"""
     parts = [
         "G21",
         "G90",
-        "F8000",
+        "F24000",
         "G1G90 Z0.0F10000",
         "G1G90 Z0.0F10000",
-        "G0 X10.000Y10.000F8000",
+        "G0 X10.000Y10.000F24000",
         "G1G90 Z5.0F10000",
     ]
     x = 10.0
     for _ in range(20):
         x += 0.1
-        parts.append(f"G1 X{x:.3f}Y10.000F8000")
+        parts.append(f"G1 X{x:.3f}Y10.000F24000")
     parts.append("G1G90 Z0.0F10000")
     return "\n".join(parts) + "\n"
 
@@ -89,12 +89,12 @@ def test_collapse_short_pen_down_g1_raises_floor() -> None:
 def test_collapse_preserves_long_segments() -> None:
     """已够长的落笔段不得被无故拆短或改坐标。"""
     text = (
-        "G21\nG90\nF8000\n"
+        "G21\nG90\nF24000\n"
         "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
-        "G0 X10.000Y10.000F8000\n"
+        "G0 X10.000Y10.000F24000\n"
         "G1G90 Z5.0F10000\n"
-        "G1 X50.000Y10.000F8000\n"
-        "G1 X50.000Y50.000F8000\n"
+        "G1 X50.000Y10.000F24000\n"
+        "G1 X50.000Y50.000F24000\n"
         "G1G90 Z0.0F10000\n"
     )
     out = gcode_gen._collapse_short_pen_down_segments(text)
@@ -104,25 +104,25 @@ def test_collapse_preserves_long_segments() -> None:
 def test_collapse_does_not_bridge_pen_up() -> None:
     """抬笔态 G0 / 两笔之间不得被合并成一条落笔线。"""
     text = (
-        "G21\nG90\nF8000\n"
+        "G21\nG90\nF24000\n"
         "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
-        "G0 X10.000Y10.000F8000\n"
+        "G0 X10.000Y10.000F24000\n"
         "G1G90 Z5.0F10000\n"
-        "G1 X10.100Y10.000F8000\n"
+        "G1 X10.100Y10.000F24000\n"
         "G1G90 Z0.0F10000\n"
-        "G0 X20.000Y10.000F8000\n"
+        "G0 X20.000Y10.000F24000\n"
         "G1G90 Z5.0F10000\n"
-        "G1 X20.100Y10.000F8000\n"
+        "G1 X20.100Y10.000F24000\n"
         "G1G90 Z0.0F10000\n"
     )
     out = gcode_gen._collapse_short_pen_down_segments(text)
     assert out.count("G1G90 Z5.0F10000") == 2
-    assert "G0 X20.000Y10.000F8000" in out
+    assert "G0 X20.000Y10.000F24000" in out
 
 
 def test_collapse_preserves_line_feed_rate():
-    """塌缩写回不得硬编码 F8000：本行 F 必须继承（2026-08-28 review 抓获——
-    A/B 夹具 F10000/F12000 被硬编码写成 F8000 会让进给实验失真）。"""
+    """塌缩写回不得硬编码 F24000：本行 F 必须继承（2026-08-28 review 抓获——
+    A/B 夹具 F10000/F12000 被硬编码写成 F24000 会让进给实验失真）。"""
     from hutuji_mcp.gcode_gen import _collapse_short_pen_down_segments
     src = ("G21\nG90\n"
            "G1G90 Z5.0F10000\n"
@@ -133,5 +133,5 @@ def test_collapse_preserves_line_feed_rate():
     out = _collapse_short_pen_down_segments(src, min_mm=1.0)
     kept = [l for l in out.splitlines() if "X11.500" in l]
     assert kept == ["G1 X11.500Y10.000F12000"], kept
-    assert "F8000" not in [l for l in out.splitlines() if l.startswith("G1 X")], out
+    assert "F24000" not in [l for l in out.splitlines() if l.startswith("G1 X")], out
 

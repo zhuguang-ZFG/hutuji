@@ -243,7 +243,7 @@ def _contract_violation(line: str) -> str | None:
         return "error:20"
     if z is not None and z not in (0.0, 5.0):
         return "error:20"
-    if f is not None and not (0.0 < f <= 10000.0):
+    if f is not None and not (0.0 < f <= 24000.0):
         return "error:20"
     if g0 and x is not None and y is not None and abs(x) < _ORIGIN_EPS_MM and abs(y) < _ORIGIN_EPS_MM:
         return "error:20"

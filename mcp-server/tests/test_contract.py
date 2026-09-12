@@ -1346,7 +1346,7 @@ def _minimal_gcode(extra: str = "") -> str:
     if extra and not extra.endswith("\n"):
         extra += "\n"
     return (
-        "G21\nG90\nF8000\n"
+        "G21\nG90\nF24000\n"
         "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
         f"{extra}"
         "G1G90 Z0.0F10000\n"
@@ -1356,10 +1356,10 @@ def _minimal_gcode(extra: str = "") -> str:
 @pytest.mark.parametrize(
     "text",
     [
-        "G90\nG21\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n",
+        "G90\nG21\nF24000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n",
         "G21\nG90\nF1\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n",
-        "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1 X1Y1F8000\nG1G90 Z0.0F10000\n",
-        "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z5.0F10000\nG1G90 Z0.0F10000\n",
+        "G21\nG90\nF24000\nG1G90 Z0.0F10000\nG1 X1Y1F24000\nG1G90 Z0.0F10000\n",
+        "G21\nG90\nF24000\nG1G90 Z0.0F10000\nG1G90 Z5.0F10000\nG1G90 Z0.0F10000\n",
     ],
 )
 def test_gcode_rejects_nonproduction_header(text: str) -> None:
@@ -1370,7 +1370,7 @@ def test_gcode_rejects_nonproduction_header(text: str) -> None:
 def test_gcode_rejects_pen_down_ending() -> None:
     with pytest.raises(GcodeError, match="文件末尾.*Z0"):
         validate_gcode(
-            "G21\nG90\nF8000\n"
+            "G21\nG90\nF24000\n"
             "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
             "G1G90 Z5.0F10000\n"
         )
@@ -1378,9 +1378,9 @@ def test_gcode_rejects_pen_down_ending() -> None:
 
 def test_gcode_accepts_spaced_production_header() -> None:
     validate_gcode(
-        "G21\nG90\nF8000\n"
+        "G21\nG90\nF24000\n"
         "G1 G90 Z0.0 F10000\nG1 G90 Z0.0 F10000\n"
-        "G1 X10 Y10 F8000\n"
+        "G1 X10 Y10 F24000\n"
         "G1 G90 Z0.0 F10000\n"
     )
 
@@ -1388,7 +1388,7 @@ def test_gcode_accepts_spaced_production_header() -> None:
 @pytest.mark.parametrize(
     "ending",
     [
-        "G1 X10Y10 Z0 F8000",
+        "G1 X10Y10 Z0 F24000",
         "G1G90 Z0.0F9999",
         "G1G90 Z0F10000",
         "G1G90 Z0.00F10000",
@@ -1396,7 +1396,7 @@ def test_gcode_accepts_spaced_production_header() -> None:
 )
 def test_gcode_requires_exact_production_footer(ending: str) -> None:
     text = (
-        "G21\nG90\nF8000\n"
+        "G21\nG90\nF24000\n"
         "G1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
         f"{ending}\n"
     )
@@ -1427,7 +1427,7 @@ def _size_filler(remaining: int) -> str:
 
 def test_gcode_accepts_exactly_512_kib() -> None:
     """§5「≤ 512KB 含」：恰好 MAX_BYTES 放行，多一字节才拒。"""
-    motion = "G1 X10 Y10 F8000\n"
+    motion = "G1 X10 Y10 F24000\n"
     base = _minimal_gcode(motion)
     text = _minimal_gcode(motion + _size_filler(MAX_BYTES - len(base.encode("utf-8"))))
     assert len(text.encode("utf-8")) == MAX_BYTES
@@ -1444,7 +1444,7 @@ def test_gcode_size_limit_counts_disk_bytes_not_collapsed_newlines(tmp_path) -> 
     旧算法数出 503523、判为未超并放行，且回给 S3 的 `bytes` 少报 20846。512KiB 是
     S3 侧 PSRAM 缓冲的硬约束，少算即等于把越限产物放给设备。
     """
-    motion = "G1 X10 Y10 F8000\n"
+    motion = "G1 X10 Y10 F24000\n"
     base = _minimal_gcode(motion)
     text = _minimal_gcode(motion + _size_filler(MAX_BYTES - len(base.encode("utf-8"))))
     # LF 形态恰好等于上限；换成 CRLF 后磁盘字节必然超限（每行 +1）。
@@ -1463,7 +1463,7 @@ def test_gcode_size_limit_counts_disk_bytes_not_collapsed_newlines(tmp_path) -> 
 
 def test_gcode_stats_bytes_equals_real_file_size_for_crlf(tmp_path) -> None:
     """回给 S3 的 `bytes` 必须等于磁盘真实字节，否则与 Content-Length / CRC32 不同源。"""
-    raw = _minimal_gcode("G1 X10 Y10 F8000\n").replace("\n", "\r\n").encode("ascii")
+    raw = _minimal_gcode("G1 X10 Y10 F24000\n").replace("\n", "\r\n").encode("ascii")
     p = tmp_path / "ok_crlf.gcode"
     p.write_bytes(raw)
     stats = _read_generated_gcode(p)
@@ -1474,7 +1474,7 @@ def test_gcode_stats_bytes_equals_real_file_size_for_crlf(tmp_path) -> None:
 
 def test_validate_gcode_accepts_explicit_total_bytes_override() -> None:
     """`total_bytes` 显式传入时优先于文本推算，且缺省行为不变（纯文本场景）。"""
-    text = _minimal_gcode("G1 X10 Y10 F8000\n")
+    text = _minimal_gcode("G1 X10 Y10 F24000\n")
     assert validate_gcode(text).bytes == len(text.encode("utf-8"))
     assert validate_gcode(text, total_bytes=12345).bytes == 12345
     with pytest.raises(GcodeError, match="总大小"):
@@ -1521,13 +1521,13 @@ def test_gcode_line_payload_limit_is_254_not_255() -> None:
     # 254 字节 payload：放行（含换行整行 255 字节，设备侧 len 走到 254 后收到 EOL）
     ok_line = ";" + "x" * (MAX_LINE_PAYLOAD_BYTES - 1)
     assert len(ok_line.encode("ascii")) == MAX_LINE_PAYLOAD_BYTES
-    validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n" + ok_line + "\n"))
+    validate_gcode(_minimal_gcode("G1 X10 Y10 F24000\n" + ok_line + "\n"))
 
     # 255 字节 payload：必须拒。这一条是本次修复的核心——旧口径 `> 255` 会放行。
     bad_line = ";" + "x" * MAX_LINE_PAYLOAD_BYTES
     assert len(bad_line.encode("ascii")) == MAX_LINE_PAYLOAD_BYTES + 1
     with pytest.raises(GcodeError, match=r"255 字节超上限 254"):
-        validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n" + bad_line + "\n"))
+        validate_gcode(_minimal_gcode("G1 X10 Y10 F24000\n" + bad_line + "\n"))
 
     # 明显超长仍拒（回归保护，旧口径也能拦住这一条）
     with pytest.raises(GcodeError, match=r"超上限 254"):
@@ -1608,8 +1608,8 @@ def test_crlf_makes_grbl_answer_twice_per_line() -> None:
             ln += 1
         return resp
 
-    assert answers("G1 X1Y1F8000", "\n") == ["ok"]
-    assert answers("G1 X1Y1F8000", "\r\n") == ["ok", "ok"]
+    assert answers("G1 X1Y1F24000", "\n") == ["ok"]
+    assert answers("G1 X1Y1F24000", "\r\n") == ["ok", "ok"]
 
 
 def test_gcode_rejects_non_ascii_even_when_character_count_fits() -> None:
@@ -1630,7 +1630,7 @@ def test_gcode_rejects_paren_comment_line() -> None:
 def test_pen_lifts_are_reported_but_not_rejected(caplog: pytest.LogCaptureFixture) -> None:
     # 抬笔 = Z 回 0 的运动（对齐奎享 Stepper 产物，本 profile 不产 M5）
     text = _minimal_gcode(
-        "G1 X10 Y10 F8000\n" + "G1G90 Z0.0F10000\n" * (PEN_LIFT_WARN_THRESHOLD + 1)
+        "G1 X10 Y10 F24000\n" + "G1G90 Z0.0F10000\n" * (PEN_LIFT_WARN_THRESHOLD + 1)
     )
     with caplog.at_level(logging.WARNING):
         stats = validate_gcode(text)
@@ -1643,7 +1643,7 @@ def test_capability_download_has_integrity_headers(
 ) -> None:
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
     name = f"{server._new_basename()}.gcode"
-    data = _minimal_gcode("G1 X10 Y10 F8000\n").encode("ascii")
+    data = _minimal_gcode("G1 X10 Y10 F24000\n").encode("ascii")
     (tmp_path / name).write_bytes(data)
 
     response = asyncio.run(server._serve_file(name))
@@ -1751,7 +1751,7 @@ def test_stale_gcode_over_y_limit_returns_404_and_deletes_triplet(
     gcode = tmp_path / f"{base}.gcode"
     svg = tmp_path / f"{base}.svg"
     png = tmp_path / f"{base}.png"
-    gcode.write_text(_minimal_gcode("G0 X100 Y200 F8000\n"), encoding="utf-8")
+    gcode.write_text(_minimal_gcode("G0 X100 Y200 F24000\n"), encoding="utf-8")
     svg.write_text("<svg/>", encoding="utf-8")
     png.write_bytes(b"\x89PNG")
 
@@ -1790,7 +1790,7 @@ def test_valid_gcode_passes_serve_time_revalidation(
     """合法产物照常下发：复核只拦违约内容，不改变正常下载的体与完整性头。"""
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
     name = f"{server._new_basename()}.gcode"
-    data = _minimal_gcode("G1 X10 Y10 F8000\n").encode("ascii")
+    data = _minimal_gcode("G1 X10 Y10 F24000\n").encode("ascii")
     (tmp_path / name).write_bytes(data)
 
     resp = asyncio.run(server._serve_file(name))
@@ -1808,7 +1808,7 @@ def test_stale_delete_skipped_when_path_swapped_after_read(
     base = server._new_basename()
     gcode = tmp_path / f"{base}.gcode"
     svg = tmp_path / f"{base}.svg"
-    gcode.write_text(_minimal_gcode("G0 X100 Y200 F8000\n"), encoding="utf-8")
+    gcode.write_text(_minimal_gcode("G0 X100 Y200 F24000\n"), encoding="utf-8")
     svg.write_text("<svg/>", encoding="utf-8")
 
     real_read = server._read_regular_file
@@ -1817,7 +1817,7 @@ def test_stale_delete_skipped_when_path_swapped_after_read(
         result = real_read(path)
         # 模拟并发替换：换入一份新的合法产物，并把 mtime 显式错开。
         replacement = tmp_path / f"{base}.gcode"
-        replacement.write_text(_minimal_gcode("G0 X10 Y10 F8000\n"), encoding="utf-8")
+        replacement.write_text(_minimal_gcode("G0 X10 Y10 F24000\n"), encoding="utf-8")
         os.utime(replacement, (result[1] + 5, result[1] + 5))
         return result
 
@@ -2499,8 +2499,9 @@ def test_stitch_polylines_preserves_all_content() -> None:
 
 
 def test_decimate_polylines_collapses_pixel_staircase() -> None:
-    """骨架像素阶梯必须抽稀：否则 layout 后 G1 中位 ~0.8mm，F8000 下 70% 段
-    <10ms → planner 空档失能抬笔（2026-08-26 小路 829 段卡顿/没线）。
+    """骨架像素阶梯必须抽稀：否则 layout 后 G1 中位 ~0.8mm，F24000（400mm/s，
+    2026-09-12 提速批）下 70% 段 <3ms → planner 空档失能抬笔（2026-08-26 小路
+    829 段卡顿/没线，当时为 F8000=133mm/s 档）。
 
     不改锁定的 linesimplify=0.05（楼梯偏差常 >0.05mm 会保留阶梯点）；在像素
     域 Douglas-Peucker 把阶梯压掉。端点必须保留。"""
@@ -4325,7 +4326,7 @@ def test_serve_file_returns_response_not_file_response(
 
     monkeypatch.setattr(server, "settings", _settings(tmp_path))
     name = f"{server._new_basename()}.gcode"
-    body = _minimal_gcode("G1 X10 Y10 F8000\n").encode("ascii")
+    body = _minimal_gcode("G1 X10 Y10 F24000\n").encode("ascii")
     (tmp_path / name).write_bytes(body)
     resp = asyncio.run(server._serve_file(name))
     assert isinstance(resp, _Resp)
@@ -4813,7 +4814,8 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
     """回归：管线必须含 linemerge + linesimplify，且顺序在 gwrite 之前。
 
     这两步是「笔走停停」修复的实体（commit 2aead01）：SVG 曲线离散成 0.12mm
-    步长的密点，逐行流控下每行执行 0.9ms（0.12mm @ 生产 F8000=133mm/s）
+    步长的密点，逐行流控下每行执行 0.9ms（0.12mm @ 旧生产 F8000=133mm/s；
+    2026-09-12 提速批后 F24000=400mm/s 为 0.3ms）
     < Telnet 往返 ~25ms，电机干等。
     若有人清理管线时删掉这两行，其余测试照样全绿，卡顿静默回归。
     """
@@ -4826,7 +4828,7 @@ def test_vpype_pipeline_keeps_simplify_and_merge(tmp_path: Path, monkeypatch) ->
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         captured["cmd"] = cmd
         # 伪造 vpype 成功：往输出路径写一份最小合法 G-code
-        Path(cmd[-1]).write_text(_minimal_gcode("G1 X10 Y10 F8000\n"), encoding="utf-8")
+        Path(cmd[-1]).write_text(_minimal_gcode("G1 X10 Y10 F24000\n"), encoding="utf-8")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
@@ -4892,7 +4894,7 @@ def test_vpype_pipeline_normalizes_layout(tmp_path: Path, monkeypatch) -> None:
 
     def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN202
         captured["cmd"] = cmd
-        Path(cmd[-1]).write_text(_minimal_gcode("G1 X10 Y10 F8000\n"), encoding="utf-8")
+        Path(cmd[-1]).write_text(_minimal_gcode("G1 X10 Y10 F24000\n"), encoding="utf-8")
         return _sp.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(gcode_gen.subprocess, "run", fake_run)
@@ -5017,12 +5019,12 @@ def test_gwrite_profile_matches_production_shape() -> None:
     # 竖版撰写 190x277 + G-code 转置（机器 X:=SVG y），墙上竖装站直横读
     assert profile["vertical_flip"] is False
     assert profile["transpose_xy"] is True
-    # 头：G21/G90/F8000 + 两次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路发送）
-    assert profile["document_start"] == "G21\nG90\nF8000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+    # 头：G21/G90/F24000 + 两次幂等抬笔（不建立 Z 基准，G92 由 S3 旁路发送）
+    assert profile["document_start"] == "G21\nG90\nF24000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
     assert profile["document_start"].count("G1G90 Z0.0F10000") == 2
-    # 空走 G0 F8000 → 落笔 Z5；画线 G1 F8000；抬笔 Z0
-    assert profile["segment_first"] == "G0 X{x:.3f}Y{y:.3f}F8000\nG1G90 Z5.0F10000\n"
-    assert profile["segment"] == "G1 X{x:.3f}Y{y:.3f}F8000\n"
+    # 空走 G0 F24000 → 落笔 Z5；画线 G1 F24000；抬笔 Z0
+    assert profile["segment_first"] == "G0 X{x:.3f}Y{y:.3f}F24000\nG1G90 Z5.0F10000\n"
+    assert profile["segment"] == "G1 X{x:.3f}Y{y:.3f}F24000\n"
     assert profile["line_end"] == "G1G90 Z0.0F10000\n"
     # 收尾只抬笔：奎享的 G90G0 X0Y0 在本机会被判为换纸触发，禁止照抄
     assert profile["document_end"] == "G1G90 Z0.0F10000\n"
@@ -5057,7 +5059,7 @@ def test_svg_to_gcode_transposes_xy_for_wall_portrait(tmp_path: Path) -> None:
     gcode_gen.svg_to_gcode(svg, gcode, normalize=False)
     moves = [
         (float(m.group(1)), float(m.group(2)))
-        for m in re.finditer(r"^G1 X([\d.]+)Y([\d.]+)F8000$", gcode.read_text(), re.M)
+        for m in re.finditer(r"^G1 X([\d.]+)Y([\d.]+)F24000$", gcode.read_text(), re.M)
     ]
     assert len(moves) == 2
     # 机器 X = 撰写 y（顶线 y=8 → X=8 原点侧；底线 y=180 → X=180 远端）
@@ -5073,10 +5075,10 @@ def test_transpose_gcode_xy_swaps_pairs_and_preserves_lines() -> None:
     互换公式错（值串错位/词序拼反）会被逐字节比对当场抓住。"""
     from hutuji_mcp import gcode_gen
 
-    text = "G21\r\nG90\r\nG0 X10.5Y20.25F8000\r\nG1G90 Z5.0F10000\r\nG1 X1Y2F8000"
+    text = "G21\r\nG90\r\nG0 X10.5Y20.25F24000\r\nG1G90 Z5.0F10000\r\nG1 X1Y2F24000"
     out = gcode_gen._transpose_gcode_xy(text)
     assert out == (
-        "G21\r\nG90\r\nG0 X20.25Y10.5F8000\r\nG1G90 Z5.0F10000\r\nG1 X2Y1F8000"
+        "G21\r\nG90\r\nG0 X20.25Y10.5F24000\r\nG1G90 Z5.0F10000\r\nG1 X2Y1F24000"
     )
 
 
@@ -5117,7 +5119,7 @@ def test_svg_to_gcode_nopaper_profile_disables_transpose(tmp_path: Path) -> None
     gcode_gen.svg_to_gcode(svg, gcode, normalize=False, profile=gcode_gen.PROFILE_NOPAPER)
     moves = [
         (float(m.group(1)), float(m.group(2)))
-        for m in re.finditer(r"^G1 X([\d.]+)Y([\d.]+)F8000$", gcode.read_text(), re.M)
+        for m in re.finditer(r"^G1 X([\d.]+)Y([\d.]+)F24000$", gcode.read_text(), re.M)
     ]
     assert len(moves) == 2
     # 不转置：顶线 x∈[10,50] 保持 X 段（X=50 为末端）、Y=8；底线 X=140、Y=180
@@ -5143,14 +5145,14 @@ def test_validate_gcode_profile_limits_override() -> None:
     from hutuji_mcp import gcode_gen
 
     doc_x250 = _minimal_gcode(
-        "G0 X250.0Y10.0F8000\nG1G90 Z5.0F10000\nG1 X249.0Y10.0F8000\n"
+        "G0 X250.0Y10.0F24000\nG1G90 Z5.0F10000\nG1 X249.0Y10.0F24000\n"
     )
     gcode_gen.validate_gcode(doc_x250)  # 默认 X≤277 放行
     with pytest.raises(gcode_gen.GcodeError, match="越界"):
         gcode_gen.validate_gcode(doc_x250, profile=gcode_gen.PROFILE_NOPAPER)
 
     doc_y250 = _minimal_gcode(
-        "G0 X10.0Y250.0F8000\nG1G90 Z5.0F10000\nG1 X10.0Y249.0F8000\n"
+        "G0 X10.0Y250.0F24000\nG1G90 Z5.0F10000\nG1 X10.0Y249.0F24000\n"
     )
     with pytest.raises(gcode_gen.GcodeError, match="越界"):
         gcode_gen.validate_gcode(doc_y250)  # 默认 Y≤190 拒
@@ -5284,19 +5286,19 @@ def test_arc_full_circle_epsilon_boundary_is_inclusive(
 @pytest.mark.parametrize(
     "line, reason",
     [
-        ("G0 X0 Y0 F8000", "自动换纸"),
-        ("G0X0Y0F8000", "自动换纸"),          # 无空格：整行曾是一个 token
-        ("G90 G0 X0 Y0 F8000", "自动换纸"),    # 模态前缀：首个 token 曾是 G90
+        ("G0 X0 Y0 F24000", "自动换纸"),
+        ("G0X0Y0F24000", "自动换纸"),          # 无空格：整行曾是一个 token
+        ("G90 G0 X0 Y0 F24000", "自动换纸"),    # 模态前缀：首个 token 曾是 G90
         ("g0x0y0f8000", "自动换纸"),          # 小写 + 无空格
-        ("G0X0Y0Z0F8000", "笔控必须"),
+        ("G0X0Y0Z0F24000", "笔控必须"),
         ("G28X1", "G28/G30"),
         ("G1 X1e3 Y5", "无法解析"),        # Grbl 不支持科学计数法，必须在云端拒绝
         ("G1 X.5e3 Y5", "无法解析"),       # 前导小数点 + 指数同样不准下发
         ("G1 X1e-1 Y5", "无法解析"),       # 旧校验器会当成 0.1，Grbl 会报 unused word
         ("G1 X.5e1 Y5", "无法解析"),       # 旧校验器会当成 5，Grbl 实际按 .5 解析
-        ("G2 X999 Y999 I1 J1 F8000", "越界"),  # 圆弧曾完全不限幅
-        ("G3 X5 Y999 I1 J1 F8000", "越界"),
-        ("G1 X-5 Y5 F8000", "越界"),
+        ("G2 X999 Y999 I1 J1 F24000", "越界"),  # 圆弧曾完全不限幅
+        ("G3 X5 Y999 I1 J1 F24000", "越界"),
+        ("G1 X-5 Y5 F24000", "越界"),
         # 以下为 2026-07-26 二次评审新增（都是我引入 _WORD_RE 时的遗留缺陷）：
         ("G1E400 X5 Y5", "无法解析"),      # Grbl 不支持指数，必须拒绝而非漏出 OverflowError
         ("M1E400", "无法解析"),
@@ -5319,8 +5321,8 @@ def test_arc_full_circle_epsilon_boundary_is_inclusive(
         ("G1 ZNAN", "无法解析"),            # Z 非数值不得静默忽略
         ("F1E400", "无法解析"),             # Grbl 不支持指数进给
         ("G1 Z999", "生产笔位"),            # 笔轴只允许 Z0/Z5
-        ("F10001", "进给范围"),             # 当前生产上限 Z 轴 F10000
-        ("F0", "进给范围"),                 # F=0 不合法，§5 要求 0<F≤10000
+        ("F24001", "进给范围"),            # 2026-09-12 提速批后生产上限 F24000
+        ("F0", "进给范围"),                 # F=0 不合法，§5 要求 0<F≤24000
         ("F-1", "进给范围"),                # 负进给不合法
         ("G1 X10 Y10 F0", "进给范围"),      # F0 在运动指令中
         # 换纸/程序结束 M 指令必须拦截
@@ -5373,13 +5375,13 @@ def test_gcode_rejects_arc_words_outside_arc_motion(line: str) -> None:
     ],
 )
 def test_gcode_rejects_incomplete_arc_blocks(line: str, reason: str) -> None:
-    text = _minimal_gcode("G0 X100 Y100 F8000\n" + line + "\n")
+    text = _minimal_gcode("G0 X100 Y100 F24000\n" + line + "\n")
     with pytest.raises(GcodeError, match=reason):
         validate_gcode(text)
 
 
 def test_gcode_rejects_mixed_radius_and_offset_arc_words() -> None:
-    text = _minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R10 I10 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y100 F24000\nG2 X120 Y100 R10 I10 J0 F24000\n")
     with pytest.raises(GcodeError, match="R.*I/J|I/J.*R"):
         validate_gcode(text)
 
@@ -5392,7 +5394,7 @@ def test_gcode_rejects_degenerate_radius_mode_arc() -> None:
     圆心，包围盒退化成弦点 (100,5) 而被放行。vpype 生产管线实测 0 条真实圆弧，
     这种几何歧义没有合法来源，按 fail-closed 拒收（弦长 < _ARC_MIN_CHORD_MM）。
     """
-    text = _minimal_gcode("G0 X100 Y5 F8000\nG2 X100.0001 Y5 R95 F8000\n")
+    text = _minimal_gcode("G0 X100 Y5 F24000\nG2 X100.0001 Y5 R95 F24000\n")
     with pytest.raises(GcodeError, match="近乎重合|近整圆"):
         validate_gcode(text)
 
@@ -5403,10 +5405,10 @@ def test_gcode_accepts_legitimate_radius_mode_arc() -> None:
     钉死 _ARC_MIN_CHORD_MM 不误伤正常 R 弧。弦长 20mm 远大于 0.5mm 容差。
     """
     # 正 R minor
-    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R20 F8000\n"))
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F24000\nG2 X120 Y100 R20 F24000\n"))
     assert stats.lines == 8
     # 负 R major（绕远路一侧），圆心仍在界内
-    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R-20 F8000\n"))
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F24000\nG2 X120 Y100 R-20 F24000\n"))
     assert stats.lines == 8
 
 
@@ -5417,7 +5419,7 @@ def test_gcode_rejects_radius_mode_arc_out_of_bounds() -> None:
     补住 R 模式 major 弧的包围盒限幅路径——这条路径此前零测试。弦长 5mm 充足，
     负 R=40 让圆心落到弦左侧、major 弧向右凸到 X=309.5，越过 277 限幅。
     """
-    text = _minimal_gcode("G0 X272 Y100 F8000\nG2 X267 Y100 R-40 F8000\n")
+    text = _minimal_gcode("G0 X272 Y100 F24000\nG2 X267 Y100 R-40 F24000\n")
     with pytest.raises(GcodeError, match="包围盒"):
         validate_gcode(text)
 
@@ -5425,7 +5427,7 @@ def test_gcode_rejects_radius_mode_arc_out_of_bounds() -> None:
 def test_gcode_rejects_arc_without_feed() -> None:
     """R14-TG-01：G2/G3 有坐标有圆弧参数但缺 F 必须拒（`feed is None` 闸）——
     既有用例只覆盖缺 X/Y 与缺 I/J/R，这条分支此前零测试。"""
-    text = _minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 I10 J0\n")
+    text = _minimal_gcode("G0 X100 Y100 F24000\nG2 X120 Y100 I10 J0\n")
     with pytest.raises(GcodeError, match="进给"):
         validate_gcode(text)
 
@@ -5446,31 +5448,31 @@ def test_malformed_gcode_never_raises_non_gcode_error() -> None:
 @pytest.mark.parametrize(
     "line",
     [
-        # 生产 profile 的真实形状：X 与 Y 之间无空格、每行都带 F8000
+        # 生产 profile 的真实形状：X 与 Y 之间无空格、每行都带 F24000
         # （hutuji_gwrite.toml segment_first/segment；早先这两行写的
         #  F2500/F1500 是 profile 定稿前的旧口径，锁不住真实产物）
-        "G0 X95.000Y175.000F8000",
-        "G1 X100.000Y100.000F8000",
-        "G0 X95.000 Y175.000 F8000",  # 带空格的等价写法同样必须放行
-        "G1 X.5 Y.5 F8000",           # 前导小数点但在范围内
+        "G0 X95.000Y175.000F24000",
+        "G1 X100.000Y100.000F24000",
+        "G0 X95.000 Y175.000 F24000",  # 带空格的等价写法同样必须放行
+        "G1 X.5 Y.5 F24000",           # 前导小数点但在范围内
         "; comment",
         "; generated by vpype-gcode",  # 注释含 Y 字母，不得误拒
-        "G1 X50 Y50 F8000 ; move to XY",  # 行内注释含 X/Y
+        "G1 X50 Y50 F24000 ; move to XY",  # 行内注释含 X/Y
     ],
 )
 def test_gcode_accepts_legit_lines(line: str) -> None:
     # 前置一条运动行满足零运动闸（纯注释参数否则过不了），不影响各参数本身的判定
-    validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n" + line + "\n"))
+    validate_gcode(_minimal_gcode("G1 X10 Y10 F24000\n" + line + "\n"))
 
 
 @pytest.mark.parametrize(
     "line",
     [
-        "G0 X10 Y10 Z5 F8000",
-        "G1 X10 Y10 Z5 F8000",
+        "G0 X10 Y10 Z5 F24000",
+        "G1 X10 Y10 Z5 F24000",
         "G0 X10 Y10",
         "G1 X10 Y10 F10000",
-        "G1G90 Z5.0F8000",
+        "G1G90 Z5.0F24000",
         "Z0",
     ],
 )
@@ -5484,14 +5486,14 @@ def test_gcode_rejects_nonproduction_motion_shape(line: str) -> None:
 def test_arc_bulge_outside_limit_is_rejected() -> None:
     """两端点都在界内，但 G2（顺时针）走上半圈，中途凸到 Y=195 > 190。
     只看端点会放行这条弧，实机就是撞机。"""
-    text = _minimal_gcode("G0 X100 Y185 F8000\nG2 X120 Y185 I10 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y185 F24000\nG2 X120 Y185 I10 J0 F24000\n")
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)
 
 
 def test_arc_fully_inside_limit_passes() -> None:
     # 同一条弧整体下移：凸点 Y=110，稳在界内
-    text = _minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 I10 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y100 F24000\nG2 X120 Y100 I10 J0 F24000\n")
     stats = validate_gcode(text)
     assert stats.lines == 8
 
@@ -5499,14 +5501,14 @@ def test_arc_fully_inside_limit_passes() -> None:
 def test_arc_opposite_direction_bulges_the_other_way() -> None:
     """同样的起终点与 I/J，G3 走下半圈——凸向 Y=175，仍在界内。
     方向决定凸向，故限幅必须按实际扫过的角度区间算，不能取外接正方形。"""
-    stats = validate_gcode(_minimal_gcode("G0 X100 Y185 F8000\nG3 X120 Y185 I10 J0 F8000\n"))
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y185 F24000\nG3 X120 Y185 I10 J0 F24000\n"))
     assert stats.lines == 8
 
 
 def test_arc_without_known_start_is_rejected() -> None:
     """圆弧的包围盒依赖起点；前面没有定位指令时必须拒，不能猜 (0,0)。"""
     with pytest.raises(GcodeError, match="缺少已知起点"):
-        validate_gcode(_minimal_gcode("G2 X50 Y50 I5 J5 F8000\n"))
+        validate_gcode(_minimal_gcode("G2 X50 Y50 I5 J5 F24000\n"))
 
 
 def test_arc_with_inconsistent_radius_is_rejected() -> None:
@@ -5515,13 +5517,13 @@ def test_arc_with_inconsistent_radius_is_rejected() -> None:
 
     起点不能用 (0,0)：那会先撞上 G0 X0 Y0 换纸禁令，测不到圆弧这条。"""
     with pytest.raises(GcodeError, match="半径不自洽"):
-        validate_gcode(_minimal_gcode("G0 X10 Y10 F8000\nG2 X100 Y100 I1 J1 F8000\n"))
+        validate_gcode(_minimal_gcode("G0 X10 Y10 F24000\nG2 X100 Y100 I1 J1 F24000\n"))
 
 
 def test_near_full_circle_arc_checks_all_quadrants() -> None:
     """#8 浮点精度：起终点几乎重合的圆弧应按整圆算包围盒，不能退化为点。
     圆心 (100,100)，半径 95 → Y 最大 195 > 190（Y 限幅），必须拦住。"""
-    text = _minimal_gcode("G0 X100 Y5 F8000\nG2 X100.0001 Y5 I0 J95 F8000\n")
+    text = _minimal_gcode("G0 X100 Y5 F24000\nG2 X100.0001 Y5 I0 J95 F24000\n")
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(text)
 
@@ -5537,7 +5539,7 @@ def test_arc_full_circle_epsilon_matches_grbl_firmware() -> None:
     构造：起点 (1,100)，终点沿 CW 转 1e-7 rad ≈ (1, 100.0000099)。
     """
     text = _minimal_gcode(
-        "G0 X1 Y100 F8000\nG2 X1 Y100.0000099 I99 J0 F8000\n"
+        "G0 X1 Y100 F24000\nG2 X1 Y100.0000099 I99 J0 F24000\n"
     )
     with pytest.raises(GcodeError, match="越界"):
         validate_gcode(text)
@@ -5572,7 +5574,7 @@ def test_gcode_rejects_zero_travel_ij_arc() -> None:
     segment_first 语义，空走不落墨），同样不计入——整份文件只剩空走 + 零行程
     时按空产物拒收。仅外部 G-code 可达该路径（vpype 不产 G2/G3、read 丢零长段）。
     """
-    text = _minimal_gcode("G0 X100 Y100 F8000\nG2 X100 Y100 I0 J0 F8000\n")
+    text = _minimal_gcode("G0 X100 Y100 F24000\nG2 X100 Y100 I0 J0 F24000\n")
     with pytest.raises(GcodeError, match="XY 运动"):
         validate_gcode(text)
 
@@ -5584,7 +5586,7 @@ def test_gcode_rejects_zero_displacement_g1() -> None:
     实际位移为零，放行即画白纸。G1 若真的从当前位置移开（哪怕只移一个轴），
     仍算运动——见放行对照测试。
     """
-    text = _minimal_gcode("G0 X100 Y100 F8000\nG1 X100 Y100 F8000\n")
+    text = _minimal_gcode("G0 X100 Y100 F24000\nG1 X100 Y100 F24000\n")
     with pytest.raises(GcodeError, match="XY 运动"):
         validate_gcode(text)
 
@@ -5596,16 +5598,16 @@ def test_gcode_motion_gate_still_passes_real_drawings() -> None:
     G1 落笔画线（生产 profile 的 segment_first/segment 形态）、以及真位移的
     G2/G3 圆弧。它们都有实际位移，不能被零行程闸误伤。
     """
-    stats = validate_gcode(_minimal_gcode("G1 X10 Y10 F8000\n"))
+    stats = validate_gcode(_minimal_gcode("G1 X10 Y10 F24000\n"))
     assert stats.lines == 7
     stats = validate_gcode(
         _minimal_gcode(
-            "G0 X100 Y100 F8000\nG1G90 Z5.0F10000\n"
-            "G1 X110 Y100 F8000\nG1G90 Z0.0F10000\n"
+            "G0 X100 Y100 F24000\nG1G90 Z5.0F10000\n"
+            "G1 X110 Y100 F24000\nG1G90 Z0.0F10000\n"
         )
     )
     assert stats.lines == 10
-    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F8000\nG2 X120 Y100 R20 F8000\n"))
+    stats = validate_gcode(_minimal_gcode("G0 X100 Y100 F24000\nG2 X120 Y100 R20 F24000\n"))
     assert stats.lines == 8
 
 
@@ -5617,7 +5619,7 @@ def test_gcode_rejects_formfeed_line_splitting_bypass() -> None:
     error:11 静默吃行。控制字符必须显式拒绝。
     """
     long_comment = ";" + "x" * 250
-    text = _minimal_gcode(f"G1 X10 Y10 F8000\x0c{long_comment}\n")
+    text = _minimal_gcode(f"G1 X10 Y10 F24000\x0c{long_comment}\n")
     with pytest.raises(GcodeError, match="控制字符"):
         validate_gcode(text)
 
@@ -5629,7 +5631,7 @@ def test_gcode_rejects_unicode_line_separator_bypass() -> None:
     却是含多字节 UTF-8 的一条长行。改按 \\n 切行后它们留在行内，非 ASCII
     闸必须拦住。
     """
-    text = _minimal_gcode("G1 X10 Y10 F8000\u2028; hidden\n")
+    text = _minimal_gcode("G1 X10 Y10 F24000\u2028; hidden\n")
     with pytest.raises(GcodeError, match="非 ASCII|控制字符"):
         validate_gcode(text)
 
@@ -5637,7 +5639,7 @@ def test_gcode_rejects_unicode_line_separator_bypass() -> None:
 def test_gcode_crlf_product_still_accepted() -> None:
     """CRLF 产物仍必须放行：生产链在 Windows 检出下真实产出过 CRLF 文件，
     §3 已约定 S3 重切行。控制字符闸只拦「行中」控制符，不拦行尾 \\r。"""
-    text = _minimal_gcode("G1 X10 Y10 F8000\n").replace("\n", "\r\n")
+    text = _minimal_gcode("G1 X10 Y10 F24000\n").replace("\n", "\r\n")
     stats = validate_gcode(text)
     assert stats.lines == 7
 
@@ -5663,21 +5665,21 @@ def test_vpype_cmd_fallback_module_is_importable(
 def test_coordinate_upper_bound_uses_eps_not_1mm() -> None:
     """#9 容差对称：277.5mm 不应放行（旧 +1.0mm 容差会放行）。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X277.5 Y5 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X277.5 Y5 F24000\n"))
 
 
 def test_coordinate_at_boundary_passes() -> None:
     """X=277 和 Y=190 恰好在各自界内。"""
-    validate_gcode(_minimal_gcode("G1 X277 Y190 F8000\n"))
+    validate_gcode(_minimal_gcode("G1 X277 Y190 F24000\n"))
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        "G1 X277.0001 Y5 F8000\n",
-        "G1 X5 Y190.0001 F8000\n",
-        "G1 X-0.0001 Y5 F8000\n",
-        "G1 X5 Y-0.0001 F8000\n",
+        "G1 X277.0001 Y5 F24000\n",
+        "G1 X5 Y190.0001 F24000\n",
+        "G1 X-0.0001 Y5 F24000\n",
+        "G1 X5 Y-0.0001 F24000\n",
     ],
 )
 def test_explicit_coordinate_outside_hard_boundary_is_rejected(body: str) -> None:
@@ -5696,15 +5698,15 @@ def test_explicit_z_requires_exact_production_pen_position(z: str) -> None:
 def test_y_over_190mm_rejected() -> None:
     """Y=190.5 超出 Y 轴限幅 190mm。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X5 Y190.5 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X5 Y190.5 F24000\n"))
 
 
 @pytest.mark.parametrize(
     ("form", "body"),
     [
-        ("独立行", "G0 X10 Y10 F8000\nG91\nG1 X5 Y5 F8000\n"),
-        ("小写", "G0 X10 Y10 F8000\ng91\nG1 X5 Y5 F8000\n"),
-        ("同行混排", "G0 X10 Y10 F8000\nG1G91 X5 Y5 F8000\n"),
+        ("独立行", "G0 X10 Y10 F24000\nG91\nG1 X5 Y5 F24000\n"),
+        ("小写", "G0 X10 Y10 F24000\ng91\nG1 X5 Y5 F24000\n"),
+        ("同行混排", "G0 X10 Y10 F24000\nG1G91 X5 Y5 F24000\n"),
     ],
 )
 def test_mid_file_g91_is_rejected(form: str, body: str) -> None:
@@ -5742,41 +5744,41 @@ def test_gcode_requires_exact_g21_g90_before_motion(text: str) -> None:
 def test_g0_with_unknown_modal_axis_is_rejected() -> None:
     """首个 G0 只给 X 时 Y 未知，不能证明实际终点不是触发换纸的 (0,0)。"""
     with pytest.raises(GcodeError, match="完整 XY|自动换纸"):
-        validate_gcode(_minimal_gcode("G0 X0 F8000\n"))
+        validate_gcode(_minimal_gcode("G0 X0 F24000\n"))
 
 
 def test_production_modal_axis_only_line_is_limited() -> None:
     """固定头已建立 G1；后续裸轴字仍必须执行画幅限幅。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("X500 Y5 F8000\n"))
+        validate_gcode(_minimal_gcode("X500 Y5 F24000\n"))
 
 
 def test_production_header_establishes_g1_before_axis_only_line() -> None:
     """固定头的两次 G1 抬笔已把模态切到 G1；裸 X0Y0 不走 G0 换纸路径。"""
-    validate_gcode(_minimal_gcode("X0 Y0 F8000\n"))
+    validate_gcode(_minimal_gcode("X0 Y0 F24000\n"))
 
 
 def test_explicit_g1_to_origin_is_still_allowed() -> None:
     """只拦 G0 语义的 (0,0)：显式 G1 走到 (0,0) 是普通画线，不走换纸路径。"""
-    validate_gcode(_minimal_gcode("G1 X0 Y0 F8000\n"))
+    validate_gcode(_minimal_gcode("G1 X0 Y0 F24000\n"))
 
 
 def test_inherited_modal_g1_axis_only_line_is_limited() -> None:
     """显式 G1 后的裸轴字仍是 G1，不能因本行没有 G 字而绕过限幅。"""
     with pytest.raises(GcodeError, match="越界"):
-        validate_gcode(_minimal_gcode("G1 X100 Y100 F8000\nX500 Y500 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X100 Y100 F24000\nX500 Y500 F24000\n"))
 
 
 def test_inherited_modal_g0_origin_is_rejected() -> None:
     """G0 X0 继承上一行 Y=0，实际落点是 (0,0)，会触发固件自动换纸。"""
     with pytest.raises(GcodeError, match="自动换纸"):
-        validate_gcode(_minimal_gcode("G1 X50 Y0 F8000\nG0 X0 F8000\n"))
+        validate_gcode(_minimal_gcode("G1 X50 Y0 F24000\nG0 X0 F24000\n"))
 
 
 def test_inherited_modal_arc_checks_bounding_box() -> None:
     """首个 G2 半径 10mm 合法；裸轴字继承 G2 后半径 25mm 凸到 Y=195，必须拒。"""
     text = _minimal_gcode(
-        "G0 X100 Y170 F8000\nG2 X120 Y170 I10 J0 F8000\nX170 Y170 I25 J0 F8000\n"
+        "G0 X100 Y170 F24000\nG2 X120 Y170 I10 J0 F24000\nX170 Y170 I25 J0 F24000\n"
     )
     with pytest.raises(GcodeError, match="圆弧 [XY] 包围盒"):
         validate_gcode(text)
@@ -5789,7 +5791,7 @@ def test_pen_lift_counts_glued_and_padded_forms() -> None:
     stats = validate_gcode(
         _minimal_gcode(
             "G1G90 Z0.0F10000\nG1 G90 Z0.000 F10000\nG1G90 Z0F10000\n"
-            "G1G90 Z5.0F10000\nG1 X10.000Y10.000F8000\n"
+            "G1G90 Z5.0F10000\nG1 X10.000Y10.000F24000\n"
         )
     )
     assert stats.pen_lifts == 6
@@ -6193,7 +6195,7 @@ def test_preflight_verifies_8300_listener_identity() -> None:
 def test_preflight_exercises_real_generation_chain() -> None:
     """生成链与位图描摹链都必须真跑，不能用人工拼的 G-code 文本冒充。
 
-    旧版 check_download 用 `printf "G21\\nG90\\nF8000\\n"` 造产物——那份内容连
+    旧版 check_download 用 `printf "G21\\nG90\\nF24000\\n"` 造产物——那份内容连
     validate_gcode 自己都不接受（实测「第 4 行缺少 §5 文件头」），所以只证明了
     nginx 能按字节发文件，完全没碰生成链。已实测复现：把 hutuji_gwrite.toml 移走后
     `import hutuji_mcp.server` 仍成功、服务保持 active、/mcp 与 /files 照常响应，
@@ -9051,7 +9053,7 @@ def test_pipe_sim_banner_eof_raises_connection_error(tmp_path: Path) -> None:
     t = threading.Thread(target=_accept_and_close, daemon=True)
     t.start()
     gcode = tmp_path / "in.gcode"
-    gcode.write_text("G21\nG90\nF8000\n", encoding="utf-8")
+    gcode.write_text("G21\nG90\nF24000\n", encoding="utf-8")
     try:
         with pytest.raises(ConnectionError, match="banner"):
             stream_gcode(gcode, "127.0.0.1", port)
@@ -10362,7 +10364,7 @@ def test_draw_async_without_token_falls_back_sync(tmp_path, monkeypatch, caplog)
     async def fake_bitmap(_desc, **_kw):
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
     async def fake_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None):
-        gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
+        gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F24000\nG1G90 Z5.0F10000\nG1 X20 Y20 F24000\nG1G90 Z0.0F10000\nG1G90 X0Y0F24000\nM30\n", encoding="utf-8")
         return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
     monkeypatch.setattr(server, "generate_bitmap", fake_bitmap)
     monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260828_120000_abcdefghijklmnopqrstuv")
@@ -10421,7 +10423,7 @@ def test_draw_last_error_recorded_and_cleared(tmp_path, monkeypatch):
     async def ok_bitmap(_desc, **_kw):
         return SimpleNamespace(svg="<svg/>", preview_png=b"png")
     async def ok_gcode(_svg_path: Path, gcode_path: Path, on_raw_text=None, *, profile=None):
-        gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F8000\nG1G90 Z5.0F10000\nG1 X20 Y20 F8000\nG1G90 Z0.0F10000\nG1G90 X0Y0F8000\nM30\n", encoding="utf-8")
+        gcode_path.write_text("G21\nG90\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\nG0 X10 Y10 F24000\nG1G90 Z5.0F10000\nG1 X20 Y20 F24000\nG1G90 Z0.0F10000\nG1G90 X0Y0F24000\nM30\n", encoding="utf-8")
         return SimpleNamespace(lines=9, bytes=gcode_path.stat().st_size, pen_lifts=1)
     monkeypatch.setattr(server, "generate_bitmap", ok_bitmap)
     monkeypatch.setattr(server, "_new_basename", lambda: "draw_20260828_120001_abcdefghijklmnopqrstuv")

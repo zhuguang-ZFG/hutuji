@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:668-671` 与 `hutuji_recovery_core.h:1140-1222`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:668-671` 与 `hutuji_recovery_core.h:1142-1224`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -445,7 +445,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ## 5. G-code 文件契约（MCP 服务产出）
 
-- **下载文件自包含**：生产 profile 文件头固定为精确的 `G21`（毫米）、`G90`（绝对）、`F8000`，随后
+- **下载文件自包含**：生产 profile 文件头固定为精确的 `G21`（毫米）、`G90`（绝对）、`F24000`（2026-09-12 提速批：XY 生产进给由旧契约 F8000=133mm/s 提为 F24000=400mm/s，用户拍板「xy 轴提速 3 倍」；机器侧同批配套 `$110=$111=24000`、`$120=$121=12000`，回读证据见 `docs/deployment.md`），随后
   连发两次 `G1G90 Z0.0F10000`。这两行是与奎享缓存兼容的幂等抬笔运动，**不能建立 Z 坐标基准**；
   校验器不接受注释或 `G210`/`G900` 等子串伪造，也不允许运动发生在 G21/G90 建立之前。
 - **完整出图会话的 Z 基准**：奎享本机 `$1=25`，电机失能后弹簧回到自然抬笔位，但 Grbl 计数不会
@@ -466,8 +466,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
     XY≈0（GCode.cpp 页尾分支），`G1` 落 `(0,0)` 不触发，归位因此留在可即停的常规行里，
     不进 90s 不可即停的换纸窗口——归位行 ok 后再单发 `M30` 换纸。断连恢复的废纸换纸
     **不归位**（受限恢复序列固定，见 §4.1）。
-- **生产文件抬/落笔 = 纯 Z 运动**：`G0 X...Y...F8000` 空走到笔画起点，
-  `G1G90 Z5.0F10000` 落笔，`G1 X...Y...F8000` 画线，`G1G90 Z0.0F10000` 抬笔；
+- **生产文件抬/落笔 = 纯 Z 运动**：`G0 X...Y...F24000` 空走到笔画起点，
+  `G1G90 Z5.0F10000` 落笔，`G1 X...Y...F24000` 画线，`G1G90 Z0.0F10000` 抬笔；
   文件内不含 `G92`、`M3/M5`、`G4`。Grbl 的 `USE_M3_M5_AS_PEN_UP_DOWN` 仍保留，
   M3→Z=5/M5→Z=0 已用于手工与恢复路径验证，但**不是生产 profile 的出图指令**。abort reset
   恢复仍必须用明确 `G1G90 Z0.0F10000`，不能依赖 reset 后的 M5 模态变化。
@@ -542,13 +542,13 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | `$3` | 7 |
 | `$20/$21/$22` | 0 |
 | `$100/$101` | 100 |
-| `$110/$111` | 12000 |
+| `$110/$111` | 12000 → **24000**（2026-09-12 提速批，`docs/deployment.md` 落证据后生效） |
 | `$130/$131/$132` | 210 / 297 / 200 |
 | `Errors/Verbose` | 0 |
 
 **S3 行为**：
 
-- 连接后授权探测完成 → 逐项 `$N` / `[Errors/Verbose]` 查询 → 比对通过才 `grbl_settings_ok=true` 且 `ready=true`。
+- 连接后授权探测完成 → 逐项 `$N` / `[Errors/Verbose]` 查询 → 比对通过才 `grbl_settings_ok=true` 且 `ready=true`。**提速批过渡窗口**：S3 金标 24000 与机上旧值 12000 不等价——Grbl 固件与 S3 固件必须**同批刷机**（先刷 Grbl → 机上 24000 → S3 旧金标拒画；反之亦然），窗口内 `grbl_settings_mismatch` 拒画是预期 fail-closed 行为。
 - 任一不符 → `grbl_settings_ok=false`，`hutuji.status` 带 `grbl_settings_mismatch`（golden key，如 `"130"`）；`draw` / `confirm` / 试笔 / 手动点动 **拒画**，云端可见 `grbl_settings_mismatch` 错误 token。
 - 实现：`hutuji_recovery_core.h` 纯函数 + `hutuji_pipe` 状态机 + host 单测 `scripts/tests/test_hutuji_recovery_core.py`。
 
@@ -790,7 +790,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 鉴权 | 头 `X-Hutuji-Usage-Secret`（`hmac.compare_digest`）；**与 usage ingest 同一密钥值**（mcp.env `HUTUJI_USAGE_INGEST_SECRET` = portal env `DRAW_PORTAL_USAGE_INGEST_SECRET`）。未配密钥 / 非 loopback / 密钥错误一律 404（不落 401 免得探测面暴露） |
 | 生成语义 | 内部端点强制**同步 + 不推送**（`force_sync=True, chain_push=False`）：即使生产开了 `HUTUJI_DRAW_ASYNC=1`，网页单也等完整结果返回，且**不**经全局 device token 推到任何设备（推送由买家显式点「发送到小派」走 §10.4.5）。`_draw_inflight` 以 `(description, chain_push)` 分键，语音单与网页单互不搭车；Redis 队列旧 payload 缺省 `chain_push=true` 向后兼容 |
 | 回包 | `{url, preview_url, lines, bytes, pen_lifts, ttl_seconds}`（同 `hutuji_draw` 同步面）。portal 只取文件名（正则 `draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(gcode\|png)`）从 loopback 基址重拼下载，不经公网回绕；下载限长 512KiB/4MiB（对齐 §5） |
-| 错误 | MCP 侧 400 输入白话 / 429 限流 / 504 超时 / 502 生图失败；portal 只透传 400/429 的 detail，504/502 换固定白话（不回显内部细节，2026-08-31 评审裁决） |
+| 错误 | MCP 侧 400 输入白话 / 429 限流 / 504 超时 / 502 生图失败；**全忙瞬态（2026-09-12 忙批）**：位图链所有对冲通道同一轮全撞 429/5xx/超时判「忙」（`BitmapBusyError`，`_all_errors_busy` 分类判别，内容审核 400 与配置错不算忙），生成轮**整链真重试一次**（停 2.5s 重跑生图，不复用首轮产物，仅一次；二次仍忙原样上抛），`/internal/draw` 映射 **429 + 固定白话「生图通道都在忙，请稍等几秒再试」**（不透传聚合文本）；Redis 队列 worker 异常按类名重建（`draw_queue._exception_from_job` 注册 `BitmapBusyError`）。portal 只透传 400/429 的 detail，504/502 换固定白话（不回显内部细节，2026-08-31 评审裁决）；**429 忙类不推「生成失败」订阅消息**（瞬态忙重试即成，失败推送+随后的成功推送会误导；400/502/504 照推） |
 | 配额 | 成功单记 `web_generate` usage 事件；24h 窗口计数上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 **20**，2026-09-10 用户拍板「文生图每天用户 20 次」，旧默认 10 supersede），超限 429；**失败单不占配额**。check-then-act 并发超发 1–2 单为已知可接受残差 |
 | 公网暴露 | `/internal/*` 不经 nginx 反代（uvicorn 只听 loopback），无需 nginx 变更 |
 
@@ -910,7 +910,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | S3 点动包线 | `DecideJog` 增显式限幅重载 + `MachineJogEnvelope(nopaper)`：nopaper 205/290（镜像 PROFILE_NOPAPER，R17-XREPO-01 双侧同步）、paper 277/190；VER 未达 = 保守 paper 档。工具侧预检与 ManualTask 纵深防御同源改参 |
 | 状态 | MCP/portal 代码面 + 回归绿（`test_contract.py` machine 白名单/缓存成分/inflight 隔离/probe 缓存 4 例 + nopaper profile 3 例；draw-portal 173 项全绿）；S3 host 点动测试绿；**实机 HIL 未做**（nopaper 不转置、205/290、MK38 双向不变），归 todo「构建 1.0.9 + 实机验证」 |
 | 读闸分档（2026-09-11 热修） | `/files` 读时复核 `output_store._read_verified_gcode_bytes` **按机型分档放行**：默认档先验，`GcodeError` 再以 `PROFILE_NOPAPER` 重验，任一通过即下发；两档都不成立仍 stale 删除。理由：读时无法知道产物出自哪台机器（文件名无机型成分），只跑单档会把另一机型的合法产物判 stale 联动删除 → 设备 404（2026-09-11 生产事故实锤：nopaper Y>190 合法产物被删、语音画图全灭）。写入侧仍按生成时选定的单档校验，不放松 |
-| 速度金标（2026-09-11 用户拍板提速） | 无换纸机指纹金标 `$110/$111` 5000→**12000** mm/min（与 MK38 换纸机金标同值；同机型同 100 steps/mm 实机现役证据）——G-code F8000（133mm/s）不再被压到 83mm/s。指纹白名单外 4 项同批调过：`$112=3000`（抬笔 50mm/s）、`$120=$121=1500`、`$122=300`（无需固件）。**注意**：Grbl `$RST=$` 恢复出厂回落机头默认 5000 → 指纹失配拒画，刷机/恢复出厂后必须重写 `$110/$111=12000` 并重连；金标与实机 NVS 必须同窗同步，否则任一侧漂移=「参数被改动」拒画 |
+| 速度金标（2026-09-11 用户拍板提速；2026-09-12 提速批再上 24000） | 无换纸机指纹金标 `$110/$111` 5000→12000→**24000** mm/min（F24000=400mm/s；云端契约已全局 F24000，停在 12000 会被压回 200mm/s，故 nopaper 表同批上 24000，`hutuji_nopaper_core.h`）。指纹白名单外 4 项 09-11 批调过：`$112=3000`（抬笔 50mm/s）、`$120=$121=1500`、`$122=300`（无需固件）。**注意**：massprod 仓无 §9-G′ 锁，落机后 Telnet/串口直写 `$110/$111=24000` 即可；但 Grbl `$RST=$` 恢复出厂回落机头默认 5000 → 指纹失配拒画，刷机/恢复出厂后必须重写 `$110/$111=24000` 并重连；金标与实机 NVS 必须同窗同步，否则任一侧漂移=「参数被改动」拒画 |
 
 #### 10.4.16 小程序订阅消息通知与分享卡片（2026-09-11 批；本仓 `2d81300`）
 

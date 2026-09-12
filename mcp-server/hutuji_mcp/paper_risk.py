@@ -58,7 +58,7 @@ SCRIBBLE_WIN_MM = 1.0
 SCRIBBLE_SEG_MIN = 45
 _SHORT_MM = 0.5  # 同 curated_gate 的短段定义
 
-# hutuji_gwrite 产物紧凑无空格（`G1G90 Z5.0F10000`、`G0 X12.3Y4.5F8000`），
+# hutuji_gwrite 产物紧凑无空格（`G1G90 Z5.0F10000`、`G0 X12.3Y4.5F24000`），
 # 也兼容带空格形态。Z5 落笔 / Z0 抬笔，中点 2.5 判沿。
 _Z_RE = re.compile(r"Z(-?\d+(?:\.\d+)?)")
 _XY_RE = re.compile(

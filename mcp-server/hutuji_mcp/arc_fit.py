@@ -224,7 +224,7 @@ def fit_gcode_arcs(text: str) -> str:
     cur_y: float | None = None
     pen_down = False
     # 当前累积的落笔 run：顶点 + 每点对应行进给（run 内 F 变化即截断，
-    # 生产产物全行 F8000，一般不触发；防御为主）。
+    # 生产产物全行 F24000，一般不触发；防御为主）。
     run_pts: list[tuple[float, float]] = []
     run_feeds: list[float] = []
 
