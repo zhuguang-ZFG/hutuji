@@ -820,6 +820,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 入口 | `POST /draw-upload/api/draw/write`（登录态 + **须绑定 phone**，同 §10.4.0） |
 | 请求 JSON | `text` 必填（繁→简规范化后 ≤5000）；可选 `size_mm` ∈ [2, 40]（**缺省=自动单页适配**，见下「单页适配」行；显式传值按该字号排版不缩）、`line_spacing` ∈ [1.0, 3.0]（默认 1.6）、`font`（字库 id=文件名词，取自 `GET /api/fonts` 的 `id` 字段；空=默认 blood8 真迹手写体；>60 字符或含 `/` `\` `..` → 400「字体名不合法」；具名不存在 → WriteTextError → 400） |
 | 单页适配 | 2026-09-11 用户拍板「AI 写字最好也单张纸」：**未显式传字号的入口**（portal `size_mm` 缺省、小程序不传、语音 `voice.write`、MCP `hutuji_write` `size_mm=0` 哨兵）启用 `write_text.layout_text_fit_single`——先按 12mm 排，超 1 页逐轮缩 1mm（标题字号同比缩）凑单页，4mm 可读地板仍超页**回落原字号多页**（不静默截断、不出不可读小字）；显式传字号的调用方直接 `layout_text` 保持用户意图。与 §10.4.15 无换纸机「不做多页」同向：短文尽量单页，多页只剩长文 |
+| 手写抖动（2026-09-12 批，用户授权「同意」） | 手输写字链**默认开**随机手写抖动（portal `/api/draw/write` 与语音/MCP `hutuji_write` 同 `layout_text(handwriting=True)`）：每个字形实例绕墨心 ±2.5° 旋转 + 双轴 ±5% 缩放 + ≤3% em 平移（`write_text._HAND_JITTER_*` 常量钉死），只动墨形不动版式——抖动在逐笔折点落页后做，不参与步进/折行/分页，页界由 §5 闸兜底（端到端测试按 0.115em 预算放行边距断言）。种子=字体 uuid+全文，同输入逐点复现（SVG 内容缓存/幂等不受影响）；文档导入/表格/笔顺链保持不抖 |
 | 字体列表 | `GET /api/fonts`（`phone_secured`）→ `{fonts:[{id, name}…]}`：id=.gfont 文件名词（稳定契约，POST `font` 回传 id）；name=动力巢科技系列显示名（`write_text._FONT_DISPLAY_NAMES` 表驱动，未登记回落 `动力巢科技·<词>`；2026-09-10 用户拍板品牌改名）；纯文件名扫描不解析字库内容；缺 `HUTUJI_GFONT_DIR` → **503** |
 | 默认选择 | 小程序选择器首项为「默认字体」，提交时省略 `font`，由服务端决定偏好及缺席回退；不得把按文件名排序的第一个字库当作默认。用户显式选择其余项才传对应 id，切回默认后再次省略 |
 | 产物 | 与文档链同构：`pages/page_NNN.{svg,gcode,png}` + `pages.json` + 首页兼容 `draw.*`/`preview.png`；job 元数据 `kind=write` |
@@ -965,6 +966,18 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 克隆成本 | 每个个性化用户占控制台 1 个 agent 位（人格/KB/MCP/记忆档随克隆带入；聊天历史清零、`hutuji.remember` 按 device_id 分桶不受重绑影响）；测试克隆用完即删，探针已验证建/写/绑/删四形状 |
 | 部署 | lima+jd 双节点 2026-09-12 实测：options 200（61 中文音色）、clone→config 写入 200、无效码 400、共享 agent 拒改；jd 的 mcp.env `HUTUJI_USAGE_INGEST_SECRET` 曾与 portal 不一致（热备无流量未暴露），本次对齐后 jd options 200 |
 | 入口 | weapp 聊小派页左下 ⚙ → 小派设置页（音色按语言分组 61 中文起步、模型 xz-lite/deepseek/qwen/doubao 四选、绑定卡） |
+
+#### 10.4.20 小程序手绘画板（2026-09-12 批，用户授权「同意」）
+
+| 面 | 约定 |
+|----|------|
+| 入口 | 创作页画图模式第 4 格「手绘」→ `pages/drawpad/drawpad`（canvas type="2d"，190:277 竖版 WYSIWYG） |
+| 工具 | 铅笔/直线/方框/圆 + 撤销/清空；方框=4 点闭合 `<path>`、圆=32 段参数 `<path>`（SVG 白名单无 `rect/ellipse`）；<6px 位移判误触丢弃；笔画上限 400 |
+| 产出 | 页面内 `_buildSvg()` 直出 `<svg><g fill="none" stroke="#000" stroke-width="2"><path/></g></svg>` 白名单子集（xmlns/fill=none/d 均在 `llm_svg._validate_svg` 白名单），viewBox=canvas CSS 像素 |
+| 上传 | `wx.getFileSystemManager()` 写 `USER_DATA_PATH/drawpad_<ts>.svg` → `api.uploadFile("/api/draw/upload", path, "file")`（无 `size_mm`/`style` 表单，走默认值）→ finally 删临时文件；**零后端改动**——复用 §10.4.9 同一 `/api/draw/upload`、同一 `_validate_svg`/vpype/§5 闸 |
+| 回流 | 事件通道 `adopt` 回传 job 数据到创作页 `adoptJob`（SVG 无精修轮询，`refined=null` 直通）；订阅消息预授权在入口 tap 时点请求 |
+
+**HIL**：手绘出图纸面效果 **未验证**（见 `docs/release-readiness.md` 文首）。
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

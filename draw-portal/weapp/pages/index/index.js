@@ -626,6 +626,23 @@ Page({
     });
   },
 
+  // 手绘画板：独立页涂鸦 → SVG → /api/draw/upload；回本页经 adoptJob 上预览
+  onDrawPad() {
+    if (this.data.uploading) return;
+    subscribe.requestAtTap();
+    wx.navigateTo({
+      url: "/pages/drawpad/drawpad",
+      events: {
+        adopt: (data) => {
+          if (data && data.job_id) {
+            this.adoptJob(data);
+            wx.showToast({ title: "转换完成", icon: "success" });
+          }
+        },
+      },
+    });
+  },
+
   onGoBind() {
     wx.navigateTo({ url: "/pages/bind/bind" });
   },

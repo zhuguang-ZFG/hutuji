@@ -27,6 +27,7 @@
 
 import math
 import os
+import random
 import re
 from dataclasses import dataclass, field
 
@@ -190,6 +191,44 @@ class LayoutResult:
     missing_chars: list[str]
     truncated: bool  # True = 输入文本未排完（页数已达上限）
 
+# 手写随机抖动幅度（2026-09-12 手写感批次定案；奎享 randomXScale/YScale/Rotate 移植口径）。
+# 折行/步进/分页按 em 步进计算，完全不读抖动值；幅度上界按「远小于行间白余量」选取：
+# 默认行距 1.6 → 行间白 ≥0.6em，抖动最坏出墨 ≤(5% 缩放+3% 平移)×em ≈ 0.08em，不越行。
+_HAND_JITTER_ROT_MAX_DEG = 2.5
+_HAND_JITTER_SCALE_MAX = 0.05
+_HAND_JITTER_SHIFT_MAX = 0.03
+
+
+def _jitter_strokes(strokes: list[_PenStroke], em_mm: float, rng: random.Random) -> None:
+    """单字实例仿射抖动：绕实例墨心旋转+分轴缩放，再平移（奎享 randomX/YScale/Rotate 口径）。
+
+    一个字一个仿射（笔画间相对关系保持）；抖动在落笔路径已经落到页面 mm 坐标
+    之后做，属纯墨形扰动——不改任何步进/折行/分页决策。rng 由 layout_text 持有
+    （种子=字体 uuid+全文），同输入逐点可复现，SVG 内容缓存与幂等判断不受影响。
+    """
+    xs = [p[0] for s in strokes for p in s.points]
+    ys = [p[1] for s in strokes for p in s.points]
+    if not xs:
+        return
+    cx = (min(xs) + max(xs)) / 2.0
+    cy = (min(ys) + max(ys)) / 2.0
+    rot = math.radians(rng.uniform(-_HAND_JITTER_ROT_MAX_DEG, _HAND_JITTER_ROT_MAX_DEG))
+    sx = 1.0 + rng.uniform(-_HAND_JITTER_SCALE_MAX, _HAND_JITTER_SCALE_MAX)
+    sy = 1.0 + rng.uniform(-_HAND_JITTER_SCALE_MAX, _HAND_JITTER_SCALE_MAX)
+    dx = rng.uniform(-_HAND_JITTER_SHIFT_MAX, _HAND_JITTER_SHIFT_MAX) * em_mm
+    dy = rng.uniform(-_HAND_JITTER_SHIFT_MAX, _HAND_JITTER_SHIFT_MAX) * em_mm
+    cos_r = math.cos(rot)
+    sin_r = math.sin(rot)
+    for s in strokes:
+        s.points = [
+            (
+                cx + cos_r * (x - cx) * sx - sin_r * (y - cy) * sy + dx,
+                cy + sin_r * (x - cx) * sx + cos_r * (y - cy) * sy + dy,
+            )
+            for x, y in s.points
+        ]
+
+
 
 def _is_cjk(ch: str) -> bool:
     return bool(_CJK_RE.match(ch))
@@ -272,12 +311,17 @@ def layout_text(
     max_pages: int = 20,
     headings: set[int] | None = None,
     stroke_data: object | None = None,
+    handwriting: bool = False,
 ) -> LayoutResult:
     """核心排版：文本 → 分页落笔路径（页面 SVG 坐标，mm）。
 
     stroke_data：可选标准笔顺库（stroke_order.StrokeData）。CJK 有笔顺数据时
     **按 PRC 规范逐笔抬笔**写（与 hutuji_teach 同源 medians）；缺字回落 gfont
     连笔；拉丁/标点仍走 gfont。未传或未配置时保持纯 gfont（旧行为）。
+
+    handwriting：手写随机抖动（奎享 randomXScale/YScale/Rotate 移植，2026-09-12
+    手写感批次）。只扰动墨形（绕实例墨心旋转 ±2.5°、分轴缩放 ±5%、平移 ±3% em），
+    不参与任何步进/折行/分页计算；种子=字体 uuid+全文，同输入逐点复现。
 
     max_pages 是防呆上界（与设备侧 kArticleMaxPages 同值）；超出截断并置 truncated。
     """
@@ -288,6 +332,14 @@ def layout_text(
         raise WriteTextError("max_pages 非法")
 
     stroke_medians = getattr(stroke_data, "medians", None) if stroke_data is not None else None
+
+    # 抖动 RNG 单流：seed 含字体 uuid（换字体换抖样）；显式字符串种子跨进程稳定
+    # （不是 PYTHONHASHSEED 依赖）。handwriting=False 时保持 None，零随机态泄漏。
+    _rng = (
+        random.Random(f"hand:{getattr(font.meta, 'uuid', '')}|{text}")
+        if handwriting
+        else None
+    )
 
     # 行网格（y 基线/行计数）恒按正文字号走；标题段只在落墨与横向步进上切大字号，
     # 竖向占 heading_rows 个正文行带——行计数语义不被标题搞混，分页/容量闸全部照旧
@@ -360,6 +412,7 @@ def layout_text(
         return max(floor, max(xs) + metrics.latin_left_overhang)
 
     def emit_glyph(strokes: list[_PenStroke], ch: str, x_origin: float, y_baseline: float) -> None:
+        before = len(strokes)
         # CJK 优先标准笔顺（逐笔抬笔）；缺数据回落 gfont 连笔
         if (
             stroke_medians is not None
@@ -373,16 +426,18 @@ def layout_text(
                     stroke_medians[ch], x_origin, cell_y, size_mm
                 )
             )
-            return
-        glyph = cache.get(ch)
-        if glyph is None:
-            return
-        for path in glyph_to_polylines(glyph):
-            pts = [
-                (x_origin + gx * scale, y_baseline + gy * scale) for gx, gy in path
-            ]
-            if len(pts) >= 2:
-                strokes.append(_PenStroke(points=pts))
+        else:
+            glyph = cache.get(ch)
+            if glyph is not None:
+                for path in glyph_to_polylines(glyph):
+                    pts = [
+                        (x_origin + gx * scale, y_baseline + gy * scale) for gx, gy in path
+                    ]
+                    if len(pts) >= 2:
+                        strokes.append(_PenStroke(points=pts))
+        # 手写抖动在墨形落定后做：笔顺连笔两路都吃（同字一个仿射，笔画相对关系保持）
+        if _rng is not None and len(strokes) > before:
+            _jitter_strokes(strokes[before:], metrics.em_height * scale, _rng)
 
     pages: list[LaidOutPage] = []
     page = LaidOutPage()
@@ -588,6 +643,7 @@ def layout_text_fit_single(
     max_pages: int = 20,
     headings: set[int] | None = None,
     stroke_data: object | None = None,
+    handwriting: bool = False,
 ) -> LayoutResult:
     """单页适配版排版（2026-09-11 用户拍板「AI 写字最好也单张纸」）。
 
@@ -597,7 +653,8 @@ def layout_text_fit_single(
     调用方启用；显式传字号的调用方直接用 layout_text 保持用户意图。
     """
     original = layout_text(
-        text, font, metrics, layout, max_pages, headings, stroke_data
+        text, font, metrics, layout, max_pages, headings, stroke_data,
+        handwriting=handwriting,
     )
     if len(original.pages) <= 1 or layout.size_mm <= _FIT_SINGLE_MIN_SIZE_MM:
         return original
@@ -610,7 +667,8 @@ def layout_text_fit_single(
             heading_size_mm=layout.heading_size_mm * size / layout.size_mm,
         )
         result = layout_text(
-            text, font, metrics, trial, max_pages, headings, stroke_data
+            text, font, metrics, trial, max_pages, headings, stroke_data,
+            handwriting=handwriting,
         )
         if len(result.pages) <= 1:
             return result

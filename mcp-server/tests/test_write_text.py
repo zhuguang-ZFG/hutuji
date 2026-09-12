@@ -453,15 +453,20 @@ def test_hutuji_write_end_to_end(tmp_path, monkeypatch):
     gcode = gcode_path.read_text(encoding="utf-8")
     stats = validate_gcode(gcode)  # §5 契约不抛即过
     assert stats.pen_lifts >= 6  # 三个方框+逗号×1 以上
-    # 无版式管线：G-code X 域 = 排版 SVG 域（恒等），不被 layout 缩放
+    # 无版式管线：G-code X 域 = 排版 SVG 域（恒等），不被 layout 缩放。手写抖动
+    # （hutuji_write 链默认开）绕实例墨心旋转/缩放/平移，边缘墨最坏出格 ≈0.109em
+    # （精确界由 test_layout_handwriting_jitter_bounded_near_original_ink 钉），
+    # 故恒等断言带抖动预算；§5 页界 0–190 仍硬。
     import re as _re
 
     xs = [
         float(m.group(1))
         for m in _re.finditer(r"X(-?[\d.]+)Y(-?[\d.]+)", gcode)
     ]
-    assert min(xs) >= 8.0  # 左边距不被压缩
-    assert max(xs) <= 182.0
+    jitter_budget = 0.115 * 12.0  # 工具默认字号 12mm
+    assert min(xs) >= 8.0 - jitter_budget  # 左边距只允许抖动预算内出格
+    assert max(xs) <= 182.0 + jitter_budget
+    assert min(xs) >= 0.0 and max(xs) <= 190.0  # §5 页界
 
     # 预览必须是 PNG：设备侧 IsValidDrawCapabilityUrl 硬校验 .png、LvglAllocatedImage
     # 只解 PNG。首版发 .svg 会在 StartDraw 直接被拒（纸都不动），故此处钉死。
@@ -1130,3 +1135,104 @@ def test_fit_single_passthrough_single_page_and_floor_size():
     assert len(
         write_text.layout_text_fit_single("中" * 2000, font, metrics, floor_layout).pages
     ) == 2
+
+
+def test_layout_handwriting_jitter_deterministic_and_default_off():
+    """抖动契约：默认关=两次默认排版逐点全同（零随机态泄漏）；开=同输入逐点复现且必动墨。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, paragraph_indent=0)
+    text = "永国中文字"
+    plain_a = [write_text.page_to_svg(p) for p in write_text.layout_text(text, font, metrics, layout).pages]
+    plain_b = [write_text.page_to_svg(p) for p in write_text.layout_text(text, font, metrics, layout).pages]
+    assert plain_a == plain_b
+    jit_a = [
+        write_text.page_to_svg(p)
+        for p in write_text.layout_text(text, font, metrics, layout, handwriting=True).pages
+    ]
+    jit_b = [
+        write_text.page_to_svg(p)
+        for p in write_text.layout_text(text, font, metrics, layout, handwriting=True).pages
+    ]
+    assert jit_a == jit_b  # 种子=字体 uuid+全文 → 逐点复现（SVG 内容缓存依赖）
+    assert jit_a != plain_a  # 夹具各字形全等仿射才会恒等——幅度>0 必动墨
+    assert len(jit_a) == len(plain_a) == 1
+
+
+def test_layout_handwriting_jitter_bounded_near_original_ink():
+    """抖动界：每个抖动点的原像都在默认版点集里，最近距离 ≤ 0.115em。
+
+    夹具盒字最坏位移构成（em=size_mm）：0.5·√2·em×0.05（分轴缩放）
+    + 0.5·√2·em×2·sin(2.5°/2)（旋转）+ 0.03·√2·em（平移）≈ 0.109em。
+    """
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, paragraph_indent=0)
+    text = "永国中文字" * 30
+    plain = write_text.layout_text(text, font, metrics, layout)
+    jit = write_text.layout_text(text, font, metrics, layout, handwriting=True)
+    em_mm = layout.size_mm
+    bound = 0.115 * em_mm
+    plain_pts = [p for page in plain.pages for s in page.strokes for p in s.points]
+    moved = 0
+    for page in jit.pages:
+        for s in page.strokes:
+            for x, y in s.points:
+                nearest = min(abs(x - px) + abs(y - py) for px, py in plain_pts)
+                assert nearest <= bound
+                if nearest > 1e-9:
+                    moved += 1
+    assert moved > 0  # 不是恒等变换
+
+
+def test_layout_handwriting_jitter_keeps_pagination_and_in_bounds():
+    """抖动不改版式：分页/行数/missing 与默认版一致；全页墨仍在 190×277 页内（§5 前置自守）。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=12.0)
+    text = "永国中文，" * 300
+    plain = write_text.layout_text(text, font, metrics, layout)
+    jit = write_text.layout_text(text, font, metrics, layout, handwriting=True)
+    assert len(jit.pages) == len(plain.pages)
+    assert [p.line_count for p in jit.pages] == [p.line_count for p in plain.pages]
+    assert jit.truncated == plain.truncated
+    assert jit.missing_chars == plain.missing_chars == []
+    for page in jit.pages:
+        for s in page.strokes:
+            for x, y in s.points:
+                assert 0.0 <= x <= 190.0
+                assert 0.0 <= y <= 277.0
+
+
+def test_layout_handwriting_jitter_applies_to_stroke_order_path():
+    """笔顺逐笔路同样吃抖动：stroke_data 在场时抖动仍生效、笔画数不变。"""
+    from hutuji_mcp.stroke_order import StrokeData
+
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=10.0, char_gap_mm=0.0, paragraph_indent=0)
+    medians = {
+        "中": [
+            [(512, 900), (512, 100)],
+            [(200, 500), (800, 500)],
+            [(200, 900), (200, 100)],
+            [(800, 900), (800, 100)],
+        ]
+    }
+    stroke = StrokeData(medians=medians)
+    plain = write_text.layout_text("中", font, metrics, layout, stroke_data=stroke)
+    jit = write_text.layout_text(
+        "中", font, metrics, layout, stroke_data=stroke, handwriting=True
+    )
+    assert len(plain.pages[0].strokes) == len(jit.pages[0].strokes) == 4
+    plain_pts = [p for s in plain.pages[0].strokes for p in s.points]
+    jit_pts = [p for s in jit.pages[0].strokes for p in s.points]
+    assert jit_pts != plain_pts
+
+
+def test_layout_handwriting_jitter_passthrough_fit_single():
+    """fit_single 透传 handwriting：单页直通版抖动生效且同输入逐点复现。"""
+    font, metrics = _fixture_font(), _fixture_metrics()
+    layout = write_text.WriteLayout(size_mm=10.0)
+    jit_a = write_text.layout_text_fit_single("永国中", font, metrics, layout, handwriting=True)
+    jit_b = write_text.layout_text_fit_single("永国中", font, metrics, layout, handwriting=True)
+    svg_a = [write_text.page_to_svg(p) for p in jit_a.pages]
+    assert svg_a == [write_text.page_to_svg(p) for p in jit_b.pages]
+    plain = write_text.layout_text_fit_single("永国中", font, metrics, layout)
+    assert svg_a != [write_text.page_to_svg(p) for p in plain.pages]

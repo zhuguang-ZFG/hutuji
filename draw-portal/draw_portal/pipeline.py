@@ -231,6 +231,7 @@ def process_write_text(
         layout,
         max_pages=ARTICLE_MAX_PAGES,
         stroke_data=stroke_data,
+        handwriting=True,  # 手写随机抖动：手输写字链默认开（奎享 randomX/YScale/Rotate 口径）
     )
     return _materialize_laid_pages(
         laid, job_dir, kind="write", mode="article", profile=profile

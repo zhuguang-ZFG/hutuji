@@ -241,6 +241,10 @@
       <view class="tile-icon doc"></view>
       <text class="tile-label">{{uploading ? "转换中" : "文档"}}</text>
     </button>
+    <button class="action-tile" hover-class="tile-press" bindtap="onDrawPad" disabled="{{uploading}}">
+      <view class="tile-icon pad"></view>
+      <text class="tile-label">手绘</text>
+    </button>
   </view>
 
   <!-- 写字：仅文档 -->

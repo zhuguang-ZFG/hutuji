@@ -9,7 +9,8 @@
     "pages/wifi/wifi",
     "pages/firmware/firmware",
     "pages/share/share",
-    "pages/xiaopai/xiaopai"
+    "pages/xiaopai/xiaopai",
+    "pages/drawpad/drawpad"
   ],
   "window": {
     "navigationBarTitleText": "动力巢科技",

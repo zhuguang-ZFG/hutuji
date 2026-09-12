@@ -283,5 +283,28 @@
       "docs/release-readiness.md",
       "docs/agent-edit-allowlist.json"
     ]
+  },
+  "weapp_drawpad_hand_jitter_20260912_authorized": {
+    "note": "2026-09-12 用户授权「同意」：①手输写字链随机手写抖动（write_text 逐字仿射，portal/语音/MCP 写字入口默认开，doc/table/teach 不抖）+ ②weapp 手绘画板页（canvas→白名单子集 SVG→既有 /api/draw/upload，零后端改动）+ 创作页第 4 格入口与 adopt 回流。",
+    "contract": "docs/protocol.md §10.4.20 手绘画板；§10.4.10 手写抖动行；§5 G-code 闸不变",
+    "paths": [
+      "mcp-server/hutuji_mcp/write_text.py",
+      "mcp-server/hutuji_mcp/server.py",
+      "mcp-server/tests/test_write_text.py",
+      "draw-portal/draw_portal/pipeline.py",
+      "draw-portal/weapp/app.json",
+      "draw-portal/weapp/pages/index/index.js",
+      "draw-portal/weapp/pages/index/index.wxml",
+      "draw-portal/weapp/pages/index/index.wxss",
+      "draw-portal/weapp/pages/drawpad/drawpad.js",
+      "draw-portal/weapp/pages/drawpad/drawpad.wxml",
+      "draw-portal/weapp/pages/drawpad/drawpad.wxss",
+      "draw-portal/weapp/pages/drawpad/drawpad.json",
+      "AGENTS.md",
+      "docs/protocol.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/agent-edit-allowlist.json"
+    ]
   }
 }

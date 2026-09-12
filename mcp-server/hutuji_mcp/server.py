@@ -1037,6 +1037,7 @@ async def _run_write_job(
         ARTICLE_MAX_PAGES,
         None,
         stroke_data,
+        True,  # 手写随机抖动：手输写字链默认开（奎享 randomX/YScale/Rotate 口径，protocol §5）
     )
 
     store = get_output_store()

@@ -1,0 +1,35 @@
+<view class="wrap">
+  <view class="toolbar">
+    <view class="tool {{tool === 'pen' ? 'on' : ''}}" bindtap="setTool" data-tool="pen">铅笔</view>
+    <view class="tool {{tool === 'line' ? 'on' : ''}}" bindtap="setTool" data-tool="line">直线</view>
+    <view class="tool {{tool === 'rect' ? 'on' : ''}}" bindtap="setTool" data-tool="rect">方框</view>
+    <view class="tool {{tool === 'ellipse' ? 'on' : ''}}" bindtap="setTool" data-tool="ellipse">圆</view>
+    <view class="spacer"></view>
+    <view class="tool" bindtap="undo">撤销</view>
+    <view class="tool" bindtap="clearAll">清空</view>
+  </view>
+
+  <view class="board">
+    <canvas
+      id="pad"
+      type="2d"
+      class="pad"
+      style="width:{{canvasW}}px;height:{{canvasH}}px"
+      bindtouchstart="onTouchStart"
+      bindtouchmove="onTouchMove"
+      bindtouchend="onTouchEnd"
+      bindtouchcancel="onTouchCancel"
+    ></canvas>
+    <view class="hint" wx:if="{{!strokeCount}}">画点什么，转成线稿给丹青上纸</view>
+  </view>
+
+  <view class="foot">
+    <text class="count">笔画 {{strokeCount}}</text>
+    <button
+      class="submit-btn"
+      bindtap="submit"
+      loading="{{submitting}}"
+      disabled="{{submitting || !strokeCount}}"
+    >{{submitting ? "转换中" : "转线稿发丹青"}}</button>
+  </view>
+</view>

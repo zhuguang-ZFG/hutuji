@@ -306,6 +306,17 @@
   border-radius: 6rpx 14rpx 6rpx 6rpx;
 }
 
+.tile-icon.pad::after {
+  content: "";
+  position: absolute;
+  width: 22rpx;
+  height: 3rpx;
+  background: #00d1e5;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
 .tile-label {
   font-size: 24rpx;
   color: #f2f4f8;
