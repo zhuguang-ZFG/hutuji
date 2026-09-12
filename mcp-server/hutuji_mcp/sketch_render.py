@@ -52,6 +52,7 @@ _TONE_STRETCH_HI_PCT = 98.0
 _TONE_STRETCH_MIN_RANGE = 0.05
 _CLAHE_CLIP_LIMIT = 0.02
 _TONE_GAMMA = 0.7
+_HATCH_TONE_SIGMA = 2.2
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
 # 3 级 tone 边界 + 较强平滑：2026-09-10 小样 A/B（事故人像，4 组合目检）
@@ -118,10 +119,14 @@ def _normalize_tones(gray: np.ndarray) -> np.ndarray:
         return gray
     from skimage.exposure import equalize_adapthist
 
+    global_stretched = np.clip(
+        (gray - lo0) / max(hi0 - lo0, 1e-6), 0.0, 1.0
+    )
     clahe = equalize_adapthist(gray, clip_limit=_CLAHE_CLIP_LIMIT)
     lo, hi = np.percentile(clahe, [_TONE_STRETCH_LO_PCT, _TONE_STRETCH_HI_PCT])
-    stretched = np.clip((clahe - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-    return (stretched ** _TONE_GAMMA).astype(np.float32)
+    local_stretched = np.clip((clahe - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+    mixed = 0.65 * global_stretched + 0.35 * local_stretched
+    return (mixed ** _TONE_GAMMA).astype(np.float32)
 
 
 def _simplify(polys: list[np.ndarray], tolerance: float) -> list[np.ndarray]:
@@ -158,7 +163,7 @@ def _gaussian_for_mask(gray: np.ndarray) -> np.ndarray:
     """排线 mask 前的轻平滑：照片噪点在阈值附近抖出碎段，1px 高斯压掉。"""
     from skimage.filters import gaussian
 
-    return gaussian(gray, sigma=_HATCH_MASK_SIGMA, preserve_range=True)
+    return gaussian(gray, sigma=_HATCH_TONE_SIGMA, preserve_range=True)
 
 
 def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.ndarray]:

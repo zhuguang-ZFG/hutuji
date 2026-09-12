@@ -160,8 +160,9 @@ def test_hutuji_teach_end_to_end(tmp_path, monkeypatch):
         assert max(xs) <= 277.0
 
 
-def test_layout_multichar_copybook_single_page(tmp_path):
-    """多字字帖（2026-09-11 用户拍板「集中到单张纸」）：中义 → 1 页 2 格 + 逐笔序号。"""
+def test_layout_multichar_mixed_rows_single_page(tmp_path):
+    """多字混合版式（2026-09-12 用户拍板「分解行+成形格」，supersede 09-11 成形字帖）：
+    中义 → 1 页，每字一行「第 k 格 = 前 k 笔渐显 + 行尾成形格」。"""
     data = StrokeData.load(str(_write_fixture(tmp_path)))
     res = stroke_order.layout_teach("中义", data)
     assert not res.truncated and res.missing_chars == []
@@ -171,10 +172,11 @@ def test_layout_multichar_copybook_single_page(tmp_path):
     ys = [y for s in page.strokes for _, y in s.points]
     assert min(xs) >= 0 and min(ys) >= 0
     assert max(xs) <= 190.0 and max(ys) <= 277.0
-    # 每字一个成形田字格（外框闭合 5 点），无渐显面板、无大字头
+    assert page.line_count == 2  # 中、义各一行
+    # 田字格外框：中 5 格（4 渐显 + 1 成形）+ 义 2 格（1 渐显 + 1 成形）= 7
     frames = [s for s in page.strokes if len(s.points) == 5 and s.points[0] == s.points[-1]]
-    assert len(frames) == 2
-    # 逐笔序号：中 4 笔 + 义 1 笔 = 5 个「一」字形小对角线（贴笔画起点）
+    assert len(frames) == 7
+    # 步序数字（「一」字形小对角线）：中 4 + 义 1 = 5（成形格无序号）
     diagonals = [
         s for s in page.strokes
         if len(s.points) == 2
@@ -182,9 +184,41 @@ def test_layout_multichar_copybook_single_page(tmp_path):
         and 2.5 < abs(s.points[1][1] - s.points[0][1]) < 8.0
     ]
     assert len(diagonals) == 5
-    # 20 字（服务端上限）→ 地板格分页仍如实上报（18 字/页 + 2 字/页）
-    res20 = stroke_order.layout_teach("中义" * 10, data)
-    assert len(res20.pages) == 2 and not res20.truncated
+    # 渐显逐笔递增：中行格内 = k 笔画 + 步序数字（k=1..4 → 2,3,4,5），成形格无序号=4；
+    # 义行 1 笔画 + 序号 = 2，成形格 = 1
+    cells = sorted(frames, key=lambda f: (round(f.points[0][1]), f.points[0][0]))
+    assert [_char_strokes_in(page, f) for f in cells] == [2, 3, 4, 5, 4, 2, 1]
+    # 折行（一行装不下）：龘（21 笔）+中 → 1 页 4 行 27 格（龘 3 行 9/9/4 + 中 1 行 5 格）
+    res2 = stroke_order.layout_teach("龘中", data)
+    assert not res2.truncated and len(res2.pages) == 1
+    assert res2.pages[0].line_count == 4
+    frames2 = [
+        s for s in res2.pages[0].strokes
+        if len(s.points) == 5 and s.points[0] == s.points[-1]
+    ]
+    assert len(frames2) == 27  # 龘 22 格 + 中 5 格
+
+
+def _char_strokes_in(page, frame):
+    """格内笔画折线数：排除本格田字格外框（5 点闭合）与 4mm 虚线段。"""
+    xs = [p[0] for p in frame.points]
+    ys = [p[1] for p in frame.points]
+    fx0, fx1, fy0, fy1 = min(xs), max(xs), min(ys), max(ys)
+    count = 0
+    for s in page.strokes:
+        if len(s.points) == 5 and s.points[0] == s.points[-1]:
+            if min(p[0] for p in s.points) == fx0 and min(p[1] for p in s.points) == fy0:
+                continue  # 本格外框
+        pts = s.points
+        if not all(fx0 <= x <= fx1 and fy0 <= y <= fy1 for x, y in pts):
+            continue
+        if len(pts) == 2:
+            dx = abs(pts[1][0] - pts[0][0])
+            dy = abs(pts[1][1] - pts[0][1])
+            if (dx < 0.01 and abs(dy - 4.0) < 0.01) or (dy < 0.01 and abs(dx - 4.0) < 0.01):
+                continue  # 十字虚线段
+        count += 1
+    return count
 
 
 def test_hutuji_teach_rejects_overlong_and_unconfigured(tmp_path, monkeypatch):

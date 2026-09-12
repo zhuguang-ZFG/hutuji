@@ -838,7 +838,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 入口 | `POST /draw-upload/api/draw/teach`（登录态 + **须绑定 phone**，同 §10.4.0） |
 | 请求 JSON | `text` 必填（繁→简后随便写；服务端按序抽 CJK；无汉字 → 400「没有可教的汉字」） |
 | 抽字 | 按出现顺序抽 CJK（`㐀-鿿豈-﫿`，不含全角标点区）；最多 **20** 字（与 `hutuji_teach` / `kArticleMaxPages=20` 同源）；超出截断并 `input_truncated: true` |
-| 排版 | `stroke_order.layout_teach`：单字田字格渐显；多字单页字帖（逐笔中文序号，2026-09-11 用户拍板「集中到单张纸」）；**无**字号/行距；`max_pages = ARTICLE_MAX_PAGES`（20） |
+| 排版 | `stroke_order.layout_teach`：单字田字格渐显；多字混合行——每字一行「第 k 格 = 前 k 笔渐显 + 步序数字，行尾成形格 = 全字（无序号，临摹用）」，整组统一格宽（24 上限/16 地板），一行装不下折行（2026-09-12 用户拍板「分解行+成形格」，supersede 09-11「集中到单张纸」）；**无**字号/行距；`max_pages = ARTICLE_MAX_PAGES`（20） |
 | 产物 | 与文档链同构；job 元数据 `kind=teach` |
 | 响应 | 对齐写字多页块，另含 `chars_taught`、`input_truncated`、`missing_chars`、`truncated` |
 | 复用 | `send`（自动 confirm）/`save`/历史；与上传 job 零分叉 |

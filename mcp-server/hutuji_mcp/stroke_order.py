@@ -12,9 +12,9 @@ ARPHICPL.TXT 随数据目录分发）。与奎享 .gfont 字库笔画的关键�
 页面版式（190×277 竖版，与 §5 限幅同源）：
 - 单字：首行大字（成形 30mm 田字格）+ 渐显面板（第 k 格 = 前 k 笔 + 格右下角
   中文步序数字）；放不下的面板续页（续页无大字头）。教学可读性优先，单字保持渐显。
-- 多字（用户 2026-09-11 拍板「集中到单张纸」）：字帖模式——单页 2 列田字格，
-  每格成形全字 + 逐笔起点旁中文序号（第 i 笔标「一/二/三…」，按序描红）；
-  格尺寸按字数自适应（56mm 起、24mm 地板），超单页容量（18 字）才续页。
+- 多字（用户 2026-09-12 拍板「分解行+成形格」，supersede 09-11「集中到单张纸」成形字帖）：
+  每字一行——第 k 格 = 前 k 笔渐显（右下角步序数字），行尾成形格 = 全字（无序号，临摹用）；
+  整组统一格宽（24mm 上限 / 16mm 地板，按最宽字需要），一行装不下折行，页高放不下才续页。
 """
 from __future__ import annotations
 
@@ -35,10 +35,8 @@ _PANEL_GAP_MM = 3.0
 _PANEL_CELL_MM = 34.0  # 渐显格子固定尺寸（再大纸张利用率低，再小笔画挤）
 _PANEL_COLS_MAX = 5  # 竖版页宽 190：5 格×34 + 4 间隙×3 = 182 ≤ 190
 _LABEL_SIZE_MM = 6.0  # 渐显面板步序数字尺寸
-_COPYBOOK_COLS = 2  # 字帖模式列数：2 列大格比 5 列小格可读
-_COPYBOOK_CELL_MAX_MM = 56.0  # 字帖格上限：再大单行两格也放不下教学价值
-_COPYBOOK_CELL_MIN_MM = 24.0  # 字帖格地板：再小逐笔序号挤成一团
-_STROKE_NUM_MM = 4.5  # 字帖逐笔序号字号（贴笔画起点，不能盖过笔画）
+_ROW_CELL_MAX_MM = 24.0  # 混合行格上限：与字帖上限同口径的教学可读性上限
+_ROW_CELL_MIN_MM = 16.0  # 混合行格地板：再小逐笔渐显挤成一团（2026-09-12 混合版式）
 
 _PAGE_W_MM = 190.0
 _PAGE_H_MM = 277.0
@@ -159,41 +157,6 @@ def _emit_step_label(
         )
 
 
-def _emit_stroke_numbers(
-    page: LaidOutPage,
-    data: StrokeData,
-    strokes: list[list[tuple[int, int]]],
-    bbox: tuple[int, int, int, int],
-    cell_x: float,
-    cell_y: float,
-    cell_mm: float,
-) -> None:
-    """字帖逐笔序号：第 i 笔起点旁标中文数字（与 _emit_char 同变换定位、钳制格内）。"""
-    x0, y0, x1, y1 = bbox
-    span = max(x1 - x0, y1 - y0, 1)
-    scale = (cell_mm - 4.0) / span
-    ox = cell_x + 2.0 + (cell_mm - 4.0 - (x1 - x0) * scale) / 2
-    oy = cell_y + 2.0 + (cell_mm - 4.0 - (y1 - y0) * scale) / 2
-    edge = 0.6  # 序号离格边最小距离（不压外框线）
-    for i, stroke in enumerate(strokes, 1):
-        if not stroke:
-            continue
-        fx, fy = stroke[0]
-        px = ox + (fx - x0) * scale
-        py = oy + (y1 - fy) * scale
-        label = _cjk_step_label(i)
-        glyphs = [data.medians[d] for d in label if d in data.medians]
-        if not glyphs:
-            continue
-        lx = min(max(px + 1.2, cell_x + edge), cell_x + cell_mm - edge - _STROKE_NUM_MM * len(glyphs))
-        ly = min(max(py + 1.2, cell_y + edge), cell_y + cell_mm - edge - _STROKE_NUM_MM)
-        for j, g in enumerate(glyphs):
-            _emit_char(
-                page, g, lx + j * _STROKE_NUM_MM, ly, _STROKE_NUM_MM,
-                _char_bbox(g), pad_mm=0.3,
-            )
-
-
 def _center_page_vertically(page: LaidOutPage) -> None:
     """整页内容竖向居中于页区（教学页内容常只占上半页，贴顶难看）。"""
     ys = [y for s in page.strokes for _, y in s.points]
@@ -207,63 +170,74 @@ def _center_page_vertically(page: LaidOutPage) -> None:
             s.points = [(x, y + shift) for x, y in s.points]
 
 
-def _layout_copybook(
+def _layout_mixed_rows(
     targets: list[str],
     data: StrokeData,
     missing: list[str],
     max_pages: int,
 ) -> LayoutResult:
-    """多字字帖（2026-09-11 用户拍板「集中到单张纸」）：单页 2 列成形格，逐笔中文序号。
-
-    格尺寸按字数自适应（56 上限 / 24 地板）；地板仍放不下整页（>18 字）才续页，
-    续页版式同首页（无大字头——字帖模式没有大字头）。max_pages 与单字路径同口径。
+    """多字混合版式（2026-09-12 用户拍板「分解行+成形格」，supersede 09-11 成形字帖）：
+    每字一行——第 k 格 = 前 k 笔渐显（右下角步序数字），行尾成形格 = 全字（无序号，
+    临摹用）。整组统一格宽 = min(各字 (页宽-间隙×n)/(n+1), 24 上限)，16mm 地板；
+    一行装不下（n+1 > per_row）的字折行续排；页高放不下才续页（续页无大字头）。
+    max_pages 与单字路径同口径。
     """
     gap = _PANEL_GAP_MM
     usable_w = _PAGE_W_MM - 2 * _MARGIN_MM
     usable_h = _PAGE_H_MM - 2 * _MARGIN_MM
+    # 字帖感要求各字格子同大：整组取最宽字需要的格宽，钳到上下限
+    cell = min(
+        min((usable_w - len(data.medians[ch]) * gap) / (len(data.medians[ch]) + 1)
+            for ch in targets),
+        _ROW_CELL_MAX_MM,
+    )
+    if cell < _ROW_CELL_MIN_MM:
+        cell = _ROW_CELL_MIN_MM
+    per_row = max(1, int((usable_w + gap) // (cell + gap)))
+
     pages: list[LaidOutPage] = []
     truncated = False
-    idx = 0
-    while idx < len(targets):
-        if len(pages) >= max_pages:
-            truncated = True
-            break
-        rows_all = math.ceil((len(targets) - idx) / _COPYBOOK_COLS)
-        cell = min(
-            (usable_w - (_COPYBOOK_COLS - 1) * gap) / _COPYBOOK_COLS,
-            (usable_h - (rows_all - 1) * gap) / rows_all,
-            _COPYBOOK_CELL_MAX_MM,
-        )
-        if cell < _COPYBOOK_CELL_MIN_MM:
-            cell = _COPYBOOK_CELL_MIN_MM
-            rows_here = max(1, int((usable_h + gap) // (cell + gap)))
-        else:
-            rows_here = rows_all
-        take = targets[idx:idx + rows_here * _COPYBOOK_COLS]
-        page = LaidOutPage()
-        row_count = math.ceil(len(take) / _COPYBOOK_COLS)
-        y = _MARGIN_MM
-        for r in range(row_count):
-            row = take[r * _COPYBOOK_COLS:(r + 1) * _COPYBOOK_COLS]
+    page = LaidOutPage()
+    y = _MARGIN_MM
+
+    def flush() -> None:
+        nonlocal page, y
+        if page.strokes:
+            _center_page_vertically(page)
+            pages.append(page)
+            page = LaidOutPage()
+            y = _MARGIN_MM
+
+    for ch in targets:
+        strokes = data.medians[ch]
+        n = len(strokes)
+        bbox = _char_bbox(strokes)
+        seq = list(range(1, n + 1)) + [0]  # 0 = 成形格（全字、无步序数字）
+        for start in range(0, len(seq), per_row):
+            row = seq[start:start + per_row]
+            if y + cell > _PAGE_H_MM - _MARGIN_MM:
+                flush()
+                if len(pages) >= max_pages:
+                    truncated = True
+                    return LayoutResult(pages=pages, missing_chars=missing, truncated=truncated)
             row_w = len(row) * cell + (len(row) - 1) * gap
             x = (_PAGE_W_MM - row_w) / 2
-            for ch in row:
-                strokes = data.medians[ch]
-                bbox = _char_bbox(strokes)
+            for k in row:
                 _emit_grid(page, x, y, cell)
-                _emit_char(page, strokes, x, y, cell, bbox)
-                _emit_stroke_numbers(page, data, strokes, bbox, x, y, cell)
+                if k:
+                    _emit_char(page, strokes[:k], x, y, cell, bbox)
+                    _emit_step_label(page, data, k, x, y, cell)
+                else:
+                    _emit_char(page, strokes, x, y, cell, bbox)
                 x += cell + gap
             y += cell + gap
             page.line_count += 1
-        _center_page_vertically(page)
-        pages.append(page)
-        idx += len(take)
+    flush()
     return LayoutResult(pages=pages, missing_chars=missing, truncated=truncated)
 
 
 def layout_teach(chars: str, data: StrokeData, max_pages: int = 20) -> LayoutResult:
-    """单字=渐显面板页（每字一页，放不下续页）；多字=单页字帖（逐笔序号，超容续页）。"""
+    """单字=渐显面板页（每字一页，放不下续页）；多字=混合行（逐字分解行+成形格，超容续页）。"""
     targets = [c for c in chars if not c.isspace()]
     if not targets:
         raise StrokeOrderError("没有可教的汉字")
@@ -272,7 +246,7 @@ def layout_teach(chars: str, data: StrokeData, max_pages: int = 20) -> LayoutRes
     if not targets:
         raise StrokeOrderError("全部缺字：" + "".join(missing))
     if len(targets) >= 2:
-        return _layout_copybook(targets, data, missing, max_pages)
+        return _layout_mixed_rows(targets, data, missing, max_pages)
 
 
     first_panel_h = _PAGE_H_MM - _MARGIN_MM - (_MARGIN_MM + _HEADER_STRIP_MM)  # 138

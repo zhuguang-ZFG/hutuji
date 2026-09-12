@@ -118,6 +118,19 @@ def test_mid_tone_photo_does_not_flood_page():
     assert ink < 0.25, f"中间调照片铺墨失控 ink={ink:.1%}"
 
 
+def test_tone_normalization_keeps_subject_order_against_background():
+    """全局明暗关系不被局部均衡打平，保留主体、阴影和背景层次。"""
+    arr = np.full((180, 240), 220, dtype=np.uint8)
+    arr[40:145, 70:170] = 125
+    arr[75:115, 100:140] = 45
+    normalized = sketch_render._normalize_tones(arr.astype(np.float32) / 255.0)
+    background = float(normalized[10:30, 10:50].mean())
+    subject = float(normalized[50:70, 80:95].mean())
+    shadow = float(normalized[85:105, 110:130].mean())
+    assert background > subject > shadow
+    assert background - subject > 0.08
+
+
 def test_hatch_segment_budget_governor(monkeypatch):
     """段数预算闸：病态密集输入（半幅暗噪点，CLAHE 后必大面积触发排线）必须
     被层距放大压回预算内——2026-09-10 事故原图 CLAHE 后 5508 段 → G-code
