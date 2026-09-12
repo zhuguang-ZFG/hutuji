@@ -92,6 +92,18 @@ CREATE TABLE IF NOT EXISTS device_bindings (
     machine_type TEXT NOT NULL DEFAULT 'paper'
 );
 
+CREATE TABLE IF NOT EXISTS user_device_bindings (
+    user_id TEXT NOT NULL,
+    device_mac TEXT NOT NULL,
+    device_token_enc TEXT NOT NULL,
+    bound_at REAL NOT NULL,
+    last_push_at REAL,
+    token_probe_ok INTEGER,
+    machine_type TEXT NOT NULL DEFAULT 'paper',
+    PRIMARY KEY (user_id, device_mac),
+    UNIQUE (device_mac)
+);
+
 CREATE TABLE IF NOT EXISTS firmware_ota_sessions (
     user_id TEXT PRIMARY KEY,
     device_mac TEXT NOT NULL,
@@ -270,8 +282,19 @@ _SAVED_PREVIEW_TELEGRAM_COLUMNS = (
     ("tg_message_id", "INTEGER"),
     ("tg_checked_at", "REAL"),
 )
-
-
+_USER_MIGRATION_COLUMNS = (
+    ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("email_verified_at", "REAL"),
+    ("last_login_at", "REAL"),
+    ("banned_at", "REAL"),
+    ("ban_reason", "TEXT"),
+    ("admin_note", "TEXT"),
+    ("wx_openid", "TEXT"),
+    ("nickname", "TEXT"),
+    ("phone", "TEXT"),
+    ("avatar_path", "TEXT"),
+    ("active_device_mac", "TEXT"),
+)
 
 class Store:
     def __init__(self, db_path: Path, *, provider_cipher_key: bytes | None = None) -> None:
@@ -296,6 +319,14 @@ class Store:
         for name, ddl in _USER_MIGRATION_COLUMNS:
             if name not in cols:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {ddl}")
+        conn.execute(
+            """
+            UPDATE users SET active_device_mac = (
+                SELECT device_mac FROM device_bindings b WHERE b.user_id = users.id
+            )
+            WHERE active_device_mac IS NULL
+            """
+        )
         conn.execute(
             """
             UPDATE users SET status = 'active'
@@ -1036,6 +1067,56 @@ class Store:
         assert row is not None
         return self._row_binding(row)
 
+    @staticmethod
+    def _sync_active_binding(conn: sqlite3.Connection, user_id: str) -> None:
+        """删设备/换绑后修复当前设备及兼容镜像，其他设备保持原样。"""
+        row = conn.execute(
+            """SELECT b.* FROM user_device_bindings b JOIN users u ON u.id=b.user_id
+               WHERE b.user_id=? ORDER BY (b.device_mac=u.active_device_mac) DESC, b.bound_at DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        conn.execute("DELETE FROM device_bindings WHERE user_id=?", (user_id,))
+        conn.execute("UPDATE users SET active_device_mac=? WHERE id=?",
+                     (row["device_mac"] if row else None, user_id))
+        if row is not None:
+            columns = "user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok, machine_type"
+            conn.execute(f"INSERT INTO device_bindings ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         tuple(row[name] for name in columns.split(", ")))
+
+    def list_bindings_for_user(self, user_id: str) -> list[DeviceBinding]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_device_bindings WHERE user_id = ? ORDER BY bound_at DESC",
+                (user_id,),
+            ).fetchall()
+            if not rows:
+                rows = conn.execute("SELECT * FROM device_bindings WHERE user_id = ?", (user_id,)).fetchall()
+        return [self._row_binding(row) for row in rows]
+
+    def select_binding_for_user(self, user_id: str, device_mac: str) -> DeviceBinding | None:
+        mac = normalize_mac(device_mac)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM user_device_bindings WHERE user_id = ? AND device_mac = ?",
+                (user_id, mac),
+            ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "SELECT * FROM device_bindings WHERE user_id = ? AND device_mac = ?",
+                    (user_id, mac),
+                ).fetchone()
+                if row is not None:
+                    # 热修复：旧镜像行的首次选用先抄入主表，防止 sync 兜底把既有绑定当孤儿清掉。
+                    columns = "user_id, device_mac, device_token_enc, bound_at, last_push_at, token_probe_ok, machine_type"
+                    conn.execute(f"INSERT OR REPLACE INTO user_device_bindings ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                 tuple(row[name] for name in columns.split(", ")))
+            if row is None:
+                return None
+            conn.execute("UPDATE users SET active_device_mac = ? WHERE id = ?", (mac, user_id))
+            self._sync_active_binding(conn, user_id)
+            conn.commit()
+        return self._row_binding(row)
     def get_binding_for_user(self, user_id: str) -> DeviceBinding | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -1054,7 +1135,18 @@ class Store:
         前置授权证据 = 调用方持有未消费、未过期的设备屏显 bind_code（持有即在场证明）。"""
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute(
+                "SELECT user_id FROM device_bindings WHERE device_mac = ?", (mac,)
+            ).fetchone()
+            if owner is None:
+                owner = conn.execute(
+                    "SELECT user_id FROM user_device_bindings WHERE device_mac = ?", (mac,)
+                ).fetchone()
             cur = conn.execute("DELETE FROM device_bindings WHERE device_mac = ?", (mac,))
+            conn.execute("DELETE FROM user_device_bindings WHERE device_mac = ?", (mac,))
+            if owner is not None:
+                self._sync_active_binding(conn, owner["user_id"])
             conn.commit()
             return cur.rowcount > 0
 
