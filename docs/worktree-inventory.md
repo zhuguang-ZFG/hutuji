@@ -8,13 +8,13 @@
 > 2026-08-24 合并说明：旧版全文存档于 `tmp/inventory_head.md`；以下各「HEAD 存档并入」小节为旧版证据/决策原样保留（其中日期快照以当时为准）。
 
 ---
-## 2026-09-12 忙批评审补漏（🟡 未提交）：语音画 429 静默 + 阿里云 nginx 片段超时对齐
+## 2026-09-12 忙批评审补漏（已提交 main 本地、未推送）：语音画 429 静默 + 阿里云 nginx 片段超时对齐
 
 | 项 | 说明 |
 |---|---|
 | 授权 | 用户「继续」评审忙批部署改动并处理发现项；`draw-portal/draw_portal/app.py` 在白名单（xiaopai_voice_draw_write_authorized / device_identity_20260912） |
 | 改动 | ① `app.py` voice.draw 失败通知加 429 豁免（VoiceJobError status==429 不推「生成失败」，与 /api/draw/generate 同口径：守卫级日限 429 在建任务前已拦，忙批全忙 429 在建任务后漏拦，会发出误导性失败推送）+ `tests/test_voice_api.py` 参数化 2 例（429 静默 / 502 照推）；② `deploy/nginx-draw-portal-snippet.conf` `proxy_read_timeout` 120s→310s——test_contract 钉「模板口径与片段同源」，模板已 310s 而片段未同步（生产阿里云 gray conf 已 310s，见 deployment.md 2026-09-12 提速批+忙批条），按片段重建阿里云 vhost 会把该修复回退成 120s |
-| 本地证据 | portal 全套 **291 passed**（289 基线 + 新增 2 例）；hub 门禁结果随提交回填 |
+| 本地证据 | portal 全套 **291 passed**（289 基线 + 新增 2 例）；hub 门禁 **PASS exit=0**（13/13：mcp pytest 1451/1451、e2e PASS、指纹 259/259，基线重登于 HEAD `e87da7ca`——findings/28 对 inventory 两处引用为纯行移，人工核对 794/798/799 行内容无误后 `--accept-line-refs`） |
 | 发现未动 | breaker.py `_recent_samples_async` 全仓零调用且函数体缺 `import asyncio`（潜在 NameError，死代码，非忙批引入；breaker.py 不在白名单，未动，建议删）；store.py `_connect` 无 WAL/busy_timeout（课堂 NAT 并发下读写互斥风险；改库级行为须用户拍板，未动） |
 
 
@@ -1193,4 +1193,4 @@
 | S3 侧 | xiaozhi HEAD `9c4a218`（金标 24000 + `PROJECT_VER=hutuji.1.0.12`）freenove 目标真构建：host 测试 RC=0、215 CXX 增量、`xiaozhi.bin` SHA `64ed127f…5cc10` 3,038,992 B、zip `vhutuji.1.0.12_freenove-esp32s3-display-2.8-lcd.zip`；COM15 只写 app@0x20000+otadata@0xd000（NVS 保留身份批 P-256），`Hash of data verified` ×2（exit=1 装饰性既定）；1.0.11 原件备份 `results/20260912-device-identity/freenove-esp32s3-display-2.8-lcd-xiaozhi.identity-1011.bak`（SHA `17ae2921…`） |
 | 机器侧 | COM3 写 `$110/$111=24000` + `$$` 回读逐项相符（RATE-VERIFIED）；COM15 esptool 复位重探后 `hutuji.status` 文件 token 直推 → `firmware_version:hutuji.1.0.12`、`grbl_settings_ok:true`、Idle 0,0,0；`hutuji.manual jog_x+` → `MPos:10.000` 实动 → `G1 G90 X0 F8000` 归零 |
 | 证据（tmp，不入库） | `tmp/build_speed_freenove.cmd`（构建封装）、`results/20260912-device-identity/freenove-esp32s3-display-2.8-lcd-build-20260912-205556-418916.log`（构建日志）、`tmp/flash-speed-1012-com15.ps1` + `tmp/flash-speed-1012-com15.log`（刷机）、`tmp/write_rate_serial.py`（参数写入器）、`tmp/idf-export-speed.log` |
-| 未验证 | 真实画图任务 400mm/s 纸面效果（待用户实画）；fleet MK38 固件刷机（金标批 `firmware.bin` 1857648B 已备） |
+| 未验证 | 真实画图任务 400mm/s 纸面效果（待用户实画）；fleet MK38 固件刷机（金标批 `firmware.bin` 1857648B 已备；2026-09-12 用户确认全部机器为不换纸机——nopaper 金表适用，paper 金表无 fleet 对象） |

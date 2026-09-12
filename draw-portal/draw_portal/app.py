@@ -1071,9 +1071,12 @@ def create_app() -> FastAPI:
                         device_token_enc=enc_holder["enc"],
                         on_token_minted=on_token_minted,
                     )
-                except Exception:
-                    # 已建任务后的失败才通知（守卫级 429/未绑定不打扰）
-                    _notify_subscribe(config, store, user_id=user_id, status="failed", title=desc)
+                except Exception as exc:
+                    # 已建任务后的失败才通知（守卫级 429/未绑定不打扰）；忙批全忙 429
+                    # 同属瞬态忙——与 /api/draw/generate 同口径不推「生成失败」，否则
+                    # 失败推送+稍后重试成功推送只会误导用户。
+                    if not (isinstance(exc, VoiceJobError) and exc.status == 429):
+                        _notify_subscribe(config, store, user_id=user_id, status="failed", title=desc)
                     raise
                 _record_portal_usage(
                     store,

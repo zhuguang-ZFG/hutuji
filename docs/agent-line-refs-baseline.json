@@ -1,5 +1,5 @@
 {
-  "git_head": "151948d8e75c57f7c4d4b2e1f388751484d8a5e0",
+  "git_head": "e87da7ca0914b51da2df19d12250c3e0690c5773",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1297,6 +1297,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-12T13:06:10Z",
+  "updated": "2026-09-12T13:09:33Z",
   "version": 1
 }

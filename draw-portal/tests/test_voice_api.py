@@ -1,10 +1,13 @@
 """POST /api/voice/asr 与 /api/voice/turn 契约。"""
 from __future__ import annotations
-
+import os
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 
+from draw_portal.store import Store
+from draw_portal.voice_jobs import VoiceJobError
 from test_app import _client, _register_and_login  # noqa: E402
 
 
@@ -128,3 +131,57 @@ def test_voice_turn_returns_preview(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     body = r.json()
     assert body["preview"]["preview_url"].endswith(".png")
     assert body["reply"] == "请点开始画"
+
+
+@pytest.mark.parametrize(
+    "status,expect_failed_notify",
+    [(429, False), (502, True)],
+)
+def test_voice_draw_busy_429_suppresses_failed_notification(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: int,
+    expect_failed_notify: bool,
+):
+    """2026-09-12 忙批：语音画遇 MCP 全忙 429 不推「生成失败」订阅消息——与
+    /api/draw/generate 同口径（瞬态忙几秒后重试即成，失败推送+随后的成功推送
+    只会误导用户）；502 等真失败照常推。"""
+    monkeypatch.setenv("DRAW_PORTAL_USAGE_INGEST_SECRET", "s")
+    client = _auth(monkeypatch, tmp_path)
+    store = Store(tmp_path / "t.db")
+    user = store.get_user_by_email("buyer@qq.com")
+    assert user is not None
+    key = os.environ["DRAW_PORTAL_TOKEN_CIPHER_KEY"].encode("ascii")
+    store.set_device_binding(
+        user_id=user.id,
+        device_mac="aa:bb:cc:dd:ee:ff",
+        device_token_enc=Fernet(key).encrypt(b"tok").decode("ascii"),
+        bound_at=1.0,
+        token_probe_ok=True,
+    )
+    notifies: list[str] = []
+    monkeypatch.setattr(
+        "draw_portal.app._notify_subscribe",
+        lambda *args, **kwargs: notifies.append(kwargs["status"]) or True,
+    )
+
+    def boom(**kwargs):
+        raise VoiceJobError("生图通道都在忙，请稍等几秒再试", status=status)
+
+    monkeypatch.setattr("draw_portal.voice_jobs.run_voice_draw", boom)
+
+    def fake_chat(**kwargs):
+        try:
+            kwargs["run_portal_tool"]("voice.draw", {"description": "一只猫"})
+        except VoiceJobError as exc:
+            return {"reply": str(exc), "tool_traces": [], "preview": None}
+        raise AssertionError("run_portal_tool 未抛 VoiceJobError")
+
+    monkeypatch.setenv("HUTUJI_LLM_API_KEY", "k")
+    monkeypatch.setenv("HUTUJI_LLM_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("HUTUJI_LLM_MODEL", "m")
+    monkeypatch.setattr("draw_portal.voice_agent.chat", fake_chat)
+    r = client.post("/api/voice/turn", json={"session_id": "s-busy", "text": "画猫"})
+    assert r.status_code == 200, r.text
+    expected = ["failed"] if expect_failed_notify else []
+    assert notifies == expected
