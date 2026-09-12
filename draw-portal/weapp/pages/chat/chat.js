@@ -237,6 +237,9 @@ Page({
     api
       .request("/api/draw/generate", {
         method: "POST",
+        // 与 index 生成同口径：portal 侧等待上限 300s，这里同步放宽避免
+        // 客户端先超时把还在生成的任务标成失败。
+        timeout: 300000,
         data: { description: msg.draw.description },
       })
       .then((res) => {

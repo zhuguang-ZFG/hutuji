@@ -198,6 +198,9 @@ Page({
     api
       .request("/api/draw/generate", {
         method: "POST",
+        // 与 portal DRAW_PORTAL_GENERATE_TIMEOUT_SECONDS(300s) 对齐（2026-09-12
+        // 忙批）：旧 150s 会在云端仍在生成时先超时弹「生成失败」，随后图又出现。
+        timeout: 300000,
         data: { description: this.data.description },
       })
       .then((res) => {
@@ -211,7 +214,7 @@ Page({
       .catch((err) => {
         this.setData({ generating: false });
         wx.showModal({
-          title: "生成失败",
+          title: err.status === 429 ? "通道忙" : "生成失败",
           content: err.detail || "请稍后再试",
           showCancel: false,
         });

@@ -43,6 +43,16 @@ class BitmapError(RuntimeError):
     """位图路线生成失败（生图 API、下载、描摹任一环节）。"""
 
 
+class BitmapBusyError(BitmapError):
+    """位图路线「瞬态全忙」：所有对冲通道同一轮都因限流/5xx/超时失败。
+
+    与普通 BitmapError 区分开是给两端用的：/internal/draw 把它映射成
+    429+固定白话（「通道忙」而不是「服务不可用」），生成链对它做一次
+    短延迟真重跑；内容审核类 400 属永久失败，不进这个类。队列模式按
+    类名重建异常，故 draw_queue._exception_from_job 须同步登记这个名字。
+    """
+
+
 @dataclass(frozen=True)
 class BitmapResult:
     """同一次中心线描摹的机械 SVG 与设备屏幕 PNG 预览。"""
@@ -117,8 +127,8 @@ _SVG_MAX_BYTES = 256 * 1024
 _MIN_POLY_PX = 12
 _SMOOTH_WINDOW = 5
 # 像素域 Douglas-Peucker 容差（2026-08-26 小路卡顿/没线）：骨架折线是 1px 阶梯，
-# layout 后 G1 中位 ~0.8mm，F8000 下 70% 段运动 <10ms → planner 空档、$1=25 失能
-# 弹簧抬笔。vpype linesimplify=0.05 契约钉死且拦不住楼梯偏差（常 >0.05mm）。
+# layout 后 G1 中位 ~0.8mm，F24000（400mm/s，2026-09-12 提速批）下 70% 段运动
+# <3ms → planner 空档、$1=25 失能弹簧抬笔，提速后空窗矛盾更尖锐。vpype
 # 容差只压像素阶梯（弦偏差 ~0.7px），勿按图幅抬到 3–5px：1760 源 tol=5.3
 # 曾把老虎 25508→1006 点（~96%），五官/条纹被抹成折棍（2026-08-26 用户反馈）。
 # 1024→tol=1.5px≈0.28mm；1760→1.8px≈0.19mm——阶梯仍塌、曲率特征保留。
@@ -1133,6 +1143,29 @@ async def _request_tcb_image_url(client: httpx.AsyncClient, description: str) ->
         raise BitmapError("混元生图未返回有效的 https 图片地址")
     return image_url
 
+
+# 瞬态「忙」判别：job_ledger.classify_bitmap_error 的类别里，429/5xx/timeout
+# 代表上游容量或网络瞬态，重跑一轮通常就好；400（内容审核/参数）与其余
+# error 属描述相关或配置类失败，重试大概率白花一次付费调用，判非忙。
+_BUSY_ERROR_CLASSES = frozenset({"http_429", "http_5xx", "timeout"})
+# 全忙重试延迟（2026-09-12 诊断：郭富城/日本连败时商汤+魔搭同轮 429 而
+# Agnes 单飞可成；对全忙瞬态停 2.5s 真重跑一轮，吃掉限流窗口。不取更长：
+# 共享任务全程持有 DrawLimiter 名额，延迟过长会让后续同题搭车者空等）。
+_BUSY_RETRY_DELAY_SECONDS = 2.5
+
+
+def _all_errors_busy(errors: dict[str, BitmapError]) -> bool:
+    """判别对冲全灭是否属「全忙」：至少有一条错误，且全部落在忙类。"""
+    if not errors:
+        return False
+    from . import job_ledger
+
+    return all(
+        job_ledger.classify_bitmap_error(exc) in _BUSY_ERROR_CLASSES
+        for exc in errors.values()
+    )
+
+
 async def _race_dynamic_image_racers(
     client: httpx.AsyncClient, description: str, racers: list[dict[str, Any]]
 ) -> str:
@@ -1199,7 +1232,10 @@ async def _race_dynamic_image_racers(
             await asyncio.gather(*rest, return_exceptions=True)
     if winner is None:
         parts = [f"{name} 失败：{exc}" for name, exc in errors.items()]
-        raise BitmapError("；".join(parts) if parts else "全部动态生图后端均失败")
+        message = "；".join(parts) if parts else "全部动态生图后端均失败"
+        if _all_errors_busy(errors):
+            raise BitmapBusyError(message)
+        raise BitmapError(message)
     return winner
 
 
@@ -1305,7 +1341,10 @@ async def _race_image_backends(
                 parts.append(f"{extra_name}同样失败：{errors[extra_name]}")
         if "备用端点" in errors:
             parts.append(f"备用端点同样失败：{errors['备用端点']}")
-        raise BitmapError("；".join(parts) if parts else "全部生图后端均失败")
+        message = "；".join(parts) if parts else "全部生图后端均失败"
+        if _all_errors_busy(errors):
+            raise BitmapBusyError(message)
+        raise BitmapError(message)
     return winner
 
 
@@ -1417,7 +1456,16 @@ def _forget_bitmap_inflight(key: str, done: asyncio.Task[BitmapResult]) -> None:
 async def _generate_bitmap_uncached(description: str, cache_key: str) -> BitmapResult:
     """跑完整付费生成链并在任务结束前写入结果缓存。"""
     fetch_t0 = time.monotonic()
-    png = await _fetch_image_png(description)
+    try:
+        png = await _fetch_image_png(description)
+    except BitmapBusyError:
+        # 全忙瞬态（全对冲通道 429/5xx/超时）：停一个短窗后真重跑整轮生图，
+        # 不复用第一轮任何产物（内容缓存在成功前不写，重试天然绕开）。只
+        # 重试一次：第二轮仍忙则把 BitmapBusyError 原样上抛——/internal/draw
+        # 映射成 429「通道忙」白话，语音路径按既有 BitmapError 白话回落。
+        logger.warning("生图通道瞬态全忙，%.1fs 后重试一次", _BUSY_RETRY_DELAY_SECONDS)
+        await asyncio.sleep(_BUSY_RETRY_DELAY_SECONDS)
+        png = await _fetch_image_png(description)
     fetch_s = time.monotonic() - fetch_t0
 
     def build() -> BitmapResult:

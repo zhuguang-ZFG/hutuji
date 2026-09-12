@@ -422,7 +422,7 @@ class RedisDrawQueueBackend:
 
 
 def _exception_from_job(job: dict[str, str]) -> BaseException:
-    from .bitmap_svg import BitmapError
+    from .bitmap_svg import BitmapBusyError, BitmapError
     from .gcode_gen import GcodeError
     from .server import DrawLimitError, DrawTimeoutError, PaperRiskExhaustedError
 
@@ -430,6 +430,9 @@ def _exception_from_job(job: dict[str, str]) -> BaseException:
         "DrawLimitError": DrawLimitError,
         "DrawTimeoutError": DrawTimeoutError,
         "BitmapError": BitmapError,
+        # 2026-09-12 忙批：worker 端 BitmapBusyError 须按原名重建，waiter 侧
+        # /internal/draw 才能把全忙瞬态映射成 429「通道忙」而不是 502。
+        "BitmapBusyError": BitmapBusyError,
         "GcodeError": GcodeError,
         "PaperRiskExhaustedError": PaperRiskExhaustedError,
         "DrawQueueBusyError": DrawQueueBusyError,

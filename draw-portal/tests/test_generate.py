@@ -206,3 +206,57 @@ def test_materialize_cleans_partial_files_on_failure(
         )
     assert len(calls) == 2
     assert list(job_dir.iterdir()) == []
+
+
+def _notify_recorder(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    calls: list[tuple[str, str]] = []
+
+    def fake_notify(config, store, *, user_id, status, title, phrase=None):
+        calls.append((status, title))
+        return True
+
+    monkeypatch.setattr("draw_portal.app._notify_subscribe", fake_notify)
+    return calls
+
+
+def test_generate_busy_429_suppresses_failed_notification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """2026-09-12 忙批：MCP 全忙瞬态映射 429 后，portal 不推「生成失败」订阅
+    消息——瞬态忙几秒重试即成，失败推送+随后的成功推送只会误导用户。"""
+    client = _gen_client(monkeypatch, tmp_path)
+    calls = _notify_recorder(monkeypatch)
+
+    def boom(**kw):
+        raise GenerateError("生图通道都在忙，请稍等几秒再试", status=429)
+
+    monkeypatch.setattr("draw_portal.app.request_internal_draw", boom)
+    r = client.post("/api/draw/generate", json={"description": "一只猫"})
+    assert r.status_code == 429
+    assert "都在忙" in r.json()["detail"]
+    assert calls == []
+
+
+def test_generate_permanent_failure_and_success_still_notify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """忙以外的失败（502）与成功照常推送：静默只限 429 忙类。"""
+    client = _gen_client(monkeypatch, tmp_path)
+    calls = _notify_recorder(monkeypatch)
+
+    def boom(**kw):
+        raise GenerateError("生图服务暂不可用", status=502)
+
+    monkeypatch.setattr("draw_portal.app.request_internal_draw", boom)
+    failed = client.post("/api/draw/generate", json={"description": "失败单"})
+    assert failed.status_code == 502
+    assert [status for status, _ in calls] == ["failed"]
+
+    calls.clear()
+    monkeypatch.setattr(
+        "draw_portal.app.request_internal_draw", lambda **kw: _fake_result()
+    )
+    monkeypatch.setattr("draw_portal.app.materialize_generated_job", _fake_materialize)
+    ok = client.post("/api/draw/generate", json={"description": "成功单"})
+    assert ok.status_code == 200
+    assert [status for status, _ in calls] == ["success"]

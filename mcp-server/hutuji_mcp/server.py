@@ -45,7 +45,13 @@ from .gcode_gen import (
     svg_to_gcode_async,
     validate_gcode,
 )
-from .bitmap_svg import BitmapError, generate_bitmap, warm_trace_deps, evict_bitmap_cache
+from .bitmap_svg import (
+    BitmapBusyError,
+    BitmapError,
+    evict_bitmap_cache,
+    generate_bitmap,
+    warm_trace_deps,
+)
 from . import paper_risk
 from . import t2s
 from .redact import _install_secret_redaction
@@ -1642,6 +1648,11 @@ async def _internal_draw(request: Request) -> Response:
         raise HTTPException(status_code=429, detail=str(exc)) from None
     except DrawTimeoutError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from None
+    except BitmapBusyError as exc:
+        # 全忙瞬态（全对冲通道 429/5xx/超时，2026-09-12 诊断批）：固定白话
+        # 429 让 portal 按既有 429 透传口径把「通道忙」带给页面，不透传
+        # 后端聚合文本（str(exc) 含各 racer 原始状态串，越不过白话线）。
+        raise HTTPException(status_code=429, detail="生图通道都在忙，请稍等几秒再试") from None
     except (BitmapError, PaperRiskExhaustedError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
     return Response(

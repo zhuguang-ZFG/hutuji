@@ -406,41 +406,6 @@ def _notify_subscribe(
     openid = getattr(user, "wx_openid", None) if user else None
     if not openid:
         return False
-    subscribe_notify.notify_job_result_async(
-        config,
-        user_id=user_id,
-        openid=openid,
-        status=status,
-        title=title,
-        phrase=phrase,
-    )
-    return True
-
-
-def _notify_subscribe(
-    config: Any,
-    store: Store,
-    *,
-    user_id: str,
-    status: str,
-    title: str,
-    phrase: str | None = None,
-) -> bool:
-    """生成完成/失败 → 一次性订阅消息（fire-and-forget，绝不影响主链）。
-
-    @return True = 已派发后台发送线程（不代表微信侧送达）；False = 未发。
-    """
-    from draw_portal import subscribe_notify
-
-    if not subscribe_notify.enabled(config):
-        return False
-    try:
-        user = store.get_user(user_id)
-    except Exception:
-        return False
-    openid = getattr(user, "wx_openid", None) if user else None
-    if not openid:
-        return False
     if status == "success":
         # 粘合性通知（里程碑/连续打卡）：成功事件就是打卡与累计时刻（§10.4.18）
         _engagement_notify(config, store, user_id=user_id, openid=openid)
@@ -2156,7 +2121,11 @@ def create_app() -> FastAPI:
             store.mark_draw_job_ready(job.id, basename=published.basename)
         except GenerateError as exc:
             store.mark_draw_job_failed(job.id, error_summary="GenerateError")
-            _notify_subscribe(config, store, user_id=user_id, status="failed", title=description)
+            # 429（2026-09-12 忙批：MCP 侧全忙瞬态映射 429；含日限/队列满）不推
+            # 「生成失败」订阅消息——瞬态忙几秒后重试即成，失败推送+随后的成功
+            # 推送只会误导；白话已随 detail 透传给页面，in-app 自会解释。
+            if exc.status != 429:
+                _notify_subscribe(config, store, user_id=user_id, status="failed", title=description)
             # 只透传 400/429 的输入白话；504/502 一律固定文案，防上游细节外泄（2026-08-31 评审裁决）
             if exc.status in (400, 429):
                 detail = str(exc)
