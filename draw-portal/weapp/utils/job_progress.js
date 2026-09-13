@@ -67,8 +67,10 @@ function deriveProgressView(status) {
     const prog = typeof ota.progress === "number" ? ota.progress : 0;
     otaLine = "OTA " + otaState + " " + prog + "%";
   }
-  const elapsedLabel = formatDurationMs(st.elapsed_ms);
-  const etaLabel = formatDurationMs(st.eta_ms);
+  // 固件在任务结束后仍累加计时，终态不能把空闲时间显示为绘制耗时。
+  const showTiming = !!BUSY_STATES[state];
+  const elapsedLabel = showTiming ? formatDurationMs(st.elapsed_ms) : "";
+  const etaLabel = showTiming ? formatDurationMs(st.eta_ms) : "";
   return {
     timelineIndex: idx,
     timelineLabels: TIMELINE_LABELS.slice(),

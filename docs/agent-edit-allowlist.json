@@ -383,6 +383,7 @@
       "draw-portal/weapp/pages/chat/chat.wxml",
       "draw-portal/weapp/app.js",
       "draw-portal/weapp/utils/page_session.js",
+      "draw-portal/weapp/utils/job_progress.js",
       "draw-portal/weapp/utils/api.js",
       "draw-portal/weapp/utils/version.js",
       "draw-portal/weapp/project.config.json",

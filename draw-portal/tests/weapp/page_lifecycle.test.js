@@ -8,6 +8,21 @@ const state = { connected: true, ready: true, authorized: true, grbl_settings_ok
   speed: { axis_control: true, state: "done" } };
 const reply = (h, data, statusCode = 200) => h.requests.at(-1).success({ statusCode, data });
 
+test("完成后不把固件继续累加的时间显示为绘制耗时，进行中的时间仍显示", () => {
+  const h = createWeapp();
+  h.load("pages/control/control.js");
+  for (const jobState of ["streaming", "paused"]) {
+    const view = h.page._deriveControls({ ...state, state: jobState, elapsed_ms: 65000, eta_ms: 120000 });
+    assert.equal(view.elapsedLabel, "1:05");
+    assert.equal(view.etaLabel, "2:00");
+  }
+  for (const jobState of ["idle", "done", "error", "aborted", "previewing", "awaiting_confirmation"]) {
+    const view = h.page._deriveControls({ ...state, state: jobState, elapsed_ms: 9247310, eta_ms: 9247310 });
+    assert.equal(view.elapsedLabel, "", jobState);
+    assert.equal(view.etaLabel, "", jobState);
+  }
+});
+
 test("冷启动控制页等待真实登录完成，再读状态与速度", async () => {
   const h = createWeapp({ clock: createClock() });
   h.app.onLaunch();
