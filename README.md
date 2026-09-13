@@ -2,7 +2,11 @@
 
 语音说一句话，云端 AI 生成绘图内容，写字机自动画出来、自动换纸。
 
-2026-09-13 三仓评审修复：调速改为后台事务并等待两轴确认，普通重启保留速度；奎享完成只接受目标机器的连续新广播；云端主备以 `HUTUJI_BRIDGE_ACTIVE` 保持单 bridge。问题、回归与交付证据见 [`评审记录`](docs/design/crossrepo-review-20260913.md)，当前部署状态仍以 release-readiness 为准。
+2026-09-13 三仓评审修复：调速改为后台事务并等待三轴实际读回，普通重启保留速度；奎享完成只接受目标机器的连续新广播；云端主备以 `HUTUJI_BRIDGE_ACTIVE` 保持单 bridge。问题、回归与交付证据见 [`评审记录`](docs/design/crossrepo-review-20260913.md)，当前部署状态仍以 release-readiness 为准。
+
+量产机三轴速度（2026-09-13 用户拍板）：X/Y 默认 10000，Z 保留机器现值；小程序分别设置 X/Y/Z，重启保留。单轴写入前检查设备分轴能力，写后查询三轴实际参数，确认选中轴生效再提示成功。设计与验收见 [`三轴调速`](docs/design/axis-speed-20260913.md)，当前板上状态仍以 readiness 为准。
+
+量产机任务完成或停止归位后自动释放电机，下一任务重新运动时自动使能。停止请求复用同一次收尾，归位完成后才显示已取消；绘图与暂停时继续保持电机使能。行为与验证边界见 [`protocol §10.4.15`](docs/protocol.md)。
 
 近期评审修复涉及预览资源边界、波纹白区保护、登录回包隔离、字体选择、重试日限与 Tunnel 固件回源。行为契约见 [`docs/protocol.md`](docs/protocol.md)，本地验证及部署状态见 [`docs/release-readiness.md`](docs/release-readiness.md)；小程序回归命令见 [`draw-portal/README.md`](draw-portal/README.md)。
 

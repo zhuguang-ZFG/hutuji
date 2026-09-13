@@ -83,23 +83,29 @@
     </view>
 
     <view class="speed-block">
-      <view class="speed-meta">
-        <text class="speed-label">设置移动速度</text>
-        <text class="speed-val">{{speedRate}} 毫米/分</text>
+      <text class="speed-label">分轴速度</text>
+      <view wx:for="{{speedAxes}}" wx:key="key" class="speed-axis">
+        <view class="speed-meta">
+          <text class="speed-axis-label">{{item.label}}</text>
+          <text class="speed-val">{{speedLoaded ? speedRates[item.key] + ' 毫米/分' : '未读取'}}</text>
+        </view>
+        <slider
+          class="speed-slider"
+          min="{{item.min}}"
+          max="{{item.max}}"
+          step="{{item.step}}"
+          value="{{speedRates[item.key]}}"
+          activeColor="#00d1e5"
+          backgroundColor="rgba(255,255,255,0.08)"
+          block-size="22"
+          disabled="{{speedSaving || speedLoading || !speedLoaded || !!busyAction || !canSetSpeed}}"
+          data-axis="{{item.key}}"
+          bindchange="onSpeedChange"
+        />
       </view>
-      <slider
-        class="speed-slider"
-        min="3000"
-        max="16000"
-        step="500"
-        value="{{speedRate}}"
-        activeColor="#00d1e5"
-        backgroundColor="rgba(255,255,255,0.08)"
-        block-size="22"
-        disabled="{{speedSaving || !!busyAction || !canSetSpeed}}"
-        bindchange="onSpeedChange"
-      />
-      <view class="speed-hint">画图和空走都受这个上限限制，数值越大越快；调整后重启仍保留，恢复出厂会重置</view>
+      <view class="speed-hint" wx:if="{{speedLoading}}">正在读取机器速度…</view>
+      <view class="speed-hint" wx:elif="{{speedSaving}}">正在确认调整结果…</view>
+      <view class="speed-hint" wx:else>X/Y 默认 10000，Z 单独控制抬落笔。画图和空走都受轴速度上限限制；设置在重启后保留。</view>
     </view>
 
     <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>

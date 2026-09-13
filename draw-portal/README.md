@@ -27,6 +27,12 @@ node --test tests/weapp/*.test.js
 
 小程序回归使用 Node 内置测试运行器和 wx 桩，覆盖登录/退出回包竞态、默认字体、扫码身份、UTF-8 TCP 分帧及切网/重扫/卸载恢复；测试放在 `tests/weapp/`，不进入小程序包。`test_device_identity.py` 用真实 P-256 签名验证正反例、挑战消费和 token 就绪；`test_device_bindings.py` 覆盖旧库迁移、多设备回写与事务回滚。`process_write_text` 的字体回归使用合成 gfont 和真实排版，验证显式字体对中文生效、未选字体仍沿用标准笔顺。完整交互与纸面效果另按真机清单验收。
 
+## 量产机三轴调速
+
+控制页分别设置 X/Y/Z；X/Y 默认 10000，Z 保留机器现值。`GET /api/settings/machine-speed` 从机器读三轴，POST 只提交 `{axis, rate, device_mac}` 指定轴；入口需手机号与设备归属校验。单轴写入前检查 S3 分轴能力，旧固件 409，避免忽略 axis 后误写 XY。确认必须核对 request_id、axis、rate 与三轴实际读回；断线或部分完成不提示成功。旧省略 axis 的 rate 接口仍调整 XY。普通重启保留 Grbl NVS 设置。
+
+范围与事务见 [`protocol.md §10.4.21`](../docs/protocol.md)，量产部署与手机目视证据见 [`release-readiness.md`](../docs/release-readiness.md)。
+
 ## 生产部署（阿里云，一期）
 
 照片精修的 `process_upload_sketch` 必须在 SVG 和 PNG 两处同步使用 `smooth=False`，保留渲染器给出的稀疏排线/波纹拐点；`test_photo_refine.py` 用真实 vpype 覆盖两种风格的导出几何。画质证据与未完成项见 [`../docs/design/photo-sketch-quality-20260912.md`](../docs/design/photo-sketch-quality-20260912.md)。

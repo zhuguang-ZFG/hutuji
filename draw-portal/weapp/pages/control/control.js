@@ -4,6 +4,13 @@ const mcpResult = require("../../utils/mcp_result");
 const { displayVersion } = require("../../utils/version.js");
 const jobProgress = require("../../utils/job_progress");
 
+function readSpeedRates(result) {
+  const rates = result && result.rates;
+  if (!rates || !["x", "y", "z"].every((axis) =>
+    typeof rates[axis] === "number" && Number.isFinite(rates[axis]) && rates[axis] > 0)) return null;
+  return { x: rates.x, y: rates.y, z: rates.z };
+}
+
 // 设备控制：WeUI 官方模板布局 + 奎享同构能力
 // 状态轮询 + 点动/步距/抬落笔/试笔 + 任务 暂停/继续/停止/重画 + 预览确认
 Page({
@@ -34,7 +41,14 @@ Page({
     elapsedLabel: "",
     etaLabel: "",
     otaLine: "",
-    speedRate: 16000,
+    speedAxes: [
+      { key: "x", label: "X 轴", min: 3000, max: 16000, step: 500 },
+      { key: "y", label: "Y 轴", min: 3000, max: 16000, step: 500 },
+      { key: "z", label: "Z 轴 · 抬落笔", min: 100, max: 3000, step: 100 },
+    ],
+    speedRates: { x: 10000, y: 10000, z: 1200 },
+    speedLoaded: false,
+    speedLoading: false,
     speedSaving: false,
     canSetSpeed: false,
     bindingMac: "",
@@ -44,7 +58,8 @@ Page({
     this._visible = true;
     const generation = this._viewGeneration = (this._viewGeneration || 0) + 1;
     const session = getApp()._sessionGeneration;
-    this.setData({ footVersion: displayVersion("v0.3.6"), speedSaving: false });
+    this.setData({ footVersion: displayVersion("v0.3.6"), speedSaving: false,
+      speedLoaded: false, speedLoading: false, canSetSpeed: false });
     phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
       if (!ok || !this._isCurrentView(generation, session)) return;
       this._reschedulePoll(jobProgress.POLL_MS_IDLE);
@@ -129,7 +144,9 @@ Page({
         : "";
     const prog = jobProgress.deriveProgressView(status);
     return {
-      canSetSpeed: !!(linkOk && status && status.plotter_sku === "nopaper" &&
+      canSetSpeed: !!(linkOk && status && status.ready && status.authorized && status.grbl_settings_ok &&
+        status.plotter_sku === "nopaper" && status.speed && status.speed.axis_control === true &&
+        status.speed.state !== "pending" &&
         ["idle", "done", "error", "aborted"].includes(state)),
       canConfirm,
       canAbort,
@@ -158,15 +175,19 @@ Page({
   refresh(silent) {
     const generation = this._viewGeneration || 0;
     const session = getApp()._sessionGeneration;
+    const refreshGeneration = this._refreshGeneration = (this._refreshGeneration || 0) + 1;
+    const current = () => this._isCurrentView(generation, session) &&
+      this._refreshGeneration === refreshGeneration;
     api
       .request("/api/auth/me")
       .then((me) => {
-        if (!this._isCurrentView(generation, session)) return;
+        if (!current()) return;
         const bound = !!(me.binding && me.binding.bound);
         const bindingMac = (me.binding && (me.binding.device_mac || me.binding.mac)) || "";
         if (bindingMac !== this.data.bindingMac) {
           this._speedGeneration = (this._speedGeneration || 0) + 1;
-          this.setData({ speedRate: 16000, speedSaving: false });
+          this.setData({ speedRates: { x: 10000, y: 10000, z: 1200 },
+            speedSaving: false, speedLoaded: false, speedLoading: false, canSetSpeed: false });
         }
         this.setData({ bound, bindingMac });
         if (!bound) {
@@ -174,12 +195,13 @@ Page({
           return;
         }
         return this.control("hutuji.status", null, true).then((r) => {
-          if (!this._isCurrentView(generation, session)) return;
+          if (!current() || this.data.bindingMac !== bindingMac) return;
           if (r && r.result) {
             const status = mcpResult.parseToolJson(r.result);
             if (status) {
               this.setData(Object.assign({ status }, this._deriveControls(status)));
               this._reschedulePoll(jobProgress.deriveProgressView(status).pollMs);
+              this._loadMachineSpeed();
             } else {
               const emptyProg = jobProgress.deriveProgressView(null);
               this.setData({
@@ -188,6 +210,7 @@ Page({
                 canAbort: false,
                 canPause: false,
                 canResume: false,
+                canSetSpeed: false,
                 stateLabel: "",
                 linkOk: false,
                 linkLabel: "查询中…",
@@ -312,36 +335,68 @@ Page({
   },
 
   onSpeedChange(e) {
-    // 回包必须属于同一页面、登录和设备；失败显式回写 value 才能还原原生滑块。
+    const axis = e.currentTarget && e.currentTarget.dataset.axis;
     const rate = e.detail.value;
-    if (this.data.speedSaving) return;
-    const previous = this.data.speedRate;
+    const limits = this.data.speedAxes.find((item) => item.key === axis);
+    if (!limits || !Number.isInteger(rate) || rate < limits.min || rate > limits.max ||
+      this.data.speedSaving || this.data.speedLoading || !this.data.speedLoaded ||
+      !this.data.canSetSpeed || this.data.busyAction) {
+      this.setData({ speedRates: Object.assign({}, this.data.speedRates) });
+      return;
+    }
+    // 只提交拖动轴；回包属于同一页面、登录与设备才更新三轴读回值。
+    const previous = Object.assign({}, this.data.speedRates);
     const generation = this._viewGeneration || 0;
     const session = getApp()._sessionGeneration;
-    const speedGeneration = this._speedGeneration || 0;
+    const bindingMac = this.data.bindingMac;
+    const speedGeneration = this._speedGeneration = (this._speedGeneration || 0) + 1;
     const current = () => this._isCurrentView(generation, session) &&
-      (this._speedGeneration || 0) === speedGeneration;
+      this._speedGeneration === speedGeneration && this.data.bindingMac === bindingMac;
     const fail = (detail) => {
       if (!current()) return;
-      this.setData({ speedSaving: false, speedRate: previous });
+      this.setData({ speedSaving: false, speedRates: previous, speedLoaded: false });
       wx.showToast({ title: detail || "调整失败，请重试", icon: "none" });
     };
     this.setData({ speedSaving: true });
     api
       .request("/api/settings/machine-speed", {
         method: "POST",
-        data: { rate, device_mac: this.data.bindingMac || undefined },
+        data: { axis, rate, device_mac: bindingMac || undefined },
       })
       .then((r) => {
         if (!current()) return;
-        if (r && r.status === "ok" && Number.isInteger(r.rate) && r.rate === rate) {
-          this.setData({ speedSaving: false, speedRate: r.rate });
-          wx.showToast({ title: "已调整", icon: "success" });
+        const rates = readSpeedRates(r);
+        if (r && r.status === "ok" && r.axis === axis && Number.isInteger(r.rate) &&
+          r.rate === rate && rates && rates[axis] === rate) {
+          this.setData({ speedSaving: false, speedRates: rates, speedLoaded: true });
+          wx.showToast({ title: `${axis.toUpperCase()} 轴已调整`, icon: "success" });
         } else {
           fail(r && r.detail);
         }
       })
       .catch((error) => fail(error && error.detail));
+  },
+
+  _loadMachineSpeed() {
+    if (!this.data.canSetSpeed || this.data.speedLoaded || this.data.speedLoading ||
+      this.data.speedSaving || this.data.busyAction) return;
+    const generation = this._viewGeneration || 0;
+    const session = getApp()._sessionGeneration;
+    const bindingMac = this.data.bindingMac;
+    const speedGeneration = this._speedGeneration || 0;
+    const current = () => this._isCurrentView(generation, session) &&
+      (this._speedGeneration || 0) === speedGeneration && this.data.bindingMac === bindingMac;
+    this.setData({ speedLoading: true });
+    api.request(`/api/settings/machine-speed?device_mac=${encodeURIComponent(bindingMac)}`)
+      .then((r) => {
+        if (!current()) return;
+        const rates = readSpeedRates(r);
+        this.setData(Object.assign({ speedLoading: false, speedLoaded: !!(r && r.status === "ok" && rates) },
+          r && r.status === "ok" && rates ? { speedRates: rates } : {}));
+      })
+      .catch(() => {
+        if (current()) this.setData({ speedLoading: false, speedLoaded: false });
+      });
   },
 
   onGoBind() {

@@ -336,6 +336,15 @@
   margin-bottom: 8rpx;
 }
 
+.speed-axis {
+  margin-top: 24rpx;
+}
+
+.speed-axis-label {
+  color: #dce2ed;
+  font-size: 25rpx;
+}
+
 .speed-label {
   font-size: 28rpx;
   font-weight: 700;

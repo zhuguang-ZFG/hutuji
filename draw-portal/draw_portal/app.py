@@ -9,12 +9,12 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from draw_portal.analytics import (
     conversation_dedupe_key,
@@ -141,10 +141,19 @@ class XiaopaiSettingBody(BaseModel):
 
 
 class MachineSpeedBody(BaseModel):
-    """写字机移动速度上限；与设备侧共同拒绝越界与非整数输入。"""
+    """每次只写指定轴；省略 axis 保留旧版同时调整 XY 的语义。"""
 
-    rate: int = Field(ge=3000, le=16000, strict=True)
+    rate: int = Field(ge=100, le=16000, strict=True)
+    axis: Literal["x", "y", "z", "xy"] = "xy"
     device_mac: str | None = Field(default=None, max_length=17)
+
+    @model_validator(mode="after")
+    def check_axis_rate(self):
+        from draw_portal.machine_speed import valid_speed_rate
+
+        if not valid_speed_rate(self.axis, self.rate):
+            raise ValueError("速度超出所选轴的允许范围")
+        return self
 
 
 class XiaopaiBindBody(BaseModel):
@@ -2632,38 +2641,39 @@ def create_app() -> FastAPI:
     # 克隆人格/KB/MCP/记忆档），设备经验证码绑定后生效；未个性化设备走共享
     # agent 互不影响（用户拍板「不能改所有人的」）。成功才计 usage 限频。
 
-    @app.post("/api/settings/machine-speed", dependencies=phone_secured)
-    def machine_speed_set(
-        body: MachineSpeedBody, user_id: str = Depends(require_phone)
+    def _machine_speed_request(
+        *, rate: int, axis: str, device_mac: str | None, user_id: str, require_axes: bool,
     ) -> dict[str, Any]:
         import json
 
-        # 写字机速度下放（2026-09-12）：调设备 hutuji.speed 写 $110/$111，
-        # 参数由 Grbl 持久化；401/403/404 自愈与 _voice_device_tool 同链。
-        from draw_portal.machine_speed import MachineSpeedError, wait_for_speed
+        from draw_portal.machine_speed import MachineSpeedError, supports_axis_speed, wait_for_speed
         from draw_portal.push import mint_messaging_token
 
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定丹青")
-        if body.device_mac and body.device_mac.lower() != binding.device_mac.lower():
+        if device_mac and device_mac.lower() != binding.device_mac.lower():
             raise HTTPException(status_code=409, detail="控制设备已切换，请刷新后重试")
         token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
-        ok, result = push_tool_call(
-            api_base=config.xiaozhi_api_base,
-            device_token=token,
-            name="hutuji.speed",
-            arguments={"rate": body.rate},
-            timeout=30,
-        )
-        if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
-            fresh = mint_messaging_token(
-                api_base=config.xiaozhi_api_base, mac=binding.device_mac
-            )
-            if fresh:
-                owner = store.get_binding_for_mac(binding.device_mac)
-                if owner is None or owner.user_id != user_id:
+
+        def invoke(name: str, arguments: dict[str, Any], timeout: int):
+            nonlocal token
+
+            def check_owner():
+                current = store.get_binding_for_mac(binding.device_mac)
+                if current is None or current.user_id != user_id:
                     raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
+
+            check_owner()
+            ok, result = push_tool_call(
+                api_base=config.xiaozhi_api_base, device_token=token,
+                name=name, arguments=arguments, timeout=timeout,
+            )
+            if ok or result not in ("HTTP 401", "HTTP 403", "HTTP 404"):
+                return ok, result
+            fresh = mint_messaging_token(api_base=config.xiaozhi_api_base, mac=binding.device_mac)
+            if fresh:
+                check_owner()
                 store.update_binding_token(
                     user_id,
                     device_token_enc=encrypt_token(config.token_cipher_key, fresh),
@@ -2671,37 +2681,57 @@ def create_app() -> FastAPI:
                 )
                 token = fresh
                 ok, result = push_tool_call(
-                    api_base=config.xiaozhi_api_base,
-                    device_token=fresh,
-                    name="hutuji.speed",
-                    arguments={"rate": body.rate},
-                    timeout=30,
+                    api_base=config.xiaozhi_api_base, device_token=token,
+                    name=name, arguments=arguments, timeout=timeout,
                 )
-        if not ok:
-            raise HTTPException(status_code=502, detail="写字机未完成速度调整，请检查设备状态")
+            return ok, result
+
         try:
+            # 旧 S3 会忽略未知 axis 后直接写 XY，必须在任何单轴写入之前拒绝它。
+            if require_axes:
+                ok, status = invoke("hutuji.status", {}, 10)
+                if not ok:
+                    raise MachineSpeedError("速度查询失败，请检查设备状态")
+                if not supports_axis_speed(status):
+                    raise HTTPException(status_code=409, detail="设备固件尚不支持分轴调速，请先升级")
+            arguments: dict[str, Any] = {"rate": rate}
+            if require_axes:
+                arguments["axis"] = axis
+            ok, result = invoke("hutuji.speed", arguments, 30)
+            if not ok:
+                raise MachineSpeedError("写字机未完成速度调整，请检查设备状态")
             confirmed = wait_for_speed(
                 result,
-                body.rate,
-                lambda timeout: push_tool_call(
-                    api_base=config.xiaozhi_api_base,
-                    device_token=token,
-                    name="hutuji.status",
-                    arguments={},
-                    timeout=timeout,
-                ),
+                rate,
+                lambda timeout: invoke("hutuji.status", {}, timeout),
+                axis=axis,
+                require_axes=require_axes,
             )
         except MachineSpeedError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from None
-        _record_portal_usage(
-            store,
-            event_type="web_machine_speed",
-            user_id=user_id,
-            device_mac=binding.device_mac,
-            detail=str(confirmed),
-            ok=True,
+        if rate:
+            _record_portal_usage(
+                store, event_type="web_machine_speed", user_id=user_id,
+                device_mac=binding.device_mac, detail=f"{axis}:{rate}", ok=True,
+            )
+        return {"status": "ok", **confirmed, "result": json.dumps(confirmed)}
+
+    @app.get("/api/settings/machine-speed", dependencies=phone_secured)
+    def machine_speed_get(
+        device_mac: str | None = None, user_id: str = Depends(require_phone),
+    ) -> dict[str, Any]:
+        return _machine_speed_request(
+            rate=0, axis="xy", device_mac=device_mac, user_id=user_id, require_axes=True,
         )
-        return {"status": "ok", "rate": confirmed, "result": json.dumps({"rate": confirmed})}
+
+    @app.post("/api/settings/machine-speed", dependencies=phone_secured)
+    def machine_speed_set(
+        body: MachineSpeedBody, user_id: str = Depends(require_phone),
+    ) -> dict[str, Any]:
+        return _machine_speed_request(
+            rate=body.rate, axis=body.axis, device_mac=body.device_mac, user_id=user_id,
+            require_axes="axis" in body.model_fields_set,
+        )
 
     @app.get("/api/settings/xiaopai", dependencies=phone_secured)
     async def xiaopai_settings(user_id: str = Depends(user_dep)) -> dict[str, Any]:

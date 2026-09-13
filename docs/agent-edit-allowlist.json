@@ -2,6 +2,58 @@
   "version": 1,
   "description": "Agent 改码白名单（机读）。越界改动须用户点名。门禁 docs 层校验本文件存在且含关键键。",
   "decision_count": 9,
+  "axis_speed_20260913_authorized": {
+    "note": "用户原话：速度默认给到10000就行了，xyz轴要能设置不同的速度在小程序上；随后明确 X/Y 默认 10000，Z 保留现值。仅量产机：三轴独立读写与确认，X/Y 出厂默认 10000，现役 Z=1200 保留，不改换纸分支或运动/加速度/GPIO。",
+    "contract": "docs/protocol.md §10.4.21；docs/design/axis-speed-20260913.md",
+    "paths": [
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/machine_speed.py",
+      "draw-portal/tests/test_machine_speed.py",
+      "draw-portal/tests/weapp/control_speed.test.js",
+      "draw-portal/weapp/pages/control/control.js",
+      "draw-portal/weapp/pages/control/control.wxml",
+      "draw-portal/weapp/pages/control/control.wxss",
+      "draw-portal/weapp/utils/version.js",
+      "draw-portal/README.md",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_speed_core.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_nopaper_core.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc",
+      "xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/freenove-esp32s3-display-2.8-lcd.cc",
+      "xiaozhi-esp32/main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_speed_core.py",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
+      "xiaozhi-esp32/CMakeLists.txt",
+      "Grbl_Esp32-massprod/Grbl_Esp32/src/Machines/custom_3axis_hr4988.h"
+    ]
+  },
+  "motor_disable_memory_20260913_review": {
+    "note": "用户本轮授权三仓 code review、找出问题并修复验证部署提交，追加量产任务归位后自动失能。实查现有 $MD 对 strdup 参数未释放；仅修参数缓冲区所有权并补真实函数 host 回归，不改命令语义、掩码、GPIO、运动或换纸。量产与换纸分支各自提交，硬件仅部署量产分支。",
+    "contract": "docs/design/crossrepo-review-20260913.md；docs/protocol.md §10.4.15",
+    "paths": [
+      "Grbl_Esp32/Grbl_Esp32/src/ProcessSettings.cpp",
+      "Grbl_Esp32/scripts/tests/test_motor_disable.py",
+      "Grbl_Esp32-massprod/Grbl_Esp32/src/ProcessSettings.cpp",
+      "Grbl_Esp32-massprod/scripts/tests/test_motor_disable.py"
+    ]
+  },
+  "nopaper_idle_release_20260913_authorized": {
+    "note": "用户原话：我觉得画完画回原点后，停止后失能也没啥关系啊，开始任务时再使能也没关系啊。仅量产无换纸机，在整单完成/停止归位并确认抬笔与 fresh Idle 后旁路 $MD；绘制中、暂停与未归位不释放；下一运动自动使能，每次新任务先 G92 Z0。",
+    "contract": "docs/protocol.md §5、§10.4.15；docs/design/crossrepo-review-20260913.md",
+    "paths": [
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_nopaper_core.h",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_nopaper_core.py",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
+      "xiaozhi-esp32/CMakeLists.txt"
+    ]
+  },
   "device_identity_20260912_authorized": {
     "note": "2026-09-12 用户连续授权「完成这个目标」「仍需解决切网体验、设备身份、换绑恢复、token 依赖及多设备模型。解决啊」「开始把固件也改了啊，事情要做完」，本轮继续打通二维码、签名 announce、一次性认领与按设备 token 隔离。",
     "contract": "docs/protocol.md §10.4.2–10.4.4；docs/design/device-identity-rollout.md",

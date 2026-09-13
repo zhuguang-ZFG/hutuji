@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:597-739`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:608-750`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -317,7 +317,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line, …}`。**OTA 增字段（2026-09-09）**：`firmware_version`（`esp_app_get_description()->version`，量产形如 `hutuji.x.y.z`）、`board`（编译期 `BOARD_NAME`，与固件 catalog 板型 key 一致，如 `freenove-esp32s3-display-2.8-lcd`）、`ota` 对象 `{state, progress, update_available[, reason]}`（缺省 `state=idle`/`progress=0`/`update_available=false`；`reason` 空则省略；升级态由 `hutuji.ota_start` 写入）。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
 | `hutuji.ota_check` | — | **只查不升**（2026-09-09）：GET 自建仓 `{public}/firmware/s3/{BOARD_NAME}/latest.json`，比较 `hutuji.x.y.z`；写 `status.ota.update_available`；返回 `{update_available,current,latest,notes,reason}`。每天 idle+WiFi 自检复用同路径（NVS 日历日，失败不打扰）。 |
 | `hutuji.ota_start` | `url,version,board[,sha256]` | 量产远程升（2026-09-09；HIL 后口径）：Job **settled**（`idle`/`done`/`error`/`aborted`）且非进行中的 `kDeviceStateUpgrading`、`board==BOARD_NAME`、HTTPS host ∈ 允许列表时受理；出图/预览/换纸等非 settled → `{reason:busy}`。`UpgradeFirmware` **失败必须**回到 Idle（否则会永久 busy——1.0.1 曾踩坑，1.0.2 起修）。`sha256` 契约对齐、设备侧未核。成功 reboot；失败 `ota.state=failed`。**禁止**自检自动调用。 |
-| `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态发 `!` 并用 `?` 轮询到 `Hold/Idle` 后 `0x18`；换纸活动态**不发 `0x18`**，诚实回报「换纸中无法即停、完成后即停」+置 abort 挂起 |
+| `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态停喂后排空、抬笔、归位（Hold 先 `~` 退出，正常路径无 `!`/reset）；换纸活动态**不发 `0x18`**，回报「换纸中无法即停、完成后即停」+置 abort 挂起。重复停止复用同一收尾事务；归位 worker 收敛前不发布 `aborted` |
 
 **OTA `reason` 稳定 token（2026-09-09，与设计 F1–F8 / portal `assert_upgrade_allowed` 对齐；字符串勿随意改名）：**
 
@@ -365,6 +365,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 换纸活动态 | **不发 `0x18`**；置 abort 挂起，停止后续 G-code 下发 | 「写字机正在换纸，无法即停；换纸完成后任务将停止」 |
 
 - 换纸挂起态下，等该行 `ok`/`error:90` 返回后**不再发任何后续行**，任务落 `aborted`。
+- **停止收尾幂等（2026-09-13 实机回归）**：第一次停止提交后，重复请求回「停止处理中」并复用同一 worker；worker 创建口原子抢占，归位/失能应答只由一个收尾者消费。`aborted` 与屏幕「已取消」必须等 worker 收敛后发布，再释放 busy。量产机归位成功还须按 §10.4.15 确认 `$MD`；不能看到软件 `aborted` 就推断机械已经停止。
 - 非换纸 reset 后的受限恢复顺序固定为：`$X` → `G1G90 Z0.0F10000` → 等一份新的
   `Idle` → `$I` → `M5` → `?` → `G1 G53 X<当前机器 X> F1500` 授权探测；`G1`
   必须置于 `G53` 前以命中 Grbl 行首授权门。只有 `PrepareAbortReset()` 标记对应的下一次 banner 可走 `$X`；任何其他 Alarm 不自动解锁。
@@ -455,6 +456,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   `DEFAULT_STEPPER_IDLE_LOCK_TIME=255`（`$1` 常使能），COM13 已刷；与奎享 `$1=25` 分叉。
   `$RST=$`/换板现回落 **255**。云端另以落笔 G1≥1.0mm 地板减轻亚毫米链空窗。不改下载文件内的
   `$`/`Z5` 字面量。
+- **量产任务收尾静音（2026-09-13 用户授权）**：仅 `nopaper` 在整单完成或停止归位时，先显式 `G1G90 Z0.0F10000`、ok + fresh Idle、100ms 弹簧沉降，再 `G1G90 X0Y0F8000`、ok + fresh Idle，最后旁路 `$MD` 并消费其应答。`$1=255` 保留，绘图/暂停/续页不释放；下一次运动由 Grbl `st_wake_up()` 自动使能，新任务仍先重新声明 `G92 Z0`。`$MD` 不进入下载文件；手动归位与试笔沿用原入口，手动失能仍走维护按钮。发送在单写者锁内检查同一连接、reset 横幅、新状态序号、Idle、nopaper 与授权/设置通过，失败不得声称释放；详见 §10.4.15。
 - **避开隐式换纸触发点**：
   - 软复位后**第一条** `G0 X0 Y0 Z0`（首页触发）
   - `G28` / `G30`，以及执行后工件坐标 XY≈0 的 `G0`（回原点触发，含 `G0 X0 Y0` 收尾！）。
@@ -612,7 +614,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1008`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
 2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1131`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
 3. **换纸阻塞期可分发**：换纸中 `protocol_service_during_blocking()` 遍历全部 client 调 `protocol_poll_client()`；其换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`。
-4. **响应回得到 S3**：`ESPResponseStream stream(client, true)`（`ProcessSettings.cpp:615`）用**发命令进来的 client** 构造 → `_client = CLIENT_TELNET`（`ESPResponse.cpp:46`）→ `grbl_send(_client, data)`（`:99`）；`println` 还专为 `CLIENT_TELNET` 用 `\r\n` 行尾（`:55`）。
+4. **响应回得到 S3**：`ESPResponseStream stream(client, true)`（`ProcessSettings.cpp:617`）用**发命令进来的 client** 构造 → `_client = CLIENT_TELNET`（`ESPResponse.cpp:46`）→ `grbl_send(_client, data)`（`:99`）；`println` 还专为 `CLIENT_TELNET` 用 `\r\n` 行尾（`:55`）。
 5. **调用时机安全**：`[ESP901]` 是普通命令会吃 `ok`（§3 单写者），但 Q5/Q8 需要它的时刻正是**重连后、尚未开始发 G-code** 的流控空闲期——恰好契合。
 
 **明确不改**（评估后否决）：
@@ -900,7 +902,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 面 | 约定 |
 |----|------|
 | 机型识别 | Grbl `$I`/banner `[VER:1.3a.20260910:]` = 无换纸量产机型（GRBL_VERSION_BUILD 20260910）；现役 `[VER:1.3a.20211103:]` = 换纸机。S3 连上 Telnet 后读 `$I` 定机型，驱动页尾与多页行为分支 |
-| S3 页尾 | 无换纸机型：页尾旁路归位 `G1G90 X0Y0F8000` 保留（回原点不触发任何换纸），**M30 段与「等换纸完成」整段跳过**——画完即停，用户手动取纸；`paper_change_notified_` 武装/播报路径不进入 |
+| S3 页尾 | 无换纸机型：显式抬笔并等 ok/fresh Idle + 100ms，再旁路 `G1G90 X0Y0F8000` 归位并等 ok/fresh Idle；**M30 段与「等换纸完成」整段跳过**，整单结束用现有 `$MD` 释放电机并等 ok 后置 done。用户手动取纸；`paper_change_notified_` 武装/播报路径不进入 |
+| 归位后释放（2026-09-13） | 正常整单末尾与两条停止归位成功出口复用同一 `$MD` 事务；不把任意 Idle 当完成，不在绘图、暂停、换纸或继续下一页前释放。保留 `$1=255`，每次新任务 `G92 Z0`，下一运动自动使能。提交释放后迟到 pause/resume/abort 不能重新启动运动；失败拆原连接以隔离迟到 ok，不在新连接补发。Grbl 参数缓冲由 RAII 回收，避免每次失能累积 `strdup` 泄漏，掩码与错误语义不变 |
 | 多页任务 | 无换纸机型**不做多页**（用户拍板）：`pages>1` 的写字/笔顺/文档任务在确认环节拒绝，话术「这台机器一次只能画一页哦」；单页任务（语音画图/传图/单页写字）零改动 |
 | 云端/小程序 | 产物契约、§5、错峰 TTL、pages 推送格式**零改动**；按机型藏功能依赖能力标志位（S3 announce 上报 SKU → portal 绑定表存机型 → 小程序按机型显隐多页入口），该面**待首台点亮联调后定案**，当前两机型共用现 UI |
 | 机型词汇（2026-09-11 定稿） | 字面量 `"nopaper"` \| `"paper"`；未知/缺席一律按 `"paper"`（现役 MK38 行为）。S3 `hutuji.status` 回包自 1.0.9 起带 `plotter_sku`（`pipe.IsNopaperMachine()`）；bind announce 自 1.0.9 起随 body 上报 `plotter_sku`（旧固件缺席 → portal 默认 paper） |
@@ -910,7 +913,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | S3 点动包线 | `DecideJog` 增显式限幅重载 + `MachineJogEnvelope(nopaper)`：nopaper 205/290（镜像 PROFILE_NOPAPER，R17-XREPO-01 双侧同步）、paper 277/190；VER 未达 = 保守 paper 档。工具侧预检与 ManualTask 纵深防御同源改参 |
 | 状态 | MCP/portal 代码面 + 回归绿（`test_contract.py` machine 白名单/缓存成分/inflight 隔离/probe 缓存 4 例 + nopaper profile 3 例；draw-portal 173 项全绿）；S3 host 点动测试绿；**实机 HIL 未做**（nopaper 不转置、205/290、MK38 双向不变），归 todo「构建 1.0.9 + 实机验证」 |
 | 读闸分档（2026-09-11 热修） | `/files` 读时复核 `output_store._read_verified_gcode_bytes` **按机型分档放行**：默认档先验，`GcodeError` 再以 `PROFILE_NOPAPER` 重验，任一通过即下发；两档都不成立仍 stale 删除。理由：读时无法知道产物出自哪台机器（文件名无机型成分），只跑单档会把另一机型的合法产物判 stale 联动删除 → 设备 404（2026-09-11 生产事故实锤：nopaper Y>190 合法产物被删、语音画图全灭）。写入侧仍按生成时选定的单档校验，不放松 |
-| 速度金标（2026-09-11 用户拍板提速；2026-09-12 提速批再上 24000） | 无换纸机指纹金标 `$110/$111` 5000→12000→**24000** mm/min（F24000=400mm/s；云端契约已全局 F24000，停在 12000 会被压回 200mm/s，故 nopaper 表同批上 24000，`hutuji_nopaper_core.h`）。指纹白名单外 4 项 09-11 批调过：`$112=3000`（抬笔 50mm/s）、`$120=$121=1500`、`$122=300`（无需固件）。**注意**：massprod 仓无 §9-G′ 锁，落机后 Telnet/串口直写 `$110/$111=24000` 即可；但 Grbl `$RST=$` 恢复出厂回落机头默认 5000 → 指纹失配拒画，刷机/恢复出厂后必须重写 `$110/$111=24000` 并重连；金标与实机 NVS 必须同窗同步，否则任一侧漂移=「参数被改动」拒画 |
+| 速度金标（supersede 2026-09-13） | `$110/$111` 已退出无换纸金表（12→10 项，Z 速度原本不在表），三轴独立调节与实际读回见 §10.4.21。X/Y 默认 10000，当前 Z 保留；NVS 普通重启保留，量产源码 X/Y 出厂默认也为 10000，Z 出厂 600 不改。速度不改变文件 F24000/F10000 与机器包线，旧「恢复出厂必须重写 24000 否则拒画」作废 |
 
 #### 10.4.16 小程序订阅消息通知与分享卡片（2026-09-11 批；本仓 `2d81300`）
 
@@ -981,19 +984,21 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 **HIL**：手绘出图纸面效果 **未验证**（见 `docs/release-readiness.md` 文首）。
 
 
-#### 10.4.21 写字机速度下放（2026-09-12 批，用户拍板「速度设置放小程序里，每次刷机太不方便」）
+#### 10.4.21 写字机三轴调速（2026-09-13 用户要求 X/Y 默认 10000、Z 保留现值）
 
 | 面 | 约定 |
 |----|------|
-| 金表 | `kGrblSettingGoldensNopaper` 删除 `$110/$111`（12→10 项，2026-09-12 用户拍板）：探活只锁步进/行程/笔程/无限位/使能/方向，**速度调整永不再触发 `grbl_settings_mismatch` 拒画**。速度过高会失步，工具仍受已拍板的 3000–16000 范围约束；换纸机 §9-G′ 锁表不变 |
-| 设备 | `hutuji.speed` 仅开放无换纸量产机，rate 必须为 3000–16000 毫米/分钟；`Job::RequestSpeed` try-lock + busy + settled（idle/done/error/aborted）+ connected/ready/authorized/settings 闸，主线程立即回 `{"status":"accepted","request_id":N,"rate":V}`。后台先发 `?` 等新鲜 Idle（6s），绑定同一连接序号，依次写 `$110/$111` 并核对每轴应答（各 5s）；期间禁重连探针，失败关闭旧连接防迟到 ok 污染，部分写入不回全成功 |
-| 结果 | `hutuji.status.speed` 为 `{state:idle/pending/done/error, request_id, requested_rate, rate?, reason?}`；只认匹配 request_id 的 done 和实际 rate。调速期间 abort 明确拒绝，不走绘图 reset。失败可能已写入一轴，须重新查参数或重试 |
-| 持久化 | 两 Grbl 分支的 `FloatSetting::setStringValue` 写 NVS，**普通重启保留**；`$RST=$` 恢复该机型编译默认。当前量产 `massprod/nopaper-1.3a@6221502` 默认 **5000**，换纸分支默认 24000；不得混写为量产恢复 24000 |
-| 门户 | portal `POST /api/settings/machine-speed {rate, device_mac?}`（phone_secured；严格整数/范围闸；传 device_mac 时必须匹配当前绑定；401/403/404 自愈重试前复核所有权）。兼容旧同步 `{rate:N}`；新 accepted 最多 25s/50 轮查 status，匹配终态后才回 `{status:"ok",rate:N,result:"…"}` 并记 `web_machine_speed`；HTTP 200 内设备错误、错任务/错速率/超时均失败，错误不回显上游正文 |
-| 小程序 | 控制页 slider 3000–16000、步进 500，拖动提交后等待实际 rate 确认才提示成功；错误还原原生 slider，页面/会话/设备代次拦旧回包，隐藏页面不恢复轮询；仅就绪无换纸机型可调。文案「画图和空走都受这个上限限制」——Grbl 全局 max-rate 同时钳制画线/空走；普通重启保留 |
-| 边界 | 速度与 §5 G-code 契约解耦：指令级 `F24000` 语义不变（校验上限仍 24000），实际推进由机器侧 `$110/$111` 钳制；JD=0.01 结节段爬行（10–17mm/s）依旧存在，速度上限不改善爬行 |
-| 落机 | 量产机（freenove 2.8 寸，2026-09-13 凌晨）：`hutuji.1.0.13`（金表 10 项 + speed 工具注册，`xiaozhi.bin` SHA `370478cb…`）刷入后串口复验 `Grbl 设置指纹通过（10 项）`+`MCP: Add tool: hutuji.speed`，`$110/$111=16000` 过检、此前 24000 金表失配拒画解除；lichuang 写字机离线待插（1.0.12 bin 备好）。金表值见 §10.4.21 上表与 `hutuji_nopaper_core.h`（速度项已删，断言有"不得回流"测试钉死） |
-| 证据边界 | 1.0.13 原速度批实测与 1.0.14 本轮异步事务的部署/板上结论分别登记 `release-readiness.md` 与 `deployment.md`；手机 slider 目视交互须单独取证 |
+| 金表 | 无换纸金表仍为 10 项，`$110/$111/$112` 不入表；只锁步进/行程/笔程/无限位/使能/方向。换纸机 §9-G′ 锁表不变，调速工具只开放无换纸量产机 |
+| 轴与范围 | `axis=x/y/z/xy`，省略为 xy 兼容旧调用；X/Y 3000–16000、UI 步进 500，Z 100–3000、步进 100，单位毫米/分钟。Z 上限是本轮保守的软件调节范围，机械验证范围单独登记。`rate` 正整数只写所选轴；`rate=0` 或省略只读三轴 |
+| 默认与持久化 | 用户指定 X/Y 默认 10000、当前 Z 保留（本次实机 1200）。量产 Grbl 机头 X/Y 出厂值由 5000 改成 10000，Z 出厂 600 不动；`FloatSetting::setStringValue` 写 NVS，普通重启/保留 NVS 的升级不重置速度，S3 启动不覆盖用户设置。`$RST=$` 才回各机型编译默认；换纸分支仍 24000，不能混用 |
+| 受理 | `Job::RequestSpeed` try-lock + busy + settled（idle/done/error/aborted）+ connected/ready/authorized/settings + nopaper 闸；主线程立即回 `{status:"accepted",request_id:N,axis:A,rate:V}`，不等网络。`status.speed.axis_control=true` 声明分轴能力 |
+| 事务 | worker 发 `?` 等 fresh Idle（6s），绑定同一连接，按选中轴写 `$110/$111/$112` 并消费各自 `ok`；只读请求不写任何参数。随后三次 `$110`/`$111`/`$112` 各等实际参数行与 `ok`（单条预算 5s），每轴报告序号必须较查询前更新、写入轴读回值须精确相等。全部成功才 done；失败/超时关闭本次连接隔离迟到应答，部分写入不报全成功 |
+| 结果 | `hutuji.status.speed` 为 `{axis_control,state:idle/pending/done/error,request_id,axis,requested_rate,rate?,rates?:{x,y,z},reason?}`。读回完整且 done 时才发布 rates；rate 只用于成功写入。新请求清空上次实际结果。调速期间 abort 明确拒绝，不走绘图 reset；status 仍只发 `?`，参数查询仅由 worker 配对应答 |
+| 门户读 | `GET /api/settings/machine-speed?device_mac=…`（phone_secured）先检查分轴能力，再以 rate=0 查询，完成后回 `{status:"ok",axis:"xy",rates:{x,y,z},result:"…"}`。查询不记速度写入 usage |
+| 门户写 | `POST /api/settings/machine-speed {axis?,rate,device_mac?}`：轴白名单与每轴严格整数/范围闸；device_mac 匹配当前选择，调用/自愈前核对所有权。显式 axis 写入前必须查分轴能力，旧设备 409 且不发送 speed（旧设备会忽略 axis 而误写 XY）；省略 axis 保留旧同步 rate/新异步两轴兼容。accepted 最多 40s/80 轮查询，核 request_id/axis/目标值/三轴读回后回 `{status:"ok",axis,rate,rates?,result:"…"}` 并记 `web_machine_speed`。错任务、错轴、部分读回、HTTP 200 内设备错误与超时均失败 |
+| 小程序 | 控制页三个滑块；进入时经只读接口读取实机保存值，未读取前禁调、不把默认值显示成已生效值。每次只提交拖动轴，确认后显示三轴读回；错误还原原生滑块并重新读取。页面/登录/设备代次拦迟到回包，隐藏页不重启轮询。仅就绪的无换纸机可调 |
+| 进给边界 | 文件契约仍为 XY F24000 / Z F10000，实际分别受 `$110/$111/$112` 钳制；归位仍为原 G1 F8000。最大速度不改变短段加减速、加速度、换纸、使能与行程契约 |
+| 验收与部署 | 前段 1.0.13–1.0.16 速度/静音历史保留在 readiness/deployment；本批三轴设计、读回与单轴不串写回归见 `design/axis-speed-20260913.md`。构建和命令链不等于手机滑块或全幅纸面通过，实际上线与实机版本只看 readiness |
 
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
