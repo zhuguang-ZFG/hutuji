@@ -36,18 +36,31 @@
 - 原生相册/文件选择器临时hide/show不能当作用户放弃选择；同一次选择回屏再上传，模式切换/卸载/退出仍作废。
 - 生成和文字请求一旦提交，暂时切页保留同账号结果与在途标志，防回屏重付费；状态、录音后续工具与提示仍按展示代次隔离，隐藏页不发分享或精修轮询。
 - 首次读取和账号网络失败显示加载/重试，不误报未绑定；小派设置清理旧账号选择。
-- 开发者工具安装包官方skill0.3.9与工具版本关系equal，已登录、CLI无需token，Codex本地授权已确认。旧automator0.12.1的currentPage超时；官方工具currentPage报getCurrentPagesByDomain异常，但正常switchTab、页面data、截图可用。使用这些接口继续验证，不以runtime_info失败推定产品失败。源码/版本依据为本机官方安装目录 `resources/app.asar.unpacked/wechatide-skill/SKILL.md`，访问2026-09-13；线上官方接口文档见前文，结论限本机开发者工具，手机手势仍另验。
+- 开发者工具安装包官方skill0.3.9与工具版本关系equal，CLI无需token，Codex本地授权已确认。早先旧automator0.12.1读取失败，后查明mock流程退出了测试会话；恢复request/login并点击真实微信登录按钮后，正常控制页与完整生产绑定恢复。官方currentPage仍报getCurrentPagesByDomain异常，switchTab、data、截图可用；SDK和可见模拟器导航状态分别确认，不能把另一运行时的截图当本步证据。本机app.asar中slider.slideTo仅调组件 `_onUserChangedValue`；实测只移动数值，未产生本页change，因此验收脚本使用slideTo后显式组件change事件，走WXML原绑定，未调用页面处理函数或setData绕闸。每次恢复先等待disabled=false，避免上次状态pending时测试自行抢跑。来源为官方安装目录 `resources/app.asar.unpacked/wechatide-skill/SKILL.md` 与 `resources/app.asar`，访问2026-09-13；线上接口文档见前文，结论限本机工具，手机手势仍另验。
+- 实际终态done返回的elapsed_ms/eta_ms会继续增加（观测9247310ms）；前端只在进行中/暂停/换纸状态显示耗时与预计时间，完成/空闲/错误/停止/待确认隐藏。未修改固件计时，未把仍增长的值当最终绘制耗时；追加回归覆盖进行中保留与各终态隐藏。
 
 ## 本地验收
 
 | 检查 | 结果 | 本机证据（本批results根） |
 |---|---|---|
-| 页面JS语法与Node回归 | 123 passed | `weapp-checks-140325.json` |
+| 页面JS语法与Node回归 | 21份JS语法通过，124 passed | `weapp-checks-144327.json`；先前123项见`weapp-checks-140325.json` |
 | portal全量 | 357 passed | `web-checks-135200.json` |
 | hub门禁 | 12层pass，MCP1453，e2e PASS | `hub-140952-hutuji_gate_last.json` |
 | 文案/配置静态检查 | 产品源码未命中本批禁用服务描述词，urlCheck=true | `rg`全量扫描weapp；文案扫描不能替代实际隐私披露 |
 
 第一轮hub仅行号指纹失败：新增说明导致7处纯移动与3处空锚点；按原证据内容重定位，人工确认387别名、COM13烧录与指纹抓包三行，再重登260处。未改产品行为、测试断言或门禁规则来通过。
+
+## 部署与运行验收
+
+- 后端提交 `a5fc773df3a2369bd84e01221329557ae20c56cd`，双机备份 `/root/hutuji-bak-20260913-weapp-a5fc773df3a2`。app.py SHA-256 `19d5839779780a51b96c32438f504e81eaa4b061bd03d2e1a18edb9183fbcc30`，telegram_archive.py `9baa1c95bcb762734b938c70a5504f0da8e581c8ace99130c7ae110960db1a48`，均CR=0。
+- 阿里重启portal+admin，京东重启portal，健康200；主bridge PID4127741未变、热备0。双机env权限600，`HUTUJI_TG_UPLOAD_ENABLED=0`配置和进程均已核对，凭据保留。历史上传态作品阿里1件/台账2条、京东0，未自动删除。证据 `{ali,jd}-{install,verify,snapshot}.log`。
+- 真实登录后正常进控制页，`component-live.json`覆盖组件设置值和change事件：X9500、Y9000、Z1100分别确认且其他轴不变，每轴恢复、重新进页读取仍10000/10000/1200。源码 `ade29f4f5742f430adbeef5609a71ca999eaaaec`，无接口mock，无setData绕过门控；不记为手机手势通过。
+- `public-control-after.log`从真实me取active目标，分别跑本机与公网status/速度读取，均done/Idle/原点与10000/10000/1200；未登录me/速度均401。官方可见模拟器截图 `control-status-final.jpg`、`control-final.jpg`显示完成、三个实际速率、页脚v0.3.13；完成页耗时/ETA为空。console对error/exception/fail无匹配，不推定所有设备无错误。
+- 本批没有重跑或修正既有生产preflight差异；上一批阿里24/33、京东25/33保持其原证据范围。本批没有固件更新。
+
+## 上传待确认
+
+官方 `wechatide -c Codex upload` 的0.3.13候选来自前述已提交前端，描述「修复分轴调速，优化录音、作品管理与页面交互」。返回pending，任务 `confirmation_upload_de7e3280-a6f1-4f02-b8d3-4b6239e21d57`，原始脱敏日志 `145527-837469-upload.log`。尚未获得上传成功/包大小，不宣称已上传、已选体验版或审核通过。用户在开发者工具完成确认并继续后先查询旧taskId，不自动重发；机器可读上下文见`pending-upload.json`。本地证据索引为同目录`verification-summary.json`。
 
 ## 合规未决事项
 

@@ -1,10 +1,10 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
-## 2026-09-13 小程序审查（当前工作批）
+## 2026-09-13 小程序审查（代码已提交、后端已部署；上传待原生确认）
 
-控制页使用完整目标、读取错误/串行轮询；创作/聊天/历史/资料/画板/固件/小派设置页面补异步边界及体验问题；portal控制目标与业务错误判断、图库备份上传开关和注册通知隐私加固。对应回归、协议、内部隐私核对稿与清单同批修改。代码在当前工作树，待提交和部署；本批不修改或重刷两个固件。
+控制页使用完整目标、读取错误/串行轮询；创作/聊天/历史/资料/画板/固件/小派设置页面补异步边界及体验问题；portal控制目标与业务错误判断、图库备份上传开关和注册通知隐私加固。对应回归、协议、内部隐私核对稿与清单同批修改。产品代码已提交为 `a5fc773df3a2` 与 `ade29f4f5742`，app/archive双机部署核SHA/CR=0；主bridge PID4127741、备0，新增外部上传双机配置/进程均false。追加完成后计时修复已过Node124。组件事件逐轴设置并恢复10000/10000/1200，最终公网/本机done/Idle/原点。0.3.13上传待开发者工具原生确认（`pending-upload.json`记录旧taskId，恢复时先查、不重发）；本批未修改或重刷两个固件。
 
-本机证据根 `results/20260913-weapp-review/` 包含生产故障复现、双机只读快照、官方法规正文、Node/portal门禁、开发者工具截图；候选/脚本在tmp，测试用automator仅装在 `tmp/weapp-review-tools/`，不进产品包或提交。全局未跟踪文件与换纸Grbl的`.gitignore`保留；交付状态看readiness。
+本机证据根 `results/20260913-weapp-review/` 包含生产故障复现、双机安装/复验/快照、官方法规正文、Node/portal/hub门禁、`component-live.json`、`public-control-after.log`、`control-final.jpg`/`control-status-final.jpg`、`verification-summary.json`和上传pending记录；候选/脚本在tmp，测试用automator仅装在 `tmp/weapp-review-tools/`，不进产品包或提交。全局未跟踪文件与换纸Grbl的`.gitignore`保留；交付状态看readiness。
 
 ## 2026-09-13 三轴调速与默认 10000（定向交付已完成）
 

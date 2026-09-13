@@ -998,7 +998,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 结果 | `hutuji.status.speed` 为 `{axis_control,state:idle/pending/done/error,request_id,axis,requested_rate,rate?,rates?:{x,y,z},reason?}`。读回完整且 done 时才发布 rates；rate 只用于成功写入。新请求清空上次实际结果。调速期间 abort 明确拒绝，不走绘图 reset；status 仍只发 `?`，参数查询仅由 worker 配对应答 |
 | 门户读 | `GET /api/settings/machine-speed?device_mac=…`（phone_secured）先检查分轴能力，再以 rate=0 查询，完成后回 `{status:"ok",axis:"xy",rates:{x,y,z},result:"…"}`。查询不记速度写入 usage |
 | 门户写 | `POST /api/settings/machine-speed {axis?,rate,device_mac?}`：轴白名单与每轴严格整数/范围闸；device_mac 匹配当前选择，调用/自愈前核对所有权。显式 axis 写入前必须查分轴能力，旧设备 409 且不发送 speed（旧设备会忽略 axis 而误写 XY）；省略 axis 保留旧同步 rate/新异步两轴兼容。accepted 最多 40s/80 轮查询，核 request_id/axis/目标值/三轴读回后回 `{status:"ok",axis,rate,rates?,result:"…"}` 并记 `web_machine_speed`。错任务、错轴、部分读回、HTTP 200 内设备错误与超时均失败 |
-| 小程序 | 控制页三个滑块；正常 `/auth/me` → `active_device_mac` → status → 只读速度链读取实机值，未读取前禁调，不把默认值显示成已生效值；展示打码字段不能用于控制。每次只提交拖动轴，确认后显示三轴读回；错误可见、可重试并还原原生滑块。状态轮询串行，不在慢网叠加请求；首次查询不误报未绑定。页面/登录/设备代次拦迟到回包，隐藏页不重启轮询。仅就绪的无换纸机可调 |
+| 小程序 | 控制页三个滑块；正常 `/auth/me` → `active_device_mac` → status → 只读速度链读取实机值，未读取前禁调，不把默认值显示成已生效值；展示打码字段不能用于控制。每次只提交拖动轴，确认后显示三轴读回；错误可见、可重试并还原原生滑块。状态轮询串行，不在慢网叠加请求；首次查询不误报未绑定。页面/登录/设备代次拦迟到回包，隐藏页不重启轮询。完成/空闲/错误/停止/待确认不显示固件仍累加的耗时或ETA，进行中与暂停保留；不把空闲时长当已完成绘制耗时。仅就绪的无换纸机可调 |
 | 普通控制目标 | `/api/device/control` 可传 `device_mac`；与当前选择不同回 409，第一次调用与 token 自愈重试前均核当前目标及所有权。设备响应 HTTP 200 内的 `isError` 或业务失败不得包装成控制成功。旧未传目标的客户端保持兼容 |
 | 进给边界 | 文件契约仍为 XY F24000 / Z F10000，实际分别受 `$110/$111/$112` 钳制；归位仍为原 G1 F8000。最大速度不改变短段加减速、加速度、换纸、使能与行程契约 |
 | 验收与部署 | 前段 1.0.13–1.0.16 速度/静音历史保留在 readiness/deployment；本批三轴设计、读回与单轴不串写回归见 `design/axis-speed-20260913.md`。构建和命令链不等于手机滑块或全幅纸面通过，实际上线与实机版本只看 readiness |
