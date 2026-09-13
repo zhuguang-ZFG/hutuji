@@ -58,9 +58,9 @@
 - `public-control-after.log`从真实me取active目标，分别跑本机与公网status/速度读取，均done/Idle/原点与10000/10000/1200；未登录me/速度均401。官方可见模拟器截图 `control-status-final.jpg`、`control-final.jpg`显示完成、三个实际速率、页脚v0.3.13；完成页耗时/ETA为空。console对error/exception/fail无匹配，不推定所有设备无错误。
 - 本批没有重跑或修正既有生产preflight差异；上一批阿里24/33、京东25/33保持其原证据范围。本批没有固件更新。
 
-## 上传待确认
+## 上传结果
 
-官方 `wechatide -c Codex upload` 的0.3.13候选来自前述已提交前端，描述「修复分轴调速，优化录音、作品管理与页面交互」。返回pending，任务 `confirmation_upload_de7e3280-a6f1-4f02-b8d3-4b6239e21d57`，原始脱敏日志 `145527-837469-upload.log`。尚未获得上传成功/包大小，不宣称已上传、已选体验版或审核通过。用户在开发者工具完成确认并继续后先查询旧taskId，不自动重发；机器可读上下文见`pending-upload.json`。本地证据索引为同目录`verification-summary.json`。
+官方 `wechatide -c Codex upload` 的0.3.13候选来自前述已提交前端，描述「修复分轴调速，优化录音、作品管理与页面交互」。首次返回pending，任务 `confirmation_upload_de7e3280-a6f1-4f02-b8d3-4b6239e21d57`，原始脱敏日志 `145527-837469-upload.log`。继续时查询同一taskId，官方返回status=success、execution_success、result.success=true，包大小 **162480B**（TOTAL）；结果日志 `150457-482198-polling_task_result.log`。已上传开发版本，未代选体验版、提审或正式发布。机器可读终态为`upload-result.json`，原`pending-upload.json`也已标success，同任务不得重发。本地证据索引为同目录`verification-summary.json`。
 
 ## 合规未决事项
 
