@@ -31,6 +31,10 @@ node --test tests/weapp/*.test.js
 
 控制页分别设置 X/Y/Z；X/Y 默认 10000，Z 保留机器现值。`GET /api/settings/machine-speed` 从机器读三轴，POST 只提交 `{axis, rate, device_mac}` 指定轴；入口需手机号与设备归属校验。单轴写入前检查 S3 分轴能力，旧固件 409，避免忽略 axis 后误写 XY。确认必须核对 request_id、axis、rate 与三轴实际读回；断线或部分完成不提示成功。旧省略 axis 的 rate 接口仍调整 XY。普通重启保留 Grbl NVS 设置。
 
+`/api/auth/me.active_device_mac` 是当前控制目标，`binding.device_mac` 只作打码展示；不能把展示值用于请求或根据设备列表猜目标。测试必须覆盖实际 `/me` 返回形状及正常页面加载。轮询串行、读失败可刷新，体验版页脚包含编译版本。
+
+本批 Node 回归另覆盖筛选后按作品 ID 删除、预览下载回填、录音快速松手/离页、账号与页面回包隔离、系统选择器回屏及生成期间切页不丢结果。工程隐私核对稿见 [`privacy-policy.md`](privacy-policy.md)，它不代表公众平台已发布版本，也不能作为法务或平台审核已通过的依据。
+
 范围与事务见 [`protocol.md §10.4.21`](../docs/protocol.md)，量产部署与手机目视证据见 [`release-readiness.md`](../docs/release-readiness.md)。
 
 ## 生产部署（阿里云，一期）

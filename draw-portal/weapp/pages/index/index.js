@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
+const pageSession = require("../../utils/page_session");
 
 Page({
   data: {
@@ -30,17 +31,41 @@ Page({
   },
 
   onShow() {
-    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
-      if (ok) this.refreshStatus();
-    });
-    this.resumeJobState();
-    // 历史页「重画」等跨页结果交接：pendingAdopt 存在则上屏一次并清掉
+    pageSession.show(this);
     const app = getApp();
-    if (app.globalData.pendingAdopt) {
-      const data = app.globalData.pendingAdopt;
-      app.globalData.pendingAdopt = null;
-      this.adoptJob(data);
+    if (this._indexSession !== app._sessionGeneration) {
+      this._indexSession = app._sessionGeneration;
+      this._filePick = null;
+      this._pendingJob = null;
+      this._pendingMessage = null;
+      this.stopRefinePolling();
+      this._writeToken = (this._writeToken || 0) + 1;
+      this._shareToken = null;
+      this.setData({ job: null, binding: null, quotaLeft: null, shareToken: null,
+        description: "", writeText: "", teachText: "", aiTextUsed: false,
+        generating: false, layouting: false, aiWriting: false, teaching: false,
+        uploading: false, sending: false, saving: false });
     }
+    const current = pageSession.capture(this);
+    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+      if (!ok || !current()) return;
+      this.refreshStatus();
+      this._consumePickedFile();
+      // 交接结果先完成账号闸；退出登录时全局交接槽也会清空。
+      if (app.globalData.pendingAdopt) {
+        const data = app.globalData.pendingAdopt;
+        app.globalData.pendingAdopt = null;
+        this.adoptJob(data);
+      } else if (this._pendingJob) {
+        const data = this._pendingJob;
+        this._pendingJob = null;
+        this.adoptJob(data);
+      } else this.resumeJobState();
+      if (this._pendingMessage) {
+        wx.showModal(this._pendingMessage);
+        this._pendingMessage = null;
+      }
+    });
   },
 
   // 精修回屏恢复（2026-09-09）：onHide 停链后 job 仍挂在 data 上，回到页面时
@@ -49,9 +74,12 @@ Page({
     const job = this.data.job;
     if (!job || !job.jobId) return;
     if (job.refined || job.refineFailed || job.refining) return; // 已有终态或链在跑
+    const visible = pageSession.capture(this);
+    const current = () => visible() && this.data.job && this.data.job.jobId === job.jobId;
     api
       .request("/api/draw/jobs/" + job.jobId)
       .then((res) => {
+        if (!current()) return;
         const refined = res && res.refined;
         if (!refined) return;
         if (refined.status === "ready") {
@@ -84,8 +112,10 @@ Page({
   },
 
   onHide() {
+    pageSession.hide(this);
+    this.setData({ sending: false, saving: false });
     // 页面藏起来就停掉跟踪；链已停而 UI 还挂着"精修中"会变成永久等待的假象，
-    // 一并退回纯线稿态（回到页面不续轮，接受看不到这次精修结果）
+    // 一并退出等待态，回到页面由 resumeJobState 补查结果。
     this.stopRefinePolling();
     if (this.data.job && this.data.job.refining) {
       this.setData({ "job.refining": false });
@@ -93,7 +123,9 @@ Page({
   },
 
   onUnload() {
-    this.stopRefinePolling();
+    this._unloaded = true;
+    this._filePick = null;
+    this.onHide();
   },
 
   // 字库列表懒加载（§10.4.12 字体选择器）：首次进写字模式拉一次；
@@ -127,6 +159,9 @@ Page({
   onModeTap(e) {
     const mode = e.currentTarget.dataset.mode;
     if (mode === this.data.mode) return;
+    this._filePick = null;
+    this._pendingJob = null;
+    this._pendingMessage = null;
     this.stopRefinePolling();
     // 作废在途排版/文档上传：回调靠令牌自灭，避免切模式后 adoptJob 把旧预览写回
     this._writeToken = (this._writeToken || 0) + 1;
@@ -134,6 +169,8 @@ Page({
     this.setData({
       mode,
       job: null,
+      shareToken: null,
+      generating: false,
       pageIndex: 0,
       layouting: false,
       aiWriting: false,
@@ -146,8 +183,8 @@ Page({
     this.setData({ description: e.detail.value });
   },
   onWriteInput(e) {
-    // 用户手动改稿即脱离 AI 原文：标识只跟「当前文本是否 AI 产物」走，不随模式切换重置
-    this.setData({ writeText: e.detail.value, aiTextUsed: false });
+    // 修改 AI 原文仍保留来源；清空全文后再手写才开始一份新稿。
+    this.setData({ writeText: e.detail.value, aiTextUsed: this.data.aiTextUsed && !!e.detail.value.trim() });
   },
 
   onTeachInput(e) {
@@ -166,33 +203,22 @@ Page({
     this.setData({ lineSpacing: v });
   },
 
-  refreshStatus(retried) {
+  refreshStatus() {
     const app = getApp();
-    const ready = () => {
-      api
-        .request("/api/auth/me")
-        .then((me) => {
-          app.globalData.user = me;
-          this.setData({ binding: me.binding || null });
-          if (me.quota && typeof me.quota.remaining === "number") {
-            this.setData({ quotaLeft: me.quota.remaining });
-          }
-        })
-        .catch(() => {
-          // 失败只重登重试一次：无闸递归在弱网/后端 5xx 时会连环打请求
-          if (retried) return;
-          app.ensureSession().then(() => this.refreshStatus(true));
-        });
-    };
-    if (!wx.getStorageSync("session_ok")) {
-      app.ensureSession().then(ready);
-    } else {
-      ready();
-    }
+    const current = pageSession.capture(this);
+    return api.request("/api/auth/me").then((me) => {
+      if (!current()) return;
+      app.globalData.user = me;
+      this.setData({ binding: me.binding || null });
+      if (me.quota && typeof me.quota.remaining === "number") this.setData({ quotaLeft: me.quota.remaining });
+    }).catch(() => { if (current()) this.setData({ binding: null }); });
   },
 
   onGenerate() {
     if (this.data.generating || !this.data.description) return;
+    const task = pageSession.captureTask(this);
+    const token = this._writeToken;
+    const current = () => task() && token === this._writeToken;
     subscribe.requestAtTap();
     this.setData({ generating: true });
     api
@@ -204,16 +230,18 @@ Page({
         data: { description: this.data.description },
       })
       .then((res) => {
+        if (!current()) return;
         this.setData({ generating: false });
         this.adoptJob(res);
         if (this.data.quotaLeft !== null && this.data.quotaLeft > 0) {
           this.setData({ quotaLeft: this.data.quotaLeft - 1 });
         }
-        wx.showToast({ title: "生成完成", icon: "success" });
+        if (this._visible !== false) wx.showToast({ title: "生成完成", icon: "success" });
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ generating: false });
-        wx.showModal({
+        this._notifyCreation({
           title: err.status === 429 ? "通道忙" : "生成失败",
           content: err.detail || "请稍后再试",
           showCancel: false,
@@ -224,6 +252,7 @@ Page({
   onTeachGenerate() {
     if (this.data.teaching || !this.data.teachText) return;
     const token = this._writeToken;
+    const current = pageSession.captureTask(this);
     subscribe.requestAtTap();
     this.setData({ teaching: true });
     api
@@ -232,15 +261,15 @@ Page({
         data: { text: this.data.teachText },
       })
       .then((res) => {
-        if (token !== this._writeToken) return;
+        if (!current() || token !== this._writeToken) return;
         this.setData({ teaching: false });
         this.adoptJob(res);
-        wx.showToast({ title: "生成完成", icon: "success" });
+        if (this._visible !== false) wx.showToast({ title: "生成完成", icon: "success" });
       })
       .catch((err) => {
-        if (token !== this._writeToken) return;
+        if (!current() || token !== this._writeToken) return;
         this.setData({ teaching: false });
-        wx.showModal({
+        this._notifyCreation({
           title: "生成失败",
           content: err.detail || "请稍后再试",
           showCancel: false,
@@ -259,6 +288,7 @@ Page({
   _runWriteAi(mode) {
     if (this.data.aiWriting || this.data.layouting || !this.data.writeText) return;
     const token = this._writeToken;
+    const current = pageSession.captureTask(this);
     const payload =
       mode === "generate"
         ? { mode: "generate", prompt: this.data.writeText }
@@ -267,18 +297,18 @@ Page({
     api
       .request("/api/draw/write/ai", { method: "POST", data: payload })
       .then((res) => {
-        if (token !== this._writeToken) return;
+        if (!current() || token !== this._writeToken) return;
         const text = (res && res.text) || "";
         this.setData({ aiWriting: false, writeText: text, aiTextUsed: true });
-        wx.showToast({
+        if (this._visible !== false) wx.showToast({
           title: mode === "generate" ? "已生成，可再改" : "已润色，可再改",
           icon: "success",
         });
       })
       .catch((err) => {
-        if (token !== this._writeToken) return;
+        if (!current() || token !== this._writeToken) return;
         this.setData({ aiWriting: false });
-        wx.showModal({
+        this._notifyCreation({
           title: mode === "generate" ? "生成失败" : "润色失败",
           content: err.detail || "请稍后再试",
           showCancel: false,
@@ -289,6 +319,7 @@ Page({
   onLayoutPreview() {
     if (this.data.layouting || !this.data.writeText) return;
     const token = this._writeToken;
+    const current = pageSession.captureTask(this);
     const data = {
       text: this.data.writeText,
       size_mm: this.data.sizeMm,
@@ -303,15 +334,15 @@ Page({
         data,
       })
       .then((res) => {
-        if (token !== this._writeToken) return;
+        if (!current() || token !== this._writeToken) return;
         this.setData({ layouting: false });
         this.adoptJob(res);
-        wx.showToast({ title: "排版完成", icon: "success" });
+        if (this._visible !== false) wx.showToast({ title: "排版完成", icon: "success" });
       })
       .catch((err) => {
-        if (token !== this._writeToken) return;
+        if (!current() || token !== this._writeToken) return;
         this.setData({ layouting: false });
-        wx.showModal({
+        this._notifyCreation({
           title: "排版失败",
           content: err.detail || "请稍后再试",
           showCancel: false,
@@ -360,10 +391,12 @@ Page({
     const job = this.data.job;
     if (!job || job.refining || this.data.saving) return;
     const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
+    const current = pageSession.capture(this);
     this.setData({ saving: true });
     api
       .request(`/api/draw/${jobId}/save`, { method: "POST", data: {} })
       .then((res) => {
+        if (!current()) return;
         this.setData({ saving: false });
         if (res.status === "saved") {
           wx.showToast({ title: "已收藏", icon: "success" });
@@ -372,6 +405,7 @@ Page({
         }
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ saving: false });
         wx.showModal({
           title: "收藏失败",
@@ -383,10 +417,12 @@ Page({
 
   sendJob(jobId) {
     if (this.data.sending) return;
+    const current = pageSession.capture(this);
     this.setData({ sending: true });
     api
       .request(`/api/draw/${jobId}/send`, { method: "POST" })
       .then((res) => {
+        if (!current()) return;
         this.setData({ sending: false });
         if (res.status === "sent") {
           const started = /已自动开始画/.test(res.detail || "");
@@ -406,6 +442,7 @@ Page({
         }
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ sending: false });
         if (err.status === 400 && /绑定/.test(err.detail || "")) {
           wx.navigateTo({ url: "/pages/bind/bind" });
@@ -419,10 +456,14 @@ Page({
       });
   },
 
-  // 上传/生成响应统一落 job：照片类任务后端异步跑 AI 精修（i2i，约 1-3 分钟）。
-  // 2026-09-08 用户拍板 A 方案：pending 时页面只展示「AI 正在画」等待态，
-  // Canny 草图不再先上屏；ready 上 AI 版，failed/超时才回落草图并标注。
+  _notifyCreation(message) {
+    if (this._visible === false) this._pendingMessage = message;
+    else wx.showModal(message);
+  },
+
+  // 上传/生成响应统一落 job；隐藏页只保留结果，回屏后再预取分享和跟踪精修。
   adoptJob(data) {
+    if (this._visible === false) { this._pendingJob = data; return; }
     // 新 job 换掉旧 job：旧轮询链必须停掉，否则两链并存、旧链还会改写新 job 的状态
     this.stopRefinePolling();
     const job = {
@@ -456,9 +497,11 @@ Page({
   _prefetchShareToken(jobId) {
     this._shareToken = null;
     if (!jobId) return;
+    const current = pageSession.capture(this);
     api
       .request(`/api/draw/${jobId}/share`, { method: "POST" })
       .then((res) => {
+        if (!current() || !this.data.job || this.data.job.jobId !== jobId) return;
         this._shareToken = (res && res.share_token) || null;
         this.setData({ shareToken: this._shareToken });
       })
@@ -483,6 +526,7 @@ Page({
   startRefinePolling(jobId) {
     this.stopRefinePolling();
     const token = this._refineToken;
+    const current = pageSession.capture(this);
     let round = 0;
     // 终态收口：停链并退出"精修中"，各分支只补自己的增量字段
     const finish = (patch) => {
@@ -495,7 +539,7 @@ Page({
         .request("/api/draw/jobs/" + jobId)
         .then((res) => {
           // 令牌变了说明链已作废（换了新任务或离开页面），丢弃过期响应
-          if (token !== this._refineToken) return;
+          if (!current() || token !== this._refineToken) return;
           const refined = res && res.refined;
           if (refined && refined.status === "ready") {
             // 就绪后默认切到精修版，用户仍可点缩略图切回线稿版
@@ -519,19 +563,19 @@ Page({
             finish({ "job.refineFailed": "timeout" }); // 超时同样回落草图，但说明 AI 还可能好
             return;
           }
-          this._refineTimer = setTimeout(poll, refineDelayMs(round));
+          this._refineTimer = setTimeout(poll, this.refineDelayMs(round));
         })
         .catch(() => {
-          if (token !== this._refineToken) return;
+          if (!current() || token !== this._refineToken) return;
           // 网络抖动不算精修失败；轮次照样累计，保证极端弱网下 3 分钟内也必停
           if (round >= 36) {
             finish({ "job.refineFailed": "timeout" });
             return;
           }
-          this._refineTimer = setTimeout(poll, refineDelayMs(round));
+          this._refineTimer = setTimeout(poll, this.refineDelayMs(round));
         });
     };
-    this._refineTimer = setTimeout(poll, refineDelayMs(round));
+    this._refineTimer = setTimeout(poll, this.refineDelayMs(round));
   },
 
   // 精修轮询退避（2026-09-11）：前 6 轮 5s，之后 10s——免费层排队常 >30s，
@@ -550,96 +594,76 @@ Page({
   },
 
   onPickFile() {
-    if (this.data.uploading) return;
-    subscribe.requestAtTap();
-    wx.chooseMessageFile({
-      count: 1,
-      type: "file",
-      success: (res) => {
-        const file = res.tempFiles[0];
-        if (file.size > 4 * 1024 * 1024) {
-          wx.showToast({ title: "文件超过 4MB", icon: "none" });
-          return;
-        }
-        const token = this._writeToken;
-        this.setData({ uploading: true });
-        const formData =
-          this.data.mode === "write"
-            ? {
-                size_mm: String(this.data.sizeMm),
-                line_spacing: String(this.data.lineSpacing),
-              }
-            : undefined;
-        api
-          .uploadFile("/api/draw/upload", file.path, "file", formData)
-          .then((data) => {
-            if (token !== this._writeToken) return;
-            // 与 AI 生成同一预览卡：预览图 + 行数 + 发送钮（此前只存 jobId 不存 preview_url，
-            // 用户看不到转换效果——2026-09-07「转换后没有预览」实证）
-            this.setData({ uploading: false });
-            this.adoptJob(data);
-            wx.showToast({ title: "转换完成", icon: "success" });
-          })
-          .catch((err) => {
-            if (token !== this._writeToken) return;
-            this.setData({ uploading: false });
-            wx.showModal({
-              title: "上传失败",
-              content: err.detail || "不支持的格式或转换失败",
-              showCancel: false,
-            });
-          });
-      },
-    });
+    this._chooseFile(false);
   },
 
   // 拍照/相册绘图：chooseMedia → 压缩 → 走 /api/draw/upload（同传图链）
   onTakePhoto(e) {
-    if (this.data.uploading) return;
-    subscribe.requestAtTap();
-    const source = (e.currentTarget.dataset.source || "camera") === "album" ? ["album"] : ["camera"];
-    wx.chooseMedia({
-      count: 1,
-      mediaType: ["image"],
-      sourceType: source,
-      sizeType: ["compressed"],
+    this._chooseFile(true, e.currentTarget.dataset.source === "album" ? "album" : "camera");
+  },
+
+  _chooseFile(photo, source) {
+    if (this.data.uploading || this._filePick) return;
+    const pick = this._filePick = { photo, session: getApp()._sessionGeneration };
+    const current = () => this._filePick === pick && pick.session === getApp()._sessionGeneration;
+    const callbacks = {
       success: (res) => {
-        const file = res.tempFiles[0];
-        if (file.size > 10 * 1024 * 1024) {
-          wx.showToast({ title: "照片过大，请重拍", icon: "none" });
-          return;
-        }
-        this.setData({ uploading: true });
-        api
-          .uploadFile("/api/draw/upload", file.tempFilePath, "file")
-          .then((data) => {
-            this.setData({ uploading: false });
-            this.adoptJob(data);
-            wx.showToast({ title: "转换完成", icon: "success" });
-          })
-          .catch((err) => {
-            this.setData({ uploading: false });
-            wx.showModal({
-              title: "上传失败",
-              content: err.detail || "图片转换失败，换一张试试",
-              showCancel: false,
-            });
-          });
+        if (!current()) return;
+        pick.file = res.tempFiles && res.tempFiles[0];
+        if (!pick.file) { this._filePick = null; return; }
+        this._consumePickedFile();
       },
-    });
+      fail: () => { if (current()) this._filePick = null; },
+    };
+    subscribe.requestAtTap();
+    if (photo) wx.chooseMedia(Object.assign({ count: 1, mediaType: ["image"],
+      sourceType: [source], sizeType: ["compressed"] }, callbacks));
+    else wx.chooseMessageFile(Object.assign({ count: 1, type: "file" }, callbacks));
+  },
+
+  _consumePickedFile() {
+    const pick = this._filePick;
+    if (!pick || !pick.file || this._visible === false) return;
+    this._filePick = null;
+    if (pick.session !== getApp()._sessionGeneration) return;
+    // 系统选择器会触发 hide/show；选择结果等页面回来再接手，上传使用新展示代次。
+    // 切模式、卸载、退出登录会清掉选择归属，不能借该例外串到另一份稿件或账号。
+    const task = pageSession.captureTask(this);
+    const token = this._writeToken;
+    const current = () => task() && token === this._writeToken;
+    const file = pick.file;
+    if (file.size > (pick.photo ? 10 : 4) * 1024 * 1024) {
+      wx.showToast({ title: pick.photo ? "照片过大，请重拍" : "文件超过 4MB", icon: "none" });
+      return;
+    }
+    const formData = !pick.photo && this.data.mode === "write"
+      ? { size_mm: String(this.data.sizeMm), line_spacing: String(this.data.lineSpacing) } : undefined;
+    this.setData({ uploading: true });
+    api.uploadFile("/api/draw/upload", pick.photo ? file.tempFilePath : file.path, "file", formData)
+      .then((data) => {
+        if (!current()) return;
+        this.setData({ uploading: false });
+        this.adoptJob(data);
+        if (this._visible !== false) wx.showToast({ title: "转换完成", icon: "success" });
+      })
+      .catch((err) => {
+        if (!current()) return;
+        this.setData({ uploading: false });
+        this._notifyCreation({ title: "上传失败", content: err.detail || "不支持的格式或转换失败", showCancel: false });
+      });
   },
 
   // 手绘画板：独立页涂鸦 → SVG → /api/draw/upload；回本页经 adoptJob 上预览
   onDrawPad() {
     if (this.data.uploading) return;
+    const session = getApp()._sessionGeneration;
     subscribe.requestAtTap();
     wx.navigateTo({
       url: "/pages/drawpad/drawpad",
       events: {
         adopt: (data) => {
-          if (data && data.job_id) {
-            this.adoptJob(data);
-            wx.showToast({ title: "转换完成", icon: "success" });
+          if (data && data.job_id && getApp()._sessionGeneration === session) {
+            getApp().globalData.pendingAdopt = data;
           }
         },
       },

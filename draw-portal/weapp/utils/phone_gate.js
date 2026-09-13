@@ -19,13 +19,15 @@ function redirectToPhoneGate(message) {
 
 /** 页面 onShow：无手机号则切到「我的」。返回 Promise<boolean> 是否已绑定。 */
 function ensurePhoneOrRedirect(api, isCurrent = () => true) {
-  const generation = getApp()._sessionGeneration;
+  const app = getApp();
+  const generation = app._sessionGeneration;
   // 授权回包也可能跨越退出登录或页面重扫；旧请求不能复活资料或发起跳转。
   const current = () => generation === getApp()._sessionGeneration && isCurrent();
-  return api
-    .request("/api/auth/me")
+  // 冷启动先等正在进行的登录，避免拿空会话查 /me 后让页面一直停在未读取。
+  return Promise.resolve(app._sessionPromise)
+    .then(() => current() ? api.request("/api/auth/me") : null)
     .then((me) => {
-      if (!current()) return false;
+      if (!me || !current()) return false;
       const app = getApp();
       if (app && app.globalData) {
         app.globalData.user = me;
@@ -41,6 +43,8 @@ function ensurePhoneOrRedirect(api, isCurrent = () => true) {
       if (!current()) return false;
       if (err && err.code === "phone_required") {
         redirectToPhoneGate(err.message);
+      } else if (err && err.status === 401) {
+        redirectToPhoneGate("登录已过期，请重新登录");
       }
       return false;
     });

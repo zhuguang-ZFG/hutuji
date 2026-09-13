@@ -1,7 +1,7 @@
 <view class="page">
   <view class="hero">
     <view class="hero-brand">动力巢科技 · 小派</view>
-    <view class="hero-title">我的<span class="accent">账号</span></view>
+    <view class="hero-title">我的<text class="accent">账号</text></view>
     <view class="hero-sub">头像与手机号用于绑定设备、同步你的作品</view>
   </view>
 
@@ -9,10 +9,12 @@
     <view class="weui-cells__title">已退出登录</view>
     <view class="weui-cells__tips">本地会话已清除。你的作品、收藏与设备绑定都还在云端，重新登录即可恢复。</view>
     <view class="weui-btn-area">
-      <button class="weui-btn weui-btn_primary" bindtap="onLoginAgain">微信一键登录</button>
+      <button class="weui-btn weui-btn_primary" bindtap="onLoginAgain" loading="{{loggingIn}}" disabled="{{loggingIn}}">微信一键登录</button>
     </view>
   </block>
 
+  <view wx:if="{{loadError}}" class="weui-cells__tips">{{loadError}}</view>
+  <button wx:if="{{loadError && !loggedOut}}" size="mini" bindtap="refresh">重新读取</button>
   <block wx:if="{{!loggedOut && needPhone}}">
     <view class="weui-cells__title">使用前请授权手机号</view>
     <view class="weui-cells__tips">绑机、传图、控制丹青都需要手机号。授权后即可继续。</view>
@@ -27,7 +29,7 @@
     </view>
   </block>
 
-  <block wx:if="{{!loggedOut}}">
+  <block wx:if="{{!loggedOut && me}}">
   <view class="weui-cells__title">账号</view>
   <view class="weui-cells">
     <view class="weui-cell profile-cell">
@@ -64,7 +66,7 @@
   </block>
 
 
-  <block wx:if="{{!loggedOut && !needPhone}}">
+  <block wx:if="{{!loggedOut && me && !needPhone}}">
     <view class="weui-cells__title">设备</view>
     <view class="weui-cells">
       <block wx:for="{{me.devices}}" wx:key="device_mac">
@@ -75,7 +77,7 @@
       </block>
       <view class="weui-cell" wx:if="{{me && me.binding && me.binding.bound}}">
         <view class="weui-cell__bd">已绑定</view>
-        <view class="weui-cell__ft">设备尾号 {{me.binding.macSuffix || me.binding.deviceMac}}</view>
+        <view class="weui-cell__ft">{{me.binding.device_mac}}</view>
       </view>
       <view class="weui-cell" wx:else>
         <view class="weui-cell__bd">未绑定</view>
@@ -108,5 +110,10 @@
 
   </block>
 
+  <view class="weui-cells__title">隐私与帮助</view>
+  <view class="weui-btn-area tight">
+    <button class="weui-btn weui-btn_default" bindtap="onPrivacy">隐私保护指引</button>
+    <button class="weui-btn weui-btn_default" open-type="contact">联系客服</button>
+  </view>
   <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>

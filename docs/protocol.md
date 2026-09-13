@@ -680,7 +680,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 产品面 | **未绑定 `phone` 禁止**：`bind/*`（含 claim/complete/unbind/status）、`/api/draw/upload`、`/api/draw/write`、`/api/draw/write/ai`、`/api/draw/teach`、文字生图、`send`/saved、`/api/device/control` |
 | 放行 | `/api/auth/me`、`wx-phone`、`bind-phone`（仅非微信邮箱账号补绑 11 位）、`wx-profile`/`wx-avatar`、登录注册登出 |
 | 错误 | 产品面无号 → **403**，`detail={"code":"phone_required","message":"…"}`（稳定码供小程序统一跳「我的」） |
-| me | 增 `phone_bound: bool`（与 `!!phone` 同义，便于前端） |
+| me | `phone_bound: bool` 与 `!!phone` 同义。本人当前控制目标由 `active_device_mac` 明确返回，未绑定为 null；`devices[].active` 标记当前设备。`binding.device_mac` 仍为展示打码串，禁止当作控制参数或据此前后缀猜完整 MAC |
+| 页面回包（2026-09-13） | 状态/资料/轮询与后续控制按页面展示及登录代次隔离，旧 401/403 不能踢走新会话。已发出的生成与文字回复在同一账号暂时切页时保留结果，隐藏页不续发分享/精修轮询，回屏再接手；退出、卸载、创作模式变化作废旧结果。系统相册/文件选择器造成的 hide/show 允许同一次选择回屏后上传，不能放宽账号/卸载边界；录音松手、取消或离页必须停止，作废 ASR 不续调工具 |
 | 网页 QQ 邮箱 | 同闸：无 phone 不可进产品面；经 `POST /api/auth/bind-phone` 补绑 |
 | 平台动作 | 备案改名、隐私条款、提审仍在 MP 后台，不由本仓代做 |
 
@@ -751,7 +752,7 @@ Cookie: <session>
 | `409 identity_mismatch` | 二维码串台、身份重置归属不符等；不得自动强制换绑。NVS 全擦新密钥由原所有者恢复；原所有者解除绑定后可由新持有人重新登记，旧密钥随替换退役 |
 | `410 binding_expired` | nonce 过期或已消费且不能恢复原成功；重新打开设备配网/绑定页再扫码 |
 | `503 binding_pending` | 连接凭据尚未真正可调用；自动重试，不消费证明、不假报成功 |
-| `GET /api/user/devices` | 当前账号设备列表，返回完整 MAC 与 `active`，不返回 token；`/api/auth/me.binding` 继续为脱敏当前设备摘要 |
+| `GET /api/user/devices` | 当前账号设备列表，返回完整 MAC 与 `active`，不返回 token；`/api/auth/me.binding` 继续为脱敏当前设备摘要，当前完整控制目标取 `/api/auth/me.active_device_mac` |
 | `POST /api/user/devices/select` | `{device_mac}`，只可选择本人设备，否则 404；切换不换绑 |
 | `POST /api/user/bind/unbind` | 可选 `{device_mac}`，缺省解绑当前设备；事务内校验所有者，修复剩余设备的当前选择，旧账号迟到的解绑不得删除新所有者的设备 |
 
@@ -765,6 +766,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 推送 | `POST .../draw/{job_id}/send` → `hutuji.draw` 后**自动** `hutuji.confirm`（小程序已预览）；失败时 detail 含「自动开始画未完成」可改用控制页 |
 | **保存预览** | `POST .../draw/{job_id}/save` → 将 PNG（及可选 G-code 副本）复制到用户域持久化路径；**不依赖** §5.1 的 600s `/files/` TTL |
 | 图库 | `GET .../draw/saved`；可再次 `send` 或 `DELETE`；响应含 `tg_backup`（`null`=未启用 / `pending` / `uploaded` / `failed`——2026-09-12 TG 频道冷备份 PoC 状态字段，仅预览图、逐字节校验后才算 uploaded；`DELETE` 时频道副本尽力撤回并同步 `telegram_archive_log` 台账 `tg_removed_at`；**不替换**本行主链路，`/files/` 与设备下载一字未动） |
+| 冷备份停用（2026-09-13 审查） | 关闭 `HUTUJI_TG_UPLOAD_ENABLED` 同时阻止新增入队和已有队列继续上传；保留凭据时，旧副本的删除/人工恢复不依赖新增上传开关。重试上传仍要求开关开启。停用不擅自清空历史副本或台账，删除失败补偿尚未验收。注册通知只含事件，不发送设备 MAC。实际生产开关以 readiness 为准，再启用须补真实告知、处理依据与适用同意/评估证据 |
 
 保存预览的 G-code 副本仅用于「再次发送到小派」；须仍过 §5 校验。仅保存 PNG 而无 gcode 副本时，不得发送出图。
 
@@ -996,7 +998,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 结果 | `hutuji.status.speed` 为 `{axis_control,state:idle/pending/done/error,request_id,axis,requested_rate,rate?,rates?:{x,y,z},reason?}`。读回完整且 done 时才发布 rates；rate 只用于成功写入。新请求清空上次实际结果。调速期间 abort 明确拒绝，不走绘图 reset；status 仍只发 `?`，参数查询仅由 worker 配对应答 |
 | 门户读 | `GET /api/settings/machine-speed?device_mac=…`（phone_secured）先检查分轴能力，再以 rate=0 查询，完成后回 `{status:"ok",axis:"xy",rates:{x,y,z},result:"…"}`。查询不记速度写入 usage |
 | 门户写 | `POST /api/settings/machine-speed {axis?,rate,device_mac?}`：轴白名单与每轴严格整数/范围闸；device_mac 匹配当前选择，调用/自愈前核对所有权。显式 axis 写入前必须查分轴能力，旧设备 409 且不发送 speed（旧设备会忽略 axis 而误写 XY）；省略 axis 保留旧同步 rate/新异步两轴兼容。accepted 最多 40s/80 轮查询，核 request_id/axis/目标值/三轴读回后回 `{status:"ok",axis,rate,rates?,result:"…"}` 并记 `web_machine_speed`。错任务、错轴、部分读回、HTTP 200 内设备错误与超时均失败 |
-| 小程序 | 控制页三个滑块；进入时经只读接口读取实机保存值，未读取前禁调、不把默认值显示成已生效值。每次只提交拖动轴，确认后显示三轴读回；错误还原原生滑块并重新读取。页面/登录/设备代次拦迟到回包，隐藏页不重启轮询。仅就绪的无换纸机可调 |
+| 小程序 | 控制页三个滑块；正常 `/auth/me` → `active_device_mac` → status → 只读速度链读取实机值，未读取前禁调，不把默认值显示成已生效值；展示打码字段不能用于控制。每次只提交拖动轴，确认后显示三轴读回；错误可见、可重试并还原原生滑块。状态轮询串行，不在慢网叠加请求；首次查询不误报未绑定。页面/登录/设备代次拦迟到回包，隐藏页不重启轮询。仅就绪的无换纸机可调 |
+| 普通控制目标 | `/api/device/control` 可传 `device_mac`；与当前选择不同回 409，第一次调用与 token 自愈重试前均核当前目标及所有权。设备响应 HTTP 200 内的 `isError` 或业务失败不得包装成控制成功。旧未传目标的客户端保持兼容 |
 | 进给边界 | 文件契约仍为 XY F24000 / Z F10000，实际分别受 `$110/$111/$112` 钳制；归位仍为原 G1 F8000。最大速度不改变短段加减速、加速度、换纸、使能与行程契约 |
 | 验收与部署 | 前段 1.0.13–1.0.16 速度/静音历史保留在 readiness/deployment；本批三轴设计、读回与单轴不串写回归见 `design/axis-speed-20260913.md`。构建和命令链不等于手机滑块或全幅纸面通过，实际上线与实机版本只看 readiness |
 

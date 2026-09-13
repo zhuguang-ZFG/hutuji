@@ -59,12 +59,16 @@ class _Task:
     store: Any  # 行所属库：worker 只用任务自带实例回写，绝不全局绑定
 
 
+def configured() -> bool:
+    """已有副本的删除/取回仅要求凭据，不能随新增上传开关一起失效。"""
+    return bool(os.environ.get("TG_BOT_TOKEN") and os.environ.get("TG_CHANNEL_ID"))
+
+
 def enabled() -> bool:
     """三项全配且显式开关打开才启用（默认关，fail-open）。"""
     return (
         os.environ.get("HUTUJI_TG_UPLOAD_ENABLED", "").strip() == "1"
-        and bool(os.environ.get("TG_BOT_TOKEN"))
-        and bool(os.environ.get("TG_CHANNEL_ID"))
+        and configured()
     )
 
 
@@ -92,7 +96,7 @@ def enqueue_preview(store: Any, saved: Any) -> None:
 
 def delete_message_async(saved: Any) -> None:
     """图库删除时尽力撤回频道副本（用户要求删除 → 第三方也不留）。fire-and-forget。"""
-    if not enabled() or not saved.tg_message_id:
+    if not configured() or not saved.tg_message_id:
         return
     _delete_channel_copy_async(int(saved.tg_message_id))
 
@@ -118,6 +122,9 @@ def _worker_loop() -> None:
 
 
 def _process(store: Any, task: _Task) -> None:
+    # 停用新增上传后，已入内存队列的任务也不得继续外发。
+    if not enabled():
+        return
     try:
         src_sha = hashlib.sha256(task.path.read_bytes()).hexdigest()
     except OSError:
@@ -306,6 +313,8 @@ def _verify_download(file_id: str, src_sha: str) -> bool:
 
 def retry_user(store: Any, user_id: str) -> dict[str, Any]:
     """把该用户 pending/failed 且文件在场的行重新入队（CLI 人工触发）。"""
+    if not enabled():
+        return {"user_id": user_id, "enqueued": 0}
     rows = store.list_retryable_previews(user_id)
     for saved in rows:
         enqueue_preview(store, saved)
@@ -407,8 +416,8 @@ def main() -> int:
     parser.add_argument("--retry-user", default=None, help="重试该用户的 pending/failed 归档")
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
-    if not enabled():
-        print("tg-archive disabled（缺 TG_BOT_TOKEN/TG_CHANNEL_ID/HUTUJI_TG_UPLOAD_ENABLED）")
+    if not configured() or (args.retry_user and not enabled()):
+        print("tg-archive disabled（缺凭据或新增上传未启用）")
         return 2
     from draw_portal.store import Store
 

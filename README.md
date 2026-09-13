@@ -6,6 +6,8 @@
 
 量产机三轴速度（2026-09-13 用户拍板）：X/Y 默认 10000，Z 保留机器现值；小程序分别设置 X/Y/Z，重启保留。单轴写入前检查设备分轴能力，写后查询三轴实际参数，确认选中轴生效再提示成功。设计与验收见 [`三轴调速`](docs/design/axis-speed-20260913.md)，当前板上状态仍以 readiness 为准。
 
+2026-09-13 小程序审查约定：`/api/auth/me.active_device_mac` 用于控制，`binding.device_mac` 仅作打码展示；测试从真实返回形状与正常页面加载开始。状态轮询串行，异步控制按页面/账号/设备隔离；同账号生成跨切页保留结果，录音取消不续发工具。内部隐私核对稿不代表已发布协议或法律签核，实际数据处理与证据见 [`小程序审查`](docs/design/weapp-review-20260913.md)。
+
 量产机任务完成或停止归位后自动释放电机，下一任务重新运动时自动使能。停止请求复用同一次收尾，归位完成后才显示已取消；绘图与暂停时继续保持电机使能。行为与验证边界见 [`protocol §10.4.15`](docs/protocol.md)。
 
 近期评审修复涉及预览资源边界、波纹白区保护、登录回包隔离、字体选择、重试日限与 Tunnel 固件回源。行为契约见 [`docs/protocol.md`](docs/protocol.md)，本地验证及部署状态见 [`docs/release-readiness.md`](docs/release-readiness.md)；小程序回归命令见 [`draw-portal/README.md`](draw-portal/README.md)。

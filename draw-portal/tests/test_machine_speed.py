@@ -17,6 +17,15 @@ def _bound(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     return client
 
 
+def test_current_control_target_is_separate_from_masked_display(monkeypatch, tmp_path):
+    client = _bound(monkeypatch, tmp_path)
+    me = client.get("/api/auth/me").json()
+    assert "…" in me["binding"]["device_mac"]
+    assert me["active_device_mac"] == me["devices"][0]["device_mac"]
+    assert "…" not in me["active_device_mac"]
+    assert me["devices"][0]["active"] is True
+
+
 @pytest.mark.parametrize("rate", [0, 2999, 16001, True, 8000.5, "8000", None])
 def test_speed_rejects_invalid_input_without_device_call(monkeypatch, tmp_path, rate):
     client = _bound(monkeypatch, tmp_path)

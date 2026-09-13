@@ -2,7 +2,9 @@
   <view wx:if="{{loading}}" class="loading">加载中…</view>
 
   <block wx:else>
-    <view wx:if="{{error}}" class="error-bar">{{error}}</view>
+    <view wx:if="{{error}}" class="error-bar">{{error}}
+      <button size="mini" bindtap="onShow">重试</button>
+    </view>
 
     <view class="section">
       <view class="section-title">音色</view>

@@ -102,9 +102,11 @@ App({
     this._sessionPromise = null;
     wx.removeStorageSync("session_token");
     wx.removeStorageSync("session_ok");
+    wx.removeStorageSync("voice_session_id");
     wx.setStorageSync("logged_out", true);
     this.globalData.user = null;
     this.globalData.phoneBound = false;
+    this.globalData.pendingAdopt = null;
   },
   // 用户在「我的」页显式点重新登录：清闸门后走正常静默链路。
   loginAgain() {

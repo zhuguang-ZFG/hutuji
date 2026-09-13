@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const bindIdentity = require("../../utils/bind_identity");
+const pageSession = require("../../utils/page_session");
 const { displayVersion } = require("../../utils/version.js");
 
 Page({
@@ -12,35 +13,50 @@ Page({
     savingNick: false,
     needPhone: false,
     loggedOut: false,
+    loadError: "",
+    loggingIn: false,
+    selectingDevice: false,
   },
 
   onShow() {
+    pageSession.show(this);
     this.setData({ footVersion: displayVersion("v0.3.6") });
-    const loggedOut = !!wx.getStorageSync("logged_out");
-    this.setData({ loggedOut });
+    const loggedOut = !!wx.getStorageSync("logged_out") || (!api.getSession() && !getApp()._sessionPromise);
+    this.setData({ loggedOut, me: null, avatarSrc: "", nicknameDraft: "", needPhone: false,
+      loadError: "", savingNick: false, loggingIn: false, selectingDevice: false });
     if (!loggedOut) this.refresh();
   },
+
+  onHide() { pageSession.hide(this); },
+  onUnload() { this.onHide(); },
 
   // 退出登录：确认后清本地会话并置 logged_out 闸门（app.logout），
   // 本页塌成登录墙；其他 tab 的接口会 401，等用户回本页显式重登。
   onLogout() {
+    const current = pageSession.capture(this);
     wx.showModal({
       title: "退出登录",
       content: "退出后本机保存的会话将被清除，作品与绑定关系不受影响，重新登录即可恢复。",
       confirmText: "退出",
       confirmColor: "#d9534f",
       success: (res) => {
-        if (!res.confirm) return;
+        if (!res.confirm || !current()) return;
         getApp().logout();
-        this.setData({ loggedOut: true, me: null, avatarSrc: "", needPhone: false });
+        this.setData({ loggedOut: true, me: null, avatarSrc: "", needPhone: false,
+          nicknameDraft: "", savingNick: false, loadError: "" });
       },
     });
   },
 
   onLoginAgain() {
-    getApp()
-      .loginAgain()
+    if (this.data.loggingIn) return;
+    this.setData({ loggingIn: true });
+    const pending = getApp().loginAgain();
+    const current = pageSession.capture(this);
+    pending
       .then((me) => {
+        if (!current()) return;
+        this.setData({ loggingIn: false });
         if (me) {
           this.setData({ loggedOut: false });
           this._applyMe(me);
@@ -67,13 +83,25 @@ Page({
   },
 
   refresh() {
-    api
-      .request("/api/auth/me")
-      .then((me) => this._applyMe(me))
-      .catch(() => {});
+    const visible = pageSession.capture(this);
+    const requestId = this._meRequest = (this._meRequest || 0) + 1;
+    const current = () => visible() && requestId === this._meRequest;
+    return Promise.resolve(getApp()._sessionPromise)
+      .then(() => current() ? api.request("/api/auth/me") : null)
+      .then((me) => {
+        if (!me || !current()) return;
+        this.setData({ loggedOut: false, loadError: "" });
+        this._applyMe(me);
+      })
+      .catch((err) => {
+        if (!current()) return;
+        this.setData({ loadError: err.detail || "资料读取失败，请重试",
+          loggedOut: err.status === 401, me: null, avatarSrc: "" });
+      });
   },
 
   onChooseAvatar(e) {
+    const current = pageSession.capture(this);
     const path = e.detail && e.detail.avatarUrl;
     if (!path) {
       wx.showToast({ title: "未拿到头像", icon: "none" });
@@ -84,10 +112,12 @@ Page({
     api
       .uploadFile("/api/auth/wx-avatar", path, "file")
       .then(() => {
+        if (!current()) return;
         wx.showToast({ title: "头像已更新", icon: "success" });
         this.refresh();
       })
       .catch((err) => {
+        if (!current()) return;
         wx.showToast({ title: err.detail || "头像上传失败", icon: "none" });
         this.refresh();
       });
@@ -101,20 +131,24 @@ Page({
     const nickname = (this.data.nicknameDraft || "").trim();
     if (!nickname || this.data.savingNick) return;
     this.setData({ savingNick: true });
+    const current = pageSession.capture(this);
     api
       .request("/api/auth/wx-profile", { method: "POST", data: { nickname } })
       .then(() => {
+        if (!current()) return;
         this.setData({ savingNick: false });
         wx.showToast({ title: "已保存", icon: "success" });
         this.refresh();
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ savingNick: false });
         wx.showToast({ title: err.detail || "保存失败", icon: "none" });
       });
   },
 
   onGetPhone(e) {
+    const current = pageSession.capture(this);
     if (!e.detail.code) {
       wx.showToast({ title: "未授权手机号", icon: "none" });
       return;
@@ -122,10 +156,12 @@ Page({
     api
       .request("/api/auth/wx-phone", { method: "POST", data: { code: e.detail.code } })
       .then(() => {
+        if (!current()) return;
         wx.showToast({ title: "手机号已绑定", icon: "success" });
         this.refresh();
       })
       .catch((err) => {
+        if (!current()) return;
         wx.showToast({ title: err.detail || "绑定失败", icon: "none" });
       });
   },
@@ -140,13 +176,19 @@ Page({
 
   onSelectDevice(e) {
     const mac = e.currentTarget.dataset.mac;
-    if (!mac) return;
+    if (!mac || this.data.selectingDevice) return;
+    const current = pageSession.capture(this);
+    this.setData({ selectingDevice: true });
     api.request("/api/user/devices/select", { method: "POST", data: { device_mac: mac } })
       .then(() => {
+        if (!current()) return;
         wx.showToast({ title: "已切换设备", icon: "success" });
         this.refresh();
       })
-      .catch((err) => wx.showToast({ title: err.detail || "切换失败", icon: "none" }));
+      .catch((err) => {
+        if (current()) wx.showToast({ title: err.detail || "切换失败", icon: "none" });
+      })
+      .finally(() => { if (current()) this.setData({ selectingDevice: false }); });
   },
 
   onGoWifi() {
@@ -165,7 +207,7 @@ Page({
     const bound = !!(this.data.me && this.data.me.binding && this.data.me.binding.bound);
     if (!bound) {
       wx.showToast({ title: "请先绑定设备", icon: "none" });
-      setTimeout(() => wx.navigateTo({ url: "/pages/bind/bind" }), 400);
+      wx.navigateTo({ url: "/pages/bind/bind" });
       return;
     }
     wx.navigateTo({ url: "/pages/firmware/firmware" });
@@ -178,5 +220,11 @@ Page({
     }
     // chat 页 0.3.0 起进 tabBar：navigateTo 不能去 tab 页，必须 switchTab
     wx.switchTab({ url: "/pages/chat/chat" });
+  },
+
+  onPrivacy() {
+    wx.openPrivacyContract({
+      fail: () => wx.showToast({ title: "隐私指引暂不可用，请联系客服", icon: "none" }),
+    });
   },
 });

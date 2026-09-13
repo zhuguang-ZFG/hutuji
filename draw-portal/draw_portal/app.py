@@ -229,6 +229,7 @@ class BindPhoneBody(BaseModel):
 class DeviceControlBody(BaseModel):
     tool: str = Field(min_length=1, max_length=32)
     action: str | None = None
+    device_mac: str | None = Field(default=None, max_length=17)
 
 
 # 设备控制白名单：与固件 IsVoiceAllowedAction 同源（语音不开放的维护动作这里同样不放）
@@ -734,8 +735,10 @@ def create_app() -> FastAPI:
             "phone_bound": phone_bound,
             "avatar_url": f"/api/auth/avatar/{user.id}" if user.avatar_path else None,
             "binding": store.binding_status_dict(binding),
+            "active_device_mac": binding.device_mac if binding else None,
             "devices": [
-                {**store.binding_status_dict(item), "device_mac": item.device_mac}
+                {**store.binding_status_dict(item), "device_mac": item.device_mac,
+                 "active": bool(binding and item.device_mac == binding.device_mac)}
                 for item in store.list_bindings_for_user(user_id)
             ],
         }
@@ -898,6 +901,8 @@ def create_app() -> FastAPI:
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定设备")
+        if body.device_mac and body.device_mac.lower() != binding.device_mac.lower():
+            raise HTTPException(status_code=409, detail="控制设备已切换，请刷新后重试")
         tool = body.tool.strip()
         action = (body.action or "").strip()
         if tool == "hutuji.manual":
@@ -910,6 +915,14 @@ def create_app() -> FastAPI:
             arguments = {}
         else:
             raise HTTPException(status_code=400, detail="不支持的控制工具")
+        def check_target() -> None:
+            active = store.get_binding_for_user(user_id)
+            owner = store.get_binding_for_mac(binding.device_mac)
+            if (active is None or active.device_mac != binding.device_mac
+                    or owner is None or owner.user_id != user_id):
+                raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
+
+        check_target()
         ok, result = push_tool_call(
             api_base=config.xiaozhi_api_base,
             device_token=decrypt_token(config.token_cipher_key, binding.device_token_enc),
@@ -928,6 +941,7 @@ def create_app() -> FastAPI:
             if fresh:
                 from draw_portal.crypto import encrypt_token
 
+                check_target()
                 store.update_binding_token(
                     user_id, device_token_enc=encrypt_token(config.token_cipher_key, fresh), device_mac=binding.device_mac
                 )
@@ -942,8 +956,10 @@ def create_app() -> FastAPI:
             return {"status": "error", "detail": result}
         # 设备侧 McpTool::Call 包一层 content/isError；解出 text 再回前端，
         # 避免小程序把 content 数组当 status → connected 读不到假「未连接」。
-        from draw_portal.mcp_result import unwrap_tool_text
+        from draw_portal.mcp_result import tool_result_failed, unwrap_tool_text
 
+        if tool_result_failed(result):
+            return {"status": "error", "detail": "设备未接受操作，请刷新状态后重试"}
         return {"status": "ok", "result": unwrap_tool_text(result)}
 
     def _infer_voice_format(filename: str) -> str:
@@ -1349,7 +1365,7 @@ def create_app() -> FastAPI:
         if existing is None:
             # 注册监控（TG）：新用户首次绑定 = 注册完成的业务事实；重绑/换机不推。
             tg_notify.notify_async(
-                f"新用户绑定设备 mac={binding.device_mac} 事件={event_type}",
+                f"新用户完成设备绑定 事件={event_type}",
                 dedupe_key=user_id,
             )
         _record_portal_usage(

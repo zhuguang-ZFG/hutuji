@@ -361,3 +361,20 @@
   font-size: 22rpx;
   color: #9aa3b5;
 }
+
+.speed-error,
+.control-error {
+  color: #ffb86b;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.control-error {
+  margin: 20rpx 28rpx;
+}
+
+.speed-retry {
+  margin-top: 16rpx;
+  color: #00d1e5;
+  background: #202431;
+}

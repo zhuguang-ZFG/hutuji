@@ -68,6 +68,24 @@ def test_enqueue_disabled_is_noop(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert store.get_saved_preview(saved.id, user_id="u1").tg_state == "pending"
 
 
+def test_disable_upload_stops_queued_tasks_but_keeps_deletion(monkeypatch, tmp_path):
+    _set_env(monkeypatch, on=True)
+    store = _store(tmp_path)
+    saved = _saved(tmp_path, store)
+    store.mark_preview_telegram(saved.id, state="uploaded", file_id="existing", message_id=77)
+    saved = store.get_saved_preview(saved.id, user_id="u1")
+    monkeypatch.setenv("HUTUJI_TG_UPLOAD_ENABLED", "0")
+    uploads = []
+    deletes = []
+    monkeypatch.setattr(ta, "_upload_document", lambda path: uploads.append(path))
+    monkeypatch.setattr(ta, "_delete_channel_copy_async", deletes.append)
+    ta._process(store, ta._Task(saved.id, Path(saved.preview_path), "t", "u1", store))
+    assert uploads == []
+    ta.delete_message_async(saved)
+    assert deletes == [77]
+    assert ta.retry_user(store, "u1")["enqueued"] == 0
+
+
 def test_process_happy_path_marks_uploaded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

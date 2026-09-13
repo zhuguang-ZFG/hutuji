@@ -1,5 +1,6 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const pageSession = require("../../utils/page_session");
 const { displayVersion } = require("../../utils/version.js");
 
 // 设计稿 §2.4 / 失败表 F1–F8 的 reason token → 中文
@@ -47,11 +48,17 @@ Page({
   },
 
   onShow() {
-    this.setData({ footVersion: displayVersion("v0.3.6") });
-    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
-      if (!ok) return;
+    pageSession.show(this);
+    if (this._firmwareSession !== getApp()._sessionGeneration) {
+      this._firmwareSession = getApp()._sessionGeneration;
+      this.setData({ upgrading: false, updateAvailable: false, current: "", latest: "" });
+    }
+    const current = pageSession.capture(this);
+    this.setData({ footVersion: displayVersion("v0.3.6"), checking: false });
+    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+      if (!ok || !current()) return;
       this._ensureBound().then((bound) => {
-        if (!bound) return;
+        if (!bound || !current()) return;
         // onHide 停了轮询；升级中若只 silent check 会因 upgrading 早退卡死 UI
         if (this.data.upgrading) {
           this._pollOnce();
@@ -63,22 +70,31 @@ Page({
   },
 
   onHide() {
+    pageSession.hide(this);
+    this._pollFlight = null;
     this._stopPoll();
   },
 
   onUnload() {
-    this._stopPoll();
+    this.onHide();
   },
 
   _ensureBound() {
+    const current = pageSession.capture(this);
     return api
       .request("/api/auth/me")
       .then((me) => {
+        if (!current()) return false;
         const bound = !!(me && me.binding && me.binding.bound);
         if (!bound) {
           wx.showToast({ title: "请先绑定设备", icon: "none" });
-          setTimeout(() => wx.navigateTo({ url: "/pages/bind/bind" }), 400);
+          wx.navigateTo({ url: "/pages/bind/bind" });
         }
+        const mac = me.active_device_mac || "";
+        if (this._deviceMac && this._deviceMac !== mac) {
+          this.setData({ upgrading: false, updateAvailable: false });
+        }
+        this._deviceMac = mac;
         return bound;
       })
       .catch(() => false);
@@ -126,12 +142,14 @@ Page({
 
   onCheck(silent) {
     if (this.data.checking || this.data.upgrading) return;
+    const current = pageSession.capture(this);
     const quiet = silent === true;
     this.setData({ checking: true });
     if (!quiet) this._setTip("");
     api
       .request("/api/device/firmware/check")
       .then((data) => {
+        if (!current()) return;
         this.setData({ checking: false });
         this._applyCheck(data);
         if (!quiet && data && data.reason === "check_failed") {
@@ -142,6 +160,7 @@ Page({
         }
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ checking: false });
         const msg = (err && err.detail) || reasonText("check_failed");
         this._setTip(msg, "warn");
@@ -153,6 +172,7 @@ Page({
     if (!this.data.updateAvailable || this.data.upgrading || this.data.checking) {
       return;
     }
+    const current = pageSession.capture(this);
     wx.showModal({
       title: "确认升级固件？",
       content:
@@ -161,12 +181,14 @@ Page({
         "。确认后开始下载。",
       confirmText: "立即升级",
       success: (r) => {
-        if (r.confirm) this._startUpgrade();
+        if (r.confirm && current()) this._startUpgrade();
       },
     });
   },
 
   _startUpgrade() {
+    if (this.data.upgrading || this.data.checking) return;
+    const current = pageSession.capture(this);
     this._stopPoll();
     this.setData({
       upgrading: true,
@@ -178,6 +200,7 @@ Page({
     api
       .request("/api/device/firmware/upgrade", { method: "POST" })
       .then((data) => {
+        if (!current()) return;
         if (!data || (data.status !== "started" && data.status !== "unknown")) {
           const token = (data && data.detail) || "check_failed";
           const msg = reasonText(token) || "升级未能开始";
@@ -201,6 +224,7 @@ Page({
         this._pollOnce();
       })
       .catch((err) => {
+        if (!current()) return;
         const detail = (err && err.detail) || "";
         const msg = reasonText(detail) || detail || "升级失败";
         // 网关瞬态（502/504/读超时）设备可能已在升级：不清 UI，继续轮询对账
@@ -219,6 +243,8 @@ Page({
   },
 
   _pollOnce() {
+    if (this._visible === false || this._pollFlight) return;
+    const current = pageSession.capture(this);
     this._pollCount = (this._pollCount || 0) + 1;
     if (this._pollCount > POLL_MAX) {
       this._stopPoll();
@@ -227,9 +253,11 @@ Page({
       wx.showToast({ title: "请查看设备屏幕", icon: "none" });
       return;
     }
+    const flight = this._pollFlight = {};
     api
       .request("/api/device/firmware/ota_status")
       .then((st) => {
+        if (!current()) return;
         const state = String((st && st.state) || "").toLowerCase();
         const progress =
           typeof (st && st.progress) === "number" ? Math.max(0, Math.min(100, st.progress)) : this.data.progress;
@@ -252,7 +280,7 @@ Page({
           this._setTip(reasonText("ok"), "ok");
           wx.showToast({ title: "升级成功", icon: "success" });
           // 再 check 一次对齐 latest
-          setTimeout(() => this.onCheck(true), 800);
+          this._pollTimer = setTimeout(() => { if (current()) this.onCheck(true); }, 800);
           return;
         }
         if (state === "failed" || state === "rolled_back") {
@@ -281,8 +309,10 @@ Page({
         this._pollTimer = setTimeout(() => this._pollOnce(), POLL_MS);
       })
       .catch(() => {
+        if (!current()) return;
         // 短暂网络抖动：继续轮询，不立刻失败
         this._pollTimer = setTimeout(() => this._pollOnce(), POLL_MS);
-      });
+      })
+      .finally(() => { if (this._pollFlight === flight) this._pollFlight = null; });
   },
 });

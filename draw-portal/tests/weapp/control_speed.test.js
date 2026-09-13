@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { createWeapp, flush } = require("./harness");
+const { createWeapp, createClock, flush } = require("./harness");
 
 const initial = { x: 10000, y: 10000, z: 1200 };
 
@@ -160,4 +160,52 @@ test("旧固件、未就绪或正在调速时禁用三轴控制", () => {
     { plotter_sku: "paper" }, { state: "streaming" }, { speed: { axis_control: true, state: "pending" } }]) {
     assert.equal(h.page._deriveControls({ ...status, ...patch }).canSetSpeed, false);
   }
+});
+
+test("真实登录信息的打码 MAC 只展示，调速读取使用明确的当前设备", async () => {
+  const h = createWeapp();
+  h.load("pages/control/control.js");
+  h.page._reschedulePoll = () => {};
+  h.page.refresh();
+  reply(h, { phone_bound: true, active_device_mac: "aa:bb:cc:dd:ee:ff",
+    binding: { bound: true, device_mac: "aa:bb:cc…ff" },
+    devices: [{ device_mac: "aa:bb:cc:dd:ee:ff" }] });
+  await flush();
+  assert(h.requests.at(-1).url.endsWith("/api/device/control"));
+  reply(h, { status: "ok", result: JSON.stringify({ connected: true, ready: true,
+    authorized: true, grbl_settings_ok: true, state: "done", grbl_state: "Idle",
+    plotter_sku: "nopaper", speed: { axis_control: true, state: "done" } }) });
+  await flush();
+  const request = h.requests.at(-1);
+  assert.equal(new URL(request.url).searchParams.get("device_mac"), "aa:bb:cc:dd:ee:ff");
+  reply(h, { status: "ok", rates: initial });
+  await flush();
+  assert.equal(h.page.data.speedLoaded, true);
+  assert.equal(h.page.data.canSetSpeed, true);
+  change(h, "y", 9000);
+  assert.equal(h.requests.at(-1).data.device_mac, "aa:bb:cc:dd:ee:ff");
+});
+
+test("读取失败可见并能手动重试", async () => {
+  const h = readyControl();
+  h.page.setData({ speedLoaded: false });
+  h.page._loadMachineSpeed();
+  reply(h, { detail: "控制设备已切换，请刷新后重试" }, 409);
+  await flush();
+  assert.match(h.page.data.speedError || "", /设备已切换/);
+  assert.equal(typeof h.page.onRetrySpeed, "function");
+});
+
+test("首次加载和网络失败均不误显示未绑定状态", async () => {
+  const h = createWeapp({ clock: createClock() });
+  h.load("pages/control/control.js");
+  h.page.onShow();
+  assert.equal(h.page.data.bindingLoading, true);
+  assert.equal(h.page.data.bindingChecked, false);
+  await flush();
+  h.requests.at(-1).fail({ errMsg: "request:fail" });
+  await flush();
+  assert.equal(h.page.data.bindingLoading, false);
+  assert.equal(h.page.data.bindingChecked, false);
+  assert.match(h.page.data.statusError, /刷新/);
 });

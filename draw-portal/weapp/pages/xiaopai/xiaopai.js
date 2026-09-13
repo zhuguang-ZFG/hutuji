@@ -4,6 +4,7 @@
 // agent，设备经验证码绑定后生效；未绑定设备不改任何人的现网配置。
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
+const pageSession = require("../../utils/page_session");
 
 const MODEL_LABELS = {
   "xz-lite": "轻量（官方默认）",
@@ -33,16 +34,28 @@ Page({
   },
 
   onShow() {
-    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
+    pageSession.show(this);
+    const current = pageSession.capture(this);
+    this.setData({ loading: true, saving: false, binding: false, bindCode: "", dirty: false,
+      voices: [], voiceGroups: [], groupNames: [], models: [], selectedVoice: "",
+      selectedVoiceName: "", selectedModel: "", deviceBound: false, agentReady: false, error: "" });
+    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+      if (!current()) return;
       if (ok) this.refresh();
+      else this.setData({ loading: false, error: "账号信息读取失败，请重试" });
     });
   },
 
+  onHide() { pageSession.hide(this); },
+  onUnload() { this.onHide(); },
+
   refresh() {
+    const current = pageSession.capture(this);
     this.setData({ loading: true, error: "" });
     api
       .request("/api/settings/xiaopai")
       .then((data) => {
+        if (!current()) return;
         const groups = this._groupVoices(data.voices || []);
         const groupNames = groups.map((g) => g.label);
         const currentVoice = data.tts_voice || "";
@@ -72,6 +85,7 @@ Page({
         });
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({
           loading: false,
           error: (err && err.detail) || "设置加载失败",
@@ -105,6 +119,7 @@ Page({
   },
 
   onPickVoice(e) {
+    if (this.data.loading || this.data.saving) return;
     const vid = e.currentTarget.dataset.vid;
     const vname = e.currentTarget.dataset.vname;
     if (vid === this.data.selectedVoice) return;
@@ -112,18 +127,21 @@ Page({
   },
 
   onPickModel(e) {
+    if (this.data.loading || this.data.saving) return;
     const name = e.currentTarget.dataset.name;
     if (name === this.data.selectedModel) return;
     this.setData({ selectedModel: name, dirty: true });
   },
 
   onCodeInput(e) {
+    if (this.data.binding) return;
     const digits = String(e.detail.value || "").replace(/\D/g, "").slice(0, 6);
     this.setData({ bindCode: digits });
   },
 
   save() {
-    if (this.data.saving || !this.data.dirty) return;
+    if (this.data.loading || this.data.saving || !this.data.dirty) return;
+    const current = pageSession.capture(this);
     const patch = {};
     if (this.data.selectedVoice) patch.tts_voice = this.data.selectedVoice;
     if (this.data.selectedModel) patch.llm_model = this.data.selectedModel;
@@ -135,10 +153,12 @@ Page({
     api
       .request("/api/settings/xiaopai", { method: "POST", data: patch })
       .then(() => {
+        if (!current()) return;
         this.setData({ saving: false, dirty: false });
         wx.showToast({ title: "已保存，下次对话生效", icon: "none", duration: 2200 });
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ saving: false });
         wx.showToast({ title: (err && err.detail) || "保存失败", icon: "none" });
         if (err && err.status === 503) this.refresh();
@@ -147,6 +167,7 @@ Page({
 
   bindDevice() {
     if (this.data.binding) return;
+    const current = pageSession.capture(this);
     if (this.data.bindCode.length !== 6) {
       wx.showToast({ title: "请输入设备上的 6 位验证码", icon: "none" });
       return;
@@ -158,10 +179,12 @@ Page({
         data: { code: this.data.bindCode },
       })
       .then(() => {
+        if (!current()) return;
         this.setData({ binding: false, deviceBound: true, bindCode: "" });
         wx.showToast({ title: "设备已绑定", icon: "none" });
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ binding: false });
         wx.showToast({ title: (err && err.detail) || "绑定失败", icon: "none" });
       });

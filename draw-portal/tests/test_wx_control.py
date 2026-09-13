@@ -134,6 +134,57 @@ def test_device_control_dispatch_and_result_relay(tmp_path: Path, monkeypatch: p
     r2 = c2.post("/api/device/control", json={"tool": "hutuji.pen_test"})
     assert r2.json() == {"status": "error", "detail": "HTTP 503"}
 
+
+def test_control_target_and_active_flag_follow_explicit_selection(tmp_path, monkeypatch):
+    _, client = _clients(monkeypatch, tmp_path)
+    for code, mac in (("AAAAAA", "aa:bb:cc:dd:ee:ff"), ("BBBBBB", "11:22:33:44:55:66")):
+        _announce(client, code, mac)
+        assert client.post("/api/user/bind/complete", json={"bind_code": code}).status_code == 200
+    target = "aa:bb:cc:dd:ee:ff"
+    assert client.post("/api/user/devices/select", json={"device_mac": target}).status_code == 200
+    me = client.get("/api/auth/me").json()
+    assert me["active_device_mac"] == target
+    assert [d["device_mac"] for d in me["devices"] if d["active"]] == [target]
+    calls = []
+    monkeypatch.setattr(app_mod, "push_tool_call", lambda **kw: (calls.append(kw), (True, "ok"))[1])
+    wrong = client.post("/api/device/control", json={"tool": "hutuji.manual", "action": "home",
+                        "device_mac": "11:22:33:44:55:66"})
+    assert wrong.status_code == 409
+    assert calls == []
+    assert client.post("/api/device/control", json={"tool": "hutuji.status", "device_mac": target}).status_code == 200
+    assert len(calls) == 1
+
+
+def test_control_retry_refuses_ownership_changed_while_minting(tmp_path, monkeypatch):
+    first, second = _clients(monkeypatch, tmp_path)
+    _announce(first, "AAAAAA")
+    assert first.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    calls = []
+    monkeypatch.setattr(app_mod, "push_tool_call", lambda **kw: (calls.append(kw), (False, "HTTP 401"))[1])
+
+    def mint(**kwargs):
+        _announce(second, "BBBBBB")
+        assert second.post("/api/user/bind/complete", json={"bind_code": "BBBBBB", "force": True}).status_code == 200
+        return "new-token"
+
+    monkeypatch.setattr("draw_portal.push.mint_messaging_token", mint)
+    result = first.post("/api/device/control", json={"tool": "hutuji.manual", "action": "home"})
+    assert result.status_code == 409
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("result", [
+    '{"isError":true,"content":[{"type":"text","text":"拒绝"}]}',
+    '{"success":true,"data":{"error":"busy"}}',
+])
+def test_control_does_not_report_device_rejection_as_success(tmp_path, monkeypatch, result):
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    monkeypatch.setattr(app_mod, "push_tool_call", lambda **kw: (True, result))
+    body = client.post("/api/device/control", json={"tool": "hutuji.manual", "action": "jog_step_1"}).json()
+    assert body["status"] == "error"
+
 def test_wx_profile_phone_avatar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _, c2 = _clients(monkeypatch, tmp_path)
     monkeypatch.setattr(app_mod, "_wx_phone_number", lambda cfg, code: "13800138000")

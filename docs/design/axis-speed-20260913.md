@@ -5,7 +5,7 @@
 ## 事实与范围
 
 - COM15 S3 MAC `b8:1f:3f:c4:58:2c`，Freenove 2.8 寸；COM3 Grbl MAC `4c:c3:82:cc:8a:9c`。基线为 S3 `99cf423` / 量产 Grbl `e68c697`。
-- 最新完整参数证据 `results/20260913-crossrepo-review/motor-disable-memory/grbl-web-ota.json`：X/Y 为 16000，Z 为 1200；量产源码出厂 X/Y 为 5000，Z 为 600。
+- 升级前完整参数证据 `results/20260913-crossrepo-review/motor-disable-memory/grbl-web-ota.json`：X/Y 为 16000，Z 为 1200；升级前量产源码出厂 X/Y 为 5000，Z 为 600。
 - 本批只把量产源码 X/Y 出厂值改成 10000，并把当前机器 X/Y 写成 10000；现役 Z=1200、Z 出厂值 600、全部加速度/步距/行程/使能规则不改。普通重启保留 Grbl NVS 中的设置，不在 S3 启动时覆盖。
 - X/Y 保留已定的 3000–16000、步进 500；Z 为 100–3000、步进 100。Z 上限为本轮保守的软件调节范围，不宣称全范围经过机械验证；实机只验证现值附近并恢复 1200。
 
@@ -21,4 +21,6 @@
 
 本地通过：portal 351 项、小程序 80 项、S3 host 181 项、三种 S3 构建（各 215 CXX）、量产 Grbl release 与 fz standard；hub full 13 层全过（MCP 1453 项 + e2e PASS）。首次 full 唯一失败为 inventory 当前计数仍写 1451，已按 collect 事实同步为 1453，回归断言未修改。证据保存在 `results/20260913-crossrepo-review/hutuji.1.0.17/`。
 
-待完成：量产板升级、三轴逐一修改并读回另外两轴未变、最终 10000/10000/1200、归位失能小样复验、双机接口部署与小程序上传。状态与证据以 `docs/release-readiness.md` 最终登记为准。
+已完成定向交付：hub `71250177db60` 双机部署、S3 `3088794a1287` / hutuji.1.0.17 安装到 COM15、量产 Grbl `ca9b36bb1ff6` 安装到 COM3；三轴逐一写入与读回证明另外两轴不变，最终 X/Y/Z=10000/10000/1200，Grbl 重启保留全部设置。两个小「口」正常/再次绘制均归位且各收到一次自动 `$MD` 的 ok，最终 done/Idle/原点。weapp 0.3.12 上传 exit0、146916B；这些是接口与定向实机证据，不是手机滑块通过。57 个证据文件的汇总在同目录 `verification-summary.json`，双机备份 `/root/hutuji-bak-20260913-axis-speed-71250177db60`。
+
+用户随后提供手机截图，查出控制页误用脱敏 MAC，导致真实页面读不到速度。该问题与后续页面/隐私审查单独登记在 [小程序审查](weapp-review-20260913.md)；此前手工带完整 MAC 的 API 验证不能替代正常页面链路。

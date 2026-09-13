@@ -1,10 +1,16 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
-## 2026-09-13 三轴调速与默认 10000（本轮待部署候选）
+## 2026-09-13 小程序审查（当前工作批）
+
+控制页使用完整目标、读取错误/串行轮询；创作/聊天/历史/资料/画板/固件/小派设置页面补异步边界及体验问题；portal控制目标与业务错误判断、图库备份上传开关和注册通知隐私加固。对应回归、协议、内部隐私核对稿与清单同批修改。代码在当前工作树，待提交和部署；本批不修改或重刷两个固件。
+
+本机证据根 `results/20260913-weapp-review/` 包含生产故障复现、双机只读快照、官方法规正文、Node/portal门禁、开发者工具截图；候选/脚本在tmp，测试用automator仅装在 `tmp/weapp-review-tools/`，不进产品包或提交。全局未跟踪文件与换纸Grbl的`.gitignore`保留；交付状态看readiness。
+
+## 2026-09-13 三轴调速与默认 10000（定向交付已完成）
 
 用户追加要求 X/Y 默认 10000、Z 保留现值，并在小程序分别设置三轴。枢纽改 portal app/machine_speed、control 三文件与定向回归；S3 改 Job/Pipe/速度纯核心/三板工具注册与 host 测试，版本 1.0.17；量产 worktree 只改机头 X/Y 出厂 max-rate。换纸 worktree 本批没有新代码修改，其原 `.gitignore` 脏改保留。
 
-本地 portal351、weapp80、S3 host181、三板各215 CXX、量产 release 与 fz standard 全通过；证据在本机 `results/20260913-crossrepo-review/hutuji.1.0.17/`（Freenove SHA e72245fc…d451974；量产 Grbl e138824a…07eac6）。新脚本/候选/NVS 备份均只留本机 tmp/results，不提交。当前候选尚待安装，板上与最终交付状态看 readiness；下方 1.0.16 实机证据保留。
+本地 portal351、weapp80、S3 host181、三板各215 CXX、量产 release 与 fz standard 全通过；证据在本机 `results/20260913-crossrepo-review/hutuji.1.0.17/`（Freenove SHA e72245fc…d451974；量产 Grbl e138824a…07eac6）。新脚本/候选/NVS 备份均只留本机 tmp/results，不提交。hub `71250177db60` 已双机部署，S3 `3088794a1287` / 1.0.17 已在 COM15、量产 Grbl `ca9b36bb1ff6` 已在 COM3；最终10000/10000/1200并经重启保留，两轮小样回原点及自动失能通过。weapp0.3.12已上传；57项证据与哈希见同目录 `verification-summary.json`。用户追加的真实页面故障另在本批修复，下方1.0.16历史保留。
 
 > 本文件记录三仓未提交资产。接手时先对清单与 `git status`；清单过期就更新清单，**不是**把别人的改动回滚掉。
 > 三仓路径：hutuji `D:\Users\hutuji` ｜ Grbl `D:\Users\Grbl_Esp32` ｜ xiaozhi `D:\Users\xiaozhi-esp32` ｜ fz `D:\Users\zhugu\fz`
@@ -655,7 +661,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:156`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:157`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）

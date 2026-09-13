@@ -70,7 +70,10 @@ def test_new_user_first_binding_notifies_once(tmp_path: Path, monkeypatch: pytes
         "/api/user/bind/complete", json={"bind_code": "ABC123"}
     ).status_code == 200
     assert len(sent) == 1
-    assert "mac=aa:bb:cc:dd:ee:ff" in sent[0]
+    assert "新用户完成设备绑定" in sent[0]
+    assert "事件=" in sent[0]
+    assert "mac=" not in sent[0]
+    assert "aa:bb:cc:dd:ee:ff" not in sent[0]
 
     client.post("/api/user/bind/unbind")
     _announce(client, code="DEF456")

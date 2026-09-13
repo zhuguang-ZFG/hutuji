@@ -97,6 +97,8 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 
 ## Code Conventions & Common Patterns｜代码约定与常用模式
 
+- **2026-09-13 小程序审查**：控制目标取 `/api/auth/me.active_device_mac`，`binding.device_mac` 只作打码展示；正常页面链路回归不得用完整MAC桩替代真实返回形状。`page_session` 区分展示回包与同账号生成结果，前者离页作废，后者暂时切页保留但不在隐藏页续发控制/轮询；退出与卸载均作废。图库新增外部备份关闭与历史副本删除解耦，实际部署和隐私缺证见 `docs/design/weapp-review-20260913.md` 与readiness；内部稿不等于平台已发布指引。
+
 - **2026-09-12 一次扫码身份 v2**：`draw_portal/device_identity.py` 是 P-256/SHA-256 规范与验签入口；S3 私钥/会话在 NVS `hutuji_identity`，QR 携完整公钥/device_id/nonce。成功须本次证明与 token 当前探活；`503 binding_pending` 不消费证明。`user_device_bindings` 主表支持多设备，旧镜像不可覆盖主表所有权；token/探活/机型/推送回写捕获 user+MAC。小程序 `bind_identity`/`wifi_transport` 共用扫码和 UTF-8 分帧，密码只留内存，手机号闸/页面双代次拦旧回包。契约 §10.4.0/§10.4.2–4；设计与回归断言见 `docs/design/device-identity-rollout.md`，上线/实机状态仍只看 readiness。
 - **2026-09-10 评审修复约定**：中心线预览按 ≤2048 单边栅格预算并先裁线；波纹只在紧邻行间且回折线全程暗区时合笔；进程内画图日限只在新任务登记时扣额。小程序登录按会话代次隔离旧回包、默认字体省略 `font`、显式字体的中文使用所选 gfont。契约见 `docs/protocol.md` §5/§10.4.0/§10.4.9/§10.4.10；JS 回归入口见 `draw-portal/README.md`，本地验证与部署状态以 `docs/release-readiness.md` 为准。
 - **语言**：文档与注释一律中文，标识符英文。注释解释「为什么这个数」，不复述代码。

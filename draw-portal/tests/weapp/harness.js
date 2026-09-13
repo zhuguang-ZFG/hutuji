@@ -43,6 +43,21 @@ function createWeapp(options = {}) {
   const modals = [];
   const navigations = [];
   const scans = [];
+  const downloads = [];
+  const actionSheets = [];
+  const recorderEvents = { start: new Set(), stop: new Set(), error: new Set() };
+  const recorder = {
+    starts: [], stops: 0,
+    start(options) { this.starts.push(options); },
+    stop() { this.stops++; },
+    onStart(fn) { recorderEvents.start.add(fn); },
+    onStop(fn) { recorderEvents.stop.add(fn); },
+    onError(fn) { recorderEvents.error.add(fn); },
+    offStart(fn) { recorderEvents.start.delete(fn); },
+    offStop(fn) { recorderEvents.stop.delete(fn); },
+    offError(fn) { recorderEvents.error.delete(fn); },
+    emit(event, result) { for (const fn of [...recorderEvents[event]]) fn(result); },
+  };
   let app;
   let page;
   const wx = {
@@ -58,6 +73,12 @@ function createWeapp(options = {}) {
     navigateTo: (options) => navigations.push(options),
     redirectTo: (options) => navigations.push(options),
     scanCode: (options) => scans.push(options),
+    downloadFile: (options) => downloads.push(options),
+    showActionSheet: (options) => actionSheets.push(options),
+    getRecorderManager: () => recorder,
+    showLoading: () => {},
+    hideLoading: () => {},
+    stopPullDownRefresh: () => {},
   };
   const clock = options.clock;
   const context = vm.createContext({
@@ -65,7 +86,16 @@ function createWeapp(options = {}) {
     App: (definition) => { app = definition; },
     Page: (definition) => {
       page = definition;
-      page.setData = (data) => Object.assign(definition.data, data);
+      // 逻辑层到视图层会序列化；不能靠对象别名让两份列表误以为已同步。
+      page.setData = (data) => {
+        for (const [key, value] of Object.entries(data)) {
+          if (value === undefined) continue;
+          const parts = key.replace(/\[(\d+)\]/g, ".$1").split(".");
+          let target = definition.data;
+          for (const part of parts.slice(0, -1)) target = target[part];
+          target[parts.at(-1)] = JSON.parse(JSON.stringify(value));
+        }
+      };
     },
     getApp: () => app,
     getCurrentPages: () => page ? [page] : [],
@@ -92,6 +122,7 @@ function createWeapp(options = {}) {
   load("app.js");
   return {
     app, load, storage, logins, requests, uploads, toasts, tabs, wx, modals, navigations, scans,
+    downloads, actionSheets, recorder,
     get page() { return page; },
   };
 }

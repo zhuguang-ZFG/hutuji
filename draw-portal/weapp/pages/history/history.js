@@ -1,6 +1,7 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
+const pageSession = require("../../utils/page_session");
 const KINDS = [
   { key: "all", label: "全部" },
   { key: "draw", label: "AI 画" },
@@ -24,28 +25,49 @@ function parseKind(title) {
 
 Page({
   data: {
+    kinds: KINDS,
     jobs: [],
     filtered: [],
     filterKind: "all",
     redrawing: false,
     loading: true,
+    loadError: "",
+    sendingId: "",
+    deletingId: "",
   },
 
   onShow() {
-    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
+    pageSession.show(this);
+    const current = pageSession.capture(this);
+    this.setData({ jobs: [], filtered: [], loading: true, loadError: "", redrawing: false,
+      sendingId: "", deletingId: "" });
+    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+      if (!current()) return;
       if (ok) this.refresh();
       else this.setData({ loading: false });
     });
   },
+
+  onHide() {
+    pageSession.hide(this);
+    if (this._loadingOverlay) wx.hideLoading();
+    this._loadingOverlay = false;
+  },
+  onUnload() { this.onHide(); },
 
   onPullDownRefresh() {
     this.refresh(() => wx.stopPullDownRefresh());
   },
 
   refresh(done) {
-    api
+    const visible = pageSession.capture(this);
+    const requestId = this._listRequest = (this._listRequest || 0) + 1;
+    const current = () => visible() && this._listRequest === requestId;
+    this.setData({ loading: true, loadError: "" });
+    return api
       .request("/api/draw/saved")
       .then((data) => {
+        if (!current()) return;
         // 收藏列表契约：{items:[{id,title,saved_at,preview_url}]}，发送走 saved/{id}/send。
         // preview_url 是 secured 相对路径，<image> 直连必 401（带不上 x-session），
         // 先置空、逐条 downloadFile 落地临时文件后回填本地路径。
@@ -63,18 +85,24 @@ Page({
         });
         this.setData({ jobs, loading: false });
         this._applyFilter();
-        jobs.forEach((job, idx) => {
+        jobs.forEach((job) => {
           if (!job.previewPath) return;
           api
             .downloadFile(job.previewPath)
-            .then((local) => this.setData({ [`jobs[${idx}].previewUrl`]: local }))
+            .then((local) => {
+              if (!current()) return;
+              this.setData({ jobs: this.data.jobs.map((item) => item.savedId === job.savedId
+                ? Object.assign({}, item, { previewUrl: local }) : item) });
+              this._applyFilter();
+            })
             .catch(() => {}); // 单条失败留占位，不打扰整页
         });
-        if (done) done();
       })
-      .catch(() => {
-        this.setData({ loading: false });
-        if (done) done();
+      .catch((err) => {
+        if (current()) this.setData({ loading: false, loadError: err.detail || "作品读取失败，请重试" });
+      })
+      .finally(() => {
+        if (current() && typeof done === "function") done();
       });
   },
 
@@ -97,27 +125,37 @@ Page({
     const idx = Number(e.currentTarget.dataset.idx);
     const item = this.data.filtered[idx];
     if (!item || !item.kind || this.data.redrawing) return;
+    const current = pageSession.capture(this);
+    this.setData({ redrawing: true });
     subscribe.requestAtTap();
     const path = item.content || item.sourceName;
     wx.showModal({
       title: "重新生成？",
       content: path,
       success: (res) => {
-        if (!res.confirm) return;
+        if (!current()) return;
+        if (!res.confirm) { this.setData({ redrawing: false }); return; }
         this._redraw(item.kind, path);
       },
+      fail: () => { if (current()) this.setData({ redrawing: false }); },
     });
   },
 
   _redraw(kind, content) {
+    const current = pageSession.capture(this);
     this.setData({ redrawing: true });
+    this._loadingOverlay = true;
     wx.showLoading({ title: "重画中…", mask: true });
     const fail = (detail) => {
+      if (!current()) return;
+      this._loadingOverlay = false;
       wx.hideLoading();
       this.setData({ redrawing: false });
       wx.showModal({ title: "重画失败", content: detail || "请稍后再试", showCancel: false });
     };
     const ok = (data) => {
+      if (!current()) return;
+      this._loadingOverlay = false;
       wx.hideLoading();
       this.setData({ redrawing: false });
       getApp().globalData.pendingAdopt = data;
@@ -149,51 +187,31 @@ Page({
 
   // 长按删除（2026-09-09 补）：后端 DELETE /api/draw/saved/{id} 早已上线但前端无入口
   onLongPress(e) {
-    const savedId = e.currentTarget.dataset.id;
-    const idx = Number(e.currentTarget.dataset.idx);
+    const current = pageSession.capture(this);
     wx.showActionSheet({
       itemList: ["删除"],
       itemColor: "#FA5151",
       success: (res) => {
-        if (res.tapIndex !== 0) return;
-        wx.showModal({
-          title: "删除这件作品",
-          content: "删除后不能再发送到丹青，确定？",
-          confirmText: "删除",
-          confirmColor: "#FA5151",
-          success: (r) => {
-            if (!r.confirm) return;
-            api
-              .request(`/api/draw/saved/${savedId}`, { method: "DELETE" })
-              .then(() => {
-                const jobs = this.data.jobs.slice();
-                jobs.splice(idx, 1);
-                this.setData({ jobs });
-                wx.showToast({ title: "已删除", icon: "success" });
-              })
-              .catch((err) => {
-                wx.showModal({
-                  title: "删除失败",
-                  content: err.detail || "请稍后再试",
-                  showCancel: false,
-                });
-              });
-          },
-        });
+        if (res.tapIndex === 0 && current()) this.onDelete(e);
       },
     });
   },
 
   onSend(e) {
     const savedId = e.currentTarget.dataset.id;
+    if (!savedId || this.data.sendingId) return;
+    const current = pageSession.capture(this);
+    this.setData({ sendingId: savedId });
     wx.showModal({
       title: "发送到丹青",
       content: "将直接开始画，无需再在小派上确认",
       success: (res) => {
-        if (!res.confirm) return;
+        if (!current()) return;
+        if (!res.confirm) { this.setData({ sendingId: "" }); return; }
         api
           .request(`/api/draw/saved/${savedId}/send`, { method: "POST" })
           .then((r) => {
+            if (!current()) return;
             if (r.status === "sent") {
               const started = /已自动开始画/.test(r.detail || "");
               wx.showToast({
@@ -205,38 +223,51 @@ Page({
             }
           })
           .catch((err) => {
+            if (!current()) return;
             if (err.status === 400 && /绑定/.test(err.detail || "")) {
               wx.navigateTo({ url: "/pages/bind/bind" });
               return;
             }
             wx.showModal({ title: "发送失败", content: err.detail || "请稍后再试", showCancel: false });
-          });
+          })
+          .finally(() => { if (current()) this.setData({ sendingId: "" }); });
       },
+      fail: () => { if (current()) this.setData({ sendingId: "" }); },
     });
   },
 
   onDelete(e) {
     const savedId = e.currentTarget.dataset.id;
+    if (!savedId || this.data.deletingId) return;
+    const current = pageSession.capture(this);
+    this.setData({ deletingId: savedId });
     wx.showModal({
       title: "删除收藏",
       content: "删除后不能从历史再发送，确认删除？",
       confirmColor: "#e54d42",
       success: (res) => {
-        if (!res.confirm) return;
+        if (!current()) return;
+        if (!res.confirm) { this.setData({ deletingId: "" }); return; }
         api
           .request(`/api/draw/saved/${savedId}`, { method: "DELETE" })
           .then(() => {
+            if (!current()) return;
+            // 筛选页的 index 不属于原列表；按稳定 ID 同时更新数据和显示。
+            this.setData({ jobs: this.data.jobs.filter((item) => item.savedId !== savedId) });
+            this._applyFilter();
             wx.showToast({ title: "已删除", icon: "success" });
-            this.refresh();
           })
           .catch((err) => {
+            if (!current()) return;
             wx.showModal({
               title: "删除失败",
               content: err.detail || "请稍后再试",
               showCancel: false,
             });
-          });
+          })
+          .finally(() => { if (current()) this.setData({ deletingId: "" }); });
       },
+      fail: () => { if (current()) this.setData({ deletingId: "" }); },
     });
   },
 });

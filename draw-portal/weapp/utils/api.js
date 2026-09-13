@@ -75,7 +75,8 @@ function request(path, options = {}) {
         }
         if (res.statusCode >= 400) {
           const payload = _detailPayload(res.data);
-          if (res.statusCode === 403 && payload.code === "phone_required") {
+          if (res.statusCode === 403 && payload.code === "phone_required" &&
+            generation === getApp()._sessionGeneration && header["x-session"] === getSession()) {
             _handlePhoneRequired(payload);
           }
           reject({
@@ -116,7 +117,8 @@ function uploadFile(path, filePath, name, formData) {
             data = JSON.parse(res.data);
           } catch (e) {}
           const payload = _detailPayload(data || { detail: "上传失败" });
-          if (res.statusCode === 403 && payload.code === "phone_required") {
+          if (res.statusCode === 403 && payload.code === "phone_required" &&
+            generation === getApp()._sessionGeneration && session === getSession()) {
             _handlePhoneRequired(payload);
           }
           reject({

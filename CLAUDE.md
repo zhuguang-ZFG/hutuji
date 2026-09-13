@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 量产机三轴速度（2026-09-13 用户拍板）：X/Y 默认 10000，Z 保留机器现值；小程序分别设置 X/Y/Z，重启保留。单轴写入前检查设备分轴能力，写后查询三轴实际参数，确认选中轴生效再提示成功。设计与验收见 [`三轴调速`](docs/design/axis-speed-20260913.md)，当前板上状态仍以 readiness 为准。
 
+2026-09-13 小程序审查约定：`/api/auth/me.active_device_mac` 用于控制，`binding.device_mac` 仅作打码展示；测试从真实返回形状与正常页面加载开始。状态轮询串行，异步控制按页面/账号/设备隔离；同账号生成跨切页保留结果，录音取消不续发工具。内部隐私核对稿不代表已发布协议或法律签核，实际数据处理与证据见 [`小程序审查`](docs/design/weapp-review-20260913.md)。
+
 量产静音（2026-09-13）：整单末尾/停止归位后旁路 `$MD`，先抬笔、fresh Idle、100ms 沉降与 G1 归位，保持 `$1=255`；新任务先 `G92 Z0`、下一运动自动使能。重复停止复用同一 worker，终态在 worker 完成后发布；绘图、暂停与手动归位不自动失能。Grbl 参数内存修复只回收原始 `strdup` 分配，不改掩码或运动。契约 §5/§10.4.15。
 
 2026-09-12 扫码绑定身份 v2 与一账号多机：契约见 `docs/protocol.md` §10.4.0/§10.4.2–4，字节序、迁移、回滚及测试断言见 `docs/design/device-identity-rollout.md`。签名流只有本次 nonce 与 token 当前探活同时通过才报成功；异步回写锁定 user+MAC，旧镜像不能覆盖主表所有权。小程序密码不落 storage，扫码/授权/切网均按代次恢复。独立固件候选构建不等于部署或实机验收，状态看 `docs/release-readiness.md`。

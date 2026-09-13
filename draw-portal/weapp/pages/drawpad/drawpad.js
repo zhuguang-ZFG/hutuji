@@ -4,6 +4,7 @@
 // SVG 直出必须过 llm_svg._validate_svg 白名单：只有 svg/g/path + fill=none +
 // 颜色描边，ellipse/rect 一律转 32 段/4 点 <path> 折线。
 const api = require("../../utils/api");
+const pageSession = require("../../utils/page_session");
 
 const MAX_STROKES = 400;
 
@@ -59,6 +60,13 @@ Page({
         this._redraw();
       });
   },
+
+  onShow() {
+    pageSession.show(this);
+    this.setData({ submitting: false });
+  },
+  onHide() { pageSession.hide(this); },
+  onUnload() { this.onHide(); },
 
   setTool(e) {
     this.setData({ tool: e.currentTarget.dataset.tool || "pen" });
@@ -137,6 +145,7 @@ Page({
 
   submit() {
     if (this.data.submitting || !this._strokes || !this._strokes.length) return;
+    const current = pageSession.capture(this);
     this.setData({ submitting: true });
     const fsm = wx.getFileSystemManager();
     const path = `${wx.env.USER_DATA_PATH}/drawpad_${Date.now()}.svg`;
@@ -155,6 +164,7 @@ Page({
       .uploadFile("/api/draw/upload", path, "file")
       .then((data) => {
         cleanup();
+        if (!current()) return;
         // 与拍照/相册/文档同汇合点：回创作页走 adoptJob 上预览
         const ch =
           typeof this.getOpenerEventChannel === "function"
@@ -165,6 +175,7 @@ Page({
       })
       .catch((err) => {
         cleanup();
+        if (!current()) return;
         this._fail((err && err.detail) || "上传失败，稍后再试");
       });
   },

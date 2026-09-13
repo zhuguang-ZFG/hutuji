@@ -5,10 +5,12 @@
 const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
+const pageSession = require("../../utils/page_session");
 const { displayVersion } = require("../../utils/version.js");
 
 const SESSION_KEY = "voice_session_id";
 const SESSION_LEN = 22;
+let recordingOwner = null;
 
 function ensureSessionId() {
   let sid = wx.getStorageSync(SESSION_KEY);
@@ -38,6 +40,9 @@ Page({
     footVersion: "v0.3.6",
     messages: [],
     recording: false,
+    recordingStarting: false,
+    enabled: false,
+    loadError: "",
     busy: false,
     scrollAnchor: "",
     textInput: "",
@@ -49,17 +54,34 @@ Page({
     this._sessionId = ensureSessionId();
     this._msgSeq = 0;
     this._recorder = wx.getRecorderManager();
-    this._recorder.onStart(() => {
-      this.setData({ recording: true });
-    });
-    this._recorder.onStop((res) => {
-      this.setData({ recording: false });
-      this._onRecordStop(res);
-    });
-    this._recorder.onError(() => {
-      this.setData({ recording: false, busy: false });
-      wx.showToast({ title: "录音失败", icon: "none" });
-    });
+    this._onRecorderStart = () => {
+      if (recordingOwner !== this) return;
+      const attempt = this._recordAttempt;
+      attempt.started = true;
+      if (!attempt.held || attempt.discarded || !attempt.current()) {
+        attempt.discarded = true;
+        this._recorder.stop();
+        return;
+      }
+      this.setData({ recording: true, recordingStarting: false });
+    };
+    this._onRecorderStop = (res) => {
+      if (recordingOwner !== this) return;
+      const attempt = this._finishRecording();
+      if (!attempt || !attempt.current()) return;
+      this.setData({ recording: false, recordingStarting: false });
+      if (!attempt.discarded) this._onRecordStop(res, attempt.current, attempt.sessionId);
+    };
+    this._onRecorderError = () => {
+      if (recordingOwner !== this) return;
+      const attempt = this._finishRecording();
+      if (!attempt || !attempt.current()) return;
+      this.setData({ recording: false, recordingStarting: false, busy: false });
+      wx.showToast({ title: "录音失败，请检查麦克风授权", icon: "none" });
+    };
+    this._recorder.onStart(this._onRecorderStart);
+    this._recorder.onStop(this._onRecorderStop);
+    this._recorder.onError(this._onRecorderError);
     // 首次进页给一句小派自我介绍（含能力版图，2026-09-09 用户反馈「以为功能丢了」）
     if (!this.data.messages.length) {
       this._pushMessage(
@@ -70,10 +92,60 @@ Page({
   },
 
   onShow() {
-    phoneGate.ensurePhoneOrRedirect(api).then((ok) => {
-      if (!ok) return;
+    pageSession.show(this);
+    const session = getApp()._sessionGeneration;
+    if (this._chatSession !== session) {
+      this._chatSession = session;
+      this._textPending = null;
+      this._msgSeq = 0;
+      this.setData({ messages: [], textInput: "", scrollAnchor: "" });
+      this._pushMessage("assistant", "我是小派，可以陪你聊天、画画、写字和教笔顺。");
+    }
+    this.setData({ enabled: false, loadError: "", busy: !!this._textPending, recording: false, recordingStarting: false,
+      messages: this.data.messages.map((msg) => msg.draw ? Object.assign({}, msg, {
+        draw: Object.assign({}, msg.draw, { sending: false, saving: false }),
+      }) : msg) });
+    const current = pageSession.capture(this);
+    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+      if (!current()) return;
+      if (!ok) { this.setData({ loadError: "账号信息读取失败，请重试" }); return; }
       this._sessionId = ensureSessionId();
+      this.setData({ enabled: true });
     });
+  },
+
+  onHide() {
+    pageSession.hide(this);
+    this._cancelRecording();
+    this.setData({ enabled: false, recording: false, recordingStarting: false });
+  },
+
+  onUnload() {
+    this._unloaded = true;
+    this.onHide();
+    if (!this._recordAttempt) this._detachRecorder();
+  },
+
+  _detachRecorder() {
+    this._recorder.offStart(this._onRecorderStart);
+    this._recorder.offStop(this._onRecorderStop);
+    this._recorder.offError(this._onRecorderError);
+  },
+
+  _finishRecording() {
+    const attempt = this._recordAttempt;
+    this._recordAttempt = null;
+    recordingOwner = null;
+    if (this._unloaded) this._detachRecorder();
+    return attempt;
+  },
+
+  _cancelRecording() {
+    const attempt = this._recordAttempt;
+    if (!attempt) return;
+    attempt.held = false;
+    attempt.discarded = true;
+    if (attempt.started) this._recorder.stop();
   },
 
   _nextMsgId() {
@@ -118,7 +190,11 @@ Page({
   },
 
   onHoldStart() {
-    if (this.data.busy || this.data.recording) return;
+    if (!this.data.enabled || this.data.busy || recordingOwner) return;
+    this._recordAttempt = { current: pageSession.capture(this), sessionId: this._sessionId,
+      held: true, started: false, discarded: false };
+    recordingOwner = this;
+    this.setData({ recordingStarting: true });
     // 语音可能触发长链画/写；用户松手离开 app 时靠订阅消息召回
     subscribe.requestAtTap();
     try {
@@ -127,53 +203,65 @@ Page({
         duration: 60000,
       });
     } catch (e) {
+      this._finishRecording();
+      this.setData({ recordingStarting: false });
       wx.showToast({ title: "无法开始录音", icon: "none" });
     }
   },
 
   onHoldEnd() {
-    if (this.data.recording) {
-      this._recorder.stop();
-      return;
-    }
+    const attempt = this._recordAttempt;
+    if (!attempt) return;
+    attempt.held = false;
+    if (attempt.started) this._recorder.stop();
+    else attempt.discarded = true;
+    this.setData({ recordingStarting: false });
   },
+
+  onHoldCancel() { this._cancelRecording(); },
 
   onConfirmPreview(e) {
     const id = e.currentTarget.dataset.id;
-    if (!id || this.data.busy) return;
+    if (!id || this.data.busy || !this.data.enabled) return;
+    const current = pageSession.capture(this);
     this.setData({ busy: true });
     api
       .request("/api/voice/confirm", { method: "POST", data: {} })
       .then(() => {
+        if (!current()) return;
         this._patchMessage(id, { previewPending: false, previewDone: "已开始画" });
         wx.showToast({ title: "已开始画", icon: "success" });
       })
       .catch((err) => {
+        if (!current()) return;
         wx.showToast({
           title: ((err && err.detail) || "确认失败").slice(0, 20),
           icon: "none",
         });
       })
-      .finally(() => this.setData({ busy: false }));
+      .finally(() => { if (current()) this.setData({ busy: false }); });
   },
 
   onCancelPreview(e) {
     const id = e.currentTarget.dataset.id;
-    if (!id || this.data.busy) return;
+    if (!id || this.data.busy || !this.data.enabled) return;
+    const current = pageSession.capture(this);
     this.setData({ busy: true });
     api
       .request("/api/voice/cancel", { method: "POST", data: {} })
       .then(() => {
+        if (!current()) return;
         this._patchMessage(id, { previewPending: false, previewDone: "已取消" });
         wx.showToast({ title: "已取消", icon: "none" });
       })
       .catch((err) => {
+        if (!current()) return;
         wx.showToast({
           title: ((err && err.detail) || "取消失败").slice(0, 20),
           icon: "none",
         });
       })
-      .finally(() => this.setData({ busy: false }));
+      .finally(() => { if (current()) this.setData({ busy: false }); });
   },
 
   // ---- 文字聊天（打字通道）----
@@ -184,7 +272,9 @@ Page({
 
   onSendText() {
     const text = (this.data.textInput || "").trim();
-    if (!text || this.data.busy) return;
+    if (!text || this.data.busy || !this.data.enabled || this._recordAttempt) return;
+    const current = pageSession.captureTask(this);
+    const pending = this._textPending = {};
     // 上下文：最近 10 轮用户/小派对话（与 MCP HISTORY_MAX_TURNS 同口径）
     const history = this.data.messages
       .filter((m) => (m.role === "user" || m.role === "assistant") && m.content)
@@ -199,6 +289,7 @@ Page({
         timeout: 45000, // LLM + 两道内容安全审核；比默认 150s 收紧
       })
       .then((res) => {
+        if (!current()) return;
         const reply =
           (res && res.reply ? res.reply : "").trim() ||
           "小派这会儿没想好怎么回，换个说法试试？";
@@ -218,13 +309,17 @@ Page({
         }
       })
       .catch((err) => {
+        if (!current()) return;
         // 聊天里的失败落成小派的一条气泡（429/400 白话透传），不弹窗打断
         this._pushMessage(
           "assistant",
           (err && err.detail) || "网络不太好，等下再找我聊吧"
         );
       })
-      .finally(() => this.setData({ busy: false }));
+      .finally(() => {
+        if (this._textPending === pending) this._textPending = null;
+        if (current()) this.setData({ busy: false });
+      });
   },
 
   // ---- 聊内画图卡 ----
@@ -232,7 +327,8 @@ Page({
   onDrawGenerate(e) {
     const id = e.currentTarget.dataset.id;
     const msg = this._findMsg(id);
-    if (!msg || !msg.draw || msg.draw.state !== "idle") return;
+    if (!this.data.enabled || !msg || !msg.draw || !["idle", "failed"].includes(msg.draw.state)) return;
+    const current = pageSession.captureTask(this);
     this._patchDraw(id, { state: "generating" });
     api
       .request("/api/draw/generate", {
@@ -243,6 +339,7 @@ Page({
         data: { description: msg.draw.description },
       })
       .then((res) => {
+        if (!current()) return;
         this._patchDraw(id, {
           state: "ready",
           jobId: res.job_id,
@@ -251,6 +348,7 @@ Page({
         });
       })
       .catch((err) => {
+        if (!current()) return;
         this._patchDraw(id, {
           state: "failed",
           error: (err && err.detail) || "生成失败，换个说法试试",
@@ -261,11 +359,13 @@ Page({
   onDrawSend(e) {
     const id = e.currentTarget.dataset.id;
     const msg = this._findMsg(id);
-    if (!msg || !msg.draw || !msg.draw.jobId || msg.draw.sending) return;
+    if (!this.data.enabled || !msg || !msg.draw || !msg.draw.jobId || msg.draw.sending) return;
+    const current = pageSession.capture(this);
     this._patchDraw(id, { sending: true });
     api
       .request(`/api/draw/${msg.draw.jobId}/send`, { method: "POST" })
       .then((res) => {
+        if (!current()) return;
         this._patchDraw(id, { sending: false });
         if (res.status === "sent") {
           const started = /已自动开始画/.test(res.detail || "");
@@ -285,6 +385,7 @@ Page({
         }
       })
       .catch((err) => {
+        if (!current()) return;
         // job 可能已过 TTL：卡片退回待生成态，不留永远点不动的死按钮
         const expired = err && err.status === 400;
         this._patchDraw(id, {
@@ -307,14 +408,19 @@ Page({
   onDrawSave(e) {
     const id = e.currentTarget.dataset.id;
     const msg = this._findMsg(id);
-    if (!msg || !msg.draw || !msg.draw.jobId || msg.draw.saved) return;
+    if (!this.data.enabled || !msg || !msg.draw || !msg.draw.jobId || msg.draw.saved || msg.draw.saving) return;
+    const current = pageSession.capture(this);
+    this._patchDraw(id, { saving: true });
     api
       .request(`/api/draw/${msg.draw.jobId}/save`, { method: "POST", data: {} })
       .then(() => {
-        this._patchDraw(id, { saved: true });
+        if (!current()) return;
+        this._patchDraw(id, { saved: true, saving: false });
         wx.showToast({ title: "已收藏，历史页能再画", icon: "success" });
       })
       .catch((err) => {
+        if (!current()) return;
+        this._patchDraw(id, { saving: false });
         if (err && err.status === 400) {
           // job 过期：退回待生成，别留死按钮
           this._patchDraw(id, { state: "idle", error: "预览已过期，点「重新生成」" });
@@ -327,9 +433,11 @@ Page({
     const id = e.currentTarget.dataset.id;
     const msg = this._findMsg(id);
     if (!msg || !msg.draw || !msg.draw.previewUrl) return;
+    const current = pageSession.capture(this);
     wx.previewImage({
       urls: [msg.draw.previewUrl],
       fail: () => {
+        if (!current()) return;
         // TTL 过期的死链：不靠 binderror（视口外不触发），在点开时兜底
         this._patchDraw(id, { state: "idle", error: "预览已过期，点「重新生成」" });
       },
@@ -345,7 +453,8 @@ Page({
 
   // ---- 语音通道 ----
 
-  _onRecordStop(res) {
+  _onRecordStop(res, current, sessionId) {
+    if (!current()) return;
     const path = res && res.tempFilePath;
     if (!path) {
       this.setData({ busy: false, recording: false });
@@ -356,6 +465,7 @@ Page({
     api
       .uploadFile("/api/voice/asr", path, "file")
       .then((asr) => {
+        if (!current()) return;
         const text = (asr && asr.text ? asr.text : "").trim();
         if (!text) {
           wx.showToast({ title: "未识别到内容", icon: "none" });
@@ -365,9 +475,10 @@ Page({
         return api
           .request("/api/voice/turn", {
             method: "POST",
-            data: { session_id: this._sessionId, text },
+            data: { session_id: sessionId, text },
           })
           .then((turn) => {
+            if (!current()) return;
             const reply =
               (turn && turn.reply ? turn.reply : "").trim() || "（无回复）";
             const traces = turn && turn.tool_traces ? turn.tool_traces : [];
@@ -376,6 +487,7 @@ Page({
           });
       })
       .catch((err) => {
+        if (!current()) return;
         const status = err && err.status ? err.status : 0;
         let title = (err && err.detail) || "请求失败";
         if (status === 404 || status === 405) {
@@ -389,7 +501,7 @@ Page({
         });
       })
       .finally(() => {
-        this.setData({ busy: false });
+        if (current()) this.setData({ busy: false });
       });
   },
 });
