@@ -132,6 +132,10 @@ login.then((me) => { if (!this._current(generation)) return; /* 继续授权 */ 
 - [x] `../../draw-portal/README.md` 同步测试命令与整批部署要求。
 - 本仓无 `.trellis/spec` 或配套模板，直接维护已有契约，不初始化额外工作流；提交由用户决定。
 
+## 二维码容量与显示回归（2026-09-14）
+
+身份字段必须经过实际编码与显示验证：正常配网 v2 为244B、手动绑定为238B，旧 V8/M 上限已不够；32字节 SSID 全转义为328B。显示端按 V13/M 编码，保留完整 `s/m/v/d/k/n`、每侧4模块静区和至少2px模块；失败时仍显示提示与关闭入口。回归同时验证完整载荷和实际LVGL几何，不能只检查字段或钩子名称。修复与证据见 [配网二维码回归](provisioning-qr-regression-20260914.md)，板上与手机状态仍以 readiness 为准。
+
 ## SDK 依据与限制
 
 2026-09-12 查阅官方 ESP-IDF v6.0.1 本地源码镜像（`D:/zhugu-home/.espressif/v6.0.1/v6.0.1/esp-idf`），来源 <https://github.com/espressif/esp-idf/tree/v6.0.1/components/mbedtls>。PSA `crypto_values.h` 定义 ECDSA 签名字节为大端 `r||s`；当前构建配置启用 `CONFIG_MBEDTLS_ECDSA_C`、`CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED`。已检索 builtin 源码与配置，Ed25519 只有通用标识/类型声明，不能据此假定有可调用实现。

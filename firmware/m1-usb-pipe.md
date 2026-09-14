@@ -1,5 +1,7 @@
 # M1 最小管道固件补丁（feat/hutuji-usb-pipe，方案 E：WiFi Telnet）
 
+> **2026-09-14 配网二维码回归**：身份v2的完整配网/绑定载荷超出旧V8容量，显示端已改V13/M，保留完整身份、四模块静区与至少2px模块；失败保留中文提示和关闭入口。S3 host225项、实际C编码红绿回归、320×240/480×320真实LVGL与8张原尺寸图解码通过，三板各215 CXX构建通过。S3提交 `923e148` 的1.0.19已安装量产Freenove（应用SHA `119dd764…65734ef`，格式收尾增量1 CXX），串口与官方状态确认版本/idle/ready；长按显码、手机扫码与关闭回网仍待用户反馈，不能用渲染图代替实体屏幕。根因和证据见 [配网二维码回归](../docs/design/provisioning-qr-regression-20260914.md)。
+
 > 补丁位置：`D:/Users/xiaozhi-esp32`，分支 `feat/hutuji-usb-pipe`，当前源码 HEAD
 > `f1cf066`（链 `3ca9d31` → `c1267ec` → `ed5b132` → `15f73c9` → `13057e8` → `f1cf066`；末位是
 > 默认关闭的 §8.5 abort 取证脚手架）。**实机烧录基线（07-31 更新）= HEAD `06b962c` + 未提交第二轮审查修复**（COM6 镜像 `0x2cec90`，证据 `results/s3-06b962c-dirty-com6-flash-evidence-20260731.md`）；历史基线 `13057e8`/`0x2ce890` 勿当现状。
