@@ -16,6 +16,7 @@ Page({
     loadError: "",
     loggingIn: false,
     selectingDevice: false,
+    supportEmail: "17150303974@163.com",
   },
 
   onShow() {
@@ -223,8 +224,42 @@ Page({
   },
 
   onPrivacy() {
+    const current = pageSession.capture(this);
+    if (typeof wx.openPrivacyContract !== "function") {
+      this._showSupportFallback("当前微信版本暂不支持打开隐私指引，请更新微信后重试。");
+      return;
+    }
     wx.openPrivacyContract({
-      fail: () => wx.showToast({ title: "隐私指引暂不可用，请联系客服", icon: "none" }),
+      fail: () => {
+        if (current()) this._showSupportFallback("隐私指引暂时无法打开，请稍后重试。");
+      },
+    });
+  },
+
+  onContactError() {
+    this._showSupportFallback("微信客服暂时无法打开。");
+  },
+
+  _showSupportFallback(message) {
+    const current = pageSession.capture(this);
+    wx.showModal({
+      title: "联系帮助",
+      content: message + "也可发邮件至 " + this.data.supportEmail + " 联系我们。",
+      confirmText: "复制邮箱",
+      cancelText: "关闭",
+      success: (res) => {
+        if (res.confirm && current()) this.onCopySupportEmail();
+      },
+    });
+  },
+
+  onCopySupportEmail() {
+    const current = pageSession.capture(this);
+    wx.setClipboardData({
+      data: this.data.supportEmail,
+      fail: () => {
+        if (current()) wx.showToast({ title: "复制失败，请长按邮箱复制", icon: "none" });
+      },
     });
   },
 });

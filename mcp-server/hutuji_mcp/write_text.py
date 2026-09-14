@@ -67,6 +67,8 @@ class WriteLayout:
     margin_bottom_mm: float = 8.0
     paragraph_indent: int = 2  # 段首缩进全宽字数
     heading_size_mm: float = 18.0  # 标题字号（1.5×正文，2026-09-04 用户拍板标题须放大）；行高按行距倍数折算成整数行带
+    page_width_mm: float = _PAGE_WIDTH_MM
+    page_height_mm: float = _PAGE_HEIGHT_MM
 
     @property
     def heading_rows(self) -> int:
@@ -74,6 +76,9 @@ class WriteLayout:
         return max(1, math.ceil(self.heading_size_mm * self.line_spacing / self.line_height_mm))
 
     def validate(self) -> None:
+        if any(not math.isfinite(value) or not 20 <= value <= 2000
+               for value in (self.page_width_mm, self.page_height_mm)):
+            raise WriteTextError("有效页尺寸须在 20–2000mm")
         if not 2.0 <= self.size_mm <= 40.0:
             raise WriteTextError(f"字号越界：{self.size_mm}（允许 2–40mm）")
         if not 1.0 <= self.line_spacing <= 3.0:
@@ -94,11 +99,11 @@ class WriteLayout:
 
     @property
     def text_width_mm(self) -> float:
-        return _PAGE_WIDTH_MM - self.margin_left_mm - self.margin_right_mm
+        return self.page_width_mm - self.margin_left_mm - self.margin_right_mm
 
     @property
     def text_height_mm(self) -> float:
-        return _PAGE_HEIGHT_MM - self.margin_top_mm - self.margin_bottom_mm
+        return self.page_height_mm - self.margin_top_mm - self.margin_bottom_mm
 
     @property
     def line_height_mm(self) -> float:
@@ -183,6 +188,8 @@ class _PenStroke:
 class LaidOutPage:
     strokes: list[_PenStroke] = field(default_factory=list)
     line_count: int = 0
+    page_width_mm: float = _PAGE_WIDTH_MM
+    page_height_mm: float = _PAGE_HEIGHT_MM
 
 
 @dataclass
@@ -440,13 +447,13 @@ def layout_text(
             _jitter_strokes(strokes[before:], metrics.em_height * scale, _rng)
 
     pages: list[LaidOutPage] = []
-    page = LaidOutPage()
+    page = LaidOutPage(page_width_mm=layout.page_width_mm, page_height_mm=layout.page_height_mm)
     max_lines_per_page = int(layout.text_height_mm // layout.line_height_mm)
 
     def new_page() -> None:
         nonlocal page
         pages.append(page)
-        page = LaidOutPage()
+        page = LaidOutPage(page_width_mm=layout.page_width_mm, page_height_mm=layout.page_height_mm)
     # 逐段处理；段内折行，段首缩进（标题段：放大居中、免缩进、段前后各加一行空距）
     heading_set = headings or set()
     paragraphs = text.split("\n")
@@ -572,7 +579,7 @@ def layout_text(
             # 超限则避头让位、照常折行——标点行首是外观妥协，越界是整篇写不出。
             merge_into_line = (
                 tok in _NO_LINE_START
-                and layout.margin_left_mm + line_width + adv <= _PAGE_WIDTH_MM
+                and layout.margin_left_mm + line_width + adv <= layout.page_width_mm
             )
             if overflow and not merge_into_line and tok.strip():
                 # 避尾：开标点不得收行尾——弹出暂存行尾的开标点，随新行同行首
@@ -680,8 +687,8 @@ def layout_text_fit_single(
 def page_to_svg(page: LaidOutPage) -> str:
     """落笔路径 → 单线 SVG（元素白名单内：仅 <svg>/<path>，属性最简）。"""
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="277mm" '
-        f'viewBox="0 0 190 277">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{page.page_width_mm:g}mm" height="{page.page_height_mm:g}mm" '
+        f'viewBox="0 0 {page.page_width_mm:g} {page.page_height_mm:g}">'
     ]
     for stroke in page.strokes:
         d = "M" + "L".join(f"{x:.3f},{y:.3f}" for x, y in stroke.points)

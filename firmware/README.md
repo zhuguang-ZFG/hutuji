@@ -3,6 +3,12 @@
 > 补丁本体不在本仓库；位于 `D:/Users/xiaozhi-esp32` fork。本文只记录边界、构建入口和验证状态。  
 > 全项目接手防呆：`../docs/agent-handoff.md`。状态：`../docs/release-readiness.md`。
 
+## 1.0.18 纸张与跨仓审查候选（2026-09-14）
+
+三板增加 `hutuji.paper`、`status.paper_config`、NVS 配置和下载 `X-Hutuji-Paper` 对照，屏幕设置按既有控件尺寸分页；任务/手动命令锁定连接与 reset 代次。预览失败结束等待，图像、HTTP/TLS 与 PSRAM 所有权按任务收敛；MCP 耗时工具后台运行，保持状态查询可响应。纸张字段与旧 `status.paper` 遥测分离，详见 `../docs/protocol.md` §10.4.24。
+
+当前候选 220 项 host 通过，立创/Freenove/Waveshare 各编译 215 个 CXX。三板镜像与两个Grbl编译结果见 `results/20260913-crossrepo-followup/` 的本机记录及inventory。S3源码 `bde6ba5` 已提交，Freenove量产COM15/MAC `b8:1f:3f:c4:58:2c` 已保留NVS刷入1.0.18，官方状态确认A4配置、完整device_id、idle/ready；其他两板仅有构建证据。刷写前重新核对 MAC、板型和 SHA，保留 NVS，复位后查启动身份。Grbl 本批仅修 Telnet 实际收包长度及关闭旧客户端，量产与换纸分支分别构建、不能互刷。
+
 ## 1.0.14 评审修复候选（2026-09-13）
 
 三板共用后台调速与可查询终态，只有无换纸量产机可调；奎享观察端校验已知目标、Seq 与连续新 Idle。174 项 host 回归通过，立创/Freenove/Waveshare 三板各真实编译 215 个 CXX 单元通过。量产目标为 COM15 / MAC `b8:1f:3f:c4:58:2c` 的 Freenove 2.8，镜像 SHA `499bcd44…a09568b`；本段仅记候选，板上部署证据由 `release-readiness.md` 登记。Grbl 换纸分支恢复独立 build 标识 `20211103`，不得刷到量产 `20260910` 机型。

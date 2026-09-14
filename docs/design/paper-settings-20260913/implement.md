@@ -1,0 +1,17 @@
+# 实施与验证顺序
+
+- [x] 共享纸张校验、动态 G-code 配置、文字/笔顺/表格真实尺寸；两遍转换覆盖机型已有回归。
+- [x] 任务快照、内容缓存、进程内/Redis 去重、文件元数据、发布/下载/保存/分享/清理；真 vpype 和越界回归。
+- [x] S3 纸张纯核心、NVS、工具/状态、下载配置闸、点动包线与小屏设置；合并已有 UI 和 MCP 后台候选，220 host与三板真实编译通过；量产Freenove已刷1.0.18并查到默认A4纸张及完整device_id，其他两板尚未刷写。
+- [x] Portal 精确设备读写/读回/缓存/归属验证，接通创作及语音入口；425 项后端、226 项 Node 回归通过。
+- [x] 手绘第二轮对称、素材、回放和纸张适配；四组实际导出过 vpype/§5，预览与 G-code 栅格对照通过，保留角落留白。
+- [x] 聊天/画板开发者工具布局复核，修复画板回放按钮挤压笔数；纸张A4/旧固件/A2界面样例取证后恢复。
+- [ ] 手机手势、设备实屏和纸面分别取证，不由开发者工具或界面样例替代。
+- [x] MCP1535/Portal425/Node226、28份JS语法、S3 host220/三板各215 CXX、Grbl双树host各8/完整build、普通fz standard及枢纽full13层通过。
+- [ ] 量产fz总体仍FAIL；纸路/GPIO错误与原始HEAD对照相同，缺核心在两者均存在。当前DIO完整模拟镜像的Wokwi启动已PASS，不能替代量产fz。
+- [ ] 同步契约/readiness/inventory/结构说明，核对行号指纹；各仓显式路径提交，保留无关文件。
+- [ ] 双机部署与生产校验，小程序上传，固件发布/量产设备验证；分别登记软件、模拟、设备与大行程纸面证据。
+
+沿用现有 `tmp/run_followup_checks.py`、`tmp/run_crossrepo_followup.py` 与构建/发布包装器；新增范围先更新具体清单，外仓写入采用候选 SHA 校验并经现有审批边界。量产树 fz 不适用项须与原始 HEAD 对照登记，不能为通过而改运动或 GPIO。
+
+2026-09-14 当前证据：`results/20260913-followup-review/portal-resume-20260914-142538-504117.log`（425）、`weapp-checks-153340.json`（226及28份语法）、`release-tools-resume-20260914-144033-523584.log`（27）；MCP与full最终结果在 `results/20260913-crossrepo-followup/final-full-hutuji_gate.{json,md}`，S3/Grbl构建、fz、Wokwi和接回后COM3只读复验同目录保存，手绘实际产物在 `results/20260914-drawpad-layout/`。分别提交和发布按后续结果回填，不能把候选写成生产已运行。

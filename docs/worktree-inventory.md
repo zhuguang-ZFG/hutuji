@@ -1,5 +1,26 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
+## 2026-09-14 纸张与跨仓追加审查候选
+
+本批依据纸张 PRD 和 `paper_settings_20260913_authorized`、`crossrepo_followup_20260913_authorized`、`production_tools_review_20260914_authorized`。枢纽涉及共享纸张/设备目标/文件元数据、动态 G-code 与文档/文字/笔顺、Redis 恢复、Portal 创作/保存/分享/语音/设置/图库、画板及聊天/控制/收藏体验、运维工具和对应回归。外仓 S3 新增纸张核心/设置/下载标记与会话/预览/MCP 后台/UI 修复；两棵 Grbl 仅 Telnet 实际收包/关闭旧客户端及纯核心测试，普通树原 `.gitignore` 保留。其他未跟踪 `tmp/`、截图、公众号草稿和 `.github/` 等资产不并入本批代码提交。
+
+本机证据（`results/` 忽略，不随 Git 发布）：
+
+- `20260913-followup-review/portal-resume-20260914-142538-504117.log`：Portal 425 项；`weapp-final-20260914-150150-787995.log`：Node 226 项；`release-tools-resume-20260914-144033-523584.log`：发布工具 27 项。`queue-round3-20260914-044308-316666.log` 保留64项真实Redis故障回归。目录内其他更早红/绿日志保留，不以最新通过抹去故障轨迹。
+- `20260913-crossrepo-followup/s3-host-081056-153816.{json,log}`：220 项；`hutuji.1.0.18/firmware-builds-20260914-081137-918478.json`：三板各215 CXX。SHA：立创 `ad570cd99b41d40192c69217d3ed037dbf50e8db70103c8cbb72b6beb21f46dd`，Waveshare `dceb01d4e4472e14beaa11080ff26cca13320964d359c0fbcb3fb5a57d0fe71e`，Freenove `4b6dcc054bcf2d6bb9b041b04d7d4d4a671dd06adb94d1859d95d5c005dba388`。
+- `20260913-crossrepo-followup/grbl-build-085946-144613/builds.json`：普通197、量产195编译单元，量产DIO=2；两树host各8项。`fz-142953-265594-*`：普通fz完整PASS、201秒、hard0/soft0；量产旧失败与本轮重跑另存，不冒充共同通过。
+- `20260913-crossrepo-followup/final-full-hutuji_gate.{json,md}`：枢纽full 13层PASS、MCP1535项/149.69秒、e2e PASS、261处指纹通过。`fz-massprod-151259-298808-*` 量产重跑FAIL/153.59秒；`massprod-baseline-153339-532626/comparison.json` 保存172份HEAD源文件与候选纸路/GPIO同差异结果；`massprod-wokwi-current/` 保存当前DIO应用组成、SHA及Wokwi启动PASS，不代替fz或实机。
+- `20260914-drawpad-layout/{comparison.png,validation.json,samples.json}` 及每个样本的SVG/G-code/PNG：四组实际转换包括2000×1200mm自定义，栅格最大距离1像素，仅软件几何证据，未向设备发送。
+- `20260913-followup-review/resume-paper-unavailable.jpg` 是真实接口未部署的中文错误页；`paper-ui-sample-{a4,legacy,a2}.jpg` 为禁用设备写入的临时样例，取证后恢复。聊天/画板及后续真实部署证据按本轮结果追加。
+
+本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
+
+<!-- paper-current-count --> MCP 当前全套 **1535** 项（45 个文件），本批full完整执行1535 passed；通过数依据上述归档报告。
+
+## 2026-09-13 公众号引流决策稿（仅文档，未提交）
+
+新增 `docs/design/official-account-plan-20260913.md`：订阅号+与小程序同主体+仅显式授权作品+先落文档，四项用户拍板。注册/认证/运营为线下动作未发生，授权字段与发布 worker 未开发；只改枢纽文档，两个固件仓未动。本条顶部插入推移既有行号引用：`--fix-line-refs` 自动重定位 3 处（findings/28 两处、findings/30 的 app.py 对话上报端点块），空锚点 2 处经人工核对证据行现位置改指 inventory:832（quickdraw 键数）与 inventory:903（fb2b3b5 烧录自证）后 `--accept-line-refs` 重登基线 260 处。
+
 ## 2026-09-13 小程序审查（代码已提交、后端已部署、0.3.13已上传）
 
 控制页使用完整目标、读取错误/串行轮询；创作/聊天/历史/资料/画板/固件/小派设置页面补异步边界及体验问题；portal控制目标与业务错误判断、图库备份上传开关和注册通知隐私加固。对应回归、协议、内部隐私核对稿与清单同批修改。产品代码已提交为 `a5fc773df3a2` 与 `ade29f4f5742`，app/archive双机部署核SHA/CR=0；主bridge PID4127741、备0，新增外部上传双机配置/进程均false。追加完成后计时修复已过Node124。组件事件逐轴设置并恢复10000/10000/1200，最终公网/本机done/Idle/原点。0.3.13原生上传任务已查询为success、162480B，`upload-result.json`记录结果，`pending-upload.json`原任务已标success；本批未修改或重刷两个固件。
@@ -661,7 +682,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:157`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:161`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）
@@ -1228,3 +1249,12 @@
 | 机器侧 | COM3 写 `$110/$111=24000` + `$$` 回读逐项相符（RATE-VERIFIED）；COM15 esptool 复位重探后 `hutuji.status` 文件 token 直推 → `firmware_version:hutuji.1.0.12`、`grbl_settings_ok:true`、Idle 0,0,0；`hutuji.manual jog_x+` → `MPos:10.000` 实动 → `G1 G90 X0 F8000` 归零 |
 | 证据（tmp，不入库） | `tmp/build_speed_freenove.cmd`（构建封装）、`results/20260912-device-identity/freenove-esp32s3-display-2.8-lcd-build-20260912-205556-418916.log`（构建日志）、`tmp/flash-speed-1012-com15.ps1` + `tmp/flash-speed-1012-com15.log`（刷机）、`tmp/write_rate_serial.py`（参数写入器）、`tmp/idf-export-speed.log` |
 | 未验证 | 真实画图任务 400mm/s 纸面效果（待用户实画）；fleet MK38 到场刷机（2026-09-12 深夜串分支事故收口后：fleet/出货 bin = massprod/nopaper-1.3a@`6221502` 程序 `1f9d30d1…` 1843216B DIO 直出——与量产机烧录前现役 bit-exact，量产机已重刷 SETTINGS-VERIFIED + S3 判「无换纸 SKU」+ 金表 12 项过检；fix 分支构建 `83f44b3f…`/`7e73b32a…` 串分支作废，详见 deployment.md 深夜首条；2026-09-12 用户确认全部机器为不换纸机——nopaper 金表适用，paper 金表无 fleet 对象） |
+
+
+## 2026-09-13 小程序后续审查与真实客服（本批）
+
+- 授权：用户继续代码审查，要求隐私日期与客服不能虚假；公开邮箱17150303974@163.com，接待微信号17150303974；后台“朱光”管理员出现后用户确认本人、收发尚未验证。
+- 本批枢纽代码：portal app/firmware_ota、chat/firmware/profile 页面、版本0.3.14及对应回归；文档为protocol、包README/隐私核对稿/冒烟清单、readiness与`docs/design/weapp-followup-review-20260913.md`。两个固件仓未改。原有公众号决策稿与其工作树记录保留。
+- 本地证据：`results/20260913-followup-review/`，包含前段红例、369项portal与134项Node回归、21份语法检查、后台预览和只读查询；本轮补强正常语音回包MAC断言后再次完整通过。前段hub因对话上报旧行号指纹失败，按端点实际范围修正后待最终复验。
+- 平台：十类信息的实际用途与邮箱已填入，预览日期2026-09-13，设置页审核中；不能据此宣称用户端已生效。客服已绑定本人，真实消息收发待验证；通用隐私OpenAPI返回48001，采用原生后台证据。
+- 交付：后端双机部署、0.3.14候选上传与最终门禁由本轮继续回填。辅助脚本与测试目录仅留tmp/results，不提交。

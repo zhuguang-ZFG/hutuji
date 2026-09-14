@@ -67,7 +67,8 @@ def _register(client: TestClient) -> None:
     assert client.post("/api/auth/bind-phone", json={"phone": "13800138000"}).status_code == 200
 
 
-def _fake_process_upload(raw, *, content_type, filename, job_dir, profile=None):
+def _fake_process_upload(raw, *, content_type, filename, job_dir, profile=None, preserve_canvas=False):
+    assert preserve_canvas is False  # 照片仍按内容排版，只有手绘 SVG 保留整张画布。
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "draw.gcode").write_text("G21\nG90\n", encoding="ascii")
     (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")

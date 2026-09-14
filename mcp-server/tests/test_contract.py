@@ -608,14 +608,27 @@ def test_internal_draw_machine_whitelist(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_profile_cache_marker_distinguishes_machine(monkeypatch: pytest.MonkeyPatch) -> None:
     """G-code 内容缓存键的机型成分：同 SVG 换机型不得互串（转置/限幅不同）。"""
+    from dataclasses import replace
+
     from hutuji_mcp.gcode_gen import PROFILE_NOPAPER
+    from hutuji_mcp.paper_config import PaperConfig
 
     marker_none = server._profile_cache_marker(None)
     marker_nopaper = server._profile_cache_marker(PROFILE_NOPAPER)
     assert marker_none == "default"
     assert marker_nopaper != marker_none
-    assert marker_nopaper.count("|") == 2  # t{x}|x{}|y{} 形状
-    assert marker_nopaper.startswith("tFalse|")
+    # 页尺寸与设备范围是独立输入；只按机型/范围缓存会串用另一幅面的版式。
+    variants = (
+        replace(PROFILE_NOPAPER, transpose_xy=True),
+        replace(PROFILE_NOPAPER, max_x_mm=204),
+        replace(PROFILE_NOPAPER, max_y_mm=289),
+        replace(PROFILE_NOPAPER, page_width_mm=180),
+        replace(PROFILE_NOPAPER, page_height_mm=267),
+        PaperConfig.default_for("nopaper").to_profile(),
+    )
+    markers = {server._profile_cache_marker(profile) for profile in variants}
+    assert len(markers) == len(variants)
+    assert marker_nopaper not in markers
 
 
 def test_probe_plotter_profile_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -667,6 +680,7 @@ def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatc
     from types import SimpleNamespace
 
     from hutuji_mcp import draw_queue
+    from hutuji_mcp.paper_config import PaperConfig
 
     monkeypatch.setattr(
         server,
@@ -680,8 +694,9 @@ def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(draw_queue, "queue_enabled", lambda: True)
     captured: dict = {}
 
-    async def fake_attach(desc, url, *, device_id="", chain_push=True, machine=""):
-        captured.update(desc=desc, device_id=device_id, chain_push=chain_push, machine=machine)
+    async def fake_attach(desc, url, *, device_id="", chain_push=True, machine="", paper=None, owner_stamp=""):
+        captured.update(desc=desc, device_id=device_id, chain_push=chain_push, machine=machine,
+                        paper=paper, owner_stamp=owner_stamp)
         return "job-1"
 
     async def fake_wait(job_id, *, timeout):
@@ -691,15 +706,20 @@ def test_draw_internal_sync_forces_sync_via_queue(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(draw_queue, "attach_or_enqueue", fake_attach)
     monkeypatch.setattr(draw_queue, "wait_result", fake_wait)
 
-    result = asyncio.run(server._draw_internal_sync("测试主题"))
+    paper = PaperConfig.default_for("nopaper")
+    result = asyncio.run(server._draw_internal_sync(
+        "测试主题", "nopaper", paper=paper, device_id="aa:bb:cc:dd:ee:ff",
+    ))
 
     assert "x.gcode" in result  # 拿到的是完整结果而非 accepted
     assert captured == {
         "desc": "测试主题",
-        "device_id": "",
+        "device_id": "aa:bb:cc:dd:ee:ff",
         "chain_push": False,
         "job_id": "job-1",
-        "machine": "",
+        "machine": "nopaper",
+        "paper": paper,
+        "owner_stamp": "",
     }
 
 
@@ -1808,20 +1828,23 @@ def test_stale_delete_skipped_when_path_swapped_after_read(
     base = server._new_basename()
     gcode = tmp_path / f"{base}.gcode"
     svg = tmp_path / f"{base}.svg"
-    gcode.write_text(_minimal_gcode("G0 X100 Y200 F24000\n"), encoding="utf-8")
+    # 旧内容必须越过两种既有机型包线，Y200 单独已属于 nopaper 合法范围。
+    gcode.write_text(_minimal_gcode("G0 X300 Y200 F24000\n"), encoding="utf-8")
     svg.write_text("<svg/>", encoding="utf-8")
 
-    real_read = server._read_regular_file
+    from hutuji_mcp import output_store
 
-    def _read_then_swap(path: Path) -> tuple[bytes, float]:
-        result = real_read(path)
+    real_read = output_store._read_regular_file
+
+    def _read_then_swap(path: Path, *, max_bytes: int | None = None) -> tuple[bytes, float]:
+        result = real_read(path, max_bytes=max_bytes)
+        if path != gcode:
+            return result
         # 模拟并发替换：换入一份新的合法产物，并把 mtime 显式错开。
         replacement = tmp_path / f"{base}.gcode"
         replacement.write_text(_minimal_gcode("G0 X10 Y10 F24000\n"), encoding="utf-8")
         os.utime(replacement, (result[1] + 5, result[1] + 5))
         return result
-
-    from hutuji_mcp import output_store
 
     monkeypatch.setattr(output_store, "_read_regular_file", _read_then_swap)
     with pytest.raises(HTTPException) as caught:
@@ -6014,7 +6037,7 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     # 探到 127.x 会被 `allow 127.0.0.1` 放行，把「非 loopback 拒绝」验成假绿。
     assert "/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/" in preflight
     assert preflight.count("!~ /^127\\./") == 2
-    assert preflight.count('\ncheck "') == 33
+    assert preflight.count('\ncheck "') == 34
     # /register（激活码中转）两项必须在列：本机 400/503 判据 + 公网只放 POST 判据。
     assert '/register 拒绝坏形状' in preflight
     assert '/register 只放 POST' in preflight
@@ -6024,6 +6047,8 @@ def test_preflight_checks_active_nginx_and_complete_download_contract() -> None:
     assert "check_draw_queue_optional()" in preflight
     assert "check_pg_ledger_optional()" in preflight
     assert "check_oss_roundtrip_optional()" in preflight
+    assert "check_market_optional()" in preflight
+    assert "精品图库：manifest 可解析且许可白名单" in preflight
     assert "Phase-3 队列：Redis PING + draw-worker@1 active" in preflight
     # EXPECTED_CHECKS 必须与真实 check 条数一致：放行判据是 PASS==EXPECTED_CHECKS，
     # 两者对不上时要么永远不可能放行，要么少验几项也能算全绿。
@@ -6053,7 +6078,7 @@ def test_preflight_invokes_every_check_after_env_init() -> None:
         if line.startswith(("TUNNEL_HOST=", "OUTPUT_DIR=", "BRIDGE_ENDPOINT="))
     )
     checks = [i for i, line in enumerate(lines) if line.startswith('check "')]
-    assert len(checks) == 33
+    assert len(checks) == 34
     assert min(checks) > init_last
 
 

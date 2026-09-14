@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -97,158 +99,352 @@ def test_decide_attach_matrix(existing, status, expected):
     assert draw_queue._decide_attach(existing, status) == expected
 
 
-class _FakePipeline:
-    """attach_or_enqueue 所需的最小 pipeline 面（hset/expire/set + execute）。"""
-
-    def __init__(self, client: "_FakeRedis") -> None:
-        self._client = client
-        self._ops: list[tuple] = []
-
-    def hset(self, key, mapping):
-        self._ops.append(("hset", key, mapping))
-
-    def expire(self, key, ttl):
-        self._ops.append(("expire", key, ttl))
-
-    def set(self, key, value, nx=False, ex=None):
-        self._ops.append(("set", key, value, nx))
-
-    async def execute(self):
-        results = []
-        for op in self._ops:
-            if op[0] == "hset":
-                self._client._hashes.setdefault(op[1], {}).update(op[2])
-                results.append(1)
-            elif op[0] == "expire":
-                results.append(1)
-            else:
-                _, key, value, nx = op
-                if nx and (self._client.fail_next_nx or key in self._client._strings):
-                    self._client.fail_next_nx = False
-                    results.append(None)
-                else:
-                    self._client._strings[key] = value
-                    results.append(True)
-        return results
 
 
-class _FakeRedis:
-    """复现 TTL 残留窗口的最小 Redis 桩（真实 redis 包不可用时也能测决策环）。"""
-
-    def __init__(self) -> None:
-        self._strings: dict[str, str] = {}
-        self._hashes: dict[str, dict[str, str]] = {}
-        self._lists: dict[str, list[str]] = {}
-        self.fail_next_nx = False
-
-    async def get(self, key):
-        return self._strings.get(key)
-
-    async def hget(self, key, field):
-        return self._hashes.get(key, {}).get(field)
-
-    async def llen(self, key):
-        return len(self._lists.get(key, []))
-
-    async def incr(self, key):
-        value = int(self._strings.get(key, "0")) + 1
-        self._strings[key] = str(value)
-        return value
-
-    async def expire(self, key, ttl):
-        return 1
-
-    async def delete(self, key):
-        self._strings.pop(key, None)
-
-    async def brpop(self, key, timeout=0):
-        items = self._lists.get(key) or []
-        if not items:
-            return None
-        return (key, items.pop())
-
-    async def lpush(self, key, value):
-        self._lists.setdefault(key, []).insert(0, value)
-
-    def pipeline(self):
-        return _FakePipeline(self)
 
 
-def _redis_backend(fake: _FakeRedis, monkeypatch: pytest.MonkeyPatch):
-    backend = draw_queue.RedisDrawQueueBackend("redis://stub")
-    monkeypatch.setattr(backend, "_client", lambda: fake)
-    return backend
+
+
+
+
+
+
+
+
+def test_real_redis_old_cleanup_cannot_remove_new_inflight(live_redis):
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+    key = draw_queue._inflight_key("相同主题")
+    client.set(key, "new-job")
+
+    async def run():
+        await backend.clear_inflight("相同主题", "old-job")
+        assert await backend._client().get(key) == "new-job"
+        await backend.clear_inflight("相同主题", "new-job")
+        assert await backend._client().get(key) is None
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_invalid_payload_settles_and_allows_retry(live_redis, memory_queue):
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("猫", "https://example.test")
+        value = json.loads(client.rpop(draw_queue.QUEUE_KEY))
+        value["chain_push"] = "false"
+        raw = json.dumps(value)
+        # 模拟旧生产者写下类型错误但可归属的原始记录。
+        client.hset(draw_queue._job_key(job_id), "payload_sha256", hashlib.sha256(raw.encode()).hexdigest())
+        client.lpush(draw_queue.QUEUE_KEY, raw)
+        assert await backend.dequeue(timeout=1) is None
+        with pytest.raises(RuntimeError, match="任务记录无效"):
+            await backend.wait_result(job_id, timeout=1)
+        replacement = await backend.attach_or_enqueue("猫", "https://example.test")
+        assert replacement != job_id
+        assert (await backend.dequeue(timeout=1)).job_id == replacement
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_forged_bad_payload_cannot_fail_normal_job(live_redis, memory_queue):
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("猫", "https://example.test")
+        client.rpush(draw_queue.QUEUE_KEY, json.dumps({"job_id": job_id, "description": None}))
+        assert await backend.dequeue(timeout=1) is None
+        assert client.hget(draw_queue._job_key(job_id), "status") == "pending"
+        assert (await backend.dequeue(timeout=1)).job_id == job_id
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_concurrent_retries_charge_one_slot(live_redis, memory_queue, monkeypatch):
+    import asyncio
+    from dataclasses import replace
+
+    monkeypatch.setattr(draw_queue, "settings", replace(draw_queue.settings,
+        draw_queue_max_depth=1, draw_per_device_minute=1, draw_per_device_day=1))
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        replies = await asyncio.gather(*(backend.attach_or_enqueue(
+            "同一幅猫", "https://example.test", device_id="same-device") for _ in range(32)),
+            return_exceptions=True)
+        assert all(isinstance(item, str) for item in replies), replies
+        assert len(set(replies)) == 1
+        assert client.llen(draw_queue.QUEUE_KEY) == 1
+        assert len(list(client.scan_iter(draw_queue.JOB_PREFIX + "*"))) == 1
+        day = f"{draw_queue.DEVICE_RATE_PREFIX}day:same-device:{draw_queue.day_stamp_cst()}"
+        assert client.get(day) == "1"
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_queue_depth_is_atomic_under_contention(live_redis, memory_queue, monkeypatch):
+    import asyncio
+    from dataclasses import replace
+
+    monkeypatch.setattr(draw_queue, "settings", replace(draw_queue.settings, draw_queue_max_depth=3))
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        replies = await asyncio.gather(*(backend.attach_or_enqueue(
+            f"主题{i}", "https://example.test", device_id="one-device") for i in range(20)),
+            return_exceptions=True)
+        assert sum(isinstance(item, str) for item in replies) == 3
+        assert all(isinstance(item, (str, draw_queue.DrawQueueBusyError)) for item in replies)
+        assert client.llen(draw_queue.QUEUE_KEY) == 3
+        day = f"{draw_queue.DEVICE_RATE_PREFIX}day:one-device:{draw_queue.day_stamp_cst()}"
+        assert client.get(day) == "3"
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_lost_enqueue_reply_can_attach_to_a_durable_task(live_redis, memory_queue, monkeypatch):
+    import redis
+
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        connection = backend._client()
+        original_pipeline, original_eval = connection.pipeline, connection.eval
+        lost = False
+
+        async def lose_eval_reply(*args, **kwargs):
+            nonlocal lost
+            reply = await original_eval(*args, **kwargs)
+            if not lost:
+                lost = True
+                raise redis.ConnectionError("模拟事务完成但响应丢失")
+            return reply
+
+        def lose_pipeline_reply(*args, **kwargs):
+            pipe = original_pipeline(*args, **kwargs)
+            execute = pipe.execute
+
+            async def lose(*args, **kwargs):
+                nonlocal lost
+                reply = await execute(*args, **kwargs)
+                if not lost:
+                    lost = True
+                    raise redis.ConnectionError("模拟事务完成但响应丢失")
+                return reply
+            pipe.execute = lose
+            return pipe
+
+        monkeypatch.setattr(connection, "eval", lose_eval_reply)
+        monkeypatch.setattr(connection, "pipeline", lose_pipeline_reply)
+        with pytest.raises(redis.ConnectionError):
+            await backend.attach_or_enqueue("事务响应丢失", "https://example.test")
+        retried = await backend.attach_or_enqueue("事务响应丢失", "https://example.test")
+        assert client.llen(draw_queue.QUEUE_KEY) == 1
+        assert (await backend.dequeue(timeout=1)).job_id == retried
+        await connection.aclose()
+    asyncio_run(run())
+
+
+@pytest.mark.parametrize("forged", [False, True])
+def test_real_redis_duplicate_or_modified_payload_never_runs_twice(live_redis, memory_queue, monkeypatch, forged):
+    import asyncio
+    from hutuji_mcp import draw_worker
+
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+    monkeypatch.setattr(draw_queue, "_backend", backend)
+    calls = []
+
+    async def generate(description, *args, **kwargs):
+        calls.append(description)
+        await asyncio.sleep(0.02)
+        return '{"url":"https://example.test/files/result.gcode"}'
+
+    monkeypatch.setattr("hutuji_mcp.server._run_draw_job", generate)
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("原始主题", "https://example.test")
+        raw = client.lindex(draw_queue.QUEUE_KEY, 0)
+        if forged:
+            changed = json.loads(raw)
+            changed["description"] = "被替换的主题"
+            raw = json.dumps(changed, ensure_ascii=False)
+        client.rpush(draw_queue.QUEUE_KEY, raw)
+        results = await asyncio.gather(draw_worker._process_one(), draw_worker._process_one())
+        assert sorted(results) == [False, True]
+        assert calls == ["原始主题"]
+        assert json.loads(await backend.wait_result(job_id, timeout=1))["url"].endswith("result.gcode")
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_worker_lost_before_claim_is_recovered(live_redis, memory_queue, monkeypatch):
+    url, _ = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+    now = time.time()
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("领走后进程退出", "https://example.test")
+        assert (await backend.dequeue(timeout=1)).job_id == job_id
+        # 模拟进程在领取记录后、实际执行前退出；其他 worker 可找回同一个任务。
+        monkeypatch.setattr(draw_queue.time, "time", lambda: now + 60)
+        recovered = await backend.dequeue(timeout=1)
+        assert recovered is not None and recovered.job_id == job_id
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_late_completion_cannot_recreate_expired_job(live_redis, memory_queue):
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("过期任务", "https://example.test")
+        client.delete(draw_queue._job_key(job_id))
+        await backend.mark_done(job_id, "late result")
+        await backend.mark_failed(job_id, ValueError("late failure"))
+        assert not client.exists(draw_queue._job_key(job_id))
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_lost_claim_reply_preserves_owner_and_result(live_redis, memory_queue, monkeypatch):
+    import redis
+
+    url, _ = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("领取响应丢失", "https://example.test")
+        payload = await backend.dequeue(timeout=1)
+        connection = backend._client()
+        original = connection.eval
+        lost = False
+
+        async def lose_reply(*args, **kwargs):
+            nonlocal lost
+            result = await original(*args, **kwargs)
+            if args[0] == draw_queue._CLAIM_SCRIPT and not lost:
+                lost = True
+                raise redis.ConnectionError("模拟领取响应丢失")
+            return result
+
+        monkeypatch.setattr(connection, "eval", lose_reply)
+        claim = await backend.mark_processing(job_id, payload_sha256=payload.payload_sha256)
+        assert lost and claim
+        assert await backend.mark_processing(job_id, payload_sha256=payload.payload_sha256) is None
+        assert not await backend.mark_done(job_id, "wrong", claim_token="other-worker")
+        assert await backend.mark_done(job_id, "correct", claim_token=claim)
+        assert not await backend.mark_failed(job_id, ValueError("late"), claim_token=claim)
+        assert await backend.wait_result(job_id, timeout=1) == "correct"
+        await connection.aclose()
+    asyncio_run(run())
+
+
+def test_real_redis_invalid_queue_type_cannot_partially_charge(live_redis, memory_queue):
+    import redis
+
+    url, client = live_redis
+    client.set(draw_queue.QUEUE_KEY, "损坏的队列类型")
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        with pytest.raises(redis.ResponseError):
+            await backend.attach_or_enqueue("队列损坏", "https://example.test", device_id="test-device")
+        assert list(client.scan_iter(draw_queue.JOB_PREFIX + "*")) == []
+        assert list(client.scan_iter(draw_queue.ENQUEUE_RATE_PREFIX + "*")) == []
+        assert list(client.scan_iter(draw_queue.DEVICE_RATE_PREFIX + "*")) == []
+        await backend._client().aclose()
+    asyncio_run(run())
+
+
+def test_worker_cancellation_settles_without_swallowing_cancel(memory_queue, monkeypatch):
+    import asyncio
+    from hutuji_mcp import draw_worker
+
+    async def run():
+        entered = asyncio.Event()
+
+        async def generate(*args, **kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr("hutuji_mcp.server._run_draw_job", generate)
+        job_id = await draw_queue.attach_or_enqueue("取消 worker", "https://example.test")
+        worker = asyncio.create_task(draw_worker._process_one())
+        await entered.wait()
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+        backend = draw_queue.get_backend()
+        assert backend._jobs[job_id]["status"] == "failed"
+        assert await draw_queue.attach_or_enqueue("取消 worker", "https://example.test") != job_id
+    asyncio_run(run())
 
 
 @pytest.mark.parametrize("stale_status", [None, "failed"])
-def test_redis_attach_replaces_dead_inflight(memory_queue, monkeypatch, stale_status):
-    """inflight 指向已消失/已失败任务时：删残留、换新 job_id、重新入队。"""
-    fake = _FakeRedis()
-    dead_id = "dead-job"
+def test_redis_attach_replaces_dead_inflight(memory_queue, live_redis, stale_status):
+    url, client = live_redis
+    dead_id = "d" * 22
     inflight = draw_queue._inflight_key("一只猫")
-    fake._strings[inflight] = dead_id
+    client.set(inflight, dead_id)
     if stale_status is not None:
-        fake._hashes[draw_queue._job_key(dead_id)] = {"status": stale_status}
-    backend = _redis_backend(fake, monkeypatch)
+        client.hset(draw_queue._job_key(dead_id), "status", stale_status)
+    backend = draw_queue.RedisDrawQueueBackend(url)
 
-    async def run_case() -> None:
+    async def run_case():
         job_id = await backend.attach_or_enqueue("一只猫", "https://hutuji.example")
         assert job_id != dead_id
-        assert fake._strings[inflight] == job_id
-        assert fake._hashes[draw_queue._job_key(job_id)]["status"] == "pending"
-        assert len(fake._lists[draw_queue.QUEUE_KEY]) == 1
-
+        assert client.get(inflight) == job_id
+        assert client.hget(draw_queue._job_key(job_id), "status") == "pending"
+        assert client.llen(draw_queue.QUEUE_KEY) == 1
+        await backend._client().aclose()
     asyncio_run(run_case())
 
 
-def test_redis_attach_reuses_live_inflight(memory_queue, monkeypatch):
-    fake = _FakeRedis()
-    live_id = "live-job"
+
+def test_redis_attach_reuses_live_inflight(memory_queue, live_redis):
+    url, client = live_redis
+    live_id = "l" * 22
     inflight = draw_queue._inflight_key("一只猫")
-    fake._strings[inflight] = live_id
-    fake._hashes[draw_queue._job_key(live_id)] = {"status": "processing"}
-    backend = _redis_backend(fake, monkeypatch)
+    client.set(inflight, live_id)
+    client.hset(draw_queue._job_key(live_id), "status", "processing")
+    backend = draw_queue.RedisDrawQueueBackend(url)
 
-    async def run_case() -> None:
+    async def run_case():
         assert await backend.attach_or_enqueue("一只猫", "https://hutuji.example") == live_id
-        assert draw_queue.QUEUE_KEY not in fake._lists  # 搭车不重复入队
-
+        assert client.llen(draw_queue.QUEUE_KEY) == 0
+        await backend._client().aclose()
     asyncio_run(run_case())
 
 
-@pytest.mark.parametrize(
-    ("winner_status", "expect_winner"),
-    [
-        ("pending", True),  # 并发 winner 存活 → 搭车
-        (None, False),  # winner 也是死任务 → 删残留后第二轮新建成功
-    ],
-)
-def test_redis_attach_nx_conflict_rejudges(memory_queue, monkeypatch, winner_status, expect_winner):
-    fake = _FakeRedis()
-    winner_id = "winner-job"
-    backend = _redis_backend(fake, monkeypatch)
 
-    async def run_case() -> None:
-        fake.fail_next_nx = True
+@pytest.mark.parametrize("winner_status", ["pending", None])
+def test_redis_competing_replacement_preserves_live_winner(memory_queue, live_redis, winner_status):
+    import asyncio
 
-        original_set = _FakePipeline.set
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+    winner_id = "w" * 22
+    key = draw_queue._inflight_key("一只猫")
+    client.set(key, winner_id)
+    if winner_status is not None:
+        client.hset(draw_queue._job_key(winner_id), "status", winner_status)
 
-        def set_and_plant(self, key, value, nx=False, ex=None):
-            if nx and fake.fail_next_nx:
-                fake._strings[key] = winner_id
-                if winner_status is not None:
-                    fake._hashes[draw_queue._job_key(winner_id)] = {"status": winner_status}
-            return original_set(self, key, value, nx=nx, ex=ex)
-
-        monkeypatch.setattr(_FakePipeline, "set", set_and_plant)
-        job_id = await backend.attach_or_enqueue("一只猫", "https://hutuji.example")
-        if expect_winner:
-            assert job_id == winner_id
-        else:
-            assert job_id not in (winner_id, "")
-            assert fake._strings[draw_queue._inflight_key("一只猫")] == job_id
-
+    async def run_case():
+        first, second = await asyncio.gather(*(backend.attach_or_enqueue(
+            "一只猫", "https://hutuji.example") for _ in range(2)))
+        assert first == second == client.get(key)
+        assert (first == winner_id) is (winner_status is not None)
+        assert client.llen(draw_queue.QUEUE_KEY) == (0 if winner_status is not None else 1)
+        await backend._client().aclose()
     asyncio_run(run_case())
+
 
 
 def test_worker_run_forever_clean_stop(monkeypatch):
@@ -399,55 +595,43 @@ def test_chain_push_flag_separates_jobs_and_propagates(memory_queue, monkeypatch
     asyncio_run(run_case())
 
 
-def test_redis_dequeue_chain_push_defaults_true_for_old_payload(memory_queue, monkeypatch):
-    """旧 payload（2026-08-31 前入队、无 chain_push 字段）反序列化必须回 True，
-    保持语音推送行为；显式 False 原样保留。"""
-    fake = _FakeRedis()
-    backend = _redis_backend(fake, monkeypatch)
+def test_redis_dequeue_chain_push_defaults_true_for_old_payload(memory_queue, live_redis):
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+    client.lpush(draw_queue.QUEUE_KEY,
+        json.dumps({"job_id": "o" * 22, "description": "d", "public_base_url": "u"}),
+        json.dumps({"job_id": "n" * 22, "description": "d", "public_base_url": "u", "chain_push": False}))
 
-    async def run_case() -> None:
-        # brpop 从表尾取（最旧），故旧 payload 放末尾
-        fake._lists[draw_queue.QUEUE_KEY] = [
-            json.dumps({
-                "job_id": "new",
-                "description": "d",
-                "public_base_url": "u",
-                "chain_push": False,
-            }),
-            json.dumps({"job_id": "old", "description": "d", "public_base_url": "u"}),
-        ]
-        legacy = await backend.dequeue(timeout=0)
-        modern = await backend.dequeue(timeout=0)
+    async def run_case():
+        legacy = await backend.dequeue(timeout=1)
+        modern = await backend.dequeue(timeout=1)
         assert legacy is not None and legacy.chain_push is True
         assert modern is not None and modern.chain_push is False
-
+        await backend._client().aclose()
     asyncio_run(run_case())
 
 
-def test_redis_attach_records_chain_push_and_separates_inflight(memory_queue, monkeypatch):
-    fake = _FakeRedis()
-    backend = _redis_backend(fake, monkeypatch)
 
-    async def run_case() -> None:
+def test_redis_attach_records_chain_push_and_separates_inflight(memory_queue, live_redis):
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run_case():
         voice = await backend.attach_or_enqueue("一只猫", "https://hutuji.example")
-        web = await backend.attach_or_enqueue(
-            "一只猫", "https://hutuji.example", chain_push=False
-        )
+        web = await backend.attach_or_enqueue("一只猫", "https://hutuji.example", chain_push=False)
         assert voice != web
-        assert fake._strings[draw_queue._inflight_key("一只猫", True)] == voice
-        queued = {
-            json.loads(item)["job_id"]: json.loads(item)
-            for item in fake._lists[draw_queue.QUEUE_KEY]
-        }
+        assert client.get(draw_queue._inflight_key("一只猫", True)) == voice
+        queued = {json.loads(item)["job_id"]: json.loads(item)
+                  for item in client.lrange(draw_queue.QUEUE_KEY, 0, -1)}
         assert queued[voice]["chain_push"] is True
         assert queued[web]["chain_push"] is False
-        assert fake._strings[draw_queue._inflight_key("一只猫", False)] == web
-        # 清网页键不得误清语音键
+        assert client.get(draw_queue._inflight_key("一只猫", False)) == web
         await backend.clear_inflight("一只猫", web, chain_push=False)
-        assert draw_queue._inflight_key("一只猫", False) not in fake._strings
-        assert fake._strings[draw_queue._inflight_key("一只猫", True)] == voice
-
+        assert client.get(draw_queue._inflight_key("一只猫", False)) is None
+        assert client.get(draw_queue._inflight_key("一只猫", True)) == voice
+        await backend._client().aclose()
     asyncio_run(run_case())
+
 
 def test_draw_queue_url_validation():
     with pytest.raises(ValueError, match="HUTUJI_DRAW_QUEUE_URL"):

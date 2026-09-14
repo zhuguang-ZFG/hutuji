@@ -31,12 +31,16 @@ async def _process_one() -> bool:
     job = await backend.dequeue(timeout=_BRPOP_TIMEOUT_SECONDS)
     if job is None:
         return False
-    await backend.mark_processing(job.job_id)
+    claim = await backend.mark_processing(job.job_id, payload_sha256=job.payload_sha256)
+    if claim is None:
+        logger.warning("draw-worker 跳过已领取、过期或内容不符的任务 job_id=%s", job.job_id)
+        return False
     job_ledger.schedule_processing(
         job_id=job.job_id,
         worker_instance=_worker_instance(),
     )
     token = job_ledger.bind_job_id(job.job_id)
+    settled = False
     try:
         result = await _run_draw_job(
             job.description,
@@ -44,23 +48,32 @@ async def _process_one() -> bool:
             job_id=job.job_id,
             chain_push=job.chain_push,
             machine=job.machine,
+            **({"paper": job.paper, "device_id": job.device_id, "owner_stamp": job.owner_stamp}
+               if job.paper is not None or job.device_id or job.owner_stamp else {}),
         )
-        await backend.mark_done(job.job_id, result)
-        job_ledger.schedule_done(job_id=job.job_id, result_json=result)
-        logger.info("draw-worker 完成 job_id=%s", job.job_id)
+        settled = await backend.mark_done(job.job_id, result, claim_token=claim)
+        if settled:
+            job_ledger.schedule_done(job_id=job.job_id, result_json=result)
+            logger.info("draw-worker 完成 job_id=%s", job.job_id)
     except BaseException as exc:
-        await backend.mark_failed(job.job_id, exc)
-        job_ledger.schedule_failed(job_id=job.job_id, exc=exc)
+        settled = await backend.mark_failed(job.job_id, exc, claim_token=claim)
+        if settled:
+            job_ledger.schedule_failed(job_id=job.job_id, exc=exc)
         logger.warning(
             "draw-worker 失败 job_id=%s type=%s",
             job.job_id,
             type(exc).__name__,
         )
+        if not isinstance(exc, Exception):
+            raise
     finally:
         job_ledger.reset_job_id(token)
-        await backend.clear_inflight(
-            job.description, job.job_id, chain_push=job.chain_push, machine=job.machine
-        )
+        if settled:
+            await backend.clear_inflight(
+                job.description, job.job_id, chain_push=job.chain_push, machine=job.machine,
+                **({"paper": job.paper, "device_id": job.device_id, "owner_stamp": job.owner_stamp}
+                   if job.paper is not None or job.device_id or job.owner_stamp else {}),
+            )
     return True
 
 

@@ -103,6 +103,7 @@ App({
     wx.removeStorageSync("session_token");
     wx.removeStorageSync("session_ok");
     wx.removeStorageSync("voice_session_id");
+    wx.removeStorageSync("drawpad_draft_v2");
     wx.setStorageSync("logged_out", true);
     this.globalData.user = null;
     this.globalData.phoneBound = false;

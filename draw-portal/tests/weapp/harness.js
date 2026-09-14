@@ -45,18 +45,17 @@ function createWeapp(options = {}) {
   const scans = [];
   const downloads = [];
   const actionSheets = [];
-  const recorderEvents = { start: new Set(), stop: new Set(), error: new Set() };
+  // 微信运行时每种录音事件仅保留一个回调，没有 offStart/offStop/offError。
+  const recorderEvents = {};
   const recorder = {
     starts: [], stops: 0,
     start(options) { this.starts.push(options); },
     stop() { this.stops++; },
-    onStart(fn) { recorderEvents.start.add(fn); },
-    onStop(fn) { recorderEvents.stop.add(fn); },
-    onError(fn) { recorderEvents.error.add(fn); },
-    offStart(fn) { recorderEvents.start.delete(fn); },
-    offStop(fn) { recorderEvents.stop.delete(fn); },
-    offError(fn) { recorderEvents.error.delete(fn); },
-    emit(event, result) { for (const fn of [...recorderEvents[event]]) fn(result); },
+    onStart(fn) { recorderEvents.start = fn; },
+    onStop(fn) { recorderEvents.stop = fn; },
+    onError(fn) { recorderEvents.error = fn; },
+    onInterruptionBegin(fn) { recorderEvents.interruption = fn; },
+    emit(event, result) { if (recorderEvents[event]) recorderEvents[event](result); },
   };
   let app;
   let page;
@@ -79,6 +78,7 @@ function createWeapp(options = {}) {
     showLoading: () => {},
     hideLoading: () => {},
     stopPullDownRefresh: () => {},
+    setNavigationBarTitle: () => {},
   };
   const clock = options.clock;
   const context = vm.createContext({

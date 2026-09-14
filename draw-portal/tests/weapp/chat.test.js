@@ -4,6 +4,7 @@ const { createWeapp, flush } = require("./harness");
 
 async function setup() {
   const h = createWeapp();
+  h.wx.getSetting = (options) => options.success({ authSetting: { "scope.record": true } });
   h.load("pages/chat/chat.js");
   h.page.onLoad();
   h.requests[0].success({ statusCode: 200, data: {} });
@@ -13,6 +14,51 @@ async function setup() {
   await flush();
   return h;
 }
+
+test("示例只填入草稿，输入切换保留草稿且不启动录音", async () => {
+  const h = await setup();
+  const count = h.requests.length;
+  h.page.onSuggestion({ currentTarget: { dataset: { text: "画一只小猫" } } });
+  assert.equal(h.page.data.textInput, "画一只小猫");
+  assert.equal(h.page.data.inputMode, "text");
+  h.page.onToggleInput();
+  assert.equal(h.page.data.inputMode, "voice");
+  assert.equal(h.page.data.textInput, "画一只小猫");
+  assert.equal(h.requests.length, count);
+  assert.equal(h.page._recordAttempt, undefined);
+});
+
+test("录音启动、进行和结束等待中均不能切换并卸载触摸按钮", async () => {
+  const h = await setup();
+  h.page.onHoldStart();
+  h.page.onToggleInput();
+  assert.equal(h.page.data.inputMode, "voice");
+  h.recorder.emit("start");
+  h.page.onToggleInput();
+  assert.equal(h.page.data.inputMode, "voice");
+  h.page.onHoldCancel();
+  h.page.onToggleInput();
+  assert.equal(h.page.data.inputMode, "voice");
+  h.recorder.emit("stop", { tempFilePath: "wxfile://discarded.mp3" });
+  h.page.onToggleInput();
+  assert.equal(h.page.data.inputMode, "text");
+  assert.equal(h.uploads.length, 0);
+});
+
+test("等待回复指示跨切页保留，失败结束后恢复可输入", async () => {
+  const h = await setup();
+  h.page.setData({ textInput: "你好" });
+  h.page.onSendText();
+  const pending = h.requests.at(-1);
+  assert.equal(h.page.data.replyPending, true);
+  h.page.onHide();
+  h.page.onShow();
+  assert.equal(h.page.data.replyPending, true);
+  pending.fail({ errMsg: "request:fail timeout" });
+  await flush();
+  assert.equal(h.page.data.replyPending, false);
+  assert.equal(h.page.data.busy, false);
+});
 
 test("快速松手早于录音开始：迟到的 onStart 立即停止且不上传", async () => {
   const h = await setup();
@@ -134,3 +180,31 @@ test("聊天卡生成结果跨切页保留，不在回屏时重置成未生成",
   assert.equal(draw.state, "ready");
   assert.equal(draw.jobId, "chat-picture");
 });
+
+for (const method of ["onConfirmPreview", "onCancelPreview"]) {
+  test(`${method} 锁定预览设备，业务拒绝时不显示成功`, async () => {
+    const h = await setup();
+    const id = h.page._pushMessage("assistant", "确认预览", [], {
+      job_id: "job-1", preview_url: "/preview.png", device_mac: "aa:bb:cc:dd:ee:ff",
+    });
+    h.app.globalData.user = { active_device_mac: "11:22:33:44:55:66" };
+    h.page[method]({ currentTarget: { dataset: { id } } });
+    const request = h.requests.at(-1);
+    assert.equal(request.data.device_mac, "aa:bb:cc:dd:ee:ff");
+    request.success({ statusCode: 200, data: { status: "error", detail: "设备未接受操作" } });
+    await flush();
+    assert.equal(h.page._findMsg(id).previewPending, true);
+    assert.equal(h.page._findMsg(id).previewDone, undefined);
+    assert.equal(h.page.data.busy, false);
+    assert.match(h.toasts.at(-1).title, /未接受/);
+  });
+
+  test(`${method} 旧卡片缺少设备身份时不控制当前设备`, async () => {
+    const h = await setup();
+    const id = h.page._pushMessage("assistant", "旧预览", [], { job_id: "job-1", preview_url: "/preview.png" });
+    const before = h.requests.length;
+    h.page[method]({ currentTarget: { dataset: { id } } });
+    assert.equal(h.requests.length, before);
+    assert.match(h.toasts.at(-1).title, /重新生成/);
+  });
+}

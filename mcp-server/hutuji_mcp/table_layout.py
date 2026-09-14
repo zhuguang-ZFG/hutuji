@@ -237,6 +237,8 @@ def _with_size(layout: WriteLayout, size_mm: float) -> WriteLayout:
         margin_top_mm=layout.margin_top_mm,
         margin_bottom_mm=layout.margin_bottom_mm,
         paragraph_indent=0,
+        page_width_mm=layout.page_width_mm,
+        page_height_mm=layout.page_height_mm,
     )
 
 
@@ -285,7 +287,7 @@ def _paginate(
     max_pages: int,
 ) -> LayoutResult:
     pages: list[LaidOutPage] = []
-    page = LaidOutPage()
+    page = LaidOutPage(page_width_mm=layout.page_width_mm, page_height_mm=layout.page_height_mm)
     truncated = False
     line_h = layout.line_height_mm
     x_left = layout.margin_left_mm
@@ -301,7 +303,7 @@ def _paginate(
         # 空页也计数入 pages：页预算(len)是真值，病态「单行比整页高」靠它终止；
         # 空页在 _finish 统一滤除，不进产物。
         pages.append(page)
-        page = LaidOutPage()
+        page = LaidOutPage(page_width_mm=layout.page_width_mm, page_height_mm=layout.page_height_mm)
         y = y_top
         prev_row_bottom = None
 

@@ -96,6 +96,9 @@
       <button class="weui-btn weui-btn_default" bindtap="onGoWifi">一键配网</button>
     </view>
 
+    <view class="weui-cells__title">纸张与版式</view>
+    <navigator url="/pages/paper/paper" class="weui-cells"><view class="weui-cell link-cell"><view class="weui-cell__bd">纸张、方向与留边</view><view class="weui-cell__ft">设置 ›</view></view></navigator>
+
     <view class="weui-cells__title">固件</view>
     <view class="weui-cells__tips">检查并升级小派固件；丹青远程升级后续支持</view>
     <view class="weui-btn-area tight">
@@ -113,7 +116,9 @@
   <view class="weui-cells__title">隐私与帮助</view>
   <view class="weui-btn-area tight">
     <button class="weui-btn weui-btn_default" bindtap="onPrivacy">隐私保护指引</button>
-    <button class="weui-btn weui-btn_default" open-type="contact">联系客服</button>
+    <button class="weui-btn weui-btn_default" open-type="contact" binderror="onContactError">微信客服</button>
+    <view class="support-email"><text selectable="{{true}}">客服邮箱：{{supportEmail}}</text></view>
+    <button class="weui-btn weui-btn_default" bindtap="onCopySupportEmail">复制客服邮箱</button>
   </view>
   <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>

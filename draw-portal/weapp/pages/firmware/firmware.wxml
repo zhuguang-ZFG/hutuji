@@ -1,7 +1,7 @@
 <view class="page">
   <view class="hero">
-    <view class="hero-brand">动力巢科技 · OTA</view>
-    <view class="hero-title">固件<span class="accent">升级</span></view>
+    <view class="hero-brand">动力巢科技</view>
+    <view class="hero-title">固件<text class="accent">升级</text></view>
     <view class="hero-sub">仅升级小派；升级中请勿断电、勿出图</view>
   </view>
 
@@ -47,6 +47,10 @@
     class="status-tip {{statusTipClass}}"
     wx:if="{{statusTip}}"
   >{{statusTip}}</view>
+
+  <view class="status-tip warn" wx:if="{{loadError}}">{{loadError}}
+    <button size="mini" bindtap="onShow" disabled="{{checking}}">重新读取设备</button>
+  </view>
 
   <view class="weui-btn-area">
     <button

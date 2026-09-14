@@ -17,8 +17,9 @@ import subprocess
 import sys
 import tempfile
 import weakref
-from dataclasses import dataclass
 from pathlib import Path
+
+from .paper_config import PaperConfig
 
 _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 
@@ -105,6 +106,9 @@ class MachineProfile:
     transpose_xy: bool | None = None
     max_x_mm: float | None = None
     max_y_mm: float | None = None
+    page_width_mm: float = PAGE_AUTHOR_WIDTH_MM
+    page_height_mm: float = PAGE_AUTHOR_HEIGHT_MM
+    paper: PaperConfig | None = None
 
 
 # 量产无换纸机（§10.4.15，物理 X≈210 / Y≈297，2026-09-11 用户实机确认）：墙面
@@ -320,13 +324,20 @@ def _vpype_cmd() -> list[str]:
     return [sys.executable, "-m", "vpype_cli"]
 
 
-def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> list[str]:
+def _vpype_command(
+    svg_path: Path, gcode_path: Path, normalize: bool = True, *,
+    profile: MachineProfile | None = None, preserve_canvas: bool = False,
+    preview_svg_path: Path | None = None,
+) -> list[str]:
     """构造固定 vpype 管线，供同步和可取消异步入口共用。
 
     normalize=False（写字排版链专用）跳过 layout：文字页版式由 write_text 按
     竖版 190x277mm 自排（B 案 2026-09-06，撰写页常量 PAGE_AUTHOR_*），layout 的
     等比缩放会让「字号」随每页内容量漂移（多页字大小不一）。
+    preserve_canvas 仍执行 layout，以画布边界保留手绘留白；预览导出复用同次排版。
     """
+    width = profile.page_width_mm if profile is not None else PAGE_AUTHOR_WIDTH_MM
+    height = profile.page_height_mm if profile is not None else PAGE_AUTHOR_HEIGHT_MM
     return _vpype_cmd() + [
         "--config", str(_PROFILE_PATH),
         "read", str(svg_path),
@@ -344,8 +355,9 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
         # validate_gcode 整单拒）。内容归一化到 (190-2m)x(277-2m) 居中。
         *((
             "layout", "--fit-to-margins", f"{LAYOUT_MARGIN_MM:.0f}mm",
-            *(("--landscape",) if PAGE_AUTHOR_WIDTH_MM > PAGE_AUTHOR_HEIGHT_MM else ()),
-            f"{PAGE_AUTHOR_WIDTH_MM:.0f}x{PAGE_AUTHOR_HEIGHT_MM:.0f}mm",
+            *(("--no-bbox",) if preserve_canvas else ()),
+            *(("--landscape",) if width > height else ()),
+            f"{width:g}x{height:g}mm",
         ) if normalize else ()),
         # linemerge：把首尾相接的碎笔画并成一条，减少抬落笔次数
         "linemerge", "--tolerance", f"{LINEMERGE_TOLERANCE_MM}mm",
@@ -358,6 +370,7 @@ def _vpype_command(svg_path: Path, gcode_path: Path, normalize: bool = True) -> 
         # 进给以生产 profile 为准（hutuji_gwrite.toml:58-61 全是 F24000）；早先
         # 这里写的 F1500/~20ms 是 profile 定稿前的旧口径，与上方 25ms 自相矛盾。
         "linesimplify", "--tolerance", f"{LINESIMPLIFY_TOLERANCE_MM}mm",
+        *(("write", str(preview_svg_path)) if preview_svg_path is not None else ()),
         "gwrite", "--profile", "hutuji", str(gcode_path),
     ]
 
@@ -594,17 +607,26 @@ def _read_generated_gcode(gcode_path: Path, on_raw_text=None, *, profile: "Machi
             raise GcodeError("G-code 后处理写回失败") from None
         text = fitted
         raw = fitted.encode("utf-8")
-    return validate_gcode(text, total_bytes=len(raw), profile=profile)
+    stats = validate_gcode(text, total_bytes=len(raw), profile=profile)
+    from .paper_artifacts import write_paper_metadata
+
+    write_paper_metadata(gcode_path, profile.paper if profile is not None else None, data=raw)
+    return stats
 
 
-def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
+def svg_to_gcode(
+    svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *,
+    profile: "MachineProfile | None" = None, preserve_canvas: bool = False,
+    preview_svg_path: Path | None = None,
+) -> GcodeStats:
     """跑 vpype 管线生成 G-code，随后做 §5 合同校验。
 
     normalize=False 仅写字/表格排版链使用（跳过 layout 保字号，与
     svg_to_gcode_async 同约定）；其余调用方不得传。portal 文档导入是同步
     调用方，表格/文章页版式由 table_layout/write_text 自排。
     """
-    cmd = _vpype_command(svg_path, gcode_path, normalize)
+    cmd = _vpype_command(svg_path, gcode_path, normalize, profile=profile,
+                         preserve_canvas=preserve_canvas, preview_svg_path=preview_svg_path)
     proc = None
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
@@ -625,11 +647,16 @@ def svg_to_gcode(svg_path: Path, gcode_path: Path, normalize: bool = True, on_ra
     return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text, profile=profile)
 
 
-async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
+async def _svg_to_gcode_async_unbounded(
+    svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *,
+    profile: "MachineProfile | None" = None, preserve_canvas: bool = False,
+    preview_svg_path: Path | None = None,
+) -> GcodeStats:
     """可取消地运行 vpype；请求取消或超时都必须回收子进程。"""
     try:
         process = await asyncio.create_subprocess_exec(
-            *_vpype_command(svg_path, gcode_path, normalize),
+            *_vpype_command(svg_path, gcode_path, normalize, profile=profile,
+                            preserve_canvas=preserve_canvas, preview_svg_path=preview_svg_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -677,13 +704,20 @@ async def _svg_to_gcode_async_unbounded(svg_path: Path, gcode_path: Path, normal
     return _read_generated_gcode(gcode_path, on_raw_text=on_raw_text, profile=profile)
 
 
-async def svg_to_gcode_async(svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *, profile: "MachineProfile | None" = None) -> GcodeStats:
+async def svg_to_gcode_async(
+    svg_path: Path, gcode_path: Path, normalize: bool = True, on_raw_text=None, *,
+    profile: "MachineProfile | None" = None, preserve_canvas: bool = False,
+    preview_svg_path: Path | None = None,
+) -> GcodeStats:
     """可取消地运行 vpype；最多两个子进程并发，取消时仍回收已启动进程。
 
     normalize=False 仅写字排版链使用（跳过 layout 保字号），其余调用方不得传。
     """
     async with _vpype_semaphore():
-        return await _svg_to_gcode_async_unbounded(svg_path, gcode_path, normalize, on_raw_text=on_raw_text, profile=profile)
+        return await _svg_to_gcode_async_unbounded(
+            svg_path, gcode_path, normalize, on_raw_text=on_raw_text, profile=profile,
+            preserve_canvas=preserve_canvas, preview_svg_path=preview_svg_path,
+        )
 
 
 def validate_gcode(text: str, total_bytes: int | None = None, *, profile: "MachineProfile | None" = None) -> GcodeStats:

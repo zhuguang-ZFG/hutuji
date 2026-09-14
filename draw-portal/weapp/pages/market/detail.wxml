@@ -1,0 +1,23 @@
+<view class="detail-page">
+  <view class="work-heading" wx:if="{{title}}"><text class="eyebrow">精品图库</text><text class="work-title">{{title}}</text><text class="work-sub">一笔一画，让灵感落在纸上</text></view>
+  <view class="paper-frame">
+    <image wx:if="{{previewTmp}}" class="work-preview" src="{{previewTmp}}" mode="aspectFit" bindtap="onPreview"
+      binderror="onPreviewError" data-url="{{previewTmp}}" show-menu-by-longpress />
+    <view class="preview-placeholder" wx:elif="{{previewState === 'error'}}"><text>预览暂时没有加载出来</text><button class="retry-button" bindtap="onRetryPreview">重新加载预览</button></view>
+    <view class="preview-placeholder" wx:else><view class="loading-line"></view><text>正在准备预览</text></view>
+  </view>
+  <view class="preview-tip" wx:if="{{previewTmp}}">轻点图片，查看细节</view>
+  <view class="credit-panel" wx:if="{{title && attribution}}"><text class="credit-label">作品署名</text><text class="credit-text">{{attribution}}</text><text class="credit-change">{{changes}}</text><text class="credit-change">{{license}}</text></view>
+  <view class="send-panel" wx:if="{{title}}">
+    <view class="device-row"><view class="device-dot {{deviceMac ? 'connected' : ''}}"></view><text>{{deviceLabel}}</text></view>
+    <view class="send-credit" wx:if="{{attribution}}">本次作品署名：{{attribution}}</view>
+    <button class="send-button" bindtap="onSend" disabled="{{sending || favoriting || loading || previewState !== 'ready' || !!loadError}}" hover-class="button-press">
+      {{sending ? "正在准备并发送…" : deviceMac ? "发送给写字机" : "连接写字机"}}
+    </button>
+    <button class="favorite-button" bindtap="onFavorite" disabled="{{sending || favoriting || loading || previewState !== 'ready' || !!loadError}}" hover-class="button-press">
+      {{favoriting ? "正在收藏…" : "收藏这幅作品"}}
+    </button>
+    <text class="action-hint" wx:if="{{actionHint}}">{{actionHint}}</text>
+  </view>
+  <view class="error-panel" wx:if="{{loadError}}"><text>{{loadError}}</text><button class="retry-button" bindtap="onRetry">重新读取</button></view>
+</view>

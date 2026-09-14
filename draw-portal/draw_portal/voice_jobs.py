@@ -9,6 +9,7 @@ from draw_portal.generate import GenerateError, materialize_generated_job, reque
 from draw_portal.pipeline import process_write_text
 from draw_portal.push import publish_doc_pages, publish_job_files, push_draw_self_heal
 from draw_portal.write_layout_params import resolve_article_layout
+from draw_portal.paper_settings import PaperSettingsError, PaperSnapshot, write_job_context
 
 
 class VoiceJobError(Exception):
@@ -47,6 +48,7 @@ def _push_preview(
     device_mac: str,
     device_token_enc: str,
     on_token_minted: Callable[[str], None] | None,
+    before_action: Callable[[], object] | None = None,
 ) -> None:
     ok, summary = push_draw_self_heal(
         api_base=api_base,
@@ -58,6 +60,7 @@ def _push_preview(
         pages_arg=preview.pages_arg,
         on_token_minted=on_token_minted,
         auto_confirm=False,
+        **({"before_action": before_action} if before_action is not None else {}),
     )
     if not ok:
         raise VoiceJobError(f"推送到丹青失败：{summary}", status=502)
@@ -81,6 +84,9 @@ def run_voice_draw(
     device_mac: str,
     device_token_enc: str,
     on_token_minted: Callable[[str], None] | None = None,
+    snapshot: PaperSnapshot | None = None,
+    before_push: Callable[[], object] | None = None,
+    before_action: Callable[[], object] | None = None,
 ) -> tuple[str, VoicePreview]:
     desc = description.strip()
     if not desc:
@@ -89,11 +95,15 @@ def run_voice_draw(
         raise VoiceJobError("生图通道未配置", status=503)
 
     try:
+        if snapshot is not None:
+            write_job_context(job_dir, snapshot)
         result = request_internal_draw(
             base_url=mcp_internal_base_url,
             secret=usage_ingest_secret,
             description=desc,
             timeout_seconds=generate_timeout_seconds,
+            **({"machine": snapshot.machine, "paper": snapshot.paper.to_dict(), "device_id": device_mac}
+               if snapshot is not None else {}),
         )
         materialize_generated_job(
             base_url=mcp_internal_base_url,
@@ -113,7 +123,7 @@ def run_voice_draw(
         if exc.status == 504:
             raise VoiceJobError("生图超时，请稍后再试", status=504) from exc
         raise VoiceJobError("生图服务暂不可用，请稍后再试", status=502) from exc
-    except VoiceJobError:
+    except (VoiceJobError, PaperSettingsError):
         raise
     except Exception as exc:
         mark_failed(job_id, type(exc).__name__)
@@ -125,6 +135,8 @@ def run_voice_draw(
         preview_url=published.preview_url,
         gcode_url=published.gcode_url,
     )
+    if before_push is not None:
+        before_push()
     _push_preview(
         preview=preview,
         api_base=api_base,
@@ -132,6 +144,7 @@ def run_voice_draw(
         device_mac=device_mac,
         device_token_enc=device_token_enc,
         on_token_minted=on_token_minted,
+        before_action=before_action,
     )
     return (
         "已生成并推到丹青预览，请在小程序点「开始画」确认；取消则点「取消」。",
@@ -156,6 +169,9 @@ def run_voice_write(
     device_mac: str,
     device_token_enc: str,
     on_token_minted: Callable[[str], None] | None = None,
+    snapshot: PaperSnapshot | None = None,
+    before_push: Callable[[], object] | None = None,
+    before_action: Callable[[], object] | None = None,
 ) -> tuple[str, VoicePreview]:
     from hutuji_mcp import t2s
     from hutuji_mcp.article_pages import pages_argument
@@ -171,6 +187,8 @@ def run_voice_write(
 
     layout = resolve_article_layout(size_mm=None, line_spacing=None)
     try:
+        if snapshot is not None:
+            write_job_context(job_dir, snapshot)
         result = process_write_text(
             safe,
             job_dir,
@@ -178,6 +196,7 @@ def run_voice_write(
             layout=layout,
             stroke_dir=stroke_dir or "",
             fit_single_page=True,
+            **({"profile": snapshot.paper.to_profile()} if snapshot is not None else {}),
         )
         published_pages = publish_doc_pages(
             job_dir=job_dir,
@@ -188,6 +207,8 @@ def run_voice_write(
     except WriteTextError as exc:
         mark_failed(job_id, type(exc).__name__)
         raise VoiceJobError(str(exc)[:120], status=400) from None
+    except PaperSettingsError:
+        raise
     except Exception as exc:
         mark_failed(job_id, type(exc).__name__)
         raise VoiceJobError("写字转换失败", status=422) from exc
@@ -202,6 +223,8 @@ def run_voice_write(
         gcode_url=first.gcode_url,
         pages_arg=pages_arg,
     )
+    if before_push is not None:
+        before_push()
     _push_preview(
         preview=preview,
         api_base=api_base,
@@ -209,6 +232,7 @@ def run_voice_write(
         device_mac=device_mac,
         device_token_enc=device_token_enc,
         on_token_minted=on_token_minted,
+        before_action=before_action,
     )
     page_note = f"共 {result.page_count} 页。" if result.page_count > 1 else ""
     return (

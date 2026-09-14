@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .gcode_gen import GcodeError, PROFILE_NOPAPER, validate_gcode
+from .paper_artifacts import PAPER_SUFFIX, PaperArtifactError, decode_paper_metadata, paper_path
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,12 @@ _DRAW_FILE_RE = re.compile(
 _DRAW_FILE_PARTS_RE = re.compile(
     r"^(draw_\d{8}_\d{6})_(?P<token>[A-Za-z0-9_-]{22})\.(?P<ext>gcode|svg|png)$"
 )
-_DRAW_SUFFIXES = (".svg", ".gcode", ".png")
+_DRAW_SUFFIXES = (".svg", ".gcode", ".png", PAPER_SUFFIX)
+
+
+def _is_internal_artifact_name(name: str) -> bool:
+    return bool(_DRAW_FILE_RE.fullmatch(name) or
+                (name.endswith(PAPER_SUFFIX) and _DRAW_FILE_RE.fullmatch(name[:-len(PAPER_SUFFIX)] + ".gcode")))
 
 
 class OutputNotFoundError(OSError):
@@ -54,10 +60,10 @@ def _is_regular_capability_file(path: Path) -> bool:
         st = os.stat(path, follow_symlinks=False)
     except OSError:
         return False
-    return stat.S_ISREG(st.st_mode) and _DRAW_FILE_RE.fullmatch(path.name) is not None
+    return stat.S_ISREG(st.st_mode) and _is_internal_artifact_name(path.name)
 
 
-def _read_regular_file(path: Path) -> tuple[bytes, float]:
+def _read_regular_file(path: Path, *, max_bytes: int | None = None) -> tuple[bytes, float]:
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     before = os.stat(path, follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
@@ -77,7 +83,10 @@ def _read_regular_file(path: Path) -> tuple[bytes, float]:
         f = os.fdopen(fd, "rb")
         fd = -1
         with f:
-            return f.read(), st.st_mtime
+            raw = f.read() if max_bytes is None else f.read(max_bytes + 1)
+            if max_bytes is not None and len(raw) > max_bytes:
+                raise OSError("文件超过读取预算")
+            return raw, st.st_mtime
     except BaseException:
         if fd >= 0:
             os.close(fd)
@@ -88,11 +97,18 @@ def _is_expired_mtime(mtime: float, *, now: float) -> bool:
     return now - mtime >= _settings().output_ttl_seconds
 
 
-def _read_verified_gcode_bytes(data: bytes, mtime: float) -> tuple[bytes, float]:
+def _read_verified_gcode_bytes(data: bytes, mtime: float, metadata: bytes | None = None) -> tuple[bytes, float]:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise StaleOutputStoreError("G-code 无法按 UTF-8 解码", mtime) from exc
+    if metadata is not None:
+        try:
+            config = decode_paper_metadata(metadata, data)
+            validate_gcode(text, total_bytes=len(data), profile=config.to_profile())
+        except (PaperArtifactError, GcodeError) as exc:
+            raise StaleOutputStoreError(str(exc), mtime) from None
+        return data, mtime
     # §5 复核按机型分档（§10.4.15）：产物是哪台机器生成、读时就无法知道，
     # 故「默认档过了直接放行，没过再看 nopaper 档」——两档任一成立即合法
     # （内容所出自的生成期校验本来就带正确 profile；这里复核防的是盘上
@@ -148,7 +164,10 @@ class LocalOutputStore:
         """
         if created_at is None:
             return
-        for path in (paths.svg_path, paths.gcode_path, paths.preview_path):
+        artifacts = [paths.svg_path, paths.gcode_path, paths.preview_path]
+        if paper_path(paths.gcode_path).exists():
+            artifacts.append(paper_path(paths.gcode_path))
+        for path in artifacts:
             try:
                 os.utime(path, (created_at, created_at))
             except OSError as exc:
@@ -168,8 +187,23 @@ class LocalOutputStore:
         except OSError as exc:
             raise OutputNotFoundError(str(exc)) from exc
         if name.endswith(".gcode"):
-            return _read_verified_gcode_bytes(data, mtime)
+            return _read_verified_gcode_bytes(data, mtime, self._paper_bytes(name))
         return data, mtime
+
+    def _paper_bytes(self, name: str) -> bytes | None:
+        try:
+            raw, _ = _read_regular_file(paper_path(_settings().output_dir / name), max_bytes=2048)
+            return raw
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise OutputNotFoundError("作品纸张配置不可读") from exc
+
+    def paper_marker(self, name: str, data: bytes) -> str:
+        metadata = self._paper_bytes(name)
+        # 文件与响应头之间若发生删除/替换，必须再次核对同一批字节，不能降级放行大幅图。
+        _read_verified_gcode_bytes(data, 0, metadata)
+        return decode_paper_metadata(metadata, data).marker if metadata is not None else ""
 
     def delete_stem(self, stem: str) -> None:
         for suffix in _DRAW_SUFFIXES:
@@ -194,7 +228,7 @@ class LocalOutputStore:
             if _is_regular_capability_file(path):
                 try:
                     if _is_expired_mtime(path.stat().st_mtime, now=now):
-                        expired_stems.add(path.stem)
+                        expired_stems.add(path.name[:-len(PAPER_SUFFIX)] if path.name.endswith(PAPER_SUFFIX) else path.stem)
                 except OSError as exc:
                     logger.warning("跳过清理 %s：%s", _redact_name(path.name), exc)
         deleted = 0
@@ -262,7 +296,10 @@ class OssOutputStore:
     def finalize_job(self, paths: JobPaths, *, created_at: float | None = None) -> None:
         bucket = self._get_bucket()
         created = str(time.time() if created_at is None else created_at)
-        for path in (paths.svg_path, paths.gcode_path, paths.preview_path):
+        artifacts = [paths.svg_path, paths.gcode_path, paths.preview_path]
+        if paper_path(paths.gcode_path).exists():
+            artifacts.append(paper_path(paths.gcode_path))
+        for path in artifacts:
             data = path.read_bytes()
             bucket.put_object(
                 self._object_key(path.name),
@@ -318,8 +355,25 @@ class OssOutputStore:
         headers = getattr(result, "headers", None) or {}
         mtime = self._object_mtime(dict(headers))
         if name.endswith(".gcode"):
-            return _read_verified_gcode_bytes(data, mtime)
+            return _read_verified_gcode_bytes(data, mtime, self._paper_bytes(name))
         return data, mtime
+
+    def _paper_bytes(self, name: str) -> bytes | None:
+        try:
+            result = self._get_bucket().get_object(self._object_key(paper_path(Path(name)).name))
+            data = result.read(2049)
+            if len(data) > 2048:
+                raise ValueError("metadata too large")
+            return data
+        except Exception as exc:
+            if getattr(exc, "status", None) == 404 or getattr(exc, "code", None) == "NoSuchKey":
+                return None
+            raise OutputNotFoundError("作品纸张配置不可读") from exc
+
+    def paper_marker(self, name: str, data: bytes) -> str:
+        metadata = self._paper_bytes(name)
+        _read_verified_gcode_bytes(data, 0, metadata)
+        return decode_paper_metadata(metadata, data).marker if metadata is not None else ""
 
     def delete_stem(self, stem: str) -> None:
         bucket = self._get_bucket()
@@ -340,7 +394,7 @@ class OssOutputStore:
             result = bucket.list_objects_v2(prefix=prefix, marker=marker, max_keys=200)
             for obj in result.object_list:
                 name = obj.key.rsplit("/", 1)[-1]
-                if _DRAW_FILE_RE.fullmatch(name) is None:
+                if not _is_internal_artifact_name(name):
                     continue
                 mtime = obj.last_modified
                 if isinstance(mtime, int):

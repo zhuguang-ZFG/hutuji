@@ -1,6 +1,8 @@
 // draw-portal/weapp/utils/job_progress.js
 const POLL_MS_IDLE = 5000;
 const POLL_MS_BUSY = 1500;
+// 短动作通常不到一轮空闲轮询；仍以设备回包解锁，绝不按计时猜完成。
+const POLL_MS_CONTROL = 500;
 const TIMELINE_LABELS = ["空闲", "预览", "待确认", "准备中", "出图中", "换纸", "结束"];
 
 const BUSY_STATES = {
@@ -24,6 +26,7 @@ function timelineIndex(state, paperChanging) {
 
 function pollIntervalMs(state, otaState) {
   const s = state == null ? "" : String(state);
+  if (s === "manual" || s === "pen_test") return POLL_MS_CONTROL;
   if (BUSY_STATES[s]) return POLL_MS_BUSY;
   const o = otaState == null ? "idle" : String(otaState);
   if (o && o !== "idle") return POLL_MS_BUSY;
@@ -88,6 +91,7 @@ function deriveProgressView(status) {
 module.exports = {
   POLL_MS_IDLE,
   POLL_MS_BUSY,
+  POLL_MS_CONTROL,
   TIMELINE_LABELS,
   timelineIndex,
   pollIntervalMs,

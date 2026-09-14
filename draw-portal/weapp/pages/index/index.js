@@ -2,8 +2,10 @@ const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
 const pageSession = require("../../utils/page_session");
+const paperSummary = require("../../utils/paper_summary");
 
 Page({
+  onPaperSettings() { wx.navigateTo({ url: "/pages/paper/paper" }); },
   data: {
     mode: "draw",
     description: "",
@@ -28,10 +30,12 @@ Page({
     job: null,
     quotaLeft: null,
     binding: null,
+    paperSummary: { title: "纸张与方向", detail: "正在读取当前设备…", state: "loading" },
   },
 
   onShow() {
     pageSession.show(this);
+    paperSummary.reset(this);
     const app = getApp();
     if (this._indexSession !== app._sessionGeneration) {
       this._indexSession = app._sessionGeneration;
@@ -48,7 +52,11 @@ Page({
     }
     const current = pageSession.capture(this);
     phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
-      if (!ok || !current()) return;
+      if (!current()) return;
+      if (!ok) {
+        this.setData({ paperSummary: { title: "纸张与方向", detail: "账号信息未读取，点此查看", state: "unavailable" } });
+        return;
+      }
       this.refreshStatus();
       this._consumePickedFile();
       // 交接结果先完成账号闸；退出登录时全局交接槽也会清空。
@@ -211,7 +219,9 @@ Page({
       app.globalData.user = me;
       this.setData({ binding: me.binding || null });
       if (me.quota && typeof me.quota.remaining === "number") this.setData({ quotaLeft: me.quota.remaining });
-    }).catch(() => { if (current()) this.setData({ binding: null }); });
+      return paperSummary.refresh(this);
+    }).catch(() => { if (current()) this.setData({ binding: null,
+      paperSummary: { title: "纸张与方向", detail: "设备信息未读取，点此查看", state: "unavailable" } }); });
   },
 
   onGenerate() {
@@ -672,5 +682,9 @@ Page({
 
   onGoBind() {
     wx.navigateTo({ url: "/pages/bind/bind" });
+  },
+
+  onGoMarket() {
+    wx.navigateTo({ url: "/pages/market/market" });
   },
 });

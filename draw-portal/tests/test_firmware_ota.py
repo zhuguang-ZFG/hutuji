@@ -107,6 +107,87 @@ def test_firmware_check_requires_binding(tmp_path: Path, monkeypatch: pytest.Mon
     assert "绑定" in r.json()["detail"]
 
 
+def test_firmware_upgrade_rejects_device_changed_since_check(tmp_path, monkeypatch):
+    _, client = _clients(monkeypatch, tmp_path)
+    for code, mac in (("AAAAAA", "aa:bb:cc:dd:ee:ff"), ("BBBBBB", "11:22:33:44:55:66")):
+        _announce(client, code, mac)
+        assert client.post("/api/user/bind/complete", json={"bind_code": code}).status_code == 200
+    calls = []
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call",
+                        lambda **kw: (calls.append(kw), (True, _status_json()))[1])
+    response = client.post("/api/device/firmware/upgrade", json={"device_mac": "aa:bb:cc:dd:ee:ff"})
+    assert response.status_code == 409
+    assert calls == []
+
+
+def test_firmware_upgrade_rechecks_owner_after_status(tmp_path, monkeypatch):
+    first, second = _clients(monkeypatch, tmp_path)
+    _announce(first, "AAAAAA")
+    assert first.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    calls = []
+
+    def push(**kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            _announce(second, "BBBBBB")
+            assert second.post("/api/user/bind/complete", json={"bind_code": "BBBBBB", "force": True}).status_code == 200
+        return True, _status_json()
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", push)
+    response = first.post("/api/device/firmware/upgrade")
+    assert not any(call["name"] == "hutuji.ota_start" for call in calls)
+    assert response.json()["status"] == "error"
+
+
+def test_firmware_upgrade_device_rejection_is_not_started(tmp_path, monkeypatch):
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+
+    def push(**kw):
+        if kw["name"] == "hutuji.ota_start":
+            return True, '{"isError":true,"content":[{"type":"text","text":"device rejected"}]}'
+        return True, _status_json()
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", push)
+    response = client.post("/api/device/firmware/upgrade")
+    assert response.json()["status"] == "error"
+
+
+def test_ota_status_keeps_original_device_after_active_switch(tmp_path, monkeypatch):
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA", "aa:bb:cc:dd:ee:ff")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", lambda **kw: (
+        True, _status_json() if kw["name"] == "hutuji.status" else '{"ok":true}'
+    ))
+    assert client.post("/api/device/firmware/upgrade").json()["status"] == "started"
+    _announce(client, "BBBBBB", "11:22:33:44:55:66")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "BBBBBB"}).status_code == 200
+
+    from draw_portal.crypto import decrypt_token
+    from draw_portal.store import Store
+    import os
+    store = Store(tmp_path / "t.db")
+    original = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    original_token = decrypt_token(os.environ["DRAW_PORTAL_TOKEN_CIPHER_KEY"].encode(), original.device_token_enc)
+    calls = []
+
+    def status(**kw):
+        calls.append(kw)
+        return True, _status_json(version="hutuji.1.0.1", ota={"state": "idle", "progress": 0})
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", status)
+    # 新活动设备即使版本碰巧相同，也不能把原设备的升级会话判为成功。
+    other = client.get("/api/device/firmware/ota_status?device_mac=11:22:33:44:55:66")
+    assert other.json()["state"] == "idle"
+    assert other.json()["target_version"] is None
+    assert store.get_firmware_ota_session(original.user_id).state == "upgrading"
+    response = client.get("/api/device/firmware/ota_status?device_mac=aa:bb:cc:dd:ee:ff")
+    assert calls[-1]["device_token"] == original_token
+    assert response.json()["state"] == "ok"
+
+
 def test_firmware_upgrade_pushes_ota_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _, c2 = _clients(monkeypatch, tmp_path)
     _announce(c2, "EEEEEE")

@@ -1,102 +1,91 @@
 <view class="page chat-page">
-  <scroll-view
-    class="msg-scroll"
-    scroll-y
-    scroll-into-view="{{scrollAnchor}}"
-    scroll-with-animation
-    enhanced
-    show-scrollbar="{{false}}"
-  >
+  <view class="chat-header">
+    <view class="companion-face {{recording ? 'listening' : busy ? 'thinking' : ''}}" aria-hidden="true"><view class="eye"></view><view class="eye"></view><view class="smile"></view></view>
+    <view class="companion-info">
+      <view class="companion-name">小派</view>
+      <view class="companion-status">{{loadError ? '连接遇到问题，请重试' : !enabled ? '正在准备…' : recording ? '我在听，慢慢说' : busy ? '正在为你处理…' : '聊想法，也把想法画下来'}}</view>
+    </view>
+    <view class="chat-settings"><navigator url="/pages/xiaopai/xiaopai" class="settings-entry" hover-class="btn-press" aria-label="小派音色与偏好设置">设置</navigator></view>
+  </view>
+  <navigator class="paper-summary {{paperSummary.state}}" url="/pages/paper/paper" hover-class="btn-press" aria-label="当前设备纸张与方向">
+    <view class="paper-summary-sheet {{paperSummary.landscape ? 'landscape' : ''}}" aria-hidden="true"></view>
+    <view class="paper-summary-copy"><view class="paper-summary-title">{{paperSummary.title}}</view><view class="paper-summary-detail">{{paperSummary.detail}}</view><view wx:if="{{paperSummary.hint}}" class="paper-summary-hint">{{paperSummary.hint}}</view></view>
+    <text class="paper-summary-arrow">›</text>
+  </navigator>
+
+  <scroll-view class="msg-scroll" scroll-y scroll-into-view="{{scrollAnchor}}" scroll-with-animation enhanced show-scrollbar="{{false}}">
+    <view class="welcome" wx:if="{{!messages.length}}">
+      <view class="welcome-kicker">很高兴见到你</view>
+      <view class="welcome-title">今天，一起做点什么？</view>
+      <view class="welcome-copy">按住说话，或切换到文字。<view>画画、写字、教笔顺，也可以聊聊天。</view></view>
+      <view class="suggestions">
+        <button class="suggestion" hover-class="btn-press" disabled="{{!enabled}}" data-text="画一只抱着星星的小猫" bindtap="onSuggestion"><text>画一只小猫</text><text class="suggestion-arrow">↗</text></button>
+        <button class="suggestion" hover-class="btn-press" disabled="{{!enabled}}" data-text="给我讲一个有趣的小故事" bindtap="onSuggestion"><text>听一个故事</text><text class="suggestion-arrow">↗</text></button>
+        <button class="suggestion" hover-class="btn-press" disabled="{{!enabled}}" data-text="我第一次用丹青，怎样开始创作？" bindtap="onSuggestion"><text>开始我的创作</text><text class="suggestion-arrow">↗</text></button>
+      </view>
+    </view>
     <view class="msg-list">
       <block wx:for="{{messages}}" wx:key="id">
         <view id="msg-{{item.id}}" class="msg-row {{item.role}}">
-          <view class="bubble">{{item.content}}</view>
-          <view wx:if="{{item.role === 'assistant'}}" class="muted">AI 生成，仅供参考</view>
-          <view wx:if="{{item.toolTracesText}}" class="tool-traces muted">{{item.toolTracesText}}</view>
+          <view wx:if="{{item.role === 'assistant'}}" class="message-author">小派</view>
+          <view class="bubble"><text selectable>{{item.content}}</text></view>
+          <view wx:if="{{item.toolTracesText}}" class="tool-traces">{{item.toolTracesText}}</view>
           <view wx:if="{{item.previewUrl}}" class="preview-card">
+            <view class="card-caption">这幅画准备好了</view>
             <image class="preview-img" src="{{item.previewUrl}}" mode="aspectFit"></image>
             <view wx:if="{{item.previewPending}}" class="preview-actions">
-              <view
-                class="btn-confirm"
-                data-id="{{item.id}}"
-                bindtap="onConfirmPreview"
-              >开始画</view>
-              <view
-                class="btn-cancel"
-                data-id="{{item.id}}"
-                bindtap="onCancelPreview"
-              >取消</view>
+              <button class="btn-confirm" disabled="{{busy || !enabled}}" data-id="{{item.id}}" bindtap="onConfirmPreview">开始画</button>
+              <button class="btn-cancel" disabled="{{busy || !enabled}}" data-id="{{item.id}}" bindtap="onCancelPreview">取消</button>
             </view>
-            <view wx:elif="{{item.previewDone}}" class="preview-done muted">{{item.previewDone}}</view>
+            <view wx:elif="{{item.previewDone}}" class="draw-state">{{item.previewDone}}</view>
           </view>
-          <!-- 文字链画图卡（DRAW:: 意图） -->
           <view wx:if="{{item.draw}}" class="draw-card">
-            <view class="draw-desc">想画：{{item.draw.description}}</view>
+            <view class="card-caption">灵感画板</view>
+            <view class="draw-desc">{{item.draw.description}}</view>
             <block wx:if="{{item.draw.state === 'idle'}}">
-              <view class="draw-btn" hover-class="btn-press" data-id="{{item.id}}" bindtap="onDrawGenerate">{{item.draw.error ? "重新生成" : "生成这幅画"}}</view>
+              <button class="draw-btn" disabled="{{!enabled}}" hover-class="btn-press" data-id="{{item.id}}" bindtap="onDrawGenerate">{{item.draw.error ? '重新生成' : '生成这幅画'}}</button>
               <view wx:if="{{item.draw.error}}" class="draw-state warn">{{item.draw.error}}</view>
             </block>
-            <view wx:elif="{{item.draw.state === 'generating'}}" class="draw-state">生成中，约 10 秒～1 分钟，好了自动上屏…</view>
+            <view wx:elif="{{item.draw.state === 'generating'}}" class="draw-state"><view class="thinking-dots"><view></view><view></view><view></view></view>正在构思画面，完成后会出现在这里</view>
             <block wx:elif="{{item.draw.state === 'ready'}}">
-              <image
-                class="preview-img"
-                src="{{item.draw.previewUrl}}"
-                mode="aspectFit"
-                data-id="{{item.id}}"
-                bindtap="onDrawPreview"
-                binderror="onDrawImgError"
-              />
-              <view class="draw-state">约 {{item.draw.lines}} 行 · 点图放大</view>
-              <view class="draw-state muted">内容由 AI 生成，仅供参考</view>
+              <image class="preview-img" src="{{item.draw.previewUrl}}" mode="aspectFit" data-id="{{item.id}}" bindtap="onDrawPreview" binderror="onDrawImgError" />
+              <view class="draw-state">点图查看细节</view>
               <view class="draw-actions">
-                <view class="btn-confirm" data-id="{{item.id}}" bindtap="onDrawSend">{{item.draw.sending ? "发送中…" : "发送到丹青"}}</view>
-                <view class="btn-confirm ghost {{item.draw.saved || item.draw.saving ? 'disabled' : ''}}" data-id="{{item.id}}" bindtap="onDrawSave">{{item.draw.saved ? "已收藏" : item.draw.saving ? "收藏中…" : "收藏"}}</view>
+                <button class="btn-confirm" disabled="{{!enabled || item.draw.sending}}" loading="{{item.draw.sending}}" data-id="{{item.id}}" bindtap="onDrawSend">{{item.draw.sending ? '发送中' : '发送到丹青'}}</button>
+                <button class="btn-cancel" disabled="{{!enabled || item.draw.saved || item.draw.saving}}" data-id="{{item.id}}" bindtap="onDrawSave">{{item.draw.saved ? '已收藏' : item.draw.saving ? '收藏中' : '收藏'}}</button>
               </view>
             </block>
-            <view wx:elif="{{item.draw.state === 'failed'}}" class="draw-state warn">{{item.draw.error || "生成失败，换个说法试试"}}
-              <view class="draw-btn" data-id="{{item.id}}" bindtap="onDrawGenerate">重新生成</view>
-            </view>
+            <block wx:elif="{{item.draw.state === 'failed'}}">
+              <view class="draw-state warn">{{item.draw.error || '生成失败，换个说法试试'}}</view>
+              <button class="draw-btn" disabled="{{!enabled}}" data-id="{{item.id}}" bindtap="onDrawGenerate">重新生成</button>
+            </block>
           </view>
         </view>
       </block>
+      <view wx:if="{{replyPending || voiceStage}}" class="reply-pending"><view class="thinking-dots"><view></view><view></view><view></view></view><text>{{voiceStage || '小派正在想…'}}</text></view>
     </view>
   </scroll-view>
 
-  <view wx:if="{{loadError}}" class="muted">{{loadError}}
-    <button size="mini" bindtap="onShow">重试</button>
-  </view>
-  <view class="input-row">
-    <navigator url="/pages/xiaopai/xiaopai" class="gear" hover-class="btn-press">⚙</navigator>
-    <input
-      class="text-input"
-      value="{{textInput}}"
-      placeholder="也可以打字…"
-      placeholder-class="ph"
-      bindinput="onTextInput"
-      bindconfirm="onSendText"
-      confirm-type="send"
-      maxlength="200"
-      disabled="{{!enabled || recording || recordingStarting}}"
-      cursor-spacing="12"
-    />
-    <view class="text-send {{(!textInput || busy) ? 'disabled' : ''}}" hover-class="btn-press" bindtap="onSendText">发送</view>
-  </view>
-
-  <view class="hold-area">
-    <view
-      class="hold-btn {{recording ? 'active' : ''}} {{!enabled || (busy && !recording) ? 'disabled' : ''}}"
-      bindtouchstart="onHoldStart"
-      bindtouchend="onHoldEnd"
-      bindtouchcancel="onHoldCancel"
-    >
-      <text wx:if="{{recording}}">松开 结束</text>
-      <text wx:elif="{{recordingStarting}}">正在准备录音…</text>
-      <text wx:elif="{{loadError}}">请先重试读取账号</text>
-      <text wx:elif="{{!enabled}}">正在确认登录…</text>
-      <text wx:elif="{{busy && !recording}}">处理中…</text>
-      <text wx:else>按住 说话</text>
+  <view wx:if="{{loadError}}" class="load-error"><text>{{loadError}}</text><button bindtap="onShow">重试</button></view>
+  <view class="composer">
+    <view wx:if="{{recording || recordingStarting || recordingStopping}}" class="voice-status {{recordCancel ? 'cancel-status' : ''}}">
+      <view wx:if="{{recording}}" class="voice-bars"><view></view><view></view><view></view><view></view><view></view></view>
+      <text>{{recordCancel ? '松开取消，不会发送' : recordingStopping ? '正在结束录音…' : recordingStarting ? '正在开启麦克风…' : '正在聆听 · ' + recordSeconds + ' 秒'}}</text>
     </view>
+    <view class="input-row">
+      <button class="input-toggle" aria-label="{{inputMode === 'voice' ? '切换文字输入' : '切换语音输入'}}" disabled="{{recording || recordingStarting || recordingStopping || micAuthorizing}}" bindtap="onToggleInput">{{inputMode === 'voice' ? '文字' : '语音'}}</button>
+      <block wx:if="{{inputMode === 'text'}}">
+        <input class="text-input" value="{{textInput}}" focus="{{inputFocus}}" placeholder="说说你的想法…" placeholder-class="ph" bindinput="onTextInput" bindconfirm="onSendText" confirm-type="send" maxlength="200" disabled="{{!enabled}}" cursor-spacing="20" />
+        <button class="text-send" disabled="{{!enabled || !textInput || busy}}" hover-class="btn-press" bindtap="onSendText">发送</button>
+      </block>
+      <block wx:else>
+        <button wx:if="{{recordPermission !== 'granted'}}" class="mic-enable" bindtap="onEnableMicrophone" disabled="{{!enabled || busy || micAuthorizing || recordPermission === 'checking'}}" loading="{{micAuthorizing}}">{{!enabled ? '正在准备…' : recordPermission === 'checking' ? '正在检查麦克风…' : micAuthorizing ? '请完成授权' : recordPermission === 'denied' ? '开启麦克风权限' : '开启麦克风'}}</button>
+        <view wx:else class="hold-btn {{recording ? 'active' : ''}} {{recordCancel ? 'cancel' : ''}} {{!enabled || (busy && !recording) ? 'disabled' : ''}}" role="button" aria-label="按住说话，松开发送，上滑取消" catchtouchstart="onHoldStart" catchtouchmove="onHoldMove" catchtouchend="onHoldEnd" catchtouchcancel="onHoldCancel">
+          {{recordingStopping ? '正在结束录音…' : recording ? (recordCancel ? '松开 取消' : '松开 发送') : recordingStarting ? '正在准备录音…' : loadError ? '请先重试读取账号' : !enabled ? '正在准备…' : busy ? '正在处理…' : '按住 说话'}}
+        </view>
+      </block>
+    </view>
+    <view class="voice-hint" wx:if="{{inputMode === 'voice' && !recording && !recordingStarting && !recordingStopping}}">{{voiceHint}}</view>
+    <view class="ai-note">内容由 AI 生成，仅供参考</view>
   </view>
-
-  <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>

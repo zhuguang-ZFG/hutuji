@@ -37,6 +37,8 @@ from .cloud_bridge import WATCHDOG_POLL_SECONDS, read_health_status
 
 from .config import settings
 from .config import validate_public_base_url
+from .paper_config import PaperConfig, PaperConfigError
+from .device_paper import DevicePaperError, DrawTarget, resolve_target
 from .usage_report import record_tool_usage
 from .gcode_gen import (
     GcodeError,
@@ -382,7 +384,9 @@ def _profile_cache_marker(profile: MachineProfile | None) -> str:
     """缓存键的机型成分：同 SVG 不同机型产物不同（转置/限幅），混键会串图。"""
     if profile is None:
         return "default"
-    return f"t{profile.transpose_xy}|x{profile.max_x_mm}|y{profile.max_y_mm}"
+    return (f"t{profile.transpose_xy}|x{profile.max_x_mm}|y{profile.max_y_mm}"
+            f"|w{profile.page_width_mm}|h{profile.page_height_mm}"
+            f"|{profile.paper.marker if profile.paper else ''}")
 
 _GCODE_CACHE_TTL_SECONDS = 600.0
 _GCODE_CACHE_MAX_ENTRIES = 16
@@ -408,6 +412,9 @@ async def _svg_to_gcode_cached(
             _gcode_cache.move_to_end(key)
             logger.info("G-code 内容缓存命中")
             gcode_path.write_bytes(payload)
+            from .paper_artifacts import write_paper_metadata
+
+            write_paper_metadata(gcode_path, profile.paper if profile else None, data=payload)
             return stats, raw_text
         del _gcode_cache[key]
     raw_holder: list[str] = []
@@ -478,7 +485,7 @@ def _forget_draw_inflight(key: str, done: asyncio.Task[str]) -> None:
 
 
 async def _chain_device_draw(
-    url: str, preview_url: str, pages: list[dict] | None = None
+    url: str, preview_url: str, pages: list[dict] | None = None, *, target: DrawTarget | None = None,
 ) -> None:
     """生成完成后经官方设备消息 API 主动调 `hutuji.draw`（2026-08-24 P1-3）。
 
@@ -496,6 +503,15 @@ async def _chain_device_draw(
     `hutuji::ParseArticlePages` 纯扫描解析，键序 url→preview_url 固定）。
     """
     from . import device_messaging
+
+    if target is not None:
+        from .device_paper import push_target
+
+        ok = await push_target(settings, target, pages or [{"url": url, "preview_url": preview_url}])
+        _report_mcp_tool("draw_push", ok=ok, detail="" if ok else "device_or_paper_changed")
+        if not ok:
+            logger.warning("设备定向预览推送失败，请核对绑定与纸张设置")
+        return
 
     env_token = getattr(settings, "xiaozhi_device_token", "")
     if not env_token and not device_messaging.load_device_token():
@@ -584,9 +600,23 @@ async def _resolve_plotter_profile(machine: str) -> MachineProfile | None:
         return _profile_for_machine(machine)
     return await _probe_plotter_profile()
 
+
+async def _capture_paper_target(device_id: str):
+    return await resolve_target(settings, device_id)
+
+
+def _target_arguments(device_id: str, machine: str, paper: PaperConfig | None, owner_stamp: str) -> dict:
+    if not owner_stamp:
+        if getattr(settings, "usage_ingest_secret", ""):
+            raise DevicePaperError("生成任务缺少当前设备与纸张记录，请重新发起")
+        return {}
+    target = DrawTarget.from_dict({"device_id": device_id, "machine": machine,
+                                   "paper": paper.to_dict() if paper else None, "owner_stamp": owner_stamp})
+    return {"target": target}
+
 async def _run_draw_job(
     description: str, public_base_url: str, *, job_id: str | None = None,
-    chain_push: bool = True, machine: str = "",
+    chain_push: bool = True, machine: str = "", paper=None, device_id: str = "", owner_stamp: str = "",
 ) -> str:
     """完整生成事务；生命周期独立于任一 JSON-RPC waiter。
 
@@ -594,7 +624,9 @@ async def _run_draw_job(
     探测），定档进 _svg_to_gcode_cached（转置/限幅随机型，见 gcode_gen
     MachineProfile）。
     """
-    profile = await _resolve_plotter_profile(machine)
+    # 队列可跨版本留存；旧任务不得绕过新设备归属闸，更不能先付费生成再拒推。
+    target_args = _target_arguments(device_id, machine, paper, owner_stamp) if chain_push else {}
+    profile = paper.to_profile() if paper is not None else await _resolve_plotter_profile(machine)
     global _draw_last_error
     from . import job_ledger
     from .output_store import JobPaths, get_output_store
@@ -718,11 +750,12 @@ async def _run_draw_job(
     gcode_name = f"{artifact_base}.gcode"
     preview_name = f"{artifact_base}.png"
     _draw_last_error = None
-    if chain_push and getattr(settings, "xiaozhi_device_token", ""):
+    if chain_push and (owner_stamp or getattr(settings, "xiaozhi_device_token", "")):
         asyncio.create_task(
             _chain_device_draw(
                 f"{public_base_url}/files/{gcode_name}",
                 f"{public_base_url}/files/{preview_name}",
+                **target_args,
             )
         )
     return json.dumps({
@@ -732,12 +765,13 @@ async def _run_draw_job(
         "bytes": stats.bytes,
         "pen_lifts": stats.pen_lifts,
         "ttl_seconds": settings.output_ttl_seconds,
+        **({"paper_marker": paper.marker} if paper is not None else {}),
     }, ensure_ascii=False)
 
 
 async def _hutuji_draw_via_queue(
     safe_description: str, public_base_url: str, device_id: str, *,
-    force_sync: bool = False, chain_push: bool = True, machine: str = "",
+    force_sync: bool = False, chain_push: bool = True, machine: str = "", paper=None, owner_stamp: str = "",
 ) -> str:
     """Redis 队列模式：MCP 只入队/等待，实际生成由 draw-worker 执行。
 
@@ -759,13 +793,14 @@ async def _hutuji_draw_via_queue(
         job_id = await attach_or_enqueue(
             safe_description, public_base_url, device_id=device_id,
             chain_push=chain_push, machine=machine,
+            paper=paper, owner_stamp=owner_stamp,
         )
     except DrawQueueBusyError as exc:
         raise DrawLimitError(str(exc)) from exc
     except DrawDailyLimitError as exc:
         raise DrawLimitError(str(exc)) from exc
 
-    if not force_sync and getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
+    if not force_sync and getattr(settings, "draw_async", False) and (owner_stamp or getattr(settings, "xiaozhi_device_token", "")):
         return json.dumps({
             "accepted": True,
             "description": safe_description,
@@ -798,7 +833,8 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
     `hutuji.draw`，调用方不要重复推送，否则才把两个地址原样传给设备。用户明确确认后
     再调用 `hutuji.confirm`。地址有效期以 `ttl_seconds` 为准，拿到后立即传递。
     生图通常耗时约 15～45 秒。参数 description 建议为 10～40 字的简短中文主题，最长 200 字。
-    可选 device_id（设备 MAC/序列号，≤64 字）用于单设备限流，省略则只走全局限流。
+    device_id 传当前对话设备 hutuji.status 返回的完整 MAC，用于读取本机纸张和定向推送。
+    不使用用户口述的另一台设备标识，不猜测缺失标识；未取得时先查询设备状态。
     好例子：「一只坐着的小猫」「带烟囱的小房子」「写个福字」；坏例子是长篇故事、填色/写实要求或空话。
     预览由服务端自动推上设备屏幕；给用户的回复只说一句简短确认（如「好的，
     预览马上出现在屏幕上」），不要复述产物细节——设备要等播报结束才开始
@@ -809,21 +845,26 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
     public_base_url = validate_public_base_url(settings.public_base_url)
     safe_description = _sanitize_description(description).strip()
     safe_device_id = _sanitize_device_id(device_id)
+    target = await _capture_paper_target(safe_device_id)
+    target_args = {}
+    if target is not None:
+        safe_device_id = target.device_id
+        target_args = {"paper": target.paper, "machine": target.machine, "owner_stamp": target.owner_stamp}
 
     from .draw_queue import queue_enabled
 
     if queue_enabled():
         return await _hutuji_draw_via_queue(
-            safe_description, public_base_url, safe_device_id
+            safe_description, public_base_url, safe_device_id, **target_args,
         )
 
     work = _draw_inprocess(
-        safe_description, public_base_url, chain_push=True, device_id=safe_device_id
+        safe_description, public_base_url, chain_push=True, device_id=safe_device_id, **target_args,
     )
 
     # 2026-08-28 异步生成+完成推送（默认关闭）：双真立即 accepted，任务由
     # _draw_inflight 持有生命周期；缺 token 则回落同步并 warning。
-    if getattr(settings, "draw_async", False) and getattr(settings, "xiaozhi_device_token", ""):
+    if getattr(settings, "draw_async", False) and (target is not None or getattr(settings, "xiaozhi_device_token", "")):
         return json.dumps({
             "accepted": True,
             "description": safe_description,
@@ -836,23 +877,27 @@ async def hutuji_draw(description: str, device_id: str = "") -> str:
     return await _await_draw_work(work, log_label="mcp")
 
 
-def _inflight_key_for(safe_description: str, chain_push: bool, machine: str = "") -> str:
+def _inflight_key_for(safe_description: str, chain_push: bool, machine: str = "", *,
+                      paper=None, device_id: str = "", owner_stamp: str = "") -> str:
     """进程内去重键：chain_push/机型不同的同名任务不得互相搭车。
 
     语音（True）搭上网页（False）的任务完成时不推设备预览，语音用户干等；
     反向则网页任务串推到演示设备。机型同理（2026-09-11）：nopaper 搭上 MK38
     档的同题任务会拿到转置错向的产物。与 draw_queue._inflight_material 同口径。
     """
-    material = safe_description if chain_push else safe_description + "\x00nopush"
-    return material if not machine else material + "\x00" + machine
+    from .draw_queue import _inflight_material
+
+    return _inflight_material(safe_description, chain_push, machine, paper=paper,
+                              device_id=device_id, owner_stamp=owner_stamp)
 
 
 def _draw_inprocess(
     safe_description: str, public_base_url: str, *, chain_push: bool, device_id: str = "",
-    machine: str = "",
+    machine: str = "", paper=None, owner_stamp: str = "",
 ) -> "asyncio.Task[str]":
     """进程内（无队列）共享任务表登记；同题 waiter 搭同一事务。"""
-    key = _inflight_key_for(safe_description, chain_push, machine)
+    key = _inflight_key_for(safe_description, chain_push, machine, paper=paper,
+                           device_id=device_id, owner_stamp=owner_stamp)
     work = _draw_inflight.get(key)
     if work is not None and work.get_loop() is not asyncio.get_running_loop():
         # 测试/嵌入调用可能轮换事件循环；生产单 loop 不会走此分支。
@@ -870,6 +915,8 @@ def _draw_inprocess(
             _run_draw_job(
                 safe_description, public_base_url, chain_push=chain_push,
                 machine=machine,
+                **({"paper": paper, "device_id": device_id, "owner_stamp": owner_stamp}
+                   if paper is not None or device_id or owner_stamp else {}),
             )
         )
         _draw_inflight[key] = work
@@ -890,7 +937,7 @@ async def _await_draw_work(work: "asyncio.Task[str]", *, log_label: str) -> str:
         logger.warning("绘图生成超时（%s waiter=%ss）", log_label, DRAW_WAITER_DEADLINE_SECONDS)
         raise DrawTimeoutError("绘图生成超时，请稍后重试") from None
 
-async def _draw_internal_sync(description: str, machine: str = "") -> str:
+async def _draw_internal_sync(description: str, machine: str = "", *, paper=None, device_id: str = "") -> str:
     """draw-portal 网页生图的本机内部入口（/internal/draw）。
 
     与语音路径同一条生成链，但两点刻意不同：
@@ -909,11 +956,11 @@ async def _draw_internal_sync(description: str, machine: str = "") -> str:
 
     if queue_enabled():
         return await _hutuji_draw_via_queue(
-            safe_description, public_base_url, "",
-            force_sync=True, chain_push=False, machine=machine,
+            safe_description, public_base_url, device_id,
+            force_sync=True, chain_push=False, machine=machine, paper=paper,
         )
     work = _draw_inprocess(
-        safe_description, public_base_url, chain_push=False, machine=machine
+        safe_description, public_base_url, chain_push=False, machine=machine, paper=paper, device_id=device_id,
     )
     return await _await_draw_work(work, log_label="internal")
 
@@ -989,7 +1036,7 @@ _stroke_data_cache: dict[str, object] = {}
 async def _run_write_job(
     text: str, font_name: str, size_mm: float, line_spacing: float,
     char_gap_mm: float, public_base_url: str, *, chain_push: bool = True,
-    machine: str = "", fit_single_page: bool = False,
+    machine: str = "", fit_single_page: bool = False, paper=None, device_id: str = "", owner_stamp: str = "",
 ) -> str:
     """写字排版事务：奎享单线字库 → 分页 SVG+PNG → 无版式 vpype → §5 校验 → 产物。
 
@@ -1004,7 +1051,7 @@ async def _run_write_job(
     from .output_store import get_output_store
 
     cache_key = (settings.gfont_dir, font_name)
-    profile = await _resolve_plotter_profile(machine)
+    profile = paper.to_profile() if paper is not None else await _resolve_plotter_profile(machine)
     font = _gfont_cache.get(cache_key)
     if font is None:
         font = await asyncio.to_thread(write_text.load_font, settings.gfont_dir, font_name or None)
@@ -1016,6 +1063,8 @@ async def _run_write_job(
 
     layout = write_text.WriteLayout(
         size_mm=size_mm, line_spacing=line_spacing, char_gap_mm=char_gap_mm,
+        **({"page_width_mm": profile.page_width_mm, "page_height_mm": profile.page_height_mm}
+           if profile is not None else {}),
     )
     # CJK 写字默认走标准笔顺（与 hutuji_teach 同源）；未配置 STROKE_DIR 则纯 gfont
     stroke_data = None
@@ -1095,13 +1144,14 @@ async def _run_write_job(
             "text_lines": page.line_count,
         })
 
-    if chain_push and getattr(settings, "xiaozhi_device_token", ""):
+    if chain_push and (owner_stamp or getattr(settings, "xiaozhi_device_token", "")):
         # 与 draw 链同口径：链式推送是尽力而为，失败只记日志，返回值不受影响。
         # pages 恒传（含单页）——设备侧 page[0] 必须与 url/preview_url 一致，
         # 单页也走同一条解析路径，避免两套语义。
         asyncio.create_task(
             _chain_device_draw(
                 pages_out[0]["url"], pages_out[0]["preview_url"], pages_out,
+                **_target_arguments(device_id, machine, paper, owner_stamp),
             )
         )
     return json.dumps({
@@ -1117,6 +1167,7 @@ async def _run_write_job(
         "missing_chars": result.missing_chars,
         "truncated": result.truncated,
         "font": font.meta.display_name,
+        **({"paper_marker": paper.marker} if paper is not None else {}),
         "size_mm": layout.size_mm,
         "ttl_seconds": settings.output_ttl_seconds,
         # 语音体感关键：设备侧 WaitForAudioOutputIdle 要等 LLM 播报结束才下载
@@ -1130,6 +1181,7 @@ async def _run_write_job(
 async def hutuji_write(
     text: str, font: str = "", size_mm: float = 0.0,
     line_spacing: float = 1.6, char_gap_mm: float = 0.8,
+    device_id: str = "",
 ) -> str:
     """用奎享字库排版写整段文字（钢笔单线；CJK 有笔顺数据时按标准笔顺逐笔抬笔）。
 
@@ -1167,9 +1219,13 @@ async def hutuji_write(
         size_mm = 12.0
     elif size_mm > 40.0:
         raise WriteTextError("字号过大（上限 40mm）")
+    target = await _capture_paper_target(_sanitize_device_id(device_id))
+    target_args = (dict(paper=target.paper, machine=target.machine, device_id=target.device_id,
+                        owner_stamp=target.owner_stamp) if target is not None else {})
     return await _run_write_job(
         safe_text, font.strip(), size_mm, line_spacing, char_gap_mm, public_base_url,
         fit_single_page=fit_single,
+        **target_args,
     )
 
 # 一次教学的汉字上限：教学页每字一页起，小孩注意力/纸张消耗都有限
@@ -1178,6 +1234,7 @@ _TEACH_MAX_CHARS = 20
 
 async def _run_teach_job(
     text: str, public_base_url: str, *, chain_push: bool = True, machine: str = "",
+    paper=None, device_id: str = "", owner_stamp: str = "",
 ) -> str:
     """笔顺教学事务：标准笔顺中心线 → 渐显面板页 → 无版式 vpype → §5 校验 → 产物。
 
@@ -1188,7 +1245,7 @@ async def _run_teach_job(
     from .llm_svg import _validate_svg
     from .output_store import get_output_store
 
-    profile = await _resolve_plotter_profile(machine)
+    profile = paper.to_profile() if paper is not None else await _resolve_plotter_profile(machine)
     if not settings.stroke_dir:
         raise stroke_order.StrokeOrderError("笔顺数据未配置（HUTUJI_STROKE_DIR 为空）")
     data = _stroke_data_cache.get(settings.stroke_dir)
@@ -1198,6 +1255,8 @@ async def _run_teach_job(
 
     result = await asyncio.to_thread(
         stroke_order.layout_teach, text, data, ARTICLE_MAX_PAGES,
+        **({"page_width_mm": profile.page_width_mm, "page_height_mm": profile.page_height_mm}
+           if profile is not None else {}),
     )
 
     store = get_output_store()
@@ -1233,15 +1292,17 @@ async def _run_teach_job(
             "pen_lifts": stats.pen_lifts,
         })
 
-    if chain_push and getattr(settings, "xiaozhi_device_token", ""):
+    if chain_push and (owner_stamp or getattr(settings, "xiaozhi_device_token", "")):
         asyncio.create_task(
             _chain_device_draw(
                 pages_out[0]["url"], pages_out[0]["preview_url"], pages_out,
+                **_target_arguments(device_id, machine, paper, owner_stamp),
             )
         )
     return json.dumps({
         "pages": pages_out,
         "total_pages": len(pages_out),
+        **({"paper_marker": paper.marker} if paper is not None else {}),
         "url": pages_out[0]["url"],
         "preview_url": pages_out[0]["preview_url"],
         "pages_arg": _pages_argument(pages_out),
@@ -1253,7 +1314,7 @@ async def _run_teach_job(
 
 
 @mcp.tool()
-async def hutuji_teach(text: str) -> str:
+async def hutuji_teach(text: str, device_id: str = "") -> str:
     """教小孩写汉字：按国家规范笔顺把汉字一笔一笔分解写出来（田字格渐显面板）。
 
     用户说「教小孩写字/笔顺/这个字怎么写/分解笔画/写字课」时用；写整段文章用
@@ -1278,7 +1339,10 @@ async def hutuji_teach(text: str) -> str:
     if len(safe_text) > _TEACH_MAX_CHARS:
         raise StrokeOrderError(f"一次最多教 {_TEACH_MAX_CHARS} 个字（收到 {len(safe_text)}）")
     public_base_url = validate_public_base_url(settings.public_base_url)
-    return await _run_teach_job(safe_text, public_base_url)
+    target = await _capture_paper_target(_sanitize_device_id(device_id))
+    target_args = (dict(paper=target.paper, machine=target.machine, device_id=target.device_id,
+                        owner_stamp=target.owner_stamp) if target is not None else {})
+    return await _run_teach_job(safe_text, public_base_url, **target_args)
 
 @mcp.tool()
 async def hutuji_remember(key: str, value: str, device_id: str) -> str:
@@ -1640,7 +1704,14 @@ async def _internal_draw(request: Request) -> Response:
     if not isinstance(machine, str) or machine not in _MACHINE_VALUES:
         raise HTTPException(status_code=400, detail="machine 取值不合法")
     try:
-        result = await _draw_internal_sync(description, machine=machine)
+        paper = PaperConfig.from_dict(payload["paper"]) if "paper" in payload else None
+        device_id = payload.get("device_id", "")
+        if not isinstance(device_id, str) or len(device_id) > 64:
+            raise PaperConfigError("设备标识不合法")
+        extra = {"paper": paper, "device_id": device_id} if paper is not None or device_id else {}
+        result = await _draw_internal_sync(description, machine=machine, **extra)
+    except (PaperConfigError, DevicePaperError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     except LlmError as exc:
         # 输入类白话（空描述/超长/控制字符），回 400 让页面向用户展示
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -1873,6 +1944,7 @@ async def _serve_file(name: str):
     store = get_output_store()
     try:
         data, mtime = await asyncio.to_thread(store.read_verified, name)
+        marker = await asyncio.to_thread(store.paper_marker, name, data) if name.endswith(".gcode") else ""
     except OutputNotFoundError:
         raise HTTPException(status_code=404, detail="not found") from None
     except StaleOutputStoreError as exc:
@@ -1898,6 +1970,7 @@ async def _serve_file(name: str):
         headers={
             "Content-Length": str(len(data)),
             "X-Hutuji-CRC32": crc,
+            **({"X-Hutuji-Paper": marker} if marker else {}),
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
             "Content-Disposition": "attachment",

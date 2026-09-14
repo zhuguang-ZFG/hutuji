@@ -28,6 +28,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 22rpx;
+  color: #9aa3b5;
+}
+
+.thumb-retry {
+  color: #00d1e5;
+  border-style: dashed;
+}
+
+.preview-error {
+  font-size: 22rpx;
+  color: #f0ba78;
+  white-space: normal;
 }
 
 .name {
@@ -183,4 +196,14 @@
 
 .btn-press {
   opacity: 0.85;
+}
+
+.generation-note {
+  margin: 20rpx 28rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  color: #9ae6e9;
+  background: rgba(0, 209, 229, 0.08);
+  font-size: 26rpx;
+  line-height: 1.6;
 }

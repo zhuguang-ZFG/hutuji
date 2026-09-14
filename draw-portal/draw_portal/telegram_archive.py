@@ -370,6 +370,7 @@ def _restore_one(store: Any, user_id: str, entry: dict[str, Any], tmp: Path, sum
             saved_at=float(entry["archived_at"]),
             tg_file_id=file_id,
             tg_message_id=int(entry["tg_message_id"]),
+            credit_json=entry.get("credit_json"),
         )
     summary[action] += 1
 

@@ -6,16 +6,20 @@
 from __future__ import annotations
 
 import json
+import io
 import secrets
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
+from hutuji_mcp.paper_artifacts import write_paper_metadata
 
 from draw_portal.pipeline import DocPipelineResult
 from draw_portal.push import PublishResult
 
 from test_app import _client, _register_and_login  # noqa: E402  复用既有基座
+from test_paper_settings import _code
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -58,10 +62,13 @@ def _patch_doc_pipeline(monkeypatch: pytest.MonkeyPatch, captured: dict | None =
         job_dir.mkdir(parents=True, exist_ok=True)
         (job_dir / "pages").mkdir(exist_ok=True)
         for i in (1, 2):
-            (job_dir / "pages" / f"page_{i:03d}.gcode").write_text("G21\n", encoding="ascii")
-            (job_dir / "pages" / f"page_{i:03d}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-        (job_dir / "draw.gcode").write_text("G21\n", encoding="ascii")
-        (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            code = job_dir / "pages" / f"page_{i:03d}.gcode"
+            code.write_bytes(_code())
+            write_paper_metadata(code, kwargs["profile"].paper)
+            Image.new("RGB", (4, 4), "white").save(job_dir / "pages" / f"page_{i:03d}.png")
+        (job_dir / "draw.gcode").write_bytes(_code())
+        write_paper_metadata(job_dir / "draw.gcode", kwargs["profile"].paper)
+        Image.new("RGB", (4, 4), "white").save(job_dir / "preview.png")
         (job_dir / "pages.json").write_text(
             json.dumps({"kind": kind, "mode": "article", "page_count": 2, "page_lines": [80, 40]}),
             encoding="utf-8",
@@ -249,6 +256,9 @@ def test_send_multipage_uses_pages_argument(tmp_path: Path, monkeypatch: pytest.
         "draw_portal.app.probe_device_token", lambda **kwargs: (True, "mock ok")
     )
     client = _doc_client(monkeypatch, tmp_path)
+    monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kwargs: (
+        True, '{"plotter_sku":"paper","state":"idle","connected":true,"ready":true}',
+    ))
     _patch_doc_pipeline(monkeypatch)
     pushed: dict = {}
     monkeypatch.setattr(
@@ -288,11 +298,15 @@ def test_send_single_page_has_no_pages_argument(
         "draw_portal.app.probe_device_token", lambda **kwargs: (True, "mock ok")
     )
     client = _doc_client(monkeypatch, tmp_path)
+    monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kwargs: (
+        True, '{"plotter_sku":"paper","state":"idle","connected":true,"ready":true}',
+    ))
 
-    def fake_pipeline(raw, *, content_type, filename, job_dir, profile=None):
+    def fake_pipeline(raw, *, content_type, filename, job_dir, profile=None, preserve_canvas=False):
         job_dir.mkdir(parents=True, exist_ok=True)
-        (job_dir / "draw.gcode").write_text("G21\n", encoding="ascii")
-        (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (job_dir / "draw.gcode").write_bytes(_code())
+        write_paper_metadata(job_dir / "draw.gcode", profile.paper)
+        Image.new("RGB", (4, 4), "white").save(job_dir / "preview.png")
         return PipelineResult(2, 10, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
 
     monkeypatch.setattr("draw_portal.app.process_upload", fake_pipeline)
@@ -303,7 +317,9 @@ def test_send_single_page_has_no_pages_argument(
     )
 
     _bind_device(client)
-    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), "white").save(buffer, format="PNG")
+    fake_png = buffer.getvalue()
     up = client.post(
         "/api/draw/upload",
         files={"file": ("line.png", fake_png, "image/png")},

@@ -122,14 +122,27 @@ def test_delayed_update_targets_captured_device_not_current_selection(tmp_path, 
 
 
 def test_send_callbacks_remain_on_device_selected_at_request_start(monkeypatch, tmp_path):
+    import os
+
+    from draw_portal.crypto import encrypt_token
+    from test_paper_settings import _code
+
     client = _client(monkeypatch, tmp_path)
     _register_and_login(client)
     store = Store(tmp_path / "t.db")
     user_id = store.get_user_by_email("buyer@qq.com").id
     second = _binding(store, user_id, OTHER_MAC, when=100, token="second-token")
-    _binding(store, user_id, when=200)
+    _binding(store, user_id, when=200, token=encrypt_token(
+        os.environ["DRAW_PORTAL_TOKEN_CIPHER_KEY"].encode(), "first-device-token",
+    ))
     job = store.create_draw_job(user_id=user_id, source_name="test.png")
     store.mark_draw_job_ready(job.id, basename="test")
+    job_dir = tmp_path / "data" / "jobs" / job.id
+    job_dir.mkdir(parents=True)
+    (job_dir / "draw.gcode").write_bytes(_code())
+    monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kwargs: (
+        True, '{"plotter_sku":"paper","state":"idle","connected":true,"ready":true}',
+    ))
     monkeypatch.setattr("draw_portal.app.publish_job_files", lambda **kw: SimpleNamespace(
         gcode_url="https://example.test/test.gcode", preview_url="https://example.test/test.png",
         basename="test",
@@ -137,8 +150,13 @@ def test_send_callbacks_remain_on_device_selected_at_request_start(monkeypatch, 
 
     def push(**kwargs):
         assert kwargs["device_mac"] == MAC
+        kwargs["before_action"]()
         store.select_binding_for_user(user_id, OTHER_MAC)
         kwargs["on_token_minted"]("first-device-new-token")
+        # 已发出的请求回写原设备；切换后不得再向任何设备续发控制。
+        from draw_portal.paper_settings import PaperSettingsError
+        with pytest.raises(PaperSettingsError, match="已切换"):
+            kwargs["before_action"]()
         return True, "ok"
 
     monkeypatch.setattr("draw_portal.app.push_draw_self_heal", push)

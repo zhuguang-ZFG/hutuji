@@ -80,3 +80,27 @@ def test_process_write_text_fit_flag_routes_to_fit_single(monkeypatch, tmp_path:
         fit_single_page=True,
     )
     assert seen["via"] == "fit"
+
+
+def test_materialize_pages_preserves_nopaper_profile_once(monkeypatch, tmp_path: Path):
+    """真实长页转换不能被第二次默认转置覆盖，否则量产机 X 越界。"""
+    from hutuji_mcp import gcode_gen, write_text
+
+    seen = []
+    convert = gcode_gen.svg_to_gcode
+
+    def counted(*args, **kwargs):
+        seen.append(kwargs.get("profile"))
+        return convert(*args, **kwargs)
+
+    monkeypatch.setattr(gcode_gen, "svg_to_gcode", counted)
+    page = write_text.LaidOutPage(strokes=[write_text._PenStroke([(12, 240), (22, 250)])])
+    laid = write_text.LayoutResult(pages=[page], missing_chars=[], truncated=False)
+    result = pipeline._materialize_laid_pages(
+        laid, tmp_path, kind="write", mode="article", profile=gcode_gen.PROFILE_NOPAPER
+    )
+    code = result.gcode_path.read_text(encoding="ascii")
+    gcode_gen.validate_gcode(code, profile=gcode_gen.PROFILE_NOPAPER)
+    assert seen == [gcode_gen.PROFILE_NOPAPER]
+    assert result.preview_path.is_file()
+    assert result.bytes == result.gcode_path.stat().st_size

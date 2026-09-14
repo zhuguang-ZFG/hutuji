@@ -23,6 +23,16 @@ function parseKind(title) {
   return { kind: null, content: "" };
 }
 
+function formatSavedTime(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const date = new Date(seconds * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function previewKey(job) { return job.savedId + "|" + job.previewPath; }
+
 Page({
   data: {
     kinds: KINDS,
@@ -38,72 +48,154 @@ Page({
 
   onShow() {
     pageSession.show(this);
+    this._ready = false;
+    this._ensurePreviewState();
+    const session = getApp()._sessionGeneration;
+    if (this._redrawSession !== session) {
+      this._redrawSession = session;
+      this._redrawPending = null;
+    }
     const current = pageSession.capture(this);
-    this.setData({ jobs: [], filtered: [], loading: true, loadError: "", redrawing: false,
+    this.setData({ loading: true, loadError: "", redrawing: !!this._redrawPending,
       sendingId: "", deletingId: "" });
-    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    return phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
       if (!current()) return;
-      if (ok) this.refresh();
-      else this.setData({ loading: false });
+      if (!ok) { this.setData({ jobs: [], filtered: [], loading: false, loadError: "账号信息读取失败，请重试" }); return; }
+      this._ready = true;
+      if (!this._deliverRedraw()) this.refresh();
     });
   },
 
   onHide() {
     pageSession.hide(this);
-    if (this._loadingOverlay) wx.hideLoading();
-    this._loadingOverlay = false;
+    this._ready = false;
   },
-  onUnload() { this.onHide(); },
+  onUnload() { this._unloaded = true; this.onHide(); },
+
+  onRetry() { return this.onShow(); },
 
   onPullDownRefresh() {
+    if (!this._ready) { this.onShow().finally(() => wx.stopPullDownRefresh()); return; }
     this.refresh(() => wx.stopPullDownRefresh());
   },
 
   refresh(done) {
+    const previews = this._ensurePreviewState();
     const visible = pageSession.capture(this);
     const requestId = this._listRequest = (this._listRequest || 0) + 1;
     const current = () => visible() && this._listRequest === requestId;
     this.setData({ loading: true, loadError: "" });
     return api
-      .request("/api/draw/saved")
+      .request("/api/draw/saved", { timeout: 15000 })
       .then((data) => {
         if (!current()) return;
-        // 收藏列表契约：{items:[{id,title,saved_at,preview_url}]}，发送走 saved/{id}/send。
-        // preview_url 是 secured 相对路径，<image> 直连必 401（带不上 x-session），
-        // 先置空、逐条 downloadFile 落地临时文件后回填本地路径。
+        // 收藏路径属于当前账号；临时图片只在同一次登录中复用，列表仍从服务端核对。
         const jobs = (data.items || []).map((it) => {
           const parsed = parseKind(it.title);
+          const local = previews.cache.get(it.id + "|" + it.preview_url) || "";
           return {
             savedId: it.id,
-            previewUrl: "",
+            previewUrl: local,
             previewPath: it.preview_url,
+            previewState: local ? "ready" : (it.preview_url ? "loading" : "error"),
+            previewError: it.preview_url ? "" : "图片已不可用",
             sourceName: it.title || "作品",
-            createdAt: String(it.saved_at || "").replace("T", " ").slice(0, 16),
+            credit: it.credit || null,
+            createdAt: formatSavedTime(it.saved_at),
             kind: parsed.kind,
             content: parsed.content,
           };
         });
         this.setData({ jobs, loading: false });
         this._applyFilter();
-        jobs.forEach((job) => {
-          if (!job.previewPath) return;
-          api
-            .downloadFile(job.previewPath)
-            .then((local) => {
-              if (!current()) return;
-              this.setData({ jobs: this.data.jobs.map((item) => item.savedId === job.savedId
-                ? Object.assign({}, item, { previewUrl: local }) : item) });
-              this._applyFilter();
-            })
-            .catch(() => {}); // 单条失败留占位，不打扰整页
-        });
+        const keys = new Set(jobs.map(previewKey));
+        for (const key of previews.cache.keys()) if (!keys.has(key)) previews.cache.delete(key);
+        previews.current = current;
+        previews.queue = jobs.filter((job) => job.previewPath && !job.previewUrl);
+        this._pumpPreviews(previews);
       })
       .catch((err) => {
-        if (current()) this.setData({ loading: false, loadError: err.detail || "作品读取失败，请重试" });
+        if (!current()) return;
+        if (err.status === 401) {
+          previews.cache.clear();
+          this.setData({ jobs: [], filtered: [] });
+        }
+        this.setData({ loading: false, loadError: err.detail || "作品读取失败，请重试" });
       })
       .finally(() => {
         if (current() && typeof done === "function") done();
       });
+  },
+
+  _ensurePreviewState() {
+    const generation = getApp()._sessionGeneration;
+    const session = api.getSession();
+    const state = this._previews;
+    if (!state || state.generation !== generation || state.session !== session) {
+      this._previews = { generation, session, cache: new Map(), pending: new Set(), queue: [], active: 0,
+        current: () => false };
+      this.setData({ jobs: [], filtered: [] });
+    }
+    return this._previews;
+  },
+
+  _setPreview(job, patch) {
+    this.setData({ jobs: this.data.jobs.map((item) => previewKey(item) === previewKey(job)
+      ? Object.assign({}, item, patch) : item) });
+    this._applyFilter();
+  },
+
+  _pumpPreviews(state) {
+    if (this._previews !== state || state.session !== api.getSession() || !state.current()) return;
+    // 留出网络名额给登录、控制等请求；切页停止派发，已发出的同账号图片可留在内存。
+    while (state.active < 3 && state.queue.length) {
+      const job = state.queue.shift();
+      const key = previewKey(job);
+      if (state.pending.has(key) || state.cache.has(key)) continue;
+      state.pending.add(key);
+      state.active++;
+      const owner = pageSession.captureTask(this);
+      const belongs = () => owner() && this._previews === state && state.session === api.getSession() &&
+        this.data.jobs.some((item) => previewKey(item) === key);
+      api.downloadFile(job.previewPath).then((local) => {
+        if (!belongs()) return;
+        state.cache.set(key, local);
+        if (state.current()) this._setPreview(job, { previewUrl: local, previewState: "ready", previewError: "" });
+      }).catch((err) => {
+        if (err && err.status === 401 && owner() && this._previews === state && state.current() && !api.getSession()) {
+          state.cache.clear();
+          state.queue = [];
+          this.setData({ jobs: [], filtered: [], loading: false, loadError: "登录已过期，请重新登录" });
+          return;
+        }
+        if (belongs() && state.current()) this._setPreview(job, {
+          previewUrl: "", previewState: "error", previewError: (err && err.detail) || "图片加载失败，请重试",
+        });
+      }).finally(() => {
+        state.pending.delete(key);
+        state.active--;
+        this._pumpPreviews(state);
+      });
+    }
+  },
+
+  onRetryPreview(e) {
+    const job = this.data.jobs.find((item) => item.savedId === e.currentTarget.dataset.id);
+    const state = this._previews;
+    if (!job || !job.previewPath || job.previewState !== "error" || !state || !state.current()) return;
+    state.cache.delete(previewKey(job));
+    this._setPreview(job, { previewUrl: "", previewState: "loading", previewError: "" });
+    state.queue.unshift(job);
+    this._pumpPreviews(state);
+  },
+
+  onPreviewError(e) {
+    const data = e.currentTarget.dataset;
+    const job = this.data.jobs.find((item) => item.savedId === data.id);
+    const state = this._previews;
+    if (!job || !state || !state.current() || job.previewUrl !== data.url) return;
+    state.cache.delete(previewKey(job));
+    this._setPreview(job, { previewUrl: "", previewState: "error", previewError: "图片加载失败，请重试" });
   },
 
   _applyFilter() {
@@ -142,47 +234,47 @@ Page({
   },
 
   _redraw(kind, content) {
-    const current = pageSession.capture(this);
+    if (this._redrawPending || this._visible === false || !this._ready) return;
+    const pending = this._redrawPending = { current: pageSession.captureTask(this), done: false };
     this.setData({ redrawing: true });
-    this._loadingOverlay = true;
-    wx.showLoading({ title: "重画中…", mask: true });
-    const fail = (detail) => {
-      if (!current()) return;
-      this._loadingOverlay = false;
-      wx.hideLoading();
-      this.setData({ redrawing: false });
-      wx.showModal({ title: "重画失败", content: detail || "请稍后再试", showCancel: false });
-    };
+    const current = () => pending.current() && this._redrawPending === pending;
     const ok = (data) => {
       if (!current()) return;
-      this._loadingOverlay = false;
-      wx.hideLoading();
-      this.setData({ redrawing: false });
-      getApp().globalData.pendingAdopt = data;
-      wx.switchTab({ url: "/pages/index/index" });
+      if (!data || !data.job_id) throw { detail: "未能生成预览，请重试" };
+      pending.done = true;
+      pending.data = data;
+      this._deliverRedraw();
     };
-    if (kind === "draw") {
-      api
-        .request("/api/draw/generate", { method: "POST", data: { description: content } })
-        .then(ok)
-        .catch((err) => fail(err.detail));
-    } else if (kind === "write") {
-      api
-        .request("/api/draw/write", { method: "POST", data: { text: content } })
-        .then(ok)
-        .catch((err) => fail(err.detail));
+    const path = kind === 'draw' ? '/api/draw/generate' : kind === 'write' ? '/api/draw/write' : '/api/draw/teach';
+    api.request(path, { method: 'POST', timeout: 300000,
+      data: kind === 'draw' ? { description: content } : { text: content } })
+      .then(ok).catch((error) => {
+        if (!current()) return;
+        pending.done = true;
+        pending.error = (error && error.detail) || '请稍后再试';
+        this._deliverRedraw();
+      });
+  },
+
+  _deliverRedraw() {
+    const pending = this._redrawPending;
+    if (!pending || !pending.done || !pending.current() || this._visible === false || !this._ready) return false;
+    this._redrawPending = null;
+    this.setData({ redrawing: false, loading: false });
+    if (pending.error) {
+      wx.showModal({ title: '重画失败', content: pending.error, showCancel: false });
+      return false;
     } else {
-      api
-        .request("/api/draw/teach", { method: "POST", data: { text: content } })
-        .then(ok)
-        .catch((err) => fail(err.detail));
+      getApp().globalData.pendingAdopt = pending.data;
+      wx.switchTab({ url: '/pages/index/index' });
+      return true;
     }
   },
 
   onPreview(e) {
     const url = e.currentTarget.dataset.url;
     if (!url) return; // 预览尚未下载完成
-    wx.previewImage({ urls: [url] });
+    wx.previewImage({ urls: [url], fail: () => this.onPreviewError(e) });
   },
 
   // 长按删除（2026-09-09 补）：后端 DELETE /api/draw/saved/{id} 早已上线但前端无入口

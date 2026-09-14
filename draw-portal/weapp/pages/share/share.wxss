@@ -91,6 +91,33 @@
 
 .preview-loading {
   height: 560rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-label, .preview-error {
+  color: #9aa3b5;
+  font-size: 26rpx;
+}
+
+.preview-error {
+  min-height: 320rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.retry-btn {
+  margin: 24rpx auto 0;
+  min-width: 0 !important;
+  width: auto !important;
+  padding: 0 28rpx;
+  font-size: 26rpx;
+  border-radius: 32rpx;
+  background: rgba(0, 209, 229, 0.12) !important;
+  color: #00d1e5 !important;
 }
 
 .go-btn {

@@ -5,24 +5,28 @@
 const api = require("./api");
 
 let cachedTemplateId = null;
+let templateKnown = false;
+let prepareGeneration = 0;
 
 function prepare() {
+  const generation = ++prepareGeneration;
   api
     .request("/api/wx/subscribe-config")
     .then((d) => {
+      if (generation !== prepareGeneration) return;
       cachedTemplateId = (d && d.template_id) || null;
-      if (cachedTemplateId) {
-        try {
-          wx.setStorageSync("subscribe_tid", cachedTemplateId);
-        } catch (e) {}
-      }
+      templateKnown = true;
+      try {
+        if (cachedTemplateId) wx.setStorageSync("subscribe_tid", cachedTemplateId);
+        else wx.removeStorageSync("subscribe_tid");
+      } catch (e) {}
     })
     .catch(() => {});
 }
 
 function requestAtTap() {
   let tid = cachedTemplateId;
-  if (!tid) {
+  if (!tid && !templateKnown) {
     try {
       tid = wx.getStorageSync("subscribe_tid") || null;
     } catch (e) {}

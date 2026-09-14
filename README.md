@@ -2,6 +2,10 @@
 
 语音说一句话，云端 AI 生成绘图内容，写字机自动画出来、自动换纸。
 
+2026-09-14 纸张与创作候选：每台设备独立保存纸张、方向、留边、XY 交换和已核对的可绘制范围，图片、文字、笔顺、文档及手绘共用一次快照。新产物携内容绑定配置，新 S3 下载前核对配置；选择大纸不扩大旧机型包线。手绘增加镜像、六向、素材与回放，保留留白。契约见 [`protocol §10.4.24`](docs/protocol.md)，实施及发布状态见 [`纸张任务`](docs/design/paper-settings-20260913/implement.md) 与 readiness。
+
+运维入口 `scripts/auto_deploy.py` 从显式提交导出 LF blob、逐文件核 SHA 并保存可重试回滚记录；`scripts/cross_repo_sync.py --gate-all` 包含 Portal 与 fz 检查。队列版本切换必须排空并停止旧 worker。精品图库程序与许可入库闸已在候选中，真实合格素材集尚未完成；`configure/` 的空白下载工具状态不是量产配方。详见 [`工具审查`](docs/design/production-tools-review-20260914.md)。
+
 2026-09-13 三仓评审修复：调速改为后台事务并等待三轴实际读回，普通重启保留速度；奎享完成只接受目标机器的连续新广播；云端主备以 `HUTUJI_BRIDGE_ACTIVE` 保持单 bridge。问题、回归与交付证据见 [`评审记录`](docs/design/crossrepo-review-20260913.md)，当前部署状态仍以 release-readiness 为准。
 
 量产机三轴速度（2026-09-13 用户拍板）：X/Y 默认 10000，Z 保留机器现值；小程序分别设置 X/Y/Z，重启保留。单轴写入前检查设备分轴能力，写后查询三轴实际参数，确认选中轴生效再提示成功。设计与验收见 [`三轴调速`](docs/design/axis-speed-20260913.md)，当前板上状态仍以 readiness 为准。

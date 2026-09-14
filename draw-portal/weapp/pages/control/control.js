@@ -42,6 +42,7 @@ Page({
     lastLine: "",
     statusLine: "",
     manualLocked: true,
+    controlError: "",
     timelineIndex: 0,
     timelineLabels: jobProgress.TIMELINE_LABELS.slice(),
     timelineHint: "",
@@ -73,7 +74,7 @@ Page({
     this.setData({ footVersion: displayVersion("v0.3.6"), speedSaving: false,
       speedLoaded: false, speedLoading: false, canSetSpeed: false, speedError: "", statusError: "",
       bound: false, bindingLoading: true, bindingChecked: false,
-      bindingMac: "", status: null, busyAction: "", manualLocked: true,
+      bindingMac: "", status: null, busyAction: "", manualLocked: true, controlError: "",
       canConfirm: false, canAbort: false, canPause: false, canResume: false, canRepeat: false });
     phoneGate.ensurePhoneOrRedirect(api, () => this._isCurrentView(generation, session)).then((ok) => {
       if (!this._isCurrentView(generation, session)) return;
@@ -181,7 +182,10 @@ Page({
       canResume,
       stateLabel: ({ idle: "空闲", ready: "就绪", done: "已完成", error: "需要处理", aborted: "已停止",
         previewing: "预览中", awaiting_confirmation: "等待确认", downloading: "准备中", verifying: "检查中",
-        streaming: "绘制中", paused: "已暂停", paper_change: "整理纸张" })[state] || "查询中",
+        streaming: "绘制中", paused: "已暂停", paper_change: "整理纸张",
+        manual: "手动控制中", pen_test: "试笔中" })[state] || "查询中",
+      controlError: state === "error" && typeof status.control_error === "string"
+        ? status.control_error : "",
       linkOk,
       linkLabel,
       grblLabel: (status && status.grbl_state) || "",
@@ -201,28 +205,36 @@ Page({
     };
   },
 
-  refresh(silent) {
+  refresh(silent, statusOnly = false) {
     if (this._refreshPromise) return this._refreshPromise;
+    if (this.data.busyAction) return Promise.resolve();
     if (!this.data.bindingChecked) this.setData({ bindingLoading: true });
     this._clearPoll();
     const generation = this._viewGeneration || 0;
     const session = getApp()._sessionGeneration;
+    const controlGeneration = this._controlGeneration || 0;
     const refreshGeneration = this._refreshGeneration = (this._refreshGeneration || 0) + 1;
     const current = () => this._isCurrentView(generation, session) &&
-      this._refreshGeneration === refreshGeneration;
+      this._refreshGeneration === refreshGeneration &&
+      (this._controlGeneration || 0) === controlGeneration;
     let nextPollMs = jobProgress.POLL_MS_IDLE;
-    const pending = api
-      .request("/api/auth/me")
+    // 动作后已知明确目标，直接取状态；服务端仍复核活动设备与归属。
+    const binding = statusOnly && this.data.bound && this.data.bindingMac
+      ? Promise.resolve(null) : api.request("/api/auth/me");
+    const pending = binding
       .then((me) => {
         if (!current()) return;
-        const bound = !!(me.binding && me.binding.bound);
-        const bindingMac = activeDeviceMac(me);
-        if (bindingMac !== this.data.bindingMac) {
-          this._speedGeneration = (this._speedGeneration || 0) + 1;
-          this.setData({ speedRates: { x: 10000, y: 10000, z: 1200 },
-            speedSaving: false, speedLoaded: false, speedLoading: false, canSetSpeed: false, speedError: "" });
+        if (me) {
+          const bound = !!(me.binding && me.binding.bound);
+          const bindingMac = activeDeviceMac(me);
+          if (bindingMac !== this.data.bindingMac) {
+            this._speedGeneration = (this._speedGeneration || 0) + 1;
+            this.setData({ speedRates: { x: 10000, y: 10000, z: 1200 },
+              speedSaving: false, speedLoaded: false, speedLoading: false, canSetSpeed: false, speedError: "" });
+          }
+          this.setData({ bound, bindingMac, bindingLoading: false, bindingChecked: true });
         }
-        this.setData({ bound, bindingMac, bindingLoading: false, bindingChecked: true });
+        const { bound, bindingMac } = this.data;
         if (!bound || !bindingMac) {
           this._statusFailed(bound ? "无法读取当前设备信息，请刷新后重试" : "");
           this._clearPoll();
@@ -254,6 +266,19 @@ Page({
       });
     this._refreshPromise = pending;
     return pending;
+  },
+
+  _refreshAfterAction() {
+    const generation = this._viewGeneration || 0;
+    const session = getApp()._sessionGeneration;
+    const bindingMac = this.data.bindingMac;
+    const controlGeneration = this._controlGeneration || 0;
+    const refresh = () => {
+      if (this._isCurrentView(generation, session) && this.data.bindingMac === bindingMac &&
+        (this._controlGeneration || 0) === controlGeneration) return this.refresh(true, true);
+    };
+    // 旧查询只能先收尾，不能充当动作后的确认；同页保持最多一条状态请求。
+    return this._refreshPromise ? this._refreshPromise.then(refresh) : refresh();
   },
 
   _statusFailed(detail) {
@@ -306,16 +331,20 @@ Page({
     const session = getApp()._sessionGeneration;
     const bindingMac = this.data.bindingMac;
     const key = action || tool;
-    this.setData({ busyAction: key, manualLocked: true });
+    this._controlGeneration = (this._controlGeneration || 0) + 1;
+    this._clearPoll();
+    this.setData({ busyAction: key, manualLocked: true, canConfirm: false,
+      canAbort: false, canPause: false, canResume: false, canRepeat: false, canSetSpeed: false });
     return this.control(tool, action).then((r) => {
       if (!this._isCurrentView(generation, session) || this.data.bindingMac !== bindingMac) return false;
       this.setData({ busyAction: "" });
-      if (r && r.status !== "error") {
-        this.refresh(true);
-      } else {
+      const ok = !!(r && r.status === "ok");
+      // 步距返回 ok 时已同步落地；运动的 started 只是受理，必须等新状态。
+      if (ok && tool === "hutuji.manual" && (action === "jog_step_1" || action === "jog_step_10")) {
         this.setData(this._deriveControls(this.data.status));
       }
-      return !!(r && r.status !== "error");
+      this._refreshAfterAction();
+      return ok;
     });
   },
 

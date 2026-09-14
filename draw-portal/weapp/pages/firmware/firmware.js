@@ -39,6 +39,7 @@ Page({
     notes: "",
     updateAvailable: false,
     checking: false,
+    loadError: "",
     upgrading: false,
     progress: 0,
     progressLabel: "升级中…",
@@ -51,14 +52,28 @@ Page({
     pageSession.show(this);
     if (this._firmwareSession !== getApp()._sessionGeneration) {
       this._firmwareSession = getApp()._sessionGeneration;
+      this._upgradeMac = "";
       this.setData({ upgrading: false, updateAvailable: false, current: "", latest: "" });
     }
     const current = pageSession.capture(this);
-    this.setData({ footVersion: displayVersion("v0.3.6"), checking: false });
+    if (!this.data.upgrading) this._deviceMac = "";
+    this.setData({ footVersion: displayVersion("v0.3.6"), checking: true, updateAvailable: false, loadError: "" });
     phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
-      if (!ok || !current()) return;
+      if (!current()) return;
+      if (!ok) {
+        this.setData({ checking: false, loadError: "账号信息读取失败，请重试" });
+        return;
+      }
+      // 切换活动设备不等于取消原设备升级；服务端继续验证原设备的当前归属。
+      if (this.data.upgrading && this._upgradeMac) {
+        this.setData({ checking: false });
+        this._pollOnce();
+        return;
+      }
       this._ensureBound().then((bound) => {
-        if (!bound || !current()) return;
+        if (!current()) return;
+        this.setData({ checking: false });
+        if (!bound) return;
         // onHide 停了轮询；升级中若只 silent check 会因 upgrading 早退卡死 UI
         if (this.data.upgrading) {
           this._pollOnce();
@@ -87,17 +102,26 @@ Page({
         if (!current()) return false;
         const bound = !!(me && me.binding && me.binding.bound);
         if (!bound) {
+          this._deviceMac = "";
           wx.showToast({ title: "请先绑定设备", icon: "none" });
           wx.navigateTo({ url: "/pages/bind/bind" });
+          return false;
         }
         const mac = me.active_device_mac || "";
+        if (!mac) {
+          this.setData({ loadError: "设备信息未就绪，请重试" });
+          return false;
+        }
         if (this._deviceMac && this._deviceMac !== mac) {
           this.setData({ upgrading: false, updateAvailable: false });
         }
         this._deviceMac = mac;
         return bound;
       })
-      .catch(() => false);
+      .catch(() => {
+        if (current()) this.setData({ loadError: "设备信息读取失败，请重试" });
+        return false;
+      });
   },
 
   _stopPoll() {
@@ -143,13 +167,19 @@ Page({
   onCheck(silent) {
     if (this.data.checking || this.data.upgrading) return;
     const current = pageSession.capture(this);
+    const mac = this._deviceMac;
+    if (!mac) {
+      this.setData({ updateAvailable: false });
+      this._setTip("设备信息未就绪，请刷新后重试", "warn");
+      return;
+    }
     const quiet = silent === true;
-    this.setData({ checking: true });
+    this.setData({ checking: true, updateAvailable: false });
     if (!quiet) this._setTip("");
     api
-      .request("/api/device/firmware/check")
+      .request("/api/device/firmware/check?device_mac=" + encodeURIComponent(mac || ""))
       .then((data) => {
-        if (!current()) return;
+        if (!current() || mac !== this._deviceMac) return;
         this.setData({ checking: false });
         this._applyCheck(data);
         if (!quiet && data && data.reason === "check_failed") {
@@ -160,7 +190,7 @@ Page({
         }
       })
       .catch((err) => {
-        if (!current()) return;
+        if (!current() || mac !== this._deviceMac) return;
         this.setData({ checking: false });
         const msg = (err && err.detail) || reasonText("check_failed");
         this._setTip(msg, "warn");
@@ -173,6 +203,7 @@ Page({
       return;
     }
     const current = pageSession.capture(this);
+    const mac = this._deviceMac;
     wx.showModal({
       title: "确认升级固件？",
       content:
@@ -181,14 +212,20 @@ Page({
         "。确认后开始下载。",
       confirmText: "立即升级",
       success: (r) => {
-        if (r.confirm && current()) this._startUpgrade();
+        if (r.confirm && current() && mac === this._deviceMac) this._startUpgrade();
       },
     });
   },
 
   _startUpgrade() {
     if (this.data.upgrading || this.data.checking) return;
+    const mac = this._deviceMac;
+    if (!mac) {
+      this._setTip("设备信息未就绪，请刷新后重试", "warn");
+      return;
+    }
     const current = pageSession.capture(this);
+    this._upgradeMac = mac;
     this._stopPoll();
     this.setData({
       upgrading: true,
@@ -198,7 +235,7 @@ Page({
     });
     this._setTip("升级中，请保持设备联网", "");
     api
-      .request("/api/device/firmware/upgrade", { method: "POST" })
+      .request("/api/device/firmware/upgrade", { method: "POST", data: { device_mac: mac } })
       .then((data) => {
         if (!current()) return;
         if (!data || (data.status !== "started" && data.status !== "unknown")) {
@@ -229,6 +266,7 @@ Page({
         const msg = reasonText(detail) || detail || "升级失败";
         // 网关瞬态（502/504/读超时）设备可能已在升级：不清 UI，继续轮询对账
         const transient =
+          (err && (err.status === 0 || [502, 503, 504].includes(err.status))) ||
           /^HTTP\s+50[234]/i.test(String(detail)) || /^网络\s+timeout/i.test(String(detail));
         if (transient) {
           this._setTip("下发结果确认中，继续等待设备…", "");
@@ -255,7 +293,7 @@ Page({
     }
     const flight = this._pollFlight = {};
     api
-      .request("/api/device/firmware/ota_status")
+      .request("/api/device/firmware/ota_status?device_mac=" + encodeURIComponent(this._upgradeMac || this._deviceMac || ""))
       .then((st) => {
         if (!current()) return;
         const state = String((st && st.state) || "").toLowerCase();
@@ -308,8 +346,14 @@ Page({
         });
         this._pollTimer = setTimeout(() => this._pollOnce(), POLL_MS);
       })
-      .catch(() => {
+      .catch((err) => {
         if (!current()) return;
+        if (err && [400, 401, 403, 409].includes(err.status)) {
+          this._stopPoll();
+          this.setData({ upgrading: false, updateAvailable: false });
+          this._setTip(err.detail || "设备绑定已变化，请刷新后重试", "warn");
+          return;
+        }
         // 短暂网络抖动：继续轮询，不立刻失败
         this._pollTimer = setTimeout(() => this._pollOnce(), POLL_MS);
       })

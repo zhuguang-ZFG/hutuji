@@ -109,6 +109,10 @@
 }
 
 .step-pill {
+  margin: 0;
+  min-width: 0 !important;
+  width: auto !important;
+  line-height: 1.4;
   padding: 8rpx 20rpx;
   border-radius: 999rpx;
   font-size: 24rpx;
@@ -116,6 +120,9 @@
   background: #1a1b28;
   border: 1rpx solid rgba(0, 209, 229, 0.3);
 }
+
+.step-pill::after { border: none; }
+.step-pill[disabled] { opacity: 0.4; color: #9aa3b5 !important; }
 
 /* 3×3 网格：左右键不再被 card 裁切（button 默认 min-width 是根因） */
 .dpad {
@@ -378,3 +385,4 @@
   color: #00d1e5;
   background: #202431;
 }
+.control-paper-link { display: flex; justify-content: space-between; align-items: center; padding: 18rpx 24rpx; margin-bottom: 18rpx; border: 1rpx solid #25414a; border-radius: 18rpx; background: #10252c; color: #91cec7; font-size: 24rpx; }

@@ -35,75 +35,10 @@ def _queue_settings(monkeypatch: pytest.MonkeyPatch, **overrides) -> Settings:
     return patched
 
 
-class _FakePipeline:
-    """attach_or_enqueue 所需的最小 pipeline 面（同 test_draw_queue 的桩）。"""
-
-    def __init__(self, client: "_FakeRedis") -> None:
-        self._client = client
-        self._ops: list[tuple] = []
-
-    def hset(self, key, mapping):
-        self._ops.append(("hset", key, mapping))
-
-    def expire(self, key, ttl):
-        self._ops.append(("expire", key, ttl))
-
-    def set(self, key, value, nx=False, ex=None):
-        self._ops.append(("set", key, value, nx))
-
-    async def execute(self):
-        results = []
-        for op in self._ops:
-            if op[0] == "hset":
-                self._client._hashes.setdefault(op[1], {}).update(op[2])
-                results.append(1)
-            elif op[0] == "expire":
-                results.append(1)
-            else:
-                _, key, value, nx = op
-                if nx and key in self._client._strings:
-                    results.append(None)
-                else:
-                    self._client._strings[key] = value
-                    results.append(True)
-        return results
 
 
-class _FakeRedis:
-    """attach_or_enqueue 限流环的最小 Redis 桩（照 test_draw_queue 的做法）。"""
 
-    def __init__(self) -> None:
-        self._strings: dict[str, str] = {}
-        self._hashes: dict[str, dict[str, str]] = {}
-        self._lists: dict[str, list[str]] = {}
-        self.expire_calls: list[tuple[str, int]] = []
 
-    async def get(self, key):
-        return self._strings.get(key)
-
-    async def hget(self, key, field):
-        return self._hashes.get(key, {}).get(field)
-
-    async def llen(self, key):
-        return len(self._lists.get(key, []))
-
-    async def incr(self, key):
-        value = int(self._strings.get(key, "0")) + 1
-        self._strings[key] = str(value)
-        return value
-
-    async def expire(self, key, ttl):
-        self.expire_calls.append((key, ttl))
-        return 1
-
-    async def delete(self, key):
-        self._strings.pop(key, None)
-
-    async def lpush(self, key, value):
-        self._lists.setdefault(key, []).insert(0, value)
-
-    def pipeline(self):
-        return _FakePipeline(self)
 
 
 def _inprocess_harness(tmp_path, monkeypatch: pytest.MonkeyPatch, *, day: int) -> None:
@@ -131,6 +66,9 @@ def _inprocess_harness(tmp_path, monkeypatch: pytest.MonkeyPatch, *, day: int) -
         job_id: str | None = None,
         chain_push: bool = True,
         machine: str = "",
+        paper=None,
+        device_id: str = "",
+        owner_stamp: str = "",
     ) -> str:
         return json.dumps({"url": f"{public_base_url}/files/x.gcode"}, ensure_ascii=False)
 
@@ -158,30 +96,22 @@ def test_memory_backend_rejects_21st_draw(monkeypatch: pytest.MonkeyPatch) -> No
     asyncio_run(run_case())
 
 
-def test_redis_backend_rejects_21st_draw(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_redis_backend_rejects_21st_draw(monkeypatch, live_redis):
     _queue_settings(monkeypatch, draw_per_device_day=20)
-    fake = _FakeRedis()
-    backend = draw_queue.RedisDrawQueueBackend("redis://stub")
-    monkeypatch.setattr(backend, "_client", lambda: fake)
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
 
-    async def run_case() -> None:
+    async def run_case():
         for i in range(20):
-            await backend.attach_or_enqueue(
-                f"主题{i}", "https://hutuji.example", device_id="dev-redis"
-            )
-        with pytest.raises(
-            draw_queue.DrawDailyLimitError, match="今日绘画次数已达上限，明天再来"
-        ):
-            await backend.attach_or_enqueue(
-                "主题20", "https://hutuji.example", device_id="dev-redis"
-            )
-
+            await backend.attach_or_enqueue(f"主题{i}", "https://hutuji.example", device_id="dev-redis")
+        with pytest.raises(draw_queue.DrawDailyLimitError, match="今日绘画次数已达上限，明天再来"):
+            await backend.attach_or_enqueue("主题20", "https://hutuji.example", device_id="dev-redis")
+        await backend._client().aclose()
     asyncio_run(run_case())
-
-    # 日键形如 hutuji:draw:device:day:<id>:<yyyymmdd>，首次 incr 后给 48h TTL
     day_key = f"{draw_queue.DEVICE_RATE_PREFIX}day:dev-redis:{draw_queue.day_stamp_cst()}"
-    assert fake._strings[day_key] == "21"  # Redis 侧 incr 后比较，被拒请求也占一格
-    assert (day_key, 48 * 3600) in fake.expire_calls
+    assert client.get(day_key) == "20"
+    assert 0 < client.ttl(day_key) <= 48 * 3600
+
 
 
 def test_inprocess_draw_rejects_21st_call(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -222,7 +152,7 @@ def test_inprocess_retry_attaches_at_daily_limit(tmp_path, monkeypatch, mode):
         monkeypatch.setattr(server, "_run_draw_job", blocked_run)
         first = asyncio.create_task(server.hutuji_draw("同题", device_id="dev-retry"))
         await asyncio.wait_for(started.wait(), timeout=2)
-        shared = server._draw_inflight["同题"]
+        shared = server._draw_inflight[server._inflight_key_for("同题", True, device_id="dev-retry")]
         retry = None
         try:
             if mode == "cancelled":
@@ -356,6 +286,8 @@ def test_queue_path_daily_limit_surfaces_draw_limit_error(
         device_id: str = "",
         chain_push: bool = True,
         machine: str = "",
+        paper=None,
+        owner_stamp: str = "",
     ) -> str:
         raise draw_queue.DrawDailyLimitError("今日绘画次数已达上限，明天再来")
 

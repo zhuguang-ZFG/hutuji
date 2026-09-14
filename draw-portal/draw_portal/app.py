@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import shutil
 import threading
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -12,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
@@ -37,6 +39,7 @@ from draw_portal import chat as chat_mod
 from draw_portal import xiaopai as xiaopai_mod
 from draw_portal import tg_notify
 from draw_portal import telegram_archive
+from draw_portal.market import MarketBusyError, MarketCatalog, get_catalog
 from draw_portal.crypto import decrypt_token, encrypt_token
 from draw_portal.email_verify import (
     generate_email_code,
@@ -76,6 +79,7 @@ from draw_portal.upload_kinds import detect_upload_kind
 from draw_portal.store import BindStateError, Store
 from draw_portal.generate import GenerateError, materialize_generated_job, request_internal_draw
 from draw_portal import firmware_ota as firmware_ota_mod
+from draw_portal import paper_settings as paper_settings_mod
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +234,21 @@ class DeviceControlBody(BaseModel):
     tool: str = Field(min_length=1, max_length=32)
     action: str | None = None
     device_mac: str | None = Field(default=None, max_length=17)
+
+
+class DeviceTargetBody(BaseModel):
+    device_mac: str | None = Field(default=None, min_length=17, max_length=17)
+
+
+class MarketActionBody(DeviceTargetBody):
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class PaperSettingsBody(BaseModel):
+    config: dict[str, Any]
+    expected_marker: str = Field(min_length=1, max_length=120)
+    range_confirmed: bool = Field(default=False, strict=True)
+    device_mac: str = Field(min_length=17, max_length=17)
 
 
 # 设备控制白名单：与固件 IsVoiceAllowedAction 同源（语音不开放的维护动作这里同样不放）
@@ -548,6 +567,10 @@ def create_app() -> FastAPI:
     telegram_archive.enqueue_pending_on_boot(store)
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.exception_handler(paper_settings_mod.PaperSettingsError)
+    async def paper_settings_error(_request: Request, exc: paper_settings_mod.PaperSettingsError):
+        return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
 
     def user_dep(
         draw_portal_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
@@ -896,8 +919,7 @@ def create_app() -> FastAPI:
         store.set_user_phone(user_id, phone)
         return {"status": "ok", "phone": phone}
 
-    @app.post("/api/device/control", dependencies=phone_secured)
-    def device_control(body: DeviceControlBody, user_id: str = Depends(require_phone)) -> dict[str, Any]:
+    def _device_control(body: DeviceControlBody, user_id: str, *, timeout: int = 15) -> dict[str, Any]:
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定设备")
@@ -928,7 +950,7 @@ def create_app() -> FastAPI:
             device_token=decrypt_token(config.token_cipher_key, binding.device_token_enc),
             name=tool,
             arguments=arguments,
-            timeout=15,
+            timeout=timeout,
         )
         if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
             # 与 draw_send 同一自愈：铸新 messaging token → 回写绑定表 → 重试。
@@ -950,7 +972,7 @@ def create_app() -> FastAPI:
                     device_token=fresh,
                     name=tool,
                     arguments=arguments,
-                    timeout=15,
+                    timeout=timeout,
                 )
         if not ok:
             return {"status": "error", "detail": result}
@@ -961,6 +983,10 @@ def create_app() -> FastAPI:
         if tool_result_failed(result):
             return {"status": "error", "detail": "设备未接受操作，请刷新状态后重试"}
         return {"status": "ok", "result": unwrap_tool_text(result)}
+
+    @app.post("/api/device/control", dependencies=phone_secured)
+    def device_control(body: DeviceControlBody, user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        return _device_control(body, user_id)
 
     def _infer_voice_format(filename: str) -> str:
         lower = filename.lower()
@@ -1023,6 +1049,7 @@ def create_app() -> FastAPI:
             tok = token_holder["token"]
             if tok is None:
                 return "请先绑定丹青"
+            paper_settings_mod.check_owner(store, binding, require_active=True)
             ok, result = push_tool_call(
                 api_base=config.xiaozhi_api_base,
                 device_token=tok,
@@ -1036,7 +1063,8 @@ def create_app() -> FastAPI:
                 )
                 if fresh:
                     new_enc = encrypt_token(config.token_cipher_key, fresh)
-                    store.update_binding_token(user_id, device_token_enc=new_enc, device_mac=binding.device_mac)
+                    paper_settings_mod.check_owner(store, binding, require_active=True)
+                    paper_settings_mod.update_token(store, binding, new_enc)
                     token_holder["token"] = fresh
                     enc_holder["enc"] = new_enc
                     ok, result = push_tool_call(
@@ -1057,7 +1085,7 @@ def create_app() -> FastAPI:
                 raise VoiceJobError("请先绑定丹青")
 
             def on_token_minted(new_enc: str) -> None:
-                store.update_binding_token(user_id, device_token_enc=new_enc, device_mac=binding.device_mac)
+                paper_settings_mod.update_token(store, binding, new_enc)
                 enc_holder["enc"] = new_enc
                 token_holder["token"] = decrypt_token(config.token_cipher_key, new_enc)
 
@@ -1081,6 +1109,7 @@ def create_app() -> FastAPI:
                 )
                 job_path = _job_dir(config.data_dir, job.id)
                 try:
+                    snapshot = _paper_snapshot_for_user(user_id, binding=binding)
                     summary, preview = run_voice_draw(
                         description=desc,
                         user_id=user_id,
@@ -1102,6 +1131,9 @@ def create_app() -> FastAPI:
                         device_mac=device_mac,
                         device_token_enc=enc_holder["enc"],
                         on_token_minted=on_token_minted,
+                        snapshot=snapshot,
+                        before_push=lambda: _verify_job_for_binding(binding, job_path),
+                        before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
                     )
                 except Exception as exc:
                     # 已建任务后的失败才通知（守卫级 429/未绑定不打扰）；忙批全忙 429
@@ -1128,6 +1160,7 @@ def create_app() -> FastAPI:
                 )
                 job_path = _job_dir(config.data_dir, job.id)
                 try:
+                    snapshot = _paper_snapshot_for_user(user_id, binding=binding)
                     summary, preview = run_voice_write(
                         text=raw_text,
                         user_id=user_id,
@@ -1148,6 +1181,9 @@ def create_app() -> FastAPI:
                         device_mac=device_mac,
                         device_token_enc=enc_holder["enc"],
                         on_token_minted=on_token_minted,
+                        snapshot=snapshot,
+                        before_push=lambda: _verify_job_for_binding(binding, job_path),
+                        before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
                     )
                 except Exception:
                     _notify_subscribe(config, store, user_id=user_id, status="failed", title=raw_text)
@@ -1193,45 +1229,21 @@ def create_app() -> FastAPI:
             "tool_traces": out["tool_traces"],
         }
         if out.get("preview"):
-            payload["preview"] = out["preview"]
+            # 预览卡锁定本轮生成时的设备；确认时不能重新猜当前设备。
+            payload["preview"] = dict(out["preview"], device_mac=device_mac)
         return payload
 
-    def _voice_device_tool(user_id: str, tool_name: str) -> dict[str, str]:
-        from draw_portal.mcp_result import unwrap_tool_text
-        from draw_portal.push import mint_messaging_token
-
+    def _voice_device_tool(user_id: str, tool_name: str, device_mac: str | None) -> dict[str, str]:
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定丹青")
-        token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
-        ok, result = push_tool_call(
-            api_base=config.xiaozhi_api_base,
-            device_token=token,
-            name=tool_name,
-            arguments={},
-            timeout=30,
+        # 共用普通控制入口的归属复核、重签重试和设备业务错误判断。
+        result = _device_control(
+            DeviceControlBody(tool=tool_name, device_mac=device_mac or binding.device_mac),
+            user_id, timeout=30,
         )
-        if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
-            fresh = mint_messaging_token(
-                api_base=config.xiaozhi_api_base, mac=binding.device_mac
-            )
-            if fresh:
-                store.update_binding_token(
-                    user_id,
-                    device_token_enc=encrypt_token(config.token_cipher_key, fresh),
-                    device_mac=binding.device_mac,
-                )
-                ok, result = push_tool_call(
-                    api_base=config.xiaozhi_api_base,
-                    device_token=fresh,
-                    name=tool_name,
-                    arguments={},
-                    timeout=30,
-                )
-        if not ok:
-            detail = result if isinstance(result, str) else str(result)
-            raise HTTPException(status_code=502, detail=detail[:120])
-        text = unwrap_tool_text(result)
+        if result["status"] != "ok":
+            raise HTTPException(status_code=502, detail=str(result.get("detail") or "设备未接受操作")[:120])
         _record_portal_usage(
             store,
             event_type=f"web_voice_{tool_name.split('.')[-1]}",
@@ -1240,21 +1252,31 @@ def create_app() -> FastAPI:
             detail=tool_name,
             ok=True,
         )
-        return {"status": "ok", "result": text}
+        return result
 
     @app.post("/api/voice/confirm", dependencies=phone_secured)
-    def voice_confirm(user_id: str = Depends(require_phone)) -> dict[str, str]:
-        return _voice_device_tool(user_id, "hutuji.confirm")
+    def voice_confirm(body: DeviceTargetBody | None = None,
+                      user_id: str = Depends(require_phone)) -> dict[str, str]:
+        return _voice_device_tool(user_id, "hutuji.confirm", body.device_mac if body else None)
 
     @app.post("/api/voice/cancel", dependencies=phone_secured)
-    def voice_cancel(user_id: str = Depends(require_phone)) -> dict[str, str]:
-        return _voice_device_tool(user_id, "hutuji.abort")
+    def voice_cancel(body: DeviceTargetBody | None = None,
+                     user_id: str = Depends(require_phone)) -> dict[str, str]:
+        return _voice_device_tool(user_id, "hutuji.abort", body.device_mac if body else None)
+
+    def _firmware_binding(user_id: str, device_mac: str | None, *, require_active: bool = True) -> DeviceBinding:
+        active = store.get_binding_for_user(user_id)
+        if active is None:
+            raise HTTPException(status_code=400, detail="请先绑定设备")
+        binding = store.get_binding_for_mac(device_mac.lower()) if device_mac else active
+        if (binding is None or binding.user_id != user_id
+                or (require_active and binding.device_mac != active.device_mac)):
+            raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
+        return binding
 
     @app.get("/api/device/firmware/check", dependencies=phone_secured)
-    def firmware_check(user_id: str = Depends(require_phone)) -> dict[str, Any]:
-        binding = store.get_binding_for_user(user_id)
-        if binding is None:
-            raise HTTPException(status_code=400, detail="请先绑定设备")
+    def firmware_check(device_mac: str | None = None, user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = _firmware_binding(user_id, device_mac)
         return firmware_ota_mod.check_firmware(
             store=store,
             binding=binding,
@@ -1264,10 +1286,9 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/api/device/firmware/upgrade", dependencies=phone_secured)
-    def firmware_upgrade(user_id: str = Depends(require_phone)) -> dict[str, Any]:
-        binding = store.get_binding_for_user(user_id)
-        if binding is None:
-            raise HTTPException(status_code=400, detail="请先绑定设备")
+    def firmware_upgrade(body: DeviceTargetBody | None = None,
+                         user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        binding = _firmware_binding(user_id, body.device_mac if body else None)
         return firmware_ota_mod.start_upgrade(
             store=store,
             binding=binding,
@@ -1279,10 +1300,9 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/device/firmware/ota_status", dependencies=phone_secured)
-    def firmware_ota_status(user_id: str = Depends(require_phone)) -> dict[str, Any]:
-        binding = store.get_binding_for_user(user_id)
-        if binding is None:
-            raise HTTPException(status_code=400, detail="请先绑定设备")
+    def firmware_ota_status(device_mac: str | None = None, user_id: str = Depends(require_phone)) -> dict[str, Any]:
+        # 已下发任务按原设备查终态；切换活动设备不能改写升级对象。
+        binding = _firmware_binding(user_id, device_mac, require_active=False)
         return firmware_ota_mod.get_ota_status(
             store=store,
             binding=binding,
@@ -1595,39 +1615,113 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="固件升级中，请稍后再出图")
 
 
-    def _machine_profile_for_user(user_id: str) -> tuple[object, str]:
-        """按绑定机型选 G-code 生成档（protocol §10.4.15，2026-09-11）。
+    def _paper_snapshot_for_user(user_id: str, *, binding=None, require_live=False):
+        return paper_settings_mod.read_settings(
+            store, config, binding or store.get_binding_for_user(user_id),
+            require_live=require_live, call_tool=push_tool_call,
+        )
 
-        知识源优先级：设备 status 探测（现值，命中回写库）→ 库值
-        （announce 学习 / 默认 paper）；探测失败（离线 / 1.0.8 旧固件无字段）
-        回落库值不写库。返回 (profile, machine)：paper → (None, "paper")，
-        传 None 保持 MK38 默认档与 G-code 内容缓存键逐字节兼容；nopaper →
-        PROFILE_NOPAPER（不转置、限幅 205/290）。
-        """
-        from hutuji_mcp.gcode_gen import PROFILE_NOPAPER
+    def _machine_profile_for_user(user_id: str, job_dir: Path, *, expected_marker: str = "", device_mac: str = "") -> tuple[object, str]:
+        snapshot = _paper_snapshot_for_user(user_id)
+        if expected_marker and (expected_marker != snapshot.paper.marker or device_mac != snapshot.device_mac):
+            raise paper_settings_mod.PaperSettingsError("设备或纸张已变化，请返回画板刷新并适配草稿")
+        paper_settings_mod.write_job_context(job_dir, snapshot)
+        return snapshot.paper.to_profile(), snapshot.machine
 
-        binding = store.get_binding_for_user(user_id)
-        if binding is None:
-            return None, "paper"
-        machine = binding.machine_type or "paper"
+    def _verify_job_for_binding(binding, job_path: Path):
+        snapshot = paper_settings_mod.read_settings(
+            store, config, binding, require_live=True, require_active=True, call_tool=push_tool_call,
+        )
+        paper_settings_mod.verify_job(job_path, snapshot)
+        return paper_settings_mod.check_owner(store, binding, require_active=True)
+
+    def _authorize_internal_paper(request: Request) -> None:
+        if (not config.usage_ingest_secret or
+                not secrets.compare_digest(request.headers.get("x-hutuji-usage-secret", ""), config.usage_ingest_secret) or
+                not _is_loopback_client(request.client.host if request.client else "")):
+            raise HTTPException(status_code=404, detail="not found")
+
+    def _internal_paper_binding(request: Request, device_id: str):
+        _authorize_internal_paper(request)
         try:
-            sku = probe_plotter_sku(
-                api_base=config.xiaozhi_api_base,
-                device_token=decrypt_token(
-                    config.token_cipher_key, binding.device_token_enc
-                ),
+            binding = store.get_binding_for_mac(device_id)
+        except ValueError:
+            binding = None
+        user = store.get_user(binding.user_id) if binding else None
+        if user is None or user.status != "active" or not user.phone:
+            raise HTTPException(status_code=404, detail="设备未就绪")
+        return binding
+
+    @app.get("/api/internal/paper")
+    def internal_paper_get(request: Request, device_id: str):
+        from hutuji_mcp.device_paper import DrawTarget
+
+        binding = _internal_paper_binding(request, device_id)
+        snapshot = _paper_snapshot_for_user(binding.user_id, binding=binding)
+        paper_settings_mod.check_owner(store, binding)
+        return DrawTarget(binding.device_mac, snapshot.machine, snapshot.paper,
+                          paper_settings_mod.binding_stamp(config, binding)).to_dict()
+
+    @app.post("/api/internal/paper/push")
+    async def internal_paper_push(request: Request):
+        from hutuji_mcp.device_paper import DevicePaperError, DrawTarget
+        from hutuji_mcp.article_pages import pages_argument
+
+        _authorize_internal_paper(request)
+        raw = await request.body()
+        if len(raw) > 32 * 1024:
+            raise HTTPException(status_code=400, detail="请求体过大")
+        try:
+            body = json.loads(raw)
+            target = DrawTarget.from_dict(body["target"])
+            pages = body["pages"]
+        except (ValueError, KeyError, TypeError, DevicePaperError):
+            raise HTTPException(status_code=400, detail="作品记录无效") from None
+        binding = _internal_paper_binding(request, target.device_id)
+        if paper_settings_mod.binding_stamp(config, binding) != target.owner_stamp:
+            raise paper_settings_mod.PaperSettingsError("设备绑定已变化，请重新生成作品")
+
+        def push_checked():
+            snapshot = paper_settings_mod.read_settings(store, config, binding, require_live=True, call_tool=push_tool_call)
+            if snapshot.paper != target.paper or snapshot.machine != target.machine:
+                raise paper_settings_mod.PaperSettingsError("设备纸张设置已变化，请重新生成作品")
+            paper_settings_mod.verify_capabilities(config, snapshot, pages)
+            current = paper_settings_mod.check_owner(store, binding)
+            ok, _detail = push_draw_self_heal(
+                api_base=config.xiaozhi_api_base, token_cipher_key=config.token_cipher_key,
+                device_mac=current.device_mac, device_token_enc=current.device_token_enc,
+                gcode_url=pages[0]["url"], preview_url=pages[0]["preview_url"],
+                pages_arg=pages_argument(pages) if len(pages) > 1 else None,
+                on_token_minted=lambda enc: paper_settings_mod.update_token(store, binding, enc),
+                before_action=lambda: paper_settings_mod.check_owner(store, binding),
             )
-        except Exception:
-            sku = None
-        if sku is not None:
-            machine = sku
-            try:
-                store.set_binding_machine_type(user_id, sku, device_mac=binding.device_mac)
-            except ValueError:
-                pass
-        if machine == "nopaper":
-            return PROFILE_NOPAPER, "nopaper"
-        return None, "paper"
+            return {"status": "sent" if ok else "push_failed"}
+
+        return await asyncio.to_thread(push_checked)
+
+    @app.get("/api/settings/paper", dependencies=phone_secured)
+    def paper_settings_get(device_mac: str | None = None, user_id: str = Depends(require_phone)):
+        binding = _firmware_binding(user_id, device_mac)
+        snapshot = _paper_snapshot_for_user(user_id, binding=binding)
+        return {"status": "ok", **snapshot.as_dict()}
+
+    @app.post("/api/settings/paper", dependencies=phone_secured)
+    def paper_settings_set(body: PaperSettingsBody, user_id: str = Depends(require_phone)):
+        from hutuji_mcp.paper_config import PaperConfig, PaperConfigError
+
+        binding = _firmware_binding(user_id, body.device_mac)
+        try:
+            desired = PaperConfig.from_dict(body.config)
+        except PaperConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        snapshot = paper_settings_mod.update_settings(
+            store, config, binding, desired, expected_marker=body.expected_marker,
+            range_confirmed=body.range_confirmed, call_tool=push_tool_call,
+        )
+        _record_portal_usage(store, event_type="web_paper_settings", user_id=user_id,
+                             device_mac=binding.device_mac, detail=snapshot.paper.marker, ok=True)
+        return {"status": "ok", **snapshot.as_dict()}
+
     def _publish_from_job(job_id: str) -> tuple[str, str]:
         published = publish_job_files(
             job_dir=_job_dir(config.data_dir, job_id),
@@ -1655,9 +1749,11 @@ def create_app() -> FastAPI:
             )
             refined_path = _job_dir(config.data_dir, refined_job.id)
             try:
-                profile, _machine = await asyncio.to_thread(
-                    _machine_profile_for_user, user_id
-                )
+                snapshot = paper_settings_mod.read_job_context(_job_dir(config.data_dir, orig_job_id))
+                if snapshot is None:
+                    raise paper_settings_mod.PaperSettingsError("原作品缺少纸张记录，请重新上传")
+                paper_settings_mod.write_job_context(refined_path, snapshot)
+                profile = snapshot.paper.to_profile()
                 result = await asyncio.to_thread(
                     process_upload_sketch,
                     raw,
@@ -1700,6 +1796,9 @@ def create_app() -> FastAPI:
         size_mm: str | None = Form(None),
         line_spacing: str | None = Form(None),
         style: str | None = Form(None),
+        paper_marker: str = Form(""),
+        device_mac: str = Form(""),
+        preserve_canvas: bool = Form(False),
         user_id: str = Depends(user_dep),
     ) -> dict[str, Any]:
         # 照片风格精修档位：hatch 排线素描（默认）/ squiggle 连续波纹；
@@ -1707,7 +1806,7 @@ def create_app() -> FastAPI:
         sketch_style = style if style in ("hatch", "squiggle") else "hatch"
         content_type = (file.content_type or "").split(";")[0].strip().lower()
         filename = file.filename or "upload.bin"
-        raw = await file.read()
+        raw = await file.read(_MAX_UPLOAD_BYTES + 1)
         if len(raw) > _MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="文件过大（上限 4MB）")
         if len(raw) < 16:
@@ -1727,6 +1826,10 @@ def create_app() -> FastAPI:
             detail = str(exc)[:120] if type(exc).__name__ == "DocIngestError" else "不支持的文件格式"
             raise HTTPException(status_code=400, detail=detail) from None
 
+        if preserve_canvas and kind != "svg":
+            store.mark_draw_job_failed(job.id, error_summary="InvalidCanvasFormat")
+            raise HTTPException(status_code=400, detail="保留画布仅适用于 SVG 画稿")
+
         if kind in _DOC_UPLOAD_KINDS:
             from hutuji_mcp.doc_ingest import DocIngestError
             from hutuji_mcp.write_text import WriteTextError
@@ -1743,7 +1846,8 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             try:
                 profile, _machine = await asyncio.to_thread(
-                    _machine_profile_for_user, user_id
+                    _machine_profile_for_user, user_id, job_path,
+                    expected_marker=paper_marker, device_mac=device_mac,
                 )
                 result = await asyncio.to_thread(
                     process_upload_doc,
@@ -1764,6 +1868,9 @@ def create_app() -> FastAPI:
                 )
                 # basename 单值化决策：job 主键 = 第 1 页；整篇页表在 pages.json
                 store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+            except paper_settings_mod.PaperSettingsError:
+                store.mark_draw_job_failed(job.id, error_summary="PaperSettingsError")
+                raise
             except (DocIngestError, WriteTextError, WriteLayoutParamsError) as exc:
                 store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
                 _notify_subscribe(config, store, user_id=user_id, status="failed", title=source_name)
@@ -1802,7 +1909,8 @@ def create_app() -> FastAPI:
 
         try:
             profile, _machine = await asyncio.to_thread(
-                _machine_profile_for_user, user_id
+                _machine_profile_for_user, user_id, job_path,
+                expected_marker=paper_marker, device_mac=device_mac,
             )
             result = await asyncio.to_thread(
                 process_upload,
@@ -1811,6 +1919,7 @@ def create_app() -> FastAPI:
                 filename=filename,
                 job_dir=job_path,
                 profile=profile,
+                preserve_canvas=preserve_canvas,
             )
             published = await asyncio.to_thread(
                 publish_job_files,
@@ -1819,6 +1928,9 @@ def create_app() -> FastAPI:
                 public_base_url=config.public_base_url,
             )
             store.mark_draw_job_ready(job.id, basename=published.basename)
+        except paper_settings_mod.PaperSettingsError:
+            store.mark_draw_job_failed(job.id, error_summary="PaperSettingsError")
+            raise
         except ValueError:
             store.mark_draw_job_failed(job.id, error_summary="UnsupportedFormat")
             raise HTTPException(status_code=400, detail="不支持的文件格式") from None
@@ -1936,7 +2048,7 @@ def create_app() -> FastAPI:
         job_path = _job_dir(config.data_dir, job.id)
         try:
             profile, _machine = await asyncio.to_thread(
-                _machine_profile_for_user, user_id
+                _machine_profile_for_user, user_id, job_path
             )
             result = await asyncio.to_thread(
                 process_write_text,
@@ -1956,6 +2068,9 @@ def create_app() -> FastAPI:
                 public_base_url=config.public_base_url,
             )
             store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+        except paper_settings_mod.PaperSettingsError:
+            store.mark_draw_job_failed(job.id, error_summary="PaperSettingsError")
+            raise
         except WriteTextError as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
             _notify_subscribe(config, store, user_id=user_id, status="failed", title=safe)
@@ -2012,7 +2127,7 @@ def create_app() -> FastAPI:
         job_path = _job_dir(config.data_dir, job.id)
         try:
             profile, _machine = await asyncio.to_thread(
-                _machine_profile_for_user, user_id
+                _machine_profile_for_user, user_id, job_path
             )
             result = await asyncio.to_thread(
                 process_teach_text,
@@ -2028,6 +2143,9 @@ def create_app() -> FastAPI:
                 public_base_url=config.public_base_url,
             )
             store.mark_draw_job_ready(job.id, basename=published_pages[0].basename)
+        except paper_settings_mod.PaperSettingsError:
+            store.mark_draw_job_failed(job.id, error_summary="PaperSettingsError")
+            raise
         except StrokeOrderError as exc:
             store.mark_draw_job_failed(job.id, error_summary=type(exc).__name__)
             _notify_subscribe(config, store, user_id=user_id, status="failed", title=safe)
@@ -2131,7 +2249,7 @@ def create_app() -> FastAPI:
         job_path = _job_dir(config.data_dir, job.id)
         try:
             _profile, machine_type = await asyncio.to_thread(
-                _machine_profile_for_user, user_id
+                _machine_profile_for_user, user_id, job_path
             )
             result = await asyncio.to_thread(
                 request_internal_draw,
@@ -2140,6 +2258,8 @@ def create_app() -> FastAPI:
                 description=description,
                 timeout_seconds=config.generate_timeout_seconds,
                 machine=machine_type,
+                paper=_profile.paper.to_dict(),
+                device_id=paper_settings_mod.read_job_context(job_path).device_mac,
             )
             generated = await asyncio.to_thread(
                 materialize_generated_job,
@@ -2154,6 +2274,9 @@ def create_app() -> FastAPI:
                 public_base_url=config.public_base_url,
             )
             store.mark_draw_job_ready(job.id, basename=published.basename)
+        except paper_settings_mod.PaperSettingsError:
+            store.mark_draw_job_failed(job.id, error_summary="PaperSettingsError")
+            raise
         except GenerateError as exc:
             store.mark_draw_job_failed(job.id, error_summary="GenerateError")
             # 429（2026-09-12 忙批：MCP 侧全忙瞬态映射 429；含日限/队列满）不推
@@ -2203,6 +2326,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="任务未就绪")
         binding = _require_binding(user_id)
         job_path = _job_dir(config.data_dir, job_id)
+        binding = _verify_job_for_binding(binding, job_path)
         pages_arg: str | None = None
         if (job_path / "pages.json").is_file():
             # 多页文档整篇重发：每页重新发布刷 TTL（含错峰），pages 序列化
@@ -2232,7 +2356,8 @@ def create_app() -> FastAPI:
             gcode_url=gcode_url,
             preview_url=preview_url,
             pages_arg=pages_arg,
-            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc, device_mac=binding.device_mac),
+            on_token_minted=lambda enc: paper_settings_mod.update_token(store, binding, enc),
+            before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
             auto_confirm=True,
         )
         if ok:
@@ -2270,6 +2395,7 @@ def create_app() -> FastAPI:
         gcode_path: str | None = None
         if (job_path / "draw.gcode").is_file():
             shutil.copy2(job_path / "draw.gcode", saved_root / f"{saved_id}.gcode")
+            paper_settings_mod.copy_saved_context(job_path, saved_root / f"{saved_id}.gcode")
             gcode_path = gcode_rel
 
         title = (body.title if body and body.title else None) or _default_saved_title()
@@ -2287,10 +2413,7 @@ def create_app() -> FastAPI:
         for path in store.trim_saved_previews(
             user_id, limit=config.saved_preview_limit
         ):
-            try:
-                Path(path).unlink(missing_ok=True)
-            except OSError:
-                pass
+            paper_settings_mod.remove_saved_file(Path(path))
         _record_portal_usage(
             store,
             event_type="web_save",
@@ -2318,6 +2441,7 @@ def create_app() -> FastAPI:
                     "preview_url": f"/api/draw/saved/{it.id}/preview.png",
                     # TG 冷备份状态（PoC）：null=未启用；pending/uploaded/failed。
                     "tg_backup": it.tg_state,
+                    "credit": json.loads(it.credit_json) if it.credit_json else None,
                 }
                 for it in items
             ]
@@ -2335,6 +2459,7 @@ def create_app() -> FastAPI:
             "has_gcode": bool(item.gcode_path),
             "preview_url": f"/api/draw/saved/{item.id}/preview.png",
             "tg_backup": item.tg_state,
+            "credit": json.loads(item.credit_json) if item.credit_json else None,
         }
 
     @app.get("/api/draw/saved/{saved_id}/preview.png", dependencies=phone_secured)
@@ -2361,6 +2486,14 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="文件已丢失")
         binding = _require_binding(user_id)
 
+        snapshot = paper_settings_mod.read_settings(
+            store, config, binding, require_live=True, require_active=True, call_tool=push_tool_call,
+        )
+        paper_settings_mod.verify_for_device(
+            gcode_file, snapshot, context=paper_settings_mod.read_context(gcode_file.with_suffix(".context.json")),
+        )
+        binding = paper_settings_mod.check_owner(store, binding, require_active=True)
+
         published = _install_capability_pair(
             gcode_src=gcode_file,
             png_src=preview_file,
@@ -2375,7 +2508,8 @@ def create_app() -> FastAPI:
             device_token_enc=binding.device_token_enc,
             gcode_url=published.gcode_url,
             preview_url=published.preview_url,
-            on_token_minted=lambda enc: store.update_binding_token(user_id, device_token_enc=enc, device_mac=binding.device_mac),
+            on_token_minted=lambda enc: paper_settings_mod.update_token(store, binding, enc),
+            before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
             auto_confirm=True,
         )
         if ok:
@@ -2388,6 +2522,145 @@ def create_app() -> FastAPI:
             ok=ok,
         )
         return {"status": "sent" if ok else "push_failed", "detail": summary}
+
+
+    # 精品图库从已审定 SVG 按当前设备配置转换；入库 G-code 只作审查证据。
+    def _market_catalog() -> MarketCatalog:
+        if config.market_dir is None or not (config.market_dir / "manifest.json").is_file():
+            raise HTTPException(status_code=404, detail="精品图库正在准备中")
+        try:
+            return get_catalog(config.market_dir)
+        except (OSError, ValueError, TypeError):
+            raise HTTPException(status_code=404, detail="精品图库暂未就绪") from None
+
+    def _market_item_or_404(catalog: MarketCatalog, item_id: str, revision: str | None = None):
+        item = catalog.get(item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="作品暂不可用")
+        if revision is not None and item.record["svg_sha256"] != revision:
+            raise HTTPException(status_code=409, detail="作品已更新，请刷新预览后重试")
+        return item
+
+    def _market_binding(user_id: str, body: MarketActionBody, *, required: bool):
+        active = store.get_binding_for_user(user_id)
+        if not body.device_mac:
+            if active is not None:
+                raise HTTPException(status_code=409, detail="控制设备已切换，请刷新后重试")
+            if required:
+                raise HTTPException(status_code=400, detail="请先绑定小派设备")
+            return None
+        binding = _firmware_binding(user_id, body.device_mac)
+        return paper_settings_mod.check_owner(store, binding, require_active=True)
+
+    def _prepare_market(catalog, item, job_dir, snapshot):
+        paper_settings_mod.write_job_context(job_dir, snapshot)
+        try:
+            catalog.materialize(item, job_dir, snapshot.paper)
+        except MarketBusyError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from None
+        except (OSError, ValueError, RuntimeError):
+            raise HTTPException(status_code=422, detail="作品暂时无法准备，请稍后重试") from None
+        paper_settings_mod.verify_job(job_dir, snapshot)
+
+    @app.get("/api/market/categories", dependencies=phone_secured)
+    def market_categories(user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        return {"categories": [{"name": name, "count": count}
+                               for name, count in _market_catalog().categories().items()]}
+
+    @app.get("/api/market/list", dependencies=phone_secured)
+    def market_list(category: str, cursor: int = 0, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        catalog = _market_catalog()
+        page, next_cursor = catalog.list_page(category, cursor)
+        return {"items": [item.to_card() for item in page], "next_cursor": next_cursor}
+
+    @app.get("/api/market/item/{item_id}", dependencies=phone_secured)
+    def market_item_detail(item_id: str, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        catalog = _market_catalog()
+        return _market_item_or_404(catalog, item_id).to_detail()
+
+    @app.get("/api/market/item/{item_id}/preview.png", dependencies=phone_secured)
+    def market_item_preview(item_id: str, v: str | None = None, user_id: str = Depends(user_dep)) -> Response:
+        catalog = _market_catalog()
+        item = _market_item_or_404(catalog, item_id)
+        if v is not None and v != item.record["preview_sha256"]:
+            raise HTTPException(status_code=404, detail="预览已更新")
+        try:
+            raw = catalog.read_item(item, "preview")
+        except (OSError, ValueError):
+            raise HTTPException(status_code=404, detail="预览暂不可用") from None
+        return Response(raw, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
+
+    @app.post("/api/market/item/{item_id}/send", dependencies=phone_secured)
+    def market_item_send(item_id: str, body: MarketActionBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        _reject_if_firmware_upgrading(user_id)
+        catalog = _market_catalog()
+        item = _market_item_or_404(catalog, item_id, body.revision)
+        binding = _market_binding(user_id, body, required=True)
+        snapshot = paper_settings_mod.read_settings(
+            store, config, binding, require_live=True, require_active=True, call_tool=push_tool_call,
+        )
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="market-send-", dir=config.data_dir) as temp:
+            job_path = Path(temp)
+            _prepare_market(catalog, item, job_path, snapshot)
+            binding = _verify_job_for_binding(binding, job_path)
+            _market_item_or_404(catalog, item.id, body.revision)
+            published = publish_job_files(job_dir=job_path, mcp_output_dir=config.mcp_output_dir,
+                                          public_base_url=config.public_base_url)
+        ok, summary = push_draw_self_heal(
+            api_base=config.xiaozhi_api_base,
+            token_cipher_key=config.token_cipher_key,
+            device_mac=binding.device_mac,
+            device_token_enc=binding.device_token_enc,
+            gcode_url=published.gcode_url,
+            preview_url=published.preview_url,
+            on_token_minted=lambda enc: paper_settings_mod.update_token(store, binding, enc),
+            before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
+            auto_confirm=True,
+        )
+        if ok:
+            store.update_binding_last_push(user_id, when=time.time(), device_mac=binding.device_mac)
+        _record_portal_usage(store, event_type="web_market_send", user_id=user_id,
+                            device_mac=binding.device_mac, detail=item.id, ok=ok)
+        return {"status": "sent" if ok else "push_failed", "detail": summary, "credit": item.attribution()}
+
+    @app.post("/api/market/item/{item_id}/favorite", dependencies=phone_secured)
+    def market_item_favorite(item_id: str, body: MarketActionBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
+        catalog = _market_catalog()
+        item = _market_item_or_404(catalog, item_id, body.revision)
+        binding = _market_binding(user_id, body, required=False)
+        snapshot = paper_settings_mod.read_settings(store, config, binding, require_active=True, call_tool=push_tool_call)
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        saved_id = uuid.uuid4().hex
+        saved_root = _saved_dir(config.data_dir, user_id)
+        saved_root.mkdir(parents=True, exist_ok=True)
+        gcode_dst, png_dst = saved_root / f"{saved_id}.gcode", saved_root / f"{saved_id}.png"
+        with tempfile.TemporaryDirectory(prefix="market-save-", dir=config.data_dir) as temp:
+            job_path = Path(temp)
+            _prepare_market(catalog, item, job_path, snapshot)
+            if binding is not None:
+                paper_settings_mod.check_owner(store, binding, require_active=True)
+            _market_item_or_404(catalog, item.id, body.revision)
+            try:
+                shutil.copyfile(job_path / "draw.gcode", gcode_dst)
+                shutil.copyfile(job_path / "preview.png", png_dst)
+                paper_settings_mod.copy_saved_context(job_path, gcode_dst)
+                saved = store.create_saved_preview(
+                    user_id=user_id, job_id=None, title=item.title,
+                    preview_path=str(png_dst), gcode_path=str(gcode_dst),
+                    tg_pending=telegram_archive.enabled(),
+                    credit_json=json.dumps(item.attribution(), ensure_ascii=False),
+                )
+            except BaseException:
+                paper_settings_mod.remove_saved_file(gcode_dst)
+                paper_settings_mod.remove_saved_file(png_dst)
+                raise
+        telegram_archive.enqueue_preview(store, saved)
+        for path in store.trim_saved_previews(user_id, limit=config.saved_preview_limit):
+            paper_settings_mod.remove_saved_file(Path(path))
+        _record_portal_usage(store, event_type="web_market_favorite", user_id=user_id, detail=item.id, ok=True)
+        return {"status": "saved", "id": saved.id, "title": saved.title,
+                "preview_url": f"/api/draw/saved/{saved.id}/preview.png", "credit": item.attribution()}
 
 
     # ---- 分享卡片（2026-09-11）：HMAC 无状态令牌，接收者免会话只读预览 ----
@@ -2568,10 +2841,7 @@ def create_app() -> FastAPI:
         telegram_archive.delete_message_async(item)
         for path in (item.preview_path, item.gcode_path):
             if path:
-                try:
-                    Path(path).unlink(missing_ok=True)
-                except OSError:
-                    pass
+                paper_settings_mod.remove_saved_file(Path(path))
         return {"status": "deleted"}
 
     @app.post("/api/chat", dependencies=phone_secured)

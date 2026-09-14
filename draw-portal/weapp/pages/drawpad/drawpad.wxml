@@ -1,35 +1,65 @@
-<view class="wrap">
-  <view class="toolbar">
-    <view class="tool {{tool === 'pen' ? 'on' : ''}}" bindtap="setTool" data-tool="pen">铅笔</view>
-    <view class="tool {{tool === 'line' ? 'on' : ''}}" bindtap="setTool" data-tool="line">直线</view>
-    <view class="tool {{tool === 'rect' ? 'on' : ''}}" bindtap="setTool" data-tool="rect">方框</view>
-    <view class="tool {{tool === 'ellipse' ? 'on' : ''}}" bindtap="setTool" data-tool="ellipse">圆</view>
-    <view class="spacer"></view>
-    <view class="tool" bindtap="undo">撤销</view>
-    <view class="tool" bindtap="clearAll">清空</view>
+<view class="studio">
+  <view class="studio-head">
+    <view>
+      <view class="studio-title">自由画</view>
+      <view class="studio-sub">你的线条，交给丹青</view>
+    </view>
+    <view class="draft-state"><view class="draft-dot"></view><text>{{draftHint}}</text></view>
   </view>
 
-  <view class="board">
-    <canvas
-      id="pad"
-      type="2d"
-      class="pad"
-      style="width:{{canvasW}}px;height:{{canvasH}}px"
-      bindtouchstart="onTouchStart"
-      bindtouchmove="onTouchMove"
-      bindtouchend="onTouchEnd"
-      bindtouchcancel="onTouchCancel"
-    ></canvas>
-    <view class="hint" wx:if="{{!strokeCount}}">画点什么，转成线稿给丹青上纸</view>
+  <view class="paper-meta">
+    <button class="paper-link" bindtap="onPaperSettings" disabled="{{submitting}}" aria-label="设置纸张和方向">{{paperLoading ? '同步纸张…' : paperLabel}} <text>⌄</text></button>
+    <view class="paper-options">
+      <button class="paper-option {{grid ? 'selected' : ''}}" bindtap="toggleGrid" disabled="{{submitting}}" aria-label="切换辅助网格">网格</button>
+      <button class="paper-option zoom-option" bindtap="resetView" disabled="{{submitting}}" aria-label="恢复整张画纸">{{zoom}}% <text class="zoom-reset">↗</text></button>
+    </view>
   </view>
 
-  <view class="foot">
-    <text class="count">笔画 {{strokeCount}}</text>
-    <button
-      class="submit-btn"
-      bindtap="submit"
-      loading="{{submitting}}"
-      disabled="{{submitting || !strokeCount}}"
-    >{{submitting ? "转换中" : "转线稿发丹青"}}</button>
+  <view class="paper-notice" wx:if="{{paperChanged}}"><text>纸张或设备已变化，原草稿已保留</text><button bindtap="adaptPaper" disabled="{{submitting || replaying}}">等比适配</button></view>
+  <view class="paper-notice warn" wx:if="{{paperError}}"><text>{{paperError}}</text><button bindtap="refreshPaper">重试</button></view>
+
+  <view class="canvas-error" wx:if="{{canvasError}}">{{canvasError}}</view>
+
+  <view class="paper-stage">
+    <view class="paper" style="width:{{canvasW}}px;height:{{canvasH}}px">
+      <canvas id="pad" type="2d" class="pad" style="width:{{canvasW}}px;height:{{canvasH}}px"
+        disable-scroll="{{true}}" catchtouchstart="onTouchStart" catchtouchmove="onTouchMove"
+        catchtouchend="onTouchEnd" bindtouchcancel="onTouchCancel"></canvas>
+      <cover-view class="converting" wx:if="{{submitting}}"><cover-view>正在生成预览…</cover-view><cover-view class="converting-sub">画稿会留在这里</cover-view></cover-view>
+    </view>
+  </view>
+
+  <view class="toolbox">
+    <view class="creative-head">
+      <button class="creative-toggle {{creative ? 'selected' : ''}}" bindtap="toggleCreative" disabled="{{submitting || replaying}}">灵感工具 <text>{{creative ? '−' : '+'}}</text></button>
+      <text class="stroke-count">{{strokeCount}} 笔</text>
+      <button class="replay-btn" bindtap="replay" disabled="{{submitting || !strokeCount}}">{{replaying ? '结束回放 ' + replayPercent + '%' : '▷ 回放'}}</button>
+    </view>
+    <view class="creative-panel" wx:if="{{creative}}">
+      <view class="symmetry-group"><button wx:for="{{symmetries}}" wx:key="key" class="symmetry-btn {{symmetry === item.key ? 'active' : ''}}" bindtap="setSymmetry" data-symmetry="{{item.key}}" disabled="{{submitting || replaying}}">{{item.label}}</button></view>
+      <view class="shape-group"><button wx:for="{{shapes}}" wx:key="key" class="shape-btn" bindtap="addShape" data-shape="{{item.key}}" disabled="{{submitting || replaying}}" aria-label="添加可编辑的{{item.label}}"><text class="shape-glyph">{{item.glyph}}</text><text>{{item.label}}</text></button></view>
+    </view>
+    <view class="tool-row">
+      <button wx:for="{{tools}}" wx:key="key" class="draw-tool {{tool === item.key ? 'active' : ''}}"
+        bindtap="setTool" data-tool="{{item.key}}" disabled="{{submitting || replaying}}" aria-label="{{item.label}}">
+        <view class="tool-icon icon-{{item.key}}"></view><text>{{item.label}}</text>
+      </button>
+    </view>
+    <view class="selection-tools" wx:if="{{selectedIndex >= 0}}"><text>已选中，可拖动</text><button bindtap="resizeSelected" data-action="shrink">缩小</button><button bindtap="resizeSelected" data-action="grow">放大</button><button bindtap="resizeSelected" data-action="delete">删除</button></view>
+    <view class="tool-bottom">
+      <text class="tool-hint">{{toolHint}}</text>
+      <view class="history-tools">
+        <button class="history-btn" bindtap="undo" disabled="{{submitting || !canUndo}}" aria-label="撤销"><text>↶</text></button>
+        <button class="history-btn" bindtap="redo" disabled="{{submitting || !canRedo}}" aria-label="重做"><text>↷</text></button>
+        <button class="clear-btn" bindtap="clearAll" disabled="{{submitting || !strokeCount}}" aria-label="清空画纸">清空</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="studio-foot">
+    <button class="preview-btn" bindtap="submit" loading="{{submitting}}" disabled="{{submitting || replaying || paperLoading || paperChanged || !!paperError || !strokeCount || !!canvasError}}">
+      {{submitting ? '正在转换…' : '生成预览'}}<text wx:if="{{!submitting}}" class="preview-arrow">→</text>
+    </button>
+    <view class="foot-note">先预览，再画到纸上 · 辅助线不出图</view>
   </view>
 </view>

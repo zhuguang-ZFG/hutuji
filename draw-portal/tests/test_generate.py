@@ -59,10 +59,11 @@ def test_generate_happy_path_publishes_and_counts(
     client = _gen_client(monkeypatch, tmp_path)
     captured: dict = {}
 
-    def fake_request(*, base_url, secret, description, timeout_seconds, machine=""):
+    def fake_request(*, base_url, secret, description, timeout_seconds, machine="", paper=None, device_id=""):
         captured.update(
             base_url=base_url, secret=secret,
             description=description, timeout_seconds=timeout_seconds,
+            paper=paper, device_id=device_id,
         )
         return _fake_result()
 
@@ -80,6 +81,9 @@ def test_generate_happy_path_publishes_and_counts(
     # 密钥与 loopback 基址原样透传；产物真的落进 MCP output（能力 URL 可下载前提）
     assert captured["secret"] == "ingest-secret"
     assert captured["base_url"] == "http://127.0.0.1:8300"
+    from hutuji_mcp.paper_config import PaperConfig
+    assert captured["paper"] == PaperConfig().to_dict()
+    assert captured["device_id"] == ""
     basename = data["gcode_url"].rsplit("/", 1)[-1].removesuffix(".gcode")
     assert (tmp_path / "mcp-out" / f"{basename}.gcode").is_file()
     assert (tmp_path / "mcp-out" / f"{basename}.png").is_file()

@@ -116,6 +116,84 @@ test("固件页离开后的旧状态回包不能重新启动轮询", async () =>
   assert.equal(clock.pending.size, 0);
 });
 
+test("固件下发超时保留待确认状态，轮询继续锁定原设备", async () => {
+  const h = createWeapp({ clock: createClock() });
+  h.load("pages/firmware/firmware.js");
+  h.page._deviceMac = me.active_device_mac;
+  h.page.setData({ updateAvailable: true, latest: "hutuji.1.0.17" });
+  h.page._startUpgrade();
+  const request = h.requests.at(-1);
+  request.fail({ errMsg: "request:fail timeout" });
+  await flush();
+  assert.equal(h.page.data.upgrading, true);
+  assert.match(h.requests.at(-1).url, /ota_status/);
+  assert.match(h.requests.at(-1).url, /device_mac=aa%3Abb/);
+  assert.equal(request.data.device_mac, me.active_device_mac);
+  assert.equal(h.toasts.some((toast) => /失败/.test(toast.title)), false);
+  h.page.onHide();
+});
+
+test("固件页正常加载使用明确目标，检查失败清除旧升级按钮", async () => {
+  const h = createWeapp({ clock: createClock() });
+  h.load("pages/firmware/firmware.js");
+  h.page.onShow();
+  await flush();
+  reply(h, me);
+  await flush();
+  reply(h, me);
+  await flush();
+  assert.match(h.requests.at(-1).url, /firmware\/check\?device_mac=aa%3Abb/);
+  reply(h, { update_available: true, current: "hutuji.1.0.16", latest: "hutuji.1.0.17" });
+  await flush();
+  assert.equal(h.page.data.updateAvailable, true);
+  h.page.onCheck();
+  reply(h, { detail: "设备绑定已变化，请刷新后重试" }, 409);
+  await flush();
+  assert.equal(h.page.data.updateAvailable, false);
+  h.page.onHide();
+});
+
+test("升级期间切换活动设备再回屏，仍查询原升级设备而不丢进度", async () => {
+  const h = createWeapp({ clock: createClock() });
+  h.load("pages/firmware/firmware.js");
+  h.page.onShow(); await flush(); reply(h, me); await flush(); reply(h, me); await flush();
+  reply(h, { update_available: true, latest: "hutuji.1.0.17" }); await flush();
+  h.page._startUpgrade(); reply(h, { status: "started" }); await flush();
+  h.page.onHide(); h.page.onShow(); await flush();
+  reply(h, { ...me, active_device_mac: "11:22:33:44:55:66" }); await flush();
+  assert.equal(h.page.data.upgrading, true);
+  assert.match(h.requests.at(-1).url, /ota_status\?device_mac=aa%3Abb/);
+  h.page.onHide();
+});
+
+for (const failureAt of ['account', 'binding']) {
+  test(`固件页 ${failureAt} 读取失败可明确重试，等待期间不展示旧升级入口`, async () => {
+    const h = createWeapp({ clock: createClock() });
+    h.load("pages/firmware/firmware.js");
+    h.page._firmwareSession = h.app._sessionGeneration;
+    h.page.setData({ updateAvailable: true });
+    h.page.onShow(); await flush();
+    assert.equal(h.page.data.updateAvailable, false);
+    if (failureAt === 'binding') { reply(h, me); await flush(); }
+    h.requests.at(-1).fail(); await flush();
+    assert.match(h.page.data.loadError, /重试/);
+    assert.equal(h.page.data.checking, false);
+  });
+}
+
+test("固件页缺少明确目标不检查，升级确认窗口不能切换到另一设备", () => {
+  const h = createWeapp();
+  h.load("pages/firmware/firmware.js");
+  h.page.onCheck();
+  assert.equal(h.requests.length, 0);
+  h.page._deviceMac = me.active_device_mac;
+  h.page.setData({ updateAvailable: true, latest: "hutuji.1.0.17" });
+  h.page.onUpgrade();
+  h.page._deviceMac = "11:22:33:44:55:66";
+  h.modals.at(-1).success({ confirm: true });
+  assert.equal(h.requests.length, 0);
+});
+
 test("旧手机号不足回包不会把新登录踢到授权页", async () => {
   const h = createWeapp();
   const pending = h.load("utils/api.js").request("/api/draw/saved");

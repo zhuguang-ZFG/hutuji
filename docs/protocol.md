@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:608-750`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:948-1090`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -446,6 +446,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ## 5. G-code 文件契约（MCP 服务产出）
 
+- **按设备的纸张快照（2026-09-14，§10.4.24）**：新增配置只改变本次产物的撰写尺寸、XY 映射和已核对的机器包线；`paper` 默认仍为 X277/Y190、`nopaper` 默认仍为 X205/Y290mm。选择 A3/A2 不自动增大行程，输入上界 2000mm 不是机器实测证据。动态产物必须携带内容绑定的 `.paper.json`，`/files` 按该份配置复核全部直线与圆弧包围盒，返回 `X-Hutuji-Paper`；新 S3 在发送首行前核对本机配置标记。元数据在场但损坏一律拒绝；无元数据的旧产物仍仅接受原有两个固定档，禁止用任意大包线兜底。下列 F/Z、文件大小、指令白名单与毫米容差保持原契约。
 - **下载文件自包含**：生产 profile 文件头固定为精确的 `G21`（毫米）、`G90`（绝对）、`F24000`（2026-09-12 提速批：XY 生产进给由旧契约 F8000=133mm/s 提为 F24000=400mm/s，用户拍板「xy 轴提速 3 倍」；机器侧同批配套 `$110=$111=24000`、`$120=$121=12000`，回读证据见 `docs/deployment.md`），随后
   连发两次 `G1G90 Z0.0F10000`。这两行是与奎享缓存兼容的幂等抬笔运动，**不能建立 Z 坐标基准**；
   校验器不接受注释或 `G210`/`G900` 等子串伪造，也不允许运动发生在 G21/G90 建立之前。
@@ -479,7 +480,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **出图方向（2026-09-06 晚 B 案定案，supersede 当日下午 flip=true 与 09-04 flip=false）**：**竖版撰写页 190 宽 × 277 高 + G-code 层转置**（`gcode_gen._transpose_gcode_xy`：塌缩后、弧拟合前逐行互换 X↔Y，机器 X:=撰写 y、Y:=撰写 x；开关 = toml `transpose_xy = true`，`vertical_flip` 回 false）。用户拍板「不要横着写，要竖着写」——墙上竖装须站直横读，拒受 A 案（flip=true）的歪头阅读。实机方位（当日 teach「上」字页用户纸面双 bit 实测）：机器 X+ 朝房间下、Y+ 朝房间右、原点墙面左上——转置后撰写 x→房间右（从左往右写）、撰写 y→房间下（行序自上而下）、页左上角起笔落原点角，用户「从原点开始从左往右写」三条同时成立；撰写系内转置是反射（det −1），与竖装奇象限相消成正常横读（180° 旋转 det 不变治不了镜像，当日下午已验算）。同步面：`gcode_gen.PAGE_AUTHOR_WIDTH_MM/PAGE_AUTHOR_HEIGHT_MM`（撰写页 190×277）与 `MAX_X_MM/MAX_Y_MM`（物理限幅 277/190，R17-XREPO-01 互钉不动）分列；write_text/stroke_order/table_layout 版式常量；画图链 vpype layout 改适配竖版（页宽<页高时**不得**再加 `--landscape`）。**机器改摆放姿势（平放等）本定案作废，`transpose_xy` 须重新取证**。回归钉 `test_svg_to_gcode_transposes_xy_for_wall_portrait` + profile 字面量钉（transpose_xy=true 且 vertical_flip=false）。
   - **轴角色定案（2026-09-04 用户实机确认）：X 为长边（297 方向）、Y 为宽边（210 方向）**——与用户 08-21 口径一致。`$$` 读到的 `$130=210/$131=297` 是厂商配置值，与物理轴角色相反：本机无限位开关、软限位关闭（`$20=0`），配置行程不进任何安全链，MCP 限幅是唯一防线，故不对调 `$130/$131`（无安全收益且 §9-G′ 锁表只读）。同日中午曾按 `$$` 数值把 277 放到 Y，用户实机判定后当日反转到 X——**轴向争议以用户物理观察为最终裁决**。
   - **X 上限 190→277、Y 维持 190（2026-09-04 定案）**：用户纸面实测「长度没用满」拍板。X 277=297−2×10 边距。同步面：`gcode_gen.MAX_X_MM`（vpype layout 须 `--landscape`，其默认强制竖版会把 277x190 换成 190x277）、write_text `_PAGE_WIDTH_MM`、grbl_sim `_MAX_X_MM`、xiaozhi `kJogEnvelopeMaxXMm`（R17-XREPO-01 互钉）。注意：板上 S3 固件点动包线仍 190，重刷前点动到 190–277 区段会被固件拒——语音/文件出图不受此限。再放宽任何一轴须重新取证并同步点动包线。
-  - **可用画幅（现行）**：≤ **277×190mm**，坐标须落在
+  - **可用画幅（paper 默认；动态配置见 §10.4.24）**：≤ **277×190mm**，坐标须落在
     `0 ≤ X ≤ 277`、`0 ≤ Y ≤ 190`。
   - **越界处理 = 拒绝生成 + 明确告知用户**，**不得裁剪 / 不得缩放后静默出图**：任一坐标超界 → MCP 不产出文件，向云端回明确原因（超界轴 + 实际值 + 上限），由用户决定改小内容或换尺寸。
   - 理由：裁剪会把「越界」变成一张**静默残缺**的画（与 §5.1 静默截断同类失败——用户拿到看似完成实则缺一块的纸）；拒绝把失败前移到落笔之前，**零废纸**。自动缩放同理否决：改变用户预期的构图属于静默篡改。
@@ -875,8 +876,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | ASR | `POST /draw-upload/api/voice/asr`（`phone_secured`）；`multipart/form-data` 字段 `file`（`mp3`，≤1.5 MiB）→ `{status:"ok", text}` |
 | 对话 | `POST /draw-upload/api/voice/turn`（`phone_secured`）；JSON `{session_id, text}`（`session_id` ≤64，**与设备麦会话独立**）→ `{status:"ok", reply, tool_traces?}` |
 | 智能体 | portal 编排：`HUTUJI_LLM_*`；设备工具白名单 `hutuji.status/remember/recall/forget/abort`；**画/写** portal 工具 `voice.draw`/`voice.write`（生成+`hutuji.draw` 仅预览，**不**自动 confirm）；须已绑机 |
-| 确认 | `POST /api/voice/confirm` → `hutuji.confirm`；`POST /api/voice/cancel` → `hutuji.abort`；聊天页预览卡按钮触发（LLM **不可**直接调 confirm） |
-| turn 回包 | `{reply, tool_traces?, preview?}`；`preview` 含 `preview_url/job_id/kind` |
+| 确认 | `POST /api/voice/confirm` → `hutuji.confirm`；`POST /api/voice/cancel` → `hutuji.abort`；聊天页预览卡按钮触发（LLM **不可**直接调 confirm）。2026-09-13 起预览卡提交生成时绑定的 `{device_mac}`；当前选择或所有权变化回 409，token 自愈重试前再次核对。复用普通控制的业务错误判定，设备 HTTP 200 内拒绝仍回 502，不记成功 usage、不把预览卡改成已开始/已取消。旧无目标调用保持兼容；新页面缺目标的旧卡提示重新生成 |
+| turn 回包 | `{reply, tool_traces?, preview?}`；`preview` 含 `preview_url/job_id/kind/device_mac`，device_mac 为该轮生成时的完整设备目标，不使用打码展示字段 |
 | 密钥 | `DRAW_PORTAL_TENCENT_SECRET_ID` / `DRAW_PORTAL_TENCENT_SECRET_KEY` / `DRAW_PORTAL_TENCENT_ASR_APP_ID` **只**落 portal env；**禁止**进 weapp / 日志明文 |
 | 禁用 | 三键任一为空 → ASR **503**；LLM 缺配置 → turn **503** |
 | 小程序 | chat 页按住说话 + 预览卡「开始画/取消」；weapp **v0.2.19** |
@@ -977,10 +978,10 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 
 | 面 | 约定 |
 |----|------|
-| 入口 | 创作页画图模式第 4 格「手绘」→ `pages/drawpad/drawpad`（canvas type="2d"，190:277 竖版 WYSIWYG） |
-| 工具 | 铅笔/直线/方框/圆 + 撤销/清空；方框=4 点闭合 `<path>`、圆=32 段参数 `<path>`（SVG 白名单无 `rect/ellipse`）；<6px 位移判误触丢弃；笔画上限 400 |
-| 产出 | 页面内 `_buildSvg()` 直出 `<svg><g fill="none" stroke="#000" stroke-width="2"><path/></g></svg>` 白名单子集（xmlns/fill=none/d 均在 `llm_svg._validate_svg` 白名单），viewBox=canvas CSS 像素 |
-| 上传 | `wx.getFileSystemManager()` 写 `USER_DATA_PATH/drawpad_<ts>.svg` → `api.uploadFile("/api/draw/upload", path, "file")`（无 `size_mm`/`style` 表单，走默认值）→ finally 删临时文件；**零后端改动**——复用 §10.4.9 同一 `/api/draw/upload`、同一 `_validate_svg`/vpype/§5 闸 |
+| 入口 | 创作页画图模式第 4 格「手绘」→ `pages/drawpad/drawpad`（canvas type="2d"，画布按 §10.4.24 的有效撰写宽高设置比例） |
+| 工具 | 画笔、整笔橡皮、直线/方框/圆、选择移动/缩放、撤销重做、缩放和平移；新增镜像、六向笔迹、几何素材与逐笔回放。显示与 SVG 导出共用 `utils/drawpad.js` 路径；SVG 白名单仍无 `rect/ellipse` |
+| 产出 | `_buildSvg()` 导出 `svg/g/path` 白名单子集，`fill=none`；保留画布留白、素材位置和对称变换。账号草稿独立保存，纸张变化后须显式适配，离页/退出停止回放和后续请求 |
+| 上传 | 临时 SVG → 既有 `/api/draw/upload`，携 `device_mac`、`paper_marker`、`preserve_canvas=true` → finally 删除临时文件。服务端核对本次设备快照；`preserve_canvas` 仍运行 `vpype layout --no-bbox` 及既有 5mm 构图内边距、linemerge/linesort/linesimplify，不按墨迹边框放大角落小画。此条 supersede 初版「零后端改动」口径 |
 | 回流 | 事件通道 `adopt` 回传 job 数据到创作页 `adoptJob`（SVG 无精修轮询，`refined=null` 直通）；订阅消息预授权在入口 tap 时点请求 |
 
 **HIL**：手绘出图纸面效果 **未验证**（见 `docs/release-readiness.md` 文首）。
@@ -1003,6 +1004,59 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 进给边界 | 文件契约仍为 XY F24000 / Z F10000，实际分别受 `$110/$111/$112` 钳制；归位仍为原 G1 F8000。最大速度不改变短段加减速、加速度、换纸、使能与行程契约 |
 | 验收与部署 | 前段 1.0.13–1.0.16 速度/静音历史保留在 readiness/deployment；本批三轴设计、读回与单轴不串写回归见 `design/axis-speed-20260913.md`。构建和命令链不等于手机滑块或全幅纸面通过，实际上线与实机版本只看 readiness |
 
+
+#### 10.4.22 小程序固件升级的目标与结果确认（2026-09-13 评审补充）
+
+设备侧升级条件仍为 §4 的 `hutuji.ota_start`；本节约束门户与页面，延续量产 OTA 设计的用户确认和失败可恢复要求。
+
+| 面 | 约定 |
+|----|------|
+| 检查与下发 | `GET /api/device/firmware/check?device_mac=…`、`POST /api/device/firmware/upgrade {device_mac}` 均须手机号、归属及当前活动设备一致；不一致回 409。旧省略目标调用保持兼容；新页面未取得 `active_device_mac` 不发请求，检查失败清除旧升级按钮 |
+| 下发复核 | `hutuji.ota_start` 发送前和 token 自愈重试前复核目标仍归该用户且为活动设备；设备 `isError` 或业务拒绝不得记为 started |
+| 原设备状态 | `GET /api/device/firmware/ota_status?device_mac=…` 查询该用户仍拥有的原设备，可以与活动设备不同；升级会话须匹配同一 MAC，另一台设备的版本不能结清原设备会话 |
+| 页面确认 | 版本检查、确认弹窗与升级下发锁定同一 MAC；弹窗期间切换设备不下发。请求超时/网关暂不可达保留待确认提示，按原设备继续查询；400/401/403/409 停止轮询并提示刷新。隐藏或退出页面不续发查询 |
+| 验收 | 接口与页面回归见 `design/weapp-followup-review-20260913.md`；升级实机证据独立于软件回归，不触发静默升级 |
+
+#### 10.4.23 精品图库（2026-09-14 用户拍板命名；设计 `design/drawing-market-20260914.md`）
+
+小程序内浏览官方精选单线图库，一键发送写字机或收藏。用户原话定案六项：纯官方导入无 UGC；许可白名单；精品选品；约 20 类目 400-600 条；VPS 本地存储零 OSS；主按钮直达发送 + 次按钮收藏。
+
+| 面 | 约定 |
+|----|------|
+| 数据 | `manifest.json` 单一真相源进 git（`mcp-server/market/`，部署 scp 双机各自同份）；条目含 id/标题/类目/license/attribution/source/相对路径/预生成 gcode 与 preview PNG。SVG→G-code 是确定性产物，**入库管线预生成**，发送路径零转换 |
+| 许可闸（fail-closed） | 白名单 {CC0-1.0, Apache-2.0, MIT, CC-BY-4.0}；CC-BY-SA/CC-NC 硬拒（商用产品不兼容）；`license` 缺失或不在白名单，加载期剔除不出现在市场。CC-BY 条目 `attribution` 必填，缺署名剔除 |
+| 署名义务 | CC-BY 条目署名展示在详情页与发送确认卡两处；缺署名视为缺陷，不允许上线 |
+| API（phone_secured） | `GET /api/market/categories`、`GET /api/market/list?category=&cursor=`（30/页）、`GET /api/market/item/{id}`、`GET /api/market/item/{id}/preview.png`、`POST /api/market/item/{id}/send`、`POST /api/market/item/{id}/favorite`。`DRAW_PORTAL_MARKET_DIR` 未配置或 manifest 缺失时全端点 404（功能禁用 fail-closed） |
+| 发送 | 与 `saved_send` 同构：`_install_capability_pair` 刷 mtime 落 MCP output + `push_draw_self_heal` 推送；固件升级中拒绝；占用设备 busy 语义不占生图并发；usage 记 `web_market_send`（detail=条目 id） |
+| 收藏 | 产物拷入用户 saved 目录落 `saved_previews` 表（标题=条目标题），TG 备份开关沿用同待遇；`trim_saved_previews` 50 件上限不变；usage 记 `web_market_favorite` |
+| 安全 | 条目的 gcode/preview 相对路径解析后必须仍落在市场根内（`..` 越界拒）；manifest mtime 变更热重载，坏 manifest 沿用旧快照不半份覆盖 |
+| 未开放面 | UGC 上传/评分/搜索不在本期；任何用户上传入口属二期且须另过隐私与内容评审（参照 09-12 TG 备份单独同意教训） |
+
+#### 10.4.24 纸张设置、设备行程与产物快照（2026-09-14）
+
+本节实现用户已确认的 A4/A3/A2、自定义、横竖版与 XY 交换；设计和验收清单见 `design/paper-settings-20260913/`。软件、板上、手机与大行程纸面证据分别登记在 readiness。
+
+| 字段 | 约定 |
+|---|---|
+| `paper` | `A4` / `A3` / `A2` / `custom`；预设物理尺寸分别为 210×297、297×420、420×594mm |
+| `width_mm` / `height_mm` | 50–2000mm、最多一位小数；预设必须与名称一致，自定义由用户填写 |
+| `landscape` / `swap_xy` | 严格布尔；先按横竖版确定纸面方向，再扣四周留边，最后交换 XY 映射机器轴 |
+| `margin_mm` | 四边相同，0–50mm；扣边后每个撰写边至少 20mm；画图与文字原有内部排版边距继续保留 |
+| `max_x_mm` / `max_y_mm` | 从当前原点起已核对的正向可绘制范围，10–2000mm、最多一位小数；整个撰写区必须装入该范围 |
+
+共享 Python 入口为 `paper_config.PaperConfig`，JS 与 S3 纯核心校验相同字段，不接受缺项、额外字段、非有限数值或以布尔冒充数值。默认配置为 A4、竖版、留边 10mm；`paper` 用 `swap_xy=true`、X277/Y190，`nopaper` 用 `swap_xy=false`、X205/Y290。增大任一轴必须有本次显式 `range_confirmed=true`；不读取厂商 `$130/$131` 推导范围，也不写这些 Grbl 设置。
+
+**设备与门户**：旧 `status.paper` 保留有纸/无纸遥测语义；新增 `status.paper_config={schema:1,config:{...},marker:"p1:...",updating?:bool}`。标记依次编码 paper、宽×10、高×10、landscape 的 0/1、边距×10、swap 的 0/1、X×10、Y×10，以冒号连接，避免浮点 JSON 表示差异。字段缺席表示旧固件，仅沿用默认档并禁用设置；字段在场却非法或 `updating=true` 不得降级猜 A4。
+
+- `GET /api/settings/paper?device_mac=<完整MAC>` 返回 `config/marker/device_mac/machine/capable/online/page_width_mm/page_height_mm`。登录/手机号和当前设备归属闸保持；`online` 同时要求设备 `connected/ready=true`。离线仅可展示该归属最近一次合法读回，不可据离线缓存发送或修改。
+- `POST /api/settings/paper` 接收 `{device_mac,config,expected_marker,range_confirmed}`，仅当前选中设备可写。Portal 先取新状态并核对 expected，再调用 `hutuji.paper {config:<紧凑JSON字符串>,expected:<marker>,range_confirmed:<bool>}`；设备仅在终态、worker 收敛且无预览/运动事务时保存 NVS。Portal 核对工具确认后再读状态，配置与标记均一致才报成功。账号/设备/绑定变动作废旧回包。
+- 设备屏幕可选预设、横竖与交换并显示已存范围；选择预设不能隐式改行程。设置改变使旧预览不能静默重解释，重新生成后才可发送。
+
+**生成和发送**：图画、照片风格、文字、笔顺、文档、表格、语音与手绘在事务入口冻结同一配置。文字按新页宽高重新折行/分页，字号与笔顺不随纸张整体拉伸；nopaper 不支持多页的限制保持。内容缓存、inflight 和 Redis payload 包含完整配置与目标；后台 worker 不再另猜机型。`job-context.json` 及收藏 `.context.json` 保留目标，保存/分享/重发核对本次绑定、配置及每页内容。
+
+每份 G-code 配套非公开的 `.paper.json`（最多 2048B），形状为 `{version:1,paper:{...},sha256:<正文摘要>}`。文件服务读取普通文件并检查链接/竞态与内容 SHA，再按该配置过 §5，返回 `X-Hutuji-Paper`；损坏和不匹配统一 404，伴随文件随产物发布、OSS、收藏、清理而保存或回收。SHA 绑定本地元数据，不替代 §5.1 的传输 `Content-Length`、CRC32 或 HTTPS。新 S3 下载时同时核对本机 marker，无标记只允许默认纸张，任一不符在首行发送前拒绝。
+
+**云端设备身份与发布顺序**：配置了 `HUTUJI_USAGE_INGEST_SECRET` 的云端 `hutuji_draw/write/teach` 必须传完整 MAC `device_id`。MCP 通过同机 `/api/internal/paper` 读取 `{device_id,machine,paper,owner_stamp}`，完成后 `/api/internal/paper/push` 复核归属和产物再推预览；两路只接受 loopback 与 `X-Hutuji-Usage-Secret`。未配密钥的独立生成服务仅用固定默认档。上线必须先准备设备能力与角色提示，再接门户内部接口，最后切换严格生成端；队列切换先暂停入口、排空旧队列、停止旧 worker，禁止混跑新旧 payload。回退前恢复默认纸张并确认无任务，不能把大幅产物交给旧校验链。
 
 ### 10.5 设备对话上报（隐私面明示，2026-08-31 落地 xiaozhi `0d041c9`；findings #30 R6）
 

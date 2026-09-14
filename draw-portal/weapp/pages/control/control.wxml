@@ -17,6 +17,7 @@
   </block>
 
   <block wx:else>
+    <navigator url="/pages/paper/paper" class="control-paper-link"><text>{{status && status.paper_config && status.paper_config.config ? status.paper_config.config.paper + (status.paper_config.config.landscape ? ' · 横向' : ' · 竖向') : '纸张与方向'}}</text><text>设置 ›</text></navigator>
     <view class="status-card">
       <view class="status-top">
         <view class="status-left">
@@ -26,6 +27,7 @@
         <text class="status-state">{{stateLabel || '—'}}</text>
       </view>
       <view class="status-bottom" wx:if="{{statusLine}}">{{statusLine}}</view>
+      <view class="control-error" wx:if="{{controlError}}">{{controlError}}</view>
       <view class="timeline" wx:if="{{status}}">
         <block wx:for="{{timelineLabels}}" wx:key="*this">
           <view class="timeline-step {{index === timelineIndex ? 'active' : ''}} {{index < timelineIndex ? 'done' : ''}}">
@@ -54,7 +56,7 @@
         class="weui-btn weui-btn_primary confirm-btn"
         hover-class="btn-press"
         bindtap="onConfirm"
-        disabled="{{!!busyAction}}"
+        disabled="{{!!busyAction || speedLoading || speedSaving}}"
         loading="{{busyAction === 'hutuji.confirm'}}"
       >开始画</button>
     </view>
@@ -62,32 +64,32 @@
     <view class="jog-block">
       <view class="jog-meta">
         <text class="jog-label">点动</text>
-        <view class="step-pill" hover-class="tile-press" bindtap="onStepToggle">{{step}} mm</view>
+        <button class="step-pill" hover-class="tile-press" bindtap="onStepToggle" disabled="{{manualLocked || speedLoading || speedSaving}}">{{step}} mm</button>
       </view>
       <!-- 3×3 网格：避开 button 默认 min-width 把左右键挤出卡片 -->
       <view class="dpad">
         <view class="dpad-btn spacer"></view>
-        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_y+" disabled="{{manualLocked}}">前</button>
+        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_y+" disabled="{{manualLocked || speedLoading || speedSaving}}">前</button>
         <view class="dpad-btn spacer"></view>
-        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_x-" disabled="{{manualLocked}}">左</button>
-        <button class="dpad-btn home" hover-class="dpad-press" bindtap="onHome" disabled="{{manualLocked}}">原点</button>
-        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_x+" disabled="{{manualLocked}}">右</button>
+        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_x-" disabled="{{manualLocked || speedLoading || speedSaving}}">左</button>
+        <button class="dpad-btn home" hover-class="dpad-press" bindtap="onHome" disabled="{{manualLocked || speedLoading || speedSaving}}">原点</button>
+        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_x+" disabled="{{manualLocked || speedLoading || speedSaving}}">右</button>
         <view class="dpad-btn spacer"></view>
-        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_y-" disabled="{{manualLocked}}">后</button>
+        <button class="dpad-btn" hover-class="dpad-press" bindtap="onJog" data-dir="jog_y-" disabled="{{manualLocked || speedLoading || speedSaving}}">后</button>
         <view class="dpad-btn spacer"></view>
       </view>
       <view class="pen-row">
-        <button class="pen-btn" hover-class="tile-press" bindtap="onPen" data-action="pen_up" disabled="{{manualLocked}}">抬笔</button>
-        <button class="pen-btn" hover-class="tile-press" bindtap="onPen" data-action="pen_down" disabled="{{manualLocked}}">落笔</button>
-        <button class="pen-btn" hover-class="tile-press" bindtap="onPenTest" disabled="{{manualLocked}}">试笔</button>
+        <button class="pen-btn" hover-class="tile-press" bindtap="onPen" data-action="pen_up" disabled="{{manualLocked || speedLoading || speedSaving}}">抬笔</button>
+        <button class="pen-btn" hover-class="tile-press" bindtap="onPen" data-action="pen_down" disabled="{{manualLocked || speedLoading || speedSaving}}">落笔</button>
+        <button class="pen-btn" hover-class="tile-press" bindtap="onPenTest" disabled="{{manualLocked || speedLoading || speedSaving}}">试笔</button>
       </view>
     </view>
 
     <view class="job-row">
-      <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.pause" disabled="{{!canPause || !!busyAction}}">暂停</button>
-      <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.resume" disabled="{{!canResume || !!busyAction}}">继续</button>
-      <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.repeat" disabled="{{!!busyAction || !canRepeat}}">重画</button>
-      <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort}}">停止</button>
+      <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.pause" disabled="{{!canPause || !!busyAction || speedLoading || speedSaving}}">暂停</button>
+      <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.resume" disabled="{{!canResume || !!busyAction || speedLoading || speedSaving}}">继续</button>
+      <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.repeat" disabled="{{!!busyAction || !canRepeat || speedLoading || speedSaving}}">重画</button>
+      <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort || speedLoading || speedSaving}}">停止</button>
     </view>
 
     <view class="speed-block">

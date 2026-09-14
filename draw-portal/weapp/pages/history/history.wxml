@@ -1,7 +1,8 @@
 <view class="page">
   <view wx:if="{{loadError}}" class="weui-cells__tips">{{loadError}}
-    <button size="mini" bindtap="refresh">重新读取</button>
+    <button size="mini" bindtap="onRetry">重新读取</button>
   </view>
+  <view class="generation-note" wx:if="{{redrawing}}">正在生成作品… 可先查看其他页面，回到这里后继续预览。</view>
   <block wx:if="{{loading && !jobs.length}}">
     <view class="skeleton-list">
       <view class="skeleton-row" wx:for="{{[1,2,3]}}" wx:key="*this">
@@ -48,18 +49,24 @@
             wx:if="{{item.previewUrl}}"
             class="thumb"
             src="{{item.previewUrl}}"
-            mode="aspectFill"
+            mode="aspectFit"
             bindtap="onPreview"
+            binderror="onPreviewError"
+            data-id="{{item.savedId}}"
             data-url="{{item.previewUrl}}"
           />
-          <view wx:else class="thumb thumb-placeholder sk-pulse"></view>
+          <view wx:elif="{{item.previewState === 'error'}}" class="thumb thumb-placeholder thumb-retry"
+            bindtap="onRetryPreview" data-id="{{item.savedId}}">点击重试</view>
+          <view wx:else class="thumb thumb-placeholder sk-pulse">加载中</view>
         </view>
         <view class="weui-cell__bd">
           <view class="name">{{item.sourceName}}</view>
           <view class="muted">{{item.createdAt}}</view>
+          <view wx:if="{{item.credit && item.credit.attribution}}" class="muted">{{item.credit.attribution}}</view>
+          <view wx:if="{{item.previewError}}" class="preview-error">{{item.previewError}}</view>
         </view>
         <view class="weui-cell__ft row-actions">
-          <button wx:if="{{item.kind}}" class="redraw-btn" size="mini" hover-class="btn-press" bindtap="onRedraw" data-idx="{{index}}">重画</button>
+          <button wx:if="{{item.kind}}" class="redraw-btn" size="mini" hover-class="btn-press" bindtap="onRedraw" data-idx="{{index}}" disabled="{{redrawing}}">重画</button>
           <button class="del-btn" size="mini" hover-class="btn-press" bindtap="onDelete" data-id="{{item.savedId}}" disabled="{{!!deletingId}}">删除</button>
           <button class="send-btn" size="mini" hover-class="btn-press" bindtap="onSend" data-id="{{item.savedId}}" disabled="{{!!sendingId}}">{{sendingId === item.savedId ? '发送中' : '发送'}}</button>
         </view>

@@ -125,6 +125,7 @@ class SavedPreview:
     tg_state: str | None = None
     tg_file_id: str | None = None
     tg_message_id: int | None = None
+    credit_json: str | None = None
 
 @dataclass(frozen=True)
 class UserSummary:

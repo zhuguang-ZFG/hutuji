@@ -163,7 +163,7 @@ def _center_page_vertically(page: LaidOutPage) -> None:
     if not ys:
         return
     lo, hi = min(ys), max(ys)
-    shift = (_MARGIN_MM + (_PAGE_H_MM - _MARGIN_MM) - (hi - lo)) / 2 - lo
+    shift = (page.page_height_mm - (hi - lo)) / 2 - lo
     shift = max(0.0, shift)  # 内容超高页区时不动作（防下移出界）
     if shift:
         for s in page.strokes:
@@ -175,6 +175,8 @@ def _layout_mixed_rows(
     data: StrokeData,
     missing: list[str],
     max_pages: int,
+    page_width_mm: float = _PAGE_W_MM,
+    page_height_mm: float = _PAGE_H_MM,
 ) -> LayoutResult:
     """多字混合版式（2026-09-12 用户拍板「分解行+成形格」，supersede 09-11 成形字帖）：
     每字一行——第 k 格 = 前 k 笔渐显（右下角步序数字），行尾成形格 = 全字（无序号，
@@ -183,8 +185,8 @@ def _layout_mixed_rows(
     max_pages 与单字路径同口径。
     """
     gap = _PANEL_GAP_MM
-    usable_w = _PAGE_W_MM - 2 * _MARGIN_MM
-    usable_h = _PAGE_H_MM - 2 * _MARGIN_MM
+    usable_w = page_width_mm - 2 * _MARGIN_MM
+    usable_h = page_height_mm - 2 * _MARGIN_MM
     # 字帖感要求各字格子同大：整组取最宽字需要的格宽，钳到上下限
     cell = min(
         min((usable_w - len(data.medians[ch]) * gap) / (len(data.medians[ch]) + 1)
@@ -197,7 +199,7 @@ def _layout_mixed_rows(
 
     pages: list[LaidOutPage] = []
     truncated = False
-    page = LaidOutPage()
+    page = LaidOutPage(page_width_mm=page_width_mm, page_height_mm=page_height_mm)
     y = _MARGIN_MM
 
     def flush() -> None:
@@ -205,7 +207,7 @@ def _layout_mixed_rows(
         if page.strokes:
             _center_page_vertically(page)
             pages.append(page)
-            page = LaidOutPage()
+            page = LaidOutPage(page_width_mm=page_width_mm, page_height_mm=page_height_mm)
             y = _MARGIN_MM
 
     for ch in targets:
@@ -215,13 +217,13 @@ def _layout_mixed_rows(
         seq = list(range(1, n + 1)) + [0]  # 0 = 成形格（全字、无步序数字）
         for start in range(0, len(seq), per_row):
             row = seq[start:start + per_row]
-            if y + cell > _PAGE_H_MM - _MARGIN_MM:
+            if y + cell > page_height_mm - _MARGIN_MM:
                 flush()
                 if len(pages) >= max_pages:
                     truncated = True
                     return LayoutResult(pages=pages, missing_chars=missing, truncated=truncated)
             row_w = len(row) * cell + (len(row) - 1) * gap
-            x = (_PAGE_W_MM - row_w) / 2
+            x = (page_width_mm - row_w) / 2
             for k in row:
                 _emit_grid(page, x, y, cell)
                 if k:
@@ -236,7 +238,8 @@ def _layout_mixed_rows(
     return LayoutResult(pages=pages, missing_chars=missing, truncated=truncated)
 
 
-def layout_teach(chars: str, data: StrokeData, max_pages: int = 20) -> LayoutResult:
+def layout_teach(chars: str, data: StrokeData, max_pages: int = 20, *,
+                 page_width_mm: float = _PAGE_W_MM, page_height_mm: float = _PAGE_H_MM) -> LayoutResult:
     """单字=渐显面板页（每字一页，放不下续页）；多字=混合行（逐字分解行+成形格，超容续页）。"""
     targets = [c for c in chars if not c.isspace()]
     if not targets:
@@ -245,12 +248,16 @@ def layout_teach(chars: str, data: StrokeData, max_pages: int = 20) -> LayoutRes
     targets = [c for c in targets if c in data.medians]
     if not targets:
         raise StrokeOrderError("全部缺字：" + "".join(missing))
+    if (not all(math.isfinite(value) and value <= 2000 for value in (page_width_mm, page_height_mm)) or
+            page_width_mm < 2 * _MARGIN_MM + _PANEL_CELL_MM or
+            page_height_mm < 2 * _MARGIN_MM + _HEADER_STRIP_MM + _PANEL_CELL_MM + _PANEL_GAP_MM):
+        raise StrokeOrderError("当前纸张放不下教学格，请增大纸张或减小留边")
     if len(targets) >= 2:
-        return _layout_mixed_rows(targets, data, missing, max_pages)
+        return _layout_mixed_rows(targets, data, missing, max_pages, page_width_mm, page_height_mm)
 
 
-    first_panel_h = _PAGE_H_MM - _MARGIN_MM - (_MARGIN_MM + _HEADER_STRIP_MM)  # 138
-    cont_panel_h = _PAGE_H_MM - 2 * _MARGIN_MM  # 174
+    first_panel_h = page_height_mm - 2 * _MARGIN_MM - _HEADER_STRIP_MM
+    cont_panel_h = page_height_mm - 2 * _MARGIN_MM
     rows_first = max(1, int(first_panel_h // (_PANEL_CELL_MM + _PANEL_GAP_MM)))
     rows_cont = max(1, int(cont_panel_h // (_PANEL_CELL_MM + _PANEL_GAP_MM)))
 
@@ -262,19 +269,19 @@ def layout_teach(chars: str, data: StrokeData, max_pages: int = 20) -> LayoutRes
         if len(pages) >= max_pages:
             truncated = True
             return None
-        return LaidOutPage()
+        return LaidOutPage(page_width_mm=page_width_mm, page_height_mm=page_height_mm)
 
     for ch in targets:
         strokes = data.medians[ch]
         n = len(strokes)
         bbox = _char_bbox(strokes)
-        cols = min(n, _PANEL_COLS_MAX)
+        cols = min(n, max(1, int((page_width_mm + _PANEL_GAP_MM) // (_PANEL_CELL_MM + _PANEL_GAP_MM))))
 
         page = start_page()
         if page is None:
             break
         # 首行大字：成形全字居中
-        hx = (_PAGE_W_MM - _HEADER_CELL_MM) / 2
+        hx = (page_width_mm - _HEADER_CELL_MM) / 2
         _emit_grid(page, hx, _MARGIN_MM, _HEADER_CELL_MM)
         _emit_char(page, strokes, hx, _MARGIN_MM, _HEADER_CELL_MM, bbox)
         page.line_count = 1
@@ -289,7 +296,7 @@ def layout_teach(chars: str, data: StrokeData, max_pages: int = 20) -> LayoutRes
             while row_start < stop:
                 row = range(row_start, min(row_start + cols, stop))
                 total_w = len(row) * _PANEL_CELL_MM + (len(row) - 1) * _PANEL_GAP_MM
-                x = (_PAGE_W_MM - total_w) / 2
+                x = (page_width_mm - total_w) / 2
                 for k in row:
                     _emit_grid(page, x, y, _PANEL_CELL_MM)
                     _emit_char(page, strokes[:k], x, y, _PANEL_CELL_MM, bbox)

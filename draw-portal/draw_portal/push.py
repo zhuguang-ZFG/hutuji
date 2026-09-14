@@ -46,11 +46,22 @@ def _install_capability_pair(
     mcp_output_dir.mkdir(parents=True, exist_ok=True)
     gcode_dst = mcp_output_dir / f"{base}.gcode"
     png_dst = mcp_output_dir / f"{base}.png"
-    shutil.copyfile(gcode_src, gcode_dst)
+    from hutuji_mcp.paper_artifacts import paper_path, read_paper_metadata, write_paper_metadata
+    from hutuji_mcp.output_store import _read_regular_file
+    from hutuji_mcp.gcode_gen import validate_gcode
+
+    raw, _ = _read_regular_file(gcode_src, max_bytes=512 * 1024)
+    paper = read_paper_metadata(gcode_src, data=raw)
+    if paper is not None:
+        validate_gcode(raw.decode("utf-8"), total_bytes=len(raw), profile=paper.to_profile())
+    gcode_dst.write_bytes(raw)
+    write_paper_metadata(gcode_dst, paper, data=raw)
     shutil.copyfile(png_src, png_dst)
     now = time.time() + mtime_offset
     os.utime(gcode_dst, (now, now))
     os.utime(png_dst, (now, now))
+    if paper is not None:
+        os.utime(paper_path(gcode_dst), (now, now))
     prefix = public_base_url.rstrip("/")
     return PublishResult(
         gcode_url=f"{prefix}/files/{base}.gcode",
@@ -213,6 +224,7 @@ def auto_confirm_after_preview(
     device_token: str,
     timeout_s: float = 90.0,
     poll_s: float = 1.5,
+    before_action=None,
 ) -> tuple[bool, str]:
     """小程序已预览过：等设备进入 awaiting_confirmation 后自动 hutuji.confirm。
 
@@ -226,6 +238,8 @@ def auto_confirm_after_preview(
     deadline = time.monotonic() + timeout_s
     last_hint = ""
     while time.monotonic() < deadline:
+        if before_action is not None:
+            before_action()
         ok, raw = push_tool_call(
             api_base=api_base,
             device_token=device_token,
@@ -249,6 +263,8 @@ def auto_confirm_after_preview(
                 state = "awaiting_confirmation" if awaiting else ""
             last_hint = state or text[:80]
             if awaiting:
+                if before_action is not None:
+                    before_action()
                 cok, cres = push_tool_call(
                     api_base=api_base,
                     device_token=device_token,
@@ -359,6 +375,7 @@ def push_draw_self_heal(
     pages_arg: str | None = None,
     on_token_minted=None,
     auto_confirm: bool = False,
+    before_action=None,
 ) -> tuple[bool, str]:
     """推送 + 401/403/404 自愈：铸新 messaging token → 回调回写 → 重试一次。
 
@@ -370,6 +387,8 @@ def push_draw_self_heal(
     hutuji.confirm，设备不必再等用户点屏（2026-09-09 用户口径）。
     """
     active_token = decrypt_token(token_cipher_key, device_token_enc)
+    if before_action is not None:
+        before_action()
     ok, summary = push_draw_to_device(
         api_base=api_base,
         device_token=active_token,
@@ -381,12 +400,16 @@ def push_draw_self_heal(
     # 指向失效 clientId（2026-09-08 实机定性），重铸取注册表当前 clientId；
     # 设备真离线时重试自然仍败，不误报也不阻断。
     if (not ok) and summary in ("HTTP 401", "HTTP 403", "HTTP 404"):
+        if before_action is not None:
+            before_action()
         fresh = mint_messaging_token(api_base=api_base, mac=device_mac)
         if not fresh:
             return False, summary + "（自愈失败：控制台 token 不可用）"
         from draw_portal.crypto import encrypt_token
 
         new_enc = encrypt_token(token_cipher_key, fresh)
+        if before_action is not None:
+            before_action()
         if on_token_minted is not None:
             on_token_minted(new_enc)
         # 与 MCP 语音链式推送共用落盘真值，避免 portal 已自愈而 mcp.env 仍是旧 JWT
@@ -416,6 +439,7 @@ def push_draw_self_heal(
     cok, csum = auto_confirm_after_preview(
         api_base=api_base,
         device_token=active_token,
+        **({"before_action": before_action} if before_action is not None else {}),
     )
     if cok:
         return True, summary + "；已自动开始画"

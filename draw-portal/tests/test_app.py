@@ -299,20 +299,37 @@ def test_bind_claim_rejects_invalid_mac(tmp_path: Path, monkeypatch: pytest.Monk
     assert r.status_code == 400
 
 
-def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("preserve_canvas", [False, True])
+def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preserve_canvas):
+    from hutuji_mcp.paper_artifacts import write_paper_metadata
+    from PIL import Image
+
     client = _client(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "draw_portal.app.probe_device_token",
         lambda **kwargs: (True, "mock ok"),
     )
 
-    def fake_pipeline(raw, *, content_type, filename, job_dir, profile=None):
+    layout_flags = []
+
+    def fake_pipeline(raw, *, content_type, filename, job_dir, profile=None, preserve_canvas=False):
+        layout_flags.append(preserve_canvas)
         job_dir.mkdir(parents=True, exist_ok=True)
-        (job_dir / "draw.gcode").write_text("G21\nG90\n", encoding="ascii")
-        (job_dir / "preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (job_dir / "draw.gcode").write_text(
+            "G21\nG90\nF24000\nG1G90 Z0.0F10000\nG1G90 Z0.0F10000\n"
+            "G0 X10 Y10 F24000\nG1G90 Z5.0F10000\n"
+            "G1G90 X20 Y20 F24000\nG1G90 Z0.0F10000\n", encoding="ascii",
+        )
+        write_paper_metadata(job_dir / "draw.gcode", profile.paper)
+        Image.new("RGB", (4, 4), "white").save(job_dir / "preview.png")
         return PipelineResult(2, 10, 1, job_dir / "draw.svg", job_dir / "draw.gcode", job_dir / "preview.png")
 
     monkeypatch.setattr("draw_portal.app.process_upload", fake_pipeline)
+    monkeypatch.setattr("draw_portal.app.is_photo_raster", lambda raw: False)
+    monkeypatch.setattr(
+        "draw_portal.app.push_tool_call",
+        lambda **kwargs: (True, '{"plotter_sku":"paper","state":"idle","connected":true,"ready":true}'),
+    )
     monkeypatch.setattr(
         "draw_portal.app.publish_job_files",
         lambda **kwargs: type("P", (), {
@@ -339,11 +356,15 @@ def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client.post("/api/user/bind/complete", json={"bind_code": "XYZ789"})
 
     fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+    upload = ("canvas.svg", b'<svg xmlns="http://www.w3.org/2000/svg"></svg>', "image/svg+xml") if preserve_canvas else (
+        "line.png", fake_png, "image/png")
     up = client.post(
         "/api/draw/upload",
-        files={"file": ("line.png", fake_png, "image/png")},
+        files={"file": upload},
+        data={"preserve_canvas": "true"} if preserve_canvas else {},
     )
     assert up.status_code == 200
+    assert layout_flags == [preserve_canvas]
     job_id = up.json()["job_id"]
 
     save = client.post(f"/api/draw/{job_id}/save", json={})
@@ -356,3 +377,15 @@ def test_draw_upload_save_send(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     saved_send = client.post(f"/api/draw/saved/{saved_id}/send")
     assert saved_send.status_code == 200
+
+
+def test_preserve_canvas_rejects_non_svg_before_conversion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = _client(monkeypatch, tmp_path)
+    _register_and_login(client)
+    calls = []
+    monkeypatch.setattr("draw_portal.app.process_upload", lambda *args, **kwargs: calls.append(kwargs))
+    response = client.post("/api/draw/upload", data={"preserve_canvas": "true"},
+        files={"file": ("photo.png", b"\x89PNG\r\n\x1a\n" + bytes(40), "image/png")})
+    assert response.status_code == 400
+    assert "SVG" in response.json()["detail"]
+    assert not calls

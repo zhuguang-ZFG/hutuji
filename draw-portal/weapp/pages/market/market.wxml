@@ -1,0 +1,29 @@
+<view class="market-page">
+  <view class="gallery-intro">
+    <view class="intro-art" aria-hidden="true"><view class="art-orbit"></view><view class="art-stroke"></view><view class="art-dot"></view></view>
+    <text class="eyebrow">精选线稿 · 随心收藏</text>
+    <view class="gallery-title">把喜欢的画<text class="title-accent">留在纸上</text></view>
+    <text class="gallery-sub">挑一幅作品，开启今天的创作</text>
+  </view>
+  <scroll-view wx:if="{{categories.length}}" class="cat-bar" scroll-x enhanced show-scrollbar="{{false}}">
+    <view wx:for="{{categories}}" wx:key="name" class="cat-chip {{item.name === activeCategory ? 'active' : ''}}"
+      data-name="{{item.name}}" bindtap="onCategoryTap">{{item.name}}<text class="cat-count">{{item.count}}</text></view>
+  </scroll-view>
+  <view class="gallery-grid" wx:if="{{items.length}}">
+    <view wx:for="{{items}}" wx:key="id" class="gallery-card" data-id="{{item.id}}" bindtap="onItemTap" hover-class="card-press">
+      <view class="card-paper">
+        <image wx:if="{{item.previewTmp}}" class="card-img" src="{{item.previewTmp}}" mode="aspectFit"
+          binderror="onPreviewError" data-id="{{item.id}}" data-url="{{item.previewTmp}}" lazy-load />
+        <view wx:elif="{{item.previewState === 'error'}}" class="preview-placeholder retry-preview"
+          catchtap="onRetryPreview" data-id="{{item.id}}"><text class="retry-mark">↻</text><text>点击重试预览</text></view>
+        <view wx:else class="preview-placeholder"><view class="loading-line"></view><text>正在准备预览</text></view>
+      </view>
+      <view class="card-meta"><text class="work-title">{{item.title}}</text><text class="card-arrow">↗</text></view>
+    </view>
+  </view>
+  <view class="gallery-state" wx:if="{{loadError}}"><text>{{loadError}}</text><button class="state-button" bindtap="onRetry">重新读取</button></view>
+  <view class="gallery-state" wx:elif="{{loading && !items.length}}"><view class="loading-line"></view><text>正在打开你的灵感画廊</text></view>
+  <view class="gallery-state" wx:elif="{{!items.length}}"><view class="empty-drawing"></view><text class="state-title">好作品，慢慢挑</text><text>更多精选线稿正在准备中</text></view>
+  <view class="page-foot" wx:elif="{{loading}}">正在加载更多作品…</view>
+  <view class="page-foot" wx:elif="{{nextCursor === null}}">本类作品已全部展出</view>
+</view>

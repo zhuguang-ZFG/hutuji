@@ -23,6 +23,11 @@
     <text class="slim-title" wx:else>想学点<text class="accent">什么</text></text>
     <text class="slim-quota" wx:if="{{quotaLeft !== null}}">今日 {{quotaLeft}} 次</text>
   </view>
+  <navigator class="paper-summary {{paperSummary.state}}" url="/pages/paper/paper" hover-class="btn-press" aria-label="当前设备纸张与方向">
+    <view class="paper-summary-sheet {{paperSummary.landscape ? 'landscape' : ''}}" aria-hidden="true"></view>
+    <view class="paper-summary-copy"><view class="paper-summary-title">{{paperSummary.title}}</view><view class="paper-summary-detail">{{paperSummary.detail}}</view><view wx:if="{{paperSummary.hint}}" class="paper-summary-hint">{{paperSummary.hint}}</view></view>
+    <text class="paper-summary-arrow">›</text>
+  </navigator>
 
   <!-- 画图模式 -->
   <block wx:if="{{mode === 'draw'}}">
@@ -255,6 +260,14 @@
     </button>
   </view>
   <view class="weui-cells__tips" wx:if="{{uploading}}">{{mode === 'write' ? '转换中，文档约 5–15 秒' : '转换中，照片约 5–15 秒'}}</view>
+
+  <view class="bind-banner market-banner" bindtap="onGoMarket" hover-class="tile-press">
+    <view class="bind-copy">
+      <text class="bind-title">精品图库</text>
+      <text class="bind-sub">现成好图，一键发送给丹青</text>
+    </view>
+    <text class="bind-go">去挑选 ›</text>
+  </view>
 
   <view class="bind-banner" wx:if="{{!binding}}" bindtap="onGoBind" hover-class="tile-press">
     <view class="bind-copy">

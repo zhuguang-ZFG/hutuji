@@ -105,7 +105,7 @@ def test_voice_cancel_requires_binding(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 
 def test_voice_turn_returns_preview(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    client = _auth(monkeypatch, tmp_path)
+    client, _, _, _ = _bound_voice_client(monkeypatch, tmp_path)
 
     def fake_chat(**kwargs):
         return {
@@ -130,6 +130,7 @@ def test_voice_turn_returns_preview(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["preview"]["preview_url"].endswith(".png")
+    assert body["preview"]["device_mac"] == "aa:bb:cc:dd:ee:ff"
     assert body["reply"] == "请点开始画"
 
 
@@ -185,3 +186,74 @@ def test_voice_draw_busy_429_suppresses_failed_notification(
     assert r.status_code == 200, r.text
     expected = ["failed"] if expect_failed_notify else []
     assert notifies == expected
+
+
+def _bound_voice_client(monkeypatch, tmp_path):
+    client = _auth(monkeypatch, tmp_path)
+    store = Store(tmp_path / "t.db")
+    user = store.get_user_by_email("buyer@qq.com")
+    key = os.environ["DRAW_PORTAL_TOKEN_CIPHER_KEY"].encode("ascii")
+    store.set_device_binding(
+        user_id=user.id, device_mac="aa:bb:cc:dd:ee:ff",
+        device_token_enc=Fernet(key).encrypt(b"old-token").decode("ascii"),
+        bound_at=1.0, token_probe_ok=True,
+    )
+    return client, store, user, key
+
+
+@pytest.mark.parametrize("action", ["confirm", "cancel"])
+@pytest.mark.parametrize("result", [
+    '{"isError":true,"content":[{"type":"text","text":"busy"}]}',
+    '{"success":true,"data":{"error":"invalid_state"}}',
+])
+def test_voice_preview_rejection_is_not_success(monkeypatch, tmp_path, action, result):
+    client, _, _, _ = _bound_voice_client(monkeypatch, tmp_path)
+    monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kw: (True, result))
+    usage = []
+    monkeypatch.setattr("draw_portal.app._record_portal_usage", lambda *args, **kw: usage.append(kw))
+    response = client.post(f"/api/voice/{action}")
+    assert response.status_code == 502
+    assert not any(event.get("ok") for event in usage)
+
+
+@pytest.mark.parametrize("action", ["confirm", "cancel"])
+def test_voice_preview_rejects_changed_target(monkeypatch, tmp_path, action):
+    client, store, user, key = _bound_voice_client(monkeypatch, tmp_path)
+    store.set_device_binding(
+        user_id=user.id, device_mac="11:22:33:44:55:66",
+        device_token_enc=Fernet(key).encrypt(b"second-token").decode("ascii"),
+        bound_at=2.0, token_probe_ok=True,
+    )
+    calls = []
+    monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kw: (calls.append(kw), (True, "ok"))[1])
+    response = client.post(f"/api/voice/{action}", json={"device_mac": "aa:bb:cc:dd:ee:ff"})
+    assert response.status_code == 409
+    assert calls == []
+
+
+@pytest.mark.parametrize("action", ["confirm", "cancel"])
+def test_voice_retry_rechecks_owner_after_token_refresh(monkeypatch, tmp_path, action):
+    client, store, user, key = _bound_voice_client(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kw: (calls.append(kw), (False, "HTTP 401"))[1])
+    # 同一 HTTP 请求中模拟设备已被另一账号重新认领。
+    _register_and_login(client, email="second@qq.com")
+    other = store.get_user_by_email("second@qq.com")
+    assert client.post("/api/auth/login", json={"email": "buyer@qq.com", "password": "secret123"}).status_code == 200
+
+    def mint(**kw):
+        assert store.delete_binding_for_mac("aa:bb:cc:dd:ee:ff", user_id=user.id)
+        store.set_device_binding(
+            user_id=other.id, device_mac="aa:bb:cc:dd:ee:ff",
+            device_token_enc=Fernet(key).encrypt(b"other-token").decode("ascii"),
+            bound_at=2.0, token_probe_ok=True,
+        )
+        return "refreshed-token"
+
+    monkeypatch.setattr("draw_portal.push.mint_messaging_token", mint)
+    response = client.post(f"/api/voice/{action}")
+    assert response.status_code == 409
+    assert len(calls) == 1
+    binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    assert binding.user_id == other.id
+    assert Fernet(key).decrypt(binding.device_token_enc.encode()) == b"other-token"

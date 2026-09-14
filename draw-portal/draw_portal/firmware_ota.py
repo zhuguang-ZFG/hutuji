@@ -12,7 +12,7 @@ from draw_portal.firmware_catalog import (
     plan_check,
     recommended_for_board,
 )
-from draw_portal.mcp_result import unwrap_tool_text
+from draw_portal.mcp_result import tool_result_failed, unwrap_tool_text
 from draw_portal.models import DeviceBinding
 from draw_portal.push import mint_messaging_token, push_tool_call
 from draw_portal.store import Store
@@ -62,6 +62,15 @@ def _push_healed(
     timeout: int,
     on_token_minted: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
+    def target_current() -> bool:
+        owner = store.get_binding_for_mac(binding.device_mac)
+        active = store.get_binding_for_user(binding.user_id)
+        return bool(owner and owner.user_id == binding.user_id and (
+            name != "hutuji.ota_start" or (active and active.device_mac == binding.device_mac)
+        ))
+
+    if not target_current():
+        return False, "设备绑定已变化，请刷新后重试"
     token = decrypt_token(token_cipher_key, binding.device_token_enc)
     ok, result = push_tool_call(
         api_base=api_base,
@@ -73,6 +82,8 @@ def _push_healed(
     if not ok and result in ("HTTP 401", "HTTP 403", "HTTP 404"):
         fresh = mint_messaging_token(api_base=api_base, mac=binding.device_mac)
         if fresh:
+            if not target_current():
+                return False, "设备绑定已变化，请刷新后重试"
             enc = encrypt_token(token_cipher_key, fresh)
             store.update_binding_token(binding.user_id, device_token_enc=enc, device_mac=binding.device_mac)
             if on_token_minted:
@@ -84,6 +95,8 @@ def _push_healed(
                 arguments=arguments,
                 timeout=timeout,
             )
+    if ok and tool_result_failed(result):
+        return False, "设备未接受操作，请刷新状态后重试"
     return ok, result
 
 
@@ -318,6 +331,8 @@ def get_ota_status(
     token_cipher_key: bytes,
 ) -> dict[str, Any]:
     session = store.get_firmware_ota_session(binding.user_id)
+    if session and session.device_mac != binding.device_mac:
+        session = None
     out: dict[str, Any] = {
         "state": session.state if session else "idle",
         "progress": session.progress if session else 0,
@@ -355,7 +370,7 @@ def get_ota_status(
                     target_version=session.target_version,
                 )
                 session = store.get_firmware_ota_session(binding.user_id)
-                if session:
+                if session and session.device_mac == binding.device_mac:
                     out.update(
                         {
                             "state": session.state,
@@ -395,7 +410,7 @@ def get_ota_status(
             target_version=session.target_version,
         )
         session = store.get_firmware_ota_session(binding.user_id)
-        if session:
+        if session and session.device_mac == binding.device_mac:
             out.update(
                 {
                     "state": session.state,

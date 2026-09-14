@@ -6,11 +6,29 @@ const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
 const pageSession = require("../../utils/page_session");
+const paperSummary = require("../../utils/paper_summary");
 const { displayVersion } = require("../../utils/version.js");
 
 const SESSION_KEY = "voice_session_id";
 const SESSION_LEN = 22;
 let recordingOwner = null;
+let sharedRecorder = null;
+
+function getRecorder() {
+  if (sharedRecorder) return sharedRecorder;
+  const recorder = sharedRecorder = wx.getRecorderManager();
+  // RecorderManager 没有 offStart/offStop/offError；单次注册后转交本次录音的页面。
+  // 新页面不得覆盖旧页面等待中的回调，否则迟到的 onStart 无人停止。
+  const dispatch = (method) => (result) => {
+    const owner = recordingOwner;
+    if (owner) owner[method](result);
+  };
+  recorder.onStart(dispatch('_onRecorderStart'));
+  recorder.onStop(dispatch('_onRecorderStop'));
+  recorder.onError(dispatch('_onRecorderError'));
+  if (recorder.onInterruptionBegin) recorder.onInterruptionBegin(dispatch('_onRecorderInterrupted'));
+  return recorder;
+}
 
 function ensureSessionId() {
   let sid = wx.getStorageSync(SESSION_KEY);
@@ -28,10 +46,10 @@ function formatToolTraces(traces) {
   if (!traces || !traces.length) return "";
   return traces
     .map((t) => {
-      const name = t && t.name ? t.name : "?";
       const sum = t && t.summary ? t.summary : "";
-      return sum ? name + " · " + sum : name;
+      return sum;
     })
+    .filter(Boolean)
     .join("\n");
 }
 
@@ -41,11 +59,22 @@ Page({
     messages: [],
     recording: false,
     recordingStarting: false,
+    recordingStopping: false,
+    recordPermission: "checking",
+    micAuthorizing: false,
+    recordCancel: false,
+    recordSeconds: 0,
+    voiceHint: "按住说话，松开发送，上滑取消",
+    voiceStage: "",
     enabled: false,
     loadError: "",
     busy: false,
     scrollAnchor: "",
     textInput: "",
+    inputMode: "voice",
+    inputFocus: false,
+    replyPending: false,
+    paperSummary: { title: "纸张与方向", detail: "正在读取当前设备…", state: "loading" },
   },
 
   onLoad() {
@@ -53,90 +82,95 @@ Page({
     subscribe.prepare();
     this._sessionId = ensureSessionId();
     this._msgSeq = 0;
-    this._recorder = wx.getRecorderManager();
+    this._recorder = getRecorder();
     this._onRecorderStart = () => {
       if (recordingOwner !== this) return;
       const attempt = this._recordAttempt;
+      if (!attempt) return;
       attempt.started = true;
       if (!attempt.held || attempt.discarded || !attempt.current()) {
         attempt.discarded = true;
-        this._recorder.stop();
+        this._stopRecorder(attempt);
         return;
       }
       this.setData({ recording: true, recordingStarting: false });
+      this._tickRecording(attempt);
     };
     this._onRecorderStop = (res) => {
       if (recordingOwner !== this) return;
       const attempt = this._finishRecording();
       if (!attempt || !attempt.current()) return;
-      this.setData({ recording: false, recordingStarting: false });
       if (!attempt.discarded) this._onRecordStop(res, attempt.current, attempt.sessionId);
     };
-    this._onRecorderError = () => {
+    this._onRecorderError = (error) => {
       if (recordingOwner !== this) return;
       const attempt = this._finishRecording();
       if (!attempt || !attempt.current()) return;
-      this.setData({ recording: false, recordingStarting: false, busy: false });
-      wx.showToast({ title: "录音失败，请检查麦克风授权", icon: "none" });
+      if (attempt.discarded) return;
+      const permission = /auth|permission|privacy/i.test((error && error.errMsg) || "");
+      this.setData({ voiceHint: permission ? "麦克风未开启，请先授权后再按住说话" : "录音未能开始，请重新按住说话",
+        recordPermission: permission ? "denied" : this.data.recordPermission });
+      wx.showToast({ title: permission ? "请先开启麦克风" : "录音失败，请重试", icon: "none" });
     };
-    this._recorder.onStart(this._onRecorderStart);
-    this._recorder.onStop(this._onRecorderStop);
-    this._recorder.onError(this._onRecorderError);
-    // 首次进页给一句小派自我介绍（含能力版图，2026-09-09 用户反馈「以为功能丢了」）
-    if (!this.data.messages.length) {
-      this._pushMessage(
-        "assistant",
-        "我是小派！按住下面按钮说话，或直接打字。我会画画、写字、教笔顺、唱歌、检查更新，也能查丹青状态、记住你告诉我的事~"
-      );
-    }
+    this._onRecorderInterrupted = () => {
+      if (recordingOwner !== this) return;
+      this._cancelRecording();
+      if (this._visible !== false) this.setData({ voiceHint: "录音被中断，请重新按住说话" });
+    };
   },
 
   onShow() {
     pageSession.show(this);
+    paperSummary.reset(this);
     const session = getApp()._sessionGeneration;
     if (this._chatSession !== session) {
       this._chatSession = session;
       this._textPending = null;
+      this._voicePending = null;
       this._msgSeq = 0;
-      this.setData({ messages: [], textInput: "", scrollAnchor: "" });
-      this._pushMessage("assistant", "我是小派，可以陪你聊天、画画、写字和教笔顺。");
+      this.setData({ messages: [], textInput: "", scrollAnchor: "", inputMode: "voice", inputFocus: false });
     }
-    this.setData({ enabled: false, loadError: "", busy: !!this._textPending, recording: false, recordingStarting: false,
+    this._permissionPending = null;
+    this.setData({ enabled: false, loadError: "", busy: !!(this._textPending || this._voicePending),
+      replyPending: !!this._textPending,
+      voiceStage: this._voicePending ? this._voicePending.label : "",
+      recording: false, recordingStarting: false, recordingStopping: !!this._recordAttempt,
+      micAuthorizing: false, recordCancel: false,
       messages: this.data.messages.map((msg) => msg.draw ? Object.assign({}, msg, {
         draw: Object.assign({}, msg.draw, { sending: false, saving: false }),
       }) : msg) });
     const current = pageSession.capture(this);
+    this._checkMicrophone(current);
     phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
       if (!current()) return;
-      if (!ok) { this.setData({ loadError: "账号信息读取失败，请重试" }); return; }
+      if (!ok) { this.setData({ loadError: "账号信息读取失败，请重试",
+        paperSummary: { title: "纸张与方向", detail: "账号信息未读取，点此查看", state: "unavailable" } }); return; }
       this._sessionId = ensureSessionId();
       this.setData({ enabled: true });
+      paperSummary.refresh(this);
+      this._continueVoiceTurn(this._voicePending);
     });
   },
 
   onHide() {
     pageSession.hide(this);
     this._cancelRecording();
-    this.setData({ enabled: false, recording: false, recordingStarting: false });
+    this.setData({ enabled: false, recording: false, recordingStarting: false, inputFocus: false });
   },
 
   onUnload() {
     this._unloaded = true;
     this.onHide();
-    if (!this._recordAttempt) this._detachRecorder();
-  },
-
-  _detachRecorder() {
-    this._recorder.offStart(this._onRecorderStart);
-    this._recorder.offStop(this._onRecorderStop);
-    this._recorder.offError(this._onRecorderError);
   },
 
   _finishRecording() {
     const attempt = this._recordAttempt;
     this._recordAttempt = null;
-    recordingOwner = null;
-    if (this._unloaded) this._detachRecorder();
+    if (recordingOwner === this) recordingOwner = null;
+    if (this._recordTimer) clearTimeout(this._recordTimer);
+    this._recordTimer = null;
+    if (this._visible !== false && !this._unloaded) this.setData({ recording: false,
+      recordingStarting: false, recordingStopping: false, recordCancel: false });
     return attempt;
   },
 
@@ -145,7 +179,66 @@ Page({
     if (!attempt) return;
     attempt.held = false;
     attempt.discarded = true;
-    if (attempt.started) this._recorder.stop();
+    if (attempt.started) this._stopRecorder(attempt);
+  },
+
+  _stopRecorder(attempt) {
+    if (attempt.stopping) return;
+    attempt.stopping = true;
+    if (this._visible !== false) this.setData({ recordingStarting: false, recordingStopping: true });
+    try { this._recorder.stop(); } catch (error) {
+      this._finishRecording();
+      if (attempt.current()) this.setData({ voiceHint: "录音未能结束，请重新打开小派页" });
+    }
+  },
+
+  _tickRecording(attempt) {
+    if (!attempt.current() || this._recordAttempt !== attempt || attempt.stopping) return;
+    this._recordTimer = setTimeout(() => {
+      if (!attempt.current() || this._recordAttempt !== attempt || attempt.stopping) return;
+      this.setData({ recordSeconds: Math.min(60, this.data.recordSeconds + 1) });
+      this._tickRecording(attempt);
+    }, 1000);
+  },
+
+  _checkMicrophone(current) {
+    if (!wx.getSetting) {
+      this.setData({ recordPermission: "unknown", voiceHint: "请先开启麦克风" });
+      return;
+    }
+    wx.getSetting({
+      success: (result) => {
+        if (!current()) return;
+        const granted = (result.authSetting || {})["scope.record"];
+        this.setData({ recordPermission: granted === true ? "granted" : granted === false ? "denied" : "unknown" });
+      },
+      fail: () => { if (current()) this.setData({ recordPermission: "unknown", voiceHint: "请点击开启麦克风" }); },
+    });
+  },
+
+  onEnableMicrophone() {
+    if (!this.data.enabled || this.data.busy || this._recordAttempt || this._permissionPending) return;
+    const current = pageSession.capture(this);
+    const pending = this._permissionPending = {};
+    this.setData({ micAuthorizing: true });
+    const finish = (granted) => {
+      if (this._permissionPending !== pending) return;
+      this._permissionPending = null;
+      if (!current()) return;
+      this.setData({ micAuthorizing: false, recordPermission: granted ? "granted" : "denied",
+        voiceHint: granted ? "麦克风已开启，请重新按住说话" : "麦克风未开启，点按钮到设置中打开" });
+    };
+    const authorize = () => {
+      if (!current()) return;
+      if (this.data.recordPermission === "denied" && wx.openSetting) {
+        wx.openSetting({ success: (result) => finish(!!(result.authSetting || {})["scope.record"]), fail: () => finish(false) });
+      } else if (wx.authorize) {
+        wx.authorize({ scope: "scope.record", success: () => finish(true), fail: () => finish(false) });
+      } else finish(false);
+    };
+    // 授权弹窗会打断长按，所以只在独立点击中完成，绝不在回包后自动录音。
+    if (wx.requirePrivacyAuthorize) wx.requirePrivacyAuthorize({ success: authorize, fail: () => finish(false) });
+    else authorize();
   },
 
   _nextMsgId() {
@@ -162,6 +255,7 @@ Page({
       msg.previewUrl = preview.preview_url;
       msg.jobId = preview.job_id || "";
       msg.previewKind = preview.kind || "";
+      msg.previewDeviceMac = preview.device_mac || "";
       msg.previewPending = true;
     }
     const messages = this.data.messages.concat(msg);
@@ -189,17 +283,25 @@ Page({
     this._patchMessage(id, { draw: Object.assign({}, msg.draw, patch) });
   },
 
-  onHoldStart() {
+  onHoldStart(e = {}) {
     if (!this.data.enabled || this.data.busy || recordingOwner) return;
+    if (this.data.recordPermission !== "granted") {
+      this.setData({ voiceHint: "请先开启麦克风，再按住说话" });
+      return;
+    }
+    const touch = e.touches && e.touches[0];
     this._recordAttempt = { current: pageSession.capture(this), sessionId: this._sessionId,
+      touchY: touch ? (typeof touch.clientY === "number" ? touch.clientY : touch.pageY) : null,
       held: true, started: false, discarded: false };
     recordingOwner = this;
-    this.setData({ recordingStarting: true });
-    // 语音可能触发长链画/写；用户松手离开 app 时靠订阅消息召回
-    subscribe.requestAtTap();
+    this.setData({ recordingStarting: true, recordingStopping: false, recordCancel: false,
+      recordSeconds: 0, voiceHint: "松开发送，上滑取消" });
     try {
       this._recorder.start({
         format: "mp3",
+        sampleRate: 16000,
+        numberOfChannels: 1,
+        encodeBitRate: 32000,
         duration: 60000,
       });
     } catch (e) {
@@ -213,22 +315,40 @@ Page({
     const attempt = this._recordAttempt;
     if (!attempt) return;
     attempt.held = false;
-    if (attempt.started) this._recorder.stop();
+    if (this.data.recordCancel) attempt.discarded = true;
+    if (attempt.started) this._stopRecorder(attempt);
     else attempt.discarded = true;
-    this.setData({ recordingStarting: false });
+    this.setData({ recordingStarting: false, recordingStopping: !!this._recordAttempt });
+    if (attempt.discarded) this.setData({ voiceHint: "已取消，重新按住即可录音" });
   },
 
-  onHoldCancel() { this._cancelRecording(); },
+  onHoldMove(e) {
+    const attempt = this._recordAttempt, touch = e.touches && e.touches[0];
+    if (!attempt || !attempt.held || !touch || typeof attempt.touchY !== "number") return;
+    const y = typeof touch.clientY === "number" ? touch.clientY : touch.pageY;
+    this.setData({ recordCancel: attempt.touchY - y > 56 });
+  },
+
+  onHoldCancel() {
+    this._cancelRecording();
+    if (this._visible !== false) this.setData({ voiceHint: "已取消，重新按住即可录音" });
+  },
 
   onConfirmPreview(e) {
     const id = e.currentTarget.dataset.id;
     if (!id || this.data.busy || !this.data.enabled) return;
+    const msg = this._findMsg(id);
+    if (!msg || !msg.previewPending || !msg.previewDeviceMac) {
+      wx.showToast({ title: "预览已失效，请重新生成", icon: "none" });
+      return;
+    }
     const current = pageSession.capture(this);
     this.setData({ busy: true });
     api
-      .request("/api/voice/confirm", { method: "POST", data: {} })
-      .then(() => {
+      .request("/api/voice/confirm", { method: "POST", data: { device_mac: msg.previewDeviceMac } })
+      .then((result) => {
         if (!current()) return;
+        if (!result || result.status !== "ok") throw { detail: (result && result.detail) || "设备未接受确认" };
         this._patchMessage(id, { previewPending: false, previewDone: "已开始画" });
         wx.showToast({ title: "已开始画", icon: "success" });
       })
@@ -245,12 +365,18 @@ Page({
   onCancelPreview(e) {
     const id = e.currentTarget.dataset.id;
     if (!id || this.data.busy || !this.data.enabled) return;
+    const msg = this._findMsg(id);
+    if (!msg || !msg.previewPending || !msg.previewDeviceMac) {
+      wx.showToast({ title: "预览已失效，请重新生成", icon: "none" });
+      return;
+    }
     const current = pageSession.capture(this);
     this.setData({ busy: true });
     api
-      .request("/api/voice/cancel", { method: "POST", data: {} })
-      .then(() => {
+      .request("/api/voice/cancel", { method: "POST", data: { device_mac: msg.previewDeviceMac } })
+      .then((result) => {
         if (!current()) return;
+        if (!result || result.status !== "ok") throw { detail: (result && result.detail) || "设备未接受取消" };
         this._patchMessage(id, { previewPending: false, previewDone: "已取消" });
         wx.showToast({ title: "已取消", icon: "none" });
       })
@@ -270,6 +396,21 @@ Page({
     this.setData({ textInput: e.detail.value });
   },
 
+  onToggleInput() {
+    // 录音过程中不能卸载触摸目标，否则 touchend 丢失会留下未结束的录音。
+    if (this._recordAttempt || this.data.micAuthorizing) return;
+    const mode = this.data.inputMode === "voice" ? "text" : "voice";
+    this.setData({ inputMode: mode, inputFocus: mode === "text" });
+  },
+
+  onSuggestion(e) {
+    if (!this.data.enabled || this.data.busy || this._recordAttempt || this.data.micAuthorizing) return;
+    const text = e.currentTarget.dataset.text;
+    if (typeof text !== "string" || !text.trim()) return;
+    // 只填写草稿，让用户确认措辞后发送。
+    this.setData({ inputMode: "text", inputFocus: true, textInput: text.slice(0, 200) });
+  },
+
   onSendText() {
     const text = (this.data.textInput || "").trim();
     if (!text || this.data.busy || !this.data.enabled || this._recordAttempt) return;
@@ -281,7 +422,7 @@ Page({
       .slice(-10)
       .map((m) => ({ role: m.role, content: m.content.slice(0, 500) }));
     this._pushMessage("user", text);
-    this.setData({ textInput: "", busy: true });
+    this.setData({ textInput: "", busy: true, replyPending: true });
     api
       .request("/api/chat", {
         method: "POST",
@@ -318,7 +459,7 @@ Page({
       })
       .finally(() => {
         if (this._textPending === pending) this._textPending = null;
-        if (current()) this.setData({ busy: false });
+        if (current()) this.setData({ busy: false, replyPending: false });
       });
   },
 
@@ -455,53 +596,68 @@ Page({
 
   _onRecordStop(res, current, sessionId) {
     if (!current()) return;
+    if (res && typeof res.duration === "number" && res.duration < 600) {
+      this.setData({ voiceHint: "录音太短，请按住说完再松开" });
+      return;
+    }
     const path = res && res.tempFilePath;
     if (!path) {
-      this.setData({ busy: false, recording: false });
+      this.setData({ busy: false, recording: false, voiceHint: "没有录到声音，请重新按住说话" });
       wx.showToast({ title: "录音为空", icon: "none" });
       return;
     }
-    this.setData({ busy: true });
+    const pending = this._voicePending = { current: pageSession.captureTask(this), sessionId,
+      stage: "asr", label: "正在识别语音…" };
+    this.setData({ busy: true, voiceStage: pending.label });
     api
-      .uploadFile("/api/voice/asr", path, "file")
+      .uploadFile("/api/voice/asr", path, "file", {}, { timeout: 45000 })
       .then((asr) => {
-        if (!current()) return;
+        if (!pending.current() || this._voicePending !== pending) return;
         const text = (asr && asr.text ? asr.text : "").trim();
         if (!text) {
-          wx.showToast({ title: "未识别到内容", icon: "none" });
+          this._voiceFailed(pending, { detail: "没听清，请按住再说一次" });
           return;
         }
-        this._pushMessage("user", text);
-        return api
-          .request("/api/voice/turn", {
-            method: "POST",
-            data: { session_id: sessionId, text },
-          })
-          .then((turn) => {
-            if (!current()) return;
-            const reply =
-              (turn && turn.reply ? turn.reply : "").trim() || "（无回复）";
-            const traces = turn && turn.tool_traces ? turn.tool_traces : [];
-            const preview = turn && turn.preview ? turn.preview : null;
-            this._pushMessage("assistant", reply, traces, preview);
-          });
+        pending.text = text;
+        pending.stage = "ready";
+        pending.label = "回到小派后继续回复";
+        this._continueVoiceTurn(pending);
       })
-      .catch((err) => {
-        if (!current()) return;
-        const status = err && err.status ? err.status : 0;
-        let title = (err && err.detail) || "请求失败";
-        if (status === 404 || status === 405) {
-          title = "语音服务未上线";
-        } else if (status === 503) {
-          title = title.length > 20 ? "语音未配置" : title;
-        }
-        wx.showToast({
-          title: title.slice(0, 20),
-          icon: "none",
-        });
-      })
-      .finally(() => {
-        if (current()) this.setData({ busy: false });
-      });
+      .catch((error) => this._voiceFailed(pending, error));
+  },
+
+  _continueVoiceTurn(pending) {
+    // ASR 可在后台收尾；会调设备的 turn 只在当前账号重新回屏并就绪后发出。
+    if (!pending || pending.stage !== "ready" || !pending.current() ||
+      this._voicePending !== pending || this._visible === false || !this.data.enabled) return;
+    pending.stage = "turn";
+    pending.label = "小派正在回复…";
+    this.setData({ busy: true, voiceStage: pending.label });
+    this._pushMessage("user", pending.text);
+    api.request("/api/voice/turn", {
+      method: "POST", data: { session_id: pending.sessionId, text: pending.text },
+      timeout: 300000, // 语音可能走画图/写字生成，与创作页长任务保持同一等待预算。
+    }).then((turn) => {
+      if (!pending.current() || this._voicePending !== pending) return;
+      const reply = (turn && turn.reply ? turn.reply : "").trim() || "这次没能完成回复，请换个说法试试。";
+      this._pushMessage("assistant", reply, turn && turn.tool_traces, turn && turn.preview);
+      this._finishVoice(pending);
+    }).catch((error) => this._voiceFailed(pending, error));
+  },
+
+  _finishVoice(pending) {
+    if (!pending.current() || this._voicePending !== pending) return;
+    this._voicePending = null;
+    this.setData({ busy: !!this._textPending, voiceStage: "" });
+  },
+
+  _voiceFailed(pending, error) {
+    if (!pending.current() || this._voicePending !== pending) return;
+    const status = error && error.status;
+    const detail = status === 404 || status === 405 ? "语音服务暂时不可用，请稍后再试" :
+      (error && error.detail) || "语音处理失败，请重新按住说话";
+    this._finishVoice(pending);
+    this.setData({ voiceHint: detail });
+    if (this._visible !== false) wx.showToast({ title: detail.slice(0, 20), icon: "none" });
   },
 });

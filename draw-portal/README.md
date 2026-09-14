@@ -4,6 +4,12 @@
 
 独立 FastAPI 服务，与 MCP 生图链解耦：描摹与 `validate_gcode` 复用 `hutuji_mcp`（`PYTHONPATH=/opt/hutuji/mcp-server`），推送走小智 `/messaging/device/tools/call` → 设备侧 `hutuji.draw`。
 
+纸张设置候选（2026-09-14）：`paper_settings.py` 按精确设备及绑定归属读写纸张，`GET/POST /api/settings/paper` 读回确认后才报告成功。图画、文字、笔顺、文档与手绘共用一次配置快照；`.paper.json` 绑定 G-code 内容，收藏/分享/重发前核对目标和设置。旧固件只显示默认纸张并提示升级，离线设置仅供展示与预览。契约见 `../docs/protocol.md` §10.4.24。
+
+小程序新增 `pages/paper/`、纸张摘要和共用 `utils/paper_config.js`。画板的镜像、六向、素材、回放与导出共用 `utils/drawpad.js`，上传带 `preserve_canvas=true` 保留空白构图；后台仍过实际 vpype 与 §5。`utils/preview_queue.js` 限制收藏预览并发并提供超时重试，实际用户收藏后的延迟原因仍须生产复现，不能仅凭缓存测试下结论。
+
+精品图库 `market.py`、`pages/market/` 与 `market_ingest.py` 已有候选和许可/哈希校验；`mcp-server/market/` 当前没有真实验收素材集，空目录不可写成首批图库已交付。发布须同步新模块并先准备设备能力/内部纸张接口，队列切换按 `../docs/design/production-tools-review-20260914.md` 排空旧 worker。
+
 ## 本地开发
 
 ```powershell
@@ -36,6 +42,12 @@ node --test tests/weapp/*.test.js
 本批 Node 回归另覆盖筛选后按作品 ID 删除、预览下载回填、录音快速松手/离页、账号与页面回包隔离、系统选择器回屏及生成期间切页不丢结果。工程隐私核对稿见 [`privacy-policy.md`](privacy-policy.md)，它不代表公众平台已发布版本，也不能作为法务或平台审核已通过的依据。
 
 范围与事务见 [`protocol.md §10.4.21`](../docs/protocol.md)，量产部署与手机目视证据见 [`release-readiness.md`](../docs/release-readiness.md)。
+
+## 预览确认、升级目标与联系帮助
+
+语音预览卡携带生成时的 `device_mac`，确认/取消复用普通控制的归属、自愈与设备错误判定。切换设备后旧卡不能操作新设备，设备拒绝不显示成功。固件页检查和下发同样传明确目标；超时后继续查询原设备，其他设备的版本不能结清该升级会话。契约见 `protocol.md` §10.4.13/§10.4.22。
+
+「我的」页展示用户确认的客服邮箱 `17150303974@163.com` 并提供复制；微信客服或原生隐私指引入口失败时显示邮件联系方式。隐私日期取微信实际发布的指引，小程序不自行伪造日期或把打开会话当作已接通。平台配置、验证范围与交付记录见 [`后续审查`](../docs/design/weapp-followup-review-20260913.md)。
 
 ## 生产部署（阿里云，一期）
 

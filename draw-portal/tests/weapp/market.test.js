@@ -1,0 +1,209 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const { createWeapp, flush } = require("./harness");
+
+const ME = { phone_bound: true, active_device_mac: "aa:bb:cc:dd:ee:ff",
+  binding: { bound: true, device_mac: "aa:bb:cc:**:**:**" } };
+const CATEGORIES = { categories: [{ name: "动物", count: 35 }, { name: "植物", count: 20 }] };
+const DETAIL = { id: "sample", title: "小猫", license: "CC-BY-4.0",
+  attribution: "示例作者，CC BY 4.0", changes: "转为单线绘图", revision: "a".repeat(64),
+  preview_url: "/api/market/item/sample/preview.png?v=1" };
+const reply = (request, data) => request.success({ statusCode: 200, data });
+const event = (data) => ({ currentTarget: { dataset: data } });
+const cards = (count, prefix = "animal") => Array.from({ length: count }, (_, i) => ({
+  id: prefix + i, title: "作品 " + i, preview_url: "/preview/" + prefix + i,
+}));
+
+function setup(detail = false) {
+  const h = createWeapp();
+  h.storage.set("session_token", "owner");
+  h.load(detail ? "pages/market/detail.js" : "pages/market/market.js");
+  if (detail) h.page.onLoad({ id: "sample" });
+  return h;
+}
+async function authorize(h, me = ME) {
+  h.page.onShow();
+  await flush();
+  assert(h.requests.at(-1).url.endsWith("/api/auth/me"));
+  reply(h.requests.at(-1), me);
+  await flush();
+}
+async function showList(h, items = cards(2), next = null) {
+  await authorize(h);
+  reply(h.requests.at(-1), CATEGORIES);
+  await flush();
+  reply(h.requests.at(-1), { items, next_cursor: next });
+  await flush();
+}
+async function showDetail(h, download = true) {
+  await authorize(h);
+  reply(h.requests.at(-1), DETAIL);
+  await flush();
+  if (download) {
+    h.downloads.at(-1).success({ statusCode: 200, tempFilePath: "wxfile://sample" });
+    await flush();
+  }
+}
+
+test("手机号闸失败不读取目录，控制目标来自 active_device_mac", async () => {
+  const h = setup();
+  await authorize(h, { phone_bound: false });
+  assert.equal(h.requests.length, 1);
+  assert(h.tabs.some((tab) => tab.url.includes("profile")));
+  const detail = setup(true);
+  await showDetail(detail);
+  detail.page.onSend();
+  assert.equal(detail.requests.at(-1).data.device_mac, ME.active_device_mac);
+  assert.equal(detail.requests.at(-1).data.revision, DETAIL.revision);
+});
+
+test("分页使用 next_cursor，图片最多三张并发", async () => {
+  const h = setup();
+  await showList(h, cards(30), 30);
+  assert.equal(h.page.data.nextCursor, 30);
+  assert.equal(h.downloads.length, 3);
+  h.downloads[0].success({ statusCode: 200, tempFilePath: "wxfile://zero" });
+  await flush();
+  assert.equal(h.downloads.length, 4);
+  assert.equal(h.page.data.items[0].previewTmp, "wxfile://zero");
+  h.page.onReachBottom();
+  assert(h.requests.at(-1).url.endsWith("cursor=30"));
+  reply(h.requests.at(-1), { items: cards(5, "last"), next_cursor: null });
+  await flush();
+  assert.equal(h.page.data.items.length, 35);
+  assert.equal(h.page.data.nextCursor, null);
+});
+
+test("连续切分类后旧列表与图片不会覆盖新卡片", async () => {
+  const h = setup();
+  await showList(h);
+  const oldImage = h.downloads[0];
+  h.page.onCategoryTap(event({ name: "植物" }));
+  const plants = h.requests.at(-1);
+  h.page.onCategoryTap(event({ name: "动物" }));
+  const animals = h.requests.at(-1);
+  reply(animals, { items: cards(1, "latest"), next_cursor: null });
+  reply(plants, { items: cards(2, "stale"), next_cursor: null });
+  oldImage.success({ statusCode: 200, tempFilePath: "wxfile://old" });
+  await flush();
+  assert.equal(h.page.data.items.length, 1);
+  assert.equal(h.page.data.items[0].id, "latest0");
+  assert.equal(h.page.data.items[0].previewTmp, "");
+});
+
+test("隐藏停止派发，返回复用同账号临时图片并解除 loading", async () => {
+  const h = setup();
+  await showList(h, cards(5));
+  h.page.onHide();
+  h.downloads[0].success({ statusCode: 200, tempFilePath: "wxfile://cached" });
+  await flush();
+  assert.equal(h.downloads.length, 3);
+  await showList(h, cards(5));
+  assert.equal(h.page.data.items[0].previewTmp, "wxfile://cached");
+  assert.equal(h.page.data.loading, false);
+});
+
+test("新账号不会看到旧图库状态，401 图片有可重试提示", async () => {
+  const h = setup();
+  await showList(h);
+  const stale = h.downloads[0];
+  h.app.logout();
+  h.storage.set("session_token", "new-owner");
+  h.page.onShow();
+  assert.equal(h.page.data.items.length, 0);
+  stale.success({ statusCode: 200, tempFilePath: "wxfile://old-owner" });
+  await flush();
+  assert.equal(h.page.data.items.length, 0);
+  reply(h.requests.at(-1), ME);
+  await flush();
+  reply(h.requests.at(-1), CATEGORIES);
+  await flush();
+  reply(h.requests.at(-1), { items: cards(1, "new"), next_cursor: null });
+  await flush();
+  h.downloads.at(-1).success({ statusCode: 401 });
+  await flush();
+  assert.match(h.page.data.loadError, /登录已过期/);
+});
+
+test("预览超时或临时路径损坏只重试该图", async () => {
+  const h = setup();
+  await showList(h);
+  h.downloads[0].fail({ errMsg: "timeout" });
+  await flush();
+  assert.equal(h.page.data.items[0].previewState, "error");
+  h.page.onRetryPreview(event({ id: "animal0" }));
+  assert.equal(h.downloads.length, 3);
+  h.downloads[2].success({ statusCode: 200, tempFilePath: "wxfile://fresh" });
+  await flush();
+  h.page.onPreviewError(event({ id: "animal0", url: "wxfile://stale" }));
+  assert.equal(h.page.data.items[0].previewTmp, "wxfile://fresh");
+  h.page.onPreviewError(event({ id: "animal0", url: "wxfile://fresh" }));
+  assert.equal(h.page.data.items[0].previewState, "error");
+});
+
+test("详情未看见预览不能发送，发送不重复且隐藏回包解除忙态", async () => {
+  const h = setup(true);
+  await showDetail(h, false);
+  const before = h.requests.length;
+  h.page.onSend();
+  assert.equal(h.requests.length, before);
+  h.downloads[0].success({ statusCode: 200, tempFilePath: "wxfile://detail" });
+  await flush();
+  h.page.onSend();
+  h.page.onSend();
+  assert.equal(h.requests.length, before + 1);
+  h.page.onHide();
+  reply(h.requests.at(-1), { status: "sent", detail: "ok" });
+  await flush();
+  assert.equal(h.page.data.sending, false);
+  assert.match(h.page.data.actionHint, /已发送/);
+  assert(!h.page.data.actionHint.includes("开始绘制"));
+});
+
+test("收藏保留同账号结果，卸载后的回包无权更新", async () => {
+  const h = setup(true);
+  await showDetail(h);
+  h.page.onFavorite();
+  assert.equal(h.requests.at(-1).data.device_mac, ME.active_device_mac);
+  h.page.onHide();
+  reply(h.requests.at(-1), { status: "saved", id: "saved-1" });
+  await flush();
+  assert.equal(h.page.data.favoriting, false);
+  assert.match(h.page.data.actionHint, /已收藏/);
+  await showDetail(h);
+  h.page.onSend();
+  h.page.onUnload();
+  const snapshot = JSON.stringify(h.page.data);
+  reply(h.requests.at(-1), { status: "sent" });
+  await flush();
+  assert.equal(JSON.stringify(h.page.data), snapshot);
+});
+
+test("失败显示可理解的提示，CC-BY 署名出现在详情与发送卡", async () => {
+  const h = setup(true);
+  await showDetail(h);
+  h.page.onSend();
+  reply(h.requests.at(-1), { status: "push_failed", detail: "设备离线，请重新连接" });
+  await flush();
+  assert.equal(h.page.data.actionHint, "设备离线，请重新连接");
+  const markup = fs.readFileSync(path.join(__dirname, "../../weapp/pages/market/detail.wxml"), "utf8");
+  assert(markup.includes('class="credit-text">{{attribution}}'));
+  assert(markup.includes('本次作品署名：{{attribution}}'));
+});
+
+test("同一条目换账号必须重读，坏署名拒绝发送", async () => {
+  const h = setup(true);
+  await showDetail(h);
+  h.app.logout();
+  h.storage.set("session_token", "next-user");
+  await authorize(h);
+  assert.equal(h.page.data.previewTmp, "");
+  reply(h.requests.at(-1), Object.assign({}, DETAIL, { attribution: "" }));
+  await flush();
+  assert.match(h.page.data.loadError, /不完整/);
+  const before = h.requests.length;
+  h.page.onSend();
+  assert.equal(h.requests.length, before);
+});

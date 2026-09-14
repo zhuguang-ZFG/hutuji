@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > 本仓库文档与注释一律用**中文**（项目约定）。
 
+2026-09-14 纸张契约见 `docs/protocol.md` §10.4.24：`PaperConfig` 是共享校验入口，`status.paper_config` 承载配置，`status.paper` 继续作纸张遥测。每个生成任务冻结配置与设备归属，内容绑定 `.paper.json` 经 `/files` 复核，响应头 `X-Hutuji-Paper` 由新 S3 对照本机 marker；旧文件/固件仅沿用固定默认档。大纸选择不隐式增大行程，不改 Grbl `$130/$131`。手绘显示/导出共用 `utils/drawpad.js`，`preserve_canvas` 保留 vpype 和留白。
+
+发布候选只从明确提交导出 LF blob；`scripts/auto_deploy.py` 提供包校验、原服务/队列摘要、文件回滚与失败后续跑，队列升级前先排空并停旧 worker。`cross_repo_sync.py --gate-all` 含 Portal pytest 与 fz standard，软件门禁不代替镜像/设备证据。精品图库真实素材集及产线配方仍须单独验收；状态只看 readiness。
+
 2026-09-13 评审约定：`hutuji.speed` 的 accepted 仅代表接单，portal 须核对 `hutuji.status.speed` 的 request_id/axis/done/rate 与三轴读回；量产速度由 Grbl NVS 保留，本批量产 X/Y 出厂默认 10000，Z 出厂 600 保持原值。奎享完成须同源新 Seq 的持续 Idle/Changing=Off，超时不能算完成。bridge 主 1/备 0，经 unit ExecCondition 闸启动。契约见 `docs/protocol.md` §10.4.17/§10.4.21，证据见 `docs/design/crossrepo-review-20260913.md`。
 
 量产机三轴速度（2026-09-13 用户拍板）：X/Y 默认 10000，Z 保留机器现值；小程序分别设置 X/Y/Z，重启保留。单轴写入前检查设备分轴能力，写后查询三轴实际参数，确认选中轴生效再提示成功。设计与验收见 [`三轴调速`](docs/design/axis-speed-20260913.md)，当前板上状态仍以 readiness 为准。

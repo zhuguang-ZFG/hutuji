@@ -8,8 +8,9 @@
 
   <block wx:elif="{{failed}}">
     <view class="sk-panel">
-      <view class="failed-title">分享已失效</view>
-      <view class="failed-sub">链接过期或作品已删除</view>
+      <view class="failed-title">{{failureTitle}}</view>
+      <view class="failed-sub">{{failureDetail}}</view>
+      <button wx:if="{{retryable}}" class="retry-btn" bindtap="onRetry">重新读取</button>
       <button class="go-btn" bindtap="onGoDraw">我也要画</button>
     </view>
   </block>
@@ -23,8 +24,13 @@
         class="preview"
         src="{{previewUrl}}"
         mode="widthFix"
+        binderror="onPreviewError"
       />
-      <view wx:else class="preview preview-loading sk-pulse"></view>
+      <view wx:elif="{{previewError}}" class="preview preview-error">
+        <text>{{previewError}}</text>
+        <button class="retry-btn" size="mini" bindtap="onRetryPreview">重新加载图片</button>
+      </view>
+      <view wx:else class="preview preview-loading sk-pulse"><text class="loading-label">正在加载图片…</text></view>
     </view>
     <button class="go-btn" bindtap="onGoDraw">我也要画</button>
     <view class="tips">打开「动力巢科技」，一句话就能让丹青画画</view>

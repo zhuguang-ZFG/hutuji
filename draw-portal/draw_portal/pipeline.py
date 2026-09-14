@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from draw_portal.upload_kinds import detect_upload_kind
@@ -128,29 +128,6 @@ def _materialize_laid_pages(
         validate_gcode(
             gcode_raw.decode("ascii"), total_bytes=len(gcode_raw), profile=profile
         )
-    """排版结果 → 每页 SVG/G-code/预览 + pages.json + 第 1 页兼容名。"""
-    import json as _json
-
-    from hutuji_mcp import write_text
-    from hutuji_mcp.gcode_gen import svg_to_gcode, validate_gcode
-    from hutuji_mcp.llm_svg import _validate_svg
-
-    job_dir.mkdir(parents=True, exist_ok=True)
-    pages_dir = job_dir / "pages"
-    pages_dir.mkdir(parents=True, exist_ok=True)
-    page_lines: list[int] = []
-    total_lines = 0
-    total_bytes = 0
-    for i, page in enumerate(laid.pages, start=1):
-        svg = write_text.page_to_svg(page)
-        _validate_svg(svg)
-        svg_path = pages_dir / f"page_{i:03d}.svg"
-        gcode_path = pages_dir / f"page_{i:03d}.gcode"
-        preview_path = pages_dir / f"page_{i:03d}.png"
-        svg_path.write_text(svg, encoding="utf-8")
-        stats = svg_to_gcode(svg_path, gcode_path, normalize=False)
-        gcode_raw = gcode_path.read_bytes()
-        validate_gcode(gcode_raw.decode("ascii"), total_bytes=len(gcode_raw))
         preview_path.write_bytes(write_text.page_to_preview_png(page))
         page_lines.append(stats.lines)
         total_lines += stats.lines
@@ -159,6 +136,9 @@ def _materialize_laid_pages(
     first_svg = pages_dir / "page_001.svg"
     shutil.copyfile(first_svg, job_dir / "draw.svg")
     shutil.copyfile(pages_dir / "page_001.gcode", job_dir / "draw.gcode")
+    from hutuji_mcp.paper_artifacts import read_paper_metadata, write_paper_metadata
+
+    write_paper_metadata(job_dir / "draw.gcode", read_paper_metadata(pages_dir / "page_001.gcode"))
     shutil.copyfile(pages_dir / "page_001.png", job_dir / "preview.png")
 
     meta = {
@@ -224,6 +204,8 @@ def process_write_text(
     layout_fn = (
         write_text.layout_text_fit_single if fit_single_page else write_text.layout_text
     )
+    if profile is not None:
+        layout = replace(layout, page_width_mm=profile.page_width_mm, page_height_mm=profile.page_height_mm)
     laid = layout_fn(
         text,
         font,
@@ -252,7 +234,10 @@ def process_teach_text(
     if not [c for c in chars if not c.isspace()]:
         raise stroke_order.StrokeOrderError("没有可教的汉字")
     data = stroke_order.StrokeData.load(stroke_dir)
-    laid = stroke_order.layout_teach(chars, data, ARTICLE_MAX_PAGES)
+    dimensions = {} if profile is None else {
+        "page_width_mm": profile.page_width_mm, "page_height_mm": profile.page_height_mm,
+    }
+    laid = stroke_order.layout_teach(chars, data, ARTICLE_MAX_PAGES, **dimensions)
     return _materialize_laid_pages(
         laid, job_dir, kind="teach", mode="article", profile=profile
     )
@@ -296,6 +281,8 @@ def process_upload_doc(
             stroke_data = None
     if doc.mode == "article":
         layout = resolve_article_layout(size_mm=size_mm, line_spacing=line_spacing)
+        if profile is not None:
+            layout = replace(layout, page_width_mm=profile.page_width_mm, page_height_mm=profile.page_height_mm)
         laid = write_text.layout_text(
             "\n".join(doc.paragraphs),
             font,
@@ -306,11 +293,14 @@ def process_upload_doc(
             stroke_data=stroke_data,
         )
     else:
+        layout = write_text.WriteLayout(size_mm=8.0, line_spacing=1.25, char_gap_mm=0.5)
+        if profile is not None:
+            layout = replace(layout, page_width_mm=profile.page_width_mm, page_height_mm=profile.page_height_mm)
         laid = table_layout.layout_tables(
             doc.tables,
             font,
             metrics,
-            write_text.WriteLayout(size_mm=8.0, line_spacing=1.25, char_gap_mm=0.5),
+            layout,
             max_pages=ARTICLE_MAX_PAGES,
         )
     return _materialize_laid_pages(
@@ -319,9 +309,12 @@ def process_upload_doc(
 
 
 def process_upload_svg(
-    svg_bytes: bytes, job_dir: Path, *, profile=None
+    svg_bytes: bytes, job_dir: Path, *, profile=None, preserve_canvas: bool = False,
 ) -> PipelineResult:
-    from hutuji_mcp.curated import _preview_from_svg
+    import numpy as np
+    import vpype
+
+    from hutuji_mcp.bitmap_svg import polylines_to_preview_png
     from hutuji_mcp.gcode_gen import svg_to_gcode, validate_gcode
     from hutuji_mcp.llm_svg import _validate_svg
 
@@ -333,9 +326,19 @@ def process_upload_svg(
     gcode_path = job_dir / "draw.gcode"
     preview_path = job_dir / "preview.png"
     svg_path.write_text(text, encoding="utf-8")
-    stats = svg_to_gcode(svg_path, gcode_path, profile=profile)
-    raw = gcode_path.read_bytes()
-    validate_gcode(raw.decode("ascii"), total_bytes=len(raw), profile=profile)
+    layout_path = job_dir / "layout-preview.svg"
+    try:
+        stats = svg_to_gcode(svg_path, gcode_path, profile=profile,
+                             preserve_canvas=preserve_canvas, preview_svg_path=layout_path)
+        raw = gcode_path.read_bytes()
+        validate_gcode(raw.decode("ascii"), total_bytes=len(raw), profile=profile)
+        # 同一管线导出排版后路径，避免预览保留原构图、纸面却按笔迹放大的错位。
+        # 手绘保留画布；普通上传仍按笔迹构图，毫米容差和 5mm 内边距均不变。
+        lines, width, height = vpype.read_svg(layout_path, quantization=1.0)
+        polys = [np.column_stack((line.real, line.imag)) for line in lines]
+        preview_path.write_bytes(polylines_to_preview_png(polys, width, height, smooth=False))
+    finally:
+        layout_path.unlink(missing_ok=True)
 
     return PipelineResult(
         lines=stats.lines,
@@ -500,10 +503,13 @@ def process_upload(
     filename: str,
     job_dir: Path,
     profile=None,
+    preserve_canvas: bool = False,
 ) -> PipelineResult:
     kind = detect_upload_kind(raw, content_type, filename)
     if kind == "svg":
-        return process_upload_svg(raw, job_dir, profile=profile)
+        return process_upload_svg(raw, job_dir, profile=profile, preserve_canvas=preserve_canvas)
+    if preserve_canvas:
+        raise ValueError("保留画布仅适用于 SVG 画稿")
     # 描摹只吃 PNG 魔数（trace_bitmap_to_polylines 开头硬闸）；JPEG 直传会在闸上炸
     # BitmapError（2026-09-07 iPhone 拍照 422「图片转换失败」实证）。按魔数判定，
     # 不信客户端 content_type。

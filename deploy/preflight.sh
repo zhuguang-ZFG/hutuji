@@ -9,7 +9,7 @@ set -euo pipefail
 # 单线字库）**故意不加探针**——字体是奎享专有素材不入库、双机均未配置，无条件
 # 探针必然常红。改下面这个数还要同步 test_contract.py 的形状断言（该数与真实
 # 判据条数、与判据名清单长度三方对账）。
-EXPECTED_CHECKS=33
+EXPECTED_CHECKS=34
 PASS=0
 FAIL=0
 
@@ -956,9 +956,56 @@ print("oss-ready")
 PY
 }
 
+# 精品图库（protocol §10.4.23）部署一致性：portal env 未配 DRAW_PORTAL_MARKET_DIR
+# 即市场禁用（端点 404），同 Phase-3 体例未配 pass；已配则核 manifest 可解析、
+# 条目许可全在白名单、三件套文件齐全。数据根随仓部署，双机各自同份。
+check_market_optional() {
+  local root=""
+  [[ -f /etc/hutuji/draw-portal.env ]] || return 0
+  env_value /etc/hutuji/draw-portal.env DRAW_PORTAL_MARKET_DIR
+  root="${ENV_VALUE}"
+  [[ -n "$root" ]] || return 0
+  local py="/opt/hutuji/mcp-server/.venv/bin/python"
+  [[ -x "$py" ]] || return 1
+  PORTAL_MARKET_ROOT="$root" "$py" - <<'PY'
+import json
+import os
+import sys
+
+root = os.environ["PORTAL_MARKET_ROOT"]
+manifest_path = os.path.join(root, "manifest.json")
+if not os.path.isfile(manifest_path):
+    raise SystemExit("manifest.json 缺失: " + root)
+try:
+    manifest = json.loads(open(manifest_path, encoding="utf-8").read())
+except ValueError as exc:
+    raise SystemExit(f"manifest 不可解析: {exc}")
+items = manifest.get("items")
+if not isinstance(items, list):
+    raise SystemExit("manifest items 必须是数组")
+whitelist = {"CC0-1.0", "Apache-2.0", "MIT", "CC-BY-4.0"}
+bad = []
+for entry in items:
+    lic = entry.get("license")
+    if lic not in whitelist:
+        bad.append(f"{entry.get('id')}:{lic}")
+    elif lic == "CC-BY-4.0" and not entry.get("attribution"):
+        bad.append(f"{entry.get('id')}:CC-BY 缺署名")
+    else:
+        for key in ("path", "gcode_path", "preview_path"):
+            rel = entry.get(key) or ""
+            if not os.path.isfile(os.path.join(root, rel)):
+                bad.append(f"{entry.get('id')}:{key} 缺失")
+if bad:
+    raise SystemExit("坏条目: " + "; ".join(bad[:5]))
+print("market-ok items=%d" % len(items))
+PY
+}
+
 check "Phase-3 队列：Redis PING + draw-worker@1 active（未配队列则 pass）" check_draw_queue_optional
 check "Phase-3 账本：PG SELECT 1 + draw_jobs 表（未配 DSN 则 pass）" check_pg_ledger_optional
 check "Phase-3 OSS：output_store 可初始化（未配 oss 则 pass）" check_oss_roundtrip_optional
+check "精品图库：manifest 可解析且许可白名单（未配 DRAW_PORTAL_MARKET_DIR 则 pass）" check_market_optional
 
 echo "---- preflight pass=${PASS} fail=${FAIL} expected=${EXPECTED_CHECKS} ----"
 # 必须全 pass：无 skip 可抵扣，少一项都不放行（漏跑与失败同等对待）。

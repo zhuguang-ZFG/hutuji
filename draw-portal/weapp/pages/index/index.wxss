@@ -1,4 +1,5 @@
 @import "../../styles/weui-page.wxss";
+@import "../../styles/paper-summary.wxss";
 
 .create-page {
   padding-bottom: 32rpx;
@@ -333,6 +334,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
+}
+
+/* 精品图库入口：绿色主调，与绑定横幅区分，孩子一眼认出「能直接画」 */
+.market-banner {
+  background: rgba(7, 193, 96, 0.08);
+  border-color: rgba(7, 193, 96, 0.3);
 }
 
 .bind-copy {

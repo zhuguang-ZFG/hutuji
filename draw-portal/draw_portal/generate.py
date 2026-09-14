@@ -49,6 +49,8 @@ def request_internal_draw(
     description: str,
     timeout_seconds: int,
     machine: str = "",
+    paper: dict | None = None,
+    device_id: str = "",
 ) -> dict:
     """调 MCP /internal/draw，返回解析后的结果 dict。
 
@@ -60,6 +62,12 @@ def request_internal_draw(
     payload = {"description": description}
     if machine:
         payload["machine"] = machine
+    if paper is not None:
+        from hutuji_mcp.paper_config import PaperConfig
+
+        payload["paper"] = PaperConfig.from_dict(paper).to_dict()
+    if device_id:
+        payload["device_id"] = device_id
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = Request(
         f"{base_url}/internal/draw",
@@ -102,7 +110,7 @@ def _name_from_capability(url: object) -> str:
     return name
 
 
-def _download_limited(url: str, dest: Path, *, max_bytes: int, timeout_seconds: int) -> None:
+def _download_limited(url: str, dest: Path, *, max_bytes: int, timeout_seconds: int) -> str:
     # /files 是匿名能力 URL（secret 只在 /internal/draw 用），这里无需带密钥。
     req = Request(url, method="GET")
     try:
@@ -120,6 +128,7 @@ def _download_limited(url: str, dest: Path, *, max_bytes: int, timeout_seconds: 
                     if written > max_bytes:
                         raise GenerateError("生图产物超限", status=502)
                     fh.write(chunk)
+            return resp.headers.get("X-Hutuji-Paper", "")
     except GenerateError:
         raise
     except HTTPError as exc:
@@ -128,6 +137,8 @@ def _download_limited(url: str, dest: Path, *, max_bytes: int, timeout_seconds: 
         raise GenerateError(
             f"产物下载连接失败（{type(exc.reason).__name__}）", status=502
         ) from None
+    except (ValueError, TimeoutError, OSError):
+        raise GenerateError("产物下载失败，请稍后再试", status=502) from None
 
 
 def materialize_generated_job(
@@ -143,8 +154,13 @@ def materialize_generated_job(
     job_dir.mkdir(parents=True, exist_ok=True)
     gcode_dest = job_dir / "draw.gcode"
     png_dest = job_dir / "preview.png"
+    from hutuji_mcp.gcode_gen import GcodeError, validate_gcode
+    from hutuji_mcp.paper_artifacts import paper_path, write_paper_metadata
+    from hutuji_mcp.output_store import _read_verified_gcode_bytes
+    from .paper_settings import read_job_context
+
     try:
-        _download_limited(
+        marker = _download_limited(
             f"{base_url}/files/{gcode_name}", gcode_dest,
             max_bytes=_MAX_GCODE_BYTES, timeout_seconds=timeout_seconds,
         )
@@ -152,14 +168,33 @@ def materialize_generated_job(
             f"{base_url}/files/{png_name}", png_dest,
             max_bytes=_MAX_PNG_BYTES, timeout_seconds=timeout_seconds,
         )
+        snapshot = read_job_context(job_dir)
+        raw = gcode_dest.read_bytes()
+        if snapshot is not None:
+            if marker != snapshot.paper.marker or result.get("paper_marker") != snapshot.paper.marker:
+                raise GenerateError("生成结果与纸张设置不一致，请重新生成")
+            try:
+                stats = validate_gcode(raw.decode("utf-8"), total_bytes=len(raw), profile=snapshot.paper.to_profile())
+            except (GcodeError, UnicodeError):
+                raise GenerateError("生成结果未通过纸张校验") from None
+            write_paper_metadata(gcode_dest, snapshot.paper, data=raw)
+        else:
+            # 兼容旧调用只放行既有固定档；不能凭回包统计信任大幅产物。
+            _read_verified_gcode_bytes(raw, 0)
+            from hutuji_mcp.gcode_gen import PROFILE_NOPAPER
+
+            try:
+                stats = validate_gcode(raw.decode("utf-8"), total_bytes=len(raw))
+            except GcodeError:
+                stats = validate_gcode(raw.decode("utf-8"), total_bytes=len(raw), profile=PROFILE_NOPAPER)
     except Exception:
         # 半成品不得留在 job 目录：publish 会按「产物不完整」再炸一次，但
         # 失败 job 目录应干净，便于排查（也避免残留大文件）。
-        for path in (gcode_dest, png_dest):
+        for path in (gcode_dest, png_dest, paper_path(gcode_dest)):
             path.unlink(missing_ok=True)
         raise
     return GeneratedDraw(
-        lines=int(result.get("lines") or 0),
-        bytes=int(result.get("bytes") or 0),
-        pen_lifts=int(result.get("pen_lifts") or 0),
+        lines=stats.lines,
+        bytes=stats.bytes,
+        pen_lifts=stats.pen_lifts,
     )

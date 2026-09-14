@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS device_identities (
     active INTEGER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS device_paper_settings (
+    device_mac TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    bound_at REAL NOT NULL,
+    config_json TEXT NOT NULL,
+    capable INTEGER NOT NULL,
+    updated_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bind_identity_challenges (
     device_id TEXT NOT NULL,
     nonce TEXT NOT NULL,
@@ -432,6 +441,11 @@ class Store:
         for name, ddl in _SAVED_PREVIEW_TELEGRAM_COLUMNS:
             if name not in preview_cols:
                 conn.execute(f"ALTER TABLE saved_previews ADD COLUMN {name} {ddl}")
+        if "credit_json" not in preview_cols:
+            conn.execute("ALTER TABLE saved_previews ADD COLUMN credit_json TEXT")
+        archive_cols = {row[1] for row in conn.execute("PRAGMA table_info(telegram_archive_log)").fetchall()}
+        if "credit_json" not in archive_cols:
+            conn.execute("ALTER TABLE telegram_archive_log ADD COLUMN credit_json TEXT")
         conn.commit()
 
     @staticmethod
@@ -554,6 +568,7 @@ class Store:
             tg_state=row["tg_state"],
             tg_file_id=row["tg_file_id"],
             tg_message_id=row["tg_message_id"],
+            credit_json=row["credit_json"],
         )
 
     def create_user(
@@ -1374,6 +1389,53 @@ class Store:
                 rows = conn.execute("SELECT * FROM device_bindings WHERE user_id = ?", (user_id,)).fetchall()
         return [self._row_binding(row) for row in rows]
 
+    def get_device_paper(self, binding: DeviceBinding) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT p.config_json, p.capable, p.updated_at FROM device_paper_settings p
+                   JOIN user_device_bindings b ON b.device_mac=p.device_mac
+                     AND b.user_id=p.user_id AND b.bound_at=p.bound_at
+                   WHERE p.device_mac=? AND p.user_id=? AND p.bound_at=?""",
+                (binding.device_mac, binding.user_id, binding.bound_at),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_device_paper(self, binding: DeviceBinding, config_json: str, *, capable: bool, machine: str = "") -> bool:
+        """只写仍属本次绑定的设备；旧探测不得复活换绑前的纸张配置。"""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO device_paper_settings
+                   (device_mac,user_id,bound_at,config_json,capable,updated_at)
+                   SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM user_device_bindings
+                     WHERE device_mac=? AND user_id=? AND bound_at=?)
+                   ON CONFLICT(device_mac) DO UPDATE SET user_id=excluded.user_id,
+                     bound_at=excluded.bound_at, config_json=excluded.config_json,
+                     capable=excluded.capable, updated_at=excluded.updated_at""",
+                (binding.device_mac, binding.user_id, binding.bound_at, config_json, int(capable), time.time(),
+                 binding.device_mac, binding.user_id, binding.bound_at),
+            )
+            if cur.rowcount and machine in ("paper", "nopaper"):
+                for table in ("user_device_bindings", "device_bindings"):
+                    conn.execute(f"UPDATE {table} SET machine_type=? WHERE device_mac=? AND user_id=? AND bound_at=?",
+                                 (machine, binding.device_mac, binding.user_id, binding.bound_at))
+            conn.commit()
+        return cur.rowcount == 1
+
+    def update_binding_token_if_current(self, binding: DeviceBinding, token_enc: str) -> bool:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cur = conn.execute(
+                "UPDATE user_device_bindings SET device_token_enc=? WHERE device_mac=? AND user_id=? AND bound_at=?",
+                (token_enc, binding.device_mac, binding.user_id, binding.bound_at),
+            )
+            if cur.rowcount:
+                conn.execute(
+                    "UPDATE device_bindings SET device_token_enc=? WHERE device_mac=? AND user_id=? AND bound_at=?",
+                    (token_enc, binding.device_mac, binding.user_id, binding.bound_at),
+                )
+            conn.commit()
+        return cur.rowcount == 1
+
     def select_binding_for_user(self, user_id: str, device_mac: str) -> DeviceBinding | None:
         mac = normalize_mac(device_mac)
         with self._connect() as conn:
@@ -1651,6 +1713,7 @@ class Store:
         preview_path: str,
         gcode_path: str | None,
         tg_pending: bool = False,
+        credit_json: str | None = None,
     ) -> SavedPreview:
         saved = SavedPreview(
             id=str(uuid.uuid4()),
@@ -1661,14 +1724,15 @@ class Store:
             gcode_path=gcode_path,
             saved_at=time.time(),
             tg_state="pending" if tg_pending else None,
+            credit_json=credit_json,
         )
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO saved_previews (
                     id, user_id, job_id, title, preview_path, gcode_path, saved_at,
-                    tg_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    tg_state, credit_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     saved.id,
@@ -1679,6 +1743,7 @@ class Store:
                     saved.gcode_path,
                     saved.saved_at,
                     saved.tg_state,
+                    saved.credit_json,
                 ),
             )
             conn.commit()
@@ -1726,14 +1791,15 @@ class Store:
                 """
                 INSERT INTO telegram_archive_log (
                     saved_id, user_id, title, preview_path,
-                    tg_file_id, tg_message_id, archived_at, tg_removed_at
+                    tg_file_id, tg_message_id, archived_at, tg_removed_at, credit_json
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, NULL
-                WHERE EXISTS (SELECT 1 FROM saved_previews WHERE id = ?)
+                SELECT ?, ?, ?, ?, ?, ?, ?, NULL, credit_json
+                FROM saved_previews WHERE id = ?
                 ON CONFLICT(saved_id) DO UPDATE SET
                     tg_file_id = excluded.tg_file_id,
                     tg_message_id = excluded.tg_message_id,
-                    tg_removed_at = NULL
+                    tg_removed_at = NULL,
+                    credit_json = excluded.credit_json
                 """,
                 (
                     saved_id, user_id, title, preview_path,
@@ -1795,6 +1861,7 @@ class Store:
         saved_at: float,
         tg_file_id: str,
         tg_message_id: int,
+        credit_json: str | None = None,
     ) -> None:
         """召回重建行：沿用原 saved_id（台账主键连贯），无 gcode 副本不可再发送。"""
         with self._connect() as conn:
@@ -1802,10 +1869,10 @@ class Store:
                 """
                 INSERT OR REPLACE INTO saved_previews (
                     id, user_id, job_id, title, preview_path, gcode_path, saved_at,
-                    tg_state, tg_file_id, tg_message_id, tg_checked_at
-                ) VALUES (?, ?, NULL, ?, ?, NULL, ?, 'uploaded', ?, ?, ?)
+                    tg_state, tg_file_id, tg_message_id, tg_checked_at, credit_json
+                ) VALUES (?, ?, NULL, ?, ?, NULL, ?, 'uploaded', ?, ?, ?, ?)
                 """,
-                (saved_id, user_id, title, preview_path, saved_at, tg_file_id, tg_message_id, time.time()),
+                (saved_id, user_id, title, preview_path, saved_at, tg_file_id, tg_message_id, time.time(), credit_json),
             )
             conn.commit()
 

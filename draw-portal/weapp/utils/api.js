@@ -96,7 +96,7 @@ function request(path, options = {}) {
   });
 }
 
-function uploadFile(path, filePath, name, formData) {
+function uploadFile(path, filePath, name, formData, options = {}) {
   const session = getSession();
   const generation = getApp()._sessionGeneration;
   return new Promise((resolve, reject) => {
@@ -105,7 +105,7 @@ function uploadFile(path, filePath, name, formData) {
       filePath: filePath,
       name: name || "file",
       header: { "x-session": session },
-      timeout: 150000,
+      timeout: options.timeout || 150000,
       success(res) {
         if (res.statusCode === 401) {
           _reject401(reject, session, generation);
@@ -149,19 +149,28 @@ function uploadFile(path, filePath, name, formData) {
 // 真机会 401 白图；必须先经 wx.downloadFile（可带头）落地临时文件再显示。
 // downloadFile 合法域名需在 mp 后台与 request/uploadFile 同配（2026-09-07 已加）。
 function downloadFile(path) {
+  const session = getSession();
+  const generation = getApp()._sessionGeneration;
   return new Promise((resolve, reject) => {
     wx.downloadFile({
       url: BASE_URL + path,
-      header: { "x-session": getSession() },
+      header: { "x-session": session },
+      // 收藏预览通常只有几 KB；弱网超过 12 秒便给出可重试状态，避免空占位久等。
+      timeout: 12000,
       success(res) {
-        if (res.statusCode === 200) {
+        if (res.statusCode === 401) {
+          _reject401(reject, session, generation);
+          return;
+        }
+        if (res.statusCode === 200 && res.tempFilePath) {
           resolve(res.tempFilePath);
           return;
         }
-        reject({ status: res.statusCode, detail: "图片加载失败" });
+        reject({ status: res.statusCode, detail: res.statusCode === 404 ? "图片已不可用" : "图片加载失败，请重试" });
       },
-      fail() {
-        reject({ status: 0, detail: "网络不可用，请检查网络" });
+      fail(err) {
+        reject({ status: 0, detail: /timeout/i.test((err && err.errMsg) || "")
+          ? "图片加载超时，请重试" : "网络不可用，请检查网络" });
       },
     });
   });
