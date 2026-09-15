@@ -1,0 +1,6 @@
+# 清单按字节校验；Windows 检出也必须保留 LF，避免合法素材被运行时隐藏。
+*.json text eol=lf
+*.svg text eol=lf
+*.gcode text eol=lf
+*.txt text eol=lf
+*.png binary

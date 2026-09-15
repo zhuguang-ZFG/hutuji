@@ -97,7 +97,7 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 
 ## Code Conventions & Common Patterns｜代码约定与常用模式
 
-- **2026-09-15 精品图库首批**：`mcp-server/market/` 为467件、20类的Git真值，`sources.json` 固定官方提交/许可与原图SHA，`review.json` 登记逐件最终预览复核及拒收理由。Twemoji图形用CC-BY-4.0（不可套代码MIT），Tabler MIT、MDI Apache-2.0并排除品牌标志。稀疏矢量不做五点平滑；按绘制顺序处理遮挡/同色/孔洞，隐藏不回流、半透明拒收，导出视口覆盖右下边；文本LF规范化后计算产物SHA，另存原许可SHA。预生成G-code只作入库质量证据，发送/收藏按当前设备纸张重新转换；send直接运动。发布窄白名单支持既定中文类目，2048文件上限与32MiB包预算同时生效。契约§10.4.23，部署/页面验收只看readiness。
+- **2026-09-15 精品图库首批**：`mcp-server/market/` 为467件、20类的Git真值，`sources.json` 固定官方提交/许可与原图SHA，`review.json` 登记逐件最终预览复核及拒收理由。Twemoji图形用CC-BY-4.0（不可套代码MIT），Tabler MIT、MDI Apache-2.0并排除品牌标志。稀疏矢量不做五点平滑；按绘制顺序处理遮挡/同色/孔洞，隐藏不回流、半透明拒收，导出视口覆盖右下边；文本LF规范化后计算产物SHA，另存原许可SHA；图库.gitattributes固定Windows检出LF。预生成G-code只作入库质量证据，发送/收藏按当前设备纸张重新转换；send直接运动。发布窄白名单支持既定中文类目，2048文件上限与32MiB包预算同时生效。契约§10.4.23，部署/页面验收只看readiness。
 
 - **2026-09-14 纸张与产物快照**：共享 `PaperConfig` 校验 A4/A3/A2/custom、横竖/留边/交换及实测机器范围；默认 paper X277/Y190、nopaper X205/Y290 不变，选纸不扩边、不写 `$130/$131`。旧 `status.paper` 遥测保留，新字段 `status.paper_config`；配置在场却损坏不能回落 A4。生成/缓存/Redis/收藏共用冻结快照，`.paper.json` 以内容 SHA 绑定配置，`/files` 按该配置过 §5 并发 `X-Hutuji-Paper`，新 S3 发首行前对照本机标记。云端带完整设备 MAC，内部配置/推送按归属复核；发布须先准备设备和角色能力，再切后端并排空旧队列。契约 §10.4.24，软件与部署状态见纸张任务和 readiness。
 - **2026-09-14 运维候选**：`scripts/auto_deploy.py` 从显式 commit 的 LF blob 出包，固定节点服务、逐文件校验、原服务清单/Redis URL 摘要及失败可续的回滚。`cross_repo_sync.py --gate-all` 必跑 Portal pytest 和 fz standard，不把「源码检查」写成「已构建」。下载工具空配置不作产线配方；精品图库代码候选与真实素材许可验收分别登记。
