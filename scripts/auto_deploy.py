@@ -34,6 +34,8 @@ ARCHIVE_ROOT = 'hutuji-deploy/'
 MANIFEST_NAME = ARCHIVE_ROOT + 'DEPLOYMENT_MANIFEST.json'
 MAX_PACKAGE_BYTES = 32 * 1024 * 1024
 MAX_FILE_BYTES = 4 * 1024 * 1024
+# 600 件图库各含 SVG/G-code/PNG，另留代码、许可与来源记录的位置。
+MAX_FILES = 2048
 DEPLOY_TARGETS = {
     'aliyun': {'host': 'lima', 'user': '', 'services': [
         'hutuji-mcp', 'hutuji-draw-portal', *[f'hutuji-draw-worker@{i}' for i in range(1, 9)],
@@ -46,6 +48,27 @@ PREFIXES = ('mcp-server/hutuji_mcp/', 'draw-portal/draw_portal/', 'draw-portal/d
 EXTRA_PATHS = ('mcp-server/scripts/e2e_local.py', 'scripts/xiaozhi_console.py', 'deploy/preflight.sh')
 TEXT_SUFFIXES = {'.py', '.toml', '.json', '.html', '.css', '.js', '.svg', '.sh'}
 SUFFIXES = TEXT_SUFFIXES | {'.png', '.ico', '.woff2'}
+MARKET_PREFIX = 'mcp-server/market/'
+MARKET_CATEGORIES = frozenset((
+    '动物', '鸟类', '昆虫', '水生', '植物', '花卉', '食物', '水果', '蔬菜', '交通工具',
+    '建筑', '日常小物', '文具', '玩具', '运动', '乐器', '节日', '字母数字', '几何装饰', '表情',
+))
+MARKET_TEXT_SUFFIXES = {'.gcode', '.txt'}
+
+
+def _valid_market_path(relative: str) -> bool:
+    if not relative.startswith(MARKET_PREFIX):
+        return False
+    name = relative[len(MARKET_PREFIX):]
+    if name in ('manifest.json', 'sources.json', 'review.json'):
+        return True
+    parts = name.split('/')
+    if len(parts) == 2 and parts[0] == 'licenses':
+        return re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,95}\.txt', parts[1]) is not None
+    if len(parts) != 3 or parts[1] not in MARKET_CATEGORIES:
+        return False
+    suffix = {'svg': 'svg', 'gcode': 'gcode', 'preview': 'png'}.get(parts[0])
+    return suffix is not None and re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,95}\.' + suffix, parts[2]) is not None
 
 
 def sha256(data: bytes) -> str:
@@ -53,7 +76,11 @@ def sha256(data: bytes) -> str:
 
 
 def valid_release_path(relative: str) -> bool:
-    if not isinstance(relative, str) or not re.fullmatch(r'[A-Za-z0-9_./-]+', relative):
+    if not isinstance(relative, str):
+        return False
+    if _valid_market_path(relative):
+        return True
+    if not re.fullmatch(r'[A-Za-z0-9_./-]+', relative):
         return False
     parts = PurePosixPath(relative).parts
     return (not relative.startswith('/') and '..' not in parts
@@ -86,7 +113,7 @@ def _validate_manifest(manifest: dict, files: dict[str, bytes], target: str) -> 
             or manifest.get('services') != DEPLOY_TARGETS[target]['services']):
         raise ValueError('发布清单或目标节点不符')
     rows = manifest.get('files')
-    if not isinstance(rows, list) or not rows or len(rows) > 1024:
+    if not isinstance(rows, list) or not rows or len(rows) > MAX_FILES:
         raise ValueError('发布清单文件数无效')
     names = set()
     for row in rows:
@@ -101,7 +128,7 @@ def _validate_manifest(manifest: dict, files: dict[str, bytes], target: str) -> 
                 or not 0 <= len(data) <= MAX_FILE_BYTES or sha256(data) != row.get('sha256')
                 or type(row.get('mode')) is not int or row['mode'] not in (0o644, 0o755)):
             raise ValueError('发布文件完整性校验失败')
-        if Path(name).suffix in TEXT_SUFFIXES and b'\r' in data:
+        if Path(name).suffix in TEXT_SUFFIXES | MARKET_TEXT_SUFFIXES and b'\r' in data:
             raise ValueError('发布文本必须 CR=0')
         if name.endswith('.py'):
             compile(data, name, 'exec')
@@ -160,7 +187,7 @@ def read_package(package: Path, *, target: str) -> tuple[dict, dict[str, bytes]]
     # 不执行 extractall：链接、目录、路径穿越及重复项均在任何落盘前拒绝。
     with tarfile.open(package, 'r:gz') as archive:
         for member in archive:
-            if (not member.isfile() or member.name in entries or len(entries) >= 1025
+            if (not member.isfile() or member.name in entries or len(entries) >= MAX_FILES + 1
                     or member.size < 0 or member.size > MAX_FILE_BYTES):
                 raise ValueError('发布归档成员无效')
             if member.name != MANIFEST_NAME and (
@@ -241,7 +268,7 @@ def _validate_rollback_record(record: dict, target: str) -> None:
             or not re.fullmatch(r'[0-9a-f]{40}', str(record.get('git_commit', '')))):
         raise ValueError('备份不适用于此节点或已回滚')
     rows = record.get('files')
-    if not isinstance(rows, dict) or not 0 < len(rows) <= 1024:
+    if not isinstance(rows, dict) or not 0 < len(rows) <= MAX_FILES:
         raise ValueError('回滚清单文件数无效')
     for name, row in rows.items():
         if not valid_release_path(name) or not isinstance(row, dict):

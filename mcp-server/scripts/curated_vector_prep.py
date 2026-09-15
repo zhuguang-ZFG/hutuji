@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import math
 import sys
 import tempfile
 import urllib.request
@@ -45,7 +46,7 @@ def load_mapping() -> dict:
     return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
-def convert_svg(svg_text: str, code: str) -> str:
+def convert_svg(svg_text: str, code: str, *, smooth: bool = True) -> str:
     """Twemoji SVG → 单线 plotter SVG（区域边界即笔画；填充/描边皆可）。
 
     行数自适应：首档 RDP 0.05 单位 ≈ 产线 0.28mm；超 780 点逐级 1.6× 放宽。
@@ -66,7 +67,10 @@ def convert_svg(svg_text: str, code: str) -> str:
         if sum(len(p) for p in polys) <= _MAX_PLOTTER_POINTS:
             break
         tol *= _RDP_TOL_FACTOR
-    return polylines_to_svg(polys, int(w), int(h))
+    # 市场矢量导出不向下截断物理尺寸，否则贴边坐标会落到新视口外，
+    # 再次由 vpype 读取时整条右/下边界会被裁掉。
+    width, height = (math.ceil(w) + 1, math.ceil(h) + 1) if not smooth else (int(w), int(h))
+    return polylines_to_svg(polys, width, height, smooth=smooth)
 
 
 def fetch_code(code: str, cache_dir: Path) -> str:

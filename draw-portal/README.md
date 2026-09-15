@@ -8,7 +8,7 @@
 
 小程序新增 `pages/paper/`、纸张摘要和共用 `utils/paper_config.js`。画板的镜像、六向、素材、回放与导出共用 `utils/drawpad.js`，上传带 `preserve_canvas=true` 保留空白构图；后台仍过实际 vpype 与 §5。`utils/preview_queue.js` 限制收藏预览并发并提供超时重试，实际用户收藏后的延迟原因仍须生产复现，不能仅凭缓存测试下结论。
 
-精品图库 `market.py`、`pages/market/` 与 `market_ingest.py` 已有候选和许可/哈希校验；`mcp-server/market/` 当前没有真实验收素材集，空目录不可写成首批图库已交付。发布须同步新模块并先准备设备能力/内部纸张接口，队列切换按 `../docs/design/production-tools-review-20260914.md` 排空旧 worker。
+精品图库 `market.py`、`pages/market/` 与 `market_ingest.py` 共用许可/哈希校验。首批 467 件、20 类的来源、许可与逐件预览复核记录保存在 `mcp-server/market/{manifest,sources,review}.json`；生产启用与页面验收以 readiness 为准。发送/收藏按当前设备纸张重新转换，`send` 会直接运动。发布从 Git LF 对象出包、逐文件验 SHA，队列切换按 `../docs/design/production-tools-review-20260914.md` 排空旧 worker。
 
 ## 本地开发
 

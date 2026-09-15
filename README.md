@@ -4,7 +4,7 @@
 
 2026-09-14 纸张与创作候选：每台设备独立保存纸张、方向、留边、XY 交换和已核对的可绘制范围，图片、文字、笔顺、文档及手绘共用一次快照。新产物携内容绑定配置，新 S3 下载前核对配置；选择大纸不扩大旧机型包线。手绘增加镜像、六向、素材与回放，保留留白。契约见 [`protocol §10.4.24`](docs/protocol.md)，实施及发布状态见 [`纸张任务`](docs/design/paper-settings-20260913/implement.md) 与 readiness。
 
-运维入口 `scripts/auto_deploy.py` 从显式提交导出 LF blob、逐文件核 SHA 并保存可重试回滚记录；`scripts/cross_repo_sync.py --gate-all` 包含 Portal 与 fz 检查。队列版本切换必须排空并停止旧 worker。精品图库程序与许可入库闸已在候选中，真实合格素材集尚未完成；`configure/` 的空白下载工具状态不是量产配方。详见 [`工具审查`](docs/design/production-tools-review-20260914.md)。
+运维入口 `scripts/auto_deploy.py` 从显式提交导出 LF blob、逐文件核 SHA 并保存可重试回滚记录；`scripts/cross_repo_sync.py --gate-all` 包含 Portal 与 fz 检查。队列版本切换必须排空并停止旧 worker。精品图库首批 467 件、20 类的固定来源、许可与逐件预览记录在 `mcp-server/market/`，上线和手机验收以 readiness 为准；发布工具仅对图库白名单开放中文类目目录，文件上限2048。`configure/` 的空白下载工具状态不是量产配方。详见 [`工具审查`](docs/design/production-tools-review-20260914.md) 与 [`图库设计`](docs/design/drawing-market-20260914.md)。
 
 2026-09-13 三仓评审修复：调速改为后台事务并等待三轴实际读回，普通重启保留速度；奎享完成只接受目标机器的连续新广播；云端主备以 `HUTUJI_BRIDGE_ACTIVE` 保持单 bridge。问题、回归与交付证据见 [`评审记录`](docs/design/crossrepo-review-20260913.md)，当前部署状态仍以 release-readiness 为准。
 

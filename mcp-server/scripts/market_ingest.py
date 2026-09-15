@@ -28,6 +28,7 @@ from contextlib import contextmanager
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -44,7 +45,7 @@ for p in (str(ROOT), str(ROOT / "scripts"), str(ROOT.parent / "draw-portal")):
 import numpy as np  # noqa: E402
 
 from hutuji_mcp.market_schema import CATEGORIES, ID_RE, LICENSE_WHITELIST, validate_entry  # noqa: E402
-from hutuji_mcp.bitmap_svg import polylines_to_preview_png  # noqa: E402
+from hutuji_mcp.bitmap_svg import polylines_to_preview_png, polylines_to_svg  # noqa: E402
 from hutuji_mcp.curated_gate import GATE_VERSION, GateReject, gate_svg  # noqa: E402
 from curated_vector_prep import convert_svg  # noqa: E402  # 复用 Twemoji 转换链
 
@@ -68,7 +69,7 @@ _POINTS_RE = re.compile(r"<polyline\b[^>]*\bpoints=\"([^\"]+)\"", re.I)
 _VIEWBOX_DIM_RE = re.compile(r"viewBox=\"\s*-?[\d.]+\s+[ ,]\s*-?[\d.]+\s+[ ,]\s*([\d.]+)\s+[ ,]\s*([\d.]+)\"", re.I)
 
 
-def _extract_polylines(svg_text: str) -> tuple[list[np.ndarray], int, int]:
+def _extract_polylines(svg_text: str) -> tuple[list[np.ndarray], float, float]:
     import vpype
 
     lines, w, h = vpype.read_svg(io.StringIO(svg_text), quantization=1.0)
@@ -136,6 +137,132 @@ def _validate_source(svg: str) -> None:
                 raise ValueError("源 SVG 不得包含脚本或外部引用")
 
 
+def _filled_region(polys, rule):
+    """按 SVG 非零/奇偶填充规则还原区域，保留复合路径的孔洞。"""
+    from shapely.geometry import LineString
+    from shapely.ops import polygonize, unary_union
+
+    if rule not in ("nonzero", "evenodd"):
+        raise ValueError("源 SVG 填充规则不支持")
+    rings = []
+    for poly in polys:
+        if len(poly) < 3:
+            continue
+        ring = poly if np.array_equal(poly[0], poly[-1]) else np.vstack((poly, poly[0]))
+        if len(np.unique(ring, axis=0)) >= 3:
+            rings.append(ring)
+    faces = list(polygonize(unary_union([LineString(ring) for ring in rings])))
+    if len(faces) > 2048:
+        raise ValueError("源 SVG 可见区域过于复杂")
+    selected = []
+    for face in faces:
+        point = face.representative_point()
+        winding = 0
+        for ring in rings:
+            start, end = ring[:-1], ring[1:]
+            cross = (end[:, 0]-start[:, 0])*(point.y-start[:, 1]) - (point.x-start[:, 0])*(end[:, 1]-start[:, 1])
+            winding += int(np.count_nonzero((start[:, 1] <= point.y) & (end[:, 1] > point.y) & (cross > 0)))
+            winding -= int(np.count_nonzero((start[:, 1] > point.y) & (end[:, 1] <= point.y) & (cross < 0)))
+        if (winding % 2) if rule == "evenodd" else (winding != 0):
+            selected.append(face)
+    return unary_union(selected)
+
+
+def _visible_source_svg(svg: str) -> str:
+    """彩色 SVG 先按绘制顺序去遮挡；线稿保留原路径，不描出隐藏轮廓。"""
+    import copy
+    from xml.etree import ElementTree
+    import vpype
+    from shapely.geometry import LineString
+    from shapely.ops import linemerge, unary_union
+    from svgelements import Color
+
+    root = ElementTree.fromstring(svg)
+    shapes = []
+    inherited = ("fill", "stroke", "fill-rule", "fill-opacity", "stroke-opacity", "color", "visibility")
+
+    def collect(node, parents, style, opacity):
+        style = {**style, **{key: node.attrib[key] for key in inherited if key in node.attrib}}
+        opacity *= float(node.get("opacity", "1"))
+        if node.get("display") == "none" or opacity == 0:
+            return
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag in ("svg", "g"):
+            for child in node:
+                collect(child, parents + ([node] if tag == "g" else []), style, opacity)
+        elif tag not in ("title", "desc") and style.get("visibility") not in ("hidden", "collapse"):
+            shapes.append((node, parents, style, opacity))
+
+    collect(root, [], {"fill": "black", "stroke": "none", "fill-rule": "nonzero"}, 1.0)
+    if len(shapes) > 512:
+        raise ValueError("源 SVG 图层过多")
+
+    def paint(style, key, opacity):
+        value = style[key]
+        if value == "none":
+            return None
+        color = Color(style.get("color", "black") if value == "currentColor" else value)
+        alpha = opacity * float(style.get(key + "-opacity", "1")) * color.opacity
+        if alpha not in (0, 1):
+            raise ValueError("半透明填充或描边须先明确扁平化，不能猜测可见轮廓")
+        return color.hexrgb if alpha else None
+
+    layers = []
+    for node, parents, style, opacity in shapes:
+        fill = None if node.tag.rsplit("}", 1)[-1] == "line" else paint(style, "fill", opacity)
+        stroke = paint(style, "stroke", opacity)
+        if fill is not None or stroke is not None:
+            layers.append((node, parents, style, fill, stroke))
+    if not layers:
+        raise ValueError("源 SVG 无可见轮廓")
+
+    def append_shape(target, node, parents):
+        for group in parents:
+            target = ElementTree.SubElement(target, group.tag, group.attrib)
+        target.append(copy.deepcopy(node))
+
+    if all(fill is None for _, _, _, fill, _ in layers):
+        # 纯描边沿用原坐标与折点，但不能把已筛掉的隐藏图层重新带回来。
+        visible = ElementTree.Element(root.tag, root.attrib)
+        for node, parents, _, _, _ in layers:
+            append_shape(visible, node, parents)
+        return ElementTree.tostring(visible, encoding="unicode")
+
+    palette, strokes = {}, []
+    width = height = 0.0
+    for node, parents, style, fill, stroke in layers:
+        single = ElementTree.Element(root.tag, root.attrib)
+        append_shape(single, node, parents)
+        lines, width, height = vpype.read_svg(io.StringIO(ElementTree.tostring(single, encoding="unicode")), quantization=0.12)
+        polys = [np.column_stack((line.real, line.imag)) for line in lines if len(line) >= 2]
+        if (not all(np.isfinite(poly).all() for poly in polys) or sum(len(poly) for poly in polys) > 30000
+                or not all(np.isfinite(side) and 0 < side <= 4096 for side in (width, height))):
+            raise ValueError("源 SVG 几何超出离线转换预算")
+        if fill is not None:
+            region = _filled_region(polys, style["fill-rule"])
+            palette = {key: value.difference(region) for key, value in palette.items()}
+            palette[fill] = unary_union([palette.get(fill, LineString()), region])
+            strokes = [line.difference(region) for line in strokes]
+        if stroke is not None:
+            strokes.extend(LineString(poly) for poly in polys)
+    geometry = unary_union([region.boundary for region in palette.values() if not region.is_empty] + strokes)
+    if geometry.is_empty:
+        raise ValueError("源 SVG 无可见轮廓")
+    if geometry.geom_type != "LineString":
+        geometry = linemerge(geometry)
+    lines = [geometry] if geometry.geom_type == "LineString" else list(geometry.geoms)
+    # 归一到1024坐标框再落一位小数，避免24px图源被0.1单位舍入成可见台阶。
+    scale = 1024 / max(width, height)
+    polys = [np.asarray(line.coords) * scale for line in lines if line.length > 0]
+    canvas_w, canvas_h = math.ceil(width*scale) + 1, math.ceil(height*scale) + 1
+    visible = ElementTree.fromstring(polylines_to_svg(polys, canvas_w, canvas_h, smooth=False))
+    # 中间件使用整数像素尺寸。190mm 的二进制舍入可让贴边点比视口大
+    # 1e-13，vpype crop 随即丢掉整条线；物理尺寸留给最终导出。
+    visible.set("width", str(canvas_w))
+    visible.set("height", str(canvas_h))
+    return ElementTree.tostring(visible, encoding="unicode")
+
+
 def ingest_one(
     *,
     market_dir: Path,
@@ -165,19 +292,27 @@ def ingest_one(
         license_bytes = stream.read(256 * 1024 + 1)
     if not license_bytes.strip() or len(license_bytes) > 256 * 1024:
         raise ValueError("来源许可文件为空或超过预算")
+    license_source_hash = hashlib.sha256(license_bytes).hexdigest()
+    # Windows 工作树与 Git blob 的换行必须在算哈希前统一，不能部署后失配。
+    license_bytes = license_bytes.replace(b"\r\n", b"\n")
+    if b"\r" in license_bytes:
+        raise ValueError("来源许可文本含不支持的换行")
 
     _validate_source(svg_text)
-    plotter_svg = convert_svg(svg_text, item_id)
+    # 外部矢量的折点是设计几何；骨架降噪的五点均值会挪动凹角和键盘边界。
+    plotter_svg = convert_svg(_visible_source_svg(svg_text), item_id, smooth=False)
 
     with tempfile.TemporaryDirectory() as td:
         try:
             stats = gate_svg(plotter_svg, work_dir=Path(td))
         except GateReject as exc:
             raise SystemExit(f"闸拒收 id={item_id}: {exc.reason}") from exc
-        gcode_bytes = (Path(td) / "gate.gcode").read_bytes()
+        gcode_bytes = (Path(td) / "gate.gcode").read_bytes().replace(b"\r\n", b"\n")
 
     polys, w, h = _extract_polylines(plotter_svg)
-    preview_png = polylines_to_preview_png(polys, w, h, smooth=False)
+    # SVG 允许路径落在 width/height 边界；像素中心范围则到 size-1。
+    # 留出一像素及导出的一位小数舍入余量，不能裁掉贴边的整条轮廓。
+    preview_png = polylines_to_preview_png(polys, math.ceil(w) + 2, math.ceil(h) + 2, smooth=False)
     svg_raw = plotter_svg.encode("utf-8")
     svg_hash = hashlib.sha256(svg_raw).hexdigest()
     preview_hash = hashlib.sha256(preview_png).hexdigest()
@@ -193,6 +328,7 @@ def ingest_one(
         "source": source,
         "source_url": source_url,
         "source_revision": source_revision,
+        "source_sha256": hashlib.sha256(svg_text.encode("utf-8")).hexdigest(),
         "path": f"svg/{category}/{item_id}-{svg_hash[:16]}.svg",
         "gcode_path": f"gcode/{category}/{item_id}-{gcode_hash[:16]}.gcode",
         "preview_path": f"preview/{category}/{item_id}-{preview_hash[:16]}.png",
@@ -201,6 +337,7 @@ def ingest_one(
         "gcode_sha256": gcode_hash,
         "preview_sha256": preview_hash,
         "license_sha256": license_hash,
+        "license_source_sha256": license_source_hash,
         "changes": "原素材转换为单线绘图，调整路径与构图",
         "reviewed": reviewed,
         "viewBox": f"0 0 {w} {h}",

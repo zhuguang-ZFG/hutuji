@@ -1024,13 +1024,14 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 
 | 面 | 约定 |
 |----|------|
-| 数据 | `manifest.json` 单一真相源进 git（`mcp-server/market/`，部署 scp 双机各自同份）；条目含 id/标题/类目/license/attribution/source/相对路径/预生成 gcode 与 preview PNG。SVG→G-code 是确定性产物，**入库管线预生成**，发送路径零转换 |
+| 数据 | `manifest.json` 单一真相源进 git（`mcp-server/market/`，双机部署同份）；条目包含固定来源提交、原 SVG SHA、许可全文及产物 SHA、`reviewed`。入库 G-code 是默认纸张的门禁证据；发送/收藏按本次设备 `PaperConfig` 重新转换并绑定内容元数据，缓存键包含 SVG SHA 与纸张 marker（§10.4.24 supersede 旧“发送零转换”口径） |
 | 许可闸（fail-closed） | 白名单 {CC0-1.0, Apache-2.0, MIT, CC-BY-4.0}；CC-BY-SA/CC-NC 硬拒（商用产品不兼容）；`license` 缺失或不在白名单，加载期剔除不出现在市场。CC-BY 条目 `attribution` 必填，缺署名剔除 |
 | 署名义务 | CC-BY 条目署名展示在详情页与发送确认卡两处；缺署名视为缺陷，不允许上线 |
 | API（phone_secured） | `GET /api/market/categories`、`GET /api/market/list?category=&cursor=`（30/页）、`GET /api/market/item/{id}`、`GET /api/market/item/{id}/preview.png`、`POST /api/market/item/{id}/send`、`POST /api/market/item/{id}/favorite`。`DRAW_PORTAL_MARKET_DIR` 未配置或 manifest 缺失时全端点 404（功能禁用 fail-closed） |
 | 发送 | 与 `saved_send` 同构：`_install_capability_pair` 刷 mtime 落 MCP output + `push_draw_self_heal` 推送；固件升级中拒绝；占用设备 busy 语义不占生图并发；usage 记 `web_market_send`（detail=条目 id） |
 | 收藏 | 产物拷入用户 saved 目录落 `saved_previews` 表（标题=条目标题），TG 备份开关沿用同待遇；`trim_saved_previews` 50 件上限不变；usage 记 `web_market_favorite` |
 | 安全 | 条目的 gcode/preview 相对路径解析后必须仍落在市场根内（`..` 越界拒）；manifest mtime 变更热重载，坏 manifest 沿用旧快照不半份覆盖 |
+| 入库保真 | 彩色 SVG 按绘制顺序提可见区域边界，同色并区、保留非零/奇偶孔洞与可见描边；拒绝未扁平化的半透明素材。稀疏矢量禁五点均值挪动拐角；整数中间视口与向上取整余量防二次裁剪丢边。G-code/许可文本先规范为 LF 再算产物 SHA；原始许可 SHA 另存。每类至少20件且逐件预览复核后才设 `reviewed=true`，软件复核不替代纸面签核 |
 | 未开放面 | UGC 上传/评分/搜索不在本期；任何用户上传入口属二期且须另过隐私与内容评审（参照 09-12 TG 备份单独同意教训） |
 
 #### 10.4.24 纸张设置、设备行程与产物快照（2026-09-14）

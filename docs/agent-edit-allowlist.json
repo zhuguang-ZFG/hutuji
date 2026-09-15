@@ -1,4 +1,25 @@
 {
+  "market_content_20260914_authorized": {
+    "note": "用户确认精品图库六项定案并要求新增功能一并交付，随后发来精品图库正在准备中的真机截图；继续补齐真实素材入库、选品、生产目录配置和浏览/预览/收藏验收。",
+    "contract": "protocol §10.4.23–24；docs/design/drawing-market-20260914.md；精品质量优先、每类至少20件、许可白名单与逐件复核不放宽",
+    "paths": [
+      "mcp-server/market/**",
+      "mcp-server/scripts/market_ingest.py",
+      "mcp-server/scripts/curated_vector_prep.py",
+      "mcp-server/tests/test_market_ingest.py",
+      "scripts/auto_deploy.py",
+      "mcp-server/tests/test_release_tools.py",
+      "docs/design/drawing-market-20260914.md",
+      "docs/protocol.md",
+      "docs/deployment.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "draw-portal/README.md",
+      "README.md",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ]
+  },
   "production_tools_review_20260914_authorized": {
     "note": "用户要求仓库另一批新增功能一并检查处理，并继续修复并发、配置和量产准备中的问题；本批审查未跟踪运维工具，修复真实故障，不启用新增 CI，不修改 eFuse 或机器运动。",
     "contract": "docs/design/production-tools-review-20260914.md；README 双机单主决策；docs/deployment.md 的 Git blob、LF、逐文件 SHA 与回滚要求",

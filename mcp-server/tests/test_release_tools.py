@@ -141,6 +141,101 @@ def test_deployment_package_uses_committed_files_including_profile_and_static(tm
     assert 'hutuji-draw-portal' in manifest['services']
 
 
+def test_market_release_round_trips_committed_unicode_assets_and_rollback(tmp_path, monkeypatch):
+    from hutuji_mcp.market_schema import CATEGORIES
+
+    deploy = _script('auto_deploy')
+    assert deploy.MARKET_CATEGORIES == frozenset(CATEGORIES)
+    root, _ = _release_repository(tmp_path)
+    monkeypatch.setattr(deploy, 'ROOT', root)
+    # 字节是打包夹具；实际图库的 SVG/G-code/PNG 另由入库闸验证。
+    assets = {'manifest.json': b'{"version": 1}\n', 'sources.json': b'{}\n',
+              'review.json': b'{}\n', 'licenses/fixture.txt': b'MIT fixture\n',
+              'svg/动物/dog.svg': b'<svg/>\n', 'gcode/动物/dog.gcode': b'G21\n',
+              'preview/动物/dog.png': b'\x89PNG\r\n\x1a\n'}
+    files = {deploy.MARKET_PREFIX + name: raw for name, raw in assets.items()}
+    for name, raw in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    _git(root, 'add', 'mcp-server/market')
+    _git(root, 'commit', '-qm', 'market fixture')
+    commit = _git(root, 'rev-parse', 'HEAD')
+    (root / 'mcp-server/market/svg/动物/dog.svg').write_bytes(b'UNREVIEWED\r\n')
+    package = deploy.build_deployment_package('aliyun', commit=commit, paths=list(files))
+    manifest, actual = deploy.read_package(package, target='aliyun')
+    assert actual == files
+    runtime, backup = tmp_path / 'runtime', tmp_path / 'backup'
+    old = runtime / 'mcp-server/market/manifest.json'
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b'{"version": 0}\n')
+    unrelated = old.parent / 'local-note.txt'
+    unrelated.write_bytes(b'keep me')
+    deploy.install_files(runtime, backup, manifest, actual, pause=lambda: None,
+                         activate=lambda: None, recover=lambda: None)
+    assert all((runtime / name).read_bytes() == raw for name, raw in files.items())
+    record = json.loads((backup / 'ROLLBACK.json').read_bytes())
+    deploy.rollback_files(runtime, backup, record, pause=lambda: None, activate=lambda: None)
+    assert old.read_bytes() == b'{"version": 0}\n'
+    assert unrelated.read_bytes() == b'keep me'
+    assert not (runtime / 'mcp-server/market/svg/动物/dog.svg').exists()
+
+
+@pytest.mark.parametrize('name', [
+    'mcp-server/market/svg/动物/../dog.svg', 'mcp-server/market/svg/动物/dog.py',
+    'mcp-server/market/preview/动物/dog.svg', 'mcp-server/market/gcode/未知类目/dog.gcode',
+    'mcp-server/market/secret.env', 'mcp-server/market/licenses/../../secret.txt',
+    'mcp-server/market/svg/动物/dog.svg:stream', 'mcp-server/hutuji_mcp/动物.py',
+    'mcp-server/hutuji_mcp/secret.txt', 'mcp-server/market/svg/动物/dog\\escape.svg',
+])
+def test_market_paths_do_not_expand_code_or_credential_allowlist(name):
+    assert _script('auto_deploy').valid_release_path(name) is False
+
+
+@pytest.mark.parametrize('count', [1025, 2048, 2049])
+def test_market_package_and_rollback_use_same_bounded_file_count(tmp_path, count):
+    deploy = _script('auto_deploy')
+    files = {f'mcp-server/market/svg/动物/item-{i}.svg': b'<svg/>\n' for i in range(count)}
+    rows = [{'path': name, 'size': len(raw), 'sha256': deploy.sha256(raw), 'mode': 0o644}
+            for name, raw in files.items()]
+    manifest = {'schema': 1, 'target': 'aliyun', 'git_commit': 'a' * 40,
+                'services': deploy.DEPLOY_TARGETS['aliyun']['services'], 'files': rows}
+    package = tmp_path / 'many-assets.tar.gz'
+    with tarfile.open(package, 'w:gz') as archive:
+        entries = {deploy.MANIFEST_NAME: json.dumps(manifest).encode(),
+                   **{deploy.ARCHIVE_ROOT + name: raw for name, raw in files.items()}}
+        for name, raw in entries.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(raw)
+            archive.addfile(member, io.BytesIO(raw))
+    record = {'schema': 1, 'target': 'aliyun', 'phase': 'active', 'git_commit': 'a' * 40,
+              'files': {name: {'before': None, 'after': deploy.sha256(raw), 'mode': 0o644}
+                        for name, raw in files.items()}}
+    if count > 2048:
+        with pytest.raises(ValueError):
+            deploy.read_package(package, target='aliyun')
+        with pytest.raises(ValueError):
+            deploy._validate_rollback_record(record, 'aliyun')
+    else:
+        assert deploy.read_package(package, target='aliyun')[1] == files
+        deploy._validate_rollback_record(record, 'aliyun')
+
+
+@pytest.mark.parametrize('relative', ['gcode/动物/dog.gcode', 'licenses/fixture.txt'])
+def test_market_text_with_carriage_returns_is_rejected(tmp_path, monkeypatch, relative):
+    deploy = _script('auto_deploy')
+    root, _ = _release_repository(tmp_path)
+    monkeypatch.setattr(deploy, 'ROOT', root)
+    name = deploy.MARKET_PREFIX + relative
+    path = root / name
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'not LF\r\n')
+    _git(root, 'add', name)
+    _git(root, 'commit', '-qm', 'CR fixture')
+    with pytest.raises(ValueError, match='CR=0'):
+        deploy.build_deployment_package('aliyun', commit=_git(root, 'rev-parse', 'HEAD'), paths=[name])
+
+
 def test_deployment_rejects_wrong_node_before_network(tmp_path, monkeypatch):
     deploy = _script('auto_deploy')
     root, commit = _release_repository(tmp_path)

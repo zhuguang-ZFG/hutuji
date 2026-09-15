@@ -1,6 +1,10 @@
 # 精品图库（小程序官方精选单线图库）设计
 
-> 2026-09-14 定案。六项决策全部用户拍板，见决策记录。状态：入库工具、许可/哈希闸、Portal API 与小程序已有工作树候选和回归；真实首批合格素材集尚未完成，未由本批部署。
+2026-09-14 19:51 用户截图复现：阿里云的环境文件与 Portal 进程均未设置 `DRAW_PORTAL_MARKET_DIR`，默认目录没有 `manifest.json`；同一有效用户的本机/公网目录接口均返回 404「精品图库正在准备中」。证据 `results/20260914-market-release/ali-catalog-195151-611215.log`。继续完成已授权的首批来源核验、逐件选品、入库、双机数据部署和真实浏览/收藏验证，质量闸与每类20件门槛保持。
+
+本轮改动清单：`mcp-server/market/**` 真实数据与许可记录；`market_ingest.py` 与复用转换器的市场导出保真；对应回归；本设计、契约与部署/状态台账。固定官方提交归档与八件首轮真实转换留在同一证据目录。预览发现旧五点平滑会改变稀疏矢量拐角，先用真实入库回归复现，再修市场调用；旧 curated 默认行为另行保留。
+
+> 2026-09-14 定案。六项决策全部用户拍板，见决策记录。状态：入库工具、许可/哈希闸、Portal API 与小程序已有工作树候选和回归；首批467件/20类已于09-15合库；双机数据部署及真实页面验收待本批收口。
 
 ## 目标与范围
 
@@ -23,7 +27,7 @@
 
 ## 数据模型
 
-真相源进 git：`mcp-server/market/`（部署 scp 到双机 `/opt/hutuji/mcp-server/market/`）。
+真相源进 git：`mcp-server/market/`（由明确Git提交出包部署到双机 `/opt/hutuji/mcp-server/market/`）。
 
 ```
 market/
@@ -94,9 +98,9 @@ manifest 条目 schema（v1，字段名定死，后端可换存储时不改）�
 
 ## 部署与双机
 
-- `install-from-repo.sh` 加一路 `market/` 拷贝（scp 前逐文件 SHA-256 对账，参照生产 LF/CR 纪律）
-- 双机 manifest 一致性 = 部署产物，preflight 加一项 market manifest SHA 核对（双机各算各比）
-- 运行时 portal 启动载入 manifest 到内存，文件 mtime 变更即热重载（无需 restart）
+- `auto_deploy.py` 从明确Git提交LF对象生成节点包；图库仅开放三个JSON、许可及既定中文类目SVG/G-code/PNG，最多2048文件、32MiB总包、4MiB单文件。真实临时Git提交的出包/安装/回滚已测。
+- 双机逐文件SHA与manifest单独核验，保存备份号；既有preflight的 `check_market_optional` 只覆盖清单/许可/三类产物存在，不替代本批完整哈希核验。
+- 数据完整后备份并设置 `/etc/hutuji/draw-portal.env` 的 `DRAW_PORTAL_MARKET_DIR=/opt/hutuji/mcp-server/market`（保留其余配置与600权限），重启Portal并核进程环境。后续同目录清单mtime变化触发缓存重载。
 
 ## 测试矩阵（pytest + Node 回归，进 draw-portal/tests 与 mcp-server/tests）
 
@@ -111,8 +115,14 @@ manifest 条目 schema（v1，字段名定死，后端可换存储时不改）�
 1. **M1 入库管线 + 首批 20 类目采集**（预估大头工作量：选品/清洗人工审）→ manifest 入 git
 2. **M2 portal API + 发送链路**（含契约 §10.4.23）
 3. **M3 小程序列表/详情/入口** + Node 回归
-4. **M4 双机部署 + preflight 项 + readiness 登记**
+4. **M4 双机部署 + 数据/接口/页面核验 + readiness 登记**
 
 M1 完成前 M2/M3 可并行开工（用 3-5 个手工 SVG 夹具驱动）。
 
-2026-09-14 实际进度：`market_schema.py`/`market_ingest.py` 已校验来源、允许许可、许可文本与原始 SVG 哈希，拒绝注入和不合格几何；`draw_portal/market.py` 与小程序列表/详情/发送已有候选，发送按当前设备纸张重新生成并过 §5。入库回归 5 项和对应 Portal/Node 回归已执行。`mcp-server/market/` 目前只有 README，没有首批真实来源、许可快照与人工画质验收条目，M1 不能勾完成；测试夹具不作为真实素材发布。
+## 2026-09-15 首批交付事实
+
+500候选中493件过既定硬闸，逐件最终预览再排除26件，正式467件/20类。每类20–27件，Twemoji326、Tabler101、MDI40。真实 `MarketCatalog` 冷加载2.143秒，数据1407文件/8405465B，manifest SHA-256 `5e1cb98010cbfc39dbce9728f957a64c9bfba1175ddc1cd9b19699a724685605`。分类数、拒收理由、改名及逐件复核记录见 `mcp-server/market/review.json`，官方URL/固定commit/访问日期/许可及限制见 `sources.json`。最终20张对照板在 `results/20260914-market-release/final/selection-review/`，LF重建逐件断言SVG/PNG与已复核版字节相同。
+
+真实来源回归揭示并修复：五点平滑移动凹角；被遮挡轮廓穿透/同色接缝；毫米换算与像素中心导致右下边裁掉；隐藏透明描边回落；Windows CRLF导致Git发布哈希失配。市场转换保留稀疏顶点，按绘制顺序处理可见区域和孔洞，拒绝半透明；整数视口与预览留边覆盖完整轮廓。文本先LF规范化再算产物SHA，原许可保留单独原字节SHA。旧curated调用默认行为保持。7件硬闸拒收未靠放宽边界接收。
+
+入库回归20项、发布工具43项通过；含真实SVG/vpype/PNG、nonzero/evenodd孔洞、嵌套transform、隐藏/透明/半透明、CRLF许可与Git归档/安装/回滚/1025–2049文件边界。本批hub12层PASS（1566项/155.28秒、e2e PASS、261处指纹）；Portal425项/154.43秒、Node226项与28份JS语法通过。归档 `results/20260914-market-release/hub-gate.{json,md}`，页面/Portal明细在 `results/20260913-followup-review/` 当次00:14记录。首轮失败仅为新增31项后文档计数未更新和一处旧行号，已按实际collect和证据行修正再全量通过。部署/页面验收随后登记readiness。

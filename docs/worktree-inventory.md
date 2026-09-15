@@ -1,8 +1,11 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
+> **2026-09-15 图库批工作树**：首批467件/20类素材与许可/来源/复核清单在 `mcp-server/market/`；转换器、入库回归、发布白名单与发布回归及对应文档为本批改动。仅暂存明确路径，保留原未跟踪文件及外仓工作树。`results/20260914-market-release/` 保存官方归档、三代候选/最终对照板、LF构建、20项入库/43项发布回归和本机真实加载结果；results被忽略，仅本机留证。双机部署/页面验收随后追加。
+
+
 ## 2026-09-14 配网二维码回归
 
-用户确认长按进入配网后缺二维码。本轮 S3 仅 `main/display/lcd_display.cc`、`CMakeLists.txt` 与新增 `scripts/tests/test_provisioning_qr.py`；本仓维护对应设计、协议、固件说明和交付状态，保留其他未跟踪资产。完整身份配网244B/绑定238B在旧V8上限下实际编码失败，候选V13通过；5项新增回归红→绿，完整S3 host225项通过。真实LVGL两尺寸布局和8张原尺寸截图解码有证；三板各215 CXX通过，格式收尾量产增量1 CXX。S3提交 `923e148`，Freenove已刷1.0.19（3073152B，SHA `119dd764…65734ef`），串口和官方状态均确认idle/ready/指纹通过，NVS与1.0.18回滚保留；新增证据为 `hutuji.1.0.19/`、`device-after-flash.log`、`hub-gate.{json,md}` 和 `acceptance-192730/`。300秒观察未捕获用户进入配网，手机/实体屏幕仍待复验。小程序0.3.14上传任务 `confirmation_upload_81aaad08-b50d-4b9e-a4c0-5a85e8271de5` 已发起，官方查询仍pending，等待开发者工具原生确认，不记成功。
+用户确认长按进入配网后缺二维码。本轮 S3 仅 `main/display/lcd_display.cc`、`CMakeLists.txt` 与新增 `scripts/tests/test_provisioning_qr.py`；本仓维护对应设计、协议、固件说明和交付状态，保留其他未跟踪资产。完整身份配网244B/绑定238B在旧V8上限下实际编码失败，候选V13通过；5项新增回归红→绿，完整S3 host225项通过。真实LVGL两尺寸布局和8张原尺寸截图解码有证；三板各215 CXX通过，格式收尾量产增量1 CXX。S3提交 `923e148`，Freenove已刷1.0.19（3073152B，SHA `119dd764…65734ef`），串口和官方状态均确认idle/ready/指纹通过，NVS与1.0.18回滚保留；新增证据为 `hutuji.1.0.19/`、`device-after-flash.log`、`hub-gate.{json,md}` 和 `acceptance-192730/`。300秒观察未捕获用户进入配网；用户随后明确确认『二维码显示、扫码和关闭都正常』，这三项按用户实机反馈记通过，另存 `user-acceptance.json`。小程序0.3.14上传任务 `confirmation_upload_81aaad08-b50d-4b9e-a4c0-5a85e8271de5` 已由官方查询返回 `success/execution_success`，包263393B；原日志为 `20260913-followup-review/control-193703-993019-polling_task_result.log`，终态副本 `weapp-upload-result.json`，原pending记录同步结清，不重复上传。
 
 本机证据为 `results/20260914-provisioning-qr/`：实际C编码复现、来源SHA、红绿测试、完整host、安装清单、`render/`真实LVGL图像/几何/解码；构建在 `results/20260913-crossrepo-followup/hutuji.1.0.19/`。辅助脚本与工程为 `tmp/probe_provisioning_qr.py`、`tmp/provisioning-qr-probe/`、`tmp/provisioning-qr-fix/`、`tmp/render_provisioning_qr.py`、`tmp/provisioning-qr-render/`、`tmp/run_provisioning_qr_tests.py`、`tmp/run_provisioning_host.py` 和两个安装/准备脚本，均不提交产品仓。根因与验证边界见 [配网二维码回归](design/provisioning-qr-regression-20260914.md)。
 
@@ -23,7 +26,7 @@
 
 本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
 
-<!-- paper-current-count --> MCP 当前全套 **1535** 项（45 个文件），本批full完整执行1535 passed；通过数依据上述归档报告。
+<!-- paper-current-count --> MCP 当前收集全套 **1566** 项（45 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
 
 ## 2026-09-13 公众号引流决策稿（仅文档，未提交）
 
@@ -690,7 +693,7 @@
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:163`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:166`（08-30 指纹门禁 COM14 抓包；09-12 笔顺批后 +1、随 09-12 抖动批首条插入再 +1）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）

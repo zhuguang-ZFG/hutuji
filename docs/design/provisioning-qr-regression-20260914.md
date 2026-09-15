@@ -43,6 +43,6 @@
 - 构建与提交：三板各215 CXX通过；格式收尾后量产板再增量编译1 CXX并重新打包，未覆盖此前三板证据。S3提交 `923e148fb16db5e37e5b92ef855ea79c74f6754d`，版本 `hutuji.1.0.19`，量产应用3073152B、SHA `119dd76475b3e5eaa4e869ffdb238a5971bc3f4461e2b205503a1e49d65734ef`。同目录 `hutuji.1.0.19/final-build.json` 钉最终来源与旧三板包；1.0.18回滚SHA为 `4b6dcc054bcf2d6bb9b041b04d7d4d4a671dd06adb94d1859d95d5c005dba388`。
 - 量产安装：现读COM15的MAC、读旧应用前4096字节并对照1.0.18、备份NVS/otadata，再仅写otadata与app；两区Hash校验通过。watchdog复位后的USJ重枚举433按既有窄条件识别；串口 `Current version: hutuji.1.0.19`、10项Grbl指纹通过，官方设备状态再次确认1.0.19/idle/ready。记录为同目录 `hutuji.1.0.19/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `device-after-flash.log`。
 - 本仓hub12层PASS，1535项MCP/146.80秒、e2e PASS、261处指纹，`hub-gate.{json,md}`。
-- 现场边界：`acceptance-192730/` 被动观察300.1秒，未出现进入配网/QR ready/QR failed事件，无panic；用户长按显码、微信扫码和关闭回网的反馈仍待确认，不能把这段Idle日志当作二维码通过。
+- 现场边界：`acceptance-192730/` 被动观察300.1秒，未出现进入配网/QR ready/QR failed事件，无panic；用户随后明确反馈『二维码显示、扫码和关闭都正常』，长按显码、微信打开配网页与点击关闭的实机复验通过；证据来源是用户确认。操作发生在观察窗口之后，不能把这段Idle日志当作显码日志。用户确认另存 `user-acceptance.json`。
 
 所有 `results/` 为本机证据，不随 Git 发布；脚本和渲染临时工程位于 `tmp/`，不混入固件发布包。

@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "sources": {
+    "twemoji": {
+      "repository": "https://github.com/jdecked/twemoji",
+      "revision": "b6b55fef1e8636b540a6d016a4729ca8cdf2e60b",
+      "access_date": "2026-09-14",
+      "archive_sha256": "d91bdab1e9ac66f2935425e539f5ac1cd83a491fa27b2021c77630a0ba8e09ff",
+      "svg_count": 4009,
+      "licenses": [
+        {
+          "path": "LICENSE",
+          "sha256": "5076b7ec0f98f95aa87a3103bebdcd3852acd88d61fbd99307b8d953024acb67",
+          "url": "https://github.com/jdecked/twemoji/blob/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/LICENSE"
+        },
+        {
+          "path": "LICENSE-GRAPHICS",
+          "sha256": "8ae9438818c26e4873b91d8c6ad620526c011e27e125677f13031eda903f007c",
+          "url": "https://github.com/jdecked/twemoji/blob/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/LICENSE-GRAPHICS"
+        }
+      ],
+      "scope": "软件图库素材来源；不代表设备或纸面验收",
+      "archive_url": "https://codeload.github.com/jdecked/twemoji/zip/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b",
+      "license": "CC-BY-4.0",
+      "published_items": 326,
+      "bundled_license": {
+        "path": "licenses/twemoji-8ae9438818c26e48.txt",
+        "sha256": "8ae9438818c26e4873b91d8c6ad620526c011e27e125677f13031eda903f007c"
+      },
+      "license_scope": "仅图形 CC-BY-4.0；代码 MIT 不用于本批图形许可判断"
+    },
+    "tabler": {
+      "repository": "https://github.com/tabler/tabler-icons",
+      "revision": "55f87a73f45cf1d9eaf16d7da705065483a9e4f9",
+      "access_date": "2026-09-14",
+      "archive_sha256": "7da52eb0cb7da514ec9c16db2a963e42e97ee51af64df9244b60f27dc1a53743",
+      "svg_count": 5130,
+      "licenses": [
+        {
+          "path": "LICENSE",
+          "sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db",
+          "url": "https://github.com/tabler/tabler-icons/blob/55f87a73f45cf1d9eaf16d7da705065483a9e4f9/LICENSE"
+        }
+      ],
+      "scope": "软件图库素材来源；不代表设备或纸面验收",
+      "archive_url": "https://codeload.github.com/tabler/tabler-icons/zip/55f87a73f45cf1d9eaf16d7da705065483a9e4f9",
+      "license": "MIT",
+      "published_items": 101,
+      "bundled_license": {
+        "path": "licenses/tabler-b740a1d46122672d.txt",
+        "sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db"
+      }
+    },
+    "mdi": {
+      "repository": "https://github.com/Templarian/MaterialDesign",
+      "revision": "2424e748e0cc63ab7b9c095a099b9fe239b737c0",
+      "access_date": "2026-09-14",
+      "archive_sha256": "3b17c7568cb83aec5f94d4882252a113b57be923ee7739d4ce44922b52945289",
+      "svg_count": 7447,
+      "licenses": [
+        {
+          "path": "LICENSE",
+          "sha256": "3bae6305bcaa6d10219b999f65c342034c2d40b1c0e8567fa08605e73ccba829",
+          "url": "https://github.com/Templarian/MaterialDesign/blob/2424e748e0cc63ab7b9c095a099b9fe239b737c0/LICENSE"
+        }
+      ],
+      "scope": "软件图库素材来源；不代表设备或纸面验收",
+      "archive_url": "https://codeload.github.com/Templarian/MaterialDesign/zip/2424e748e0cc63ab7b9c095a099b9fe239b737c0",
+      "license": "Apache-2.0",
+      "published_items": 40,
+      "bundled_license": {
+        "path": "licenses/mdi-b0e9132e763d29c7.txt",
+        "sha256": "b0e9132e763d29c7384b18f2e3dcfb783e21310ac07977e9dea9ed24b05f7d4f"
+      },
+      "official_license_url": "https://pictogrammers.com/docs/general/license/",
+      "official_license_sha256": "d5b03ecdb83f77b16f83acaf33461b50e8b8c91aa3b3c9ceda7b724491694633",
+      "apache_full_text_url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "metadata_sha256": "05f4904dbd6dacb3cd91c5fc490083abbaae684516279ccc2314f9ab766689ff",
+      "excluded_scope": "Brand/Logos 与 deprecated 条目不收；逐件作者来自该固定提交 meta.json"
+    }
+  },
+  "conversion": {
+    "source_archives": {
+      "twemoji": {
+        "repository": "https://github.com/jdecked/twemoji",
+        "revision": "b6b55fef1e8636b540a6d016a4729ca8cdf2e60b",
+        "access_date": "2026-09-14",
+        "archive_sha256": "d91bdab1e9ac66f2935425e539f5ac1cd83a491fa27b2021c77630a0ba8e09ff",
+        "svg_count": 4009,
+        "licenses": [
+          {
+            "path": "LICENSE",
+            "sha256": "5076b7ec0f98f95aa87a3103bebdcd3852acd88d61fbd99307b8d953024acb67",
+            "url": "https://github.com/jdecked/twemoji/blob/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/LICENSE"
+          },
+          {
+            "path": "LICENSE-GRAPHICS",
+            "sha256": "8ae9438818c26e4873b91d8c6ad620526c011e27e125677f13031eda903f007c",
+            "url": "https://github.com/jdecked/twemoji/blob/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/LICENSE-GRAPHICS"
+          }
+        ],
+        "scope": "软件图库素材来源；不代表设备或纸面验收"
+      },
+      "tabler": {
+        "repository": "https://github.com/tabler/tabler-icons",
+        "revision": "55f87a73f45cf1d9eaf16d7da705065483a9e4f9",
+        "access_date": "2026-09-14",
+        "archive_sha256": "7da52eb0cb7da514ec9c16db2a963e42e97ee51af64df9244b60f27dc1a53743",
+        "svg_count": 5130,
+        "licenses": [
+          {
+            "path": "LICENSE",
+            "sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db",
+            "url": "https://github.com/tabler/tabler-icons/blob/55f87a73f45cf1d9eaf16d7da705065483a9e4f9/LICENSE"
+          }
+        ],
+        "scope": "软件图库素材来源；不代表设备或纸面验收"
+      },
+      "mdi": {
+        "repository": "https://github.com/Templarian/MaterialDesign",
+        "revision": "2424e748e0cc63ab7b9c095a099b9fe239b737c0",
+        "access_date": "2026-09-14",
+        "archive_sha256": "3b17c7568cb83aec5f94d4882252a113b57be923ee7739d4ce44922b52945289",
+        "svg_count": 7447,
+        "licenses": [
+          {
+            "path": "LICENSE",
+            "sha256": "3bae6305bcaa6d10219b999f65c342034c2d40b1c0e8567fa08605e73ccba829",
+            "url": "https://github.com/Templarian/MaterialDesign/blob/2424e748e0cc63ab7b9c095a099b9fe239b737c0/LICENSE"
+          }
+        ],
+        "scope": "软件图库素材来源；不代表设备或纸面验收"
+      }
+    },
+    "converter_sha256": "34f6265524487fd7fdf8233746221487cae73774620163ed93745866d06661b1",
+    "ingest_sha256": "09fa040802f755fdb0f9f6ba6d99d1ac74fa34d5b70ac986ca040e33cd2b4dbb",
+    "reviewed": false
+  },
+  "method": "官方固定提交 SVG；按绘制顺序提取可见颜色边界，保留孔洞与描边；vpype/RDP；禁止五点均值挪动稀疏折点；整数中间视口与边界余量；gate v4/§5；最终 PNG 逐件复核",
+  "verification": "实际命令与软件检查见 docs/design/drawing-market-20260914.md；未做全量纸面验收"
+}

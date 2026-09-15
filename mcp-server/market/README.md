@@ -1,51 +1,20 @@
 # 精品图库数据根
 
-设计：`docs/design/drawing-market-20260914.md`。契约：`docs/protocol.md` §10.4.23。
+契约：`docs/protocol.md` §10.4.23/§10.4.24。设计与部署记录：`docs/design/drawing-market-20260914.md`、`docs/release-readiness.md`。
 
-本目录进 git，是图库的单一真相源；部署时 scp 双机（阿里云 + 京东云各一份），
-运行时只读、mtime 热重载（`draw_portal.market.MarketCatalog`）。
+首批 **467件、20类，每类20–27件**。本目录是Git真值，双机运行目录为 `/opt/hutuji/mcp-server/market`，由 `DRAW_PORTAL_MARKET_DIR` 指定；运行时只读，清单mtime变化触发重载。
 
-## 结构
+## 内容与溯源
 
-```
-market/
-├── manifest.json          # 条目清单（schema 见下），入库管线生成
-├── svg/<类目>/<id>.svg    # 单线 SVG 源（过 _validate_svg 白名单）
-├── gcode/<类目>/<id>.gcode    # 预生成产物（curated_gate v4 已过）
-├── preview/<类目>/<id>.png    # 预生成预览 PNG（viewBox 坐标框）
-└── licenses/<source>.txt  # 各图源的许可文件全文
-```
+- `manifest.json`：运行时清单，逐件SVG/G-code/PNG/许可SHA与 `reviewed=true`。
+- `sources.json`：官方固定提交、访问日期、许可来源、原始SVG/许可哈希及适用限制。
+- `review.json`：500候选中7件硬闸拒收、26件画质/重复排除、467件最终预览逐件复核，含对照板哈希和标题修正。
+- `svg/<类目>/<内容标识>.svg`、`preview/<类目>/<内容标识>.png`：可见单线轮廓与预览。
+- `gcode/<类目>/<内容标识>.gcode`：入库时真实vpype和§5闸证据。发送与收藏按当前设备纸张重新转换，不直接发送此文件。
+- `licenses/<source>.txt`：Twemoji图形CC-BY-4.0、Tabler MIT、MDI Apache-2.0许可全文；MDI不含品牌/标志。
 
-## manifest 条目 schema
+## 入库与发布
 
-```json
-{
-  "id": "twemoji-dog-1f415",
-  "title": "小狗",
-  "category": "动物",
-  "license": "CC-BY-4.0",
-  "attribution": "Twemoji (https://twemoji.twitter.com/), CC-BY 4.0",
-  "source": "twemoji",
-  "source_url": "https://github.com/jdecked/twemoji/...",
-  "path": "svg/动物/twemoji-dog-1f415.svg",
-  "gcode_path": "gcode/动物/twemoji-dog-1f415.gcode",
-  "preview_path": "preview/动物/twemoji-dog-1f415.png",
-  "viewBox": "0 0 36 36",
-  "bytes": 4211,
-  "quality_score": 0.92,
-  "ingested_at": "2026-09-14",
-  "gate_version": "4"
-}
-```
+外源只按 `sources.json` 的官方提交取SVG/元数据/许可，不执行来源代码。每件须过许可白名单、来源/哈希、SVG注入、curated_gate v4及最终画质复核。稀疏轮廓禁五点平滑，孔洞/遮挡/描边按实际可见区域处理；隐藏节点不回流，半透明拒收。SVG及预览视口覆盖右下边。文本产物先规范成LF再算SHA，原许可另留原字节哈希。
 
-## 入库红线（运行时在加载期也强制）
-
-- `license` 必填且 ∈ {CC0-1.0, Apache-2.0, MIT, CC-BY-4.0}；CC-BY-SA / CC-NC 一律不收
-- CC-BY-4.0 条目 `attribution` 必填（缺署名拒收）
-- 每个 SVG 必须真过 `curated_gate` v4（注入白名单、vpype/§5、过碎、无墨、行数）
-- 图源许可文件全文落 `licenses/<source>.txt`，禁止照抄示例名称
-
-## 状态
-
-入库采集管线（M1）未开工——首批约 20 类目 400-600 条精品的选品、清洗、
-人工审核是工作量大头。本目录当前为空，M2 服务端已可用手工夹具联调。
+通过 `scripts/auto_deploy.py` 从明确Git提交的LF对象出包，支持既定中文类目和最多2048文件；逐文件SHA检查、备份与回滚。先验证数据完整，再设置目录并重启Portal。源码和本地预览复核不等于生产页面验收或用户纸面签核。
