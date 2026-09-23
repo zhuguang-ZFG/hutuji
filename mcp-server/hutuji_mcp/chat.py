@@ -57,6 +57,8 @@ SYSTEM_PROMPT = """你是「小派」，AI 绘图机「丹青」的 AI 绘图助
   DRAW::{"description":"净化后的绘图描述，≤60 字，单线简笔画风格"}
   然后换行接一句自然的话（如「点下面的按钮我就画出来~」）。
   只有用户明确要画一张图时才输出 DRAW 行；纯聊天、提问、写字、笔顺、唱歌一律不输出。
+  「重画/再来一张/换个更可爱的/画的不好重画」这类要求出新图的话也必须输出 DRAW 行
+  （description 按反馈改进，比如换姿势或加细节），且仍要放在回复第一行。
 - 写字/抄文章：可以！引导用户到「创作」页点「文档」传 Word/TXT，或对丹青上的小派直接说「帮我写…」。
 - 教笔顺（逐笔分解汉字）：对丹青上的小派说「教我写 X」。
 - 唱歌：曲库儿歌，对丹青上的小派说「唱首歌」。
@@ -100,29 +102,32 @@ def normalize_chat_payload(payload: object) -> tuple[str, list[dict[str, str]]]:
 
 
 def parse_chat_output(raw: str) -> dict:
-    """解析 LLM 输出 → {"reply", "draw_intent"}。标记坏/缺都不抛出：整段按普通回复处理。"""
+    """解析 LLM 输出 → {"reply", "draw_intent"}。
+
+    标记不再要求首行：2026-09-23 生产实证（0.3.17 体验版 23:29）模型在「画的不好重画」类
+    措辞下会先寒暄一行再放标记，旧契约只认首行导致意图被静默丢弃、按钮消失。
+    取第一条完整合法标记；所有 DRAW:: 起头的行（无论好坏）一律剥掉，不进用户视野。
+    """
     text = _CONTROL_CHAR_RE.sub("", raw or "").strip()
     draw_intent = None
-    lines = text.splitlines()
-    # 只认第一行非空行上的完整标记；落在别处的 DRAW:: 一律剥掉（防模型乱位输出透给前端）
-    for i, line in enumerate(lines):
-        if not line.strip():
-            continue
-        m = _INTENT_RE.match(line.strip())
-        if m:
-            try:
-                payload = json.loads(m.group("json"))
-                description = payload.get("description")
-                if isinstance(description, str):
-                    description = _CONTROL_CHAR_RE.sub("", description).strip()
-                    if description:
-                        draw_intent = {"description": description[:DRAW_DESCRIPTION_MAX_CHARS]}
-            except (json.JSONDecodeError, AttributeError):
-                pass  # 半截标记按无效处理
-            del lines[i]
-        break  # 只检查第一行非空行
-    # 防御：其余行里混进的标记残片一并剥掉，不进用户视野
-    reply = "\n".join(l for l in lines if not l.strip().startswith("DRAW::")).strip()
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("DRAW::"):
+            m = _INTENT_RE.match(stripped)
+            if m and draw_intent is None:
+                try:
+                    payload = json.loads(m.group("json"))
+                    description = payload.get("description")
+                    if isinstance(description, str):
+                        description = _CONTROL_CHAR_RE.sub("", description).strip()
+                        if description:
+                            draw_intent = {"description": description[:DRAW_DESCRIPTION_MAX_CHARS]}
+                except (json.JSONDecodeError, AttributeError):
+                    pass  # 半截标记按无效处理
+            continue  # 标记行不进回复
+        lines.append(line)
+    reply = "\n".join(lines).strip()
     if not reply:
         reply = "好呀，点下面的按钮我就画出来~" if draw_intent else "小派这会儿没想好怎么回，换个说法试试？"
     if len(reply) > REPLY_MAX_CHARS:

@@ -119,11 +119,21 @@ def test_parse_broken_marker_falls_back_to_plain() -> None:
     assert "随便聊聊" in out["reply"]
 
 
-def test_parse_marker_not_on_first_line_is_stripped() -> None:
-    """标记只认首行；出现在正文里的 DRAW:: 是模型乱位输出，剥掉且不产出意图。"""
-    out = chat.parse_chat_output('先聊两句\nDRAW::{"description":"猫"}')
-    assert out["draw_intent"] is None
+def test_parse_marker_on_later_line_is_rescued() -> None:
+    """乱位标记升格为意图（2026-09-23 生产实证：重画措辞下模型先寒暄再放标记）；
+    标记行仍剥掉不进回复。"""
+    out = chat.parse_chat_output('收到！我换个更可爱的画法~\nDRAW::{"description":"更可爱的猫"}')
+    assert out["draw_intent"] == {"description": "更可爱的猫"}
+    assert out["reply"] == "收到！我换个更可爱的画法~"
     assert "DRAW::" not in out["reply"]
+
+
+def test_parse_multiple_markers_first_wins_all_stripped() -> None:
+    """多条标记：第一条合法者胜出，其余（含坏的）全部剥掉。"""
+    raw = 'DRAW::{"description":"甲"}\n接着说\nDRAW::{"description":"乙"}\nDRAW::{坏'
+    out = chat.parse_chat_output(raw)
+    assert out["draw_intent"] == {"description": "甲"}
+    assert out["reply"] == "接着说"
 
 
 def test_parse_intent_without_reply_gets_default_text() -> None:
