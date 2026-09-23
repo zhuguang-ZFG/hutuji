@@ -123,18 +123,6 @@ class RedisBreakerStore:
                 open_ids.append(str(key).removeprefix(BREAKER_PREFIX))
         return open_ids
 
-    async def _recent_samples_async(self, backend_id: str, *, now: float) -> list[str]:
-        key = f"{SAMPLE_PREFIX}{backend_id}"
-        window = getattr(_settings(), "breaker_window_sec", 60)
-        rows = await asyncio.to_thread(
-            self._client.zrangebyscore, key, now - window, now
-        )
-        outcomes: list[str] = []
-        for row in rows:
-            text = str(row)
-            if ":" in text:
-                outcomes.append(text.split(":", 1)[1])
-        return outcomes
 
 
 _store: BreakerStore | None = None

@@ -349,8 +349,12 @@ class Store:
             self._migrate(conn)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
+        # WAL + busy_timeout（2026-09-23 用户拍板）：课堂 NAT 同 IP 30+ 并发时读者不挡写者、
+        # 写者串行排队最长 30s 而非秒报 SQLITE_BUSY；journal_mode 落库持久，逐连接幂等。
+        conn = sqlite3.connect(self._db_path, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
 
     @staticmethod
