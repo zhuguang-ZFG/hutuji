@@ -5,7 +5,7 @@
 
 ## 2026-09-23 聊天多轮丢按钮修复 + 预览方案 3（用户「多轮说话后就不出现绘画按钮了，看下日志」+「选择 3」）
 
-生产日志+真 LLM 探针复现：根因=历史剥离出图痕迹致模型鹦鹉学舌（文字链丢 DRAW::、语音链丢 voice.draw）。修复：voice_agent 历史保留工具调用链+整轮裁剪；chat.js 历史回填 DRAW:: 标记。探针修复前 1/6→修复后 6/6。预览：`preview_cache.js` 持久化（内容键+LRU32+登出清空）+ 两页 IntersectionObserver 懒加载（首屏 6 张）。提交 `35de54d`+`2cbd65e`；双机 voice_agent.py 已部署（SHA `71fe4110…` 一致、active、公网 401 冒烟）；备份 `/root/hutuji-bak-20260923-voiceagent/`。node 235/235、portal 427/427。weapp 0.3.17 未上传。探针脚本 `tmp/chat_multiturn_probe*.py`、`tmp/voice_multiturn_probe.py`（本机）。
+生产日志+真 LLM 探针复现：根因=历史剥离出图痕迹致模型鹦鹉学舌（文字链丢 DRAW::、语音链丢 voice.draw）。修复：voice_agent 历史保留工具调用链+整轮裁剪；chat.js 历史回填 DRAW:: 标记。探针修复前 1/6→修复后 6/6。预览：`preview_cache.js` 持久化（内容键+LRU32+登出清空）+ 两页 IntersectionObserver 懒加载（首屏 6 张）。提交 `35de54d`+`2cbd65e`；双机 voice_agent.py 已部署（SHA `71fe4110…` 一致、active、公网 401 冒烟）；备份 `/root/hutuji-bak-20260923-voiceagent/`。node 235/235、portal 427/427。weapp 0.3.17 已上传（`✔ upload`，265298B；CLI 日志在 `results/20260923-weapp-ux-perf/`）。同日追加 `f58e659`：筛选/删卡后重挂预览观察器 + 过期注释改口径。探针脚本 `tmp/chat_multiturn_probe*.py`、`tmp/voice_multiturn_probe.py`（本机）。
 
 ## 2026-09-23 小程序体验/性能优化批（用户「改进优化小程序吧」）
 
