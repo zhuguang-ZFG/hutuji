@@ -29,7 +29,11 @@ Page({
     });
   },
   onHide() { pageSession.hide(this); this._ready = false; },
-  onUnload() { this._unloaded = true; this.onHide(); },
+  onUnload() {
+    this._unloaded = true;
+    if (this._previewObserver) { this._previewObserver.disconnect(); this._previewObserver = null; }
+    this.onHide();
+  },
   onRetry() { return this.onShow(); },
   onPullDownRefresh() { return this.onShow().finally(() => wx.stopPullDownRefresh()); },
   onReachBottom() {
@@ -87,8 +91,20 @@ Page({
       this.setData({ items, loading: false,
         nextCursor: Number.isInteger(next) && next > cursor ? next : null });
       this._previews.pump();
+      this._observePreviews();
     }).catch((err) => {
       if (current()) this.setData({ loading: false, loadError: err.detail || "作品加载失败，请重试" });
+    });
+  },
+  _observePreviews() {
+    if (this._previewObserver) this._previewObserver.disconnect();
+    if (typeof wx.createIntersectionObserver !== "function") return;
+    const observer = wx.createIntersectionObserver(this);
+    this._previewObserver = observer;
+    // 可视区懒加载：卡片进视口才派发预览下载（首屏 6 张已由 replace 泵出）
+    observer.relativeToViewport().observe(".gallery-card", (res) => {
+      const id = res && res.dataset && res.dataset.id;
+      if (id && res.intersectionRatio > 0 && this._previews) this._previews.request(id);
     });
   },
   onRetryPreview(e) {

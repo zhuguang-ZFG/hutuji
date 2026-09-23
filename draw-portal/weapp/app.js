@@ -101,6 +101,7 @@ App({
     wx.removeStorageSync("session_token");
     wx.removeStorageSync("voice_session_id");
     wx.removeStorageSync("drawpad_draft_v2");
+    require("./utils/preview_cache").clear(); // 预览持久缓存含账号私有内容，登出即清
     wx.setStorageSync("logged_out", true);
     this.globalData.user = null;
     this.globalData.phoneBound = false;

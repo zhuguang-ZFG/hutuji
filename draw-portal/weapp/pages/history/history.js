@@ -2,6 +2,7 @@ const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
 const pageSession = require("../../utils/page_session");
+const previewCache = require("../../utils/preview_cache");
 const KINDS = [
   { key: "all", label: "全部" },
   { key: "draw", label: "AI 画" },
@@ -70,7 +71,11 @@ Page({
     pageSession.hide(this);
     this._ready = false;
   },
-  onUnload() { this._unloaded = true; this.onHide(); },
+  onUnload() {
+    this._unloaded = true;
+    if (this._previewObserver) { this._previewObserver.disconnect(); this._previewObserver = null; }
+    this.onHide();
+  },
 
   onRetry() { return this.onShow(); },
 
@@ -92,7 +97,12 @@ Page({
         // 收藏路径属于当前账号；临时图片只在同一次登录中复用，列表仍从服务端核对。
         const jobs = (data.items || []).map((it) => {
           const parsed = parseKind(it.title);
-          const local = previews.cache.get(it.id + "|" + it.preview_url) || "";
+          const k = it.id + "|" + it.preview_url;
+          let local = previews.cache.get(k) || "";
+          if (!local) {
+            local = previewCache.get(k); // 持久缓存命中：跨进页免重下（2026-09-23 方案3）
+            if (local) previews.cache.set(k, local);
+          }
           return {
             savedId: it.id,
             previewUrl: local,
@@ -111,8 +121,12 @@ Page({
         const keys = new Set(jobs.map(previewKey));
         for (const key of previews.cache.keys()) if (!keys.has(key)) previews.cache.delete(key);
         previews.current = current;
-        previews.queue = jobs.filter((job) => job.previewPath && !job.previewUrl);
+        // 可视区懒加载：首屏 6 张立即泵，其余进视口时经 _requestPreview 派发
+        const pendingJobs = jobs.filter((job) => job.previewPath && !job.previewUrl);
+        previews.queue = pendingJobs.slice(0, 6);
+        previews.deferred = pendingJobs.slice(6);
         this._pumpPreviews(previews);
+        this._observePreviews();
       })
       .catch((err) => {
         if (!current()) return;
@@ -132,8 +146,8 @@ Page({
     const session = api.getSession();
     const state = this._previews;
     if (!state || state.generation !== generation || state.session !== session) {
-      this._previews = { generation, session, cache: new Map(), pending: new Set(), queue: [], active: 0,
-        current: () => false };
+      this._previews = { generation, session, cache: new Map(), pending: new Set(), queue: [], deferred: [],
+        active: 0, current: () => false };
       this.setData({ jobs: [], filtered: [] });
     }
     return this._previews;
@@ -159,8 +173,9 @@ Page({
         this.data.jobs.some((item) => previewKey(item) === key);
       api.downloadFile(job.previewPath).then((local) => {
         if (!belongs()) return;
-        state.cache.set(key, local);
-        if (state.current()) this._setPreview(job, { previewUrl: local, previewState: "ready", previewError: "" });
+        const persisted = previewCache.put(key, local) || local; // 落持久缓存：下次进页免重下
+        state.cache.set(key, persisted);
+        if (state.current()) this._setPreview(job, { previewUrl: persisted, previewState: "ready", previewError: "" });
       }).catch((err) => {
         if (err && err.status === 401 && owner() && this._previews === state && state.current() && !api.getSession()) {
           state.cache.clear();
@@ -184,6 +199,7 @@ Page({
     const state = this._previews;
     if (!job || !job.previewPath || job.previewState !== "error" || !state || !state.current()) return;
     state.cache.delete(previewKey(job));
+    previewCache.remove(previewKey(job)); // 持久层同步剔除，防坏文件被下次进页命中
     this._setPreview(job, { previewUrl: "", previewState: "loading", previewError: "" });
     state.queue.unshift(job);
     this._pumpPreviews(state);
@@ -195,7 +211,30 @@ Page({
     const state = this._previews;
     if (!job || !state || !state.current() || job.previewUrl !== data.url) return;
     state.cache.delete(previewKey(job));
+    previewCache.remove(previewKey(job));
     this._setPreview(job, { previewUrl: "", previewState: "error", previewError: "图片加载失败，请重试" });
+  },
+
+  _observePreviews() {
+    if (this._previewObserver) this._previewObserver.disconnect();
+    if (typeof wx.createIntersectionObserver !== "function") return;
+    const observer = wx.createIntersectionObserver(this);
+    this._previewObserver = observer;
+    // 可视区懒加载：卡片进视口才把预览从候命队列提到下载队列
+    observer.relativeToViewport().observe(".work-cell", (res) => {
+      const id = res && res.dataset && res.dataset.id;
+      if (id && res.intersectionRatio > 0) this._requestPreview(id);
+    });
+  },
+
+  _requestPreview(savedId) {
+    const state = this._previews;
+    if (!state || !state.current()) return;
+    const i = (state.deferred || []).findIndex((job) => job.savedId === savedId);
+    if (i < 0) return;
+    const job = state.deferred.splice(i, 1)[0];
+    state.queue.unshift(job);
+    this._pumpPreviews(state);
   },
 
   _applyFilter() {

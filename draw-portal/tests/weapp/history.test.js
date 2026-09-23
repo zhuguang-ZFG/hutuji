@@ -6,6 +6,8 @@ const rows = [
   { id: "draw-a", title: "AI: 猫", preview_url: "/preview-a" },
   { id: "write-b", title: "写字: 你好", preview_url: "/preview-b" },
 ];
+// 新契约（2026-09-23 方案3）：下载成功即落持久缓存，页面展示持久路径而非临时路径。
+const persisted = (k) => "wxfile://userdata/preview-cache/" + k.replace(/[^A-Za-z0-9_-]/g, "_") + ".png";
 function setup() {
   const h = createWeapp();
   h.load("pages/history/history.js");
@@ -26,7 +28,7 @@ test("收藏筛选已提供选项，私有图片下载后同步到实际显示�
   assert.equal(h.downloads[1].header["x-session"], "owner-session");
   h.downloads[1].success({ statusCode: 200, tempFilePath: "wxfile://b" });
   await flush();
-  assert.equal(h.page.data.filtered[0].previewUrl, "wxfile://b");
+  assert.equal(h.page.data.filtered[0].previewUrl, persisted("write-b|/preview-b"));
 });
 
 test("筛选后长按删除使用收藏 ID，不把筛选索引当原列表索引", async () => {
@@ -145,10 +147,10 @@ test('同账号刷新或返回历史复用已经下载的收藏预览', async ()
   h.downloads[0].success({ statusCode: 200, tempFilePath: 'wxfile://cached' }); await flush();
   h.page.onHide();
   await show(h);
-  assert.equal(h.page.data.jobs[0].previewUrl, 'wxfile://cached');
+  assert.equal(h.page.data.jobs[0].previewUrl, persisted('draw-a|/preview-a'));
   h.requests.at(-1).success({ statusCode: 200, data: { items: [rows[0]] } }); await flush();
   assert.equal(h.downloads.length, 1);
-  assert.equal(h.page.data.filtered[0].previewUrl, 'wxfile://cached');
+  assert.equal(h.page.data.filtered[0].previewUrl, persisted('draw-a|/preview-a'));
 });
 
 test('退出后即使返回同一收藏 ID 也不能复用前账号图片', async () => {
@@ -175,7 +177,7 @@ test('收藏图片限量下载，切页后不继续启动剩余请求', async ()
   assert.equal(h.page.data.jobs[1].previewUrl, '');
   await show(h);
   h.requests.at(-1).success({ statusCode: 200, data: { items } }); await flush();
-  assert.equal(h.page.data.jobs[1].previewUrl, 'wxfile://1');
+  assert.equal(h.page.data.jobs[1].previewUrl, persisted('saved-1|/saved-1'));
 });
 
 test('收藏预览超时能单张重试，成功后恢复图片', async () => {
@@ -189,19 +191,32 @@ test('收藏预览超时能单张重试，成功后恢复图片', async () => {
   assert.equal(h.downloads.length, 2);
   h.downloads[1].success({ statusCode: 200, tempFilePath: 'wxfile://retried' }); await flush();
   assert.equal(h.page.data.filtered[0].previewState, 'ready');
-  assert.equal(h.page.data.filtered[0].previewUrl, 'wxfile://retried');
+  assert.equal(h.page.data.filtered[0].previewUrl, persisted('draw-a|/preview-a'));
 });
 
 test('临时图片失效显示重试，旧图片错误回调不清空新图片', async () => {
   const h = setup(); await load(h, [rows[0]]);
   h.downloads[0].success({ statusCode: 200, tempFilePath: 'wxfile://expired' }); await flush();
-  const oldError = { currentTarget: { dataset: { id: rows[0].id, url: 'wxfile://expired' } } };
-  h.page.onPreviewError(oldError);
+  const currentError = { currentTarget: { dataset: { id: rows[0].id, url: persisted('draw-a|/preview-a') } } };
+  h.page.onPreviewError(currentError);
   assert.equal(h.page.data.jobs[0].previewState, 'error');
-  h.page.onRetryPreview(oldError);
+  h.page.onRetryPreview(currentError);
   h.downloads[1].success({ statusCode: 200, tempFilePath: 'wxfile://new' }); await flush();
-  h.page.onPreviewError(oldError);
-  assert.equal(h.page.data.jobs[0].previewUrl, 'wxfile://new');
+  // 持久路径按内容键稳定：迟到的旧临时路径回调不匹配当前图，不得清空
+  h.page.onPreviewError({ currentTarget: { dataset: { id: rows[0].id, url: 'wxfile://expired' } } });
+  h.page.onPreviewError({ currentTarget: { dataset: { id: rows[0].id, url: 'wxfile://new-temp' } } });
+  assert.equal(h.page.data.jobs[0].previewUrl, persisted('draw-a|/preview-a'));
+});
+
+test("第二次进页命中持久缓存零下载（内存缓存销毁后仍免网络）", async () => {
+  const h = setup();
+  await load(h, [rows[0]]);
+  h.downloads[0].success({ statusCode: 200, tempFilePath: "wxfile://t" });
+  await flush();
+  h.page._previews.cache.clear(); // 模拟页面实例内存缓存销毁
+  await load(h, [rows[0]]);
+  assert.equal(h.downloads.length, 1); // 持久缓存命中，零新下载
+  assert.equal(h.page.data.jobs[0].previewUrl, persisted("draw-a|/preview-a"));
 });
 
 test('收藏时间按后端秒时间戳显示日期，空下载路径必须报错', async () => {

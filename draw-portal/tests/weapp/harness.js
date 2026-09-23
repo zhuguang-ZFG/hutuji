@@ -57,6 +57,16 @@ function createWeapp(options = {}) {
     onInterruptionBegin(fn) { recorderEvents.interruption = fn; },
     emit(event, result) { if (recorderEvents[event]) recorderEvents[event](result); },
   };
+  // 预览持久缓存桩：Map 当文件系统；IntersectionObserver 捕获回调供测试触发视口事件。
+  const files = new Map();
+  const observers = [];
+  const fsMgr = {
+    accessSync(p) { if (!files.has(p)) throw new Error("access fail"); },
+    mkdirSync() {},
+    saveFileSync(src, dst) { files.set(dst, files.get(src) || src); },
+    removeSync(p) { if (!files.has(p)) throw new Error("remove fail"); files.delete(p); },
+    rmdirSync(dir) { for (const k of [...files.keys()]) if (k.startsWith(dir)) files.delete(k); },
+  };
   let app;
   let page;
   const wx = {
@@ -79,6 +89,15 @@ function createWeapp(options = {}) {
     hideLoading: () => {},
     stopPullDownRefresh: () => {},
     setNavigationBarTitle: () => {},
+    env: { USER_DATA_PATH: "wxfile://userdata" },
+    getFileSystemManager: () => fsMgr,
+    createIntersectionObserver: (owner) => {
+      const ob = { owner, disconnected: false,
+        relativeToViewport() { return ob; },
+        observe(selector, cb) { ob.selector = selector; ob.cb = cb; observers.push(ob); },
+        disconnect() { ob.disconnected = true; } };
+      return ob;
+    },
   };
   const clock = options.clock;
   const context = vm.createContext({
@@ -122,7 +141,7 @@ function createWeapp(options = {}) {
   load("app.js");
   return {
     app, load, storage, logins, requests, uploads, toasts, tabs, wx, modals, navigations, scans,
-    downloads, actionSheets, recorder,
+    downloads, actionSheets, recorder, files, observers,
     get page() { return page; },
   };
 }
