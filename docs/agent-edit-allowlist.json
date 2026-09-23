@@ -689,5 +689,15 @@
       "xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
       "xiaozhi-esp32/CMakeLists.txt"
     ]
+  },
+  "weapp_compliance_remediation_20260923_authorized": {
+    "note": "2026-09-23 用户提供 reject.html 要求核查并「同意；并开始整改」。整改：隐私稿补提审用第三方共享最终文本与注销删除流程、profile 页注销指引、版本号 0.3.15、冒烟清单登记审核核对结论。",
+    "contract": "https://developers.weixin.qq.com/miniprogram/product/reject.html；draw-portal/privacy-policy.md；weapp-smoke-checklist.md",
+    "paths": [
+      "draw-portal/privacy-policy.md",
+      "draw-portal/weapp/pages/profile/profile.wxml",
+      "draw-portal/weapp/utils/version.js",
+      "draw-portal/weapp-smoke-checklist.md"
+    ]
   }
 }

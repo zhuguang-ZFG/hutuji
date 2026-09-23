@@ -119,6 +119,7 @@
     <button class="weui-btn weui-btn_default" open-type="contact" binderror="onContactError">微信客服</button>
     <view class="support-email"><text selectable="{{true}}">客服邮箱：{{supportEmail}}</text></view>
     <button class="weui-btn weui-btn_default" bindtap="onCopySupportEmail">复制客服邮箱</button>
+    <view class="weui-cells__tips">注销账号或删除云端数据：请发邮件至客服邮箱，注明注册手机号与诉求</view>
   </view>
   <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>
