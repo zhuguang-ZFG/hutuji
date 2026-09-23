@@ -894,7 +894,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 内容安全 | 用户输入与模型回复各过一遍微信 `msgSecCheck`（version=2 / scene=2），凭据复用 `DRAW_PORTAL_WX_APPID/_WX_SECRET`（access_token 模块级缓存、过期重铸一次）；审核服务不可用 **fail-closed 503**（合规闸非可用性配件）；输入被拦 400 白话；输出被拦回落固定话术「这句话小派接不住…」不扣「违规」帽子 |
 | 转发 | portal 调本机 MCP `POST /internal/chat`（与 /internal/draw 同一道闸：loopback + `X-Hutuji-Usage-Secret`，未配密钥 fail-closed 404，公网不可达）；body ≤16KiB |
 | LLM | 复用 `HUTUJI_LLM_*` 三件套（不新增凭据）；20s 超时、max_tokens 400、64KiB 响应上限（网络读取阶段生效）；人格 = `hutuji_mcp/chat.py` SYSTEM_PROMPT（与 `docs/xiaozhi-agent/role-prompt.md` 同源裁剪，改人格两边同步）；聊天域不带工具、不真出图 |
-| 画图意图 | LLM 首行输出 `DRAW::{"description": ≤60 字}` → MCP 解析为 `draw_intent`；解析失败/乱位/残缺标记一律按普通回复且标记行剥离，绝不透给前端。小程序收到意图后由用户点按钮走既有 `/api/draw/generate` → send/save——§5 闸、限流、校验零改动 |
+| 画图意图 | LLM 输出 `DRAW::{"description": ≤60 字}` 独立行 → MCP 解析为 `draw_intent`：首条完整合法标记即升格（2026-09-23 supersede 首行契约——0.3.17 体验版实证重画措辞下模型先寒暄再放标记，旧契约静默丢意图致按钮消失）；残缺/多余标记行一律剥离按普通回复处理，绝不透给前端。小程序收到意图后由用户点按钮走既有 `/api/draw/generate` → send/save——§5 闸、限流、校验零改动 |
 | 回包 | `{reply ≤500 字, draw_intent: null\|{description}, remaining}` |
 | 配额 | 成功回话记 `wx_chat` usage 事件；24h 窗口上限 `DRAW_PORTAL_CHAT_DAILY_LIMIT`（默认 50），超限 429；失败不占配额（与 web_generate 同口径） |
 | 错误映射 | 400 输入白话透传 / 401 未登录 / 403 仅小程序账号 / 429 日配额 / 502·503 固定白话不回显内部细节 |
