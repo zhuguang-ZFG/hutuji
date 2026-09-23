@@ -5,7 +5,7 @@
 
 ## 2026-09-23 聊天多轮丢按钮修复 + 预览方案 3（用户「多轮说话后就不出现绘画按钮了，看下日志」+「选择 3」）
 
-生产日志+真 LLM 探针复现：根因=历史剥离出图痕迹致模型鹦鹉学舌（文字链丢 DRAW::、语音链丢 voice.draw）。修复：voice_agent 历史保留工具调用链+整轮裁剪；chat.js 历史回填 DRAW:: 标记。探针修复前 1/6→修复后 6/6。预览：`preview_cache.js` 持久化（内容键+LRU32+登出清空）+ 两页 IntersectionObserver 懒加载（首屏 6 张）。提交 `35de54d`+`2cbd65e`；双机 voice_agent.py 已部署（SHA `71fe4110…` 一致、active、公网 401 冒烟）；备份 `/root/hutuji-bak-20260923-voiceagent/`。node 235/235、portal 427/427。weapp 0.3.17 已上传（`✔ upload`，265298B；CLI 日志在 `results/20260923-weapp-ux-perf/`）。同日追加 `f58e659`：筛选/删卡后重挂预览观察器 + 过期注释改口径。探针脚本 `tmp/chat_multiturn_probe*.py`、`tmp/voice_multiturn_probe.py`（本机）。
+生产日志+真 LLM 探针复现：根因=历史剥离出图痕迹致模型鹦鹉学舌（文字链丢 DRAW::、语音链丢 voice.draw）。修复：voice_agent 历史保留工具调用链+整轮裁剪；chat.js 历史回填 DRAW:: 标记。探针修复前 1/6→修复后 6/6。预览：`preview_cache.js` 持久化（内容键+LRU32+登出清空）+ 两页 IntersectionObserver 懒加载（首屏 6 张）。提交 `35de54d`+`2cbd65e`；双机 voice_agent.py 已部署（SHA `71fe4110…` 一致、active、公网 401 冒烟）；备份 `/root/hutuji-bak-20260923-voiceagent/`。node 235/235、portal 427/427。weapp 0.3.17 已上传（`✔ upload`，265298B；CLI 日志在 `results/20260923-weapp-ux-perf/`）。同日追加 `f58e659`：筛选/删卡后重挂预览观察器 + 过期注释改口径。`8499f1d`：DRAW:: 乱位标记升格（0.3.17 上机后重画措辞残余），双机 mcp+bridge 部署 SHA `55b847ef…`，部署后探针 4/4。探针脚本 `tmp/chat_multiturn_probe*.py`、`tmp/voice_multiturn_probe.py`（本机）。
 
 ## 2026-09-23 小程序体验/性能优化批（用户「改进优化小程序吧」）
 
@@ -50,7 +50,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 
 本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
 
-<!-- paper-current-count --> MCP 当前收集全套 **1571** 项（45 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
+<!-- paper-current-count --> MCP 当前收集全套 **1572** 项（45 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
 
 ## 2026-09-13 公众号引流决策稿（仅文档，未提交）
 
