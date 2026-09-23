@@ -5,7 +5,7 @@
 
 ## 2026-09-23 小程序合规整改（reject.html 核对，用户「同意；并开始整改」）
 
-按《微信小程序平台常见拒绝情形》逐块核 weapp：五块源码干净，服务类目为 09-07 刻意决策（结构性策略风险已如实登记）。整改：`privacy-policy.md` 补「注销与删除」流程+「提审用第三方共享最终文本」；`profile.wxml` 加注销删除指引行；`version.js` 0.3.14→0.3.15（16 个 JS 测试文件全过）；`weapp-smoke-checklist.md` 登记六块核对结论。待用户/MP 后台：隐私填报、42 项真机冒烟、体验版/提审/发布、订阅模板。0.3.15 未上传。白名单键 `weapp_compliance_remediation_20260923_authorized`。
+按《微信小程序平台常见拒绝情形》逐块核 weapp：五块源码干净，服务类目为 09-07 刻意决策（结构性策略风险已如实登记）。整改：`privacy-policy.md` 补「注销与删除」流程+「提审用第三方共享最终文本」；`profile.wxml` 加注销删除指引行；`version.js` 0.3.14→0.3.15（16 个 JS 测试文件全过）；`weapp-smoke-checklist.md` 登记六块核对结论。待用户/MP 后台：隐私填报、42 项真机冒烟、体验版/提审/发布、订阅模板。0.3.15 已上传（19:35 CLI exit 0，包 262367B；首试登录态过期 code 10 失败，日志在 `results/20260923-weapp-compliance/`）。白名单键 `weapp_compliance_remediation_20260923_authorized`。
 
 ## 2026-09-23 三仓优化批（breaker/WAL/fz 裁定/取证日志）
 
@@ -17,7 +17,7 @@
 
 用户告知「量产写字机和量产小派已上电」「备案已通过」。本轮无代码/文档外改动：云端 messaging 链直查 `hutuji.status`（1.0.19/nopaper/idle/指纹通过/原点）+ portal 调速复验（现读 3000/3000/1200，单轴 y 9500↔3000 往返读回，z=3001 越界 422）。随后按用户「按照顺序执行」完成三项定向 HIL：运动中 abort 物理链全对（抬笔/归位/自动 `$MD`/二次停止复用）但揭固件收尾误判——reset owner worker 悬挂 ~53s 后 WaitForAbortReset teardown 自拆 session，误判「abort reset 恢复失败」进 state=error 并播假警报（机制 `hutuji_job.cc:2901-2938`，当日已修复见下段）；error 黏滞经下一正常任务（口+repeat）起步自清、两画两 done；多页真 2 页任务被设备拒「这台机器一次只能画一页哦」零运动（契约行为）；A3 经 portal 设置被 400 拒「需要 X400 × Y277mm」快照不变（物理超行程，拒绝链即验收）。证据 `results/20260923-massprod-hil/`（device-status、speed-\*、abort/normal/multipage 双串口+远端+样本 G-code、a3-reject；results 被忽略仅本机）；辅助脚本 `tmp/hil0923_*.py`、`tmp/run_hil0923*.py` 不提交。readiness 文首同日条目已登记（含 09-08 备案条按用户原话翻 ✅）。
 
-同日追加修复批（用户「同意」授权）：xiaozhi 提交 **`9dd4661`**（5 文件 +107/-3：`hutuji_recovery_core.h` 双谓词 + `hutuji_job.cc` 两处接线 + host 测试 + `CMakeLists` 1.0.20 + `main/idf_component.yml` 钉 esp_video `2.3.*`），未推远端。构建阻塞根因=注册表 esp_video 2.5.0 的 esp_h264 依赖引用未定义 Kconfig 符号（净 HEAD 同症，非本批引入），钉版后三板各 215 CXX 通过。量产机已刷 **hutuji.1.0.20**（freenove bin 3074480B SHA `39268268…e814c6`，read-mac 核 `b8:1f:3f:c4:58:2c`，watchdog 复位）；abort 复现案 26.7s 发布 `aborted`（对照事故 53s+error+假警报+拆链），normal 两画两 done、多页拒绝零运动回归同过。host 117/117。证据 `results/20260923-massprod-hil/hutuji.1.0.20/`（flash-record+s3-flash+bin）与同目录 abort/normal/multipage 复跑日志。白名单键 `abort_settle_race_fix_20260923_authorized`（含同日追加的钉版授权）。
+同日追加修复批（用户「同意」授权）：xiaozhi 提交 **`9dd4661`**（5 文件 +107/-3：`hutuji_recovery_core.h` 双谓词 + `hutuji_job.cc` 两处接线 + host 测试 + `CMakeLists` 1.0.20 + `main/idf_component.yml` 钉 esp_video `2.3.*`），2026-09-23 已随批量推送 `origin/feat/hutuji-usb-pipe`。构建阻塞根因=注册表 esp_video 2.5.0 的 esp_h264 依赖引用未定义 Kconfig 符号（净 HEAD 同症，非本批引入），钉版后三板各 215 CXX 通过。量产机已刷 **hutuji.1.0.20**（freenove bin 3074480B SHA `39268268…e814c6`，read-mac 核 `b8:1f:3f:c4:58:2c`，watchdog 复位）；abort 复现案 26.7s 发布 `aborted`（对照事故 53s+error+假警报+拆链），normal 两画两 done、多页拒绝零运动回归同过。host 117/117。证据 `results/20260923-massprod-hil/hutuji.1.0.20/`（flash-record+s3-flash+bin）与同目录 abort/normal/multipage 复跑日志。白名单键 `abort_settle_race_fix_20260923_authorized`（含同日追加的钉版授权）。
 
 ## 2026-09-14 配网二维码回归
 
@@ -78,7 +78,7 @@
 - 本地证据：`results/20260913-crossrepo-review/`（portal321/weapp68/MCP1453、前段full、双机安装/哈希/preflight、weapp上传、手动消声）；`hutuji.1.0.16/`（179 host、三板bin/sdkconfig/构建、S3刷机/启动、normal/abort两串口与远端日志、样本G-code）；`motor-disable-memory/`（两支真实函数红→绿/两支bin/构建/fz/Web OTA与200次失能）；`verification-summary.json`汇总最终证据SHA。NVS备份可能含身份密钥，仅本机保留，不提交或上传。
 - 验证边界：preflight阿里24/33、京东25/33，差异见deployment；手机slider/语音/触屏交互、全幅纸面签核仍未做。三项已测为指定量产机正常绘制、再次绘制、运动中连续停止后的归位失能。
 
-## 2026-09-12 忙批评审补漏（已提交 main 本地、未推送）：语音画 429 静默 + 阿里云 nginx 片段超时对齐
+## 2026-09-12 忙批评审补漏（已提交 main 本地，2026-09-23 已推送）：语音画 429 静默 + 阿里云 nginx 片段超时对齐
 
 | 项 | 说明 |
 |---|---|
@@ -1166,7 +1166,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 范围 | 本仓零代码改动；xiaozhi 仓提交 `2cddf9a`（feat/hutuji-usb-pipe，**未推远端**，随前四提交待统一推）；现场证据不入库（gitignored），脚本在 `tmp/`（不入库） |
+| 范围 | 本仓零代码改动；xiaozhi 仓提交 `2cddf9a`（feat/hutuji-usb-pipe，2026-09-23 已随批量推送）；现场证据不入库（gitignored），脚本在 `tmp/`（不入库） |
 | 用户主诉 | 「点开始画没反应 / 画不了」→「预览好久出不来」→「感觉小派卡住了 / 机启中」→「写出来的字镜像了」 |
 | 根因链（全部有现场） | ①**预览/下载失败**：音频会话活跃期内部 SRAM 瞬时低谷（实测 minimal 643B、TLS 握手段 2743B）→ TLS 读记录时 esp-aes 1600B DMA 块分配失败（esp_aes_dma_core.c）→ esp-tls -0x0084 → SSL read fail；判别变量是音频并发时序而非堆块数值（同日 L1984 成功 vs L5632 失败互斥假说否证）。②**60s 干等**（R4）：HttpClient 断连回调不唤醒 GetStatusCode 的事件组等待 → 白等满超时；修复补丁落 `patches/`（managed_components 不入 git，重拉取会丢，升级组件须携带）。③**「机启中」卡死**：构建目录 reconfigure 时 resync 了根 sdkconfig 漂移（WiFi 静态 TX 缓冲 16 块钉死内部 RAM），启动期最大连续块 14.8KB→7.7KB < activation 任务 8KB 栈 → xTaskCreate 静默失败 → OTA/模型/协议全不启动；恢复动态 TX（对齐昨已知良好配置，sdkconfig.h 与 build-quiet0-ws35 零差异验收）后激活 25s 恢复。④HEAP_TASK_TRACKING 取证路线废弃实证：开追踪即 boot 崩溃循环（tracking 自旋锁中断看门狗 + pcTaskGetName 对已删 TCB 取名双诱因，backtrace 钉到 heap_task_info.c:283），代码整段拆除不入库。 |
 | 修复落地 | 三处下载（预览/预取/DownloadToPsram）有界重试：只对传输态（Open/Read/截断）重试 ≤3 次，abort/404/CRC 头等确定性失败立即出局；递增退避 1.2s/3s，重试超时 20s；预取是主路径（确认命中即画）此前单发即弃。PaperPresentState::No 对云上报 unknown（对齐用户 08-25「有纸无纸不用机器管」拍板；实机 PanelHold=On 纸在夹持仍被判缺纸的违约修复）。activation 任务创建失败现打 ESP_LOGE+堆八字段。 |
