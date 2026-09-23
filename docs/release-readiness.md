@@ -319,14 +319,14 @@
 
 > **BLE 分阶段边界（2026-08-19）**：默认关闭；公开/认证字段分级、UUID/线序/枚举、快照 stale/unknown、NVS 双槽记录、运行时 fail-closed、量化共存门槛和外部资料证据表均见 `docs/protocol.md` §1.4。BLE 不替代 WiFi Telnet、不承载 G-code、不直接控制电机/笔/换纸/授权/abort/job，也不宣称 UWB/AoA/Apple Precision Finding。阶段 A 的窄范围板上证据不替代当前源码刷机复验、完整共存矩阵或阶段 B/C。
 
-> **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。
+> **默认下一刀**：① 当前 Waveshare 预览确认/取消与五按钮屏幕 HIL；② 断连恢复 `paper_active` 窗口 abort 复测；③ 生产与合规签核（含出货级纸面签核）。AI 虚实交替已用户确认可画，不再作为默认待办重做。；④ xiaozhi `hutuji_job.cc` S4/Bf 出图期 Telnet 余量<300 临时收窄窗口（增强项，需出图期实机抓包定安全窗，2026-09-24 用户排期）；⑤ BLE 阶段 A 剩余门槛（WiFi/Telnet 共存量化、功耗/温升、24KiB minimal sram 缺 BLE-off 对照复核）与阶段 B/C（2026-09-24 用户排期，排在 HIL B1–B4 之后）
 
 > **禁止宣称**（除非对应行已 ✅）：可出货 / 商业放行 / §9 已完成 / 硬件已验证 / 联调完成 / 京东云已上线 / M2 已完成。门禁报告里的 `claims_forbidden` 清单不得为了绿而删。
-- 本仓 `hub` 最近通过：**2026-09-11**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1391 passed**、e2e `PASS`；docs 指纹 **261** 处全对（读闸热修批 5 处半漂移：inventory 三处纯移动 + AGENTS.md:177 两处随计数 1390→1391 内容更新人工核对后重登），外仓引用 **247** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条（含读闸热修 `output_store.py` 双机）；生产命中率统计与真实语音 HIL 仍
+- 本仓 `hub` 最近通过：**2026-09-24**（`profile=hub` `overall=pass`——末轮时间戳读 `results/hutuji_gate_last.json`，但该文件是**固定覆盖单槽**、`profile` 只等于最后一次运行的层级，读前必核 `profile` 与 `timestamp`——跑过 `--profile docs` 后它就不再是 hub/full 的证据），pytest **1572 passed**、e2e `PASS`；docs 指纹 **263** 处全对，外仓引用 **249** 处全在范围；最新部署应用基线见 `docs/deployment.md` 首条（含读闸热修 `output_store.py` 双机）；生产命中率统计与真实语音 HIL 仍
 
 ---
 ## 门禁状态
-- 本仓 `hub` 最近通过：**2026-09-11**（`profile=hub` `overall=pass`：pytest **1391 passed**、e2e `PASS`、docs 指纹 261 处全对、外仓文档引用 247 处全在范围；末轮 hub 随读闸热修批运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub/full 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线 2026-09-11 随读闸热修批再登（261 处；5 处半漂移 3 纯移动 + 2 内容更新人工核对）
+- 本仓 `hub` 最近通过：**2026-09-24**（`profile=hub` `overall=pass`：pytest **1572 passed**、e2e `PASS`、docs 指纹 263 处全对、外仓文档引用 249 处全在范围；末轮 hub 随量产体检加固批 `bc88d9d` 运行）。**`results/hutuji_gate_last.json` 是固定覆盖的单槽报告**，其 `profile` 字段等于最后一次运行的层级——跑过 `--profile docs` 后它就不再是 hub/full 的证据，读它前先核 `profile`/`timestamp`，`results/.hutuji_gate_running` 在场则整份报告不可信。指纹基线 2026-09-24 随体检加固批再登（263 处；`fe19671` 登记，2 处人工锚点核对）
 - Grbl HEAD：`D:/Users/Grbl_Esp32`（见 `docs/worktree-inventory.md` §2）
 - xiaozhi HEAD：`D:/Users/xiaozhi-esp32`（见 `docs/worktree-inventory.md` §3）
 - fz HEAD：`D:/Users/zhugu/fz`（见 `docs/worktree-inventory.md` §4）

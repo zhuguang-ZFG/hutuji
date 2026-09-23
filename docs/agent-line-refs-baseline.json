@@ -1,5 +1,5 @@
 {
-  "git_head": "fe196714f9b7651d2555aea54026106fc0d47a19",
+  "git_head": "bc88d9d8a54598aaea5a2dbbf0c4954a9d8c203c",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1006,11 +1006,6 @@
       "source": " * CONSTRAINTS: preserve callbacks, state gates, locale keys, and 56 px touch targets.",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
-    "docs/release-readiness.md -> AGENTS.md:177": {
-      "sha8": "992f3f8f",
-      "source": "- 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。",
-      "target": "AGENTS.md"
-    },
     "docs/release-readiness.md -> GCode.cpp:1732": {
       "sha8": "fe86c136",
       "source": "            if (stepper_idle_lock_time->get() != 0xff) {",
@@ -1317,6 +1312,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-23T23:33:00Z",
+  "updated": "2026-09-23T23:59:38Z",
   "version": 1
 }
