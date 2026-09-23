@@ -111,11 +111,12 @@ Page({
     return api.request("/api/settings/paper", { method: "POST", timeout: 45000,
       data: { device_mac: action.mac, config, expected_marker: this.data.marker, range_confirmed: confirmed } })
       .then((res) => {
+        // 保存已服务端生效即失效摘要缓存：与离页/归属核对无关，否则 60s 内回屏命中旧纸张。
+        paperSummary.invalidate();
         if (!current() || this.data.deviceMac !== action.mac) return;
         if (res.marker !== paper.marker(config)) throw new Error("设备未确认本次设置，请刷新");
         this._request = (this._request || 0) + 1;
         this._accept(res);
-        paperSummary.invalidate();
         this.setData({ hint: "已保存，之后生成的作品使用此纸张" });
       }).catch((err) => {
         if (current() && this.data.deviceMac === action.mac) this.setData({ hint: paper.requestError(err, "保存失败，请重新读取设备设置") });

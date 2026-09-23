@@ -427,7 +427,7 @@ Page({
       .request("/api/chat", {
         method: "POST",
         data: { message: text, history },
-        timeout: 45000, // LLM + 两道内容安全审核；比默认 150s 收紧
+        timeout: 45000, // LLM + 两道内容安全审核；显式放宽（默认 20s 不够）
       })
       .then((res) => {
         if (!current()) return;
