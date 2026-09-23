@@ -5,7 +5,7 @@
 
 ## 2026-09-23 三仓优化批（breaker/WAL/fz 裁定/取证日志）
 
-用户「继续下一步优化改进三仓」+ 两项拍板（WAL+busy_timeout、取证并刷机）。hub：`breaker.py` 删零调用 `_recent_samples_async` 死代码；`store.py::_connect` 启用 WAL+busy_timeout=30000（portal 425/425 + 6写4读并发冒烟零错误）。量产 Grbl worktree（`9bebc00` 未动）fz standard 复跑 FAIL 9 层与 09-14 基线逐层一致，裁定 nopaper SKU 预期差异（证据 `results/20260923-massprod-hil/fz-massprod-20260923-agent_gate_last.json`）。xiaozhi 提交 **`2312446`**（灌流错误应答取证日志，host 109/109，三板各 215 CXX），量产机已刷 **hutuji.1.0.21**（bin 3074640B SHA `bab9d3d0…b325`），draw+repeat 冒烟通过。hub 门禁 PASS（pytest 1571/1571、e2e PASS）。白名单键 `trirepo_optimize_20260923_authorized`。
+用户「继续下一步优化改进三仓」+ 两项拍板（WAL+busy_timeout、取证并刷机）。hub：`breaker.py` 删零调用 `_recent_samples_async` 死代码；`store.py::_connect` 启用 WAL+busy_timeout=30000（portal 425/425 + 6写4读并发冒烟零错误）。量产 Grbl worktree（`9bebc00` 未动）fz standard 复跑 FAIL 9 层与 09-14 基线逐层一致，裁定 nopaper SKU 预期差异（证据 `results/20260923-massprod-hil/fz-massprod-20260923-agent_gate_last.json`）。xiaozhi 提交 **`2312446`**（灌流错误应答取证日志，host 109/109，三板各 215 CXX），量产机已刷 **hutuji.1.0.21**（bin 3074640B SHA `bab9d3d0…b325`），draw+repeat 冒烟通过。hub 门禁 PASS（pytest 1571/1571、e2e PASS）。白名单键 `trirepo_optimize_20260923_authorized`。当日追加：4 文件（breaker/draw_queue/draw_worker/store）经 `d4579d74` LF blob 双机部署（备份 `/root/hutuji-bak-20260923-trirepo/`），阿里 12 服务+京东 2 服务 active、portal/admin/bridge 200，preflight 阿里 25/9、京东 26/8 与 09-14 基线同口径；bridge 连续重试撞 start-limit-hit 一次经 reset-failed 恢复。deployment.md 首条已登记。
 
 **既有在制批已由用户「你搞」收口提交（`2c2848e`）**：队列结算幂等重试——`_FINISH_SCRIPT` 空凭证拒绝/同结果幂等/终态保留领取凭证，`draw_worker.mark_done` 移 try-else 杜绝生成成功写 failed；test_draw_queue 38→43、全套 1571 已在 `8e4bf64` 同步台账。
 
