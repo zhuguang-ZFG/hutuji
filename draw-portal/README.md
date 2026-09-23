@@ -6,7 +6,7 @@
 
 纸张设置候选（2026-09-14）：`paper_settings.py` 按精确设备及绑定归属读写纸张，`GET/POST /api/settings/paper` 读回确认后才报告成功。图画、文字、笔顺、文档与手绘共用一次配置快照；`.paper.json` 绑定 G-code 内容，收藏/分享/重发前核对目标和设置。旧固件只显示默认纸张并提示升级，离线设置仅供展示与预览。契约见 `../docs/protocol.md` §10.4.24。
 
-小程序新增 `pages/paper/`、纸张摘要和共用 `utils/paper_config.js`。画板的镜像、六向、素材、回放与导出共用 `utils/drawpad.js`，上传带 `preserve_canvas=true` 保留空白构图；后台仍过实际 vpype 与 §5。`utils/preview_queue.js` 限制收藏预览并发并提供超时重试，实际用户收藏后的延迟原因仍须生产复现，不能仅凭缓存测试下结论。
+小程序新增 `pages/paper/`、纸张摘要和共用 `utils/paper_config.js`。画板的镜像、六向、素材、回放与导出共用 `utils/drawpad.js`，上传带 `preserve_canvas=true` 保留空白构图；后台仍过实际 vpype 与 §5。`utils/preview_queue.js` 限制收藏预览并发并提供超时重试。**收藏预览延迟已于 2026-09-23 生产复现裁决**：阿里云 nginx 10 天留存窗（09-13→09-23）收藏/图库面 1112×200、零 5xx/499，市场预览突发 27 张同秒完成，真实收藏链（09-15 08:39:53 POST favorite → 08:40:08 收藏页预览 200）服务端 1s 交付，单张 2.7–13.6KB——服务端不是延迟源（`/files/` 10r/s 桶与本路径无关；两条入库路径预览都是同步 copyfile 即时物化）。延迟根因在客户端：预览缓存仅页面实例级 Map + wx 临时文件，每次进收藏/图库页全量重下（同一收藏同日两次进页 80s 间隔重复下载有实证），弱网 × 3 并发 × 12s 超时放大为占位久等。修法候选：预览持久化到 `wx.env.USER_DATA_PATH`（键=saved id / market item+v 修订号，LRU 上界），或列表首屏按可视区懒加载。
 
 小程序网络与摘要口径（2026-09-23 优化批）：`utils/api.js` 的 `request` 默认超时 20s（长任务各自显式超时：生成 300s、chat/语音 45s、画板 25s、固件检查/下发 30s、OTA 轮询 10s），`uploadFile` 仍 150s。手机号闸 `phone_gate.ensurePhoneOrRedirect` 成功时 resolve 完整 `me`，control/firmware/index 在同一 onShow 内直接复用、不再重复请求 `/api/auth/me`；这三页的测试只应答一次闸的 `/me`。`utils/paper_summary.js` 按（会话+设备 MAC）缓存 60s，`pages/paper` 保存成功后必须 `invalidate()`，否则创作/聊天页展示旧纸张。控制页轮询对视图键做 diff setData，直写路径（动作锁定、失败、jog 落步距）一律经 `_syncView` 失效缓存。
 
