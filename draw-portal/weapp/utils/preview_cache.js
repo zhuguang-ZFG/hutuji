@@ -54,12 +54,19 @@ function _sweepLegacy() {
   }
 }
 
+// 进程内索引缓存：get 命中只动内存序不落盘（列表页逐项命中会放大成上百次
+// 同步存储写）；持久化只在 put/remove/clear/缺文件剔除时发生，进程被杀最坏
+// 丢次序精化，仅影响逐出优先级。
+let _memIdx = null;
 function _loadIndex() {
+  if (_memIdx) return _memIdx;
   const idx = wx.getStorageSync(INDEX_KEY);
-  return Array.isArray(idx) ? idx : [];
+  _memIdx = Array.isArray(idx) ? idx : [];
+  return _memIdx;
 }
 
 function _saveIndex(idx) {
+  _memIdx = idx;
   try {
     wx.setStorageSync(INDEX_KEY, idx);
   } catch (e) { /* 存储满时宁可丢索引不炸页面 */ }
@@ -68,15 +75,17 @@ function _saveIndex(idx) {
 function get(key) {
   _sweepLegacy();
   const idx = _loadIndex();
-  const hit = idx.find((e) => e.key === key);
-  if (!hit) return "";
+  const pos = idx.findIndex((e) => e.key === key);
+  if (pos < 0) return "";
+  const hit = idx[pos];
   try {
     _fs().accessSync(hit.file);
   } catch (e) {
     _saveIndex(idx.filter((e) => e.key !== key)); // 文件被系统清掉：索引同步剔除
     return "";
   }
-  _saveIndex([hit].concat(idx.filter((e) => e.key !== hit.key))); // LRU 提头
+  idx.splice(pos, 1); // LRU 提头：仅内存序
+  idx.unshift(hit);
   return hit.file;
 }
 
@@ -119,6 +128,7 @@ function remove(key) {
 }
 
 function clear() {
+  _memIdx = [];
   try {
     _fs().rmdirSync(_dir(), true);
   } catch (e) { /* 目录不存在 */ }
