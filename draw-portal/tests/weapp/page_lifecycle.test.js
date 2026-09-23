@@ -35,9 +35,7 @@ test("冷启动控制页等待真实登录完成，再读状态与速度", async
   await flush();
   reply(h, me);
   await flush();
-  reply(h, me); // 页面手机号闸
-  await flush();
-  reply(h, me); // 当前控制目标
+  reply(h, me); // 页面手机号闸；控制目标直接复用该 /me，不再重复请求
   await flush();
   assert.equal(h.requests.at(-1).data.device_mac, me.active_device_mac);
   reply(h, { status: "ok", result: JSON.stringify(state) });
@@ -138,9 +136,7 @@ test("固件页正常加载使用明确目标，检查失败清除旧升级按�
   h.load("pages/firmware/firmware.js");
   h.page.onShow();
   await flush();
-  reply(h, me);
-  await flush();
-  reply(h, me);
+  reply(h, me); // 手机号闸 /me；绑定信息随闸复用，不再二次请求
   await flush();
   assert.match(h.requests.at(-1).url, /firmware\/check\?device_mac=aa%3Abb/);
   reply(h, { update_available: true, current: "hutuji.1.0.16", latest: "hutuji.1.0.17" });
@@ -156,7 +152,7 @@ test("固件页正常加载使用明确目标，检查失败清除旧升级按�
 test("升级期间切换活动设备再回屏，仍查询原升级设备而不丢进度", async () => {
   const h = createWeapp({ clock: createClock() });
   h.load("pages/firmware/firmware.js");
-  h.page.onShow(); await flush(); reply(h, me); await flush(); reply(h, me); await flush();
+  h.page.onShow(); await flush(); reply(h, me); await flush();
   reply(h, { update_available: true, latest: "hutuji.1.0.17" }); await flush();
   h.page._startUpgrade(); reply(h, { status: "started" }); await flush();
   h.page.onHide(); h.page.onShow(); await flush();
@@ -174,7 +170,17 @@ for (const failureAt of ['account', 'binding']) {
     h.page.setData({ updateAvailable: true });
     h.page.onShow(); await flush();
     assert.equal(h.page.data.updateAvailable, false);
-    if (failureAt === 'binding') { reply(h, me); await flush(); }
+    if (failureAt === 'binding') {
+      // 绑定信息随手机号闸的 /me 一起来（同程复用，不再二次请求）；此场景的失败点即固件检查请求。
+      reply(h, me); await flush();
+      assert.equal(h.requests.length, 2);
+      h.requests.at(-1).fail(); await flush();
+      assert.equal(h.page.data.checking, false);
+      assert.equal(h.page.data.updateAvailable, false);
+      assert.equal(h.page.data.statusTipClass, "warn");
+      assert.notEqual(h.page.data.statusTip, "");
+      return;
+    }
     h.requests.at(-1).fail(); await flush();
     assert.match(h.page.data.loadError, /重试/);
     assert.equal(h.page.data.checking, false);
@@ -202,6 +208,27 @@ test("旧手机号不足回包不会把新登录踢到授权页", async () => {
   reply(h, { detail: { code: "phone_required", message: "请授权" } }, 403);
   await rejected;
   assert.equal(h.tabs.length, 0);
+});
+
+test("全量刷新切换设备后调速按钮不被视图 diff 缓存卡住", async () => {
+  const h = createWeapp({ clock: createClock() });
+  h.load("pages/control/control.js");
+  h.page.onShow();
+  await flush();
+  reply(h, me);
+  await flush();
+  reply(h, { status: "ok", result: JSON.stringify(state) });
+  await flush();
+  assert.equal(h.page.data.canSetSpeed, true);
+  // 不经过 onShow 的全量刷新（下拉）换到另一台同样可调的设备：
+  // 设备切换直写 canSetSpeed=false，新状态仍推导 true，diff 缓存若不失效会漏发。
+  const me2 = Object.assign({}, me, { active_device_mac: "11:22:33:44:55:66" });
+  h.page.refresh(false, false, me2);
+  await flush();
+  reply(h, { status: "ok", result: JSON.stringify(state) });
+  await flush();
+  assert.equal(h.page.data.canSetSpeed, true);
+  h.page.onHide();
 });
 
 for (const route of ["chat", "xiaopai"]) {

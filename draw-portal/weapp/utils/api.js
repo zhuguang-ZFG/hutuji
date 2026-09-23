@@ -43,7 +43,6 @@ function _reject401(reject, session, generation) {
     reject({ status: 401, detail: "登录已过期" });
     return;
   }
-  wx.removeStorageSync("session_ok");
   wx.removeStorageSync("session_token");
   app.globalData.user = null;
   app.globalData.phoneBound = false;
@@ -67,7 +66,9 @@ function request(path, options = {}) {
       method: options.method || "GET",
       data: options.data || {},
       header,
-      timeout: options.timeout || 150000,
+      // 默认 20s：状态/账号类查询走这个默认，弱网挂起不再把页面卡 150s。
+      // 长任务由各调用点显式给出（生成/写字/笔顺 300s、语音 45s）；上传默认 150s 见 uploadFile。
+      timeout: options.timeout || 20000,
       success(res) {
         if (res.statusCode === 401) {
           _reject401(reject, header["x-session"], generation);

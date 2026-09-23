@@ -71,18 +71,20 @@ Page({
     this._visible = true;
     const generation = this._viewGeneration = (this._viewGeneration || 0) + 1;
     const session = getApp()._sessionGeneration;
-    this.setData({ footVersion: displayVersion("v0.3.6"), speedSaving: false,
+    this._viewJson = null;
+    this.setData({ footVersion: displayVersion(), speedSaving: false,
       speedLoaded: false, speedLoading: false, canSetSpeed: false, speedError: "", statusError: "",
       bound: false, bindingLoading: true, bindingChecked: false,
       bindingMac: "", status: null, busyAction: "", manualLocked: true, controlError: "",
       canConfirm: false, canAbort: false, canPause: false, canResume: false, canRepeat: false });
-    phoneGate.ensurePhoneOrRedirect(api, () => this._isCurrentView(generation, session)).then((ok) => {
+    phoneGate.ensurePhoneOrRedirect(api, () => this._isCurrentView(generation, session)).then((me) => {
       if (!this._isCurrentView(generation, session)) return;
-      if (!ok) {
+      if (!me) {
         this.setData({ bindingLoading: false, statusError: "账号信息读取失败，请刷新重试" });
         return;
       }
-      this.refresh();
+      // 闸刚查过 /me，同一 onShow 内复用，不再重复请求。
+      this.refresh(false, false, me);
     });
   },
 
@@ -204,8 +206,30 @@ Page({
       otaLine: prog.otaLine,
     };
   },
+  // 轮询每轮全量 setData 会整包过桥；对连续两次状态应用按键 diff，只发变化键。
+  // 任何绕过 _applyView 的直写（busy 锁定、失败态、速度区）必须先失效缓存，
+  // 否则缓存与页面真实数据分叉会漏发按键（按钮卡死事故面）。
+  _applyView(payload) {
+    const last = this._viewJson || {};
+    const next = {};
+    const changed = {};
+    let any = false;
+    for (const key of Object.keys(payload)) {
+      const json = JSON.stringify(payload[key]);
+      next[key] = json;
+      if (last[key] !== json) { changed[key] = payload[key]; any = true; }
+    }
+    this._viewJson = next;
+    if (any) this.setData(changed);
+  },
 
-  refresh(silent, statusOnly = false) {
+  // 直写等价于旧全量语义：写完即失效 diff 缓存，下一次 _applyView 全量重发。
+  _syncView(payload) {
+    this.setData(payload);
+    this._viewJson = null;
+  },
+
+  refresh(silent, statusOnly = false, me = null) {
     if (this._refreshPromise) return this._refreshPromise;
     if (this.data.busyAction) return Promise.resolve();
     if (!this.data.bindingChecked) this.setData({ bindingLoading: true });
@@ -218,9 +242,9 @@ Page({
       this._refreshGeneration === refreshGeneration &&
       (this._controlGeneration || 0) === controlGeneration;
     let nextPollMs = jobProgress.POLL_MS_IDLE;
-    // 动作后已知明确目标，直接取状态；服务端仍复核活动设备与归属。
-    const binding = statusOnly && this.data.bound && this.data.bindingMac
-      ? Promise.resolve(null) : api.request("/api/auth/me");
+    const binding = me ? Promise.resolve(me)
+      : statusOnly && this.data.bound && this.data.bindingMac
+        ? Promise.resolve(null) : api.request("/api/auth/me");
     const pending = binding
       .then((me) => {
         if (!current()) return;
@@ -229,6 +253,8 @@ Page({
           const bindingMac = activeDeviceMac(me);
           if (bindingMac !== this.data.bindingMac) {
             this._speedGeneration = (this._speedGeneration || 0) + 1;
+            // 直写速度区前失效 diff 缓存：旧设备 canSetSpeed 与新推导值相同会被漏发。
+            this._viewJson = null;
             this.setData({ speedRates: { x: 10000, y: 10000, z: 1200 },
               speedSaving: false, speedLoaded: false, speedLoading: false, canSetSpeed: false, speedError: "" });
           }
@@ -245,7 +271,7 @@ Page({
           if (r && r.status === "ok" && r.result) {
             const status = mcpResult.parseToolJson(r.result);
             if (status) {
-              this.setData(Object.assign({ status, statusError: "" }, this._deriveControls(status)));
+              this._applyView(Object.assign({ status, statusError: "" }, this._deriveControls(status)));
               nextPollMs = jobProgress.deriveProgressView(status).pollMs;
               this._loadMachineSpeed();
             } else {
@@ -282,7 +308,7 @@ Page({
   },
 
   _statusFailed(detail) {
-    this.setData(Object.assign(this._deriveControls(null), {
+    this._syncView(Object.assign(this._deriveControls(null), {
       status: null, statusError: detail, linkLabel: "读取失败", speedLoaded: false, bindingLoading: false,
     }));
   },
@@ -333,7 +359,8 @@ Page({
     const key = action || tool;
     this._controlGeneration = (this._controlGeneration || 0) + 1;
     this._clearPoll();
-    this.setData({ busyAction: key, manualLocked: true, canConfirm: false,
+    // 动作锁定直写后失效 diff 缓存：下一次状态应用全量重发，避免漏发按键。
+    this._syncView({ busyAction: key, manualLocked: true, canConfirm: false,
       canAbort: false, canPause: false, canResume: false, canRepeat: false, canSetSpeed: false });
     return this.control(tool, action).then((r) => {
       if (!this._isCurrentView(generation, session) || this.data.bindingMac !== bindingMac) return false;
@@ -341,7 +368,7 @@ Page({
       const ok = !!(r && r.status === "ok");
       // 步距返回 ok 时已同步落地；运动的 started 只是受理，必须等新状态。
       if (ok && tool === "hutuji.manual" && (action === "jog_step_1" || action === "jog_step_10")) {
-        this.setData(this._deriveControls(this.data.status));
+        this._syncView(this._deriveControls(this.data.status));
       }
       this._refreshAfterAction();
       return ok;

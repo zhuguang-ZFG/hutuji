@@ -2,6 +2,7 @@ const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const pageSession = require("../../utils/page_session");
 const paper = require("../../utils/paper_config");
+const paperSummary = require("../../utils/paper_summary");
 
 Page({
   data: { loading: true, loadError: "", saving: false, capable: false, online: false, form: null,
@@ -114,6 +115,7 @@ Page({
         if (res.marker !== paper.marker(config)) throw new Error("设备未确认本次设置，请刷新");
         this._request = (this._request || 0) + 1;
         this._accept(res);
+        paperSummary.invalidate();
         this.setData({ hint: "已保存，之后生成的作品使用此纸张" });
       }).catch((err) => {
         if (current() && this.data.deviceMac === action.mac) this.setData({ hint: paper.requestError(err, "保存失败，请重新读取设备设置") });

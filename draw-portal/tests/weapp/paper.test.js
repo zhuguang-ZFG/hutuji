@@ -37,6 +37,8 @@ for (const name of ['index', 'chat']) {
     assert.equal(h.page.data.paperSummary.title, 'A4 · 竖版');
     assert.match(h.page.data.paperSummary.detail, /190 × 277 mm/);
     assert.equal(h.page.data.paperSummary.state, 'ready');
+    // 摘要 60s 缓存：同设备二次回屏复用结果；要读最新离线态须显式失效（paper 保存同口径）。
+    h.load('utils/paper_summary.js').invalidate();
     const offline = await showSummary(h);
     reply(offline, response(undefined, { online: false }));
     await flush();
@@ -74,6 +76,61 @@ for (const name of ['index', 'chat']) {
     assert.equal(h.page.data.paperSummary.state, 'unbound');
   });
 }
+test('摘要 60s 内同设备复用缓存，失效或过期后重取', async () => {
+  const { createClock } = require('./harness');
+  const clock = createClock();
+  const h = createWeapp({ clock });
+  h.storage.set('session_token', 'owner');
+  h.load('pages/index/index.js');
+  h.page.onLoad();
+  const first = await showSummary(h);
+  reply(first, response());
+  await flush();
+  assert.equal(h.page.data.paperSummary.title, 'A4 · 竖版');
+  const count = h.requests.filter((item) => item.url.includes('/api/settings/paper?')).length;
+  // TTL 内二次回屏：零新请求，内容来自缓存。
+  await showSummary(h);
+  assert.equal(h.requests.filter((item) => item.url.includes('/api/settings/paper?')).length, count);
+  assert.equal(h.page.data.paperSummary.title, 'A4 · 竖版');
+  // 失效后重取。
+  h.load('utils/paper_summary.js').invalidate();
+  const afterInvalidate = await showSummary(h);
+  assert(afterInvalidate.url.includes('/api/settings/paper?'));
+  reply(afterInvalidate, response());
+  await flush();
+  // 过期后同样重取。
+  clock.advance(61000);
+  const afterTtl = await showSummary(h);
+  assert(afterTtl.url.includes('/api/settings/paper?'));
+  reply(afterTtl, response(undefined, { online: false }));
+  await flush();
+  assert.equal(h.page.data.paperSummary.state, 'offline');
+});
+
+test('缓存按设备隔离：切换 active_device_mac 不落旧摘要', async () => {
+  const h = createWeapp();
+  h.storage.set('session_token', 'owner');
+  h.load('pages/index/index.js');
+  h.page.onLoad();
+  const first = await showSummary(h);
+  reply(first, response());
+  await flush();
+  assert.equal(h.page.data.paperSummary.title, 'A4 · 竖版');
+  const nextMac = '11:22:33:44:55:66';
+  const next = await showSummary(h, Object.assign({}, ME, { active_device_mac: nextMac }));
+  assert(next.url.includes(encodeURIComponent(nextMac)));
+  const config = { paper: 'A3', width_mm: 297, height_mm: 420, margin_mm: 10,
+    landscape: false, swap_xy: false, max_x_mm: 277, max_y_mm: 400 };
+  reply(next, response(config, { device_mac: nextMac }));
+  await flush();
+  assert.equal(h.page.data.paperSummary.title, 'A3 · 竖版');
+  // 缓存单槽按（会话+设备）键控：切回第一台键不匹配 → 重取，核对确是第一台的内容而非第二台残留。
+  const back = await showSummary(h);
+  reply(back, response());
+  await flush();
+  assert.equal(h.page.data.paperSummary.title, 'A4 · 竖版');
+});
+
 async function show(h, status = response()) {
   h.page.onShow();
   await flush();

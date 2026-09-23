@@ -45,7 +45,6 @@ App({
                 return;
               }
               api.setSession(data.session || "");
-              wx.setStorageSync("session_ok", true);
               return api.request("/api/auth/me").then((me) => {
                 if (!isCurrent()) {
                   resolve(null);
@@ -61,7 +60,6 @@ App({
                 resolve(null);
                 return;
               }
-              wx.removeStorageSync("session_ok");
               wx.removeStorageSync("session_token");
               this.globalData.user = null;
               this.globalData.phoneBound = false;
@@ -101,7 +99,6 @@ App({
     ++this._sessionGeneration;
     this._sessionPromise = null;
     wx.removeStorageSync("session_token");
-    wx.removeStorageSync("session_ok");
     wx.removeStorageSync("voice_session_id");
     wx.removeStorageSync("drawpad_draft_v2");
     wx.setStorageSync("logged_out", true);

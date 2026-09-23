@@ -17,7 +17,8 @@ function redirectToPhoneGate(message) {
   wx.switchTab({ url: PROFILE_TAB });
 }
 
-/** 页面 onShow：无手机号则切到「我的」。返回 Promise<boolean> 是否已绑定。 */
+/** 页面 onShow：无手机号则切到「我的」。已绑定 resolve 本次 /me 回包（truthy），
+ *  调用方可在同一 onShow 链路内复用、避免紧跟着再打一次 /me；未绑定/失败 resolve false。 */
 function ensurePhoneOrRedirect(api, isCurrent = () => true) {
   const app = getApp();
   const generation = app._sessionGeneration;
@@ -37,7 +38,7 @@ function ensurePhoneOrRedirect(api, isCurrent = () => true) {
         redirectToPhoneGate();
         return false;
       }
-      return true;
+      return me;
     })
     .catch((err) => {
       if (!current()) return false;

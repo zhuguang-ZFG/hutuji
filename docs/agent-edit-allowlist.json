@@ -699,5 +699,31 @@
       "draw-portal/weapp/utils/version.js",
       "draw-portal/weapp-smoke-checklist.md"
     ]
+  },
+  "weapp_ux_perf_20260923_authorized": {
+    "note": "2026-09-23 用户「改进优化小程序吧」。批内容：api.request 默认超时 150s→20s（固件 check/upgrade/ota_status 显式 30s/30s/10s，上传与长任务显式超时不动）；phone_gate 手机号闸改为 resolve me 对象，control/firmware/index 在同一 onShow 内复用这次 /me 消除每切 tab 1–2 个重复请求；纸张摘要 60s TTL 缓存（键=会话+MAC）+ paper.js 保存成功后失效；control 轮询 setData 按键 diff（任何直写路径即失效缓存，防按钮卡死）；profile 昵称 dirty 短路（未改不 POST）；死代码：app.wxss 五个全站无引用类、displayVersion 四个虚参调用点、session_ok 只写不读存储键；paper 页报错文案与全站统一；BUILD_VERSION 0.3.16。分包与长列表路径更新 setData 本轮不做（分包需真机编译验证且 share 落地页首开变慢；路径更新在长列表才可见收益、改错即气泡错位）。",
+    "contract": "用户原话「改进优化小程序吧」；docs/protocol.md §10.4.21；docs/design/weapp-followup-review-20260913.md",
+    "paths": [
+      "draw-portal/weapp/utils/api.js",
+      "draw-portal/weapp/utils/phone_gate.js",
+      "draw-portal/weapp/utils/paper_summary.js",
+      "draw-portal/weapp/utils/version.js",
+      "draw-portal/weapp/pages/control/control.js",
+      "draw-portal/weapp/pages/firmware/firmware.js",
+      "draw-portal/weapp/pages/index/index.js",
+      "draw-portal/weapp/pages/paper/paper.js",
+      "draw-portal/weapp/pages/profile/profile.js",
+      "draw-portal/weapp/pages/chat/chat.js",
+      "draw-portal/weapp/app.js",
+      "draw-portal/weapp/app.wxss",
+      "draw-portal/tests/weapp/session.test.js",
+      "draw-portal/tests/weapp/paper.test.js",
+      "draw-portal/tests/weapp/page_lifecycle.test.js",
+      "draw-portal/tests/weapp/control_latency.test.js",
+      "draw-portal/tests/weapp/index.test.js",
+      "draw-portal/tests/weapp/profile.test.js",
+      "draw-portal/README.md",
+      "docs/agent-edit-allowlist.json"
+    ]
   }
 }

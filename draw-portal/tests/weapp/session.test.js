@@ -41,7 +41,6 @@ for (const stage of ["wx", "session", "me"]) {
     }
     await flush();
     assert.equal(h.storage.get("session_token"), undefined);
-    assert.equal(h.storage.get("session_ok"), undefined);
     assert.equal(h.storage.get("logged_out"), true);
     assert.equal(h.app.globalData.user, null);
     assert.equal(h.app.globalData.phoneBound, false);
@@ -73,7 +72,6 @@ for (const stage of ["session", "me"]) {
       });
       await flush();
       assert.equal(h.storage.get("session_token"), "new-session");
-      assert.equal(h.storage.get("session_ok"), true);
       assert.equal(h.app.globalData.user.id, "new-session");
       assert.equal(h.app.globalData.phoneBound, true);
       assert.equal(h.toasts.length, 0);
@@ -133,7 +131,6 @@ test("当前会话的 401 仍会清除登录与手机号状态", async () => {
   h.requests.at(-1).success({ statusCode: 401, data: {} });
   await rejected;
   assert.equal(h.storage.get("session_token"), undefined);
-  assert.equal(h.storage.get("session_ok"), undefined);
   assert.equal(h.app.globalData.user, null);
   assert.equal(h.app.globalData.phoneBound, false);
 });

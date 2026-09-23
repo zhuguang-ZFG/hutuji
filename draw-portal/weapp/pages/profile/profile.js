@@ -21,7 +21,7 @@ Page({
 
   onShow() {
     pageSession.show(this);
-    this.setData({ footVersion: displayVersion("v0.3.6") });
+    this.setData({ footVersion: displayVersion() });
     const loggedOut = !!wx.getStorageSync("logged_out") || (!api.getSession() && !getApp()._sessionPromise);
     this.setData({ loggedOut, me: null, avatarSrc: "", nicknameDraft: "", needPhone: false,
       loadError: "", savingNick: false, loggingIn: false, selectingDevice: false });
@@ -79,7 +79,8 @@ Page({
     const avatarSrc = me && me.avatar_url
       ? api.mediaUrl(me.avatar_url) + "?t=" + Date.now()
       : "";
-    this.setData({ me, nicknameDraft: (me && me.nickname) || "", needPhone, avatarSrc });
+    this._savedNickname = (me && me.nickname) || "";
+    this.setData({ me, nicknameDraft: this._savedNickname, needPhone, avatarSrc });
     if (!needPhone) bindIdentity.resumeAfterAuth();
   },
 
@@ -130,7 +131,8 @@ Page({
 
   onSaveNick() {
     const nickname = (this.data.nicknameDraft || "").trim();
-    if (!nickname || this.data.savingNick) return;
+    // 与服务端昵称一致时不发请求：保存按钮高频误触，空写既费配额又重置 updated_at。
+    if (nickname === (this._savedNickname || "")) return;
     this.setData({ savingNick: true });
     const current = pageSession.capture(this);
     api

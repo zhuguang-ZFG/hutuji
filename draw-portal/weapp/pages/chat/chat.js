@@ -78,7 +78,7 @@ Page({
   },
 
   onLoad() {
-    this.setData({ footVersion: displayVersion("v0.3.6") });
+    this.setData({ footVersion: displayVersion() });
     subscribe.prepare();
     this._sessionId = ensureSessionId();
     this._msgSeq = 0;

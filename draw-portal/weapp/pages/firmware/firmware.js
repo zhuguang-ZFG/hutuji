@@ -57,10 +57,10 @@ Page({
     }
     const current = pageSession.capture(this);
     if (!this.data.upgrading) this._deviceMac = "";
-    this.setData({ footVersion: displayVersion("v0.3.6"), checking: true, updateAvailable: false, loadError: "" });
-    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    this.setData({ footVersion: displayVersion(), checking: true, updateAvailable: false, loadError: "" });
+    phoneGate.ensurePhoneOrRedirect(api, current).then((me) => {
       if (!current()) return;
-      if (!ok) {
+      if (!me) {
         this.setData({ checking: false, loadError: "账号信息读取失败，请重试" });
         return;
       }
@@ -70,7 +70,7 @@ Page({
         this._pollOnce();
         return;
       }
-      this._ensureBound().then((bound) => {
+      this._ensureBound(me).then((bound) => {
         if (!current()) return;
         this.setData({ checking: false });
         if (!bound) return;
@@ -94,10 +94,10 @@ Page({
     this.onHide();
   },
 
-  _ensureBound() {
+  // onShow 的手机号闸刚查过 /me，直接复用；其他入口（暂无）仍自取。
+  _ensureBound(me) {
     const current = pageSession.capture(this);
-    return api
-      .request("/api/auth/me")
+    return (me ? Promise.resolve(me) : api.request("/api/auth/me"))
       .then((me) => {
         if (!current()) return false;
         const bound = !!(me && me.binding && me.binding.bound);
@@ -177,7 +177,8 @@ Page({
     this.setData({ checking: true, updateAvailable: false });
     if (!quiet) this._setTip("");
     api
-      .request("/api/device/firmware/check?device_mac=" + encodeURIComponent(mac || ""))
+      // 设备链查询通常 <10s；30s 是弱网上限，别落到 150s 旧默认。
+      .request("/api/device/firmware/check?device_mac=" + encodeURIComponent(mac || ""), { timeout: 30000 })
       .then((data) => {
         if (!current() || mac !== this._deviceMac) return;
         this.setData({ checking: false });
@@ -235,7 +236,8 @@ Page({
     });
     this._setTip("升级中，请保持设备联网", "");
     api
-      .request("/api/device/firmware/upgrade", { method: "POST", data: { device_mac: mac } })
+      // 下发应快速回 started/unknown；超时走 catch 的瞬态分支继续轮询对账，30s 足够。
+      .request("/api/device/firmware/upgrade", { method: "POST", timeout: 30000, data: { device_mac: mac } })
       .then((data) => {
         if (!current()) return;
         if (!data || (data.status !== "started" && data.status !== "unknown")) {
@@ -293,7 +295,8 @@ Page({
     }
     const flight = this._pollFlight = {};
     api
-      .request("/api/device/firmware/ota_status?device_mac=" + encodeURIComponent(this._upgradeMac || this._deviceMac || ""))
+      // 2s 间隔轮询：单请求 10s 封顶，挂起请求不能把「超时未确认」拖成数小时。
+      .request("/api/device/firmware/ota_status?device_mac=" + encodeURIComponent(this._upgradeMac || this._deviceMac || ""), { timeout: 10000 })
       .then((st) => {
         if (!current()) return;
         const state = String((st && st.state) || "").toLowerCase();

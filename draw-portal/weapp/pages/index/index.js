@@ -51,13 +51,14 @@ Page({
         uploading: false, sending: false, saving: false });
     }
     const current = pageSession.capture(this);
-    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    phoneGate.ensurePhoneOrRedirect(api, current).then((me) => {
       if (!current()) return;
-      if (!ok) {
+      if (!me) {
         this.setData({ paperSummary: { title: "纸张与方向", detail: "账号信息未读取，点此查看", state: "unavailable" } });
         return;
       }
-      this.refreshStatus();
+      // 闸刚查过 /me，同一 onShow 内复用，不再重复请求。
+      this.refreshStatus(me);
       this._consumePickedFile();
       // 交接结果先完成账号闸；退出登录时全局交接槽也会清空。
       if (app.globalData.pendingAdopt) {
@@ -211,16 +212,19 @@ Page({
     this.setData({ lineSpacing: v });
   },
 
-  refreshStatus() {
+  // me 在场时直接用（onShow 的手机号闸刚查过），否则自行请求。
+  refreshStatus(me) {
     const app = getApp();
     const current = pageSession.capture(this);
-    return api.request("/api/auth/me").then((me) => {
+    const apply = (me) => {
       if (!current()) return;
       app.globalData.user = me;
       this.setData({ binding: me.binding || null });
       if (me.quota && typeof me.quota.remaining === "number") this.setData({ quotaLeft: me.quota.remaining });
       return paperSummary.refresh(this);
-    }).catch(() => { if (current()) this.setData({ binding: null,
+    };
+    if (me) return Promise.resolve(apply(me));
+    return api.request("/api/auth/me").then(apply).catch(() => { if (current()) this.setData({ binding: null,
       paperSummary: { title: "纸张与方向", detail: "设备信息未读取，点此查看", state: "unavailable" } }); });
   },
 
