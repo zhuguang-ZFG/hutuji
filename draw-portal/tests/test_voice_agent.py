@@ -261,3 +261,21 @@ def test_cap_history_drops_whole_turns_without_orphaning_tools() -> None:
     assert history[0]["role"] == "user"
     tc_ids = {tc["id"] for m in history for tc in m.get("tool_calls", [])}
     assert all(m["tool_call_id"] in tc_ids for m in history if m["role"] == "tool")
+
+
+def test_session_table_evicts_lru_beyond_cap() -> None:
+    va._sessions.clear()
+    try:
+        first = va._get_session("s0")
+        first.append({"role": "user", "content": "hi"})
+        for i in range(1, va._MAX_SESSIONS):
+            va._get_session(f"s{i}")
+        assert len(va._sessions) == va._MAX_SESSIONS
+        va._get_session("s0")  # 提热：活跃会话不应被逐出
+        va._get_session("s-new")
+        assert len(va._sessions) == va._MAX_SESSIONS
+        assert "s0" in va._sessions
+        assert "s1" not in va._sessions  # 最冷者被逐
+        assert va._get_session("s0") is first  # 会话历史对象不被置换
+    finally:
+        va._sessions.clear()

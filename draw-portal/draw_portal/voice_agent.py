@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any
 
@@ -38,7 +39,22 @@ class VoiceAgentError(Exception):
     """语音对话失败。"""
 
 
-_sessions: dict[str, list[dict[str, Any]]] = {}
+# 量产内存闸：sid 由客户端每次进页新生成，无淘汰会让会话历史（含对话隐私）
+# 在单进程 uvicorn 里无限驻留——OrderedDict + LRU 256 上界，触及即提热。
+_MAX_SESSIONS = 256
+_sessions: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
+
+
+def _get_session(sid: str) -> list[dict[str, Any]]:
+    history = _sessions.get(sid)
+    if history is None:
+        if len(_sessions) >= _MAX_SESSIONS:
+            _sessions.popitem(last=False)
+        history = []
+        _sessions[sid] = history
+    else:
+        _sessions.move_to_end(sid)
+    return history
 
 
 def llm_configured() -> bool:
@@ -225,7 +241,7 @@ def chat(
     headers = {"Authorization": f"Bearer {api_key}"}
     tools = _build_tools_schema()
 
-    history = _sessions.setdefault(sid, [])
+    history = _get_session(sid)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         *history,

@@ -399,6 +399,13 @@ def _default_saved_title() -> str:
     return datetime.now().strftime("上传 %Y-%m-%d %H:%M")
 
 
+# usage_events 无后台线程，沿用「访问时顺带清理」约定：写埋点时按 1h 节流清扫
+# 过期行（口径与 conversation_events 的 retention_cutoff 同源）。retention 天数
+# 由 create_app 在装配期注入（模块级函数拿不到闭包 config）。
+_usage_purge_last = 0.0
+_usage_purge_retention_days = 90  # analytics.DEFAULT_RETENTION_DAYS
+
+
 def _record_portal_usage(
     store: Store,
     *,
@@ -416,6 +423,13 @@ def _record_portal_usage(
         detail=detail,
         ok=ok,
     )
+    global _usage_purge_last
+    now = time.time()
+    if now - _usage_purge_last >= 3600:
+        _usage_purge_last = now
+        store.purge_usage_before(
+            retention_cutoff(retention_days=_usage_purge_retention_days)
+        )
 
 
 def _notify_subscribe(
@@ -562,6 +576,8 @@ def _wx_code2session(config: Any, code: str) -> str:
 def create_app() -> FastAPI:
     config = load_config()
     store = Store(config.db_path, provider_cipher_key=config.provider_cipher_key)
+    global _usage_purge_retention_days
+    _usage_purge_retention_days = config.conversation_retention_days
 
     # 启动恢复（评审②）：上次进程重启丢掉内存队列的 pending 行重新入队。
     telegram_archive.enqueue_pending_on_boot(store)
@@ -751,6 +767,8 @@ def create_app() -> FastAPI:
         phone = user.phone
         phone_bound = bool(phone and str(phone).strip())
         return {
+            # 客户端跨账号检测锚：静默重登换了微信账号时据此清本地私有预览缓存
+            "id": user.id,
             "email": user.email,
             "wx": user.wx_openid is not None,
             "nickname": user.nickname,

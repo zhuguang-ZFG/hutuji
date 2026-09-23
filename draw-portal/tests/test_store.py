@@ -36,3 +36,12 @@ def test_bind_session_consume(tmp_path: Path):
 def test_invalid_bind_code():
     with pytest.raises(ValueError):
         normalize_bind_code("abc")
+
+
+def test_purge_usage_before_deletes_only_expired(tmp_path: Path):
+    s = Store(tmp_path / "t.db")
+    now = time.time()
+    s.insert_usage_event(source="draw_portal", event_type="web_save", created_at=now - 100 * 86400)
+    s.insert_usage_event(source="draw_portal", event_type="web_save", created_at=now - 10 * 86400)
+    assert s.purge_usage_before(now - 90 * 86400) == 1
+    assert s.platform_stats()["usage_events_total"] == 1

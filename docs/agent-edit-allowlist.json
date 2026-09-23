@@ -736,5 +736,30 @@
       "docs/agent-edit-allowlist.json",
       "AGENTS.md"
     ]
+  },
+  "massprod_sweep_hardening_20260923_authorized": {
+    "note": "2026-09-23 用户「三仓都检查一下…还有哪些问题需要修复改进加固的，毕竟量产设备」+ 拍板「全修」。体检发现：①voice_agent._sessions 无淘汰（sid 每次进页新生成→单进程内存无限驻留+对话隐私留 RAM）→ OrderedDict LRU 256；②usage_events 无保留策略（conversation 已有 purge_conversation_before）→ purge_usage_before + _record_portal_usage 1h 节流顺带清理，retention 天数 create_app 装配期注入；③/api/auth/me 补 id 字段，app.js 换微信账号静默重登清 preview_cache（设备易主隐私残留兜底）；④preview_cache 持久 LRU 32→128 与内存层对齐（长列表逐出在屏文件闪失）+ cyrb53 哈希文件名（语义键字符替换可碰撞串图）+ 旧命名每进程一次性清扫；⑤activation_relay 三处日志全量 MAC → mac[-5:]（portal 同口径）；⑥deploy/README 与 AGENTS preflight 33→34 文档漂移；⑦Grbl massprod/fix 双分支共 8 个未推送提交已推 origin（备份非行为变更）。",
+    "contract": "用户原话「三仓都检查一下啊，还有哪些问题需要修复改进加固的，毕竟量产设备」+ ask 拍板「全修（P1+P2+P3 软件项）」",
+    "paths": [
+      "draw-portal/draw_portal/voice_agent.py",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_voice_agent.py",
+      "draw-portal/tests/test_store.py",
+      "draw-portal/tests/weapp/harness.js",
+      "draw-portal/tests/weapp/preview_cache.test.js",
+      "draw-portal/tests/weapp/history.test.js",
+      "draw-portal/tests/weapp/market.test.js",
+      "draw-portal/weapp/utils/preview_cache.js",
+      "draw-portal/weapp/app.js",
+      "mcp-server/hutuji_mcp/activation_relay.py",
+      "deploy/README.md",
+      "draw-portal/README.md",
+      "AGENTS.md",
+      "docs/agent-edit-allowlist.json",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/deployment.md"
+    ]
   }
 }

@@ -148,7 +148,7 @@ async def bind_device(settings, mac: str, code: str) -> str:
     try:
         async with httpx.AsyncClient() as client:
             if mac in await _list_bound_macs(settings, client):
-                logger.info("activate-relay: mac=%s already bound", mac)
+                logger.info("activate-relay: mac=%s already bound", mac[-5:])
                 return "already_bound"
             resp = await client.post(
                 f"{settings.xiaozhi_api_base}/agents/{settings.xiaozhi_agent_id}/devices",
@@ -162,7 +162,7 @@ async def bind_device(settings, mac: str, code: str) -> str:
     if resp.status_code == 200:
         invalidate_device_list_cache()
         notify_bound_async(mac)
-        logger.info("activate-relay: mac=%s bound", mac)
+        logger.info("activate-relay: mac=%s bound", mac[-5:])
         return "bound"
     if resp.status_code == 400:
         # 控制台对无效码的应答码是 INVALID_VERIFICATION_CODE（2026-08-20 实测）；
@@ -174,7 +174,7 @@ async def bind_device(settings, mac: str, code: str) -> str:
             # 与 _list_bound_macs 同口径按形状不符走 502，不让设备收 500。
             err_code = ""
         if err_code == "INVALID_VERIFICATION_CODE":
-            logger.info("activate-relay: mac=%s code rejected", mac)
+            logger.info("activate-relay: mac=%s code rejected", mac[-5:])
             raise InvalidCodeError()
         raise UpstreamError(f"bind 400 code={err_code!r}")
     # token 过期（401/403）是运维事故：日志点名原因但不回显给设备。

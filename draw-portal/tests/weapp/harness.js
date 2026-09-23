@@ -62,6 +62,11 @@ function createWeapp(options = {}) {
   const observers = [];
   const fsMgr = {
     accessSync(p) { if (!files.has(p)) throw new Error("access fail"); },
+    readdirSync(dir) {
+      return [...files.keys()]
+        .filter((k) => k.startsWith(dir + "/") && !k.slice(dir.length + 1).includes("/"))
+        .map((k) => k.slice(dir.length + 1));
+    },
     mkdirSync() {},
     saveFileSync(src, dst) { files.set(dst, files.get(src) || src); },
     removeSync(p) { if (!files.has(p)) throw new Error("remove fail"); files.delete(p); },
@@ -148,4 +153,21 @@ function createWeapp(options = {}) {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-module.exports = { createWeapp, createClock, flush };
+// 与 utils/preview_cache.js 同算法（cyrb53）：测试据此计算持久缓存落盘路径，
+// 算法若漂移本测试族会全红——正是锚点意义。
+function previewHashKey(key) {
+  const s = String(key);
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, "0") + (h1 >>> 0).toString(16).padStart(8, "0");
+}
+const persistedPreviewPath = (k) => "wxfile://userdata/preview-cache/" + previewHashKey(k) + ".png";
+
+module.exports = { createWeapp, createClock, flush, persistedPreviewPath };

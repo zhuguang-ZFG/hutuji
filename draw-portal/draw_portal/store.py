@@ -1960,6 +1960,15 @@ class Store:
             conn.commit()
             return int(cur.rowcount)
 
+    def purge_usage_before(self, cutoff_ts: float) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM usage_events WHERE created_at < ?",
+                (cutoff_ts,),
+            )
+            conn.commit()
+            return int(cur.rowcount)
+
     def insert_conversation_event(
         self,
         *,

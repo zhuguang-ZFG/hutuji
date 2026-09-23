@@ -51,6 +51,15 @@ App({
                   return;
                 }
                 this.globalData.user = me;
+                // 换微信账号静默重登：旧账号私有预览文件不落盘残留（仅显式 logout
+                // 会清缓存，设备易主场景走这里兜底）
+                if (me && me.id) {
+                  const uid = String(me.id);
+                  const prevUid = wx.getStorageSync("preview_cache_owner") || "";
+                  if (prevUid && prevUid !== uid)
+                    require("./utils/preview_cache").clear();
+                  wx.setStorageSync("preview_cache_owner", uid);
+                }
                 this.globalData.phoneBound = phoneGate.isPhoneBound(me);
                 resolve(me);
               });
@@ -101,6 +110,7 @@ App({
     wx.removeStorageSync("session_token");
     wx.removeStorageSync("voice_session_id");
     wx.removeStorageSync("drawpad_draft_v2");
+    wx.removeStorageSync("preview_cache_owner");
     require("./utils/preview_cache").clear(); // 预览持久缓存含账号私有内容，登出即清
     wx.setStorageSync("logged_out", true);
     this.globalData.user = null;

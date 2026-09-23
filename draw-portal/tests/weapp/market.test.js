@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { createWeapp, flush } = require("./harness");
+const { createWeapp, flush, persistedPreviewPath } = require("./harness");
 
 const ME = { phone_bound: true, active_device_mac: "aa:bb:cc:dd:ee:ff",
   binding: { bound: true, device_mac: "aa:bb:cc:**:**:**" } };
@@ -12,7 +12,7 @@ const DETAIL = { id: "sample", title: "小猫", license: "CC-BY-4.0",
   preview_url: "/api/market/item/sample/preview.png?v=1" };
 const reply = (request, data) => request.success({ statusCode: 200, data });
 // 同 history：页面展示持久缓存路径而非下载临时路径。
-const persisted = (k) => "wxfile://userdata/preview-cache/" + k.replace(/[^A-Za-z0-9_-]/g, "_") + ".png";
+
 const event = (data) => ({ currentTarget: { dataset: data } });
 const cards = (count, prefix = "animal") => Array.from({ length: count }, (_, i) => ({
   id: prefix + i, title: "作品 " + i, preview_url: "/preview/" + prefix + i,
@@ -69,7 +69,7 @@ test("分页使用 next_cursor，图片最多三张并发", async () => {
   h.downloads[0].success({ statusCode: 200, tempFilePath: "wxfile://zero" });
   await flush();
   assert.equal(h.downloads.length, 4);
-  assert.equal(h.page.data.items[0].previewTmp, persisted("animal0|/preview/animal0"));
+  assert.equal(h.page.data.items[0].previewTmp, persistedPreviewPath("animal0|/preview/animal0"));
   h.page.onReachBottom();
   assert(h.requests.at(-1).url.endsWith("cursor=30"));
   reply(h.requests.at(-1), { items: cards(5, "last"), next_cursor: null });
@@ -96,7 +96,7 @@ test("首屏外预览不主动下载，进视口经观察者派发（可视区�
   assert.ok(h.downloads.at(-1).url.endsWith("/preview/animal10"));
   h.downloads.at(-1).success({ statusCode: 200, tempFilePath: "t10" });
   await flush();
-  assert.equal(h.page.data.items.find((c) => c.id === "animal10").previewTmp, persisted("animal10|/preview/animal10"));
+  assert.equal(h.page.data.items.find((c) => c.id === "animal10").previewTmp, persistedPreviewPath("animal10|/preview/animal10"));
 });
 
 test("连续切分类后旧列表与图片不会覆盖新卡片", async () => {
@@ -124,7 +124,7 @@ test("隐藏停止派发，返回复用同账号临时图片并解除 loading", 
   await flush();
   assert.equal(h.downloads.length, 3);
   await showList(h, cards(5));
-  assert.equal(h.page.data.items[0].previewTmp, persisted("animal0|/preview/animal0"));
+  assert.equal(h.page.data.items[0].previewTmp, persistedPreviewPath("animal0|/preview/animal0"));
   assert.equal(h.page.data.loading, false);
 });
 
@@ -161,8 +161,8 @@ test("预览超时或临时路径损坏只重试该图", async () => {
   h.downloads[2].success({ statusCode: 200, tempFilePath: "wxfile://fresh" });
   await flush();
   h.page.onPreviewError(event({ id: "animal0", url: "wxfile://stale" }));
-  assert.equal(h.page.data.items[0].previewTmp, persisted("animal0|/preview/animal0"));
-  h.page.onPreviewError(event({ id: "animal0", url: persisted("animal0|/preview/animal0") }));
+  assert.equal(h.page.data.items[0].previewTmp, persistedPreviewPath("animal0|/preview/animal0"));
+  h.page.onPreviewError(event({ id: "animal0", url: persistedPreviewPath("animal0|/preview/animal0") }));
   assert.equal(h.page.data.items[0].previewState, "error");
 });
 
