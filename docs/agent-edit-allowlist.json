@@ -1,4 +1,21 @@
 {
+  "runtime_review_20260915_authorized": {
+    "note": "用户原话：继续 review code，检查运行时、状态机、并发限制，三仓。核对实际调用线程与事务所有权，仅修复可复现的问题。",
+    "contract": "protocol §4/§10.4.6；完整生成事务 single-flight、领取凭证与终态不可回退；Redis 回写错误不得当作生成失败或触发重新生成",
+    "paths": [
+      "mcp-server/hutuji_mcp/draw_queue.py",
+      "mcp-server/hutuji_mcp/draw_worker.py",
+      "mcp-server/tests/test_draw_queue.py",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_progress_snapshot.py",
+      "xiaozhi-esp32/CMakeLists.txt",
+      "docs/design/runtime-review-20260915.md",
+      "docs/protocol.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md"
+    ]
+  },
   "market_content_20260914_authorized": {
     "note": "用户确认精品图库六项定案并要求新增功能一并交付，随后发来精品图库正在准备中的真机截图；继续补齐真实素材入库、选品、生产目录配置和浏览/预览/收藏验收。",
     "contract": "protocol §10.4.23–24；docs/design/drawing-market-20260914.md；精品质量优先、每类至少20件、许可白名单与逐件复核不放宽",
@@ -649,6 +666,17 @@
       "README.md",
       "AGENTS.md",
       "CLAUDE.md"
+    ]
+  },
+  "abort_settle_race_fix_20260923_authorized": {
+    "note": "2026-09-23 量产机 HIL 揭 abort 双收尾竞速（readiness 同日条）：流错误停机与用户 abort 的 drain-home 并行，reset owner 悬挂后 teardown 自拆 session 误判 error+假警报。用户原话「同意」授权修复。 同日追加：esp_video 2.5.0 注册表清单引入未定义 Kconfig 符号致构建全败，用户拍板 esp_video 钉 2.3.* 并与修复同批提交。",
+    "contract": "docs/release-readiness.md 2026-09-23 量产机三项定向 HIL 条；protocol §10.4.15",
+    "paths": [
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
+      "xiaozhi-esp32/CMakeLists.txt",
+      "xiaozhi-esp32/main/idf_component.yml"
     ]
   }
 }
