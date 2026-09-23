@@ -51,10 +51,6 @@ async def _process_one() -> bool:
             **({"paper": job.paper, "device_id": job.device_id, "owner_stamp": job.owner_stamp}
                if job.paper is not None or job.device_id or job.owner_stamp else {}),
         )
-        settled = await backend.mark_done(job.job_id, result, claim_token=claim)
-        if settled:
-            job_ledger.schedule_done(job_id=job.job_id, result_json=result)
-            logger.info("draw-worker 完成 job_id=%s", job.job_id)
     except BaseException as exc:
         settled = await backend.mark_failed(job.job_id, exc, claim_token=claim)
         if settled:
@@ -66,6 +62,13 @@ async def _process_one() -> bool:
         )
         if not isinstance(exc, Exception):
             raise
+    else:
+        # 生成成功与结算失败是两种事实；存储异常交给外层重连，不能写 failed
+        # 或释放 single-flight，否则用户重试会再次付费且可能重复推送设备。
+        settled = await backend.mark_done(job.job_id, result, claim_token=claim)
+        if settled:
+            job_ledger.schedule_done(job_id=job.job_id, result_json=result)
+            logger.info("draw-worker 完成 job_id=%s", job.job_id)
     finally:
         job_ledger.reset_job_id(token)
         if settled:

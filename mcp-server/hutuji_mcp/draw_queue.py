@@ -121,11 +121,15 @@ return 1
 """
 
 _FINISH_SCRIPT = """
-if redis.call('HGET', KEYS[1], 'status') ~= 'processing'
-    or redis.call('HGET', KEYS[1], 'claim_token') ~= ARGV[1] then return 0 end
+if ARGV[1] == '' or redis.call('HGET', KEYS[1], 'claim_token') ~= ARGV[1] then return 0 end
+local status = redis.call('HGET', KEYS[1], 'status')
+if status == ARGV[2] and redis.call('HGET', KEYS[1], 'result') == ARGV[3]
+    and redis.call('HGET', KEYS[1], 'error_type') == ARGV[4]
+    and redis.call('HGET', KEYS[1], 'error_message') == ARGV[5] then return 1 end
+if status ~= 'processing' then return 0 end
 redis.call('HSET', KEYS[1], 'status', ARGV[2], 'result', ARGV[3],
     'error_type', ARGV[4], 'error_message', ARGV[5])
-redis.call('HDEL', KEYS[1], 'payload', 'claim_token')
+redis.call('HDEL', KEYS[1], 'payload')
 redis.call('EXPIRE', KEYS[1], ARGV[6])
 return 1
 """
@@ -392,7 +396,11 @@ class MemoryDrawQueueBackend:
     async def mark_done(self, job_id: str, result: str, *, claim_token: str = "") -> bool:
         async with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.get("status") != "processing" or job.get("claim_token") != claim_token:
+            if not claim_token or job is None or job.get("claim_token") != claim_token:
+                return False
+            if job.get("status") == "done" and job.get("result") == result:
+                return True
+            if job.get("status") != "processing":
                 return False
             job.update(status="done", result=result)
             return True
@@ -400,7 +408,12 @@ class MemoryDrawQueueBackend:
     async def mark_failed(self, job_id: str, exc: BaseException, *, claim_token: str = "") -> bool:
         async with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.get("status") != "processing" or job.get("claim_token") != claim_token:
+            if not claim_token or job is None or job.get("claim_token") != claim_token:
+                return False
+            if (job.get("status") == "failed" and job.get("error_type") == type(exc).__name__
+                    and job.get("error_message") == str(exc)):
+                return True
+            if job.get("status") != "processing":
                 return False
             job.update(status="failed", error_type=type(exc).__name__, error_message=str(exc))
             return True
@@ -524,14 +537,24 @@ class RedisDrawQueueBackend:
         return claim if claimed else None
 
     async def mark_done(self, job_id: str, result: str, *, claim_token: str = "") -> bool:
-        client = self._client()
-        return bool(await client.eval(_FINISH_SCRIPT, 1, _job_key(job_id), claim_token,
-                    "done", result, "", "", JOB_TTL_SECONDS))
+        return await self._finish(job_id, claim_token, "done", result, "", "")
 
     async def mark_failed(self, job_id: str, exc: BaseException, *, claim_token: str = "") -> bool:
+        return await self._finish(job_id, claim_token, "failed", "", type(exc).__name__, str(exc))
+
+    async def _finish(self, job_id: str, claim_token: str, status: str, result: str,
+                      error_type: str, error_message: str) -> bool:
+        from redis.exceptions import ConnectionError, TimeoutError
+
         client = self._client()
-        return bool(await client.eval(_FINISH_SCRIPT, 1, _job_key(job_id), claim_token,
-                    "failed", "", type(exc).__name__, str(exc), JOB_TTL_SECONDS))
+        args = (_FINISH_SCRIPT, 1, _job_key(job_id), claim_token, status, result,
+                error_type, error_message, JOB_TTL_SECONDS)
+        try:
+            settled = await client.eval(*args)
+        except (ConnectionError, TimeoutError):
+            # 终态保留领取凭证至 TTL，只接受同一结果重试；丢响应不能触发重新生成。
+            settled = await client.eval(*args)
+        return bool(settled)
 
     async def clear_inflight(
         self, description: str, job_id: str, *, chain_push: bool = True, machine: str = "",

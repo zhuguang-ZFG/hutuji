@@ -346,6 +346,95 @@ def test_real_redis_lost_claim_reply_preserves_owner_and_result(live_redis, memo
     asyncio_run(run())
 
 
+@pytest.mark.parametrize("after_write", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_real_redis_finish_retries_same_outcome(live_redis, memory_queue, monkeypatch, after_write, failed):
+    """断连与丢响应均只重试结算；凭证、结果或错误不同均不能修改终态。"""
+    import redis
+
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("结算丢包", "https://example.test")
+        payload = await backend.dequeue(timeout=1)
+        claim = await backend.mark_processing(job_id, payload_sha256=payload.payload_sha256)
+        connection = backend._client()
+        original = connection.eval
+        attempts = 0
+
+        async def interrupted(*args, **kwargs):
+            nonlocal attempts
+            if args[0] == draw_queue._FINISH_SCRIPT:
+                attempts += 1
+                if attempts == 1:
+                    if after_write:
+                        await original(*args, **kwargs)
+                    raise redis.ConnectionError("模拟结算连接中断")
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(connection, "eval", interrupted)
+        async def finish(token=claim):
+            if failed:
+                return await backend.mark_failed(job_id, ValueError("原始失败"), claim_token=token)
+            return await backend.mark_done(job_id, "原始结果", claim_token=token)
+
+        assert await finish()
+        assert attempts == 2
+        before = client.hgetall(draw_queue._job_key(job_id))
+        assert before["status"] == ("failed" if failed else "done")
+        assert await finish()
+        assert not await finish("其他 worker")
+        assert not await finish("")
+        assert not await backend.mark_done(job_id, "另一结果", claim_token=claim)
+        assert not await backend.mark_failed(job_id, ValueError("另一失败"), claim_token=claim)
+        assert client.hgetall(draw_queue._job_key(job_id)) == before
+        await connection.aclose()
+    asyncio_run(run())
+
+
+def test_worker_completion_outage_never_becomes_generation_failure(live_redis, memory_queue, monkeypatch):
+    """已经生成的结果不能因 Redis 回写失败开放重画，也不能污染失败台账。"""
+    import redis
+    from hutuji_mcp import draw_worker, job_ledger
+
+    url, client = live_redis
+    backend = draw_queue.RedisDrawQueueBackend(url)
+    monkeypatch.setattr(draw_queue, "_backend", backend)
+    generated, failures = [], []
+
+    async def generate(*args, **kwargs):
+        generated.append(args[0])
+        return "已付费生成的结果"
+
+    monkeypatch.setattr("hutuji_mcp.server._run_draw_job", generate)
+    monkeypatch.setattr(job_ledger, "schedule_failed", lambda **kw: failures.append(kw))
+
+    async def run():
+        job_id = await backend.attach_or_enqueue("完成后断连", "https://example.test")
+        connection = backend._client()
+        original = connection.eval
+        attempts = 0
+
+        async def unavailable(*args, **kwargs):
+            nonlocal attempts
+            if args[0] == draw_queue._FINISH_SCRIPT and args[4] == "done":
+                attempts += 1
+                raise redis.ConnectionError("模拟持续写入故障")
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(connection, "eval", unavailable)
+        with pytest.raises(redis.ConnectionError):
+            await draw_worker._process_one()
+        assert attempts == 2
+        assert generated == ["完成后断连"] and failures == []
+        assert client.hget(draw_queue._job_key(job_id), "status") == "processing"
+        assert await backend.attach_or_enqueue("完成后断连", "https://example.test") == job_id
+        assert client.llen(draw_queue.QUEUE_KEY) == 0
+        await connection.aclose()
+    asyncio_run(run())
+
+
 def test_real_redis_invalid_queue_type_cannot_partially_charge(live_redis, memory_queue):
     import redis
 
