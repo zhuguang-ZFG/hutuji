@@ -94,7 +94,7 @@ Page({
       .request("/api/draw/saved", { timeout: 15000 })
       .then((data) => {
         if (!current()) return;
-        // 收藏路径属于当前账号；临时图片只在同一次登录中复用，列表仍从服务端核对。
+        // 收藏路径属于当前账号；预览经持久缓存跨进页复用（键=内容身份，登出清空），列表仍从服务端核对。
         const jobs = (data.items || []).map((it) => {
           const parsed = parseKind(it.title);
           const k = it.id + "|" + it.preview_url;
@@ -249,6 +249,7 @@ Page({
     if (!key || key === this.data.filterKind) return;
     this.setData({ filterKind: key });
     this._applyFilter();
+    this._observePreviews(); // 筛选重建 .work-cell 节点，不补观察 deferred 卡片永停「加载中」
   },
 
   // 一键重画（2026-09-11）：标题谱系还原请求，成功后跨页交接给创作页上屏。
@@ -385,6 +386,7 @@ Page({
             if (!current()) return;
             // 筛选页的 index 不属于原列表；按稳定 ID 同时更新数据和显示。
             this.setData({ jobs: this.data.jobs.filter((item) => item.savedId !== savedId) });
+            this._observePreviews(); // 删卡后节点重建，恢复 deferred 卡片的视口派发
             this._applyFilter();
             wx.showToast({ title: "已删除", icon: "success" });
           })

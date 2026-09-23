@@ -239,3 +239,25 @@ test('图片会话失效清空收藏并显示登录提示，旧 401 不清除新
   assert.equal(h.storage.get('session_token'), 'second');
   assert.equal(h.page.data.jobs.length, 1);
 });
+
+test("切筛选后 deferred 卡片经视口回调补发下载（观察器重观察）", async () => {
+  const h = setup();
+  const items = Array.from({ length: 8 }, (_, i) => ({ id: `saved-${i}`, title: "AI: 图" + i, preview_url: `/saved-${i}` }));
+  await load(h, items);
+  assert.equal(h.downloads.length, 3); // 并发 3，首屏 eager 6、deferred 2
+  h.downloads[0].success({ statusCode: 200, tempFilePath: "t0" });
+  await flush();
+  assert.equal(h.downloads.length, 4); // 名额腾出后泵 eager 余量
+  const before = h.observers.length;
+  h.page.onFilter({ currentTarget: { dataset: { kind: "draw" } } });
+  assert.ok(h.observers.length > before, "切筛选必须重建观察器，否则 deferred 卡片永停加载中");
+  const ob = h.observers.at(-1);
+  assert.equal(ob.selector, ".work-cell");
+  ob.cb({ dataset: { id: "saved-6" }, intersectionRatio: 0.6 });
+  await flush();
+  assert.equal(h.downloads.length, 4); // 名额仍满：deferred 只入队不抢跑
+  h.downloads[1].success({ statusCode: 200, tempFilePath: "t1" });
+  await flush();
+  assert.equal(h.downloads.length, 5);
+  assert.ok(h.downloads.at(-1).url.endsWith("/saved-6")); // 视口卡片提到队首优先派发
+});
