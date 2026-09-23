@@ -17,7 +17,7 @@ VOICE_DEVICE_ALLOWLIST = frozenset({
 })
 VOICE_PORTAL_ALLOWLIST = frozenset({"voice.draw", "voice.write"})
 VOICE_TOOL_ALLOWLIST = VOICE_DEVICE_ALLOWLIST | VOICE_PORTAL_ALLOWLIST
-MAX_HISTORY_MESSAGES = 12
+MAX_HISTORY_TURNS = 6  # 一轮可含多条（user/assistant tool_calls/tool/assistant），按整轮裁剪
 MAX_TOOL_ROUNDS = 3
 _LLM_TIMEOUT = 60.0
 
@@ -120,8 +120,10 @@ def _truncate_trace(text: str, limit: int = 200) -> str:
 
 
 def _cap_history(history: list[dict[str, Any]]) -> None:
-    while len(history) > MAX_HISTORY_MESSAGES:
-        history.pop(0)
+    """按整轮（user 起头）裁剪：半截裁剪会拆散 assistant tool_calls 与 tool 回包的配对，API 直接 400。"""
+    user_idx = [i for i, m in enumerate(history) if m.get("role") == "user"]
+    if len(user_idx) > MAX_HISTORY_TURNS:
+        del history[: user_idx[-MAX_HISTORY_TURNS]]
 
 
 def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
@@ -291,7 +293,10 @@ def chat(
     if not reply:
         reply = "抱歉，我暂时无法完成这个请求。"
 
-    history.append({"role": "user", "content": text})
+    # 历史必须保留本轮完整的工具调用链（assistant tool_calls + tool 回包）：
+    # 只存纯文本回复会让模型从「用户要画 → 纯文本应答」的假象学成不再调工具
+    # （2026-09-23 生产复现：首轮后 voice.draw 永久消失）。最终文本回复不在 messages 里，单独补。
+    history.extend(messages[len(history) + 1 :])  # 本轮 user 起的新增段（system+旧历史之后）
     history.append({"role": "assistant", "content": reply})
     _cap_history(history)
 

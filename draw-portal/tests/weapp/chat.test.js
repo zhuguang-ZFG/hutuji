@@ -208,3 +208,23 @@ for (const method of ["onConfirmPreview", "onCancelPreview"]) {
     assert.match(h.toasts.at(-1).title, /重新生成/);
   });
 }
+
+test("画图卡消息在历史中回填 DRAW:: 标记（多轮后模型仍能见到出图范式）", async () => {
+  const h = await setup();
+  h.page.setData({ textInput: "画一只小猫" });
+  h.page.onSendText();
+  let req = h.requests.at(-1);
+  assert.ok(req.url.endsWith("/api/chat"));
+  req.success({ statusCode: 200, data: { reply: "点下面的按钮我就画出来~", draw_intent: { description: "一只小猫简笔画" } } });
+  await flush();
+  assert.ok(h.page.data.messages.some((m) => m.draw), "draw_intent 应落画图卡");
+
+  h.page.setData({ textInput: "再画一只小狗" });
+  h.page.onSendText();
+  req = h.requests.at(-1);
+  const echoed = req.data.history.find(
+    (m) => m.role === "assistant" && m.content.startsWith('DRAW::{"description":"一只小猫简笔画"}'),
+  );
+  assert.ok(echoed, "带画图卡的 assistant 历史须回填 DRAW:: 标记行，否则多轮后模型学成不出按钮");
+  assert.ok(echoed.content.includes("点下面的按钮我就画出来~"), "标记行后须保留原回复");
+});

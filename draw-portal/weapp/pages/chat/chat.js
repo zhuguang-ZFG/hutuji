@@ -420,7 +420,15 @@ Page({
     const history = this.data.messages
       .filter((m) => (m.role === "user" || m.role === "assistant") && m.content)
       .slice(-10)
-      .map((m) => ({ role: m.role, content: m.content.slice(0, 500) }));
+      .map((m) => {
+        let content = m.content;
+        // 画图卡消息在历史中回填 DRAW:: 标记行：服务端解析后剥离标记，不带回的话
+        // 模型从历史学到「要画也只回纯文本」，多轮后不再出绘画按钮（2026-09-23 生产复现裁决）。
+        if (m.role === "assistant" && m.draw && m.draw.description) {
+          content = "DRAW::" + JSON.stringify({ description: m.draw.description }) + "\n" + content;
+        }
+        return { role: m.role, content: content.slice(0, 500) };
+      });
     this._pushMessage("user", text);
     this.setData({ textInput: "", busy: true, replyPending: true });
     api
