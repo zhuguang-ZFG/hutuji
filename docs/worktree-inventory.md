@@ -7,7 +7,7 @@
 
 用户「继续下一步优化改进三仓」+ 两项拍板（WAL+busy_timeout、取证并刷机）。hub：`breaker.py` 删零调用 `_recent_samples_async` 死代码；`store.py::_connect` 启用 WAL+busy_timeout=30000（portal 425/425 + 6写4读并发冒烟零错误）。量产 Grbl worktree（`9bebc00` 未动）fz standard 复跑 FAIL 9 层与 09-14 基线逐层一致，裁定 nopaper SKU 预期差异（证据 `results/20260923-massprod-hil/fz-massprod-20260923-agent_gate_last.json`）。xiaozhi 提交 **`2312446`**（灌流错误应答取证日志，host 109/109，三板各 215 CXX），量产机已刷 **hutuji.1.0.21**（bin 3074640B SHA `bab9d3d0…b325`），draw+repeat 冒烟通过。hub 门禁 PASS（pytest 1571/1571、e2e PASS）。白名单键 `trirepo_optimize_20260923_authorized`。
 
-**工作树既有改动（非本批，勿回滚）**：`mcp-server/hutuji_mcp/draw_queue.py`、`mcp-server/hutuji_mcp/draw_worker.py`、`mcp-server/tests/test_draw_queue.py` 为既有在制批（队列结算重试语义 +5 项真 Redis 测试，test_draw_queue 38→43、全套 1566→1571，台账已按 collect 同步）；本批未触碰、未提交。
+**既有在制批已由用户「你搞」收口提交（`2c2848e`）**：队列结算幂等重试——`_FINISH_SCRIPT` 空凭证拒绝/同结果幂等/终态保留领取凭证，`draw_worker.mark_done` 移 try-else 杜绝生成成功写 failed；test_draw_queue 38→43、全套 1571 已在 `8e4bf64` 同步台账。
 
 ## 2026-09-23 量产机上电确认、调速复验、三项定向 HIL 与 abort 修复批（xiaozhi `9dd4661`；证据与tmp脚本不提交）
 
