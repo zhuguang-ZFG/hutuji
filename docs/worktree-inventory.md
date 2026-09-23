@@ -3,6 +3,10 @@
 > **2026-09-15 图库批工作树**：首批467件/20类素材与许可/来源/复核清单在 `mcp-server/market/`；转换器、入库回归、发布白名单与发布回归及对应文档为本批改动。仅暂存明确路径，保留原未跟踪文件及外仓工作树。`results/20260914-market-release/` 保存官方归档、三代候选/最终对照板、LF构建、20项入库/43项发布回归和本机真实加载结果；results被忽略，仅本机留证。本批源码/数据提交 `c4846c906bd3`；后续仅图库LF检出属性与验收台账收尾。双机发布日志 `results/deploy-20260915-082723-3443e594/`、`results/deploy-20260915-083714-76d92e8f/`，服务核验 `results/deploy-20260915-084547-ddbe8deb/`、`results/deploy-20260915-084552-20ab25f7/`；主备数据/配置核验、页面截图和收藏清理在同一图库证据目录。`results/20260915-paper-hil/verification-summary.json` 汇总guards/normal/abort三组串口与远端结果SHA、0/2/1次自动释放、Grbl全套设置前后对照；配置保存与最终官方状态在 `results/20260913-crossrepo-followup/` 当日08:37–08:47日志。失败的两次guards是沙箱连接和探针误读未公开last_error字段，未当作通过；成功组为guards-084259、normal-084417、abort-084509。
 
 
+## 2026-09-23 小程序体验/性能优化批（用户「改进优化小程序吧」）
+
+api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate resolve me 三页同程复用；纸张摘要 60s TTL 缓存 + paper 保存即失效（含离页分支）；control setData 按键 diff（直写一律失效，修设备切换 `canSetSpeed` 漏发回归，RED-GREEN 实证）；profile 昵称 dirty 短路；死代码清理；`version.js` 0.3.15→0.3.16。JS **229/229**，hub 门禁 PASS（pytest 1571、e2e）。提交 `b25a5cd`+`be7df52`，工作树干净；0.3.16 已 CLI 上传（`✔ upload`，包 262116B，日志与 bat 在 `results/20260923-weapp-ux-perf/`）。体验版/提审/发布与 0.3.15 审核处置待用户。白名单键 `weapp_ux_perf_20260923_authorized`。
+
 ## 2026-09-23 小程序合规整改（reject.html 核对，用户「同意；并开始整改」）
 
 按《微信小程序平台常见拒绝情形》逐块核 weapp：五块源码干净，服务类目为 09-07 刻意决策（结构性策略风险已如实登记）。整改：`privacy-policy.md` 补「注销与删除」流程+「提审用第三方共享最终文本」；`profile.wxml` 加注销删除指引行；`version.js` 0.3.14→0.3.15（16 个 JS 测试文件全过）；`weapp-smoke-checklist.md` 登记六块核对结论。待用户/MP 后台：隐私填报、42 项真机冒烟、体验版/提审/发布、订阅模板。0.3.15 已上传（19:35 CLI exit 0，包 262367B；首试登录态过期 code 10 失败，日志在 `results/20260923-weapp-compliance/`）。白名单键 `weapp_compliance_remediation_20260923_authorized`。
