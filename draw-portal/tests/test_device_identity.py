@@ -449,3 +449,28 @@ def test_strict_mode_blocks_legacy_and_accepts_signed_binding(monkeypatch, tmp_p
     key, identity = _identity()
     _bind(SimpleNamespace(client=client, store=store), key, identity)
     assert store.get_device_identity(MAC)["device_id"] == identity.device_id
+
+
+@pytest.mark.parametrize('bad_body', [
+    {'success': False, 'message': 'offline'},
+    {'success': True, 'data': {'device_id': 'aa:bb:cc:dd:ee:02',
+                             'state': 'idle', 'connected': True, 'ready': True}},
+])
+def test_actual_probe_failure_preserves_signed_proof_until_correct_device_answers(portal, monkeypatch, bad_body):
+    from draw_portal import probe
+    from test_probe import response
+    monkeypatch.setattr('draw_portal.app.probe_device_token', probe.probe_device_token)
+    response(monkeypatch, bad_body)
+    key, identity = _identity()
+    payload, announced = _start(portal.client, key, identity)
+    assert not announced.json()['bound']
+    pending = _claim(portal.client, identity)
+    assert pending.status_code == 503
+    assert pending.json()['detail']['code'] == 'binding_pending'
+    assert portal.store.get_bind_session(CODE).consumed_at is None
+    assert portal.store.get_binding_for_mac(MAC) is None
+    response(monkeypatch, {'success': True, 'data': {
+        'device_id': MAC, 'state': 'idle', 'connected': False, 'ready': False}})
+    completed = _claim(portal.client, identity)
+    assert completed.status_code == 200 and completed.json()['status'] == 'bound'
+    assert portal.store.get_bind_session(CODE).consumed_at is not None

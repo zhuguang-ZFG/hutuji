@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import threading
@@ -39,6 +40,7 @@ MEMORY_RECALL_ALL_LIMIT = 100
 MEMORY_RECALL_ALL_MAX_CHARS = 8000
 
 _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
+_MAC_RE = re.compile(r"^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 _MISSING_DEVICE = (
     "记不住：缺少设备标识。同智能体下多台设备记忆互不共享，请传当前设备 MAC 作为 device_id。"
 )
@@ -55,12 +57,15 @@ def sanitize_device_id(raw: str) -> str | None:
         return None
     if not _DEVICE_ID_RE.fullmatch(value):
         raise ValueError("device_id 只允许 1..64 字 ASCII 字母数字及 :_-")
-    return value
+    return value.lower() if _MAC_RE.fullmatch(value) else value
 
 
 def _file_safe_device_id(device_id: str) -> str:
-    """Windows 路径不能含 ':'（MAC 常见），统一换成 '_'；其余已过白名单。"""
-    return device_id.replace(":", "_")
+    """保留规范MAC旧桶；其他标识使用摘要，避免冒号/下划线和大小写路径碰撞。"""
+    if _MAC_RE.fullmatch(device_id):
+        return device_id.lower().replace(":", "_")
+    # 非MAC旧文件无法判断原标识，不能自动迁移共享过的歧义桶。
+    return "id_" + hashlib.sha256(device_id.encode("ascii")).hexdigest()
 
 
 def memory_devices_dir() -> Path:
@@ -139,28 +144,26 @@ def recall(device_id: str, key: str = "") -> str:
         return _MISSING_DEVICE
     key = _clean(key, MEMORY_KEY_MAX_CHARS)
     data = _load(memory_path_for(safe_dev))
-    if not key:
-        total = len(data)
-        items: list[tuple[str, str]] = []
-        budget = MEMORY_RECALL_ALL_MAX_CHARS
-        for item in reversed(list(data.items())):
-            if len(items) >= MEMORY_RECALL_ALL_LIMIT:
-                break
-            cost = len(item[0]) + len(item[1])
-            # 首条超预算也照收：宁可超一点也不能空着手回去
-            if items and cost > budget:
-                break
-            budget -= cost
-            items.append(item)
-        items.reverse()
-        return json.dumps(
-            {"total": total, "returned": len(items), "memories": dict(items)},
-            ensure_ascii=False,
-        )
-    hits = {k: v for k, v in data.items() if key in k}
-    if not hits:
-        return f"没有记住关于「{key}」的事。"
-    return json.dumps({"memories": hits}, ensure_ascii=False)
+    if key:
+        data = OrderedDict((k, v) for k, v in data.items() if key in k)
+        if not data:
+            return f"没有记住关于「{key}」的事。"
+    total = len(data)
+    items: list[tuple[str, str]] = []
+    budget = MEMORY_RECALL_ALL_MAX_CHARS
+    for item in reversed(list(data.items())):
+        if len(items) >= MEMORY_RECALL_ALL_LIMIT:
+            break
+        cost = len(item[0]) + len(item[1])
+        if cost > budget:
+            break
+        budget -= cost
+        items.append(item)
+    items.reverse()
+    return json.dumps(
+        {"total": total, "returned": len(items), "memories": dict(items)},
+        ensure_ascii=False,
+    )
 
 
 def forget(key: str, device_id: str) -> str:

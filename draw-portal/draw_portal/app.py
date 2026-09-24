@@ -1353,6 +1353,7 @@ def create_app() -> FastAPI:
         announced_token = decrypt_token(config.token_cipher_key, session.device_token_enc)
         ok, _summary = probe_device_token(
             api_base=config.xiaozhi_api_base, device_token=announced_token,
+            expected_device_mac=session.device_mac if session.device_id is not None else None,
         ) if announced_token else (False, "missing")
         token_enc = session.device_token_enc
         existing = store.get_binding_for_user(user_id)
@@ -1374,6 +1375,7 @@ def create_app() -> FastAPI:
                 else:
                     old_ok, _summary = probe_device_token(
                         api_base=config.xiaozhi_api_base, device_token=old_token,
+                        expected_device_mac=session.device_mac,
                     )
             if old_ok:
                 token_enc = same_device.device_token_enc
@@ -1396,6 +1398,7 @@ def create_app() -> FastAPI:
                 if session.device_id is not None:
                     ok, _summary = probe_device_token(
                         api_base=config.xiaozhi_api_base, device_token=fresh,
+                        expected_device_mac=session.device_mac,
                     )
         if session.device_id is not None and not ok:
             # 身份确认不等于连接就绪；保留短码与 nonce，让切网后的自动重试继续。
