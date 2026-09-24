@@ -114,6 +114,21 @@ test("固件页离开后的旧状态回包不能重新启动轮询", async () =>
   assert.equal(clock.pending.size, 0);
 });
 
+test("升级会话超时停止轮询并如实提示结果未确认", async () => {
+  const clock = createClock();
+  const h = createWeapp({ clock });
+  h.load("pages/firmware/firmware.js");
+  h.page.setData({ upgrading: true });
+  h.page._pollOnce();
+  reply(h, { state: "failed", reason: "status_timeout", progress: 20 });
+  await flush();
+  assert.equal(h.page.data.upgrading, false);
+  assert.equal(h.page.data.progressLabel, "结果待确认");
+  assert.match(h.toasts.at(-1).title, /未确认/);
+  clock.advance(30000);
+  assert.equal(h.requests.length, 1);
+});
+
 test("固件下发超时保留待确认状态，轮询继续锁定原设备", async () => {
   const h = createWeapp({ clock: createClock() });
   h.load("pages/firmware/firmware.js");

@@ -21,7 +21,7 @@
 > 应用层往返下界 **77ms**、p50 **117–134ms**、p90 可到 **246ms**，比原估计高
 > 3–6 倍（脚本 `results/.tmp/probe_rtt.py` / `probe_ws.py`，`results/` 不入库）。
 > 主因是 Grbl 侧 WiFi 省电常开：`[ESP420]` 回报 `Sleep mode: Modem`
-> （`Grbl_Esp32/src/WebUI/WebSettings.cpp:433`），而 `Signal: 98%`——不是链路弱。
+> （`Grbl_Esp32/src/WebUI/WebSettings.cpp:441`），而 `Signal: 98%`——不是链路弱。
 > 因此本文下面凡以 20–40ms 为前提的收益/门槛推演都要按 77ms 下界重算，
 > 重算结果与被推翻的结论见 `docs/troubleshooting.md` 笔控一节。
 
@@ -422,7 +422,7 @@ fresh `Idle` + 100ms，再由 S3 旁路固定 `G92 Z0`，随后窗口化连续�
 **保持现状**。理由不是「我们更严格」（这个说法已被推翻），而是
 **无人值守语音场景不能弹框**——`error:9` 我们没法问用户，只能失败上报。
 `error:120` 本机固件**也有定义并可产生**（`Error.h:86` `AnotherInterfaceBusy=120`；
-`Serial.cpp:191` SD 占用时以空格形态 `error 120` 发出、`WebSettings.cpp:167` WebCommand
+`Serial.cpp:191` SD 占用时以空格形态 `error 120` 发出、`WebSettings.cpp:175` WebCommand
 checker 拒时返回），但 hutuji 链路实际触达不到——换纸族命令挂 anyState、不启 SD——
 fail-closed 方向不变，无需特例。（2026-08-13 勘误：早前「本机不产此码」与实文不符。）
 

@@ -1181,7 +1181,7 @@ async def _race_dynamic_image_racers(
             str(racer.get("name") or racer.get("id") or "racer"),
             racer=racer,
         )
-        if breaker.should_skip_backend(backend_id):
+        if await asyncio.to_thread(breaker.should_skip_backend, backend_id):
             logger.info("生图对冲：跳过熔断通道 %s", backend_id)
             continue
         filtered.append(racer)
@@ -1209,7 +1209,7 @@ async def _race_dynamic_image_racers(
                     image_url = task.result()
                 except BitmapError as exc:
                     latency_ms = int((time.monotonic() - started) * 1000)
-                    breaker.record_outcome(
+                    await asyncio.to_thread(breaker.record_outcome,
                         backend_id,
                         job_ledger.classify_bitmap_error(exc),
                         latency_ms=latency_ms,
@@ -1218,7 +1218,7 @@ async def _race_dynamic_image_racers(
                     errors[label] = exc
                     continue
                 latency_ms = int((time.monotonic() - started) * 1000)
-                breaker.record_outcome(backend_id, "ok", latency_ms=latency_ms)
+                await asyncio.to_thread(breaker.record_outcome, backend_id, "ok", latency_ms=latency_ms)
                 winner = image_url
                 for other in done:
                     if other is not task and other.done() and not other.cancelled():
@@ -1271,7 +1271,7 @@ async def _race_image_backends(
     racers = [
         (name, backend_id, fn)
         for name, backend_id, fn in racers
-        if not breaker.should_skip_backend(backend_id)
+        if not await asyncio.to_thread(breaker.should_skip_backend, backend_id)
     ]
     if not racers:
         raise BitmapError("生图通道暂不可用，请稍后再试")
@@ -1297,7 +1297,7 @@ async def _race_image_backends(
                     image_url = task.result()
                 except BitmapError as exc:
                     latency_ms = int((time.monotonic() - race_t0) * 1000)
-                    breaker.record_outcome(
+                    await asyncio.to_thread(breaker.record_outcome,
                         backend_id,
                         job_ledger.classify_bitmap_error(exc),
                         latency_ms=latency_ms,
@@ -1306,7 +1306,7 @@ async def _race_image_backends(
                     logger.info("生图对冲：%s 失败：%s", name, exc)
                     errors[name] = exc
                     continue
-                breaker.record_outcome(
+                await asyncio.to_thread(breaker.record_outcome,
                     backend_id,
                     "ok",
                     latency_ms=int((time.monotonic() - race_t0) * 1000),

@@ -305,6 +305,93 @@ def test_duplicate_upgrade_returns_busy(tmp_path: Path, monkeypatch: pytest.Monk
     assert ota_after == 1
 
 
+def test_other_device_upgrade_does_not_block_active_device_send(tmp_path, monkeypatch):
+    from draw_portal.store import Store
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    store = Store(tmp_path / "t.db")
+    binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    store.upsert_firmware_ota_session(user_id=binding.user_id, device_mac=binding.device_mac, state="upgrading")
+    _announce(client, "BBBBBB", "11:22:33:44:55:66")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "BBBBBB"}).status_code == 200
+    # 到达任务查找的 404，证明没有被另一设备的升级拦成 400。
+    assert client.post("/api/draw/nonexistent/send").status_code == 404
+    assert client.post("/api/draw/saved/nonexistent/send").status_code == 404
+    assert store.get_firmware_ota_session(binding.user_id).state == "upgrading"
+
+
+@pytest.mark.parametrize("device_state,progress", [("idle", 90), ("upgrading", 0)])
+def test_stalled_ota_polling_does_not_renew_expiry(tmp_path, monkeypatch, device_state, progress):
+    import time
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota
+    from draw_portal.store import Store
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    store = Store(tmp_path / "t.db")
+    binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    started = time.time()
+    clock = [started + 599]
+    monkeypatch.setattr(firmware_ota, "time", SimpleNamespace(time=lambda: clock[0]))
+    store.upsert_firmware_ota_session(user_id=binding.user_id, device_mac=binding.device_mac,
+                                    state="upgrading", target_version="hutuji.1.0.1", updated_at=started)
+    monkeypatch.setattr(firmware_ota, "push_tool_call", lambda **kw: (True, _status_json(ota={"state": device_state, "progress": progress})))
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
+    assert store.get_firmware_ota_session(binding.user_id).updated_at == started
+    clock[0] = started + 600
+    response = client.get("/api/device/firmware/ota_status").json()
+    assert response["state"] == "failed"
+    assert response["reason"] == "status_timeout"
+    assert client.post("/api/draw/nonexistent/send").status_code == 404
+
+
+def test_ota_expiry_does_not_overwrite_new_progress(tmp_path):
+    from draw_portal.store import Store
+
+    store = Store(tmp_path / "t.db")
+    store.upsert_firmware_ota_session(user_id="u", device_mac="aa:bb:cc:dd:ee:ff",
+                                    state="upgrading", progress=50, updated_at=1200)
+    store.expire_firmware_ota_session("u", cutoff=1199)
+    assert store.get_firmware_ota_session("u").state == "upgrading"
+    store.expire_firmware_ota_session("u", cutoff=1200)
+    assert store.get_firmware_ota_session("u").reason == "status_timeout"
+
+
+def test_late_ota_response_cannot_overwrite_new_device_session(tmp_path):
+    from draw_portal.store import Store
+
+    store = Store(tmp_path / "t.db")
+    old = store.upsert_firmware_ota_session(user_id="u", device_mac="aa:bb:cc:dd:ee:ff",
+                                          state="upgrading", target_version="v1", updated_at=100)
+    store.expire_firmware_ota_session("u", cutoff=100)
+    store.upsert_firmware_ota_session(user_id="u", device_mac="11:22:33:44:55:66",
+                                    state="upgrading", target_version="v2", updated_at=800)
+    current = store.update_firmware_ota_session(old, state="ok", progress=100, reason=None, updated_at=801)
+    assert current.device_mac == "11:22:33:44:55:66"
+    assert current.target_version == "v2" and current.state == "upgrading"
+
+
+def test_expired_ota_can_reconcile_only_matching_version(tmp_path, monkeypatch):
+    import time
+    from draw_portal.store import Store
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    store = Store(tmp_path / "t.db")
+    binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    store.upsert_firmware_ota_session(user_id=binding.user_id, device_mac=binding.device_mac,
+                                    state="upgrading", target_version="hutuji.1.0.1", updated_at=time.time()-601)
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", lambda **kw: (True, _status_json(ota={"state": "ok"})))
+    assert client.get("/api/device/firmware/ota_status").json()["reason"] == "status_timeout"
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", lambda **kw: (True, _status_json(version="hutuji.1.0.1")))
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "ok"
+
+
 def test_push_failure_session_reason_not_check_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

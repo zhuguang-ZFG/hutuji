@@ -8,6 +8,7 @@ const REASON_ZH = {
   busy: "出图结束后再试",
   board_mismatch: "固件与机型不符",
   check_failed: "检查更新失败，请稍后",
+  status_timeout: "暂未确认升级结果，请检查设备后重新查询",
   download_failed: "下载失败，可重试",
   verify_failed: "固件校验失败",
   write_failed: "写入失败，请重试",
@@ -336,7 +337,7 @@ Page({
           this.setData({
             upgrading: false,
             progress,
-            progressLabel: state === "rolled_back" ? "已回滚" : "升级失败",
+            progressLabel: reason === "status_timeout" ? "结果待确认" : (state === "rolled_back" ? "已回滚" : "升级失败"),
           });
           this._setTip(msg, "warn");
           wx.showToast({ title: msg.slice(0, 20), icon: "none" });

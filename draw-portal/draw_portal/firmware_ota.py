@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Callable
 
 from draw_portal.crypto import decrypt_token, encrypt_token
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 # 设备侧只受理不下载；短于画图推送即可
 _OTA_START_TIMEOUT = 20
 _STATUS_TIMEOUT = 15
+# 连续十分钟没有进度即结束门户等待；设备升级/绘图忙闸仍由固件裁决。
+_OTA_STALE_SECONDS = 600
 
 
 # 与设备 JobIsIdleForOta / 手动控制 settled 对齐（出图中态才 busy）
@@ -330,6 +333,36 @@ def get_ota_status(
     api_base: str,
     token_cipher_key: bytes,
 ) -> dict[str, Any]:
+    store.expire_firmware_ota_session(binding.user_id, cutoff=time.time() - _OTA_STALE_SECONDS)
+    session = store.get_firmware_ota_session(binding.user_id)
+    if session and session.device_mac != binding.device_mac:
+        session = None
+    ok, status, _err = _fetch_device_status(
+        api_base=api_base, token_cipher_key=token_cipher_key, binding=binding, store=store,
+    )
+    ota = status.get("ota") if ok else None
+    if session and ok:
+        state, progress, reason = session.state, session.progress, session.reason
+        if isinstance(ota, dict):
+            device_state = str(ota.get("state") or "").strip().lower()
+            device_progress = ota.get("progress")
+            if device_state in {"failed", "rolled_back"}:
+                state = device_state
+                reason = str(ota.get("reason") or device_state)
+            elif (state == "upgrading" and device_state == "upgrading"
+                  and isinstance(device_progress, (int, float))
+                  and not isinstance(device_progress, bool) and progress < device_progress <= 100):
+                progress = int(device_progress)
+        # 设备重启会丢失 ota 临时状态；只有同目标版本才确认成功。
+        if (session.target_version
+                and str(status.get("firmware_version") or "").strip() == session.target_version
+                and (session.state == "upgrading" or session.reason == "status_timeout")):
+            state, progress, reason = "ok", 100, None
+        if (state, progress, reason) != (session.state, session.progress, session.reason):
+            session = store.update_firmware_ota_session(
+                session, state=state, progress=progress, reason=reason, updated_at=time.time(),
+            )
+    # 迟到回包被条件更新拒绝后，以当前会话为准；另一台设备的会话不返回。
     session = store.get_firmware_ota_session(binding.user_id)
     if session and session.device_mac != binding.device_mac:
         session = None
@@ -340,89 +373,16 @@ def get_ota_status(
         "target_version": session.target_version if session else None,
         "updated_at": session.updated_at if session else None,
     }
-
-    ok, status, _err = _fetch_device_status(
-        api_base=api_base,
-        token_cipher_key=token_cipher_key,
-        binding=binding,
-        store=store,
-    )
     if ok:
-        ota = status.get("ota")
         if isinstance(ota, dict):
             out["ota"] = ota
-            # 合并设备进度到会话（不覆盖 portal 的 upgrading 起始态，除非设备给出终态）
-            device_state = str(ota.get("state") or "").strip().lower()
-            progress = ota.get("progress")
-            reason = ota.get("reason")
-            if session and device_state in {
-                "ok",
-                "failed",
-                "rolled_back",
-                "up_to_date",
-            }:
-                store.upsert_firmware_ota_session(
-                    user_id=binding.user_id,
-                    device_mac=binding.device_mac,
-                    state=device_state if device_state != "up_to_date" else "ok",
-                    progress=int(progress) if isinstance(progress, (int, float)) else session.progress,
-                    reason=str(reason) if reason else device_state,
-                    target_version=session.target_version,
-                )
-                session = store.get_firmware_ota_session(binding.user_id)
-                if session and session.device_mac == binding.device_mac:
-                    out.update(
-                        {
-                            "state": session.state,
-                            "progress": session.progress,
-                            "reason": session.reason,
-                            "target_version": session.target_version,
-                            "updated_at": session.updated_at,
-                        }
-                    )
-            elif session and isinstance(progress, (int, float)):
-                store.upsert_firmware_ota_session(
-                    user_id=binding.user_id,
-                    device_mac=binding.device_mac,
-                    state=session.state,
-                    progress=int(progress),
-                    reason=session.reason,
-                    target_version=session.target_version,
-                )
-                out["progress"] = int(progress)
         out["firmware_version"] = status.get("firmware_version")
         out["device_state"] = status.get("state")
-    # 升级重启后设备 ota 状态复位为 idle，上设备终态对账不触发；此时以
-    # 「设备 firmware_version == 会话 target_version」兜底收口为 ok。
-    if (
-        ok
-        and session
-        and session.state == "upgrading"
-        and session.target_version
-        and str(out.get("firmware_version") or "").strip() == session.target_version
-    ):
-        store.upsert_firmware_ota_session(
-            user_id=binding.user_id,
-            device_mac=binding.device_mac,
-            state="ok",
-            progress=100,
-            reason=None,
-            target_version=session.target_version,
-        )
-        session = store.get_firmware_ota_session(binding.user_id)
-        if session and session.device_mac == binding.device_mac:
-            out.update(
-                {
-                    "state": session.state,
-                    "progress": session.progress,
-                    "reason": session.reason,
-                    "target_version": session.target_version,
-                    "updated_at": session.updated_at,
-                }
-            )
     return out
 
 
-def is_upgrading(store: Store, user_id: str) -> bool:
+def is_upgrading(store: Store, user_id: str, *, device_mac: str | None = None) -> bool:
+    store.expire_firmware_ota_session(user_id, cutoff=time.time() - _OTA_STALE_SECONDS)
     session = store.get_firmware_ota_session(user_id)
-    return session is not None and session.state == "upgrading"
+    return bool(session and session.state == "upgrading"
+                and (device_mac is None or session.device_mac == device_mac))

@@ -77,6 +77,45 @@ def test_redis_breaker_list_open_skips_sample_zsets() -> None:
     assert store.list_open_backends() == ["agnes"]
 
 
+def test_redis_breaker_has_bounded_network_wait(monkeypatch):
+    import redis
+
+    seen = {}
+    monkeypatch.setattr(redis, "from_url", lambda url, **kw: seen.update(kw))
+    breaker.RedisBreakerStore("redis://localhost")
+    assert 0 < seen["socket_connect_timeout"] <= 1
+    assert 0 < seen["socket_timeout"] <= 1
+
+
+def test_image_race_runs_breaker_io_off_event_loop(monkeypatch):
+    import asyncio
+    import threading
+    from hutuji_mcp import bitmap_svg, portal_settings
+
+    loop_thread = threading.get_ident()
+    observed = []
+
+    def check(backend_id):
+        assert threading.get_ident() != loop_thread
+        observed.append("check")
+        return False
+
+    def record(*args, **kwargs):
+        assert threading.get_ident() != loop_thread
+        observed.append("record")
+
+    async def image(*args):
+        return "https://example.test/image.png"
+
+    monkeypatch.setattr(portal_settings, "portal_image_racers", lambda _: [])
+    monkeypatch.setattr(bitmap_svg, "_image_backend_enabled", lambda name: name == "agnes")
+    monkeypatch.setattr(bitmap_svg, "_request_agnes_image_url", image)
+    monkeypatch.setattr(breaker, "should_skip_backend", check)
+    monkeypatch.setattr(breaker, "record_outcome", record)
+    assert asyncio.run(bitmap_svg._race_image_backends(None, "测试")) == "https://example.test/image.png"
+    assert observed == ["check", "record"]
+
+
 def test_breaker_success_closes_from_half_open(memory_breaker, monkeypatch: pytest.MonkeyPatch) -> None:
     store = breaker.MemoryBreakerStore()
     now = time.time()

@@ -176,7 +176,7 @@ G1 Z0.0 F10000     ← 抬笔
 
 局限：Telnet 长连接（S3 实际走的通道）RTT 仍未直接实测，见下条「PC 侧无法并连 Telnet」；`WiFi.setSleep(false)` 的收益仍是推演，未实测。本轮只证明在 `13057e8`/`0x2ce890` 自动路径和当前网络条件下，压力阶梯没有触发断粮。
 
-**PC 侧无法并连 Telnet（2026-07-30 坐实，调试必读）**：`MAX_TLNT_CLIENTS = 1`（`D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31`）。S3 在线时它握着唯一槽位，PC 连 `:23` 会 accept 成功后立刻收到 0 字节 EOF——**不是网络故障，也不是固件挂了**。要在 PC 侧走 Telnet 调试必须先停 S3；不想停 S3 就走 HTTP:80 `/command` + ws:81 只读旁路（`WebServer.cpp:121` 端口 `_port+1`，`:126` `Serial2Socket.attachWS`）。注意 `/command` 的 G-code 分支把响应写进 ws 而非 HTTP body（`WebServer.cpp:515-519`，body 恒为空），所以 `?plain=$$` 必须从 ws:81 收结果；`[ESP` 开头的命令才直接回在 HTTP body（`:468-486`）。`[ESP400]` 只枚举 `WEBSET` 类型项（`WebSettings.cpp:661-673`），**不含 `$110` 这类 Grbl 编号设置**，别用它读进给上限。
+**PC 侧无法并连 Telnet（2026-07-30 坐实，调试必读）**：`MAX_TLNT_CLIENTS = 1`（`D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31`）。S3 在线时它握着唯一槽位，PC 连 `:23` 会 accept 成功后立刻收到 0 字节 EOF——**不是网络故障，也不是固件挂了**。要在 PC 侧走 Telnet 调试必须先停 S3；不想停 S3 就走 HTTP:80 `/command` + ws:81 只读旁路（`WebServer.cpp:121` 端口 `_port+1`，`:126` `Serial2Socket.attachWS`）。注意 `/command` 的 G-code 分支把响应写进 ws 而非 HTTP body（`WebServer.cpp:515-519`，body 恒为空），所以 `?plain=$$` 必须从 ws:81 收结果；`[ESP` 开头的命令才直接回在 HTTP body（`:468-486`）。`[ESP400]` 只枚举 `WEBSET` 类型项（`WebSettings.cpp:669-681`），**不含 `$110` 这类 Grbl 编号设置**，别用它读进给上限。
 
 **测试件设计的真实定位**：`f1000-line.gcode` 里 Y=185 那条 0.2mm × 250 段，在 HTTP/ws 旁路 RTT 代入下是有效压力档；但 B-12 纸面实测全连，说明它更适合作为“压力测试刻度”而不是“断粮复现件”。后续若改 WiFi 省电或窗口参数，可继续用这三档看卡顿是否改善，但不能再按模型预期宣称“必断”。
 

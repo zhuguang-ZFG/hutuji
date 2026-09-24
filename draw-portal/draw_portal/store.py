@@ -1503,6 +1503,16 @@ class Store:
             "token_probe_ok": binding.token_probe_ok,
         }
 
+    def expire_firmware_ota_session(self, user_id: str, *, cutoff: float) -> None:
+        # 条件更新避免超时清理覆盖刚收到的进度或新会话；不声称设备升级失败。
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE firmware_ota_sessions SET state='failed', reason='status_timeout' "
+                "WHERE user_id=? AND state='upgrading' AND updated_at<=?",
+                (user_id, cutoff),
+            )
+            conn.commit()
+
     def get_firmware_ota_session(self, user_id: str) -> FirmwareOtaSession | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -1510,6 +1520,22 @@ class Store:
                 (user_id,),
             ).fetchone()
         return self._row_firmware_ota_session(row) if row else None
+
+    def update_firmware_ota_session(
+        self, expected: FirmwareOtaSession, *, state: str, progress: int,
+        reason: str | None, updated_at: float,
+    ) -> FirmwareOtaSession | None:
+        # 状态请求可跨越新一轮升级；旧回包只能更新它起步时看到的那条会话。
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE firmware_ota_sessions SET state=?, progress=?, reason=?, updated_at=? "
+                "WHERE user_id=? AND device_mac=? AND state=? AND updated_at=? "
+                "AND target_version IS ?",
+                (state, progress, reason, updated_at, expected.user_id, expected.device_mac,
+                 expected.state, expected.updated_at, expected.target_version),
+            )
+            conn.commit()
+        return self.get_firmware_ota_session(expected.user_id)
 
     def upsert_firmware_ota_session(
         self,
@@ -2606,6 +2632,34 @@ class Store:
                 (since_ts,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def reserve_xiaopai_bind_attempt(self, user_id: str, *, when: float) -> int | None:
+        # 先登记再请求上游；SQLite 写事务让不同线程/进程共享同一 24h 额度。
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            used = conn.execute(
+                "SELECT COUNT(*) FROM usage_events "
+                "WHERE user_id=? AND event_type='xiaopai_bind' AND created_at>=?",
+                (user_id, when - 86400),
+            ).fetchone()[0]
+            if used >= 10:
+                return None
+            cur = conn.execute(
+                "INSERT INTO usage_events (source,event_type,user_id,detail,ok,created_at) "
+                "VALUES ('portal','xiaopai_bind',?,'attempt',NULL,?)",
+                (user_id, when),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def finish_xiaopai_bind_attempt(self, user_id: str, attempt_id: int, *, ok: bool) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE usage_events SET ok=?, detail=? "
+                "WHERE id=? AND user_id=? AND event_type='xiaopai_bind'",
+                (int(ok), "bound" if ok else "failed", attempt_id, user_id),
+            )
+            conn.commit()
 
     def usage_counts_for_user_since(
         self, user_id: str, since_ts: float

@@ -737,6 +737,33 @@
       "AGENTS.md"
     ]
   },
+  "audit_remediation_20260924_authorized": {
+    "note": "用户明确同意处理本次确认的全部问题：OTA 会话失效与目标隔离、绑定失败限频、Redis 与语音同步阻塞、账本资源上限、Grbl 参数越界及状态文档矛盾。手机/纸面和实际部署分别留证。",
+    "contract": "用户原话「同意请处理所有问题」；protocol §10.4.19/§10.4.22；Grbl 只修网络参数解析边界，不改机械/运动/授权。",
+    "paths": [
+      "AGENTS.md",
+      "draw-portal/weapp/pages/firmware/firmware.js",
+      "draw-portal/tests/weapp/page_lifecycle.test.js",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/tests/test_firmware_ota.py",
+      "draw-portal/tests/test_xiaopai.py",
+      "draw-portal/tests/test_voice_api.py",
+      "mcp-server/hutuji_mcp/breaker.py",
+      "mcp-server/hutuji_mcp/bitmap_svg.py",
+      "mcp-server/hutuji_mcp/job_ledger.py",
+      "mcp-server/tests/test_breaker.py",
+      "mcp-server/tests/test_job_ledger.py",
+      "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp",
+      "D:/Users/Grbl_Esp32/scripts/tests/test_web_settings_params.py",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebSettings.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_settings_params.py",
+      "docs/**",
+      "draw-portal/README.md",
+      "mcp-server/README.md"
+    ]
+  },
   "massprod_sweep_hardening_20260923_authorized": {
     "note": "2026-09-23 用户「三仓都检查一下…还有哪些问题需要修复改进加固的，毕竟量产设备」+ 拍板「全修」。体检发现：①voice_agent._sessions 无淘汰（sid 每次进页新生成→单进程内存无限驻留+对话隐私留 RAM）→ OrderedDict LRU 256；②usage_events 无保留策略（conversation 已有 purge_conversation_before）→ purge_usage_before + _record_portal_usage 1h 节流顺带清理，retention 天数 create_app 装配期注入；③/api/auth/me 补 id 字段，app.js 换微信账号静默重登清 preview_cache（设备易主隐私残留兜底）；④preview_cache 持久 LRU 32→128 与内存层对齐（长列表逐出在屏文件闪失）+ cyrb53 哈希文件名（语义键字符替换可碰撞串图）+ 旧命名每进程一次性清扫；⑤activation_relay 三处日志全量 MAC → mac[-5:]（portal 同口径）；⑥deploy/README 与 AGENTS preflight 33→34 文档漂移；⑦Grbl massprod/fix 双分支共 8 个未推送提交已推 origin（备份非行为变更）。",
     "contract": "用户原话「三仓都检查一下啊，还有哪些问题需要修复改进加固的，毕竟量产设备」+ ask 拍板「全修（P1+P2+P3 软件项）」",

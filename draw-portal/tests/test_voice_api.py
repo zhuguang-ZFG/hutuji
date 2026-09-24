@@ -26,6 +26,46 @@ def test_voice_asr_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert r.status_code in (401, 403)
 
 
+def test_asr_network_call_does_not_run_on_event_loop(monkeypatch, tmp_path):
+    import asyncio
+    import io
+    import threading
+    from starlette.datastructures import UploadFile
+
+    client = _auth(monkeypatch, tmp_path)
+    endpoint = next(r.endpoint for r in client.app.routes if getattr(r, "path", "") == "/api/voice/asr")
+    loop_thread = threading.get_ident()
+
+    def recognize(**kwargs):
+        assert threading.get_ident() != loop_thread
+        return "测试"
+
+    monkeypatch.setattr("draw_portal.tencent_asr.recognize_sentence", recognize)
+    result = asyncio.run(endpoint(file=UploadFile(io.BytesIO(b"audio"), filename="x.wav"), user_id="u"))
+    assert result == {"text": "测试"}
+
+
+def test_asr_reads_only_audio_limit_plus_one(monkeypatch, tmp_path):
+    import asyncio
+    from fastapi import HTTPException
+    from draw_portal.tencent_asr import MAX_AUDIO_BYTES
+
+    client = _auth(monkeypatch, tmp_path)
+    endpoint = next(r.endpoint for r in client.app.routes if getattr(r, "path", "") == "/api/voice/asr")
+
+    class Oversized:
+        filename = "x.wav"
+
+        async def read(self, size=-1):
+            assert size == MAX_AUDIO_BYTES + 1
+            return b"x" * size
+
+    monkeypatch.setattr("draw_portal.tencent_asr.recognize_sentence", lambda **kw: pytest.fail("超限不能调用上游"))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(endpoint(file=Oversized(), user_id="u"))
+    assert exc.value.status_code == 413
+
+
 def test_voice_turn_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     client = _client(monkeypatch, tmp_path)
     r = client.post(

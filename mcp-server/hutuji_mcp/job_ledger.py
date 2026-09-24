@@ -5,6 +5,7 @@ import contextvars
 import hashlib
 import json
 import logging
+import queue
 import re
 import threading
 import time
@@ -58,6 +59,38 @@ CREATE INDEX IF NOT EXISTS draw_backend_events_backend ON draw_backend_events (b
 
 _schema_ready = False
 _schema_lock = threading.Lock()
+_writer_lock = threading.Lock()
+_writer = None
+
+
+class _LedgerWriter:
+    """单消费者保序，慢数据库最多占一个连接和有界待写队列。"""
+
+    def __init__(self, capacity: int = 256) -> None:
+        self.pending = queue.Queue(maxsize=capacity)
+        self.thread = threading.Thread(target=self._work, daemon=True, name="job-ledger")
+        self.thread.start()
+
+    def submit(self, fn) -> bool:
+        try:
+            self.pending.put_nowait((contextvars.copy_context(), fn))
+        except queue.Full:
+            logger.warning("job_ledger 队列已满，本条统计未写入")
+            return False
+        return True
+
+    def _work(self) -> None:
+        while True:
+            item = self.pending.get()
+            try:
+                if item is None:
+                    return
+                context, fn = item
+                context.run(fn)
+            except Exception as exc:
+                logger.warning("job_ledger 写入失败（%s）", type(exc).__name__)
+            finally:
+                self.pending.task_done()
 
 
 def _settings():
@@ -116,7 +149,10 @@ def _connect():
     import psycopg
 
     dsn = getattr(_settings(), "pg_dsn", "").strip()
-    return psycopg.connect(dsn, connect_timeout=5)
+    return psycopg.connect(
+        dsn, connect_timeout=5,
+        options="-c statement_timeout=5000 -c lock_timeout=2000",
+    )
 
 
 def _ensure_schema(conn) -> None:
@@ -135,16 +171,13 @@ def _ensure_schema(conn) -> None:
 
 
 def _run_sync(fn) -> None:
+    global _writer
     if not ledger_enabled():
         return
-
-    def wrapper() -> None:
-        try:
-            fn()
-        except Exception:
-            logger.warning("job_ledger 写入失败", exc_info=True)
-
-    threading.Thread(target=wrapper, daemon=True, name="job-ledger").start()
+    with _writer_lock:
+        if _writer is None:
+            _writer = _LedgerWriter()
+        _writer.submit(fn)
 
 
 def schedule_enqueue(

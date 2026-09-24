@@ -884,7 +884,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/auth/wx-avatar", dependencies=secured)
     async def wx_avatar(file: UploadFile = File(...), user_id: str = Depends(user_dep)) -> dict[str, str]:
-        raw = await file.read()
+        raw = await file.read(2 * 1024 * 1024 + 1)
         if len(raw) > 2 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="头像不能超过 2MB")
         kind = detect_upload_kind(raw, file.content_type or "", file.filename or "")
@@ -1019,12 +1019,14 @@ def create_app() -> FastAPI:
         file: UploadFile = File(...),
         user_id: str = Depends(require_phone),
     ) -> dict[str, str]:
-        from draw_portal.tencent_asr import AsrError, recognize_sentence
+        from draw_portal.tencent_asr import AsrError, MAX_AUDIO_BYTES, recognize_sentence
 
-        raw = await file.read()
+        raw = await file.read(MAX_AUDIO_BYTES + 1)
+        if len(raw) > MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="录音过长")
         voice_format = _infer_voice_format(file.filename or "")
         try:
-            text = recognize_sentence(audio=raw, voice_format=voice_format)
+            text = await asyncio.to_thread(recognize_sentence, audio=raw, voice_format=voice_format)
         except AsrError as exc:
             msg = str(exc)
             if "未配置" in msg:
@@ -1629,7 +1631,8 @@ def create_app() -> FastAPI:
         return binding
 
     def _reject_if_firmware_upgrading(user_id: str) -> None:
-        if firmware_ota_mod.is_upgrading(store, user_id):
+        binding = store.get_binding_for_user(user_id)
+        if binding and firmware_ota_mod.is_upgrading(store, user_id, device_mac=binding.device_mac):
             raise HTTPException(status_code=400, detail="固件升级中，请稍后再出图")
 
 
@@ -3118,13 +3121,8 @@ def create_app() -> FastAPI:
     async def xiaopai_setting_bind(
         body: XiaopaiBindBody, user_id: str = Depends(user_dep)
     ) -> dict[str, Any]:
-        since = time.time() - 86400
-        used = sum(
-            row["count"]
-            for row in store.usage_counts_for_user_since(user_id, since)
-            if row["event_type"] == "xiaopai_bind"
-        )
-        if used >= 10:
+        attempt_id = store.reserve_xiaopai_bind_attempt(user_id, when=time.time())
+        if attempt_id is None:
             raise HTTPException(status_code=429, detail="今日绑定尝试已达上限，明天再来")
         row = store.xiaopai_settings_get(user_id)
         if not row:
@@ -3135,6 +3133,7 @@ def create_app() -> FastAPI:
                     secret=config.usage_ingest_secret,
                 )
             except xiaopai_mod.XiaopaiError as exc:
+                store.finish_xiaopai_bind_attempt(user_id, attempt_id, ok=False)
                 raise HTTPException(status_code=exc.status, detail=str(exc)) from None
             row = store.xiaopai_settings_insert(
                 user_id, clone["agent_id"], when=time.time()
@@ -3148,15 +3147,10 @@ def create_app() -> FastAPI:
                 code=body.code,
             )
         except xiaopai_mod.XiaopaiError as exc:
+            store.finish_xiaopai_bind_attempt(user_id, attempt_id, ok=False)
             raise HTTPException(status_code=exc.status, detail=str(exc)) from None
         store.xiaopai_settings_update(user_id, device_bound=1, when=time.time())
-        _record_portal_usage(
-            store,
-            event_type="xiaopai_bind",
-            user_id=user_id,
-            detail="bound",
-            ok=True,
-        )
+        store.finish_xiaopai_bind_attempt(user_id, attempt_id, ok=True)
         return {"ok": True, "device_bound": True}
 
     static_dir = Path(__file__).resolve().parent / "static"

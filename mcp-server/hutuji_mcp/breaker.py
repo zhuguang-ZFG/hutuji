@@ -75,7 +75,10 @@ class RedisBreakerStore:
     def __init__(self, url: str) -> None:
         import redis
 
-        self._client = redis.from_url(url, decode_responses=True)
+        # 熔断统计不能无限等待 Redis；超时后沿既有路径告警并放行生成。
+        self._client = redis.from_url(
+            url, decode_responses=True, socket_connect_timeout=1, socket_timeout=1,
+        )
 
     def record_sample(self, backend_id: str, outcome: str, *, now: float) -> None:
         key = f"{SAMPLE_PREFIX}{backend_id}"

@@ -209,3 +209,27 @@ def test_store_rows_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     store.xiaopai_settings_update("u1", tts_voice="v", device_bound=1, when=2.0)
     row = store.xiaopai_settings_get("u1")
     assert row["tts_voice"] == "v" and row["device_bound"] == 1 and row["updated_at"] == 2.0
+
+
+def test_failed_bind_attempts_exhaust_daily_limit(tmp_path, monkeypatch):
+    client = _client(monkeypatch, tmp_path)
+    _login_phone(client)
+    calls = _fake_forward(monkeypatch)
+    for _ in range(10):
+        assert client.post("/api/settings/xiaopai/bind", json={"code": "999999"}).status_code == 400
+    assert client.post("/api/settings/xiaopai/bind", json={"code": "123456"}).status_code == 429
+    assert len(calls["bind"]) == 10
+    store = Store(tmp_path / "t.db")
+    with store._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM usage_events WHERE event_type='xiaopai_bind' AND ok=0").fetchone()[0] == 10
+
+
+def test_bind_attempt_limit_is_atomic_and_expires(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = Store(tmp_path / "quota.db")
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(lambda _: store.reserve_xiaopai_bind_attempt("u", when=100000), range(24)))
+    assert len([r for r in results if r is not None]) == 10
+    assert store.reserve_xiaopai_bind_attempt("other", when=100000) is not None
+    assert store.reserve_xiaopai_bind_attempt("u", when=186401) is not None
