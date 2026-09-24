@@ -1302,6 +1302,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 ## weapp 0.3.20 登录合规批 + 三仓审计落盘（2026-09-24 晚）
 
 | 项 | 内容 |
+|---|---|
 | 本仓 | `d18d374`：weapp 软闸合规批 14 文件 +97/-29（api.js `_reject401` 去 logged_out 强跳、phone_gate.ensurePhone 三态、8 页 onShow 软闸、version 0.3.20、session/market 测试）；0.3.20 CLI 上传 → 用户手动三击提审（18:15:52）→ **同日过审发布，线上版本 0.3.20、发布时间 18:27:45**（MP 页复核，截图 `D:\Temp\User\mp-0320-online-20260924.jpg`）。readiness 首条已改「已发布上线」 |
 | 审计落盘 | `results/tri-repo-audit-20260924.md`：四审计 agent findings 汇总（Portal 4 高：OTA 无 TTL 锁死 / `/api/voice/asr` 无上限读内存 / 小派绑定码爆破 / voice 会话竞态；MCP 高 1：breaker redis 无超时冻结事件循环；Grbl 4 项待 nopaper 语义复核；xiaozhi 3 项中低）。排期建议：Portal 4 高为下一刀。原始 payload 随会话失效，以该文件为准 |
 | 证据（tmp，不入库） | `D:\Temp\User\omp-sshots-158c082893dae8c4.jpg`（MP 0.3.20 审核中服务端复核截图）、`D:\Temp\User\weapp-0319-diff.txt`（审查用 diff 快照，已过期于最终提交） |
