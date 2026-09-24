@@ -15,7 +15,7 @@
       --line: #3a4554;
       --text: #e8eef6;
       --muted: #93a0b2;
-      --soft: #6b7789;
+      --soft: #a3afbf;
       --accent: #e8a87c;
       --accent-dark: #d4895a;
       --accent-soft: rgba(232, 168, 124, 0.14);
@@ -93,7 +93,7 @@
       margin-bottom: 0.35rem;
       color: var(--muted);
     }
-    input[type=password], input[type=text], textarea {
+    input[type=password], input[type=text], input[type=number], textarea {
       width: 100%;
       min-height: var(--tap);
       padding: 0.7rem 0.9rem;
@@ -120,6 +120,16 @@
       transition: transform 0.12s, opacity 0.12s;
     }
     button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    button:focus-visible, select:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 3px;
+    }
+    .provider-meta, .user-card-meta, .usage-chip { overflow-wrap: anywhere; }
+    @media (max-width: 720px) {
+      button.sm, button.ghost { min-height: 44px; }
+      input, textarea, select { font-size: 16px !important; }
+    }
     button.primary {
       background: linear-gradient(145deg, var(--accent), var(--accent-dark));
       color: #1a120c;
@@ -418,7 +428,7 @@
 
     @media (max-width: 720px) {
       .shell { padding: 0.75rem; }
-      .table-wrap { display: none; }
+      .users-table { display: none; }
       .user-cards { display: flex; }
       .user-card-actions .sm { min-height: 44px; }
       pre.detail-json, pre.conv { max-height: 40vh; }
@@ -433,7 +443,7 @@
   </style>
 </head>
 <body>
-<div class="toast-stack" id="toast-stack"></div>
+<div class="toast-stack" id="toast-stack" role="status" aria-live="polite"></div>
 
 <div class="shell">
   <section id="login-section">
@@ -451,12 +461,16 @@
           <input id="admin-password" type="password" autocomplete="current-password" placeholder="请输入密码">
         </label>
         <button id="btn-admin-login" class="primary block">登录</button>
-        <p id="login-msg" style="min-height:1.25rem;color:var(--err);font-size:.88rem;margin:.75rem 0 0"></p>
+        <p id="login-msg" role="alert" style="min-height:1.25rem;color:var(--err);font-size:.88rem;margin:.75rem 0 0"></p>
       </div>
     </div>
   </section>
 
   <section id="dash-section" class="hidden">
+    <div id="dash-error" class="card hidden" role="alert">
+      <p id="dash-error-text"></p>
+      <button id="btn-retry-dash" class="secondary" type="button">重新加载</button>
+    </div>
     <header class="topbar">
       <div class="brand">
         <div class="logo">云</div>
@@ -465,7 +479,10 @@
           <p>呼图云</p>
         </div>
       </div>
-      <button id="btn-admin-logout" class="ghost sm">退出</button>
+      <div>
+        <button id="btn-refresh-admin" class="ghost sm" type="button">刷新</button>
+        <button id="btn-admin-logout" class="ghost sm" type="button">退出</button>
+      </div>
     </header>
 
     <div class="card">
@@ -523,7 +540,7 @@
     <div class="card">
       <h2 class="section-title">设备绑定一览</h2>
       <p class="muted" style="margin-top:0">MAC ↔ 用户 ↔ 手机号 ↔ 最近推送 / token 探活（不含 token）</p>
-      <div class="table-wrap">
+      <div class="table-wrap" tabindex="0" role="region" aria-label="设备绑定列表，可横向滚动">
         <table>
           <thead>
             <tr><th>MAC</th><th>手机号</th><th>邮箱</th><th>状态</th><th>探活</th><th>最近推送</th></tr>
@@ -551,7 +568,7 @@
     </div>
 
     <div class="card">
-      <div class="table-wrap">
+      <div class="table-wrap users-table">
         <table>
           <thead>
             <tr><th>邮箱</th><th>手机</th><th>状态</th><th>绑机</th><th>传图</th><th>图库</th><th>操作</th></tr>
@@ -592,28 +609,64 @@ function toast(msg, isErr) {
   const el = document.createElement("div");
   el.className = "toast" + (isErr ? " err" : "");
   el.textContent = msg;
+  if (isErr) el.setAttribute("role", "alert");
   $("toast-stack").appendChild(el);
   setTimeout(() => el.remove(), 3200);
 }
 
+// 防重覆盖桌面/手机两套操作入口，按资源占位到应答结束。
+const pendingMutations = new Set();
+let authGeneration = 0;
 async function api(path, opts = {}) {
-  const res = await fetch("/draw-admin/api" + path, {
-    credentials: "same-origin",
-    ...opts,
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || res.statusText);
-  return data;
+  const generation = authGeneration;
+  const writing = opts.method && opts.method !== 'GET';
+  const key = path.replace(/(\/users\/[^/]+)\/(ban|unban|unbind)$/, '$1');
+  if (writing && pendingMutations.has(key)) throw new Error('操作正在处理中，请稍候');
+  if (writing) pendingMutations.add(key);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch('/draw-admin/api' + path, {
+      credentials: 'same-origin', ...opts, signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    const data = await res.json().catch(() => null);
+    if (generation !== authGeneration) throw new Error('登录状态已更新，请刷新后查看');
+    if (res.status === 401) {
+      $('dash-section').classList.add('hidden');
+      $('login-section').classList.remove('hidden');
+      $('admin-password').value = '';
+      $('login-msg').textContent = '请重新登录';
+    }
+    if (!res.ok) {
+      const detail = typeof data?.detail === 'string' ? data.detail : data?.detail?.message;
+      throw new Error(detail || '服务暂不可用，请稍后再试');
+    }
+    if (!data || typeof data !== 'object') throw new Error('服务响应异常，请重新加载');
+    return data;
+  } catch (e) {
+    if (e.name === 'AbortError' || e instanceof TypeError) {
+      throw new Error(writing ? '连接中断或超时，结果尚未确认。请重新加载核对后再操作' : '连接中断或超时，请检查网络后重新加载');
+    }
+    throw e;
+  } finally { clearTimeout(timer); if (writing) pendingMutations.delete(key); }
+}
+
+async function busyButton(btn, action) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try { await action(); }
+  catch (e) { toast(e.message, true); }
+  finally { btn.disabled = btn.dataset.unavailable === 'true'; }
 }
 
 function tag(status) {
-  return `<span class="tag ${status}">${status === "active" ? "正常" : status === "banned" ? "封禁" : status}</span>`;
+  return `<span class="tag ${status === "active" ? "active" : status === "banned" ? "banned" : ""}">${status === "active" ? "正常" : status === "banned" ? "封禁" : escHtml(status)}</span>`;
 }
 
 function bindUserActions(root) {
   root.querySelectorAll("button[data-act]").forEach((btn) => {
-    btn.onclick = () => handleUserAction(btn.dataset.id, btn.dataset.act);
+    btn.onclick = () => busyButton(btn, () => handleUserAction(btn.dataset.id, btn.dataset.act));
   });
 }
 
@@ -624,13 +677,19 @@ const LIMIT_LABELS = {
   vpype_max_concurrent: "vpype 并发",
 };
 
-let convUserId = null;
+let detailRevision = 0;
+let messageRevision = 0;
+let usersRevision = 0;
 
 function downloadCsv(path) {
   window.location.href = "/draw-admin/api" + path;
 }
 
 async function loadDrawSettings() {
+  $('btn-save-limits').dataset.unavailable = 'true';
+  $('btn-save-backends').dataset.unavailable = 'true';
+  $('btn-save-limits').disabled = true;
+  $('btn-save-backends').disabled = true;
   const [limits, backends] = await Promise.all([
     api("/settings/draw-limits"),
     api("/settings/image-backends"),
@@ -640,15 +699,19 @@ async function loadDrawSettings() {
   $("draw-limits-form").innerHTML = (limits.keys || []).map((key) => {
     const b = bounds[key] || { min: 1, max: 999 };
     const val = overrides[key] ?? "";
-    return `<label class="limit-row"><span>${LIMIT_LABELS[key] || key}</span>
-      <input type="number" min="${b.min}" max="${b.max}" data-limit="${key}" value="${val}" placeholder="默认"></label>`;
+    return `<label class="limit-row"><span>${escHtml(LIMIT_LABELS[key] || key)}</span>
+      <input type="number" min="${escHtml(b.min)}" max="${escHtml(b.max)}" data-limit="${escHtml(key)}" value="${escHtml(val)}" placeholder="默认"></label>`;
   }).join("");
   if (limits.hint) $("limits-hint").textContent = limits.hint;
+  $("btn-save-limits").disabled = false;
+  $("btn-save-backends").disabled = false;
+  $('btn-save-limits').dataset.unavailable = 'false';
+  $('btn-save-backends').dataset.unavailable = 'false';
   const toggles = backends.toggles || {};
   const labels = backends.labels || {};
   $("backend-toggles").innerHTML = (backends.keys || []).map((key) =>
-    `<label class="toggle-row"><span>${labels[key] || key}</span>
-      <input type="checkbox" data-backend="${key}" ${toggles[key] !== false ? "checked" : ""}></label>`
+    `<label class="toggle-row"><span>${escHtml(labels[key] || key)}</span>
+      <input type="checkbox" data-backend="${escHtml(key)}" ${toggles[key] !== false ? "checked" : ""}></label>`
   ).join("");
 }
 
@@ -714,7 +777,7 @@ function renderProviderList(items) {
       </div>
       <div class="provider-meta">
         <div>URL：<code>${escHtml(p.base_url)}</code></div>
-        <div>Model：<code>${escHtml(p.model)}</code> · 权重 ${p.race_weight} · 排序 ${p.sort_order}</div>
+        <div>Model：<code>${escHtml(p.model)}</code> · 权重 ${escHtml(p.race_weight)} · 排序 ${escHtml(p.sort_order)}</div>
       </div>
       <div style="margin-top:0.55rem;font-size:0.82rem;color:var(--muted)">API Keys</div>
       ${renderProviderKeys(p.id, p.keys || [])}
@@ -760,6 +823,7 @@ async function loadImageProviders() {
     $("provider-list").innerHTML = "";
     msgEl.textContent = e.message || "无法加载生图通道";
     msgEl.classList.remove("hidden");
+    throw e;
   }
 }
 
@@ -782,13 +846,13 @@ async function createProvider() {
 }
 
 async function addProviderKey(providerId) {
-  const input = document.querySelector(`input[data-new-key="${providerId}"]`);
+  const input = document.querySelector(`input[data-new-key="${CSS.escape(providerId)}"]`);
   const apiKey = (input?.value || "").trim();
   if (!apiKey) {
     toast("请输入 API key", true);
     return;
   }
-  await api(`/image-providers/${providerId}/keys`, {
+  await api(`/image-providers/${encodeURIComponent(providerId)}/keys`, {
     method: "POST",
     body: JSON.stringify({ api_key: apiKey, label: "后台添加" }),
   });
@@ -798,7 +862,7 @@ async function addProviderKey(providerId) {
 }
 
 async function toggleProvider(providerId, enabled) {
-  await api(`/image-providers/${providerId}`, {
+  await api(`/image-providers/${encodeURIComponent(providerId)}`, {
     method: "PUT",
     body: JSON.stringify({ enabled }),
   });
@@ -808,13 +872,13 @@ async function toggleProvider(providerId, enabled) {
 
 async function deleteProvider(providerId) {
   if (!confirm("确定删除该生图通道？关联 key 一并删除。")) return;
-  await api(`/image-providers/${providerId}`, { method: "DELETE" });
+  await api(`/image-providers/${encodeURIComponent(providerId)}`, { method: "DELETE" });
   toast("通道已删除");
   await loadImageProviders();
 }
 
 async function toggleProviderKey(keyId, enabled) {
-  await api(`/image-providers/keys/${keyId}`, {
+  await api(`/image-providers/keys/${encodeURIComponent(keyId)}`, {
     method: "PUT",
     body: JSON.stringify({ enabled }),
   });
@@ -824,32 +888,39 @@ async function toggleProviderKey(keyId, enabled) {
 
 async function deleteProviderKey(keyId) {
   if (!confirm("确定删除该 key？")) return;
-  await api(`/image-providers/keys/${keyId}`, { method: "DELETE" });
+  await api(`/image-providers/keys/${encodeURIComponent(keyId)}`, { method: "DELETE" });
   toast("Key 已删除");
   await loadImageProviders();
 }
 
 async function showConvToolbar(userId, sessionId) {
-  convUserId = userId;
   const bar = $("conv-toolbar");
   bar.classList.remove("hidden");
-  const sessionPart = sessionId
-    ? `/export?session_id=${encodeURIComponent(sessionId)}`
-    : "/export";
   bar.innerHTML = `
     <button class="secondary sm" type="button" id="btn-export-all">导出全部 CSV</button>
     ${sessionId ? `<button class="secondary sm" type="button" id="btn-export-session">导出当前会话 CSV</button>` : ""}`;
-  $("btn-export-all").onclick = () => downloadCsv(`/users/${userId}/conversations/export`);
+  $("btn-export-all").onclick = () => downloadCsv(`/users/${encodeURIComponent(userId)}/conversations/export`);
   const sessBtn = $("btn-export-session");
   if (sessBtn) {
-    sessBtn.onclick = () => downloadCsv(`/users/${userId}/conversations/export?session_id=${encodeURIComponent(sessionId)}`);
+    sessBtn.onclick = () => downloadCsv(`/users/${encodeURIComponent(userId)}/conversations/export?session_id=${encodeURIComponent(sessionId)}`);
   }
 }
 
 async function handleUserAction(id, act) {
+  const revision = (act === 'detail' || act === 'conv') ? ++detailRevision : detailRevision;
+  if (act === 'detail' || act === 'conv') {
+    messageRevision++;
+    $('conv-sessions').innerHTML = '';
+    $('conv-toolbar').classList.add('hidden');
+    $('conv-messages').classList.add('hidden');
+    $('detail').classList.add('hidden');
+    $('detail-empty').classList.remove('hidden');
+  }
+  const userPath = '/users/' + encodeURIComponent(id);
   try {
     if (act === "detail") {
-      const d = await api("/users/" + id);
+      const d = await api(userPath);
+      if (revision !== detailRevision) return;
       $("detail").textContent = JSON.stringify(d, null, 2);
       $("detail").classList.remove("hidden");
       $("detail-empty").classList.add("hidden");
@@ -857,38 +928,47 @@ async function handleUserAction(id, act) {
       $("conv-messages").classList.add("hidden");
       $("conv-toolbar").classList.add("hidden");
     } else if (act === "conv") {
-      convUserId = id;
-      const d = await api("/users/" + id + "/conversations");
+      const d = await api(userPath + "/conversations");
+      if (revision !== detailRevision) return;
       $("detail").classList.add("hidden");
       $("detail-empty").classList.add("hidden");
       $("conv-messages").classList.add("hidden");
       showConvToolbar(id, null);
       $("conv-sessions").innerHTML = (d.items || []).map((s) =>
-        `<button class="secondary sm" data-uid="${id}" data-sid="${s.session_id}">${s.session_id.slice(0, 8)}… (${s.message_count}条)</button>`
+        `<button class="secondary sm" data-uid="${escHtml(id)}" data-sid="${escHtml(s.session_id)}">${escHtml(String(s.session_id).slice(0, 8))}… (${escHtml(s.message_count)}条)</button>`
       ).join("") || '<span class="empty-hint" style="padding:0">暂无采集对话（需固件上报且已绑机）</span>';
       $("conv-sessions").querySelectorAll("button[data-sid]").forEach((b) => {
         b.onclick = async () => {
-          const m = await api("/users/" + b.dataset.uid + "/conversations/" + b.dataset.sid);
-          $("conv-messages").classList.remove("hidden");
-          showConvToolbar(b.dataset.uid, b.dataset.sid);
-          $("conv-messages").textContent = (m.messages || []).map((x) => {
-            const who = x.role === "user" ? "用户" : (x.role === "assistant" ? "小派" : x.role);
-            return `[${who}] ${x.content}`;
-          }).join("\n\n");
+          const selected = ++messageRevision;
+          $('conv-messages').classList.add('hidden');
+          try {
+            const m = await api('/users/' + encodeURIComponent(b.dataset.uid) + '/conversations/' + encodeURIComponent(b.dataset.sid));
+            if (revision !== detailRevision || selected !== messageRevision) return;
+            $("conv-messages").classList.remove("hidden");
+            showConvToolbar(b.dataset.uid, b.dataset.sid);
+            $("conv-messages").textContent = (m.messages || []).map((x) => {
+              const who = x.role === "user" ? "用户" : (x.role === "assistant" ? "小派" : x.role);
+              return `[${who}] ${x.content}`;
+            }).join("\n\n");
+          } catch (e) {
+            if (revision === detailRevision && selected === messageRevision) toast(e.message, true);
+          }
         };
       });
     } else if (act === "ban") {
-      const reason = prompt("封禁原因") || "违规";
-      await api("/users/" + id + "/ban", { method: "POST", body: JSON.stringify({ reason }) });
+      const input = prompt("封禁原因");
+      if (input === null) return;
+      const reason = input.trim() || "违规";
+      await api(userPath + "/ban", { method: "POST", body: JSON.stringify({ reason }) });
       toast("已封禁");
       await loadUsers();
     } else if (act === "unban") {
-      await api("/users/" + id + "/unban", { method: "POST" });
+      await api(userPath + "/unban", { method: "POST" });
       toast("已解封");
       await loadUsers();
     } else if (act === "unbind") {
       if (confirm("确认代客解绑？")) {
-        await api("/users/" + id + "/unbind", { method: "POST" });
+        await api(userPath + "/unbind", { method: "POST" });
         toast("已解绑");
         await loadUsers();
       }
@@ -900,43 +980,43 @@ async function handleUserAction(id, act) {
 
 function renderUserRow(u) {
   const actions = `
-    <button class="secondary sm" data-id="${u.id}" data-act="detail">详情</button>
-    <button class="secondary sm" data-id="${u.id}" data-act="conv">对话</button>
+    <button class="secondary sm" data-id="${escHtml(u.id)}" data-act="detail">详情</button>
+    <button class="secondary sm" data-id="${escHtml(u.id)}" data-act="conv">对话</button>
     ${u.status === "banned"
-      ? `<button class="secondary sm" data-id="${u.id}" data-act="unban">解封</button>`
-      : `<button class="danger sm" data-id="${u.id}" data-act="ban">封禁</button>`}
-    ${u.bound ? `<button class="secondary sm" data-id="${u.id}" data-act="unbind">解绑</button>` : ""}`;
+      ? `<button class="secondary sm" data-id="${escHtml(u.id)}" data-act="unban">解封</button>`
+      : `<button class="danger sm" data-id="${escHtml(u.id)}" data-act="ban">封禁</button>`}
+    ${u.bound ? `<button class="secondary sm" data-id="${escHtml(u.id)}" data-act="unbind">解绑</button>` : ""}`;
   return `
     <tr>
-      <td>${u.email}</td>
-      <td>${u.phone || "—"}</td>
+      <td>${escHtml(u.email)}</td>
+      <td>${escHtml(u.phone || "—")}</td>
       <td>${tag(u.status)}</td>
-      <td>${u.bound ? (u.device_mac || "是") : "否"}</td>
-      <td>${u.job_count}</td>
-      <td>${u.saved_count}</td>
+      <td>${escHtml(u.bound ? (u.device_mac || "是") : "否")}</td>
+      <td>${escHtml(u.job_count)}</td>
+      <td>${escHtml(u.saved_count)}</td>
       <td><div class="row-actions">${actions}</div></td>
     </tr>`;
 }
 
 function renderUserCard(u) {
   const actions = `
-    <button class="secondary sm" data-id="${u.id}" data-act="detail">详情</button>
-    <button class="secondary sm" data-id="${u.id}" data-act="conv">对话</button>
+    <button class="secondary sm" data-id="${escHtml(u.id)}" data-act="detail">详情</button>
+    <button class="secondary sm" data-id="${escHtml(u.id)}" data-act="conv">对话</button>
     ${u.status === "banned"
-      ? `<button class="secondary sm" data-id="${u.id}" data-act="unban">解封</button>`
-      : `<button class="danger sm" data-id="${u.id}" data-act="ban">封禁</button>`}
-    ${u.bound ? `<button class="secondary sm" data-id="${u.id}" data-act="unbind">解绑</button>` : ""}`;
+      ? `<button class="secondary sm" data-id="${escHtml(u.id)}" data-act="unban">解封</button>`
+      : `<button class="danger sm" data-id="${escHtml(u.id)}" data-act="ban">封禁</button>`}
+    ${u.bound ? `<button class="secondary sm" data-id="${escHtml(u.id)}" data-act="unbind">解绑</button>` : ""}`;
   return `
     <article class="user-card">
       <div class="user-card-head">
-        <div class="user-card-email">${u.email}</div>
+        <div class="user-card-email">${escHtml(u.email)}</div>
         ${tag(u.status)}
       </div>
       <div class="user-card-meta">
-        <div>手机：${u.phone || "—"}</div>
-        <div>绑机：${u.bound ? (u.device_mac || "是") : "否"}</div>
-        <div>传图：${u.job_count}</div>
-        <div>图库：${u.saved_count}</div>
+        <div>手机：${escHtml(u.phone || "—")}</div>
+        <div>绑机：${escHtml(u.bound ? (u.device_mac || "是") : "否")}</div>
+        <div>传图：${escHtml(u.job_count)}</div>
+        <div>图库：${escHtml(u.saved_count)}</div>
       </div>
       <div class="user-card-actions">${actions}</div>
     </article>`;
@@ -947,16 +1027,18 @@ async function loadStats() {
   $("stats").innerHTML = Object.entries(s)
     .filter(([k]) => k !== "usage_7d")
     .filter(([, v]) => typeof v !== "object")
-    .map(([k, v]) => `<div class="stat"><span>${STAT_LABELS[k] || k}</span><b>${v}</b></div>`)
+    .map(([k, v]) => `<div class="stat"><span>${escHtml(STAT_LABELS[k] || k)}</span><b>${escHtml(v)}</b></div>`)
     .join("");
   const usage = s.usage_7d || {};
   $("usage-7d").innerHTML = Object.keys(usage).length
-    ? Object.entries(usage).map(([k, v]) => `<span class="usage-chip">${k}: <b>${v}</b></span>`).join("")
+    ? Object.entries(usage).map(([k, v]) => `<span class="usage-chip">${escHtml(k)}: <b>${escHtml(v)}</b></span>`).join("")
     : '<span class="usage-chip">暂无 usage（配置 ingest secret 后生效）</span>';
 }
 
 async function loadUsers() {
+  const revision = ++usersRevision;
   const data = await api("/users");
+  if (revision !== usersRevision) return;
   const items = data.items || [];
   $("users-empty").classList.toggle("hidden", items.length > 0);
   $("users-body").innerHTML = items.map(renderUserRow).join("");
@@ -980,20 +1062,24 @@ async function loadBindings() {
   $("bindings-empty").classList.toggle("hidden", items.length > 0);
   $("bindings-body").innerHTML = items.map((b) => `
     <tr>
-      <td><code>${b.device_mac}</code></td>
-      <td>${b.phone || "—"}</td>
-      <td>${b.email || "—"}</td>
+      <td><code>${escHtml(b.device_mac)}</code></td>
+      <td>${escHtml(b.phone || "—")}</td>
+      <td>${escHtml(b.email || "—")}</td>
       <td>${tag(b.user_status || "active")}</td>
       <td>${b.token_probe_ok === true ? "OK" : (b.token_probe_ok === false ? "失败" : "—")}</td>
-      <td>${fmtTs(b.last_push_at)}</td>
+      <td>${escHtml(fmtTs(b.last_push_at))}</td>
     </tr>`).join("");
 }
 
 async function loadOpsNotes() {
+  $('btn-ops-save').dataset.unavailable = 'true';
+  $("btn-ops-save").disabled = true;
   const n = await api("/ops/notes");
   $("ops-weapp").value = n.weapp_version || "";
   $("ops-fw").value = n.firmware_note || "";
   $("ops-ship").value = n.shipping_note || "";
+  $("btn-ops-save").disabled = false;
+  $('btn-ops-save').dataset.unavailable = 'false';
 }
 
 async function loadChecklist() {
@@ -1001,27 +1087,37 @@ async function loadChecklist() {
   $("checklist-note").textContent = d.note || "";
   $("checklist-body").innerHTML = (d.sections || []).map((s) => `
     <div style="margin-bottom:0.75rem">
-      <strong>${s.id}. ${s.title}</strong>
+      <strong>${escHtml(s.id)}. ${escHtml(s.title)}</strong>
       <ul style="margin:0.35rem 0 0;padding-left:1.2rem;color:var(--muted)">
-        ${(s.items || []).map((it) => `<li>□ ${it}</li>`).join("")}
+        ${(s.items || []).map((it) => `<li>□ ${escHtml(it)}</li>`).join("")}
       </ul>
     </div>`).join("") +
-    `<p class="muted">真值文档：${d.source || "docs/release-checklist.md"}（仓内，不在此勾选）</p>`;
+    `<p class="muted">真值文档：${escHtml(d.source || "docs/release-checklist.md")}（仓内，不在此勾选）</p>`;
 }
 
+let dashboardGeneration = null;
 async function enterDash() {
+  if (dashboardGeneration === authGeneration) return;
+  const generation = authGeneration;
+  dashboardGeneration = generation;
   $("login-section").classList.add("hidden");
   $("dash-section").classList.remove("hidden");
-  await loadStats();
-  await loadDrawSettings();
-  await loadImageProviders();
-  await loadBindings();
-  await loadOpsNotes();
-  await loadChecklist();
-  await loadUsers();
+  $('dash-error').classList.add('hidden');
+  const modules = [
+    ['数据概览', loadStats], ['绘图设置', loadDrawSettings], ['生图通道', loadImageProviders],
+    ['设备绑定', loadBindings], ['运营备注', loadOpsNotes], ['验收清单', loadChecklist], ['用户列表', loadUsers],
+  ];
+  const results = await Promise.allSettled(modules.map(([, load]) => load()));
+  if (dashboardGeneration === generation) dashboardGeneration = null;
+  if (generation !== authGeneration) return;
+  const failed = results.flatMap((result, i) => result.status === 'rejected' ? [modules[i][0]] : []);
+  if (failed.length) {
+    $('dash-error-text').textContent = failed.join('、') + '加载失败，请检查网络后重新加载。';
+    $('dash-error').classList.remove('hidden');
+  }
 }
 
-$("btn-ops-save").onclick = async () => {
+$("btn-ops-save").onclick = () => busyButton($("btn-ops-save"), async () => {
   try {
     await api("/ops/notes", {
       method: "PUT",
@@ -1035,18 +1131,21 @@ $("btn-ops-save").onclick = async () => {
   } catch (e) {
     toast(e.message, true);
   }
-};
+});
 
-$("btn-save-limits").onclick = () => saveDrawLimits().catch((e) => toast(e.message, true));
-$("btn-save-backends").onclick = () => saveImageBackends().catch((e) => toast(e.message, true));
-$("btn-create-provider").onclick = () => createProvider().catch((e) => toast(e.message, true));
+$("btn-save-limits").onclick = () => busyButton($("btn-save-limits"), saveDrawLimits);
+$("btn-save-backends").onclick = () => busyButton($("btn-save-backends"), saveImageBackends);
+$("btn-create-provider").onclick = () => busyButton($("btn-create-provider"), createProvider);
 
 $("btn-admin-login").onclick = async () => {
   $("login-msg").textContent = "";
   const btn = $("btn-admin-login");
+  if (btn.disabled) return;
   btn.disabled = true;
+  authGeneration++;
   try {
     await api("/auth/login", { method: "POST", body: JSON.stringify({ password: $("admin-password").value }) });
+    $("admin-password").value = "";
     await enterDash();
   } catch (e) {
     $("login-msg").textContent = e.message;
@@ -1055,12 +1154,17 @@ $("btn-admin-login").onclick = async () => {
   }
 };
 
-$("btn-admin-logout").onclick = async () => {
-  await api("/auth/logout", { method: "POST" });
+$('btn-admin-logout').onclick = () => busyButton($('btn-admin-logout'), async () => {
+  await api('/auth/logout', { method: 'POST' });
   location.reload();
-};
+});
+$('btn-retry-dash').onclick = () => busyButton($('btn-retry-dash'), enterDash);
+$('btn-refresh-admin').onclick = () => busyButton($('btn-refresh-admin'), enterDash);
+$('admin-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('btn-admin-login').click(); }
+});
 
-api("/stats").then(() => enterDash()).catch(() => {});
+api("/stats").then(() => enterDash()).catch(e => { $("login-msg").textContent = e.message; });
 </script>
 </body>
 </html>

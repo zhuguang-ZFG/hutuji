@@ -359,6 +359,9 @@ class Store:
 
     @staticmethod
     def _migrate(conn: sqlite3.Connection) -> None:
+        ota_columns = {row[1] for row in conn.execute("PRAGMA table_info(firmware_ota_sessions)")}
+        if "session_id" not in ota_columns:
+            conn.execute("ALTER TABLE firmware_ota_sessions ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
         cols = {
             row[1]
             for row in conn.execute("PRAGMA table_info(users)").fetchall()
@@ -543,6 +546,7 @@ class Store:
             reason=row["reason"],
             target_version=row["target_version"],
             updated_at=float(row["updated_at"]),
+            session_id=row["session_id"],
         )
 
     @staticmethod
@@ -1508,8 +1512,58 @@ class Store:
         with self._connect() as conn:
             conn.execute(
                 "UPDATE firmware_ota_sessions SET state='failed', reason='status_timeout' "
-                "WHERE user_id=? AND state='upgrading' AND updated_at<=?",
+                "WHERE user_id=? AND state IN ('starting','uncertain','upgrading') AND updated_at<=?",
                 (user_id, cutoff),
+            )
+            conn.commit()
+
+    def reserve_firmware_ota_session(self, user_id: str, device_mac: str) -> FirmwareOtaSession | None:
+        # 在任何设备查询前原子占位；进程锁不能覆盖多个服务实例。
+        session_id = uuid.uuid4().hex
+        with self._connect() as conn:
+            result = conn.execute(
+                "INSERT INTO firmware_ota_sessions "
+                "(user_id,device_mac,state,progress,reason,target_version,updated_at,session_id) "
+                "VALUES (?,?,'starting',0,NULL,NULL,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET device_mac=excluded.device_mac, "
+                "state='starting',progress=0,reason=NULL,target_version=NULL, "
+                "updated_at=excluded.updated_at,session_id=excluded.session_id "
+                "WHERE firmware_ota_sessions.state NOT IN ('starting','uncertain','upgrading')",
+                (user_id, normalize_mac(device_mac), time.time(), session_id),
+            )
+            conn.commit()
+            if result.rowcount != 1:
+                return None
+            row = conn.execute("SELECT * FROM firmware_ota_sessions WHERE user_id=? AND session_id=?",
+                               (user_id, session_id)).fetchone()
+        return self._row_firmware_ota_session(row) if row else None
+
+    def set_firmware_ota_target(self, session: FirmwareOtaSession, version: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                "UPDATE firmware_ota_sessions SET target_version=? "
+                "WHERE user_id=? AND session_id=? AND state='starting'",
+                (version, session.user_id, session.session_id),
+            )
+            conn.commit()
+        return result.rowcount == 1
+
+    def fail_firmware_ota_start(self, session: FirmwareOtaSession, reason: str | None) -> None:
+        # 只结束本轮受理等待，不能覆盖新一轮或已经完成受理的升级。
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE firmware_ota_sessions SET state='failed',reason=? "
+                "WHERE user_id=? AND session_id=? AND state='starting'",
+                (reason, session.user_id, session.session_id),
+            )
+            conn.commit()
+
+    def accept_firmware_ota_start(self, session: FirmwareOtaSession, *, uncertain: bool = False) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE firmware_ota_sessions SET state=?,updated_at=? "
+                "WHERE user_id=? AND session_id=? AND state='starting'",
+                ("uncertain" if uncertain else "upgrading", time.time(), session.user_id, session.session_id),
             )
             conn.commit()
 
@@ -1530,9 +1584,9 @@ class Store:
             conn.execute(
                 "UPDATE firmware_ota_sessions SET state=?, progress=?, reason=?, updated_at=? "
                 "WHERE user_id=? AND device_mac=? AND state=? AND updated_at=? "
-                "AND target_version IS ?",
+                "AND target_version IS ? AND session_id=?",
                 (state, progress, reason, updated_at, expected.user_id, expected.device_mac,
-                 expected.state, expected.updated_at, expected.target_version),
+                 expected.state, expected.updated_at, expected.target_version, expected.session_id),
             )
             conn.commit()
         return self.get_firmware_ota_session(expected.user_id)
@@ -1554,15 +1608,16 @@ class Store:
             conn.execute(
                 """
                 INSERT INTO firmware_ota_sessions (
-                    user_id, device_mac, state, progress, reason, target_version, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    user_id, device_mac, state, progress, reason, target_version, updated_at, session_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     device_mac = excluded.device_mac,
                     state = excluded.state,
                     progress = excluded.progress,
                     reason = excluded.reason,
                     target_version = excluded.target_version,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    session_id = excluded.session_id
                 """,
                 (
                     user_id,
@@ -1572,6 +1627,7 @@ class Store:
                     reason,
                     target_version,
                     when,
+                    uuid.uuid4().hex,
                 ),
             )
             conn.commit()

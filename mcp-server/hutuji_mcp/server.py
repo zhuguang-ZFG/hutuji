@@ -177,23 +177,21 @@ class DrawLimiter:
         # `_active` 永不递减，并发名额永久漏掉一个直到进程重启。无 await 的
         # async 方法被 await 时同步执行到底，取消只在挂起点注入，泄漏面消除。
 
-    def _refresh_from_portal(self) -> None:
+    def _load_portal_limits(self) -> tuple[int, int, int]:
         from .config import settings as _settings
         from .portal_settings import effective_draw_limit
 
-        self.max_concurrent = effective_draw_limit(
-            _settings, "draw_max_concurrent", self._env_max_concurrent
-        )
-        self.per_second = effective_draw_limit(
-            _settings, "draw_per_second", self._env_per_second
-        )
-        self.per_minute = effective_draw_limit(
-            _settings, "draw_per_minute", self._env_per_minute
+        return (
+            effective_draw_limit(_settings, "draw_max_concurrent", self._env_max_concurrent),
+            effective_draw_limit(_settings, "draw_per_second", self._env_per_second),
+            effective_draw_limit(_settings, "draw_per_minute", self._env_per_minute),
         )
 
     async def enter(self) -> None:
         """占用一个生成名额；超限立即报错，不排队等待。"""
-        self._refresh_from_portal()
+        # 配置缓存未命中会联网；计数临界区仍留在 await 之后同步完成。
+        limits = await asyncio.to_thread(self._load_portal_limits)
+        self.max_concurrent, self.per_second, self.per_minute = limits
         now = self._clock()
         while self._starts and now - self._starts[0] >= 60.0:
             self._starts.popleft()

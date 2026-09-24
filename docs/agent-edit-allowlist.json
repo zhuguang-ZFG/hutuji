@@ -1,4 +1,45 @@
 {
+  "review_continue_20260924_authorized": {
+    "note": "用户原话：修复以上code review出来的问题。范围为R24C-01至06，含独立固件仓的请求上下文和OTA任务互斥；不部署、不刷机。 用户继续授权多轮复审修复，并明确交付使用量产无自动换纸分支；本轮含配置缓存合并与vpype动态并发闸。",
+    "contract": "protocol §4/§9/§10.4.13/§10.4.22；用户隔离、完整语音轮次、OTA原子会话、单任务互斥与异步I/O",
+    "paths": [
+      "draw-portal/draw_portal/voice_agent.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/models.py",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/tests/test_voice_agent.py",
+      "draw-portal/tests/test_voice_api.py",
+      "draw-portal/tests/test_firmware_ota.py",
+      "mcp-server/hutuji_mcp/server.py",
+      "mcp-server/hutuji_mcp/bitmap_svg.py",
+      "mcp-server/hutuji_mcp/gcode_gen.py",
+      "mcp-server/tests/test_portal_settings.py",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.cc",
+      "xiaozhi-esp32/scripts/tests/test_hutuji_ota_reservation.py",
+      "Grbl_Esp32/Grbl_Esp32/src/WebUI/WebSettings.cpp",
+      "Grbl_Esp32/scripts/tests/test_web_command_context.py",
+      "docs/design/review-fixes-20260924.md",
+      "docs/protocol.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/agent-line-refs-baseline.json",
+      "README.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "draw-portal/README.md",
+      "mcp-server/README.md",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_nopaper_core.py",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebSettings.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_command_context.py",
+      "draw-portal/tests/test_voice_jobs.py",
+      "mcp-server/hutuji_mcp/portal_settings.py",
+      "mcp-server/tests/test_draw_limits_config.py",
+      "docs/**"
+    ]
+  },
   "runtime_review_20260915_authorized": {
     "note": "用户原话：继续 review code，检查运行时、状态机、并发限制，三仓。核对实际调用线程与事务所有权，仅修复可复现的问题。",
     "contract": "protocol §4/§10.4.6；完整生成事务 single-flight、领取凭证与终态不可回退；Redis 回写错误不得当作生成失败或触发重新生成",
@@ -787,6 +828,67 @@
       "docs/release-readiness.md",
       "docs/worktree-inventory.md",
       "docs/deployment.md"
+    ]
+  },
+  "fz_review_20260924_authorized": {
+    "note": "用户原话：fz仿真你如果觉得质量有问题，你可以修改修正改进。量产无自动换纸；仅改仿真准确性、SKU适用范围和报告，不改产品运动/换纸行为迎合门禁。",
+    "contract": "docs/design/review-fixes-20260924.md；fz standard + observe；不得把启动失败改成通过",
+    "paths": [
+      "D:/Users/zhugu/fz/AGENTS.md",
+      "D:/Users/zhugu/fz/README.md",
+      "D:/Users/zhugu/fz/sim_common/product_profile.py",
+      "D:/Users/zhugu/fz/sim_common/test_product_profile.py",
+      "D:/Users/zhugu/fz/hardware_sim/machine_pin_contract_nopaper.json",
+      "D:/Users/zhugu/fz/hardware_sim/test_nopaper_pin_contract.py",
+      "D:/Users/zhugu/fz/hardware_sim/run_machine_pin_mutation_campaign.py",
+      "D:/Users/zhugu/fz/native_sim/test_protocol_decision_trace.py",
+      "D:/Users/zhugu/fz/scripts/agent_gate.py",
+      "D:/Users/zhugu/fz/scripts/agent_observe.py",
+      "D:/Users/zhugu/fz/scripts/test_agent_gate.py",
+      "D:/Users/zhugu/fz/scripts/test_agent_observe.py",
+      "D:/Users/zhugu/fz/chip_sim/build_flash_image.py",
+      "D:/Users/zhugu/fz/chip_sim/run_wokwi_smoke.py",
+      "D:/Users/zhugu/fz/chip_sim/test_build_flash_image.py",
+      "D:/Users/zhugu/fz/chip_sim/test_startup_log_oracle.py",
+      "D:/Users/zhugu/fz/chip_sim/test_wokwi_artifacts.py",
+      "D:/Users/zhugu/fz/docs/specs/2026-09-24-nopaper-gate-review.md",
+      "D:/Users/zhugu/fz/chip_sim/run_qemu_smoke.py",
+      "D:/Users/zhugu/fz/chip_sim/test_run_qemu_smoke.py"
+    ]
+  },
+  "web_production_review_20260925_authorized": {
+    "note": "用户要求各种网页改进优化、更适用于量产，并参考行业惯例。覆盖买家门户、运营后台、知识库后台及小程序共享网络处理；不部署、发布或刷机。",
+    "contract": "docs/design/web-production-review-20260925.md；量产无自动换纸；保留游客浏览不强制登录；写操作不自动重试。",
+    "paths": [
+      "draw-portal/draw_portal/static/index.html",
+      "draw-portal/draw_admin/static/index.html",
+      "draw-portal/weapp/utils/api.js",
+      "draw-portal/tests/weapp/api_response.test.js",
+      "draw-portal/tests/web/production.test.cjs",
+      "draw-portal/tests/web/README.md",
+      "kb-admin/kb_admin/static/index.html",
+      "draw-portal/README.md",
+      "kb-admin/README.md",
+      "docs/design/web-production-review-20260925.md",
+      "docs/design/review-fixes-20260924.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/agent-edit-allowlist.json"
+    ]
+  },
+  "release_20260925_authorized": {
+    "note": "用户原话：部署，验证刷机。部署已完成review的后端/网页，量产S3与无换纸Grbl刷机验证；小程序上传开发候选，不代替平台审核发布。",
+    "contract": "docs/design/review-fixes-20260924.md；docs/design/web-production-review-20260925.md；保留fz真实失败，不宣称整体验收。",
+    "paths": [
+      "scripts/auto_deploy.py",
+      "mcp-server/tests/test_release_tools.py",
+      "draw-portal/weapp/utils/version.js",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "docs/agent-edit-allowlist.json",
+      "docs/deployment.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/design/release-20260925.md"
     ]
   }
 }

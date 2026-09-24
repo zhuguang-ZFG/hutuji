@@ -1049,7 +1049,7 @@ def create_app() -> FastAPI:
         from draw_portal import voice_agent
         from draw_portal.mcp_result import unwrap_tool_text
         from draw_portal.push import mint_messaging_token
-        from draw_portal.voice_agent import VoiceAgentError
+        from draw_portal.voice_agent import VoiceAgentError, VoiceAgentBusyError
         from draw_portal.voice_jobs import VoiceJobError, run_voice_draw, run_voice_write
 
         binding = store.get_binding_for_user(user_id)
@@ -1225,12 +1225,15 @@ def create_app() -> FastAPI:
 
         try:
             out = voice_agent.chat(
+                user_id=user_id,
                 session_id=body.session_id,
                 user_text=body.text,
                 device_mac=device_mac,
                 push_tool=push_tool,
                 run_portal_tool=run_portal_tool,
             )
+        except VoiceAgentBusyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         except VoiceAgentError as exc:
             msg = str(exc)
             if "未配置" in msg:

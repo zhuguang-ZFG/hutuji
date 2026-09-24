@@ -45,7 +45,8 @@ DEPLOY_TARGETS = {
 }
 OPTIONAL_SERVICES = ('hutuji-draw-admin', 'hutuji-kb-admin', 'hutuji-curated-prep')
 PREFIXES = ('mcp-server/hutuji_mcp/', 'draw-portal/draw_portal/', 'draw-portal/draw_admin/')
-EXTRA_PATHS = ('mcp-server/scripts/e2e_local.py', 'scripts/xiaozhi_console.py', 'deploy/preflight.sh')
+EXTRA_PATHS = ('mcp-server/scripts/e2e_local.py', 'scripts/xiaozhi_console.py', 'deploy/preflight.sh',
+               'kb-admin/kb_admin/static/index.html')
 TEXT_SUFFIXES = {'.py', '.toml', '.json', '.html', '.css', '.js', '.svg', '.sh'}
 SUFFIXES = TEXT_SUFFIXES | {'.png', '.ico', '.woff2'}
 MARKET_PREFIX = 'mcp-server/market/'

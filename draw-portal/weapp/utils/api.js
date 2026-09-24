@@ -34,6 +34,24 @@ function _handlePhoneRequired(payload) {
   }
 }
 
+function _networkFailure(err, writing) {
+  const timedOut = /timeout/i.test((err && err.errMsg) || "");
+  const detail = writing
+    ? "网络连接中断或超时，操作结果尚未确认，请先核对状态，勿重复提交"
+    : (timedOut ? "请求超时，请检查网络后重试" : "网络不可用，请检查网络");
+  return { status: 0, detail, message: detail };
+}
+
+function _validResponse(res, data) {
+  return Number.isInteger(res.statusCode) && res.statusCode >= 200 && res.statusCode < 300 &&
+    data !== null && typeof data === "object";
+}
+
+function _invalidResponse(res) {
+  const detail = "服务响应异常，结果尚未确认，请稍后查看状态";
+  return { status: res.statusCode || 0, detail, message: detail };
+}
+
 // 401 统一处置：清会话态。2026-09-24 合规批起**不再**因 logged_out 强跳「我的」——
 // 0.3.18 审核驳回「浏览页面即要求授权登录」，退出后的浏览页请求 401 只拒请求，
 // 页面软闸（phone_gate.ensurePhone）自己渲染未登录可浏览态，重登入口在「我的」页。
@@ -85,10 +103,14 @@ function request(path, options = {}) {
           });
           return;
         }
+        if (!_validResponse(res, res.data)) {
+          reject(_invalidResponse(res));
+          return;
+        }
         resolve(res.data);
       },
       fail(err) {
-        reject({ status: 0, detail: "网络不可用，请检查网络" });
+        reject(_networkFailure(err, !!options.method && !/^(GET|HEAD)$/i.test(options.method)));
       },
     });
   });
@@ -126,14 +148,18 @@ function uploadFile(path, filePath, name, formData, options = {}) {
           });
           return;
         }
-        let data = res.data;
+        let data = null;
         try {
           data = JSON.parse(res.data);
         } catch (e) {}
+        if (!_validResponse(res, data)) {
+          reject(_invalidResponse(res));
+          return;
+        }
         resolve(data);
       },
-      fail() {
-        reject({ status: 0, detail: "网络不可用，请检查网络" });
+      fail(err) {
+        reject(_networkFailure(err, true));
       },
     };
     if (formData && typeof formData === "object") {

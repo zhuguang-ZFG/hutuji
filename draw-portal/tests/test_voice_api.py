@@ -297,3 +297,28 @@ def test_voice_retry_rechecks_owner_after_token_refresh(monkeypatch, tmp_path, a
     binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
     assert binding.user_id == other.id
     assert Fernet(key).decrypt(binding.device_token_enc.encode()) == b"other-token"
+
+
+def test_voice_history_isolates_authenticated_users(monkeypatch, tmp_path):
+    from draw_portal import voice_agent as va
+    from fastapi.testclient import TestClient
+    import copy
+    for key, value in (("HUTUJI_LLM_API_KEY", "test"), ("HUTUJI_LLM_BASE_URL", "https://example.invalid"), ("HUTUJI_LLM_MODEL", "test")):
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(va, "_sessions", va.OrderedDict())
+    a = _client(monkeypatch, tmp_path)
+    b = TestClient(a.app)
+    _register_and_login(a, "review-a@qq.com")
+    _register_and_login(b, "review-b@qq.com")
+    payloads = []
+
+    def model(**kw):
+        messages = copy.deepcopy(kw["payload"]["messages"])
+        payloads.append(messages)
+        return {"choices": [{"message": {"content": "test reply"}}]}
+
+    monkeypatch.setattr(va, "_post_chat", model)
+    assert a.post("/api/voice/turn", json={"session_id": "same-local-id", "text": "A_PRIVATE_CANARY"}).status_code == 200
+    assert b.post("/api/voice/turn", json={"session_id": "same-local-id", "text": "B_QUERY"}).status_code == 200
+    leaked = any(m.get("content") == "A_PRIVATE_CANARY" for m in payloads[1])
+    assert not leaked

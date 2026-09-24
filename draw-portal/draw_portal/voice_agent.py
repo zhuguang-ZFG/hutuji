@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any
@@ -39,22 +42,52 @@ class VoiceAgentError(Exception):
     """语音对话失败。"""
 
 
+class VoiceAgentBusyError(VoiceAgentError):
+    """同一会话整轮串行，重复请求不排队执行设备动作。"""
+
+
+@dataclass
+class _Session:
+    history: list[dict[str, Any]] = field(default_factory=list)
+    lock: Any = field(default_factory=threading.Lock)
+
+
 # 量产内存闸：sid 由客户端每次进页新生成，无淘汰会让会话历史（含对话隐私）
 # 在单进程 uvicorn 里无限驻留——OrderedDict + LRU 256 上界，触及即提热。
 _MAX_SESSIONS = 256
-_sessions: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
+_sessions: "OrderedDict[tuple[str, str], _Session]" = OrderedDict()
+_sessions_lock = threading.RLock()
 
 
-def _get_session(sid: str) -> list[dict[str, Any]]:
-    history = _sessions.get(sid)
-    if history is None:
-        if len(_sessions) >= _MAX_SESSIONS:
-            _sessions.popitem(last=False)
-        history = []
-        _sessions[sid] = history
-    else:
-        _sessions.move_to_end(sid)
-    return history
+def _get_session(key: tuple[str, str]) -> _Session:
+    with _sessions_lock:
+        session = _sessions.get(key)
+        if session is None:
+            if len(_sessions) >= _MAX_SESSIONS:
+                # 活跃轮次不能被逐出，否则同 key 会出现第二个锁与设备动作所有者。
+                victim = next((k for k, v in _sessions.items() if not v.lock.locked()), None)
+                if victim is None:
+                    raise VoiceAgentBusyError("语音服务正忙，请稍候重试")
+                del _sessions[victim]
+            session = _Session()
+            _sessions[key] = session
+        else:
+            _sessions.move_to_end(key)
+        return session
+
+
+@contextmanager
+def _session_history(user_id: str, session_id: str):
+    if not user_id or not session_id.strip() or len(session_id.strip()) > 64:
+        raise VoiceAgentError("会话无效")
+    with _sessions_lock:
+        session = _get_session((user_id, session_id.strip()))
+        if not session.lock.acquire(blocking=False):
+            raise VoiceAgentBusyError("小派正在回复，请等本轮完成后再说")
+    try:
+        yield session.history
+    finally:
+        session.lock.release()
 
 
 def llm_configured() -> bool:
@@ -217,20 +250,23 @@ def _execute_tool(
 
 def chat(
     *,
+    user_id: str,
     session_id: str,
     user_text: str,
     device_mac: str | None,
     push_tool: Callable[[str, dict[str, Any]], str],
     run_portal_tool: PortalToolFn | None = None,
 ) -> dict[str, Any]:
+    with _session_history(user_id, session_id) as history:
+        return _chat(history=history, user_text=user_text, device_mac=device_mac,
+                     push_tool=push_tool, run_portal_tool=run_portal_tool)
+
+
+def _chat(*, history: list[dict[str, Any]], user_text: str, device_mac: str | None,
+          push_tool: Callable[[str, dict[str, Any]], str],
+          run_portal_tool: PortalToolFn | None) -> dict[str, Any]:
     if not llm_configured():
         raise VoiceAgentError("对话未配置")
-
-    sid = session_id.strip()
-    if not sid:
-        raise VoiceAgentError("会话无效")
-    if len(sid) > 64:
-        sid = sid[:64]
 
     text = user_text.strip()
     if not text:
@@ -241,7 +277,6 @@ def chat(
     headers = {"Authorization": f"Bearer {api_key}"}
     tools = _build_tools_schema()
 
-    history = _get_session(sid)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         *history,

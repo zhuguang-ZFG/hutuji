@@ -27,8 +27,36 @@ _PROFILE_PATH = Path(__file__).parent / "hutuji_gwrite.toml"
 # 以事件循环为键懒建，兼容测试/嵌入调用轮换 asyncio loop；生产单 loop 只有一个闸。
 # 上限读 HUTUJI_VPYPE_MAX_CONCURRENT（默认 6，与 config.settings 课堂级默认对齐）。
 _vpype_semaphores: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, weakref.ReferenceType[asyncio.Semaphore]
+    asyncio.AbstractEventLoop, weakref.ReferenceType[_VpypeGate]
 ] = weakref.WeakKeyDictionary()
+
+
+class _VpypeGate:
+    """修改上限仍复用同一计数；缩容等待现有进程退出，不重建第二个闸。"""
+
+    def __init__(self, limit: int):
+        self.limit = limit
+        self.active = 0
+        self._changed = asyncio.Event()
+
+    def resize(self, limit: int) -> None:
+        if self.limit != limit:
+            self.limit = limit
+            self._wake()
+
+    def _wake(self) -> None:
+        self._changed.set()
+        self._changed = asyncio.Event()
+
+    async def __aenter__(self):
+        while self.active >= self.limit:
+            await self._changed.wait()
+        self.active += 1
+        return self
+
+    async def __aexit__(self, *exc):
+        self.active -= 1
+        self._wake()
 
 
 def _vpype_max_concurrent() -> int:
@@ -49,15 +77,16 @@ def _vpype_env_default() -> int:
     return max(1, min(n, 16))
 
 
-def _vpype_semaphore() -> asyncio.Semaphore:
+def _vpype_semaphore(limit: int | None = None) -> _VpypeGate:
     loop = asyncio.get_running_loop()
-    limit = _vpype_max_concurrent()
+    limit = _vpype_max_concurrent() if limit is None else limit
     semaphore_ref = _vpype_semaphores.get(loop)
     semaphore = semaphore_ref() if semaphore_ref is not None else None
-    if semaphore is None or getattr(semaphore, "_hutuji_limit", None) != limit:
-        semaphore = asyncio.Semaphore(limit)
-        semaphore._hutuji_limit = limit  # type: ignore[attr-defined]
+    if semaphore is None:
+        semaphore = _VpypeGate(limit)
         _vpype_semaphores[loop] = weakref.ref(semaphore)
+    else:
+        semaphore.resize(limit)
     return semaphore
 
 # 坐标限幅：A4 纸 210×297mm，四周留 10mm 边距 ⇒ X≤277、Y≤190。
@@ -713,7 +742,8 @@ async def svg_to_gcode_async(
 
     normalize=False 仅写字排版链使用（跳过 layout 保字号），其余调用方不得传。
     """
-    async with _vpype_semaphore():
+    limit = await asyncio.to_thread(_vpype_max_concurrent)
+    async with _vpype_semaphore(limit):
         return await _svg_to_gcode_async_unbounded(
             svg_path, gcode_path, normalize, on_raw_text=on_raw_text, profile=profile,
             preserve_canvas=preserve_canvas, preview_svg_path=preview_svg_path,

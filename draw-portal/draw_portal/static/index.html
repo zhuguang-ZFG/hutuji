@@ -528,6 +528,7 @@
     <div class="gallery-head">
       <h2>我的图库</h2>
       <span id="gallery-count">—</span>
+      <button id="btn-refresh-gallery" class="ghost" type="button">刷新</button>
     </div>
     <div id="saved-list" class="gallery-grid" aria-live="polite"></div>
     <div id="gallery-msg" class="msg hidden"></div>
@@ -537,7 +538,7 @@
 <button id="fab-upload" class="fab hidden" type="button" aria-label="上传图片" title="上传图片">+</button>
 
 <div id="sheet-backdrop" class="sheet-backdrop" aria-hidden="true"></div>
-<div id="upload-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+<div id="upload-sheet" inert aria-hidden="true" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
   <div class="sheet-handle" aria-hidden="true"></div>
   <div class="sheet-head">
     <h2 id="sheet-title">上传 / 生图</h2>
@@ -600,6 +601,30 @@ let authMode = 'login';
 let sheetOpen = false;
 // 本地预览 blob URL：不换图/不重置绝不释放，防内存泄漏
 let previewObjectUrl = null;
+let fileRevision = 0, jobRevision = 0, galleryRevision = 0, meRevision = 0;
+let jobBusy = false, sendBusy = false, saveBusy = false;
+let sheetTrigger = null;
+
+function clearJob() {
+  jobRevision++;
+  currentJobId = null;
+  $('job-preview').classList.add('hidden');
+  $('job-preview').removeAttribute('src');
+  $('job-ai-mark').classList.add('hidden');
+  $('job-actions').classList.add('hidden');
+  $('job-pages').classList.add('hidden');
+  $('job-pages').innerHTML = '';
+}
+
+function updateJobButtons() {
+  $('btn-upload').disabled = jobBusy || !pendingFile;
+  $('btn-generate').disabled = jobBusy;
+  $('btn-send').disabled = sendBusy;
+  document.querySelectorAll('[data-send]').forEach(btn => {
+    btn.disabled = sendBusy || btn.dataset.sendable !== 'true';
+  });
+}
+
 
 function applyTheme(name) {
   const theme = THEMES.includes(name) ? name : 'ink';
@@ -627,6 +652,7 @@ function isQqEmail(raw) {
 
 function showMsg(el, text, ok) {
   if (!text) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.setAttribute('role', ok ? 'status' : 'alert');
   el.textContent = text;
   el.className = 'msg ' + (ok ? 'ok' : 'err');
 }
@@ -644,42 +670,68 @@ function setAuthMode(mode) {
 }
 
 function openSheet() {
+  if (sheetOpen) return;
+  sheetTrigger = document.activeElement;
   sheetOpen = true;
+  $('upload-sheet').inert = false;
+  $('upload-sheet').setAttribute('aria-hidden', 'false');
+  document.querySelector('.shell').inert = true;
+  $('fab-upload').inert = true;
+  document.body.style.overflow = 'hidden';
   $('upload-sheet').classList.add('open');
   $('sheet-backdrop').classList.add('open');
   $('sheet-backdrop').setAttribute('aria-hidden', 'false');
+  $('btn-close-sheet').focus();
 }
 
 function closeSheet() {
+  if (!sheetOpen) return;
   sheetOpen = false;
+  document.querySelector('.shell').inert = false;
+  $('fab-upload').inert = false;
+  document.body.style.overflow = '';
+  if (sheetTrigger?.isConnected) sheetTrigger.focus();
+  $('upload-sheet').inert = true;
+  $('upload-sheet').setAttribute('aria-hidden', 'true');
   $('upload-sheet').classList.remove('open');
   $('sheet-backdrop').classList.remove('open');
   $('sheet-backdrop').setAttribute('aria-hidden', 'true');
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch('/draw-upload/api' + path, {
-    credentials: 'same-origin',
-    ...opts,
-    headers: {
-      ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(opts.headers || {}),
-    },
-  });
-  let data = null;
-  try { data = await res.json(); } catch (_) {}
-  if (!res.ok) {
-    const detail = data?.detail
-      ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
-      : res.statusText;
-    throw new Error(detail || '请求失败');
-  }
-  return data;
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), opts.timeout || 20000);
+  const writing = opts.method && opts.method !== 'GET';
+  try {
+    const res = await fetch('/draw-upload/api' + path, {
+      credentials: 'same-origin', ...opts, signal: ctrl.signal,
+      headers: {
+        ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...(opts.headers || {}),
+      },
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const detail = typeof data?.detail === 'string' ? data.detail : data?.detail?.message;
+      const error = new Error(detail || (res.status === 401 ? '登录已过期，请重新登录' : '服务暂不可用，请稍后再试'));
+      error.status = res.status;
+      throw error;
+    }
+    if (!data || typeof data !== 'object') throw new Error('服务响应异常，请稍后查看状态');
+    return data;
+  } catch (e) {
+    if (e.name === 'AbortError' || e instanceof TypeError) {
+      throw new Error(writing ? '连接中断或超时，操作结果尚未确认。请先核对设备或列表状态，勿连续重复提交' : '连接中断或超时，请检查网络后重试');
+    }
+    throw e;
+  } finally { clearTimeout(timeout); }
 }
 
 async function refreshMe() {
+  const revision = ++meRevision;
   try {
     const me = await api('/auth/me');
+    if (revision !== meRevision) return;
     $('auth-section').classList.add('hidden');
     $('home-section').classList.remove('hidden');
     $('logged-in-actions').classList.remove('hidden');
@@ -696,7 +748,15 @@ async function refreshMe() {
       if (qsBindCode()) $('bind-panel').classList.remove('hidden');
     }
     await loadSaved();
-  } catch (_) {
+  } catch (e) {
+    if (revision !== meRevision) return;
+    if (e.status !== 401) {
+      const target = $('home-section').classList.contains('hidden') ? 'auth-msg' : 'gallery-msg';
+      showMsg($(target), e.message, false);
+      return;
+    }
+    galleryRevision++;
+    resetUploadForm();
     $('auth-section').classList.remove('hidden');
     $('home-section').classList.add('hidden');
     $('logged-in-actions').classList.add('hidden');
@@ -707,11 +767,13 @@ async function refreshMe() {
 }
 
 async function loadSaved() {
+  const revision = ++galleryRevision;
   const box = $('saved-list');
-  box.innerHTML = '';
   showMsg($('gallery-msg'), '', true);
   try {
     const data = await api('/draw/saved');
+    if (revision !== galleryRevision) return;
+    box.innerHTML = '';
     const items = data.items || [];
     $('gallery-count').textContent = items.length ? (items.length + ' 张') : '空';
     if (!items.length) {
@@ -729,34 +791,37 @@ async function loadSaved() {
       const card = document.createElement('article');
       card.className = 'shot';
       card.innerHTML = `
-        <div class="shot-thumb"><img src="/draw-upload${it.preview_url}" alt="" loading="lazy"></div>
+        <div class="shot-thumb"><img src="/draw-upload${escapeHtml(it.preview_url)}" alt="" loading="lazy"></div>
         <div class="shot-body">
           <div class="shot-title">${escapeHtml(it.title)}</div>
           <div class="shot-time">${new Date(it.saved_at * 1000).toLocaleString('zh-CN', { hour12: false })}</div>
           <div class="shot-actions">
-            <button class="primary" data-send="${it.id}" ${it.has_gcode ? '' : 'disabled'} type="button">发送</button>
-            <button class="secondary" data-del="${it.id}" type="button">删除</button>
+            <button class="primary" data-send="${escapeHtml(it.id)}" data-sendable="${!!it.has_gcode}" ${it.has_gcode ? '' : 'disabled'} type="button">发送</button>
+            <button class="secondary" data-del="${escapeHtml(it.id)}" type="button">删除</button>
           </div>
         </div>`;
       box.appendChild(card);
     }
     box.querySelectorAll('[data-send]').forEach(btn => btn.onclick = async () => {
       // 防重：发送=推 G-code 到设备，双击不能变两次下发
-      btn.disabled = true;
+      if (btn.disabled || sendBusy) return;
+      sendBusy = true;
+      updateJobButtons();
       try {
-        const r = await api('/draw/saved/' + btn.dataset.send + '/send', { method: 'POST' });
+        const r = await api('/draw/saved/' + encodeURIComponent(btn.dataset.send) + '/send', { method: 'POST' });
+        if (revision !== galleryRevision) return;
         const started = /已自动开始画/.test(r.detail || '');
         showMsg($('gallery-msg'), r.status === 'sent'
           ? (started ? '已开始画：丹青正在出图，无需再点确认' : '已发送。' + (r.detail || ''))
           : ('发送失败：' + r.detail), r.status === 'sent');
-      } catch (e) { showMsg($('gallery-msg'), e.message, false); }
-      finally { btn.disabled = false; }
+      } catch (e) { if (revision === galleryRevision) showMsg($('gallery-msg'), e.message, false); }
+      finally { sendBusy = false; updateJobButtons(); }
     });
     box.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
       if (!confirm('删除这张作品？')) return;
       btn.disabled = true;
       try {
-        await api('/draw/saved/' + btn.dataset.del, { method: 'DELETE' });
+        await api('/draw/saved/' + encodeURIComponent(btn.dataset.del), { method: 'DELETE' });
         await loadSaved();
       } catch (e) {
         // 此前失败静默：用户以为删掉了，其实还在
@@ -764,7 +829,9 @@ async function loadSaved() {
         btn.disabled = false;
       }
     });
+    updateJobButtons();
   } catch (e) {
+    if (revision !== galleryRevision) return;
     $('gallery-count').textContent = '—';
     box.innerHTML = '<div class="empty-gallery"><strong>加载失败</strong><p>' + escapeHtml(e.message) + '</p></div>';
   }
@@ -788,7 +855,8 @@ function validateRegisterInputs() {
 }
 
 function resetUploadForm() {
-  currentJobId = null;
+  fileRevision++;
+  clearJob();
   pendingFile = null;
   $('file').value = '';
   $('file-label').textContent = '点击选择，也可拖入 / 粘贴图片或文档';
@@ -797,13 +865,9 @@ function resetUploadForm() {
   local.classList.add('hidden');
   if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
   local.removeAttribute('src');
-  $('job-preview').classList.add('hidden'); $('job-ai-mark').classList.add('hidden');
-  $('job-preview').removeAttribute('src');
-  $('job-actions').classList.add('hidden');
-  $('job-pages').classList.add('hidden');
-  $('job-pages').innerHTML = '';
   $('btn-save').disabled = false;
   $('btn-save').title = '';
+  updateJobButtons();
   showMsg($('upload-msg'), '', true);
 }
 
@@ -851,11 +915,15 @@ async function maybeDownscale(file) {
 
 async function selectFile(f) {
   if (!f) return;
+  resetUploadForm();
+  const revision = fileRevision;
+  $('file-label').textContent = '正在处理所选文件…';
   const picked = await maybeDownscale(f);
+  if (revision !== fileRevision) return;
   pendingFile = picked;
   $('file-label').textContent = picked.name +
     (picked !== f ? '（已压缩 ' + (f.size / 1048576).toFixed(1) + 'MB → ' + (picked.size / 1048576).toFixed(1) + 'MB）' : '');
-  $('btn-upload').disabled = false;
+  updateJobButtons();
   const local = $('local-preview');
   // 换图前先释放上一个 blob URL，防泄漏
   if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
@@ -884,6 +952,7 @@ async function doLogin() {
   btn.disabled = true;
   try {
     await api('/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+    $('password').value = '';
     showMsg($('auth-msg'), '登录成功', true);
     await refreshMe();
   } catch (e) { showMsg($('auth-msg'), e.message, false); }
@@ -926,12 +995,29 @@ $('auth-form').addEventListener('submit', (e) => {
 });
 
 $('btn-logout').onclick = async () => {
-  await api('/auth/logout', { method: 'POST' });
-  location.reload();
+  const btn = $('btn-logout');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    await api('/auth/logout', { method: 'POST' });
+    meRevision++;
+    galleryRevision++;
+    resetUploadForm();
+    location.reload();
+  } catch (e) { showMsg($('gallery-msg'), e.message, false); }
+  finally { btn.disabled = false; }
 };
 
 $('btn-toggle-bind').onclick = () => {
   $('bind-panel').classList.toggle('hidden');
+};
+
+$('btn-refresh-gallery').onclick = async () => {
+  const btn = $('btn-refresh-gallery');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try { await refreshMe(); }
+  finally { btn.disabled = false; }
 };
 
 $('btn-bind').onclick = async () => {
@@ -974,7 +1060,15 @@ $('fab-upload').onclick = () => openSheet();
 $('btn-close-sheet').onclick = () => closeSheet();
 $('sheet-backdrop').onclick = () => closeSheet();
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && sheetOpen) closeSheet();
+  if (!sheetOpen) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeSheet(); }
+  if (e.key === 'Tab') {
+    const items = [...$('upload-sheet').querySelectorAll('button, input, textarea, select, [tabindex="0"]')]
+      .filter(el => !el.disabled && el.getClientRects().length);
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
 });
 
 $('tab-pane-upload').onclick = () => setSheetPane('upload');
@@ -984,6 +1078,12 @@ $('file').onchange = () => { selectFile($('file').files[0]); };
 
 // 拖拽与粘贴进图（仅在上传面板打开时接管）
 const zone = $('upload-zone');
+zone.tabIndex = 0;
+zone.setAttribute('role', 'button');
+zone.setAttribute('aria-label', '选择图片或文档');
+zone.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); }
+});
 zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.style.borderColor = 'var(--accent)'; });
 zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
 zone.addEventListener('drop', (e) => {
@@ -1000,6 +1100,7 @@ document.addEventListener('paste', (e) => {
 
 function showJobResult(data, doneText) {
   currentJobId = data.job_id;
+  updateJobButtons();
   const pages = Array.isArray(data.pages) ? data.pages : null;
   if (pages && pages.length > 1) {
     // 多页文档：逐页预览条；保存到图库只存得下第 1 页，禁用避免误导
@@ -1030,18 +1131,21 @@ function showJobResult(data, doneText) {
 }
 
 $('btn-upload').onclick = async () => {
-  const f = pendingFile || $('file').files[0];
+  if (jobBusy || $('btn-upload').disabled) return;
+  const f = pendingFile;
   if (!f) { showMsg($('upload-msg'), '请选择图片', false); return; }
   const fd = new FormData();
   fd.append('file', f);
   fd.append('style', (document.querySelector('input[name="sketch-style"]:checked') || {}).value || 'hatch');
-  $('btn-upload').disabled = true;
+  jobBusy = true;
+  clearJob();
+  const revision = jobRevision;
+  updateJobButtons();
   showMsg($('upload-msg'), '转换中…', true);
   $('job-actions').classList.add('hidden');
   try {
-    const res = await fetch('/draw-upload/api/draw/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || '上传失败');
+    const data = await api('/draw/upload', { method: 'POST', body: fd, timeout: 150000 });
+    if (revision !== jobRevision) return;
     let doneText = '转换完成（' + data.lines + ' 行';
     if (data.page_count > 1) doneText += '，共 ' + data.page_count + ' 页';
     doneText += '）';
@@ -1051,56 +1155,71 @@ $('btn-upload').onclick = async () => {
     }
     showJobResult(data, doneText);
   } catch (e) {
-    showMsg($('upload-msg'), e.message, false);
+    if (revision === jobRevision) showMsg($('upload-msg'), e.message, false);
   } finally {
-    $('btn-upload').disabled = false;
+    jobBusy = false;
+    updateJobButtons();
   }
 };
 
 $('btn-generate').onclick = async () => {
+  if (jobBusy) return;
   const description = $('gen-desc').value.trim();
   if (!description) { showMsg($('upload-msg'), '先写一句想画的内容', false); return; }
-  $('btn-generate').disabled = true;
+  jobBusy = true;
+  clearJob();
+  const revision = jobRevision;
+  updateJobButtons();
   $('job-actions').classList.add('hidden');
   showMsg($('upload-msg'), 'AI 正在生图，通常 15~45 秒，请稍候勿重复提交…', true);
   // 前端 150s 兜底超时（后端生图+描摹上限更长）；30s 无结果时升级提示，防用户以为卡死
-  const ctrl = new AbortController();
   const slowTimer = setTimeout(() => {
+    if (revision !== jobRevision) return;
     showMsg($('upload-msg'), '仍在生成，线条越复杂越久，请继续稍候…', true);
   }, 30000);
-  const timeout = setTimeout(() => ctrl.abort(), 150000);
   try {
-    const data = await api('/draw/generate', { method: 'POST', body: JSON.stringify({ description }), signal: ctrl.signal });
+    const data = await api('/draw/generate', { method: 'POST', body: JSON.stringify({ description }), timeout: 150000 });
+    if (revision !== jobRevision) return;
     showJobResult(data, '生成完成（' + data.lines + ' 行）。不满意可改描述再生一张');
   } catch (e) {
-    showMsg($('upload-msg'), e.name === 'AbortError' ? '生成超时（150 秒），请换个描述或稍后重试' : e.message, false);
+    if (revision === jobRevision) showMsg($('upload-msg'), e.message, false);
   } finally {
     clearTimeout(slowTimer);
-    clearTimeout(timeout);
-    $('btn-generate').disabled = false;
+    jobBusy = false;
+    updateJobButtons();
   }
 };
 
 $('btn-send').onclick = async () => {
-  if (!currentJobId) return;
+  if (!currentJobId || sendBusy) return;
+  const revision = jobRevision;
+  sendBusy = true;
+  updateJobButtons();
   try {
-    const r = await api('/draw/' + currentJobId + '/send', { method: 'POST' });
+    const r = await api('/draw/' + encodeURIComponent(currentJobId) + '/send', { method: 'POST' });
+    if (revision !== jobRevision) return;
     const started = /已自动开始画/.test(r.detail || '');
     showMsg($('upload-msg'), r.status === 'sent'
       ? (started ? '已开始画：丹青正在出图，无需再点确认' : '已推送到小派。' + (r.detail || ''))
       : ('推送失败：' + r.detail), r.status === 'sent');
-  } catch (e) { showMsg($('upload-msg'), e.message, false); }
+  } catch (e) { if (revision === jobRevision) showMsg($('upload-msg'), e.message, false); }
+  finally { sendBusy = false; updateJobButtons(); }
 };
 
 $('btn-save').onclick = async () => {
-  if (!currentJobId) return;
+  if (!currentJobId || saveBusy || $('btn-save').disabled) return;
+  const revision = jobRevision;
+  saveBusy = true;
+  $('btn-save').disabled = true;
   try {
-    await api('/draw/' + currentJobId + '/save', { method: 'POST', body: JSON.stringify({}) });
-    showMsg($('upload-msg'), '已保存到图库', true);
+    await api('/draw/' + encodeURIComponent(currentJobId) + '/save', { method: 'POST', body: JSON.stringify({}) });
     await loadSaved();
+    if (revision !== jobRevision) return;
     resetUploadForm();
     closeSheet();
-  } catch (e) { showMsg($('upload-msg'), e.message, false); }
+    showMsg($('gallery-msg'), '已保存到图库', true);
+  } catch (e) { if (revision === jobRevision) showMsg($('upload-msg'), e.message, false); }
+  finally { saveBusy = false; if (revision === jobRevision) $('btn-save').disabled = false; }
 };
 
 try { applyTheme(localStorage.getItem(THEME_KEY) || 'ink'); }

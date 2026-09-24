@@ -1,5 +1,9 @@
 # draw-portal（买家绑机 + 网页传图）
 
+2026-09-25 网页量产候选：传图门户/运营后台修复请求乱序、重复操作、取消封禁、防注入和手机设备表隐藏；小程序API严格检查HTTP/JSON、提交失败提示核对状态。浏览器24项、小程序252项、本服务pytest449项通过，未上线。共享浏览器回归入口见 [tests/web/README.md](tests/web/README.md)，设计与验证边界见 [网页复审](../docs/design/web-production-review-20260925.md)。
+
+2026-09-24 修复候选：语音历史键为认证用户+sid，重叠轮次回409；OTA 在设备 I/O 前按用户原子领取唯一会话，内部 starting/uncertain 阶段隔离旧设备失败，终态不被后来失败回退，对外在途仍显示 upgrading。全套449项通过，未部署；详见 [迭代记录](../docs/design/review-fixes-20260924.md)。
+
 公网入口：`https://hutuji.donglicao.com/draw-upload/`
 
 独立 FastAPI 服务，与 MCP 生图链解耦：描摹与 `validate_gcode` 复用 `hutuji_mcp`（`PYTHONPATH=/opt/hutuji/mcp-server`），推送走小智 `/messaging/device/tools/call` → 设备侧 `hutuji.draw`。

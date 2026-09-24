@@ -86,6 +86,7 @@ def test_voice_draw_tool_returns_preview(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(va, "_post_chat", fake_post)
     out = va.chat(
+        user_id="test-user",
         session_id="draw-sess",
         user_text="画一只猫",
         device_mac="aa:bb:cc",
@@ -134,6 +135,7 @@ def test_confirm_still_not_in_llm_allowlist(monkeypatch: pytest.MonkeyPatch) -> 
     ]
     monkeypatch.setattr(va, "_post_chat", lambda **kw: responses.pop(0))
     out = va.chat(
+        user_id="test-user",
         session_id="no-confirm",
         user_text="开始画",
         device_mac="aa:bb",

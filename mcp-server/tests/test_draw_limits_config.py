@@ -24,7 +24,7 @@ def test_vpype_max_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def _probe() -> int:
         sem = gcode_gen._vpype_semaphore()
-        return sem._value  # noqa: SLF001 — 测试只读初始容量
+        return sem.limit
 
     assert asyncio.run(_probe()) == 5
 

@@ -14,7 +14,7 @@ from draw_portal.firmware_catalog import (
     recommended_for_board,
 )
 from draw_portal.mcp_result import tool_result_failed, unwrap_tool_text
-from draw_portal.models import DeviceBinding
+from draw_portal.models import DeviceBinding, FirmwareOtaSession
 from draw_portal.push import mint_messaging_token, push_tool_call
 from draw_portal.store import Store
 
@@ -204,6 +204,32 @@ def start_upgrade(
 ) -> dict[str, Any]:
     if is_upgrading(store, binding.user_id):
         return {"status": "error", "detail": "busy"}
+    session = store.reserve_firmware_ota_session(binding.user_id, binding.device_mac)
+    if session is None:
+        return {"status": "error", "detail": "busy"}
+    outcome: dict[str, Any] = {"status": "error", "detail": "check_failed"}
+    try:
+        outcome = _start_upgrade_claimed(
+            store=store, binding=binding, session=session, catalog_path=catalog_path,
+            public_base=public_base, signing_secret=signing_secret, api_base=api_base,
+            token_cipher_key=token_cipher_key, board_fallback=board_fallback,
+        )
+        return outcome
+    finally:
+        if outcome.get("status") in {"started", "unknown"}:
+            store.accept_firmware_ota_start(session, uncertain=outcome["status"] == "unknown")
+        else:
+            detail = outcome.get("detail")
+            reason = detail if detail in {"busy", "board_mismatch", "check_failed", "download_failed",
+                                         "verify_failed", "write_failed", "up_to_date"} else None
+            store.fail_firmware_ota_start(session, reason)
+
+
+def _start_upgrade_claimed(
+    *, store: Store, binding: DeviceBinding, session: FirmwareOtaSession,
+    catalog_path: str, public_base: str, signing_secret: str, api_base: str,
+    token_cipher_key: bytes, board_fallback: str | None,
+) -> dict[str, Any]:
 
     plan = check_firmware(
         store=store,
@@ -257,14 +283,8 @@ def start_upgrade(
         relpath,
         secret=signing_secret or None,
     )
-    store.upsert_firmware_ota_session(
-        user_id=binding.user_id,
-        device_mac=binding.device_mac,
-        state="upgrading",
-        progress=0,
-        reason=None,
-        target_version=version,
-    )
+    if not store.set_firmware_ota_target(session, version):
+        return {"status": "error", "detail": "busy"}
 
     ok, result = _push_healed(
         api_base=api_base,
@@ -287,14 +307,6 @@ def start_upgrade(
             # 已进入下载并自升成功）。会话保持 upgrading，由 ota_status 轮询
             # 与版本对账给出真实终态；前端收到 unknown 继续轮询不报错。
             return {"status": "unknown", "target_version": version, "detail": result}
-        store.upsert_firmware_ota_session(
-            user_id=binding.user_id,
-            device_mac=binding.device_mac,
-            state="failed",
-            progress=0,
-            reason=None,
-            target_version=version,
-        )
         return {"status": "error", "detail": result}
 
     # 设备若立即以 reason token 拒升（busy 等），会话回退
@@ -313,14 +325,6 @@ def start_upgrade(
             "verify_failed",
             "write_failed",
         }:
-            store.upsert_firmware_ota_session(
-                user_id=binding.user_id,
-                device_mac=binding.device_mac,
-                state="failed",
-                progress=0,
-                reason=str(device_reason),
-                target_version=version,
-            )
             return {"status": "error", "detail": str(device_reason)}
 
     return {"status": "started", "target_version": version, "board": board}
@@ -341,12 +345,17 @@ def get_ota_status(
         api_base=api_base, token_cipher_key=token_cipher_key, binding=binding, store=store,
     )
     ota = status.get("ota") if ok else None
-    if session and ok:
+    # starting 尚未收到命令应答，设备仍可能携带上一轮的失败/进度。
+    # 外部继续显示 upgrading 并拦出图，内部阶段也使迟到查询的 CAS 失效。
+    if session and session.state != "starting" and ok:
         state, progress, reason = session.state, session.progress, session.reason
         if isinstance(ota, dict):
             device_state = str(ota.get("state") or "").strip().lower()
             device_progress = ota.get("progress")
-            if device_state in {"failed", "rolled_back"}:
+            if state == "uncertain" and device_state == "upgrading":
+                # 504 无送达保证；先看到设备开始，才允许消费随后报告的失败。
+                state = "upgrading"
+            if state == "upgrading" and device_state in {"failed", "rolled_back"}:
                 state = device_state
                 reason = str(ota.get("reason") or device_state)
             elif (state == "upgrading" and device_state == "upgrading"
@@ -356,7 +365,7 @@ def get_ota_status(
         # 设备重启会丢失 ota 临时状态；只有同目标版本才确认成功。
         if (session.target_version
                 and str(status.get("firmware_version") or "").strip() == session.target_version
-                and (session.state == "upgrading" or session.reason == "status_timeout")):
+                and (session.state in {"upgrading", "uncertain"} or session.reason == "status_timeout")):
             state, progress, reason = "ok", 100, None
         if (state, progress, reason) != (session.state, session.progress, session.reason):
             session = store.update_firmware_ota_session(
@@ -367,7 +376,7 @@ def get_ota_status(
     if session and session.device_mac != binding.device_mac:
         session = None
     out: dict[str, Any] = {
-        "state": session.state if session else "idle",
+        "state": ("upgrading" if session.state in {"starting", "uncertain"} else session.state) if session else "idle",
         "progress": session.progress if session else 0,
         "reason": session.reason if session else None,
         "target_version": session.target_version if session else None,
@@ -384,5 +393,5 @@ def get_ota_status(
 def is_upgrading(store: Store, user_id: str, *, device_mac: str | None = None) -> bool:
     store.expire_firmware_ota_session(user_id, cutoff=time.time() - _OTA_STALE_SECONDS)
     session = store.get_firmware_ota_session(user_id)
-    return bool(session and session.state == "upgrading"
+    return bool(session and session.state in {"starting", "uncertain", "upgrading"}
                 and (device_mac is None or session.device_mac == device_mac))

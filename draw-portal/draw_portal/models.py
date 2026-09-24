@@ -95,6 +95,7 @@ class FirmwareOtaSession:
     reason: str | None
     target_version: str | None
     updated_at: float
+    session_id: str = ""
 
 
 @dataclass(frozen=True)

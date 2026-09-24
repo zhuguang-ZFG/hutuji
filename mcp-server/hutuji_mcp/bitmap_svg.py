@@ -1246,25 +1246,29 @@ async def _race_image_backends(
     from . import breaker, job_ledger
     from .portal_settings import portal_image_racers
 
-    dynamic = portal_image_racers(settings)
+    dynamic = await asyncio.to_thread(portal_image_racers, settings)
     if dynamic:
         return await _race_dynamic_image_racers(client, description, dynamic)
 
     racers: list[
         tuple[str, str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
     ] = []
-    if _image_backend_enabled("sensenova") and _sensenova_api_key():
+    enabled = await asyncio.to_thread(lambda: {
+        name: _image_backend_enabled(name)
+        for name in ("sensenova", "agnes", "siliconflow", "modelscope", "tcb", "fallback")
+    })
+    if enabled["sensenova"] and _sensenova_api_key():
         racers.append(("商汤生图", "sensenova", _request_sensenova_image_url))
-    if _image_backend_enabled("agnes"):
+    if enabled["agnes"]:
         racers.append(("Agnes", "agnes", _request_agnes_image_url))
-    if _image_backend_enabled("siliconflow") and _siliconflow_api_key():
+    if enabled["siliconflow"] and _siliconflow_api_key():
         racers.append(("硅流 Schnell", "siliconflow:schnell", _request_siliconflow_schnell_image_url))
         racers.append(("硅流可图", "siliconflow:kolors", _request_siliconflow_kolors_image_url))
-    if _image_backend_enabled("modelscope") and _modelscope_token():
+    if enabled["modelscope"] and _modelscope_token():
         racers.append(("魔搭生图", "modelscope", _request_modelscope_image_url))
-    if _image_backend_enabled("tcb") and _tcb_image_url() and _tcb_api_key():
+    if enabled["tcb"] and _tcb_image_url() and _tcb_api_key():
         racers.append(("混元生图", "tcb", _request_tcb_image_url))
-    if _image_backend_enabled("fallback") and _image_fallback_url():
+    if enabled["fallback"] and _image_fallback_url():
         racers.append(("备用端点", "imagefree", _request_fallback_image_url))
     if not racers:
         raise BitmapError("未启用任何生图后端（请在运营后台或环境变量中配置）")

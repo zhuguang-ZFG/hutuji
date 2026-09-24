@@ -16,6 +16,99 @@ _BOARD = "freenove-esp32s3-display-2.8-lcd"
 _REL = f"s3/{_BOARD}/hutuji.1.0.1/xiaozhi.bin"
 
 
+def test_concurrent_upgrade_claims_before_device_io(monkeypatch, tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+    store = Store(tmp_path / "concurrent.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    entered, release = threading.Event(), threading.Event()
+    pushes = []
+    def plan(**kw):
+        entered.set()
+        assert release.wait(5)
+        return {"update_available": True, "board": _BOARD, "latest": "2"}
+    monkeypatch.setattr(ota, "check_firmware", plan)
+    monkeypatch.setattr(ota, "load_catalog", lambda p: {})
+    monkeypatch.setattr(ota, "recommended_for_board", lambda *a: {"version": "2", "relpath": _REL})
+    monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True, {"state": "idle", "board": _BOARD}, ""))
+    monkeypatch.setattr(ota, "build_bin_url", lambda *a, **kw: "https://example.invalid/x.bin")
+    monkeypatch.setattr(ota, "_push_healed", lambda **kw: (pushes.append(1) or True, '{"ok":true}'))
+    def start():
+        return ota.start_upgrade(store=store, binding=binding, catalog_path="stub",
+            public_base="stub", signing_secret="", api_base="stub", token_cipher_key=b"")
+    with ThreadPoolExecutor(1) as pool:
+        first = pool.submit(start)
+        try:
+            assert entered.wait(5)
+            assert start() == {"status": "error", "detail": "busy"}
+        finally:
+            release.set()
+        assert first.result(timeout=5)["status"] == "started"
+    assert len(pushes) == 1
+    assert store.get_firmware_ota_session("u").state == "upgrading"
+
+
+def test_old_start_and_status_cannot_overwrite_new_ota_generation(tmp_path):
+    from draw_portal.store import Store
+    store = Store(tmp_path / "generation.db")
+    first = store.reserve_firmware_ota_session("u", "aa:bb:cc:dd:ee:ff")
+    assert first is not None
+    store.expire_firmware_ota_session("u", cutoff=first.updated_at)
+    second = store.reserve_firmware_ota_session("u", "aa:bb:cc:dd:ee:ff")
+    assert second and second.session_id != first.session_id
+    assert not store.set_firmware_ota_target(first, "old")
+    store.fail_firmware_ota_start(first, "busy")
+    store.update_firmware_ota_session(first, state="failed", progress=0, reason="busy", updated_at=0)
+    assert store.get_firmware_ota_session("u") == second
+
+
+def test_failed_upgrade_check_releases_reservation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+    store = Store(tmp_path / "failure.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    def fail(**kw):
+        raise OSError("模拟目录读取失败")
+    monkeypatch.setattr(ota, "check_firmware", fail)
+    with pytest.raises(OSError):
+        ota.start_upgrade(store=store, binding=binding, catalog_path="stub", public_base="stub",
+            signing_secret="", api_base="stub", token_cipher_key=b"")
+    assert not ota.is_upgrading(store, "u")
+
+
+def test_poll_during_start_cannot_apply_previous_device_failure(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+    store = Store(tmp_path / "pending.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    old_status = {"state": "idle", "board": _BOARD,
+                  "ota": {"state": "failed", "reason": "download_failed"}}
+    monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True, old_status, ""))
+    def poll():
+        result = ota.get_ota_status(store=store, binding=binding, api_base="", token_cipher_key=b"")
+        assert result["state"] == "upgrading"
+        assert ota.is_upgrading(store, "u")
+    def plan(**kw):
+        poll()  # 占位已建立，目标尚未查出。
+        return {"update_available": True, "board": _BOARD, "latest": "2"}
+    def push(**kw):
+        poll()  # 已登记目标，但发送尚未应答，仍不能消费旧状态。
+        return True, '{"ok":true}'
+    monkeypatch.setattr(ota, "check_firmware", plan)
+    monkeypatch.setattr(ota, "load_catalog", lambda p: {})
+    monkeypatch.setattr(ota, "recommended_for_board", lambda *a: {"version": "2", "relpath": _REL})
+    monkeypatch.setattr(ota, "build_bin_url", lambda *a, **kw: "https://example.invalid/x.bin")
+    monkeypatch.setattr(ota, "_push_healed", push)
+    assert ota.start_upgrade(store=store, binding=binding, catalog_path="", public_base="",
+                            signing_secret="", api_base="", token_cipher_key=b"")["status"] == "started"
+    assert store.get_firmware_ota_session("u").state == "upgrading"
+
+
 def _write_catalog(tmp_path: Path) -> Path:
     catalog = {
         "device": "s3",
@@ -440,6 +533,42 @@ def test_upgrade_gateway_504_keeps_session_upgrading(
     st = c2.get("/api/device/firmware/ota_status")
     assert st.status_code == 200
     assert st.json()["state"] == "upgrading"
+
+
+def test_unknown_delivery_ignores_old_failure_until_upgrade_is_observed(tmp_path, monkeypatch):
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "TTTT01")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "TTTT01"}).status_code == 200
+    device_ota = {"state": "failed", "reason": "download_failed"}
+    def push(**kw):
+        if kw["name"] == "hutuji.status":
+            return True, _status_json(ota=device_ota)
+        return False, "HTTP 504"
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", push)
+    assert client.post("/api/device/firmware/upgrade").json()["status"] == "unknown"
+    # 504 时尚不知命令是否送达，旧失败不能解除忙闸或允许重复下发。
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
+    assert client.post("/api/device/firmware/upgrade").json()["detail"] == "busy"
+    device_ota = {"state": "upgrading", "progress": 0}
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
+    device_ota = {"state": "failed", "reason": "verify_failed"}
+    final = client.get("/api/device/firmware/ota_status").json()
+    assert final["state"] == "failed" and final["reason"] == "verify_failed"
+
+
+@pytest.mark.parametrize("state,reason", [("ok", None), ("failed", "status_timeout")])
+def test_late_failure_cannot_regress_terminal_ota_session(tmp_path, monkeypatch, state, reason):
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+    from types import SimpleNamespace
+    store = Store(tmp_path / "terminal.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    store.upsert_firmware_ota_session(user_id="u", device_mac=binding.device_mac, state=state,
+                                    reason=reason, target_version="v2")
+    monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True,
+        {"firmware_version": "v1", "ota": {"state": "failed", "reason": "download_failed"}}, ""))
+    result = ota.get_ota_status(store=store, binding=binding, api_base="", token_cipher_key=b"")
+    assert result["state"] == state and result["reason"] == reason
 
 
 def test_ota_status_reconciles_on_version_match(

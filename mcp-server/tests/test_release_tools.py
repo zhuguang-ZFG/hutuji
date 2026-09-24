@@ -116,11 +116,12 @@ def _release_repository(tmp_path):
     root = _repository(tmp_path)
     for name, data in {'mcp-server/hutuji_mcp/server.py': b'VALUE = 1\n',
                        'mcp-server/hutuji_mcp/hutuji_gwrite.toml': b'[gwrite]\n',
-                       'draw-portal/draw_portal/static/index.html': b'<p>ready</p>\n'}.items():
+                       'draw-portal/draw_portal/static/index.html': b'<p>ready</p>\n',
+                       'kb-admin/kb_admin/static/index.html': b'<p>knowledge</p>\n'}.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-    _git(root, 'add', 'mcp-server', 'draw-portal')
+    _git(root, 'add', 'mcp-server', 'draw-portal', 'kb-admin')
     commit = _git(root, 'commit', '-qm', 'release')
     return root, _git(root, 'rev-parse', 'HEAD')
 

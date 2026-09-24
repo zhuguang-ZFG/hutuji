@@ -19,6 +19,7 @@ def test_not_configured_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     assert va.llm_configured() is False
     with pytest.raises(va.VoiceAgentError, match="对话未配置"):
         va.chat(
+        user_id="test-user",
             session_id="s1",
             user_text="你好",
             device_mac="aa:bb",
@@ -30,6 +31,7 @@ def test_empty_text_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_llm(monkeypatch)
     with pytest.raises(va.VoiceAgentError, match="内容为空"):
         va.chat(
+        user_id="test-user",
             session_id="s1",
             user_text="   ",
             device_mac="aa:bb",
@@ -84,6 +86,7 @@ def test_unbound_status_mentions_bind(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(va, "_post_chat", fake_post_chat)
     result = va.chat(
+        user_id="test-user",
         session_id="unbound-session",
         user_text="写字机什么状态",
         device_mac=None,
@@ -141,6 +144,7 @@ def test_allowlist_rejects_confirm_without_push(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(va, "_post_chat", fake_post_chat)
     result = va.chat(
+        user_id="test-user",
         session_id="allowlist-session",
         user_text="确认开始画",
         device_mac="aa:bb:cc:dd:ee:ff",
@@ -170,6 +174,7 @@ def test_happy_path_plain_reply(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(va, "_post_chat", fake_post_chat)
     result = va.chat(
+        user_id="test-user",
         session_id="happy-session",
         user_text="你好",
         device_mac="aa:bb:cc:dd:ee:ff",
@@ -213,6 +218,7 @@ def test_history_retains_tool_call_chain(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(va, "_post_chat", fake_post_chat)
     first = va.chat(
+        user_id="test-user",
         session_id="hist-chain",
         user_text="画一只小猫",
         device_mac="aa:bb:cc:dd:ee:ff",
@@ -222,6 +228,7 @@ def test_history_retains_tool_call_chain(monkeypatch: pytest.MonkeyPatch) -> Non
     assert first["preview"]["job_id"] == "j1"
 
     va.chat(
+        user_id="test-user",
         session_id="hist-chain",
         user_text="再画一只小狗",
         device_mac="aa:bb:cc:dd:ee:ff",
@@ -266,16 +273,62 @@ def test_cap_history_drops_whole_turns_without_orphaning_tools() -> None:
 def test_session_table_evicts_lru_beyond_cap() -> None:
     va._sessions.clear()
     try:
-        first = va._get_session("s0")
-        first.append({"role": "user", "content": "hi"})
+        first = va._get_session(("u", "s0"))
+        first.history.append({"role": "user", "content": "hi"})
         for i in range(1, va._MAX_SESSIONS):
-            va._get_session(f"s{i}")
+            va._get_session(("u", f"s{i}"))
         assert len(va._sessions) == va._MAX_SESSIONS
-        va._get_session("s0")  # 提热：活跃会话不应被逐出
-        va._get_session("s-new")
+        va._get_session(("u", "s0"))  # 提热：活跃会话不应被逐出
+        va._get_session(("u", "s-new"))
         assert len(va._sessions) == va._MAX_SESSIONS
-        assert "s0" in va._sessions
-        assert "s1" not in va._sessions  # 最冷者被逐
-        assert va._get_session("s0") is first  # 会话历史对象不被置换
+        assert ("u", "s0") in va._sessions
+        assert ("u", "s1") not in va._sessions  # 最冷者被逐
+        assert va._get_session(("u", "s0")) is first  # 会话历史对象不被置换
     finally:
         va._sessions.clear()
+
+
+def test_concurrent_turn_is_rejected_until_whole_history_commits(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    _configure_llm(monkeypatch)
+    monkeypatch.setattr(va, "_sessions", va.OrderedDict())
+    entered, release = threading.Event(), threading.Event()
+    requests = []
+
+    def model(**kw):
+        messages = kw["payload"]["messages"]
+        requests.append(messages[:])
+        entered.set()
+        assert release.wait(5)
+        return {"choices": [{"message": {"content": "完成"}}]}
+
+    monkeypatch.setattr(va, "_post_chat", model)
+    def turn(text):
+        return va.chat(user_id="u", session_id="s", user_text=text,
+                       device_mac=None, push_tool=lambda *a: "")
+    with ThreadPoolExecutor(1) as pool:
+        first = pool.submit(turn, "第一轮")
+        try:
+            assert entered.wait(5)
+            with pytest.raises(va.VoiceAgentBusyError):
+                turn("并发轮次")
+            assert len(requests) == 1
+        finally:
+            release.set()
+        first.result(timeout=5)
+    turn("第二轮")
+    assert [m["content"] for m in requests[-1] if m["role"] == "user"] == ["第一轮", "第二轮"]
+
+
+def test_active_session_survives_eviction_and_failure_releases_lock(monkeypatch):
+    monkeypatch.setattr(va, "_sessions", va.OrderedDict())
+    monkeypatch.setattr(va, "_MAX_SESSIONS", 1)
+    with pytest.raises(RuntimeError):
+        with va._session_history("u", "s"):
+            with pytest.raises(va.VoiceAgentBusyError):
+                with va._session_history("other", "s"):
+                    pytest.fail("活跃会话不能被逐出")
+            raise RuntimeError("模拟上游失败")
+    with va._session_history("other", "s") as history:
+        assert history == []

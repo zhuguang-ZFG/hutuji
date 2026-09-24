@@ -15,7 +15,6 @@ _CACHE_TTL_SECONDS = 30.0
 _cache_lock = threading.Lock()
 _cache_payload: dict[str, Any] | None = None
 _cache_at: float = 0.0
-_cache_revision: int = -1
 
 _DEFAULT_IMAGE_BACKENDS = {
     "sensenova": True,
@@ -73,23 +72,15 @@ def get_cached_mcp_settings(settings: Any | None = None) -> dict[str, Any]:
         from .config import settings as live_settings
 
         settings = live_settings
-    now = time.monotonic()
-    global _cache_payload, _cache_at, _cache_revision
+    global _cache_payload, _cache_at
+    # 异步入口已在线程内调用；串行刷新防止缓存刚过期时并发请求放大，
+    # 也防止先发出的慢响应覆盖后发出的新配置。TTL 从完成时开始计算。
     with _cache_lock:
-        if _cache_payload is not None and now - _cache_at < _CACHE_TTL_SECONDS:
+        if _cache_payload is not None and time.monotonic() - _cache_at < _CACHE_TTL_SECONDS:
             return _cache_payload
-    payload = _fetch_remote(settings)
-    revision = 0
-    if isinstance(payload, dict):
-        try:
-            revision = int(payload.get("revision") or 0)
-        except (TypeError, ValueError):
-            revision = 0
-    with _cache_lock:
-        _cache_payload = payload
-        _cache_at = now
-        _cache_revision = revision
-    return payload
+        _cache_payload = _fetch_remote(settings)
+        _cache_at = time.monotonic()
+        return _cache_payload
 
 
 def portal_image_racers(settings: Any | None = None) -> list[dict[str, Any]]:
