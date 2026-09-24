@@ -33,7 +33,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 
 ## 2026-09-23 量产机上电确认、调速复验、三项定向 HIL 与 abort 修复批（xiaozhi `9dd4661`；证据与tmp脚本不提交）
 
-用户告知「量产写字机和量产小派已上电」「备案已通过」。本轮无代码/文档外改动：云端 messaging 链直查 `hutuji.status`（1.0.19/nopaper/idle/指纹通过/原点）+ portal 调速复验（现读 3000/3000/1200，单轴 y 9500↔3000 往返读回，z=3001 越界 422）。随后按用户「按照顺序执行」完成三项定向 HIL：运动中 abort 物理链全对（抬笔/归位/自动 `$MD`/二次停止复用）但揭固件收尾误判——reset owner worker 悬挂 ~53s 后 WaitForAbortReset teardown 自拆 session，误判「abort reset 恢复失败」进 state=error 并播假警报（机制 `hutuji_job.cc:2929-2966`，当日已修复见下段）；error 黏滞经下一正常任务（口+repeat）起步自清、两画两 done；多页真 2 页任务被设备拒「这台机器一次只能画一页哦」零运动（契约行为）；A3 经 portal 设置被 400 拒「需要 X400 × Y277mm」快照不变（物理超行程，拒绝链即验收）。证据 `results/20260923-massprod-hil/`（device-status、speed-\*、abort/normal/multipage 双串口+远端+样本 G-code、a3-reject；results 被忽略仅本机）；辅助脚本 `tmp/hil0923_*.py`、`tmp/run_hil0923*.py` 不提交。readiness 文首同日条目已登记（含 09-08 备案条按用户原话翻 ✅）。
+用户告知「量产写字机和量产小派已上电」「备案已通过」。本轮无代码/文档外改动：云端 messaging 链直查 `hutuji.status`（1.0.19/nopaper/idle/指纹通过/原点）+ portal 调速复验（现读 3000/3000/1200，单轴 y 9500↔3000 往返读回，z=3001 越界 422）。随后按用户「按照顺序执行」完成三项定向 HIL：运动中 abort 物理链全对（抬笔/归位/自动 `$MD`/二次停止复用）但揭固件收尾误判——reset owner worker 悬挂 ~53s 后 WaitForAbortReset teardown 自拆 session，误判「abort reset 恢复失败」进 state=error 并播假警报（机制 `hutuji_job.cc:2928-2965`，当日已修复见下段）；error 黏滞经下一正常任务（口+repeat）起步自清、两画两 done；多页真 2 页任务被设备拒「这台机器一次只能画一页哦」零运动（契约行为）；A3 经 portal 设置被 400 拒「需要 X400 × Y277mm」快照不变（物理超行程，拒绝链即验收）。证据 `results/20260923-massprod-hil/`（device-status、speed-\*、abort/normal/multipage 双串口+远端+样本 G-code、a3-reject；results 被忽略仅本机）；辅助脚本 `tmp/hil0923_*.py`、`tmp/run_hil0923*.py` 不提交。readiness 文首同日条目已登记（含 09-08 备案条按用户原话翻 ✅）。
 
 同日追加修复批（用户「同意」授权）：xiaozhi 提交 **`9dd4661`**（5 文件 +107/-3：`hutuji_recovery_core.h` 双谓词 + `hutuji_job.cc` 两处接线 + host 测试 + `CMakeLists` 1.0.20 + `main/idf_component.yml` 钉 esp_video `2.3.*`），2026-09-23 已随批量推送 `origin/feat/hutuji-usb-pipe`。构建阻塞根因=注册表 esp_video 2.5.0 的 esp_h264 依赖引用未定义 Kconfig 符号（净 HEAD 同症，非本批引入），钉版后三板各 215 CXX 通过。量产机已刷 **hutuji.1.0.20**（freenove bin 3074480B SHA `39268268…e814c6`，read-mac 核 `b8:1f:3f:c4:58:2c`，watchdog 复位）；abort 复现案 26.7s 发布 `aborted`（对照事故 53s+error+假警报+拆链），normal 两画两 done、多页拒绝零运动回归同过。host 117/117。证据 `results/20260923-massprod-hil/hutuji.1.0.20/`（flash-record+s3-flash+bin）与同目录 abort/normal/multipage 复跑日志。白名单键 `abort_settle_race_fix_20260923_authorized`（含同日追加的钉版授权）。
 
@@ -61,7 +61,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
 
 | 2026-09-23 | 量产体检加固批 | 代码 | `draw-portal/draw_portal/voice_agent.py`（_sessions LRU 256）、`store.py`（purge_usage_before）、`app.py`（me id + 1h 节流顺带清理 + 装配注入）、`weapp/utils/preview_cache.js`（LRU 128 + cyrb53 哈希名 + 旧命名清扫）、`weapp/app.js`（换账号清缓存）、`mcp-server/hutuji_mcp/activation_relay.py`（MAC 打码 mac[-5:]）、`deploy/README.md` 与 `AGENTS.md`（preflight 33→34）；测试：portal 429/429（+2）、weapp 238/238（+2）；白名单键 `massprod_sweep_hardening_20260923_authorized`；Grbl 双分支 8 提交已推 origin |
-<!-- paper-current-count --> MCP 当前收集全套 **1583** 项（45 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
+<!-- paper-current-count --> MCP 当前收集全套 **1588** 项（46 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
 
 ## 2026-09-13 公众号引流决策稿（仅文档，未提交）
 
@@ -1334,3 +1334,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 ## 2026-09-25 双机发布与量产刷机
 
 产品提交：hub `01ef408`、S3 `48cabce`、量产Grbl `0e3cf1a`。部署包与日志在本机忽略目录 `results/20260925-release/`，含主备包清单、公网接口/六组网页截图、preflight原始失败、小程序0.3.22上传、Grbl4MiB刷前备份及回读/运行设置、normal-003402与abort-003443双串口运动证据。S3 1.0.22构建、首128KiB备份、已核对板上摘要的1.0.21回滚应用、刷写和启动日志在 `results/20260924-review-fixes/s3-builds/hutuji.1.0.22/`。备份可能含设备配置，仅本机保存，禁入Git。实际结果与备份号见 [发布记录](design/release-20260925.md)。原用户deployment前部改动保留，不混入本次文档提交；普通Grbl和fz待提交修复维持原工作树。
+
+## 2026-09-25 绑定记忆与短段卡顿证据
+
+产品提交hub `f7463e3`、S3 `cf39af5`→`83ed8a7`、量产Grbl `e87e97e`→`14c8308`；实际主备上线、最终1.0.27及Grbl量产刷写见 [记录](design/binding-memory-motion-20260925.md)。忽略证据目录`results/20260925-binding-memory-motion/`保留：绑定/记忆测试、生产只读冒烟、两个Grbl刷写目录（本轮用户叫停备份，部分读块不得称完整备份）、TCP分项与PCB快照、同轨迹各轮双串口、`stall-summary.json`、`final-control-summary.json`、fz初轮及NODELAY后失败报告、官方原文`references/manifest.json`与Context7原始返回。S3临时1.0.24/25/26和最终1.0.27镜像/真实编译manifest/写入启动日志在`results/20260924-review-fixes/s3-builds/`各版本目录；最终运行SHA不能混用同版本旧候选。临时脚本均在`tmp/`，包括只读复验、精确刷写、双串口采样、文档追加与受限暂存器。原用户deployment前部4行保持工作树，未混入本次提交。

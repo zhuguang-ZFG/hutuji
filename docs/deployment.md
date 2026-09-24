@@ -526,3 +526,11 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 `01ef408` 精确代码包先京东后阿里部署，京东备份 `b54fd62ac8594b889661419edaa8421b`、阿里备份 `24de46d9216b49839d0d16eb0bad5621`；两端deploy/verify通过，主bridge双connected、备bridge inactive。三网页公网SHA相符，真实鉴权/隔离读取与六组Edge页面加载通过，小程序0.3.22仅开发候选。
 
 量产S3 `48cabce` / hutuji.1.0.22 / SHA `4fbdba1e249c01b1402b518049ef5cba8d6965d24d83653d345793c5466edaa4`；量产Grbl `0e3cf1a` / 1.3a.20260910 / SHA `651681fa4b9dea96ca202aae87f41caa985ad84af060ea33fedf01e883c3ac26`。刷前核MAC，备份/写入/摘要核对均有证；Grbl不做自动硬件复位，由用户正常重新上电。原设置与4500/4500/1200速度保留；正常绘制、重画、运动中连续停止均回原点并各一次释放电机。fz启动失败及原preflight差异保持未解决，不能据此宣称完整量产放行。详见 [完整记录](design/release-20260925.md)。
+
+## 2026-09-25 绑定记忆修复与短段卡顿交付
+
+hub `f7463e3`三个部署产物app.py/probe.py/memory_store.py，先京东后阿里deploy+verify通过；备份ID京东`9f1fca4a80e546a0a654c207701c342b`、阿里`be100482aee04211a38bb2f4b29f8831`。生产正确设备探活通过、错MAC拒绝，真实记忆召回结构合法且1条，未输出正文。
+
+最终S3 `83ed8a7` / hutuji.1.0.27 / 3077712B / SHA `0939e802c0ba9c1b667bebc7d1bffc7d0731f6e633e2ea1d276b8b61d7b1f472`，COM15/MAC `b8:1f:3f:c4:58:2c`；量产Grbl `14c8308` / 1.3a.20260910 / 1844096B / SHA `4e0b13b807216fe8f7d4f89328a17deb0f11885ce1122ed9c79d43b04e4e53db`，COM7/MAC `4c:c3:82:cc:8a:9c`。按用户要求直接下载、不读取备份；Grbl用户手动BOOT，刷前无复位，写入和独立verify后复位，S3两段哈希通过后watchdog重启并核版本/指纹。NVS保持，XY6000/Z1200、加速度/行程不变。
+
+短段在途预算修复三轮零中途Idle采样，用户确认“明显改善，基本连贯”；最终版被动对照、暂停/继续、连续停止、新任务和重画均完成归位，电机释放次数核对。fz Wokwi/QEMU启动仍失败，其他生产preflight旧差异及长期老化未在本轮关闭。详情与原始证据见 [绑定记忆和卡顿记录](design/binding-memory-motion-20260925.md)。

@@ -266,7 +266,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:668-671` 与 `hutuji_recovery_core.h:1171-1253`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:680-683` 与 `hutuji_recovery_core.h:1183-1265`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:951-1093`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:950-1092`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -1080,3 +1080,11 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 消费 | draw-admin 会话视图，运营面可见全部上报文本 |
 
 **明示**：上报内容是用户与设备的完整语音对话文本，不是元数据摘要；购买/部署即接受该面。固件无本地持久化（重启即清），服务端唯一副本在 draw-portal 库内按上表留存。
+
+### 2026-09-25 §10.3 / §10.4 绑定与记忆补充
+
+绑定v2探活须解析真实工具状态、拒绝错误信封，并核对完整device_id与签名MAC；S3在线而Grbl离线不妨碍绑定，pending不消费扫码证明。云端记忆MAC统一小写并延用小写MAC旧路径，非MAC标识用原始标识SHA-256独立文件；旧歧义桶不自动迁移、仍保留，核实归属后再人工恢复，分桶不替代身份认证。筛选与全部回忆同受100条/8000字符预算。设备侧按Unicode码点限50/500字，严格恢复JSON，重复主题后写覆盖；回忆40条/4000码点，NVS软限仍3500字节，保存提交成功才可声称已记住。记忆不因绑定变更自动清空。设计与证据见 [本轮复审](design/binding-memory-motion-20260925.md)。
+
+### 2026-09-25 §3 / §9-A 短段网络流控补充
+
+窗口化普通行保留512字节上限，并增加最多8条未应答行的限制；两者同时满足才发下一行。payload+LF计数、逐行单独发送、FIFO的ok/error配对、暂停/停止纪元、换纸独立编排和fresh Idle收尾均保持原契约。应答队列仍按字节窗理论最坏条数保留容量，不因发送节流缩小；设置/控制命令仍用独立逐行事务，不进入普通行窗口。8条依据量产机实测16段TCP队列满与短轨迹A/B选取，是当前实现值，不是Grbl上游常量或通用最优值；不同SDK/无线条件必须重新实测。量产Grbl的WiFiServer先begin后setNoDelay，避免Arduino1.0.4启动清零使新客户端回到Nagle模式。官方版本、现场队列快照、对照结果与未验证边界见 [卡顿调查](design/binding-memory-motion-20260925.md)，实际刷机/验收状态以readiness为准。

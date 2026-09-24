@@ -112,3 +112,5 @@ node --test tests/weapp/*.test.js
 - 多页：上限 20 页（设备 `kArticleMaxPages`），超限截断并在响应带 `truncated: true`；发送时整篇经 `hutuji.draw` 的 `pages` 参数下发（protocol §4.2，设备零改动），TTL 按页行数错峰（与语音写字链同一 `article_pages.page_ttl_offsets`）
 - 解析/排版在 `hutuji_mcp`（`doc_ingest`/`table_layout`，纯 stdlib 解析：DOCTYPE/实体/加密/超限一律 400 具体原因）；需要 `DRAW_PORTAL_GFONT_DIR`（或复用 `HUTUJI_GFONT_DIR`）指向 .gfont 字库目录，**未配置时文档上传回 503**（图片/SVG 上传不受影响）
 - 防滥用：ZIP 条目数/单部件 32MB/加密/DOCTYPE 拒绝；总文字 5000 字符、表格 500 行 × 24 列、单元格 40 字符封顶
+
+2026-09-25 绑定探活复审：HTTP200仍须校验工具错误/状态形状，v2扫码绑定核对设备完整MAC；失败不消费证明，S3在线但写字机离线可绑定。全套465项通过，部署状态见readiness。
