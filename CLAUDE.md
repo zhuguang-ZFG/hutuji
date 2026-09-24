@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-09-24 多轮复审修复候选：语音按认证用户隔离并串行处理同会话；Portal OTA 原子占位与阶段/代次回写；S3 OTA 与运动共用占位；Grbl 请求上下文按任务隔离；MCP 配置读取不阻塞事件循环，vpype 调参保留在途计数。**用户再次确认量产写字机不自动换纸，交付只用 `Grbl_Esp32-massprod` 的 `massprod/nopaper-1.3a` 分支；不得移植普通分支换纸模块以满足旧门禁。** 详见 [迭代记录](docs/design/review-fixes-20260924.md)，上线和板上状态只看 readiness。
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > 本仓库文档与注释一律用**中文**（项目约定）。

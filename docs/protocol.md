@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:948-1090`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:951-1093`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -308,6 +308,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - 空行、注释（`;` 与 `()`）由 S3 转发前剔除。
 
 ## 4. 任务协议（S3 设备侧 MCP 工具）
+
+2026-09-24 并发修复候选：`hutuji.ota_start` 校验通过后、调度回调之前，必须与绘图/手动操作共用 `Job` 的 stream 锁及 busy 占位；重复升级、运动和停止/暂停/继续均不能抢占。外部 state 显示 upgrading，失败释放自身占位，成功持有到重启。源码与板上状态分开验收，见 [迭代修复记录](design/review-fixes-20260924.md)。
 
 **并发约束（勘察结论）**：xiaozhi 的 MCP 工具回调在**主任务同步执行**——禁止在回调里跑长任务。全部工具**异步化**：
 
@@ -586,6 +588,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 ## 9. Grbl 侧改动清单
 
+2026-09-24 网络层并发补充（普通/量产工作树）：`WebCommand::action` 的应答流、参数数组与格式列属于本次调用；使用当前任务的栈上下文，嵌套调用结束恢复外层，另一任务不能覆盖或释放本任务上下文。临界区仅保护上下文链表，不跨网络输出、运动、换纸或等待。此变更不扩大下方商业动作许可，fz 与实机状态见 [迭代修复记录](design/review-fixes-20260924.md)。
+
 > 口径：**换纸机械/时序、运动、授权、U1-Grbl 协议一律不改**；消息路由、状态字段、WebUI 网络层等**不影响商业出图行为**的小加固可接受。**改后必跑 `python D:/Users/zhugu/fz/scripts/agent_gate.py`，overall 非 pass 不得声称完成。**
 
 | # | 文件:行 | 改动 | 为什么必须 |
@@ -603,17 +607,17 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | C′ | `Protocol.cpp:639-672`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
 | D′ | `WebUI/BTConfig.cpp`（`begin()`） | 经典蓝牙启动成功后 `esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9)`（GRBL_PAPER_SYSTEM 守卫内，失败只记消息不阻断） | 2026-08-15 用户决策：IDF 默认发射功率上限仅 P3=+3dBm（`esp_bt.h:331`），拉满 +9dBm 改善 BT 链路质量。纯射频参数，不碰数据面/换纸/运动/授权；§8「不用蓝牙走正式数据链路」不变 |
 | F′ | `GCode.cpp:1732`、`:1789`、`PaperSystem.cpp:708-714`、`:837`、`:959`、`:1047-1049` | **`$1=255` 常使能守卫**：M30 页尾与换纸 abort/进纸超时/卡纸不得无条件失能 XYZ；`paper_finish_xyz_after_fault()` 在 `$1≠255` 时仍立即失能、在 `$1=255` 时显式 `motors_set_disable(false)` 恢复（含 M30 已失能的残留）；换纸成功路径仍恢复使能 | 商业固件在 M30 与 `PaperAuto-2` feeder timeout 等处硬编码 `motors_set_disable(true)`，弹簧笔架在「逻辑 Z 仍可能为 5」时失能抬笔 → 下一页没墨。2026-08-28 COM13 刷机 + 用户确认修复后正常 |
-| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1058` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1058` 自此降级为 fast-path advisory（只负责 web 侧 `"busy"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |
+| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1099` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1099` 自此降级为 fast-path advisory（只负责 web 侧 `"busy"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |
 | G′ | `ProtocolDecisionCore.h`、`ProcessSettings.cpp`（`is_hutuji_locked_setting_key` → `SettingDisabled`） | **Golden `$` 写保护**：Telnet/WebUI 对 `$1/$3/$20-22/$100/$101/$110/$111/$130/$131/$132`/`Errors/Verbose` 的写入统一回 `Error::SettingDisabled`(5)，数字名与长名（`X/MaxTravel` 等 12 个）双形态同锁；S3 侧只读指纹见 §6.1 | 奎享/WebUI 可改 `$130/$131` 行程，绕过 MCP X≤277/Y≤190mm 安全限幅；2026-08-29 实机 golden 见 §6.1；2026-08-31 长名形态补锁（findings #30 R1） |
 | H′ | `WebUI/StatusBeacon.{h,cpp}`（新）、`Config.h`（`ENABLE_STATUS_BEACON` 宏）、`WebUI/WifiServices.cpp`（begin/end/handle 三挂钩） | **状态 UDP 广播**：UDP :2325 广播 255.255.255.255，1s 心跳 + 状态变化即发；payload `<state\|Changing=On\|Seq=N>`（48B snprintf 有界）；`state` 是 `report_state_text()` **只读调用**（函数本体不改），`Changing` 取 `paper_auto_change_is_running()`，`Seq` 仅随真实发送递增（组包失败回滚不丢号）；默认关（编译期宏），UDP 失败静默丢包无回压 | 奎享完成守护检测层（2026-09-12 用户授权）：奎享独占 :23/串口驱动写字机时 S3 无法观察任务终态；UDP 无连接不占 `MAX_TLNT_CLIENTS=1` 槽位、奎享零感知。奎享多页任务页间换纸时 `sys.state` 是 Idle，观察者必须叠加 `Changing` 字段抑制完成误报。fz standard overall pass（2026-09-12，qemu 新镜像过；wokwi 可选层预置 exit 42 与本改动无关） |
 
-> **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:131`/`:233`、`System.cpp:314`、`WebSettings.cpp:1058`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
-> **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1063` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:191`、`WebSettings.cpp:175`），且 M30 路径看不到它，换不来任何 S3 可见收益。
+> **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:131`/`:233`、`System.cpp:314`、`WebSettings.cpp:1099`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
+> **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1104` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:191`、`WebSettings.cpp:217`），且 M30 路径看不到它，换不来任何 S3 可见收益。
 > **E′ 未覆盖**：物理并发触发（人手按 `[ESP910]` 与 S3 发 M30 精确交叠）未实机复现；本轮只有源码级证据与 host 侧推理。
 
 **B2′ 的可行性已逐环核验（不再是推断）**：
-1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1016`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
-2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1139`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
+1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1057`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
+2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1180`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
 3. **换纸阻塞期可分发**：换纸中 `protocol_service_during_blocking()` 遍历全部 client 调 `protocol_poll_client()`；其换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`。
 4. **响应回得到 S3**：`ESPResponseStream stream(client, true)`（`ProcessSettings.cpp:617`）用**发命令进来的 client** 构造 → `_client = CLIENT_TELNET`（`ESPResponse.cpp:46`）→ `grbl_send(_client, data)`（`:99`）；`println` 还专为 `CLIENT_TELNET` 用 `\r\n` 行尾（`:55`）。
 5. **调用时机安全**：`[ESP901]` 是普通命令会吃 `ok`（§3 单写者），但 Q5/Q8 需要它的时刻正是**重连后、尚未开始发 G-code** 的流控空闲期——恰好契合。
@@ -872,6 +876,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 
 #### 10.4.13 小程序语音聊小派（P1；2026-09-09）
 
+2026-09-24 会话约束：历史按已认证 `user_id` 与客户端 `session_id` 联合隔离，客户端不能指定用户身份。同一会话完整模型/工具轮次互斥，重叠请求回 409；进程内 LRU 上限 256，仅淘汰非活动会话，全忙拒绝而不另建第二个动作所有者。普通退出已清除客户端 sid，不将本修复描述为“正常退出必然串历史”。
+
 | 项 | 约定 |
 |----|------|
 | ASR | `POST /draw-upload/api/voice/asr`（`phone_secured`）；`multipart/form-data` 字段 `file`（`mp3`，≤1.5 MiB）→ `{status:"ok", text}` |
@@ -1009,6 +1015,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 #### 10.4.22 小程序固件升级的目标与结果确认（2026-09-13 评审补充）
 
 设备侧升级条件仍为 §4 的 `hutuji.ota_start`；本节约束门户与页面，延续量产 OTA 设计的用户确认和失败可恢复要求。
+
+2026-09-24 会话领取：任何设备 I/O 前在数据库按用户原子占位，生成唯一 `session_id`；目标、受理结果及状态轮询均须条件回写。内部 `starting` 到命令成功应答才转 `upgrading`；504/超时转 `uncertain`，观察到设备 ota.upgrading 后才接收后续失败，避免旧失败解除忙闸。这三阶段对外均为 upgrading、均拦当前设备出图且受 600s 过期约束。starting 期间查询不能把上一轮设备失败或进度写进新会话；uncertain 可凭目标版本匹配直接对账成功。已成功/失败/回滚的终态不被后续设备失败回退，只有 status_timeout 可再按目标版本核对成功；异常只释放自身领取。数据库旧行迁移为空会话标识，新领取必须有唯一值。
 
 | 面 | 约定 |
 |----|------|
