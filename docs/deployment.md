@@ -520,3 +520,9 @@ ssh … 'readlink -f /etc/nginx/sites-enabled/hutuji; tr -d "\r" < /etc/nginx/si
 5. 在 `docs/templates/release-manifest.md` 记回滚原因与时间  
 
 详细命令见 `../deploy/README.md`。运维日常见 `operations.md`。
+
+## 2026-09-25 评审修复发布及量产刷机
+
+`01ef408` 精确代码包先京东后阿里部署，京东备份 `b54fd62ac8594b889661419edaa8421b`、阿里备份 `24de46d9216b49839d0d16eb0bad5621`；两端deploy/verify通过，主bridge双connected、备bridge inactive。三网页公网SHA相符，真实鉴权/隔离读取与六组Edge页面加载通过，小程序0.3.22仅开发候选。
+
+量产S3 `48cabce` / hutuji.1.0.22 / SHA `4fbdba1e249c01b1402b518049ef5cba8d6965d24d83653d345793c5466edaa4`；量产Grbl `0e3cf1a` / 1.3a.20260910 / SHA `651681fa4b9dea96ca202aae87f41caa985ad84af060ea33fedf01e883c3ac26`。刷前核MAC，备份/写入/摘要核对均有证；Grbl不做自动硬件复位，由用户正常重新上电。原设置与4500/4500/1200速度保留；正常绘制、重画、运动中连续停止均回原点并各一次释放电机。fz启动失败及原preflight差异保持未解决，不能据此宣称完整量产放行。详见 [完整记录](design/release-20260925.md)。
