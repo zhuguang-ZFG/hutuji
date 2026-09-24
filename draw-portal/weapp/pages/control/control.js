@@ -77,10 +77,14 @@ Page({
       bound: false, bindingLoading: true, bindingChecked: false,
       bindingMac: "", status: null, busyAction: "", manualLocked: true, controlError: "",
       canConfirm: false, canAbort: false, canPause: false, canResume: false, canRepeat: false });
-    phoneGate.ensurePhoneOrRedirect(api, () => this._isCurrentView(generation, session)).then((me) => {
+    phoneGate.ensurePhone(api, () => this._isCurrentView(generation, session)).then((me) => {
       if (!this._isCurrentView(generation, session)) return;
-      if (!me) {
+      if (me === false) {
         this.setData({ bindingLoading: false, statusError: "账号信息读取失败，请刷新重试" });
+        return;
+      }
+      if (!me) {
+        this.setData({ bindingLoading: false, statusError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
         return;
       }
       // 闸刚查过 /me，同一 onShow 内复用，不再重复请求。

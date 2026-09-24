@@ -51,7 +51,7 @@ Page({
         uploading: false, sending: false, saving: false });
     }
     const current = pageSession.capture(this);
-    phoneGate.ensurePhoneOrRedirect(api, current).then((me) => {
+    phoneGate.ensurePhone(api, current).then((me) => {
       if (!current()) return;
       if (!me) {
         this.setData({ paperSummary: { title: "纸张与方向", detail: "账号信息未读取，点此查看", state: "unavailable" } });

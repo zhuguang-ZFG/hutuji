@@ -39,10 +39,11 @@ Page({
     this.setData({ loading: true, saving: false, binding: false, bindCode: "", dirty: false,
       voices: [], voiceGroups: [], groupNames: [], models: [], selectedVoice: "",
       selectedVoiceName: "", selectedModel: "", deviceBound: false, agentReady: false, error: "" });
-    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
       if (ok) this.refresh();
-      else this.setData({ loading: false, error: "账号信息读取失败，请重试" });
+      else if (ok === false) this.setData({ loading: false, error: "账号信息读取失败，请重试" });
+      else this.setData({ loading: false, error: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
     });
   },
 

@@ -58,10 +58,14 @@ Page({
     const current = pageSession.capture(this);
     if (!this.data.upgrading) this._deviceMac = "";
     this.setData({ footVersion: displayVersion(), checking: true, updateAvailable: false, loadError: "" });
-    phoneGate.ensurePhoneOrRedirect(api, current).then((me) => {
+    phoneGate.ensurePhone(api, current).then((me) => {
       if (!current()) return;
-      if (!me) {
+      if (me === false) {
         this.setData({ checking: false, loadError: "账号信息读取失败，请重试" });
+        return;
+      }
+      if (!me) {
+        this.setData({ checking: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
         return;
       }
       // 切换活动设备不等于取消原设备升级；服务端继续验证原设备的当前归属。

@@ -34,7 +34,9 @@ function _handlePhoneRequired(payload) {
   }
 }
 
-// 401 统一处置：清会话态；logged_out 闸门在场（用户显式退出）→ 回「我的」登录墙。
+// 401 统一处置：清会话态。2026-09-24 合规批起**不再**因 logged_out 强跳「我的」——
+// 0.3.18 审核驳回「浏览页面即要求授权登录」，退出后的浏览页请求 401 只拒请求，
+// 页面软闸（phone_gate.ensurePhone）自己渲染未登录可浏览态，重登入口在「我的」页。
 function _reject401(reject, session, generation) {
   const app = getApp();
   // 网络回包可能跨越退出/重新登录；旧凭据的 401 只能拒掉该请求，
@@ -46,12 +48,7 @@ function _reject401(reject, session, generation) {
   wx.removeStorageSync("session_token");
   app.globalData.user = null;
   app.globalData.phoneBound = false;
-  if (wx.getStorageSync("logged_out")) {
-    wx.switchTab({ url: "/pages/profile/profile" });
-    reject({ status: 401, detail: "请先登录" });
-    return;
-  }
-  reject({ status: 401, detail: "登录已过期" });
+  reject({ status: 401, detail: wx.getStorageSync("logged_out") ? "请先登录" : "登录已过期" });
 }
 
 function request(path, options = {}) {

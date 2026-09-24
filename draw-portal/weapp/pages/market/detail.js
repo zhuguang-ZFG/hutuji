@@ -20,9 +20,10 @@ Page({
         previewTmp: "", previewState: "loading", loadError: "", actionHint: "", sending: false, favoriting: false });
     }
     const current = pageSession.capture(this);
-    return phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    return phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
-      if (!ok) { this.setData({ loading: false, loadError: "账号信息读取失败，请重试", previewTmp: "" }); return; }
+      if (ok === false) { this.setData({ loading: false, loadError: "账号信息读取失败，请重试", previewTmp: "" }); return; }
+      if (!ok) { this.setData({ loading: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页", previewTmp: "" }); return; }
       this._ready = true;
       const me = getApp().globalData.user || {};
       const mac = me.active_device_mac || "";

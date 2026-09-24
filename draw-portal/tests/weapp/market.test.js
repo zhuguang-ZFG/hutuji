@@ -49,11 +49,13 @@ async function showDetail(h, download = true) {
   }
 }
 
-test("手机号闸失败不读取目录，控制目标来自 active_device_mac", async () => {
+test("手机号闸未绑定不强跳、不读取目录，控制目标来自 active_device_mac", async () => {
   const h = setup();
   await authorize(h, { phone_bound: false });
   assert.equal(h.requests.length, 1);
-  assert(h.tabs.some((tab) => tab.url.includes("profile")));
+  // 2026-09-24 合规批：浏览时不强跳授权页（0.3.18 审核驳回），页面渲染可浏览未登录态。
+  assert(!h.tabs.some((tab) => tab.url.includes("profile")));
+  assert.match(h.page.data.loadError, /我的/);
   const detail = setup(true);
   await showDetail(detail);
   detail.page.onSend();

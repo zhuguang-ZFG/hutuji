@@ -18,10 +18,14 @@ Page({
     }
     const current = pageSession.capture(this);
     this.setData({ loading: true, loadError: "" });
-    return phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    return phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
-      if (!ok) {
+      if (ok === false) {
         this.setData({ items: [], loading: false, loadError: "账号信息读取失败，请重试" });
+        return;
+      }
+      if (!ok) {
+        this.setData({ items: [], loading: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
         return;
       }
       this._ready = true;

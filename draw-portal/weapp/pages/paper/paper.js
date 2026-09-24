@@ -21,9 +21,10 @@ Page({
     this._ready = false;
     const current = pageSession.capture(this);
     this.setData({ loading: true, loadError: "", saving: !!this._pending });
-    return phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    return phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
-      if (!ok) { this.setData({ loading: false, loadError: "账号读取失败，请重试" }); return; }
+      if (ok === false) { this.setData({ loading: false, loadError: "账号读取失败，请重试" }); return; }
+      if (!ok) { this.setData({ loading: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" }); return; }
       const mac = getApp().globalData.user.active_device_mac || "";
       this.setData({ deviceMac: mac });
       if (!mac) { this.setData({ loading: false, form: null, loadError: "连接写字机后即可设置纸张" }); return; }

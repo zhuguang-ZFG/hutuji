@@ -59,9 +59,10 @@ Page({
     const current = pageSession.capture(this);
     this.setData({ loading: true, loadError: "", redrawing: !!this._redrawPending,
       sendingId: "", deletingId: "" });
-    return phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    return phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
-      if (!ok) { this.setData({ jobs: [], filtered: [], loading: false, loadError: "账号信息读取失败，请重试" }); return; }
+      if (ok === false) { this.setData({ jobs: [], filtered: [], loading: false, loadError: "账号信息读取失败，请重试" }); return; }
+      if (!ok) { this.setData({ jobs: [], filtered: [], loading: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" }); return; }
       this._ready = true;
       if (!this._deliverRedraw()) this.refresh();
     });

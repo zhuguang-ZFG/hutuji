@@ -141,9 +141,11 @@ Page({
       }) : msg) });
     const current = pageSession.capture(this);
     this._checkMicrophone(current);
-    phoneGate.ensurePhoneOrRedirect(api, current).then((ok) => {
+    phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
-      if (!ok) { this.setData({ loadError: "账号信息读取失败，请重试",
+      if (ok === false) { this.setData({ loadError: "账号信息读取失败，请重试",
+        paperSummary: { title: "纸张与方向", detail: "账号信息未读取，点此查看", state: "unavailable" } }); return; }
+      if (!ok) { this.setData({ loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页",
         paperSummary: { title: "纸张与方向", detail: "账号信息未读取，点此查看", state: "unavailable" } }); return; }
       this._sessionId = ensureSessionId();
       this.setData({ enabled: true });

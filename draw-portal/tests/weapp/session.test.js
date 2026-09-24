@@ -134,3 +134,28 @@ test("当前会话的 401 仍会清除登录与手机号状态", async () => {
   assert.equal(h.app.globalData.user, null);
   assert.equal(h.app.globalData.phoneBound, false);
 });
+
+test("退出登录后的 401 只拒请求，不强跳不弹授权（0.3.18 驳回合规回归）", async () => {
+  const h = createWeapp();
+  h.storage.set("session_token", "old-session");
+  h.app.logout();
+  const api = h.load("utils/api.js");
+  const pending = api.request("/api/auth/me");
+  const rejected = assert.rejects(pending, (e) => e.status === 401 && /请先登录/.test(e.detail));
+  h.requests.at(-1).success({ statusCode: 401, data: {} });
+  await rejected;
+  assert.equal(h.tabs.length, 0, "浏览态接口 401 不得 switchTab 到「我的」");
+  assert.equal(h.toasts.length, 0, "浏览态接口 401 不得弹授权提示");
+});
+
+test("软闸 ensurePhone 遇 401 回 null（可浏览未登录态）且不跳不弹", async () => {
+  const h = createWeapp();
+  const api = h.load("utils/api.js");
+  const gate = h.load("utils/phone_gate.js");
+  const pending = gate.ensurePhone(api);
+  await flush();
+  h.requests.at(-1).success({ statusCode: 401, data: {} });
+  assert.equal(await pending, null);
+  assert.equal(h.tabs.length, 0);
+  assert.equal(h.toasts.length, 0);
+});
