@@ -1,4 +1,4 @@
-"""标准笔顺教学排版：hanzi-writer-data medians（PRC 规范笔顺）→ 米字格渐显面板页。
+"""标准笔顺教学排版：hanzi-writer-data medians（PRC 规范笔顺）→ 田字格渐显面板页。
 
 数据源：`HUTUJI_STROKE_DIR/strokes.jsonl`（`scripts/fetch_stroke_data.py` 抓取
 hanzi-writer-data@2.0.1 / Make Me A Hanzi 生成；Arphic Public License，商用可，
@@ -181,7 +181,12 @@ def _emit_char(
 
 
 def _emit_grid(page: LaidOutPage, cell_x: float, cell_y: float, cell_mm: float) -> None:
-    """米字格：外框实线 + 中十字与双对角虚线（4mm 线 / 2mm 空，2026-09-24 美观批加对角）。"""
+    """田字格：外框实线 + 中十字虚线（4mm 线 / 2mm 空）。
+
+    2026-09-24 美观批曾加双对角虚线升级米字格，当日实机预览即被用户判「看不清楚」
+    回退：512px 页预览下单格约 40px，对角+十字 8 组虚线糊成星爆黑团淹没字形；
+    且对角使每格虚线段翻倍、抬笔次数近翻倍（「永」209 次），实画时长显著变长。
+    美观收益全部来自笔画平滑，格线保持田字格，对角勿再加回。"""
     x2, y2 = cell_x + cell_mm, cell_y + cell_mm
     page.strokes.append(_PenStroke(points=[
         (cell_x, cell_y), (x2, cell_y), (x2, y2), (cell_x, y2), (cell_x, cell_y),
@@ -202,8 +207,6 @@ def _emit_grid(page: LaidOutPage, cell_x: float, cell_y: float, cell_mm: float) 
 
     dashed((cell_x, mid_y), (x2, mid_y))
     dashed((mid_x, cell_y), (mid_x, y2))
-    dashed((cell_x, cell_y), (x2, y2))
-    dashed((x2, cell_y), (cell_x, y2))
 
 
 def _emit_step_label(

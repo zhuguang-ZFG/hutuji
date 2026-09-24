@@ -173,11 +173,11 @@ def test_layout_multichar_mixed_rows_single_page(tmp_path):
     assert min(xs) >= 0 and min(ys) >= 0
     assert max(xs) <= 190.0 and max(ys) <= 277.0
     assert page.line_count == 2  # 中、义各一行
-    # 米字格外框：中 5 格（4 渐显 + 1 成形）+ 义 2 格（1 渐显 + 1 成形）= 7
+    # 田字格外框：中 5 格（4 渐显 + 1 成形）+ 义 2 格（1 渐显 + 1 成形）= 7
     frames = [s for s in page.strokes if len(s.points) == 5 and s.points[0] == s.points[-1]]
     assert len(frames) == 7
     # 步序数字（「一」字形对角线 dx=dy≈5.2mm）：中 4 + 义 1 = 5（成形格无序号）；
-    # 米字格对角虚线段 dx=dy≤4.4mm（4mm 虚线 45° 投影 2.83 + 尾段余量），按 5.0 下界区分
+    # 下界 5.0 防误中网格虚线尾段
     diagonals = [
         s for s in page.strokes
         if len(s.points) == 2
@@ -201,7 +201,7 @@ def test_layout_multichar_mixed_rows_single_page(tmp_path):
 
 
 def _char_strokes_in(page, frame):
-    """格内笔画折线数：排除本格米字格外框（5 点闭合）与十字/对角虚线段。"""
+    """格内笔画折线数：排除本格田字格外框（5 点闭合）与十字虚线段。"""
     xs = [p[0] for p in frame.points]
     ys = [p[1] for p in frame.points]
     fx0, fx1, fy0, fy1 = min(xs), max(xs), min(ys), max(ys)
@@ -218,8 +218,6 @@ def _char_strokes_in(page, frame):
             dy = abs(pts[1][1] - pts[0][1])
             if (dx < 0.01 and abs(dy - 4.0) < 0.01) or (dy < 0.01 and abs(dx - 4.0) < 0.01):
                 continue  # 十字虚线段
-            if abs(dx - dy) < 0.01 and dx < 4.5:
-                continue  # 米字格对角虚线段（45° 投影等长、最长尾段 <4.5mm）
         count += 1
     return count
 
@@ -264,8 +262,9 @@ def test_stroke_smoothing_curves_and_corners():
     assert stroke_order._smooth_median(two) == two
 
 
-def test_grid_is_mizi_with_diagonal_dashes():
-    """米字格：外框 + 中十字 + 双对角虚线（对角虚线段 dx≈dy）。"""
+def test_grid_is_tianzige_no_diagonal_dashes():
+    """田字格回归钉（2026-09-24 用户实机预览判米字格「看不清楚」回退）：
+    外框 + 中十字虚线，**无对角虚线段**——512px 页预览下对角糊成星爆淹没字形。"""
     from hutuji_mcp.write_text import LaidOutPage
 
     page = LaidOutPage(page_width_mm=190.0, page_height_mm=277.0)
@@ -273,6 +272,14 @@ def test_grid_is_mizi_with_diagonal_dashes():
     diag = [
         s for s in page.strokes
         if len(s.points) == 2
+        and abs(s.points[1][0] - s.points[0][0]) > 1e-6
         and abs(abs(s.points[1][0] - s.points[0][0]) - abs(s.points[1][1] - s.points[0][1])) < 1e-6
     ]
-    assert len(diag) >= 8, "双对角虚线应产生多段 dx≈dy 虚线段"
+    assert diag == [], "田字格不得出现对角虚线段（实机预览淹没字形，勿再加回）"
+    # 十字虚线仍在：存在轴对齐 4mm 虚线段
+    cross = [
+        s for s in page.strokes
+        if len(s.points) == 2
+        and ((abs(s.points[1][0] - s.points[0][0]) < 1e-6) != (abs(s.points[1][1] - s.points[0][1]) < 1e-6))
+    ]
+    assert len(cross) >= 8

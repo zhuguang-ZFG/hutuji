@@ -5,7 +5,7 @@
 
 ## 2026-09-24 笔顺教学美观批（用户「笔顺服务生成的还不够美观漂亮请改进优化」）
 
-`stroke_order.py`：笔画 centripetal Catmull-Rom 平滑（过原控制点、端点原位、≥45° 折点锚定护横折；`_SMOOTH_SUBDIV=6`/`_CORNER_COS`）+ 田字格升级米字格（双对角 4mm/2mm 虚线）；`test_stroke_order.py` 9→11（平滑折点/米字格对角两新例），混合行测试辅助排除对角虚线段（旧过滤器 2.5<dx<8 误中网格虚线——行为变化引发的合法契约演进，步序数字断言改 5.0 下界收紧）。全套 1574。真数据视觉验证：`tmp/strokes_demo/strokes.jsonl`（chanind/hanzi-writer-data master data/ 逐字拉取 16 字，jsdelivr all.json 与 per-char 路径均 404 弃用）、`tmp/teach_yong_p0.png`、`tmp/teach_chunmeng_p0.png`、`tmp/teach_smooth_compare.png`（raw vs smooth 对照，平滑版撇捺曲线流畅、横折钩折点锐利）。**生产已单独部署（用户拍板 2026-09-24 14:42）**：双机 scp SHA 相符、服务 active、阿里云真链冒烟 PASS（「永」1 页 938 行过 §5）；细节见 deployment.md 当日 14:42 条目。美观效果纸面验证待用户实机过目。
+`stroke_order.py`：笔画 centripetal Catmull-Rom 平滑（过原控制点、端点原位、≥45° 折点锚定护横折；`_SMOOTH_SUBDIV=6`/`_CORNER_COS`）保留生效；**米字格对角虚线当日回退**——用户实机预览判「看不清楚」（512px 页预览单格约 40px，对角+十字 8 组虚线糊成星爆淹没字形，且抬笔 209 次近翻倍），`_emit_grid` 回田字格（外框+中十字虚线），回归钉 `test_grid_is_tianzige_no_diagonal_dashes`（对角勿再加回）。`test_stroke_order.py` 11 项不变（替换对角断言为田字格断言），混合行辅助同步清理。真数据视觉验证：`tmp/strokes_demo/strokes.jsonl`（chanind/hanzi-writer-data master data/ 逐字拉取 16 字，jsdelivr all.json 与 per-char 路径均 404 弃用）、`tmp/teach_chunmeng_current.png`（米字格病灶复现）→ `tmp/teach_chunmeng_tian.png`（回退后清晰可读，渐显逐格可辨、成形格完整）、`tmp/teach_yong_p0.png`、`tmp/teach_smooth_compare.png`。部署：美观批 14:42 双机部署（见 deployment.md）→ 米字格回退批随后单独重部署。
 
 ## 2026-09-23 聊天多轮丢按钮修复 + 预览方案 3（用户「多轮说话后就不出现绘画按钮了，看下日志」+「选择 3」）
 
