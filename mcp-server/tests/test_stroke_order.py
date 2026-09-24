@@ -173,15 +173,16 @@ def test_layout_multichar_mixed_rows_single_page(tmp_path):
     assert min(xs) >= 0 and min(ys) >= 0
     assert max(xs) <= 190.0 and max(ys) <= 277.0
     assert page.line_count == 2  # 中、义各一行
-    # 田字格外框：中 5 格（4 渐显 + 1 成形）+ 义 2 格（1 渐显 + 1 成形）= 7
+    # 米字格外框：中 5 格（4 渐显 + 1 成形）+ 义 2 格（1 渐显 + 1 成形）= 7
     frames = [s for s in page.strokes if len(s.points) == 5 and s.points[0] == s.points[-1]]
     assert len(frames) == 7
-    # 步序数字（「一」字形小对角线）：中 4 + 义 1 = 5（成形格无序号）
+    # 步序数字（「一」字形对角线 dx=dy≈5.2mm）：中 4 + 义 1 = 5（成形格无序号）；
+    # 米字格对角虚线段 dx=dy≤4.4mm（4mm 虚线 45° 投影 2.83 + 尾段余量），按 5.0 下界区分
     diagonals = [
         s for s in page.strokes
         if len(s.points) == 2
-        and 2.5 < abs(s.points[1][0] - s.points[0][0]) < 8.0
-        and 2.5 < abs(s.points[1][1] - s.points[0][1]) < 8.0
+        and 5.0 < abs(s.points[1][0] - s.points[0][0]) < 8.0
+        and 5.0 < abs(s.points[1][1] - s.points[0][1]) < 8.0
     ]
     assert len(diagonals) == 5
     # 渐显逐笔递增：中行格内 = k 笔画 + 步序数字（k=1..4 → 2,3,4,5），成形格无序号=4；
@@ -200,7 +201,7 @@ def test_layout_multichar_mixed_rows_single_page(tmp_path):
 
 
 def _char_strokes_in(page, frame):
-    """格内笔画折线数：排除本格田字格外框（5 点闭合）与 4mm 虚线段。"""
+    """格内笔画折线数：排除本格米字格外框（5 点闭合）与十字/对角虚线段。"""
     xs = [p[0] for p in frame.points]
     ys = [p[1] for p in frame.points]
     fx0, fx1, fy0, fy1 = min(xs), max(xs), min(ys), max(ys)
@@ -217,6 +218,8 @@ def _char_strokes_in(page, frame):
             dy = abs(pts[1][1] - pts[0][1])
             if (dx < 0.01 and abs(dy - 4.0) < 0.01) or (dy < 0.01 and abs(dx - 4.0) < 0.01):
                 continue  # 十字虚线段
+            if abs(dx - dy) < 0.01 and dx < 4.5:
+                continue  # 米字格对角虚线段（45° 投影等长、最长尾段 <4.5mm）
         count += 1
     return count
 
@@ -245,3 +248,31 @@ def test_hutuji_teach_rejects_overlong_and_unconfigured(tmp_path, monkeypatch):
     server._stroke_data_cache.clear()
     with pytest.raises(StrokeOrderError, match="一次最多教 20 个字"):
         asyncio.run(server.hutuji_teach("中" * 21))
+
+
+def test_stroke_smoothing_curves_and_corners():
+    """2026-09-24 美观批：平缓多段折线补间加密成曲线；≥45° 折点锚定不圆滑；端点原位。"""
+    gentle = [(0.0, 0.0), (10.0, 2.0), (20.0, 2.5), (30.0, 1.0)]
+    sm = stroke_order._smooth_median(gentle)
+    assert len(sm) > len(gentle), "平缓折线应被细分补间"
+    assert sm[0] == gentle[0] and sm[-1] == gentle[-1], "端点必须原位（渐显逐帧对齐）"
+    ys = [y for _, y in sm]
+    assert max(ys) < 4.0 and min(ys) > -1.0, "centripetal 补间不得剧烈过冲"
+    corner = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]  # 90° 横折
+    assert stroke_order._smooth_median(corner) == corner, "锐角折点必须锚定（横折不塌）"
+    two = [(0.0, 0.0), (10.0, 10.0)]
+    assert stroke_order._smooth_median(two) == two
+
+
+def test_grid_is_mizi_with_diagonal_dashes():
+    """米字格：外框 + 中十字 + 双对角虚线（对角虚线段 dx≈dy）。"""
+    from hutuji_mcp.write_text import LaidOutPage
+
+    page = LaidOutPage(page_width_mm=190.0, page_height_mm=277.0)
+    stroke_order._emit_grid(page, 10.0, 10.0, 34.0)
+    diag = [
+        s for s in page.strokes
+        if len(s.points) == 2
+        and abs(abs(s.points[1][0] - s.points[0][0]) - abs(s.points[1][1] - s.points[0][1])) < 1e-6
+    ]
+    assert len(diag) >= 8, "双对角虚线应产生多段 dx≈dy 虚线段"

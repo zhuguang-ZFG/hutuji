@@ -3,6 +3,10 @@
 > **2026-09-15 图库批工作树**：首批467件/20类素材与许可/来源/复核清单在 `mcp-server/market/`；转换器、入库回归、发布白名单与发布回归及对应文档为本批改动。仅暂存明确路径，保留原未跟踪文件及外仓工作树。`results/20260914-market-release/` 保存官方归档、三代候选/最终对照板、LF构建、20项入库/43项发布回归和本机真实加载结果；results被忽略，仅本机留证。本批源码/数据提交 `c4846c906bd3`；后续仅图库LF检出属性与验收台账收尾。双机发布日志 `results/deploy-20260915-082723-3443e594/`、`results/deploy-20260915-083714-76d92e8f/`，服务核验 `results/deploy-20260915-084547-ddbe8deb/`、`results/deploy-20260915-084552-20ab25f7/`；主备数据/配置核验、页面截图和收藏清理在同一图库证据目录。`results/20260915-paper-hil/verification-summary.json` 汇总guards/normal/abort三组串口与远端结果SHA、0/2/1次自动释放、Grbl全套设置前后对照；配置保存与最终官方状态在 `results/20260913-crossrepo-followup/` 当日08:37–08:47日志。失败的两次guards是沙箱连接和探针误读未公开last_error字段，未当作通过；成功组为guards-084259、normal-084417、abort-084509。
 
 
+## 2026-09-24 笔顺教学美观批（用户「笔顺服务生成的还不够美观漂亮请改进优化」）
+
+`stroke_order.py`：笔画 centripetal Catmull-Rom 平滑（过原控制点、端点原位、≥45° 折点锚定护横折；`_SMOOTH_SUBDIV=6`/`_CORNER_COS`）+ 田字格升级米字格（双对角 4mm/2mm 虚线）；`test_stroke_order.py` 9→11（平滑折点/米字格对角两新例），混合行测试辅助排除对角虚线段（旧过滤器 2.5<dx<8 误中网格虚线——行为变化引发的合法契约演进，步序数字断言改 5.0 下界收紧）。全套 1574。真数据视觉验证：`tmp/strokes_demo/strokes.jsonl`（chanind/hanzi-writer-data master data/ 逐字拉取 16 字，jsdelivr all.json 与 per-char 路径均 404 弃用）、`tmp/teach_yong_p0.png`、`tmp/teach_chunmeng_p0.png`、`tmp/teach_smooth_compare.png`（raw vs smooth 对照，平滑版撇捺曲线流畅、横折钩折点锐利）。生产部署未做（server 侧改动需双机 scp 发布，等用户拍板批量发布）。
+
 ## 2026-09-23 聊天多轮丢按钮修复 + 预览方案 3（用户「多轮说话后就不出现绘画按钮了，看下日志」+「选择 3」）
 
 生产日志+真 LLM 探针复现：根因=历史剥离出图痕迹致模型鹦鹉学舌（文字链丢 DRAW::、语音链丢 voice.draw）。修复：voice_agent 历史保留工具调用链+整轮裁剪；chat.js 历史回填 DRAW:: 标记。探针修复前 1/6→修复后 6/6。预览：`preview_cache.js` 持久化（内容键+LRU32+登出清空）+ 两页 IntersectionObserver 懒加载（首屏 6 张）。提交 `35de54d`+`2cbd65e`；双机 voice_agent.py 已部署（SHA `71fe4110…` 一致、active、公网 401 冒烟）；备份 `/root/hutuji-bak-20260923-voiceagent/`。node 235/235、portal 427/427。weapp 0.3.17 已上传（`✔ upload`，265298B；CLI 日志在 `results/20260923-weapp-ux-perf/`）。同日追加 `f58e659`：筛选/删卡后重挂预览观察器 + 过期注释改口径。`8499f1d`：DRAW:: 乱位标记升格（0.3.17 上机后重画措辞残余），双机 mcp+bridge 部署 SHA `55b847ef…`，部署后探针 4/4；23:49 用户 0.3.17 实测两轮均出按钮（nginx 日志 172B×2+generate 200），用户确认修复。探针脚本 `tmp/chat_multiturn_probe*.py`、`tmp/voice_multiturn_probe.py`（本机）。
@@ -51,7 +55,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
 
 | 2026-09-23 | 量产体检加固批 | 代码 | `draw-portal/draw_portal/voice_agent.py`（_sessions LRU 256）、`store.py`（purge_usage_before）、`app.py`（me id + 1h 节流顺带清理 + 装配注入）、`weapp/utils/preview_cache.js`（LRU 128 + cyrb53 哈希名 + 旧命名清扫）、`weapp/app.js`（换账号清缓存）、`mcp-server/hutuji_mcp/activation_relay.py`（MAC 打码 mac[-5:]）、`deploy/README.md` 与 `AGENTS.md`（preflight 33→34）；测试：portal 429/429（+2）、weapp 238/238（+2）；白名单键 `massprod_sweep_hardening_20260923_authorized`；Grbl 双分支 8 提交已推 origin |
-<!-- paper-current-count --> MCP 当前收集全套 **1572** 项（45 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
+<!-- paper-current-count --> MCP 当前收集全套 **1574** 项（45 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
 
 ## 2026-09-13 公众号引流决策稿（仅文档，未提交）
 

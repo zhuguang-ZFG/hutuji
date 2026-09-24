@@ -1,4 +1,4 @@
-"""标准笔顺教学排版：hanzi-writer-data medians（PRC 规范笔顺）→ 田字格渐显面板页。
+"""标准笔顺教学排版：hanzi-writer-data medians（PRC 规范笔顺）→ 米字格渐显面板页。
 
 数据源：`HUTUJI_STROKE_DIR/strokes.jsonl`（`scripts/fetch_stroke_data.py` 抓取
 hanzi-writer-data@2.0.1 / Make Me A Hanzi 生成；Arphic Public License，商用可，
@@ -88,6 +88,76 @@ def _char_bbox(strokes: list[list[tuple[int, int]]]) -> tuple[int, int, int, int
     ys = [y for s in strokes for _, y in s]
     return min(xs), min(ys), max(xs), max(ys)
 
+# 笔画平滑（2026-09-24 美观批）：medians 是稀疏控制点（横仅 2 点），直连是机械折线；
+# centripetal Catmull-Rom 过原控制点补间出流畅曲线，两段夹角 >45° 的折点（横折类复合笔）
+# 锚定不圆滑。新增细分点近似共线，下游 vpype linesimplify(0.05mm) 会再抽稀，不破 §5 上限。
+_SMOOTH_SUBDIV = 6  # 每跨细分段数
+_CORNER_COS = math.cos(math.radians(45))  # 折点判据：邻段夹角余弦 < cos45°
+
+
+def _cr_centripetal(
+    p0: tuple[float, float], p1: tuple[float, float],
+    p2: tuple[float, float], p3: tuple[float, float], t: float,
+) -> tuple[float, float]:
+    """centripetal Catmull-Rom 单点补间（alpha=0.5，不等距点串不打环不尖点）。"""
+    def _tj(ti: float, pa: tuple[float, float], pb: tuple[float, float]) -> float:
+        return ti + math.hypot(pb[0] - pa[0], pb[1] - pa[1]) ** 0.5
+    t0 = 0.0
+    t1 = _tj(t0, p0, p1)
+    t2 = _tj(t1, p1, p2)
+    t3 = _tj(t2, p2, p3)
+    if t1 == t0 or t2 == t1 or t3 == t2:
+        return p1  # 重复点退化：原样返回锚点
+    tt = t1 + (t2 - t1) * t
+
+    def _lerp(pa, pb, ta, tb):
+        if tb == ta:
+            return pa
+        w = (tt - ta) / (tb - ta)
+        return (pa[0] + (pb[0] - pa[0]) * w, pa[1] + (pb[1] - pa[1]) * w)
+
+    a1 = _lerp(p0, p1, t0, t1)
+    a2 = _lerp(p1, p2, t1, t2)
+    a3 = _lerp(p2, p3, t2, t3)
+    b1 = _lerp(a1, a2, t0, t2)
+    b2 = _lerp(a2, a3, t1, t3)
+    return _lerp(b1, b2, t1, t2)
+
+
+def _smooth_median(pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """单笔 median 折线 → 平滑折线；端点与折点原位保留（渐显面板逐帧对齐不破）。"""
+    if len(pts) <= 2:
+        return pts
+    corners: list[int] = []
+    for i in range(1, len(pts) - 1):
+        ax, ay = pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]
+        bx, by = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        la, lb = math.hypot(ax, ay), math.hypot(bx, by)
+        if la == 0 or lb == 0:
+            continue
+        if (ax * bx + ay * by) / (la * lb) < _CORNER_COS:
+            corners.append(i)
+    runs: list[list[tuple[float, float]]] = []
+    prev = 0
+    for c in corners:
+        runs.append(pts[prev:c + 1])
+        prev = c
+    runs.append(pts[prev:])
+    out: list[tuple[float, float]] = []
+    for run in runs:
+        if len(run) >= 3:
+            ext = [run[0]] + run + [run[-1]]
+            sm = [
+                _cr_centripetal(ext[i], ext[i + 1], ext[i + 2], ext[i + 3], j / _SMOOTH_SUBDIV)
+                for i in range(len(ext) - 3)
+                for j in range(_SMOOTH_SUBDIV)
+            ]
+            sm.append(run[-1])
+        else:
+            sm = run
+        out.extend(sm if not out else sm[1:])  # 相邻段共享折点只收一次
+    return out
+
 
 def _emit_char(
     page: LaidOutPage,
@@ -107,11 +177,11 @@ def _emit_char(
     for stroke in strokes:
         pts = [(ox + (x - x0) * scale, oy + (y1 - y) * scale) for x, y in stroke]
         if len(pts) >= 2:
-            page.strokes.append(_PenStroke(points=pts))
+            page.strokes.append(_PenStroke(points=_smooth_median(pts)))
 
 
 def _emit_grid(page: LaidOutPage, cell_x: float, cell_y: float, cell_mm: float) -> None:
-    """田字格：外框实线 + 中十字虚线（4mm 线 / 2mm 空）。"""
+    """米字格：外框实线 + 中十字与双对角虚线（4mm 线 / 2mm 空，2026-09-24 美观批加对角）。"""
     x2, y2 = cell_x + cell_mm, cell_y + cell_mm
     page.strokes.append(_PenStroke(points=[
         (cell_x, cell_y), (x2, cell_y), (x2, y2), (cell_x, y2), (cell_x, cell_y),
@@ -132,6 +202,8 @@ def _emit_grid(page: LaidOutPage, cell_x: float, cell_y: float, cell_mm: float) 
 
     dashed((cell_x, mid_y), (x2, mid_y))
     dashed((mid_x, cell_y), (mid_x, y2))
+    dashed((cell_x, cell_y), (x2, y2))
+    dashed((x2, cell_y), (cell_x, y2))
 
 
 def _emit_step_label(
