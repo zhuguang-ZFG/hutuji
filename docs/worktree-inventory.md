@@ -2,12 +2,12 @@
 
 ## 2026-09-25 ACK 对照判决 + 照片滞回 + 卡死恢复批（用户「继续codex未完成的任务」）
 
-hub 起点 `46c9d53`。本批改动：`mcp-server/hutuji_mcp/sketch_render.py`（上轮未提交候选 + 结构线滞回双阈 0.008/0.014）、`mcp-server/tests/test_sketch_render.py`（+2 → 36 项）、`mcp-server/scripts/sketch_eval.py`（上轮改动沿用）、`AGENTS.md`（计数 1588→1599 与 sketch_render 描述同步，门禁计数测试强制）、`docs/agent-edit-allowlist.json`、`docs/deployment.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md`、`docs/design/ack-photo-quality-20260925.md`（新增）。xiaozhi 诊断探针全部回退（HEAD `83ed8a7` 无未提交差异，探针源留 `tmp/ack-trace-stage/`）；两棵 Grbl 未改源码。白名单键 `ack_photo_quality_20260925_authorized`。
+hub 起点 `46c9d53`。本批改动：`mcp-server/hutuji_mcp/sketch_render.py`（上轮未提交候选 + 结构线滞回双阈 0.008/0.014）、`mcp-server/tests/test_sketch_render.py`（+2 → 36 项）、`mcp-server/scripts/sketch_eval.py`（上轮改动沿用）、`AGENTS.md`（计数 1588→1599 与 sketch_render 描述同步，门禁计数测试强制）、`docs/agent-edit-allowlist.json`、`docs/deployment.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md`、`docs/design/ack-photo-quality-20260925.md`（新增）。xiaozhi 诊断探针全部回退（HEAD `83ed8a7` 无未提交差异，探针源留 `tmp/ack-trace-stage/`）；两棵 Grbl 未改源码。白名单键 `ack_photo_quality_20260925_authorized`。本批已提交 `066f839`（12 文件）并经 auto_deploy 双机部署（verify PASS），hub 工作树回归用户既有状态。
 
 - ACK 判决：官方 8 条在途 0 重传（passive-6000-024420）vs 20 条 154 重传/2.5s（025430，相隔 10 分钟同 RX6），互证 09-24 量产根因；动态 RX 6→16 无效果不投产；链路劣化（Grbl 主动 RST errno=104、errno=128）随 Grbl 运行时长加重，DTR 硬重启（原点执行零坐标损失）后 1.0.27 冒烟零断链。成因（射频/AP/板卡）不可区分，留观察项。
 - 设备两次卡 error/Hold（39.950,28.950 与 32.080,39.780）经 COM7 `0x18` 软复位（坐标保留）+ `hutuji.manual home` 恢复；`sku=paper` 系 VER 未达保守档。
 - 量产机复刷 1.0.27（215 CXX、SHA `f24938ce…`、核 MAC），板上 nopaper/指纹/ready/Idle 原点/XY6000 Z1200 全绿。
-- 照片：滞回 36/36（RED-GREEN 实证）、portal 13/13、六样本双风格 24 份 G-code 过 §5、三向裁切 `results/local-only/2026-09-25/ack-photo/experiments/final-crops.png`；用户目视验收未做，不得宣称定案。
+- 照片：滞回 36/36（RED-GREEN 实证）、portal 13/13、六样本双风格 24 份 G-code 过 §5、三向裁切 `results/local-only/2026-09-25/ack-photo/experiments/final-crops.png`；用户 09-25 点头放行；已提交 `066f839` 并双机部署（生产导入探针 0.008/0.014 生效）。
 - 证据（results 忽略、仅本机）：`results/20260925-binding-memory-motion/`（复位/硬重启/各轮双串口采样与 ack-analysis）、`results/local-only/2026-09-25/ack-photo/`、`results/20260924-review-fixes/s3-builds/hutuji.1.0.27/`（含 1.0.28–1.0.31-diag 各诊断构建）。临时脚本 `tmp/recover_grbl_reset_0925.py`、`tmp/recover_home_0925.py`、`tmp/hardreset_grbl_0925.py`、`tmp/run_prod_1027_0925.py` 等不提交。
 
 ## 2026-09-24 审查修复候选
