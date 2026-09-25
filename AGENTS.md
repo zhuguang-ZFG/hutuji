@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+2026-09-25「画不了但没提示」事故根治：WiFi 抖动期 portal 自动 `hutuji.confirm` 单次失败即静默回 `sent` 是放大器——现 confirm 在 90s 窗口内随 status 轮询重试（状态已越过确认门按成功收、预览落 idle/error/aborted 立即出局）、失败 detail 附「可在小派屏幕或控制页点『开始画』，或稍后重新发送」且小程序发送入口必须透出该 detail（契约 §10.4.5 推送行）；设备侧 error 态 status 出 `last_error`、终态停 elapsed 计时（xiaozhi `e76cd54`，随下次 OTA）。远程复现实验（不存在 URL 造 error 态→再推合法件直抵 awaiting→confirm 画完）是免串口判状态机楔死的标准手法。
+
 2026-09-24 多轮复审修复候选：语音按认证用户隔离并串行处理同会话；Portal OTA 原子占位与阶段/代次回写；S3 OTA 与运动共用占位；Grbl 请求上下文按任务隔离；MCP 配置读取不阻塞事件循环，vpype 调参保留在途计数。**用户再次确认量产写字机不自动换纸，交付只用 `Grbl_Esp32-massprod` 的 `massprod/nopaper-1.3a` 分支；不得移植普通分支换纸模块以满足旧门禁。** 详见 [迭代记录](docs/design/review-fixes-20260924.md)，上线和板上状态只看 readiness。
 
 > 本文件是 AI 编码代理在 hutuji（枢纽仓）的入口。真值优先级：根 `README.md` 决策 → `docs/protocol.md` v0.5 契约 → `docs/bringup-sop.md` 执行顺序 → `docs/release-readiness.md` 状态 → 子系统 README / runbook。外部记忆可能过时，冲突一律以本仓文档为准。硬规则见文末，**不可跳**。

@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:950-1092`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:960-1102`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -316,7 +316,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | 工具 | 参数 | 行为 |
 |------|------|------|
 | `hutuji.draw` | `url,preview_url[,pages]` | 回调校验两个能力地址（`.gcode`/`.png`，缺一不可）→ 先只下载 PNG 上屏预览（零机械动作）→ 返回 `"previewing"`；**重入分两种**：预览流程中（`previewing`/`awaiting_confirmation`）以**完全相同参数**重入 → 幂等回 `"previewing"`（等价「你要的这张已在等确认」，为服务端链式 + 云端第二步双触发兜底）；参数不同或任务在预览流程之外（下载/灌流/换纸）→ 返回 `"busy"` 直接拒绝，不排队不抢占。用户点屏或调 `hutuji.confirm` 后才创建出图任务：**① 全量下载**（预览待确认期间后台预取 G-code，命中即复用；`Board::GetNetwork()->CreateHttp()`，`GetBodyLength()`/`GetResponseHeader()`/`Read()` 循环，模板见 `ota.cc:310-340`）→ **② 完整性校验**（§5.1，长度+CRC32）→ **③ 授权门**（§6，未授权则零字节下发）→ **④** 按行切分、Telnet 写、等 ok → **⑤** 等 fresh `Idle` → **⑥ S3 依次旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，ok 后等 fresh `Idle`）+ `M30` 换纸**，并等换纸最终应答与 fresh `Idle`。**不边下边转；归位行与 `M30` 都不在下载文件内**。`pages`（可选，多页文章）见 §4.2 |
-| `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line, …}`。**OTA 增字段（2026-09-09）**：`firmware_version`（`esp_app_get_description()->version`，量产形如 `hutuji.x.y.z`）、`board`（编译期 `BOARD_NAME`，与固件 catalog 板型 key 一致，如 `freenove-esp32s3-display-2.8-lcd`）、`ota` 对象 `{state, progress, update_available[, reason]}`（缺省 `state=idle`/`progress=0`/`update_available=false`；`reason` 空则省略；升级态由 `hutuji.ota_start` 写入）。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
+| `hutuji.status` | — | 同步快速执行，返回 `{connected, ready, authorized, state, last_line, …}`。**OTA 增字段（2026-09-09）**：`firmware_version`（`esp_app_get_description()->version`，量产形如 `hutuji.x.y.z`）、`board`（编译期 `BOARD_NAME`，与固件 catalog 板型 key 一致，如 `freenove-esp32s3-display-2.8-lcd`）、`ota` 对象 `{state, progress, update_available[, reason]}`（缺省 `state=idle`/`progress=0`/`update_available=false`；`reason` 空则省略；升级态由 `hutuji.ota_start` 写入）。**增字段（2026-09-25，入库 `e76cd54` 随下次 OTA 上板）**：error 态输出 `last_error`（出图/预览链失败原因，与手动控制 `control_error` 并列；非 error 态或原因为空时字段不出现）；状态落 `idle`/`done`/`error`/`aborted` 终态即停出图计时，`elapsed_ms`/`eta_ms` 不再按旧起点递增（当日事故现场曾见 2.27h 陈旧计时误导排查）。**分级**：出图进行中（streaming/paper_change）**只发 `?`**（实时旁路，不吃 `ok`）；**仅空闲时**才发 `[ESP901]`（纸/电机/PanelHold/Changing）+ `M704`（GPIO34）——这两个是普通命令会吃 `ok`，出图中发会打乱流控（§3 单写者）。**实现状态（2026-08-24 对账）**：空闲期 `[ESP901]`/`M704` 遥测**契约已定、实现待做**——当前 `StatusJson` 只发 `?`，`M704` 全仓零命中，`Paper=/MotorEn=/PanelHold=` 未解析；补实现见 release-readiness 2026-08-24 条（P1-1 批次） |
 | `hutuji.ota_check` | — | **只查不升**（2026-09-09）：GET 自建仓 `{public}/firmware/s3/{BOARD_NAME}/latest.json`，比较 `hutuji.x.y.z`；写 `status.ota.update_available`；返回 `{update_available,current,latest,notes,reason}`。每天 idle+WiFi 自检复用同路径（NVS 日历日，失败不打扰）。 |
 | `hutuji.ota_start` | `url,version,board[,sha256]` | 量产远程升（2026-09-09；HIL 后口径）：Job **settled**（`idle`/`done`/`error`/`aborted`）且非进行中的 `kDeviceStateUpgrading`、`board==BOARD_NAME`、HTTPS host ∈ 允许列表时受理；出图/预览/换纸等非 settled → `{reason:busy}`。`UpgradeFirmware` **失败必须**回到 Idle（否则会永久 busy——1.0.1 曾踩坑，1.0.2 起修）。`sha256` 契约对齐、设备侧未核。成功 reboot；失败 `ota.state=failed`。**禁止**自检自动调用。 |
 | `hutuji.abort` | — | **分状态**（§4.1）：下载/校验态只置取消；非换纸流式态停喂后排空、抬笔、归位（Hold 先 `~` 退出，正常路径无 `!`/reset）；换纸活动态**不发 `0x18`**，回报「换纸中无法即停、完成后即停」+置 abort 挂起。重复停止复用同一收尾事务；归位 worker 收敛前不发布 `aborted` |
@@ -769,7 +769,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 步骤 | 约定 |
 |------|------|
 | 上传 | `POST /draw-upload/api/draw/upload` multipart；PNG/JPEG/WebP/GIF/BMP/SVG（≤4MB）；Word/Excel/PPT/CSV/TXT 文档链；描摹或 SVG 直转 + `validate_gcode` 同 §5。**article**（txt/docx/pptx）可选 form 字段 `size_mm`（2–40，默认 12）、`line_spacing`（1.0–3.0，默认 1.6）；**table**（xlsx/csv）忽略这两项 |
-| 推送 | `POST .../draw/{job_id}/send` → `hutuji.draw` 后**自动** `hutuji.confirm`（小程序已预览）；失败时 detail 含「自动开始画未完成」可改用控制页 |
+| 推送 | `POST .../draw/{job_id}/send` → `hutuji.draw` 后**自动** `hutuji.confirm`（小程序已预览）；confirm 失败在 90s 窗口内随 status 轮询重试（2026-09-25 起：应答丢失但下一轮 status 已越过确认门按成功收、预览落 idle/error/aborted 立即出局、`没有待确认` 判预览已撤不重试）；仍失败时 detail 含「自动开始画未完成」并附「可在小派屏幕或控制页点『开始画』，或稍后重新发送」，小程序发送入口须透出该 detail，不得只显示「已发送」 |
 | **保存预览** | `POST .../draw/{job_id}/save` → 将 PNG（及可选 G-code 副本）复制到用户域持久化路径；**不依赖** §5.1 的 600s `/files/` TTL |
 | 图库 | `GET .../draw/saved`；可再次 `send` 或 `DELETE`；响应含 `tg_backup`（`null`=未启用 / `pending` / `uploaded` / `failed`——2026-09-12 TG 频道冷备份 PoC 状态字段，仅预览图、逐字节校验后才算 uploaded；`DELETE` 时频道副本尽力撤回并同步 `telegram_archive_log` 台账 `tg_removed_at`；**不替换**本行主链路，`/files/` 与设备下载一字未动） |
 | 冷备份停用（2026-09-13 审查） | 关闭 `HUTUJI_TG_UPLOAD_ENABLED` 同时阻止新增入队和已有队列继续上传；保留凭据时，旧副本的删除/人工恢复不依赖新增上传开关。重试上传仍要求开关开启。停用不擅自清空历史副本或台账，删除失败补偿尚未验收。注册通知只含事件，不发送设备 MAC。实际生产开关以 readiness 为准，再启用须补真实告知、处理依据与适用同意/评估证据 |
