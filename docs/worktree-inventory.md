@@ -1,5 +1,10 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
+## 2026-09-25 绘图中途卡死事故修复批（用户「刚用小派画了个图，中途卡死了，看 log 找原因并修复」）
+
+量产 Grbl 仓提交 **`d723f4c`**（massprod/nopaper-1.3a，`src/WebUI/WifiConfig.cpp/.h` +82 行纯增：STA 断链自愈看门狗），已双 OTA 槽 UART 落板（镜像 1844848B SHA-256 `1e742142…5ab7`，构建锚 20260910 不动）。错 SSID 全环板测通过 + 云端 hutuji.status 全绿，验收三判据与残余缺口见 readiness/deployment 当日条目。hub 仓本批仅文档登记（`93ffbb9`）：deployment/readiness 条目 + 行号指纹基线重登。证据（results 忽略、仅本机）：`results/20260925-grbl-wifi-watchdog/`（错 SSID 板测脚本与全程串口日志 `watchdog_test_0925.{py,log}`）。临时脚本 `tmp/watchdog_test_0925.py` 同源不提交。纠正前录：事故中 .14 ARP MAC=本机 efuse MAC 非他设备冲突。
+
+
 ## 2026-09-25 ACK 对照判决 + 照片滞回 + 卡死恢复批（用户「继续codex未完成的任务」）
 
 hub 起点 `46c9d53`。本批改动：`mcp-server/hutuji_mcp/sketch_render.py`（上轮未提交候选 + 结构线滞回双阈 0.008/0.014）、`mcp-server/tests/test_sketch_render.py`（+2 → 36 项）、`mcp-server/scripts/sketch_eval.py`（上轮改动沿用）、`AGENTS.md`（计数 1588→1599 与 sketch_render 描述同步，门禁计数测试强制）、`docs/agent-edit-allowlist.json`、`docs/deployment.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md`、`docs/design/ack-photo-quality-20260925.md`（新增）。xiaozhi 诊断探针全部回退（HEAD `83ed8a7` 无未提交差异，探针源留 `tmp/ack-trace-stage/`）；两棵 Grbl 未改源码。白名单键 `ack_photo_quality_20260925_authorized`。本批已提交 `066f839`（12 文件）并经 auto_deploy 双机部署（verify PASS），hub 工作树回归用户既有状态。
