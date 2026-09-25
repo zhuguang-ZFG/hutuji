@@ -82,8 +82,13 @@ Page({
       { method: "POST", data, timeout: 90000 }).then((res) => {
       if (!current()) return;
       const ok = res && res.status === (kind === "send" ? "sent" : "saved");
-      this.setData({ actionHint: ok ? (kind === "send" ? "作品已发送，请留意设备状态" : "已收藏，可在「历史」查看")
-        : ((res && res.detail) || "操作未完成，请稍后重试") });
+      const detail = (res && res.detail) || "";
+      // 2026-09-25：发送成功≠已开画——自动确认未完成时 detail 带可行动指引，
+      // 必须透出，否则用户看到「已发送」而机器不动（当日生产事故）。
+      const notStarted = ok && kind === "send" && detail.indexOf("自动开始画未完成") !== -1;
+      this.setData({ actionHint: notStarted ? detail
+        : ok ? (kind === "send" ? "作品已发送，请留意设备状态" : "已收藏，可在「历史」查看")
+        : (detail || "操作未完成，请稍后重试") });
     }).catch((err) => {
       if (current()) this.setData({ actionHint: err.detail || "网络不可用，请稍后重试" });
     }).finally(() => {

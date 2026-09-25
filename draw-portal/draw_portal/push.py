@@ -230,6 +230,11 @@ def auto_confirm_after_preview(
 
     设备契约仍要求先 draw（下载 PNG/预取 G-code），不能跳过预览态；门户侧代点
     「开始画」，用户不必再在小派屏上确认。超时/失败不撤销已推预览。
+
+    确认在窗口内可重试（2026-09-25 生产事故：WiFi 抖动期单次 confirm 瞬断即
+    判失败，用户看到「已发送」机器却不动）。失败后经下一轮 status 分辨：
+    仍在 awaiting → 再试；已越过确认门 → 应答丢失但设备已开画，按成功收；
+    落到 idle/error/aborted → 预览已终结，立即出局不再白耗窗口。
     """
     import json
 
@@ -272,9 +277,16 @@ def auto_confirm_after_preview(
                     arguments={},
                     timeout=30,
                 )
-                return (True, "hutuji.confirm ok") if cok else (False, cres)
-            # 已越过确认门（重发/竞态）：视为已开画，勿再 confirm
-            if state in (
+                if cok:
+                    return True, "hutuji.confirm ok"
+                last_hint = str(cres)
+                # 「没有待确认」= 预览已被取消/取代，重试无意义；管道瞬断、
+                # 建任务失败回滚 awaiting 等都可恢复，留给下一轮轮询再试。
+                if "没有待确认" in last_hint:
+                    return False, f"hutuji.confirm: {cres}"
+            # 已越过确认门（重发/竞态/confirm 应答丢失但已开画）：视为已开画，
+            # 勿再 confirm
+            elif state in (
                 "downloading",
                 "verifying",
                 "streaming",
@@ -283,6 +295,10 @@ def auto_confirm_after_preview(
                 "done",
             ):
                 return True, f"already {state}"
+            elif state in ("idle", "error", "aborted"):
+                # 预览已终结（下载失败/被取消/被推流前失败顶掉）：继续轮询只会
+                # 白耗整个窗口，快速出局让 detail 立刻透出原因。
+                return False, f"预览未进入待确认（state={state}）"
         time.sleep(poll_s)
     return False, f"confirm timeout ({last_hint or 'no status'})"
 
@@ -443,5 +459,7 @@ def push_draw_self_heal(
     )
     if cok:
         return True, summary + "；已自动开始画"
-    # 预览已上屏；确认失败不把整次 send 判失败，便于用户改用控制页「开始画」
-    return True, summary + f"；自动开始画未完成：{csum}"
+    # 预览已上屏；确认失败不把整次 send 判失败，便于用户改用控制页「开始画」。
+    # 文案面向小程序透出（2026-09-25：此前只回 sent，用户无从得知机器没开画）。
+    return True, summary + (f"；自动开始画未完成：{csum}。"
+                            "可在小派屏幕或控制页点「开始画」，或稍后重新发送")
