@@ -4,6 +4,8 @@
 
 量产 Grbl 仓提交 **`d723f4c`**（massprod/nopaper-1.3a，`src/WebUI/WifiConfig.cpp/.h` +82 行纯增：STA 断链自愈看门狗），已双 OTA 槽 UART 落板（镜像 1844848B SHA-256 `1e742142…5ab7`，构建锚 20260910 不动）。错 SSID 全环板测通过 + 云端 hutuji.status 全绿，验收三判据与残余缺口见 readiness/deployment 当日条目。hub 仓本批仅文档登记（`93ffbb9`）：deployment/readiness 条目 + 行号指纹基线重登。证据（results 忽略、仅本机）：`results/20260925-grbl-wifi-watchdog/`（错 SSID 板测脚本与全程串口日志 `watchdog_test_0925.{py,log}`）。临时脚本 `tmp/watchdog_test_0925.py` 同源不提交。纠正前录：事故中 .14 ARP MAC=本机 efuse MAC 非他设备冲突。
 
+fz 仓同日下午收口 **`d4e1d1b`**（23 文件：codex 复审在途批 + quick 分层修正）：SKU 身份核实/nopaper 独立引脚契约、Wokwi 整片+ready marker+transport 分类、QEMU 诚实失败、quick 对 chip SIL 恒 skip。验证：fz 6 点名测试文件全绿（`test_quick_profile` RED→GREEN）、量产仓协议回归 hard 43/43、量产 standard 复跑 protocol pass（qemu/wokwi 按 spec 保持诚实红）。证据在 fz `results/`（gitignored）与 fz 根 `tmp_gate_massprod_std3.log` 等本机日志；曾评估的 NVS 关射频方案因 fz spec 明文禁止废止。`tmp_massprod_gate.txt`/`tmp_pytest_out.txt` 为 codex 既有未跟踪草稿，未动。
+
 
 ## 2026-09-25 ACK 对照判决 + 照片滞回 + 卡死恢复批（用户「继续codex未完成的任务」）
 
