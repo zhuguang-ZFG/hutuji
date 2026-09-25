@@ -1,5 +1,5 @@
 {
-  "git_head": "ce4b403613341d2e9aed8181dd1e3f687d42fc94",
+  "git_head": "0ac93e805dd89420f8c04ca3cc808b1b924745a3",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -471,12 +471,12 @@
       "source": "#      窗口持续填充 planner，避免笔画期间因 WiFi 往返空档失能。当前保持奎享原值\n#      F10000，不采用未经证明的 F1000/F300 降速方案。2026-07-29 同文件中先画的\n#      F300/F1500 线无墨，后画的 F10000/F1500 线出墨且均匀；落笔速度与先后顺序\n#      尚未解耦，不能据此宣称 F10000 是唯一根因。详见 docs/troubleshooting.md。",
       "target": "mcp-server/hutuji_mcp/hutuji_gwrite.toml"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:143": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:145": {
       "sha8": "373590ce",
       "source": "- `mcp-server/hutuji_mcp/quickdraw.py` — Quick Draw 本地缓存（2026-08-24 落地）：`lookup()` 命中即免付费生图，复用位图路线产物面；数据根走 `HUTUJI_QUICKDRAW_DIR`，类目映射 `quickdraw_categories.json`（v4：**402 别名键 → 298 官方在册类目**，已对账 categories.txt；与数据目录 298 个 `.jsonl` 双向零差；2026-08-25 v4 两项：`_PREFIX_RE` 增 11 个礼貌备择 + 循环剥离 ≤3 刀（请画/帮我画+单字名词此前全 miss），补 15 个「小X」口语变体（小树/小花等，实机 HIL 实证「画一棵小树」miss 走付费 AI 链）；圣诞树/松树经 GCS 404 实证非官方类目不收）；署名 `QUICKDRAW-ATTRIBUTION.md`。；2026-08-25 C 组合：质量路由 _QD_STYLE_RE 默认 AI 链、简笔风才查 QD；数据换装精选版每类 50 条（quickdraw_curate.py 三因子质量分），原始 200 条/类本地备份",
       "target": "AGENTS.md"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:181": {
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:183": {
       "sha8": "992f3f8f",
       "source": "- 闭环冒烟：`scripts/e2e_local.py` = `test_star.svg → svg_to_gcode → pipe_sim → grbl_sim`，判据是 stdout 出现 `PASS`（需 `127.0.0.1:2323` 可用）。",
       "target": "AGENTS.md"
@@ -1327,6 +1327,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-25T10:41:48Z",
+  "updated": "2026-09-25T10:44:02Z",
   "version": 1
 }
