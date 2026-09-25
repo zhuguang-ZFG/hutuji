@@ -938,5 +938,26 @@
       "docs/kxnx/findings/16-wifi-discovery-and-connect.md",
       "docs/kxnx/findings/21-transport-watchdog-and-sd-executor.md"
     ]
+  },
+  "ack_photo_quality_20260925_authorized": {
+    "note": "用户要求解决 ACK 延迟底层原因并改善照片生图；第三张候选略好但仍需继续优化。沿用量产部署与刷机验证授权。",
+    "contract": "protocol §3/§9-A/§10.4.9；头部诊断不采集载荷，正式流控保留 512B+8 条；照片按最终轨迹验证，未经实测不得宣称验收。",
+    "paths": [
+      "mcp-server/hutuji_mcp/sketch_render.py",
+      "mcp-server/tests/test_sketch_render.py",
+      "mcp-server/scripts/sketch_eval.py",
+      "draw-portal/draw_portal/pipeline.py",
+      "draw-portal/tests/test_photo_refine.py",
+      "docs/design/ack-photo-quality-20260925.md",
+      "docs/protocol.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/deployment.md",
+      "docs/agent-edit-allowlist.json",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h",
+      "D:/Users/xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/config.json"
+    ]
   }
 }

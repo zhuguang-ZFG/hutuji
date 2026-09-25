@@ -39,6 +39,57 @@ def _half_black_png(w: int = 200, h: int = 120) -> bytes:
     return _png(arr)
 
 
+@pytest.mark.parametrize("level", [1, 64, 128, 224])
+def test_decode_gray_preserves_absolute_exposure(level):
+    """暗照不能因没有白像素而被按本张最大值拉成纯白。"""
+    gray = sketch_render._load_gray(_png(np.full((40, 60), level, dtype=np.uint8)))
+    np.testing.assert_allclose(gray, level / 255.0, atol=1e-6)
+
+
+def test_transparent_black_is_white_paper_not_ink():
+    raw = _png(np.zeros((40, 60, 4), dtype=np.uint8))
+    np.testing.assert_allclose(sketch_render._load_gray(raw), 1.0)
+
+
+def test_equal_channel_average_does_not_hide_colored_features():
+    """红绿亮度不同，不能因 RGB 均值相同而丢掉轮廓。"""
+    arr = np.zeros((40, 60, 3), dtype=np.uint8)
+    arr[:, :30, 0] = 255
+    arr[:, 30:, 1] = 255
+    gray = sketch_render._load_gray(_png(arr))
+    assert gray[:, 30:].mean() > gray[:, :30].mean() + 0.4
+
+
+def test_portrait_work_raster_has_bounded_height():
+    gray = sketch_render._load_gray(_png(np.zeros((4000, 100), dtype=np.uint8)))
+    assert gray.shape[0] <= 1280
+    assert abs(gray.shape[1] / gray.shape[0] - 100 / 4000) < 0.002
+
+
+def test_dark_hatching_has_no_nearly_overlapping_parallel_lines(monkeypatch):
+    """实际暗区轨迹的同向线须留间距，避免不相关网格叠加造成局部黑块。"""
+    monkeypatch.setattr(sketch_render, "_chain_hatch_segments", lambda segs, mask: segs)
+    polys, w, h = render_hatch(_png(np.zeros((760, 500), dtype=np.uint8)))
+    intercepts = []
+    for p in polys:
+        delta = p[-1] - p[0]
+        if len(p) == 2 and np.linalg.norm(delta) > 100 and abs(delta[0] - delta[1]) < 1e-6:
+            intercepts.append((p[0, 1] - p[0, 0]) / np.sqrt(2))
+    gaps = np.diff(sorted(intercepts))
+    assert len(gaps) > 30
+    # 760px 长边对应 277mm 纸面时，3px≈1.1mm；旧网格可仅隔0.5px。
+    assert gaps.min() >= 3.0 - 1e-6
+
+
+def test_portrait_and_landscape_have_comparable_hatching_density(monkeypatch):
+    monkeypatch.setattr(sketch_render, "_chain_hatch_segments", lambda segs, mask: segs)
+    counts = []
+    for shape in ((1280, 720), (720, 1280)):
+        polys, _, _ = render_hatch(_png(np.zeros(shape, dtype=np.uint8)))
+        counts.append(len(polys))
+    assert abs(counts[0] - counts[1]) / max(counts) < 0.06
+
+
 def test_hatch_segments_respect_tone_mask():
     """左黑右白图：排线（含串链连线）不得画进右半白区。
     2026-09-10 串链落地后改为栅格化口径（链式折线不再是 2 点段，
@@ -147,6 +198,26 @@ def test_structure_contours_keep_bright_thin_features():
     assert length > 160, "亮调细边缘被固定亮度档漏掉"
     assert all(p[:, 0].min() > 100 and p[:, 0].max() < 126 for p in polys)
 
+
+
+def test_structure_contours_hysteresis_bridges_weak_section():
+    """同一垂直边缘中段对比度平滑变弱（0.008≤g<0.014）时不得断成两截——
+    五官/下颌轮廓正是这类连续弱段；旧单阈会把中段齐根切掉。"""
+    gray = np.full((120, 160), 0.9, dtype=np.float32)
+    tent = 0.04 + 0.06 * np.abs(np.arange(120, dtype=np.float32) - 60) / 60
+    gray[:, 80:] = 0.9 - tent[:, None]  # 两端 g≈0.027 强、中段 g≈0.011 弱
+    polys = sketch_render._structure_contours(gray)
+    vertical = [p for p in polys if p[:, 0].min() > 75 and p[:, 0].max() < 85]
+    assert vertical, "垂直边缘整体丢失"
+    span = max(float(p[:, 1].max() - p[:, 1].min()) for p in vertical)
+    assert span > 100, f"弱段被单阈切断，最长连续段仅 {span:.1f}px"
+
+
+def test_structure_contours_hysteresis_rejects_isolated_weak_edge():
+    """全程低于强阈且无强锚点的边缘照旧拒收——缓慢光照/弱噪声不能搭滞回便车。"""
+    gray = np.full((120, 160), 0.9, dtype=np.float32)
+    gray[:, 80:] = 0.86  # 全程弱段 g≈0.011，无强锚点
+    assert sketch_render._structure_contours(gray) == []
 
 def test_structure_contours_reject_texture_without_erasing_object():
     """弱细纹背景不出碎线，实物的强轮廓仍须存在。"""

@@ -31,10 +31,14 @@ _WORK_WIDTH_PX = 760
 # 亮层用宽间距稀疏过渡。mask 先平滑压照片噪点引起的碎段。
 _HATCH_LAYERS: tuple[tuple[float, float, float], ...] = (
     (0.55, 45.0, 6.0),
-    (0.42, -45.0, 4.5),
-    (0.30, 45.0, 3.5),
-    (0.18, 90.0, 3.0),
+    (0.42, -45.0, 6.0),
+    (0.30, 45.0, 6.0),
+    (0.18, -45.0, 6.0),
 )
+# 四层共享两组格点；暗两层填进同向线的中缝，避免 6/3.5px 同向排线
+# 在局部几乎重合。层距按长边比例换算，竖照不能因像素高度大而更密。
+# 原理参照 Praun 等 Real-Time Hatching 的嵌套笔画，参数与样本见本轮画质记录。
+_WORK_MAX_HEIGHT_PX = 1280
 _HATCH_MIN_RUN_PX = 6.0      # 短于 ≈2.2mm 的排线段不画：视觉上只是墨点
 _HATCH_SAMPLE_STEP_PX = 1.0  # 沿线采样步长，决定段端点精度
 _HATCH_MASK_SIGMA = 1.0      # mask 前平滑，压阈值附近噪点碎段
@@ -62,6 +66,13 @@ _HATCH_TONE_SIGMA = 2.2
 _STRUCTURE_SIGMA = 2.0
 _STRUCTURE_COARSE_RATIO = 1.8
 _STRUCTURE_MIN_CONTRAST = 0.014
+# 滞回低阈（Canny 双阈思想）：零交叉段内只要带一个强锚点，弱段作为同一条
+# 真实边缘的延续保留——五官/下颌这类低对比轮廓在旧单阈下被齐根切断或整段
+# 消失（2026-09-25 用户「五官轮廓和碎边」反馈）。0.006/0.008/0.010 三档本机
+# 人像裁切 A/B：0.006 前额碎波明显，0.008 保眉眼/下颌线且前额噪声回落，
+# 0.010 更接近旧行为、五官续接变弱；孤立弱段无强锚点照旧丢弃，缓慢光照
+# 等高线全程弱梯度仍被拒。
+_STRUCTURE_WEAK_CONTRAST = 0.008
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
 # 3 级 tone 边界 + 较强平滑：2026-09-10 小样 A/B（事故人像，4 组合目检）
@@ -98,25 +109,31 @@ def _load_gray(image_bytes: bytes) -> np.ndarray:
         arr = iio.imread(image_bytes)
     except Exception as exc:
         raise SketchRenderError("图片解码失败") from exc
-    if arr.ndim == 3:
-        rgb = arr[..., :3].astype(np.float32)
-        gray = rgb.mean(axis=-1)
+    from skimage.color import rgb2gray, rgba2rgb
+    from skimage.util import img_as_float32
+
+    if arr.ndim == 3 and arr.shape[-1] in (3, 4):
+        rgb = img_as_float32(arr)
+        if rgb.shape[-1] == 4:
+            rgb = rgba2rgb(rgb, background=(1, 1, 1))
+        gray = rgb2gray(rgb).astype(np.float32)
     elif arr.ndim == 2:
-        gray = arr.astype(np.float32)
+        gray = img_as_float32(arr)
     else:
         raise SketchRenderError("不支持的图片通道数")
     if gray.size == 0:
         raise SketchRenderError("图片为空")
-    max_val = float(gray.max())
-    if max_val > 1.0:
-        gray /= max_val if max_val <= 255.0 else 65535.0
+    if not np.isfinite(gray).all():
+        raise SketchRenderError("图片亮度包含非有限值")
     h, w = gray.shape
-    if w > _WORK_WIDTH_PX:
+    scale = min(1.0, _WORK_WIDTH_PX / w, _WORK_MAX_HEIGHT_PX / h)
+    if scale < 1.0:
         from skimage.transform import resize
 
-        new_h = max(1, round(h * _WORK_WIDTH_PX / w))
+        new_h = max(1, round(h * scale))
+        new_w = max(1, round(w * scale))
         gray = resize(
-            gray, (new_h, _WORK_WIDTH_PX), anti_aliasing=True
+            gray, (new_h, new_w), anti_aliasing=True
         ).astype(np.float32)
     return np.clip(gray, 0.0, 1.0)
 
@@ -193,20 +210,29 @@ def _structure_contours(gray: np.ndarray) -> list[np.ndarray]:
         if len(contour) < _CONTOUR_MIN_POINTS:
             continue
         pixels = np.rint(contour).astype(int)
-        live = contrast[pixels[:, 0], pixels[:, 1]] >= _STRUCTURE_MIN_CONTRAST
-        edges = np.flatnonzero(np.diff(np.r_[False, live, False].astype(np.int8)))
-        runs = [contour[start:end] for start, end in edges.reshape(-1, 2)]
+        strength = contrast[pixels[:, 0], pixels[:, 1]]
+        weak = strength >= _STRUCTURE_WEAK_CONTRAST
+        strong = strength >= _STRUCTURE_MIN_CONTRAST
+        edges = np.flatnonzero(np.diff(np.r_[False, weak, False].astype(np.int8)))
+        spans = edges.reshape(-1, 2)
+        runs = [contour[start:end] for start, end in spans]
+        anchored = [bool(strong[start:end].any()) for start, end in spans]
         # 闭环的起点是算法任意选的；跨起点的同一条可见边缘须合回，不能断两截。
-        if len(runs) > 1 and live[0] and live[-1] and np.array_equal(contour[0], contour[-1]):
+        if len(runs) > 1 and weak[0] and weak[-1] and np.array_equal(contour[0], contour[-1]):
             runs = [np.vstack((runs[-1], runs[0][1:]))] + runs[1:-1]
+            anchored = [anchored[-1] or anchored[0]] + anchored[1:-1]
         out.extend(
             run[:, ::-1].astype(np.float64)
-            for run in runs if len(run) >= _CONTOUR_MIN_POINTS
+            for run, keep in zip(runs, anchored)
+            if keep and len(run) >= _CONTOUR_MIN_POINTS
         )
     return out
 
 
-def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.ndarray]:
+def _hatch_layer(
+    mask: np.ndarray, angle_deg: float, spacing: float,
+    offset: float = 0.0, min_run: float = _HATCH_MIN_RUN_PX,
+) -> list[np.ndarray]:
     """一组平行线裁剪进 mask：逐线沿方向采样，True 连续 run 成段。
 
     采样而不是逐像素扫描的原因：线段端点只需亚像素级位置，1px 步长采样
@@ -225,7 +251,7 @@ def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.
     t_lo, t_hi = float(t_projs.min()), float(t_projs.max())
 
     out: list[np.ndarray] = []
-    c = np.ceil(c_lo / spacing) * spacing
+    c = np.ceil((c_lo - offset) / spacing) * spacing + offset
     while c <= c_hi:
         t = np.arange(t_lo, t_hi + _HATCH_SAMPLE_STEP_PX, _HATCH_SAMPLE_STEP_PX)
         # 起点：c 处法向足点（相对原点）；参数平移不改变直线本身
@@ -242,7 +268,7 @@ def _hatch_layer(mask: np.ndarray, angle_deg: float, spacing: float) -> list[np.
         edges = np.flatnonzero(np.diff(padded.astype(np.int8)))
         for start, end in edges.reshape(-1, 2):
             run_len = t[end - 1] - t[start]
-            if run_len < _HATCH_MIN_RUN_PX:
+            if run_len < min_run:
                 continue
             out.append(
                 np.array(
@@ -325,13 +351,21 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     gray = _normalize_tones(original, gamma=_HATCH_TONE_GAMMA)
     h, w = gray.shape
     smooth = _gaussian_for_mask(gray)
-    layers = [_hatch_layer(smooth < th, ang, sp) for th, ang, sp in _HATCH_LAYERS]
+    # 工作像素必须换算到同一长边尺度；720×1280 竖照的 6px 并非原设想的
+    # 277mm/760×6≈2.2mm，而只有约 1.3mm。禁止靠调亮缩略图掩盖实际密度。
+    density_scale = max(1.0, max(h, w) / _WORK_WIDTH_PX)
+    def make_layers(factor: float) -> list[list[np.ndarray]]:
+        return [
+            _hatch_layer(smooth < th, ang, sp * density_scale * factor,
+                         (sp * density_scale * factor / 2) if i >= 2 else 0.0,
+                         _HATCH_MIN_RUN_PX * density_scale)
+            for i, (th, ang, sp) in enumerate(_HATCH_LAYERS)
+        ]
+    layers = make_layers(1.0)
     n_seg = sum(len(segs) for segs in layers)
     if n_seg > _HATCH_SEGMENT_BUDGET:
         factor = n_seg / _HATCH_SEGMENT_BUDGET
-        layers = [
-            _hatch_layer(smooth < th, ang, sp * factor) for th, ang, sp in _HATCH_LAYERS
-        ]
+        layers = make_layers(factor)
     polys = _simplify(_structure_contours(original), _RDP_TOLERANCE_PX)
     # 最亮层（面部稀疏排线）不串链：连线会落在明调区边缘成可见回折环
     # （2026-09-10 小样目检）；暗三层用本层 mask 串链，连线藏同暗度带内。

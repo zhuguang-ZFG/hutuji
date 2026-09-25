@@ -1,5 +1,15 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
+## 2026-09-25 ACK 对照判决 + 照片滞回 + 卡死恢复批（用户「继续codex未完成的任务」）
+
+hub 起点 `46c9d53`。本批改动：`mcp-server/hutuji_mcp/sketch_render.py`（上轮未提交候选 + 结构线滞回双阈 0.008/0.014）、`mcp-server/tests/test_sketch_render.py`（+2 → 36 项）、`mcp-server/scripts/sketch_eval.py`（上轮改动沿用）、`AGENTS.md`（计数 1588→1599 与 sketch_render 描述同步，门禁计数测试强制）、`docs/agent-edit-allowlist.json`、`docs/deployment.md`、`docs/release-readiness.md`、`docs/worktree-inventory.md`、`docs/design/ack-photo-quality-20260925.md`（新增）。xiaozhi 诊断探针全部回退（HEAD `83ed8a7` 无未提交差异，探针源留 `tmp/ack-trace-stage/`）；两棵 Grbl 未改源码。白名单键 `ack_photo_quality_20260925_authorized`。
+
+- ACK 判决：官方 8 条在途 0 重传（passive-6000-024420）vs 20 条 154 重传/2.5s（025430，相隔 10 分钟同 RX6），互证 09-24 量产根因；动态 RX 6→16 无效果不投产；链路劣化（Grbl 主动 RST errno=104、errno=128）随 Grbl 运行时长加重，DTR 硬重启（原点执行零坐标损失）后 1.0.27 冒烟零断链。成因（射频/AP/板卡）不可区分，留观察项。
+- 设备两次卡 error/Hold（39.950,28.950 与 32.080,39.780）经 COM7 `0x18` 软复位（坐标保留）+ `hutuji.manual home` 恢复；`sku=paper` 系 VER 未达保守档。
+- 量产机复刷 1.0.27（215 CXX、SHA `f24938ce…`、核 MAC），板上 nopaper/指纹/ready/Idle 原点/XY6000 Z1200 全绿。
+- 照片：滞回 36/36（RED-GREEN 实证）、portal 13/13、六样本双风格 24 份 G-code 过 §5、三向裁切 `results/local-only/2026-09-25/ack-photo/experiments/final-crops.png`；用户目视验收未做，不得宣称定案。
+- 证据（results 忽略、仅本机）：`results/20260925-binding-memory-motion/`（复位/硬重启/各轮双串口采样与 ack-analysis）、`results/local-only/2026-09-25/ack-photo/`、`results/20260924-review-fixes/s3-builds/hutuji.1.0.27/`（含 1.0.28–1.0.31-diag 各诊断构建）。临时脚本 `tmp/recover_grbl_reset_0925.py`、`tmp/recover_home_0925.py`、`tmp/hardreset_grbl_0925.py`、`tmp/run_prod_1027_0925.py` 等不提交。
+
 ## 2026-09-24 审查修复候选
 
 用户「同意请处理所有问题」。hub起步HEAD `5581f0e`、已跟踪文件无改动；本批改portal app/store/firmware_ota、小程序固件提示、MCP breaker/bitmap_svg/job_ledger、对应回归与台账。Grbl普通 `6abedbd`、量产 `562dc17` 各改WebSettings.cpp并新增真实C++参数解析回归；普通仓原 `.gitignore` 改动保留。xiaozhi无本批修改。白名单为 `audit_remediation_20260924_authorized`。
@@ -61,7 +71,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
 
 | 2026-09-23 | 量产体检加固批 | 代码 | `draw-portal/draw_portal/voice_agent.py`（_sessions LRU 256）、`store.py`（purge_usage_before）、`app.py`（me id + 1h 节流顺带清理 + 装配注入）、`weapp/utils/preview_cache.js`（LRU 128 + cyrb53 哈希名 + 旧命名清扫）、`weapp/app.js`（换账号清缓存）、`mcp-server/hutuji_mcp/activation_relay.py`（MAC 打码 mac[-5:]）、`deploy/README.md` 与 `AGENTS.md`（preflight 33→34）；测试：portal 429/429（+2）、weapp 238/238（+2）；白名单键 `massprod_sweep_hardening_20260923_authorized`；Grbl 双分支 8 提交已推 origin |
-<!-- paper-current-count --> MCP 当前收集全套 **1588** 项（46 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
+<!-- paper-current-count --> MCP 当前收集全套 **1599** 项（46 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
 
 ## 2026-09-13 公众号引流决策稿（仅文档，未提交）
 
@@ -728,7 +738,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 | 动机 | 写字排版批把 `HUTUJI_GFONT_DIR` 落进 `config.py` 与文档，但 `deploy/env.mcp.example` 漏收——模板是双机 mcp.env 的填写底稿，缺项只能靠人记（2026-08-31 批次起即如此，本轮 grep 复核确认模板对该变量零命中） |
 | 改动 | 6 个文件全为文档/模板/注释面，零行为变更：① `deploy/env.mcp.example`：curated 块后新增 5 行注释块（空=工具禁用；字体为奎享专有素材不入库、无法随仓 scp 分发；本机取 kdraw 安装目录；生产分发方式待用户拍板；示例 `# HUTUJI_GFONT_DIR=/opt/hutuji/gfonts`）。② `deploy/preflight.sh`：`EXPECTED_CHECKS` 前新增 7 行纪律注释，把「不加 gfont 探针」的理由从 inventory 挪到脚本内（评审 P3：决策只落 inventory，加探针者不会来读）。③ 本页本小节（+9 行）。④ `docs/agent-line-refs-baseline.json` 重登。⑤ `docs/kxnx/findings/28-five-slice-crossrepo-review.md` 1 处人工改指 + 2 处自动重定位。⑥ `docs/kxnx/findings/30-firmware-dual-repo-review-0831.md` 1 处自动重定位 |
 | 未决 | ~~字体文件仅存于本机 kdraw 安装目录；生产 `hutuji_write` 启用阻塞在素材授权/分发决策~~（2026-09-02 晚已解：用户拍板「字体你搞」，9 个 `.gfont` 已分发双机 `/opt/hutuji/gfonts/`、env 已配、生产已上线，见本页「hutuji_write 生产上线」小节）。preflight 未加第 34 项探针——无条件探针在双机会永久 fail；若日后要加，须走 Phase-3 条件模式（`GFONT_DIR` 未配即 return 0 计 pass），避免撞 `test_contract.py` 的三方形状对账（`EXPECTED_CHECKS` = `\ncheck "` 条数 = 判据名清单长度）。~~提交未决~~（2026-09-02 追记：用户同意后已随 `1a7f9d1` 入库并推 origin） |
-| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:226`（08-28 `7f48217` `$1=255` 用户原话进固件条；findings #30 内 R2 行实测引用于此——旧叙述误记为 08-30 指纹门禁条，2026-09-24 按 findings 真实引用改正）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
+| 指纹 | 本小节插入使 findings #28/#30 对本页的 4 处 `path:line` 引用整体下移，分两轮收口（第二轮因本行所在小节自身增行）：自动重定位 3 处（`--fix-line-refs`），人工改指 1 处——findings #28 的「gitignored 目录内」引用每轮都落到空锚点/歧义，逐条核对后手改。第三轮随 09-02 字高小节插入再移 9 行、第四轮随 09-02 晚生产上线小节再移 11 行，同法收口。当前落点（2026-09-12 再核，含 09-11 小程序批 +11 行与 09-12 写字单页批小节插入）：findings #28 → 本页 `:148`（测试计数行）/`:655`（quickdraw 387 别名键）/`:660`（quickdraw 计数行），findings #30 → `:727`（08-23 fb2b3b5 COM13 烧录自证）；findings #30 另指 `release-readiness.md:228`（08-28 `7f48217` `$1=255` 用户原话进固件条；findings #30 内 R2 行实测引用于此——旧叙述误记为 08-30 指纹门禁条，2026-09-24 按 findings 真实引用改正）。`--accept-line-refs` 每轮明细均只含本次有意编辑所致位移。`deploy/preflight.sh` 无 `path:line` 引用面（全仓 grep `preflight\.sh:\d+` 零命中），注释插入不影响指纹层 |
 | 验证状态 | hub 门禁 **overall=pass exit=0**（HEAD `65561660`，preflight 注释插入后复跑）：pytest **1150/1150**、e2e `PASS`、指纹 258/258、外仓引用 243、必备文件 36、治理文档 18/18。~~未执行：任何生产动作~~（2026-09-02 晚追记：双机 mcp.env 已加该变量、字体已分发、生产已上线，见本页顶部小节）；设备侧两页错峰 TTL 真机 HIL 仍未做 |
 
 ### 小智控制台登录自动化（2026-08-31，调研→已实施上线阿里云主节点）

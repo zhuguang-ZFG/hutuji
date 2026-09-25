@@ -83,17 +83,19 @@ def _gcode_raster(text: str, *, profile) -> Image.Image:
             paths.append(points[:, ::-1] if transpose else points)
         position = target
     # 与 vpype 撰写页使用同一毫米边界；4px/mm 只影响这份诊断图的显示。
-    return rasterize([path * 4 for path in paths], round(gcode_gen.PAGE_AUTHOR_WIDTH_MM * 4), round(gcode_gen.PAGE_AUTHOR_HEIGHT_MM * 4))
+    width = profile.page_width_mm if profile is not None else gcode_gen.PAGE_AUTHOR_WIDTH_MM
+    height = profile.page_height_mm if profile is not None else gcode_gen.PAGE_AUTHOR_HEIGHT_MM
+    return rasterize([path * 4 for path in paths], round(width * 4), round(height * 4))
 
 
 def _render(
     module: types.ModuleType, raw: bytes, style: str, dest: Path, *, gcode: bool, profile,
+    smooth: bool = False,
 ) -> dict:
     dest.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     polys, w, h = module.render_sketch_polylines(raw, style=style)
     elapsed = time.perf_counter() - started
-    smooth = module is not sketch_render
     svg = polylines_to_svg(polys, w, h, smooth=smooth)
     _validate_svg(svg)
     (dest / "draw.svg").write_text(svg, encoding="utf-8")
@@ -128,6 +130,7 @@ def main() -> int:
     parser.add_argument("inputs", type=Path, nargs="+")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--baseline-ref")
+    parser.add_argument("--baseline-smooth", action="store_true", help="仅比较旧版密集点平滑链时启用；现代基线默认原样导出")
     parser.add_argument("--profile", choices=("mk38", "nopaper"), default="mk38")
     parser.add_argument("--styles", choices=("hatch", "squiggle"), nargs="+", default=["hatch", "squiggle"])
     parser.add_argument("--skip-gcode", action="store_true", help="仅调参预览；最终复验必须跑 G-code")
@@ -165,7 +168,8 @@ def main() -> int:
                 key = f"{label}-{style}"
                 rel = f"{sample_id}/{key}"
                 try:
-                    metrics = _render(module, raw, style, dest / rel, gcode=not args.skip_gcode, profile=profile)
+                    metrics = _render(module, raw, style, dest / rel, gcode=not args.skip_gcode, profile=profile,
+                                      smooth=label == "baseline" and args.baseline_smooth)
                     summary = f'{metrics["polylines"]} 条折线 · 墨覆盖 {metrics["ink_fraction"]:.1%}'
                     if "gcode_bytes" in metrics:
                         summary += f' · {metrics["gcode_bytes"] / 1024:.1f} KiB · {metrics["pen_lifts"]} 次抬笔'
