@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-2026-09-25 照片主体分离批（画质）：用户「照片生图质量还是不行」首因=背景与主体同权重排线糊脸。`sketch_render` 新增谱残差显著性（numpy FFT 零依赖）∪暗部保底（暗≥0.64 恒保，≤0.45 交显著性）软掩码，背景暗度保留 15%，结构线按 run 平均权重 <0.20 滤除；平坦图/小图回落全 1 不动 fail-closed。`test_sketch_render.py` +6→42 项（RED→GREEN），MCP 1604 通过+计数自洽，portal 469/469；真人像 A/B 面部墨 hatch 12.0→8.6%、squiggle 24.5→17.4%，背景墨最大 19.6→8.6%，nopaper 双风格 §5 全过。证据 `results/local-only/2026-09-25/saliency-ab[-gcode]/`，设计与边界见 `docs/design/ack-photo-quality-20260925.md` 傍晚续作节；**生产未部署，待用户目视验收**。
+2026-09-25 照片主体分离批（画质）：用户「照片生图质量还是不行」首因=背景与主体同权重排线糊脸。`sketch_render` 新增谱残差显著性（numpy FFT 零依赖）∪暗部保底（暗≥0.64 恒保，≤0.45 交显著性）软掩码，背景暗度保留 15%，结构线按 run 平均权重 <0.20 滤除；平坦图/小图回落全 1 不动 fail-closed。`test_sketch_render.py` +6→42 项（RED→GREEN），MCP 1604 通过+计数自洽，portal 469/469；真人像 A/B 面部墨 hatch 12.0→8.6%、squiggle 24.5→17.4%，背景墨最大 19.6→8.6%，nopaper 双风格 §5 全过。证据 `results/local-only/2026-09-25/saliency-ab[-gcode]/`，设计与边界见 `docs/design/ack-photo-quality-20260925.md` 傍晚续作节；**2026-09-27 已双机部署生效**（用户拍板放行：auto_deploy 三阶段，双机 sketch_render.py SHA-256 `9520189c…0734` 与 HEAD blob 逐位相符、CR=0，preflight 阿里 25/34·京东 26/34 与已知基线一致，生产冒烟 hatch/squiggle 真渲染 SMOKE_PASS；真实纸面效果待用户下一张实拍反馈）。
 
 2026-09-25 自愈批：小派 `hutuji.1.0.28` 已 OTA 落板（`8a9ec02`）——TLS 堆预算连续 ≥2 次耗尽且落 error 时设备派生一次性自愈任务（10s 宽限复查非 busy/OTA/仍 error → Notify → 20s → esp_restart，被接管即放弃），status 增 `heap` 四字段；last_error/终态停表（`e76cd54`）同批上板。真画验证 done 态 elapsed 停表生效。构建两坑沉淀：export.bat 见 MSYSTEM 拒跑（脚本须 `set MSYSTEM=`）；批处理中文注释 UTF-8 被 cmd 按 GBK 误读拆行（脚本须纯 ASCII）；排查期勿在出图中途开 COM15（DTR 复位）。契约 §10.2，证据见 readiness 18:5x 条目。
 
