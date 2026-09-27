@@ -1,5 +1,5 @@
 {
-  "git_head": "1d0c373bb18bb62272c491d900363ceaf0c8bb1a",
+  "git_head": "c0c6d73e76d1d683078e95b58aec022e24ca956b",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1301,6 +1301,11 @@
       "source": "bool Pipe::SendLineLocked(const std::string& line) {\n    // 逐行模式：发新行前清掉残留应答，防止上一行超时后迟到的 ok 满足本行的等待。\n    // 窗口化模式必须关掉这个清空——那时队列里的应答是「在途」的合法凭据，\n    // 清掉会让在途计数永久漂移（设计文档 §4.1）。\n    if (drain_on_send_.load()) {\n        DrainResponses();\n    }\n\n    std::string payload = line;\n    payload.push_back('\\n');\n    if (!SendRawLocked(payload.data(), payload.size())) {\n        ESP_LOGE(TAG, \"发送失败: %s\", line.c_str());\n        return false;\n    }\n    // 窗口化灌流的运动行每行 ~4-8ms 阻塞打印（UART 115200，持 write_mutex_），\n    // 是 S3 侧逐行固定成本大头；仅压制 G0-G3 运动行，控制行与逐行模式全量保留。\n    if (!HUTUJI_QUIET_STREAM_LOG || drain_on_send_.load() || !IsStreamingMotionLine(line)) {\n        ESP_LOGI(TAG, \"-> %s\", line.c_str());\n    }\n    return true;\n}\n",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
+    "docs/worktree-inventory.md -> Config.h:108": {
+      "sha8": "4be3b45a",
+      "source": "#define ENABLE_BLUETOOTH  // enable bluetooth",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
     "docs/worktree-inventory.md -> TelnetServer.cpp:94": {
       "sha8": "70a49c94",
       "source": "        _telnetserver->setNoDelay(true);",
@@ -1322,6 +1327,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-27T07:14:03Z",
+  "updated": "2026-09-27T09:31:36Z",
   "version": 1
 }
