@@ -1,5 +1,5 @@
 {
-  "git_head": "c0c6d73e76d1d683078e95b58aec022e24ca956b",
+  "git_head": "fa92f58ece2ce536beb14c3a1fe7a1c4e97760c7",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -1306,6 +1306,16 @@
       "source": "#define ENABLE_BLUETOOTH  // enable bluetooth",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
     },
+    "docs/worktree-inventory.md -> Config.h:166": {
+      "sha8": "2c0dc5a4",
+      "source": "const int DEFAULT_RADIO_MODE = ESP_BT;  // 默认蓝牙",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
+    "docs/worktree-inventory.md -> Config.h:168": {
+      "sha8": "7b11f34f",
+      "source": "const int DEFAULT_RADIO_MODE = ESP_WIFI_AP;",
+      "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Config.h"
+    },
     "docs/worktree-inventory.md -> TelnetServer.cpp:94": {
       "sha8": "70a49c94",
       "source": "        _telnetserver->setNoDelay(true);",
@@ -1327,6 +1337,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-27T09:31:36Z",
+  "updated": "2026-09-27T10:52:02Z",
   "version": 1
 }
