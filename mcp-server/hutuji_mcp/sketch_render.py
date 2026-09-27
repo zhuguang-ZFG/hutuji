@@ -90,6 +90,47 @@ _SQUIGGLE_WAVELENGTH_PX = 7.0
 _SQUIGGLE_MAX_AMP_PX = 1.8   # < 行距一半，相邻行波峰永不互撞
 _SQUIGGLE_DARK_FLOOR = 0.30  # 暗度低于此值（归一化后亮调）视为白区，行内断开
 _SQUIGGLE_MIN_SEG_PX = 8.0
+# 主体权重（2026-09-25 用户「照片生图质量还是不行」批）：谱残差显著性
+# （Hou & Zhang 2007，纯 numpy FFT，零新依赖）→ 软掩码 [0,1]。低权重
+# 背景区暗度按 _BG_DARKNESS_KEEP 比例保留，排线/波纹/结构线同步减墨——
+# 「背景与主体同权重排线糊住人脸」是本批点名修的问题（09-12 画质报告
+# 自认上限：无主体分割能力）。谱域在 ≤128px 栅格上算：显著性是大尺度量，
+# 小图足够且天然平滑；<16px 谱域不可靠、纯色无动态范围，一律回落全 1
+# （不抑制），保证纯白/纯黑 fail-closed 与既有测试行为逐点不变。
+_SALIENCY_WORK_PX = 128
+_SALIENCY_MIN_SIDE_PX = 16
+_SALIENCY_SPECTRAL_SIGMA = 3.0  # 对数谱均值滤波尺度，残差 = 局部谱异常
+_SALIENCY_MAP_SIGMA = 2.0       # 显著图平滑，压单像素噪斑
+_SALIENCY_LO_PCT = 55.0         # 分位窗下沿：低于此视为背景
+_SALIENCY_HI_PCT = 92.0         # 分位窗上沿：高于此视为确定主体
+_SALIENCY_MIN_RANGE = 0.05      # 归一化显著图 hi-lo 低于此值判平坦 → 全 1
+_SALIENCY_BLUR_PX = 6.0         # 权重图软化边界：排线密度渐变，无硬切口
+_BG_DARKNESS_KEEP = 0.15        # 背景暗度保留比例；本机基线：hatch 背景墨
+                                # 4.3%→≈0.4%、squiggle 14.3%→≈1%，主体不降
+_STRUCTURE_SALIENCY_MIN = 0.20  # 结构线 run 平均权重低于此值判背景纹理，丢弃
+# 暗部保底：谱残差只点亮主体边界、大色块内部平坦，单靠显著性会把深发/
+# 黑衣主体内部也抹掉；归一化暗度 ≥0.64 的区域恒全额保留，0.45 以下才全交
+# 显著性裁决。两值按「层叠语义测试」深灰带（归一化 ≈0.36 亮/暗 0.64）必须
+# 保住第 1+2 层校准；中间调（0.3–0.45 暗）仍由显著性决定去留。
+_DARK_PRIOR_LO = 0.45
+_DARK_PRIOR_HI = 0.64
+
+
+def _subject_keep_weight(saliency_weight: np.ndarray, smooth: np.ndarray) -> np.ndarray:
+    """显著性权重 ∪ 暗部保底：返回 [0,1] 最终保留权重。smooth 是归一化
+    平滑亮度（1=白）；暗区不看显著性直接保，亮/中间调交显著性裁决。"""
+    dark_prior = np.clip(
+        ((1.0 - smooth) - _DARK_PRIOR_LO) / (_DARK_PRIOR_HI - _DARK_PRIOR_LO),
+        0.0,
+        1.0,
+    )
+    return np.maximum(saliency_weight, dark_prior)
+
+
+def _apply_background_suppression(smooth: np.ndarray, keep: np.ndarray) -> np.ndarray:
+    """按保留权重压低背景暗度（1=白 口径），软边界使密度渐变无硬切口。"""
+    return 1.0 - (1.0 - smooth) * (_BG_DARKNESS_KEEP + (1.0 - _BG_DARKNESS_KEEP) * keep)
+
 
 # RDP 抽稀：find_contours/波形按像素步进出点（1pt/px），直接进 G-code 会撑爆
 # §5 的 512KiB 硬闸（实测 0c278f1f 排线 81k 点，抽稀后 10.5k 点/298KiB）。
@@ -136,6 +177,68 @@ def _load_gray(image_bytes: bytes) -> np.ndarray:
             gray, (new_h, new_w), anti_aliasing=True
         ).astype(np.float32)
     return np.clip(gray, 0.0, 1.0)
+
+
+def _saliency_subject_weight(gray: np.ndarray) -> np.ndarray:
+    """谱残差显著性 → 主体权重软掩码 [0,1]，形状与 gray 相同。
+
+    谱残差（Hou & Zhang 2007）：对数谱减均值滤波的局部异常即显著区，
+    再取逆变换幅值平方为显著图。分位窗映射成权重并大尺度软化边界，
+    使下游排线密度渐变、不出硬切口。平坦显著图（纯色、全黑、均匀渐变）
+    与 <16px 小图一律回落全 1（不抑制），不改动既有 fail-closed 行为。
+    """
+    from skimage.filters import gaussian
+    from skimage.transform import resize
+
+    h, w = gray.shape
+    if min(h, w) < _SALIENCY_MIN_SIDE_PX:
+        return np.ones((h, w), dtype=np.float32)
+    scale = min(1.0, _SALIENCY_WORK_PX / max(h, w))
+    if scale < 1.0:
+        small = resize(
+            gray,
+            (max(1, round(h * scale)), max(1, round(w * scale))),
+            anti_aliasing=True,
+        ).astype(np.float32)
+    else:
+        small = gray.astype(np.float32)
+    spectrum = np.fft.fft2(small)
+    log_amp = np.log(np.abs(spectrum) + 1e-8)
+    residual = log_amp - gaussian(
+        log_amp, sigma=_SALIENCY_SPECTRAL_SIGMA, preserve_range=True
+    )
+    sal = np.abs(np.fft.ifft2(np.exp(residual + 1j * np.angle(spectrum)))) ** 2
+    sal = gaussian(sal, sigma=_SALIENCY_MAP_SIGMA, preserve_range=True)
+    sal = sal / max(float(sal.max()), 1e-12)
+    lo, hi = np.percentile(sal, [_SALIENCY_LO_PCT, _SALIENCY_HI_PCT])
+    if hi - lo < _SALIENCY_MIN_RANGE:
+        return np.ones((h, w), dtype=np.float32)
+    weight = np.clip((sal - lo) / (hi - lo), 0.0, 1.0)
+    if scale < 1.0:
+        weight = resize(weight, (h, w), anti_aliasing=True).astype(np.float32)
+    return gaussian(
+        weight, sigma=_SALIENCY_BLUR_PX, preserve_range=True
+    ).astype(np.float32)
+
+
+def _filter_polys_by_weight(
+    polys: list[np.ndarray],
+    weight: np.ndarray,
+    min_mean: float = _STRUCTURE_SALIENCY_MIN,
+) -> list[np.ndarray]:
+    """按折线顶点平均主体权重过滤：低权重区的纹理/背景轮廓线整条丢弃。
+
+    全 1 权重（平坦图回落）一条不丢，向后兼容。坐标折线是 (x,y) 像素浮点，
+    可能因 RDP 前插值出非整数点，取最近像素采样权重并裁剪进界。
+    """
+    h, w = weight.shape
+    out: list[np.ndarray] = []
+    for p in polys:
+        xs = np.clip(np.round(p[:, 0]).astype(int), 0, w - 1)
+        ys = np.clip(np.round(p[:, 1]).astype(int), 0, h - 1)
+        if float(weight[ys, xs].mean()) >= min_mean:
+            out.append(p)
+    return out
 
 
 def _normalize_tones(gray: np.ndarray, *, gamma: float = _TONE_GAMMA) -> np.ndarray:
@@ -350,7 +453,13 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     original = _load_gray(image_bytes)
     gray = _normalize_tones(original, gamma=_HATCH_TONE_GAMMA)
     h, w = gray.shape
+    # 主体权重软掩码：背景暗度按比例压低，排线在低权重区自然稀疏，
+    # 软边界让密度渐变、不出硬切口（2026-09-25 背景糊脸修复）；
+    # 显著性 ∪ 暗部保底：深发/暗衣主体不看显著性直接保（首版单靠
+    # 显著性把大色块主体内部误抹，保底按层叠语义校准）。
+    weight = _saliency_subject_weight(original)
     smooth = _gaussian_for_mask(gray)
+    smooth = _apply_background_suppression(smooth, _subject_keep_weight(weight, smooth))
     # 工作像素必须换算到同一长边尺度；720×1280 竖照的 6px 并非原设想的
     # 277mm/760×6≈2.2mm，而只有约 1.3mm。禁止靠调亮缩略图掩盖实际密度。
     density_scale = max(1.0, max(h, w) / _WORK_WIDTH_PX)
@@ -366,7 +475,10 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     if n_seg > _HATCH_SEGMENT_BUDGET:
         factor = n_seg / _HATCH_SEGMENT_BUDGET
         layers = make_layers(factor)
-    polys = _simplify(_structure_contours(original), _RDP_TOLERANCE_PX)
+    polys = _simplify(
+        _filter_polys_by_weight(_structure_contours(original), weight),
+        _RDP_TOLERANCE_PX,
+    )
     # 最亮层（面部稀疏排线）不串链：连线会落在明调区边缘成可见回折环
     # （2026-09-10 小样目检）；暗三层用本层 mask 串链，连线藏同暗度带内。
     polys.extend(layers[0])
@@ -394,9 +506,11 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     波纹用连续暗度调制而非阈值 mask，不需要 mask 平滑；抽稀用更小的波形
     容差保住正弦振幅。
     """
-    gray = _normalize_tones(_load_gray(image_bytes))
+    original = _load_gray(image_bytes)
+    gray = _normalize_tones(original)
     h, w = gray.shape
-    darkness = 1.0 - gray
+    weight = _saliency_subject_weight(original)
+    darkness = 1.0 - _apply_background_suppression(gray, _subject_keep_weight(weight, gray))
     polys: list[np.ndarray] = []
     x = np.arange(w, dtype=np.float64)
     phase = 2.0 * np.pi * x / _SQUIGGLE_WAVELENGTH_PX
@@ -439,7 +553,7 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
                 polys.append(seg)
             serpentine_prev_end = seg[-1]
             serpentine_prev_row = row_idx
-    polys.extend(_iso_contours(gray))
+    polys.extend(_filter_polys_by_weight(_iso_contours(gray), weight))
     if not polys:
         raise SketchRenderError("波纹渲染产出为空（图片可能为纯白）")
     return _simplify(polys, _RDP_TOLERANCE_WAVE_PX), w, h

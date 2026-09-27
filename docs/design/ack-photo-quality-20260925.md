@@ -71,3 +71,25 @@ D 为 esp_netif_receive 驱动交付，I 为 tcp_input，O 为 ip4_output_if 输
 
 - xiaozhi 工作树探针（CMakeLists 版本/链接包装、hutuji_pipe.cc 109 行、hutuji_recovery_core.h 8→20、freenove config.json 动态RX16）全部回退 HEAD；探针源与各版镜像/构建清单留证 `tmp/ack-trace-stage/`、`results/20260924-review-fixes/s3-builds/hutuji.1.0.{28,29,30,31}-diag/`。
 - 量产 1.0.27 重建真编译 215 CXX、bin 3077712B SHA `f24938ce…`，刷 COM15 核 MAC 后板上复核：`hutuji.1.0.27`/nopaper/指纹通过/ready/Idle 原点/速度 XY6000 Z1200；冒烟 passive-6000 done 归位零断链。诊断镜像 1.0.28–1.0.31-diag 均不得再刷作交付。
+
+## 2026-09-25 傍晚续作：显著性主体权重背景抑制（已提交）
+
+用户追问「照片生图质量还是不行」。对照当日 14:07 生产真实照片渲染产物（129×220 设备预览拉回本机目检）确认首因：**背景与主体同权重排线**——窗帘/家具/墙面挂满排线，与面部同脏；09-12 报告自认上限「无主体分割能力」正中此点。本批在程序化链内修复，不动付费 i2i 备用通道。
+
+### 机制（`mcp-server/hutuji_mcp/sketch_render.py`）
+
+- `_saliency_subject_weight`：谱残差显著性（Hou & Zhang 2007，纯 numpy FFT，零新依赖）在 ≤128px 栅格计算 → 分位窗（p55/p92）映射 → 6px 软化边界，输出 [0,1] 主体权重。平坦显著图（纯色/全黑/均匀渐变）与 <16px 小图一律回落全 1 不抑制，纯白/纯黑 fail-closed 行为逐点不变。
+- `_subject_keep_weight`：显著性 ∪ 暗部保底（归一化暗度 ≥0.64 恒全额保留，≤0.45 全交显著性）。保底是必要的——谱残差只点亮主体**边界**、大色块内部平坦，首版单靠显著性把深色主体内部误抹（本批 RED→GREEN 实测 hatch 主体墨 0.265→0.047 事故，暗部保底后恢复 0.271）；0.45/0.64 按「层叠语义测试」深灰带必须保住第 1+2 层校准。
+- `_apply_background_suppression`：背景暗度保留 15%（`_BG_DARKNESS_KEEP`），排线/波纹在低权重区自然稀疏，软边界无硬切口；结构线/iso 轮廓按 run 平均权重 <0.20 整条丢弃（`_filter_polys_by_weight`）。
+
+### 证据
+
+- RED：新增 5 项回归先全败（2 个函数不存在 + 背景墨超限）；GREEN：`test_sketch_render.py` 42/42（+6 项，含暗部保底层级测试），MCP 全套 1604 通过（仅计数自洽测试按流程同步 AGENTS/inventory 后通过），portal 全套 469/469。
+- 合成基线（中灰纹理背景+深色主体）：hatch 背景墨 4.3%→0.4% 以下、主体 ≥70% 保留；squiggle 背景 14.3%→6% 以下。
+- 真人像 A/B（`results/local-only/2026-09-25/saliency-ab/`，基线 = Git HEAD `f452408` 含清晨滞回批，非旧树推测）：sample-01 面部区墨 hatch 12.0%→8.6%、背景区 7.8%→4.5%；squiggle 面部 24.5%→17.4%、背景 19.6%→8.6%；sample-02 hatch 5.75%→3.97%、squiggle 14.2%→9.8%。sample-02 目检：基线下半脸/胡须/颈部整片斜线糊住，新版面部留白、镜框/眼/鼻/嘴清晰。
+- 终验（`saliency-ab-gcode/`，nopaper 档真 vpype）：两样本双风格 §5 全过，G-code 110–266KiB 远低于 512KiB 硬闸。
+- 渲染耗时 hatch ≈0.8s / squiggle ≈1.8s（720×1280），FFT 开销可忽略。
+
+### 边界与未宣称
+
+谱残差是无学习 proto-object 检测，不是语义分割：多人物、偏心主体、主体与背景同色调的场景未验证；背景完全抹白非目标（保留 15% 渐变）。本批未经 ≥5 张用户随手拍与纸面目视，不算出货级画质验收；生产部署待用户对本机 A/B 对比页目视确认。对比页 `results/local-only/2026-09-25/saliency-ab/index.html`（本机证据，gitignore 内）。

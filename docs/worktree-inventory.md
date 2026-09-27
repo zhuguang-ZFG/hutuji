@@ -1,5 +1,10 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
+## 2026-09-25 照片主体分离批（傍晚，用户「照片生图质量还是不行」）
+
+hub 工作树本批改动：`mcp-server/hutuji_mcp/sketch_render.py`（+122/-4：谱残差显著性 `_saliency_subject_weight`、暗部保底 `_subject_keep_weight`、`_apply_background_suppression`、`_filter_polys_by_weight`，接 hatch/squiggle 两渲染器）、`mcp-server/tests/test_sketch_render.py`（+6 → 42 项）、`AGENTS.md`（滚动条目 + 计数 1599→1605 同步）、`docs/worktree-inventory.md`（本条 + 计数锚 1605/47 文件）、`docs/design/ack-photo-quality-20260925.md`（傍晚续作节）。基线 Git HEAD `f452408`（含清晨滞回批，已提交），本批 diff 不含滞回改动（已核实）。证据（results 忽略、仅本机）：`results/local-only/2026-09-25/saliency-ab/`（双样本双风格新旧对比 + index.html）、`saliency-ab-gcode/`（nopaper §5 终验 110–266KiB 全过）、`photo-check/`（生产 14:07 真实照片预览拉回目检）。生产未部署，待用户目视验收。
+
+
 ## 2026-09-25 绘图中途卡死事故修复批（用户「刚用小派画了个图，中途卡死了，看 log 找原因并修复」）
 
 量产 Grbl 仓提交 **`d723f4c`**（massprod/nopaper-1.3a，`src/WebUI/WifiConfig.cpp/.h` +82 行纯增：STA 断链自愈看门狗），已双 OTA 槽 UART 落板（镜像 1844848B SHA-256 `1e742142…5ab7`，构建锚 20260910 不动）。错 SSID 全环板测通过 + 云端 hutuji.status 全绿，验收三判据与残余缺口见 readiness/deployment 当日条目。hub 仓本批仅文档登记（`93ffbb9`）：deployment/readiness 条目 + 行号指纹基线重登。证据（results 忽略、仅本机）：`results/20260925-grbl-wifi-watchdog/`（错 SSID 板测脚本与全程串口日志 `watchdog_test_0925.{py,log}`）。临时脚本 `tmp/watchdog_test_0925.py` 同源不提交。纠正前录：事故中 .14 ARP MAC=本机 efuse MAC 非他设备冲突。
@@ -78,7 +83,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 本段登记候选和证据，不改变已有设备/上线结论。源码已分别提交：S3 `bde6ba5`，普通Grbl `6abedbd`，量产Grbl `9bebc00`；枢纽提交随后登记。量产S3 COM15/MAC `b8:1f:3f:c4:58:2c` 已刷1.0.18，官方查询确认默认A4配置与完整device_id，证据 `hutuji.1.0.18/{flash-record.json,s3-flash.log,s3-boot-after-flash.log}` 和 `ali-device-163042-694203.log`；NVS已备份，旧1.0.17回滚SHA为 `e72245fca42437058fceb1c628c09f23eb2fce9aa5b8879d686ac3598d451974`。Grbl本轮未刷写；Grbl COM3/MAC `4c:c3:82:cc:8a:9c` 于16:18接回复验为Idle/原点、速度**3000/3000/1200**、`$1=255`（`grbl-reconnected-20260914-161806.log`），此现读值取代本段旧速度记录，未按旧台账回写。刷写前仍须现读MAC。新发布必须基于明确提交的LF blob、逐文件SHA与CR=0；队列升级先暂停入口、排空并停旧worker。精品图库只有程序候选，真实素材和许可集未完成；`configure/` 空工具状态不是量产配方。
 
 | 2026-09-23 | 量产体检加固批 | 代码 | `draw-portal/draw_portal/voice_agent.py`（_sessions LRU 256）、`store.py`（purge_usage_before）、`app.py`（me id + 1h 节流顺带清理 + 装配注入）、`weapp/utils/preview_cache.js`（LRU 128 + cyrb53 哈希名 + 旧命名清扫）、`weapp/app.js`（换账号清缓存）、`mcp-server/hutuji_mcp/activation_relay.py`（MAC 打码 mac[-5:]）、`deploy/README.md` 与 `AGENTS.md`（preflight 33→34）；测试：portal 429/429（+2）、weapp 238/238（+2）；白名单键 `massprod_sweep_hardening_20260923_authorized`；Grbl 双分支 8 提交已推 origin |
-<!-- paper-current-count --> MCP 当前收集全套 **1599** 项（46 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
+<!-- paper-current-count --> MCP 当前收集全套 **1605** 项（47 个文件）；本批完整执行结果另见同批证据，收集数不等于通过数。
 
 ## 2026-09-13 公众号引流决策稿（仅文档，未提交）
 

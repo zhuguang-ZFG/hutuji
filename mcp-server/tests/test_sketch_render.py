@@ -448,3 +448,116 @@ def test_end_to_end_svg_gcode_passes_section5(tmp_path):
         svg_path.write_text(svg, encoding="utf-8")
         svg_to_gcode(svg_path, gcode_path)
         validate_gcode(gcode_path.read_text(encoding="utf-8"), total_bytes=gcode_path.stat().st_size)
+
+
+def _portrait_on_busy_bg(w: int = 240, h: int = 320, seed: int = 7):
+    """中灰纹理背景 + 中央深色主体：人像类输入的最小代理，附主体掩膜。"""
+    rng = np.random.default_rng(seed)
+    arr = np.full((h, w), 170, dtype=np.float32)
+    arr += rng.normal(0, 22, (h, w)).astype(np.float32)
+    yy, xx = np.mgrid[0:h, 0:w]
+    subject = ((xx - w / 2) / (w * 0.22)) ** 2 + ((yy - h * 0.42) / (h * 0.22)) ** 2 <= 1.0
+    arr[subject] = 60 + rng.normal(0, 8, int(subject.sum()))
+    return np.clip(arr, 0, 255).astype(np.uint8), subject
+
+
+def _ink_map(polys: list[np.ndarray], w: int, h: int) -> np.ndarray:
+    img = np.zeros((h, w), dtype=bool)
+    for p in polys:
+        xy = np.round(p).astype(int)
+        for (x0, y0), (x1, y1) in zip(xy[:-1], xy[1:]):
+            n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+            xs = np.round(np.linspace(x0, x1, n)).astype(int)
+            ys = np.round(np.linspace(y0, y1, n)).astype(int)
+            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            img[ys[ok], xs[ok]] = True
+    return img
+
+
+def _dilate(mask: np.ndarray, iters: int = 8) -> np.ndarray:
+    out = mask.copy()
+    for _ in range(iters):
+        out[1:, :] |= out[:-1, :]
+        out[:-1, :] |= out[1:, :]
+        out[:, 1:] |= out[:, :-1]
+        out[:, :-1] |= out[:, 1:]
+    return out
+
+
+def test_saliency_weight_marks_subject_over_background():
+    """显著性软掩码：谱残差只点亮主体边界（大色块内部平坦是算法特性），
+    故钉「边界带权重显著高于背景」；同输入逐点复现。"""
+    arr, subject = _portrait_on_busy_bg()
+    gray = sketch_render._load_gray(_png(arr))
+    weight = sketch_render._saliency_subject_weight(gray)
+    bg = ~_dilate(subject)
+    edge_band = subject & _dilate(~subject, 3)
+    assert weight.shape == gray.shape
+    assert weight.min() >= 0.0 and weight.max() <= 1.0
+    assert weight[bg].mean() < 0.35, f"背景权重未压低 bg={weight[bg].mean():.2f}"
+    assert weight[edge_band].mean() > weight[bg].mean() + 0.2
+    again = sketch_render._saliency_subject_weight(gray)
+    np.testing.assert_array_equal(weight, again)
+
+
+def test_subject_keep_weight_dark_prior_protects_subject_interior():
+    """消费面语义：暗部保底让深色主体内部（含平坦区）保留权重 ≈1，
+    纹理背景 ≤0.25——显著性单独做不到这一点（只点亮边界）。"""
+    arr, subject = _portrait_on_busy_bg()
+    gray = sketch_render._load_gray(_png(arr))
+    weight = sketch_render._saliency_subject_weight(gray)
+    smooth = sketch_render._gaussian_for_mask(
+        sketch_render._normalize_tones(gray, gamma=sketch_render._HATCH_TONE_GAMMA)
+    )
+    keep = sketch_render._subject_keep_weight(weight, smooth)
+    interior = subject & ~_dilate(~subject, 6)
+    bg = ~_dilate(subject)
+    assert keep[interior].mean() >= 0.85, f"主体内部保底失效 keep={keep[interior].mean():.2f}"
+    assert keep[bg].mean() <= 0.25, f"背景未抑制 keep={keep[bg].mean():.2f}"
+
+
+def test_saliency_weight_flat_or_tiny_image_falls_back_to_uniform():
+    """纯色/近纯色显著性无动态范围，极小图谱域不可靠：全 1 不抑制，
+    保住既有 fail-closed 与暗图行为不退化。"""
+    flat = sketch_render._saliency_subject_weight(np.full((40, 60), 0.5, dtype=np.float32))
+    np.testing.assert_allclose(flat, 1.0)
+    tiny = sketch_render._saliency_subject_weight(
+        sketch_render._load_gray(_half_black_png(w=12, h=10))
+    )
+    np.testing.assert_allclose(tiny, 1.0)
+
+
+def test_hatch_background_ink_suppressed_subject_kept():
+    """2026-09-25 用户「照片生图质量还是不行」：背景与主体同权重排线
+    是观感首因。基线实测背景墨 4.3% / 主体 26.5%；抑制后背景须砍半以上，
+    主体保持 ≥70%（ suppression 不许把主体一起抹掉）。"""
+    arr, subject = _portrait_on_busy_bg()
+    polys, w, h = render_hatch(_png(arr))
+    ink = _ink_map(polys, w, h)
+    bg = ~_dilate(subject)
+    assert ink[bg].mean() <= 0.022, f"背景排线未抑制 bg_ink={ink[bg].mean():.3f}"
+    assert ink[subject].mean() >= 0.18, f"主体被误伤 subj_ink={ink[subject].mean():.3f}"
+
+
+def test_squiggle_background_rows_suppressed_subject_kept():
+    """波纹同病：基线背景墨 14.3% / 主体 28.2%。背景须压到 6% 以下。"""
+    arr, subject = _portrait_on_busy_bg()
+    polys, w, h = render_squiggle(_png(arr))
+    ink = _ink_map(polys, w, h)
+    bg = ~_dilate(subject)
+    assert ink[bg].mean() <= 0.06, f"背景波纹未抑制 bg_ink={ink[bg].mean():.3f}"
+    assert ink[subject].mean() >= 0.20, f"主体被误伤 subj_ink={ink[subject].mean():.3f}"
+
+
+def test_structure_runs_filtered_by_saliency_weight():
+    """背景纹理结构线按 run 平均权重过滤；全 1 权重（平坦图）一条不丢。"""
+    high = np.array([[10.0, 10.0], [20.0, 10.0], [20.0, 20.0]])
+    low = np.array([[100.0, 100.0], [110.0, 100.0], [110.0, 110.0]])
+    weight = np.zeros((120, 120), dtype=np.float32)
+    weight[:40, :40] = 1.0
+    kept = sketch_render._filter_polys_by_weight([high, low], weight)
+    assert len(kept) == 1 and np.array_equal(kept[0], high)
+    all_kept = sketch_render._filter_polys_by_weight(
+        [high, low], np.ones((120, 120), dtype=np.float32)
+    )
+    assert len(all_kept) == 2
