@@ -187,6 +187,32 @@ test("详情未看见预览不能发送，发送不重复且隐藏回包解除�
   assert(!h.page.data.actionHint.includes("开始绘制"));
 });
 
+test("发送成功但自动开画未完成时透出 detail 指引，而非「已发送」", async () => {
+  // 2026-09-25 事故回归：confirm 重试窗口耗尽仍 sent 时 push.py detail 带
+  // 「自动开始画未完成：…可在小派屏幕或控制页点『开始画』」，客户端必须透出，
+  // 否则用户看到「已发送」而机器不动。字符串标记与服务端 push.py 字面量耦合。
+  const h = setup(true);
+  await showDetail(h);
+  h.page.onSend();
+  const detail = "已发送；自动开始画未完成：设备未确认。可在小派屏幕或控制页点「开始画」，或稍后重新发送";
+  reply(h.requests.at(-1), { status: "sent", detail });
+  await flush();
+  assert.equal(h.page.data.actionHint, detail);
+  assert(!h.page.data.actionHint.includes("留意设备状态"));
+  assert.equal(h.page.data.sending, false);
+});
+
+test("收藏路径 detail 含未完成标记不触发透出，仍显示已收藏", async () => {
+  // notStarted 闸只对 kind==="send" 生效；favorite 回包 detail 被忽略。
+  const h = setup(true);
+  await showDetail(h);
+  h.page.onFavorite();
+  reply(h.requests.at(-1), { status: "saved", detail: "自动开始画未完成：不应透出" });
+  await flush();
+  assert.match(h.page.data.actionHint, /已收藏/);
+  assert(!h.page.data.actionHint.includes("自动开始画未完成"));
+});
+
 test("收藏保留同账号结果，卸载后的回包无权更新", async () => {
   const h = setup(true);
   await showDetail(h);
