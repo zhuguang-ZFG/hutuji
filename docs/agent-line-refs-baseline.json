@@ -1,5 +1,5 @@
 {
-  "git_head": "4a2831a2c4c7ee71e1806bc543fee58f34bf2373",
+  "git_head": "65390a1dda869da84b3ff3761c1e9a1d0ab0f9ab",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -85,36 +85,6 @@
       "sha8": "89b48f60",
       "source": "void EmoteDisplay::SetPreviewImage(const void* image)",
       "target": "D:/Users/xiaozhi-esp32/main/display/emote_display.cc"
-    },
-    "docs/design/fz-review-20260927.md -> agent_gate.py:105-114": {
-      "sha8": "e847b062",
-      "source": "    ],\n    # findings #30 R2（2026-08-31 用户批准补录）：两个 §9 清单外但有用户点名授权\n    # 记录的触面——WifiConfig.cpp（0e1b7ed commit 内记 2026-08-24 用户点名批准\n    # 「grbl 不需要省电」）、custom_3axis_hr4988.h（7f48217，release-readiness\n    # 记用户原话要求 $1=255 进固件 + fz standard pass）。GCode.cpp 属 §9-F′\n    # 契约命名（protocol.md §9 表），已并入 grbl_section9_only。\n    # 2026-09-06 用户批准（「同意修复」）：371a3c4 删 src/Limits.h 把 limits_* 全部\n    # 声明一并删除致固件 release 构建断（pio RED 实证），按评审方案 A 以\n    # grbl_limits.h 复活声明 + 改指 Grbl.h:51（Grbl.h 原为唯一 includer）。\n    \"grbl_user_authorized_extras\": [",
-      "target": "scripts/agent_gate.py"
-    },
-    "docs/design/fz-review-20260927.md -> agent_gate.py:1283-1284": {
-      "sha8": "5f7d4907",
-      "source": "\n    key = \"<doc 相对路径> -> <ref 原文（规范化）>\"；同一文档同一引用出现多次",
-      "target": "scripts/agent_gate.py"
-    },
-    "docs/design/fz-review-20260927.md -> agent_gate.py:1301-1357": {
-      "sha8": "68960ab8",
-      "source": "        try:\n            text = _strip_invisible(md.read_text(encoding=\"utf-8\", errors=\"replace\"))\n        except OSError as exc:\n            return DocRefScan(\n                {}, {}, {}, {}, set(), f\"无法读取治理文档 {rel_md}（{type(exc).__name__}）\"\n            )\n        for m in _DOC_REF_RE.finditer(text):\n            ref = _normalize_doc_ref(m.group(1))\n            start, end, range_err = _doc_ref_range(m)\n            key = f\"{rel_md} -> {ref}:{m.group(2)}{'-' + m.group(3) if m.group(3) else ''}\"\n            seen.add(key)\n            if key in current or key in blank or key in broken or key in unresolved:\n                continue\n            target = _resolve_doc_ref(ref, internal_index)\n            rel_target: str | None = None\n            if target is not None:\n                rel_target = target.relative_to(ROOT).as_posix()\n            else:\n                cands = external_index.get(ref.rsplit(\"/\", 1)[-1], [])\n                cands = _narrow_by_path_suffix(ref, cands)\n                if len(cands) == 1:\n                    target = cands[0]\n                    rel_target = target.as_posix()\n            if target is None or rel_target is None:\n                unresolved[key] = ref\n                continue\n            if target not in lines_cache:\n                try:\n                    lines_cache[target] = target.read_text(\n                        encoding=\"utf-8\", errors=\"replace\"\n                    ).splitlines()\n                except OSError as exc:\n                    return DocRefScan(\n                        {}, {}, {}, {}, set(),\n                        f\"无法读取引用目标 {rel_target}（{type(exc).__name__}）\",\n                    )\n            lines = lines_cache[target]\n            # 行号越界与区间语义错由 doc_line_refs / external_doc_line_refs 两层判红；\n            # 本层算不出指纹，但要记进 broken——accept 不得为它保留旧指纹。\n            if range_err is not None or end > len(lines):\n                broken[key] = rel_target\n                continue\n            body = lines[start - 1 : end]\n            # 目标行全空白 = 这条引用指向「什么都没有」。空串的 sha256 前 8 位恒为\n            # e3b0c442，于是它永远与基线相符、永远不报漂移，却被计进「指纹 N 处全对」。\n            # 实测本仓有 5 条这样的锚点，全部是行号已漂 1–2 行的陈旧指针（内容就在\n            # 邻行），指纹层却把它们当成正确证据（2026-08-11 review AG-F2）。\n            if not any(line.strip() for line in body):\n                blank[key] = rel_target\n                continue\n            current[key] = {\n                \"target\": rel_target,\n                \"sha8\": _sha8(body),\n                \"source\": \"\\n\".join(body),\n            }\n    return DocRefScan(current, blank, broken, unresolved, seen, None)\n",
-      "target": "scripts/agent_gate.py"
-    },
-    "docs/design/fz-review-20260927.md -> agent_gate.py:202-205": {
-      "sha8": "8bbec32d",
-      "source": "# allowlist 同步下线）——新决策为「阿里云主 + 京东云热备」，且当晚割接完成：\n# 阿里云 47.112.162.80 现役生产、京东云热备；反转记录见 release-readiness.md\n# 文首与 README 决策 #5。\n# 复活扫描与禁语扫描共同的文件面。原先三条 REVIVED_PATTERNS 各带一份手写清单，",
-      "target": "scripts/agent_gate.py"
-    },
-    "docs/design/fz-review-20260927.md -> agent_gate.py:492": {
-      "sha8": "5533ab3c",
-      "source": "    if re.search(r\"(?:禁止重开|明确不要做的事)(?:\\*\\*)?\\s*[：:]\", prefix):",
-      "target": "scripts/agent_gate.py"
-    },
-    "docs/design/fz-review-20260927.md -> agent_gate.py:493-500": {
-      "sha8": "ca966c75",
-      "source": "        return True\n    # 否决/禁令类标题 + 冒号，冒号后为并列项。粗体标记与括号补充说明都可穿过。\n    #\n    # 否决词与冒号之间**只允许**粗体标记与括号补充，不允许再有一段谓语。原先此处放宽\n    # 到 `[^：:\\n]{0,40}`，等于「同一行里任何位置出现过禁令词 + 冒号」就豁免整行余下\n    # 内容，实测 `禁止在出图中发 M 命令：板间链路改用 USB Host 直连。` 与\n    # `禁止跳过 bringup-sop：本机硬件已验证。` 两句都能全绿——前半句的禁令管的是它自己\n    # 的宾语，管不到冒号后另起的主张。`不证明：`/`**禁止宣称**（除非…）：` 这类真引述",
-      "target": "scripts/agent_gate.py"
     },
     "docs/design/p2-windowed-flow-control.md -> InputBuffer.cpp:48-63": {
       "sha8": "a6ddb8d0",
@@ -1372,6 +1342,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-09-27T11:37:31Z",
+  "updated": "2026-09-27T11:43:05Z",
   "version": 1
 }
