@@ -1363,7 +1363,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 
 ## 2026-09-25 自动确认重试根治批
 
-产品提交：hub `b10ac3e`（portal push.py 重试 + weapp detail.js 透出 + 4 条回归）、S3 `e76cd54`（hutuji_job status 观测性两小改，不 OTA）。双机 portal 部署备份在 `/root/hutuji-bak-20260925-autoconfirm/`（lima+jdcloud 各一）。S3 1.0.27 freenove 编译验证日志与镜像 SHA 在 `results/20260924-review-fixes/s3-builds/hutuji.1.0.27/freenove-esp32s3-display-2.8-lcd-build-20260925-172636-878173.log`；IDF export 与构建包装日志在 `results/20260925-status-err/`。复现实验测试件 `tmp/draw_20260925_170800_SaxjH7txmRp-UCXHzR5Tfg.{gcode,png}` 与部署导出 `tmp/push_deploy_0925.py` 留存本机；lima 生产 output 同名测试件按 600s TTL 自清。构建脚本 `tmp/build_status_err_0925.cmd`。
+产品提交：hub `b10ac3e`（portal push.py 重试 + weapp detail.js 透出 + 4 条回归）、S3 `e76cd54`（hutuji_job status 观测性两小改，不 OTA）。双机 portal 部署备份在 `/root/hutuji-bak-20260925-autoconfirm/`（lima+jdcloud 各一）。S3 1.0.27 freenove 编译验证日志与镜像 SHA 在 `results/20260924-review-fixes/s3-builds/hutuji.1.0.27/freenove-esp32s3-display-2.8-lcd-build-20260925-172636-878173.log`；IDF export 与构建包装日志在 `results/20260925-status-err/`。复现实验测试件 `tmp/draw_20260925_170800_SaxjH7txmRp-UCXHzR5Tfg.{gcode,png}` 与部署导出 `tmp/push_deploy_0925.py` 留存本机；lima 生产 output 同名测试件按 600s TTL 自清。构建脚本 `tmp/build_status_err_0925.cmd`。2026-09-27 续：weapp 尾巴随 **0.3.23** CLI 上传（`✔ upload`，268509B，脚本 `tmp/weapp_upload_0323.bat` GBK，结果 `tmp/weapp-upload-0.3.23.json`；version.js bump 0.3.23），MP 提审发布待用户。
 
 ## 2026-09-25 自愈批 1.0.28 OTA
 
