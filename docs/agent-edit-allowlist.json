@@ -959,5 +959,27 @@
       "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h",
       "D:/Users/xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/config.json"
     ]
+  },
+  "fz_gate_hardening_20261002_authorized": {
+    "note": "用户原话：按照顺序执行（选项「先做 fz 必修 4 项」）。范围=docs/design/fz-review-20260927.md 的必修 #1–#4，落地顺序 #4→#1→#2→#3；只改 fz 门禁/仿真层与本仓真值页，不碰产品固件行为、不部署、不刷机。同轮用户拍板：断连恢复 paper_active 窗口 abort 复测降级为非交付门槛（量产交付=nopaper 无换纸机构）。",
+    "contract": "fz standard + observe；陈旧镜像/缺本轮报告判非 pass，配额耗尽归非阻断，报告绑 git sha，soft allowlist 精确匹配。禁止把既有失败改成通过",
+    "paths": [
+      "D:/Users/zhugu/fz/chip_sim/firmware_freshness.py",
+      "D:/Users/zhugu/fz/chip_sim/run_wokwi_smoke.py",
+      "D:/Users/zhugu/fz/chip_sim/run_qemu_smoke.py",
+      "D:/Users/zhugu/fz/chip_sim/test_startup_log_oracle.py",
+      "D:/Users/zhugu/fz/scripts/agent_gate.py",
+      "D:/Users/zhugu/fz/scripts/test_agent_gate.py",
+      "D:/Users/zhugu/fz/scripts/release_honesty.py",
+      "D:/Users/zhugu/fz/scripts/test_release_honesty.py",
+      "D:/Users/zhugu/fz/scripts/soft_allowlist.py",
+      "D:/Users/zhugu/fz/scripts/test_golden_record.py",
+      "D:/Users/zhugu/fz/protocol_sim/cases/soft/allowlist.yaml",
+      "docs/design/fz-review-20260927.md",
+      "docs/release-readiness.md",
+      "docs/agent-handoff.md",
+      "docs/worktree-inventory.md",
+      "docs/agent-edit-allowlist.json"
+    ]
   }
 }
