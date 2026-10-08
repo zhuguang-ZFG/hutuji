@@ -1,4 +1,22 @@
 {
+  "fz_validation_fixes_20261008_authorized": {
+    "note": "用户在剩余问题清单后要求继续，并明确先完成软件修复；修fz三处验证漏洞，并处理验证中实证的observe漏quota报告误判，不执行真机运动。2026-10-08追加：提交推送部署下载验证；提交推送本批源码及台账，核验远端源码下载与现役固件下载、双机服务及设备只读状态；本批没有新产品固件或云端代码需要发布。",
+    "contract": "docs/design/fz-validation-fixes-20261008.md；fz review建议7/10/12的精确金样身份、trace完整性、位置差断言；不改产品行为",
+    "paths": [
+      "D:/Users/zhugu/fz/hardware_sim/case_runner.py",
+      "D:/Users/zhugu/fz/hardware_sim/test_mpos_delta.py",
+      "D:/Users/zhugu/fz/hardware_sim/cases/move_x10_step_window.json",
+      "D:/Users/zhugu/fz/native_sim/run_protocol_scenarios.py",
+      "D:/Users/zhugu/fz/native_sim/test_trace_shape.py",
+      "D:/Users/zhugu/fz/scripts/golden_record.py",
+      "D:/Users/zhugu/fz/scripts/test_golden_source.py",
+      "D:/Users/zhugu/fz/scripts/test_golden_record.py",
+      "D:/Users/zhugu/fz/scripts/agent_observe.py",
+      "D:/Users/zhugu/fz/scripts/test_agent_observe.py",
+      "D:/Users/zhugu/fz/docs/specs/2026-10-08-validation-guards.md",
+      "docs/**"
+    ]
+  },
   "kdraw_runtime_review_20261008_authorized": {
     "note": "用户原话：grbl已上线，继续排查bug，参考奎享逆向文件；承接本会话三仓排查并完全修复。2026-10-08追加授权：提交、部署；本批允许S3升为1.0.33并OTA，保留前版与回滚指针。",
     "contract": "protocol §3/§4.1/§7/§10.4.15；命令应答配对、XYZ到位校验、迟到错误与超时先物理收敛；奎享只作参照",
