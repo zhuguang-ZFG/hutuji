@@ -249,9 +249,9 @@ Page({
     return "m" + this._msgSeq;
   },
 
-  _pushMessage(role, content, toolTraces, preview) {
+  _pushMessage(role, content, toolTraces, preview, extra) {
     const id = this._nextMsgId();
-    const msg = { id, role, content };
+    const msg = Object.assign({ id, role, content }, extra || {});
     const tracesText = formatToolTraces(toolTraces);
     if (tracesText) msg.toolTracesText = tracesText;
     if (preview && preview.preview_url) {
@@ -414,14 +414,32 @@ Page({
     this.setData({ inputMode: "text", inputFocus: true, textInput: text.slice(0, 200) });
   },
 
+  // 2026-10-08：发送失败的原文只恢复成草稿，由用户决定是否重发；输入框已有新草稿时不覆盖。
+  // 登录切换会清空 messages，恢复入口随之作废；回复等待中不改写输入框。
+  onRestoreText(e) {
+    if (!this.data.enabled || this._visible === false || this._unloaded ||
+      this._chatSession !== getApp()._sessionGeneration) return;
+    const id = e && e.currentTarget && e.currentTarget.dataset.id;
+    const msg = id ? this._findMsg(id) : null;
+    if (!msg || msg.role !== "user" || !msg.failed || msg.restored) return;
+    if (this.data.busy || this._recordAttempt || this.data.micAuthorizing) return;
+    if ((this.data.textInput || "").trim()) {
+      wx.showToast({ title: "输入框有新内容，先清空再恢复", icon: "none" });
+      return;
+    }
+    this.setData({ inputMode: "text", inputFocus: true, textInput: String(msg.content || "").slice(0, 200) });
+    this._patchMessage(id, { restored: true });
+  },
+
   onSendText() {
     const text = (this.data.textInput || "").trim();
     if (!text || this.data.busy || !this.data.enabled || this._recordAttempt) return;
     const current = pageSession.captureTask(this);
     const pending = this._textPending = {};
-    // 上下文：最近 10 轮用户/小派对话（与 MCP HISTORY_MAX_TURNS 同口径）
+    // 上下文：最近 10 轮用户/小派对话（与 MCP HISTORY_MAX_TURNS 同口径）；
+    // 未确认回复的轮次与本地错误提示不构成完整对话，不得混入历史。
     const history = this.data.messages
-      .filter((m) => (m.role === "user" || m.role === "assistant") && m.content)
+      .filter((m) => (m.role === "user" || m.role === "assistant") && m.content && !m.failed && !m.error)
       .slice(-10)
       .map((m) => {
         let content = m.content;
@@ -432,7 +450,7 @@ Page({
         }
         return { role: m.role, content: content.slice(0, 500) };
       });
-    this._pushMessage("user", text);
+    const userId = this._pushMessage("user", text);
     this.setData({ textInput: "", busy: true, replyPending: true });
     api
       .request("/api/chat", {
@@ -462,10 +480,13 @@ Page({
       })
       .catch((err) => {
         if (!current()) return;
-        // 聊天里的失败落成小派的一条气泡（429/400 白话透传），不弹窗打断
+        // 聊天里的失败落成小派的一条气泡（429/400 白话透传），不弹窗打断；
+        // 网络失败不代表请求没到服务端；标记回复未确认供恢复，两者都不进下一轮历史。
+        this._patchMessage(userId, { failed: true });
         this._pushMessage(
           "assistant",
-          (err && err.detail) || "网络不太好，等下再找我聊吧"
+          (err && err.detail) || "网络不太好，等下再找我聊吧",
+          null, null, { error: true }
         );
       })
       .finally(() => {

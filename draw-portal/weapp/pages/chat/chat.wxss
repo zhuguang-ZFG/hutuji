@@ -33,6 +33,10 @@
 .bubble { padding: 22rpx 26rpx; border-radius: 24rpx; font-size: 29rpx; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
 .user .bubble { background: #194047; color: #edfffd; border-bottom-right-radius: 6rpx; }
 .assistant .bubble { background: #171b25; color: #edf1f7; border: 1rpx solid #262d3a; border-top-left-radius: 6rpx; }
+.assistant .bubble.bubble-error { border-color: #5a4330; color: #f2bd78; }
+.user .bubble.bubble-failed { opacity: .72; border: 1rpx dashed #d98291; }
+.msg-failed { display: flex; align-items: center; gap: 14rpx; margin: 10rpx 4rpx 0; font-size: 22rpx; color: #e7a0ad; }
+.chat-page .msg-restore { height: 56rpx; line-height: 56rpx; padding: 0 20rpx; border-radius: 16rpx; background: #332c28; color: #f1bc80; font-size: 22rpx; }
 .tool-traces { margin: 12rpx 4rpx 0; font-size: 23rpx; color: #9cb0bb; line-height: 1.6; white-space: pre-wrap; }
 .preview-card, .draw-card { margin-top: 16rpx; padding: 20rpx; border-radius: 22rpx; background: #141e27; border: 1rpx solid #29444a; width: 100%; min-width: 460rpx; max-width: 100%; box-sizing: border-box; }
 .card-caption { color: #81cfca; font-size: 22rpx; margin-bottom: 12rpx; }

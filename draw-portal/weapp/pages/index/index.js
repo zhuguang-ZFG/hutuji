@@ -5,6 +5,11 @@ const pageSession = require("../../utils/page_session");
 const paperSummary = require("../../utils/paper_summary");
 const feedback = require("../../utils/operation_feedback");
 
+// 精修等待窗口（2026-10-08 改为绝对时限）：从该 job 第一次开始等待起算 5 分钟，
+// 覆盖免费层排队（常 >30s）与「约 10 秒～2 分钟」的产品承诺；onHide 停链、
+// 回屏 resumeJobState 续轮只续剩余时间，切页不能把等待无限延长。
+const REFINE_WINDOW_MS = 300000;
+
 Page({
   onPaperSettings() { wx.navigateTo({ url: "/pages/paper/paper" }); },
   data: {
@@ -44,8 +49,10 @@ Page({
       this._indexSession = app._sessionGeneration;
       this._filePick = null;
       this._pendingJob = null;
+      this._pendingJobExtra = null;
       this._pendingMessage = null;
       this.stopRefinePolling();
+      this._refineDeadline = null;
       this._writeToken = (this._writeToken || 0) + 1;
       this._shareToken = null;
       this._aiBackup = null;
@@ -72,8 +79,10 @@ Page({
         this.adoptJob(data);
       } else if (this._pendingJob) {
         const data = this._pendingJob;
+        const extra = this._pendingJobExtra;
         this._pendingJob = null;
-        this.adoptJob(data);
+        this._pendingJobExtra = null;
+        this.adoptJob(data, extra || {});
       } else this.resumeJobState();
       if (this._pendingMessage) {
         wx.showModal(this._pendingMessage);
@@ -84,6 +93,7 @@ Page({
 
   // 精修回屏恢复（2026-09-09）：onHide 停链后 job 仍挂在 data 上，回到页面时
   // 一次性补查 job 状态——pending 续轮、ready 上屏、failed 标注；不再「切走就丢」。
+  // 续轮受该 job 的绝对时限约束（见 startRefinePolling），窗口已过即判 timeout。
   resumeJobState() {
     const job = this.data.job;
     if (!job || !job.jobId) return;
@@ -99,22 +109,8 @@ Page({
         if (!current()) return;
         const refined = res && res.refined;
         if (!refined) return;
-        if (refined.status === "ready") {
-          this.setData({
-            "job.refined": {
-              jobId: refined.job_id,
-              previewUrl: refined.preview_url,
-              gcodeUrl: refined.gcode_url,
-            },
-            "job.useRefined": true,
-            "job.refineFailed": false,
-          });
-          this._prefetchShareToken(this.selectedJobId());
-          wx.showToast({ title: "AI 精修版好了", icon: "success" });
-        } else if (refined.status === "failed") {
-          this.setData({ "job.refineFailed": "failed" });
-        } else if (refined.status === "pending") {
-          this.setData({ "job.refining": true, "job.refineFailed": false });
+        if (this._applyRefineState(refined) === "pending") {
+          this.setData({ "job.refining": true, "job.refineFailed": false, "job.refineOffline": false });
           this.startRefinePolling(job.jobId);
         }
       })
@@ -125,6 +121,52 @@ Page({
       });
   },
   onRetryRefined() { return this.resumeJobState(); },
+
+  // 网络失败时的只读核对：只 GET 既有 job 状态，不重新上传、不重新生成；
+  // 轮询链照常继续（仍受绝对时限约束），核对结果走同一落屏入口。
+  onRecheckRefined() {
+    const job = this.data.job;
+    if (!job || !job.jobId || job.refineChecking) return;
+    const jobId = job.jobId;
+    const visible = pageSession.capture(this);
+    const current = () => visible() && this.data.job && this.data.job.jobId === jobId;
+    this.setData({ "job.refineChecking": true });
+    api
+      .request("/api/draw/jobs/" + jobId)
+      .then((res) => {
+        if (!current()) return;
+        const refined = res && res.refined;
+        if (refined && this._applyRefineState(refined) === "pending") this.setData({ "job.refineOffline": false });
+      })
+      .catch(() => {}) // 仍失败：提示保留、不弹窗，轮询链自己继续
+      .finally(() => { if (current()) this.setData({ "job.refineChecking": false }); });
+  },
+
+  // 精修回包落屏（回屏补查/轮询/只读核对共用）。ready 必须带 job_id——收藏、分享、
+  // 发送都用该 id，畸形包不能变成「可发送」的精修版，一律按仍在等待处理。
+  _applyRefineState(refined) {
+    if (refined && refined.status === "ready" && refined.job_id) {
+      // 就绪后默认切到精修版，用户仍可点缩略图切回线稿版
+      this.stopRefinePolling();
+      this.setData({
+        "job.refined": { jobId: refined.job_id, previewUrl: refined.preview_url, gcodeUrl: refined.gcode_url },
+        "job.useRefined": true,
+        "job.refining": false,
+        "job.refineFailed": false,
+        "job.refineOffline": false,
+      });
+      this._prefetchShareToken(this.selectedJobId());
+      wx.showToast({ title: "AI 精修版好了", icon: "success" });
+      return "ready";
+    }
+    if (refined && refined.status === "failed") {
+      // 失败不弹窗打扰：回落 Canny 草图版并标注（A 方案唯一草图出口）
+      this.stopRefinePolling();
+      this.setData({ "job.refining": false, "job.refineFailed": "failed", "job.refineOffline": false });
+      return "failed";
+    }
+    return "pending";
+  },
 
 
   onLoad() {
@@ -186,6 +228,7 @@ Page({
     if (this._creationBusy()) { wx.showToast({ title: "当前任务完成后再切换", icon: "none" }); return; }
     this._filePick = null;
     this._pendingJob = null;
+    this._pendingJobExtra = null;
     this._pendingMessage = null;
     this.stopRefinePolling();
     // 作废在途排版/文档上传：回调靠令牌自灭，避免切模式后 adoptJob 把旧预览写回
@@ -448,6 +491,15 @@ Page({
     wx.previewImage({ current: api.mediaUrl(url), urls });
   },
 
+  // 对照原图（2026-10-08）：本机临时文件在前、当前选中版本（草图/精修）预览在后，
+  // 左右滑动比较；只有拍照/相册上传的 job 才有原图。
+  onComparePhoto() {
+    const job = this.data.job;
+    const result = this.currentPreviewUrl();
+    if (!job || !job.photoSource || !result) return;
+    wx.previewImage({ current: job.photoSource, urls: [job.photoSource, api.mediaUrl(result)] });
+  },
+
   selectedJobId() {
     const job = this.data.job;
     return job ? (job.useRefined && job.refined ? job.refined.jobId : job.jobId) : "";
@@ -542,10 +594,13 @@ Page({
   },
 
   // 上传/生成响应统一落 job；隐藏页只保留结果，回屏后再预取分享和跟踪精修。
-  adoptJob(data) {
-    if (this._visible === false) { this._pendingJob = data; return; }
-    // 新 job 换掉旧 job：旧轮询链必须停掉，否则两链并存、旧链还会改写新 job 的状态
+  // extra.photoSource：拍照/相册上传的本机临时文件路径，供「对照原图」使用；其它入口为空。
+  adoptJob(data, extra = {}) {
+    if (this._visible === false) { this._pendingJob = data; this._pendingJobExtra = extra; return; }
+    // 新 job 换掉旧 job：旧轮询链必须停掉，否则两链并存、旧链还会改写新 job 的状态；
+    // 等待窗口随 job 重新起算
     this.stopRefinePolling();
+    this._refineDeadline = null;
     const job = {
       jobId: data.job_id,
       previewUrl: data.preview_url,
@@ -554,6 +609,8 @@ Page({
       refining: false,
       refined: null,
       refineFailed: false,
+      refineOffline: false,
+      photoSource: extra.photoSource || "",
       pages: data.pages || null,
       pageCount: data.page_count || null,
       truncated: !!data.truncated,
@@ -562,11 +619,12 @@ Page({
       missingCharsText: (data.missing_chars || []).slice(0, 10).join(""),
       charsTaught: data.chars_taught || null,
     };
-    if (data.refined && data.refined.status === "pending") {
-      job.refining = true;
-    } else if (data.refined && data.refined.status === "ready" && data.refined.job_id) {
+    if (data.refined && data.refined.status === "ready" && data.refined.job_id) {
       job.refined = { jobId: data.refined.job_id, previewUrl: data.refined.preview_url, gcodeUrl: data.refined.gcode_url };
       job.useRefined = true;
+    } else if (data.refined && (data.refined.status === "pending" || data.refined.status === "ready")) {
+      // pending，或缺 job_id 的畸形 ready：都只能继续等（受绝对时限），不能当可发送结果
+      job.refining = true;
     }
     this.setData({ job, pageIndex: 0, shareToken: null });
     if (job.refining) {
@@ -605,18 +663,26 @@ Page({
     return { title: "动力巢科技", path: "/pages/index/index" };
   },
 
-  // 精修轮询：5 秒一轮、最多 36 轮（≈3 分钟，覆盖免费层排队耗时）。
-  // 用 setTimeout 链不用 setInterval：请求在途耗时不定，链式保证上一轮结束
-  // 才排下一轮，绝不会并发轮询。
+  // 精修轮询：退避 5s→10s 由 refineDelayMs 定；终止条件是该 job 的绝对截止时刻
+  // （REFINE_WINDOW_MS，首次开始等待起算），不是本条链的轮次——onHide 停链、回屏
+  // resumeJobState 续轮时只续剩余时间。用 setTimeout 链不用 setInterval：请求
+  // 在途耗时不定，链式保证上一轮结束才排下一轮，绝不会并发轮询。
   startRefinePolling(jobId) {
     this.stopRefinePolling();
     const token = this._refineToken;
     const current = pageSession.capture(this);
+    const deadline = this._refineDeadlineFor(jobId);
     let round = 0;
     // 终态收口：停链并退出"精修中"，各分支只补自己的增量字段
     const finish = (patch) => {
       this.stopRefinePolling();
-      this.setData(Object.assign({ "job.refining": false }, patch));
+      this.setData(Object.assign({ "job.refining": false, "job.refineOffline": false }, patch));
+    };
+    // 下一轮：窗口已尽即 timeout（回落草图，但说明 AI 还可能好）；最后一轮贴着截止时刻排
+    const next = () => {
+      const left = deadline - Date.now();
+      if (left <= 0) { finish({ "job.refineFailed": "timeout" }); return; }
+      this._refineTimer = setTimeout(poll, Math.min(this.refineDelayMs(round), left));
     };
     const poll = () => {
       round += 1;
@@ -625,49 +691,35 @@ Page({
         .then((res) => {
           // 令牌变了说明链已作废（换了新任务或离开页面），丢弃过期响应
           if (!current() || token !== this._refineToken) return;
-          const refined = res && res.refined;
-          if (refined && refined.status === "ready") {
-            // 就绪后默认切到精修版，用户仍可点缩略图切回线稿版
-            finish({
-              "job.refined": {
-                jobId: refined.job_id,
-                previewUrl: refined.preview_url,
-                gcodeUrl: refined.gcode_url,
-              },
-              "job.useRefined": true,
-            });
-            this._prefetchShareToken(this.selectedJobId());
-            wx.showToast({ title: "AI 精修版好了", icon: "success" });
-            return;
-          }
-          if (refined && refined.status === "failed") {
-            // 失败不弹窗打扰：回落 Canny 草图版并标注（A 方案唯一草图出口）
-            finish({ "job.refineFailed": "failed" });
-            return;
-          }
-          if (round >= 36) {
-            finish({ "job.refineFailed": "timeout" }); // 超时同样回落草图，但说明 AI 还可能好
-            return;
-          }
-          this._refineTimer = setTimeout(poll, this.refineDelayMs(round));
+          if (this._applyRefineState(res && res.refined) !== "pending") return;
+          // pending 或畸形回包：网络已通，清掉离线提示后继续等
+          if (this.data.job.refineOffline) this.setData({ "job.refineOffline": false });
+          next();
         })
         .catch(() => {
           if (!current() || token !== this._refineToken) return;
-          // 网络抖动不算精修失败；轮次照样累计，保证极端弱网下 3 分钟内也必停
-          if (round >= 36) {
-            finish({ "job.refineFailed": "timeout" });
-            return;
-          }
-          this._refineTimer = setTimeout(poll, this.refineDelayMs(round));
+          // 网络抖动不算精修失败：给可见提示和只读核对入口，链照样续到绝对时限
+          if (!this.data.job.refineOffline) this.setData({ "job.refineOffline": true });
+          next();
         });
     };
-    this._refineTimer = setTimeout(poll, this.refineDelayMs(round));
+    next();
   },
 
   // 精修轮询退避（2026-09-11）：前 6 轮 5s，之后 10s——免费层排队常 >30s，
   // 恒频 5s 拉满请求量换不来提前量。
   refineDelayMs(round) {
     return round <= 6 ? 5000 : 10000;
+  },
+
+  refineWindowMs() { return REFINE_WINDOW_MS; },
+
+  // 同一 job 的绝对截止时刻只在第一次开始等待时起算；换 job（adoptJob）或换账号时清掉。
+  _refineDeadlineFor(jobId) {
+    if (!this._refineDeadline || this._refineDeadline.jobId !== jobId) {
+      this._refineDeadline = { jobId, at: Date.now() + REFINE_WINDOW_MS };
+    }
+    return this._refineDeadline.at;
   },
 
   stopRefinePolling() {
@@ -725,11 +777,13 @@ Page({
     const formData = !pick.photo && this.data.mode === "write"
       ? { size_mm: String(this.data.sizeMm), line_spacing: String(this.data.lineSpacing) } : undefined;
     this.setData({ uploading: true });
+    // 照片保留本机临时路径供「对照原图」；原图只在本机，不上传到其它地方
+    const extra = pick.photo ? { photoSource: file.tempFilePath || "" } : {};
     api.uploadFile("/api/draw/upload", pick.photo ? file.tempFilePath : file.path, "file", formData)
       .then((data) => {
         if (!current()) return;
         this.setData({ uploading: false });
-        this.adoptJob(data);
+        this.adoptJob(data, extra);
         if (this._visible !== false) wx.showToast({ title: "转换完成", icon: "success" });
       })
       .catch((err) => {

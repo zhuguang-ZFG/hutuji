@@ -28,6 +28,8 @@
       </view>
       <view class="status-bottom" wx:if="{{statusLine}}">{{statusLine}}</view>
       <view class="control-error" wx:if="{{controlError}}">{{controlError}}</view>
+      <view class="control-error" wx:if="{{deviceError}}">设备报告：{{deviceError}}</view>
+      <view class="control-error" wx:if="{{actionError}}">操作结果：{{actionError}}</view>
       <view class="timeline" wx:if="{{status}}">
         <block wx:for="{{timelineLabels}}" wx:key="*this">
           <view class="timeline-step {{index === timelineIndex ? 'active' : ''}} {{index < timelineIndex ? 'done' : ''}}">

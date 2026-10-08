@@ -28,7 +28,11 @@
       <block wx:for="{{messages}}" wx:key="id">
         <view id="msg-{{item.id}}" class="msg-row {{item.role}}">
           <view wx:if="{{item.role === 'assistant'}}" class="message-author">小派</view>
-          <view class="bubble"><text selectable>{{item.content}}</text></view>
+          <view class="bubble {{item.error ? 'bubble-error' : ''}} {{item.failed ? 'bubble-failed' : ''}}"><text selectable>{{item.content}}</text></view>
+          <view wx:if="{{item.failed && !item.restored}}" class="msg-failed">
+            <text class="msg-failed-hint">回复未确认</text>
+            <button class="msg-restore" size="mini" hover-class="btn-press" disabled="{{busy}}" data-id="{{item.id}}" bindtap="onRestoreText">恢复到输入框</button>
+          </view>
           <view wx:if="{{item.toolTracesText}}" class="tool-traces">{{item.toolTracesText}}</view>
           <view wx:if="{{item.previewUrl}}" class="preview-card">
             <view class="card-caption">这幅画准备好了</view>

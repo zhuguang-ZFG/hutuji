@@ -73,6 +73,17 @@ _STRUCTURE_MIN_CONTRAST = 0.014
 # 0.010 更接近旧行为、五官续接变弱；孤立弱段无强锚点照旧丢弃，缓慢光照
 # 等高线全程弱梯度仍被拒。
 _STRUCTURE_WEAK_CONTRAST = 0.008
+# 结构线沿线平滑（2026-10-08 用户「画质要改善」批）：软边缘（下颌阴影、面颊）
+# 的零交叉在 σ2/3.6 尺度上蛇行，幅度 >1.2px 故 RDP 留不住；find_contours 出点
+# 1pt/px 是密集折线，可沿线高斯平滑（与稀疏排线不同——排线禁止平滑，见
+# polylines_to_svg(smooth=False)）。σ3px≈1mm：两张真人像 RDP 顶点 −11%/−10%，
+# G-code −7%，画的还是同一组线，只是笔迹不再抖。闭环按环绕、开线端点近似保持。
+_STRUCTURE_SMOOTH_SIGMA_PX = 3.0
+# 排线禁入带：结构线两侧各留 2 工作像素（≈0.7mm）空白，排线与串链桥都不进。
+# 真人像实测（2026-10-08 `halo-ab2/`）镜框/眼睛/鼻梁原被 2–4 层排线整片压住
+# 不可读，留白后五官可辨，抬笔 −14%、字节 −11%；半径 2.5 时头发/眉毛排线
+# 开始被结构线密集区掏空，故取 2.0。无结构线时禁入带为空，行为不变。
+_HATCH_HALO_RADIUS_PX = 2.0
 
 # 轮廓：高斯平滑亮度的等值线（find_contours 直出矢量，无骨架化）。
 # 3 级 tone 边界 + 较强平滑：2026-09-10 小样 A/B（事故人像，4 组合目检）
@@ -273,6 +284,50 @@ def _simplify(polys: list[np.ndarray], tolerance: float) -> list[np.ndarray]:
     return out
 
 
+def _smooth_dense_polys(
+    polys: list[np.ndarray], sigma: float = _STRUCTURE_SMOOTH_SIGMA_PX
+) -> list[np.ndarray]:
+    """密集轮廓折线沿线高斯平滑；闭环环绕、开线端点钉住（nearest）。
+
+    只能用于 find_contours 这类 1pt/px 的密集点列；排线/波纹的稀疏端点经
+    平滑会把回折挪进白区（2026-09-12 教训），调用方不得混入。
+    """
+    from skimage.filters import gaussian
+
+    out: list[np.ndarray] = []
+    for p in polys:
+        if len(p) < 5 or sigma <= 0:
+            out.append(p)
+            continue
+        if np.allclose(p[0], p[-1]):
+            body = gaussian(p[:-1], sigma=(sigma, 0), mode="wrap", preserve_range=True)
+            out.append(np.vstack([body, body[:1]]))
+        else:
+            out.append(gaussian(p, sigma=(sigma, 0), mode="nearest", preserve_range=True))
+    return out
+
+
+def _structure_halo(polys: list[np.ndarray], shape: tuple[int, int], radius: float) -> np.ndarray:
+    """结构线栅格化并按半径膨胀 → 排线禁入带（bool，True=禁入）。"""
+    from skimage.draw import line as draw_line
+    from skimage.morphology import dilation
+
+    h, w = shape
+    mask = np.zeros((h, w), dtype=bool)
+    for p in polys:
+        q = np.rint(p).astype(int)
+        for (x0, y0), (x1, y1) in zip(q[:-1], q[1:]):
+            rr, cc = draw_line(int(y0), int(x0), int(y1), int(x1))
+            ok = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
+            mask[rr[ok], cc[ok]] = True
+    if radius > 0 and mask.any():
+        # 半径随 density_scale 是小数；自建圆盘足迹，不被 disk() 的整数半径放大。
+        r = int(np.ceil(radius))
+        yy, xx = np.mgrid[-r : r + 1, -r : r + 1]
+        mask = dilation(mask, footprint=(xx * xx + yy * yy) <= radius * radius)
+    return mask
+
+
 def _iso_contours(gray: np.ndarray) -> list[np.ndarray]:
     """亮度等值线 → 轮廓折线；find_contours 出 (row,col)，转 (x,y)。"""
     from skimage.filters import gaussian
@@ -463,9 +518,16 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     # 工作像素必须换算到同一长边尺度；720×1280 竖照的 6px 并非原设想的
     # 277mm/760×6≈2.2mm，而只有约 1.3mm。禁止靠调亮缩略图掩盖实际密度。
     density_scale = max(1.0, max(h, w) / _WORK_WIDTH_PX)
+    # 结构线先于排线：沿线平滑后抽稀；其栅格膨胀成排线禁入带（五官/镜框
+    # 不被排线压住，2026-10-08）。排线 mask 与串链 mask 同扣，桥也不跨结构线。
+    polys = _simplify(
+        _smooth_dense_polys(_filter_polys_by_weight(_structure_contours(original), weight)),
+        _RDP_TOLERANCE_PX,
+    )
+    halo = _structure_halo(polys, smooth.shape, _HATCH_HALO_RADIUS_PX * density_scale)
     def make_layers(factor: float) -> list[list[np.ndarray]]:
         return [
-            _hatch_layer(smooth < th, ang, sp * density_scale * factor,
+            _hatch_layer((smooth < th) & ~halo, ang, sp * density_scale * factor,
                          (sp * density_scale * factor / 2) if i >= 2 else 0.0,
                          _HATCH_MIN_RUN_PX * density_scale)
             for i, (th, ang, sp) in enumerate(_HATCH_LAYERS)
@@ -475,15 +537,11 @@ def render_hatch(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     if n_seg > _HATCH_SEGMENT_BUDGET:
         factor = n_seg / _HATCH_SEGMENT_BUDGET
         layers = make_layers(factor)
-    polys = _simplify(
-        _filter_polys_by_weight(_structure_contours(original), weight),
-        _RDP_TOLERANCE_PX,
-    )
     # 最亮层（面部稀疏排线）不串链：连线会落在明调区边缘成可见回折环
     # （2026-09-10 小样目检）；暗三层用本层 mask 串链，连线藏同暗度带内。
     polys.extend(layers[0])
     for (th, _, _), segs in zip(_HATCH_LAYERS[1:], layers[1:]):
-        polys.extend(_chain_hatch_segments(segs, smooth < th))
+        polys.extend(_chain_hatch_segments(segs, (smooth < th) & ~halo))
     if not polys:
         raise SketchRenderError("排线渲染产出为空（图片可能为纯色）")
     # 排线原本就是直线段；串链后再次 RDP 会切过刚校验的留白缺口。

@@ -182,7 +182,11 @@
       <view class="refine-waiting" wx:if="{{job.refining}}">
         <view class="pulse-ring"></view>
         <view class="refine-waiting-title">AI 正在画</view>
-        <view class="muted center-text">约 10 秒～2 分钟，好了自动上屏</view>
+        <view class="muted center-text" wx:if="{{!job.refineOffline}}">约 10 秒～2 分钟，好了自动上屏</view>
+        <block wx:else>
+          <view class="muted center-text">网络不稳定，暂未取到精修结果，仍在继续等待</view>
+          <view class="draft-actions center-actions"><button size="mini" bindtap="onRecheckRefined" loading="{{job.refineChecking}}" disabled="{{job.refineChecking}}">重新核对</button></view>
+        </block>
       </view>
       <block wx:else>
         <view class="page-nav" wx:if="{{job.pages && job.pages.length > 1}}">
@@ -220,7 +224,10 @@
         <view class="preview-meta muted" wx:elif="{{job.pages && job.pages.length > 1}}">共 {{job.pageCount || job.pages.length}} 页 · 点图放大</view>
         <view class="preview-meta muted" wx:elif="{{mode === 'teach' && job.charsTaught}}">教 {{job.charsTaught.length}} 字 · 点图放大</view>
         <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
-        <view class="draft-actions" wx:if="{{job.refineFailed === 'timeout'}}"><button size="mini" bindtap="onRetryRefined" loading="{{job.refineChecking}}" disabled="{{job.refineChecking}}">查看精修结果</button></view>
+        <view class="draft-actions" wx:if="{{job.photoSource || job.refineFailed === 'timeout'}}">
+          <button size="mini" wx:if="{{job.photoSource}}" bindtap="onComparePhoto">对照原图</button>
+          <button size="mini" wx:if="{{job.refineFailed === 'timeout'}}" bindtap="onRetryRefined" loading="{{job.refineChecking}}" disabled="{{job.refineChecking}}">查看精修结果</button>
+        </view>
         <view class="preview-actions">
           <button
             class="weui-btn weui-btn_default action-inline"

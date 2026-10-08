@@ -561,3 +561,59 @@ def test_structure_runs_filtered_by_saliency_weight():
         [high, low], np.ones((120, 120), dtype=np.float32)
     )
     assert len(all_kept) == 2
+
+
+def _stepped_dark_block(w: int = 240, h: int = 240) -> np.ndarray:
+    """白底 + 深色方块，方块内部一道竖直阶跃：阶跃处是结构线，两侧都该排线。"""
+    arr = np.full((h, w), 255, dtype=np.uint8)
+    arr[40:200, 40:120] = 38
+    arr[40:200, 120:200] = 90
+    return arr
+
+
+def _hatch_only(polys: list[np.ndarray]) -> list[np.ndarray]:
+    """排线 = ±45° 直段 + 串链短桥（≤_CHAIN_MAX_GAP_PX）；结构线含长的非 45° 步。"""
+    out = []
+    for p in polys:
+        d = np.diff(p, axis=0)
+        diag = np.isclose(np.abs(d[:, 0]), np.abs(d[:, 1]), atol=0.75)
+        short = np.hypot(d[:, 0], d[:, 1]) <= sketch_render._CHAIN_MAX_GAP_PX + 1e-6
+        if np.all(diag | short):
+            out.append(p)
+    return out
+
+
+def test_hatch_leaves_clear_band_around_structure_lines():
+    """2026-10-08 用户「画质要改善」：真人像眼镜框/眼睛/鼻梁被排线整片压住，
+    五官不可读（排线遮挡）。结构线两侧须留出 ≈_HATCH_HALO_RADIUS_PX 工作像素
+    的空白带，排线（含串链桥）不得进入。"""
+    arr = _stepped_dark_block()
+    polys, w, h = render_hatch(_png(arr))
+    hatch = _hatch_only(polys)
+    assert hatch, "阶跃两侧应有排线"
+    ink = _ink_map(hatch, w, h)
+    # 阶跃零交叉落在 x≈120，留白带取其两侧各 2px（修前该带排线墨 ≈0.29）。
+    band = ink[60:180, 118:122]
+    assert ink[60:180, 60:110].mean() > 0.02 and ink[60:180, 130:190].mean() > 0.02
+    assert band.mean() == 0.0, f"排线压进结构线留白带 ink={band.mean():.3f}"
+
+
+def test_structure_contours_are_smoothed_before_simplify():
+    """软边缘的零交叉在 σ2/3.6 尺度上蛇行（真人像下颌/面颊实测），
+    1.2px RDP 留不住平滑感。结构线须沿线平滑后再抽稀：同一输入顶点变少，
+    闭环仍闭合，开线端点不跑远。"""
+    rng = np.random.default_rng(3)
+    t = np.linspace(0, 2 * np.pi, 400, endpoint=False)
+    circle = np.column_stack([60 + 40 * np.cos(t), 60 + 40 * np.sin(t)])
+    jitter = circle + rng.normal(0, 1.5, circle.shape)
+    closed = np.vstack([jitter, jitter[:1]])
+    line = np.column_stack([np.linspace(0, 150, 300), 20 + rng.normal(0, 1.5, 300)])
+    smoothed = sketch_render._smooth_dense_polys([closed, line])
+    assert np.allclose(smoothed[0][0], smoothed[0][-1]), "闭环平滑后必须仍闭合"
+    radius = np.hypot(smoothed[0][:, 0] - 60, smoothed[0][:, 1] - 60)
+    assert radius.std() < 0.6 and abs(radius.mean() - 40) < 1.0
+    assert np.hypot(*(smoothed[1][0] - line[0])) < 2.5
+    assert np.hypot(*(smoothed[1][-1] - line[-1])) < 2.5
+    before = sum(len(p) for p in sketch_render._simplify([closed, line], 1.2))
+    after = sum(len(p) for p in sketch_render._simplify(smoothed, 1.2))
+    assert after < before * 0.6, f"平滑后 RDP 顶点未明显减少 {before}->{after}"

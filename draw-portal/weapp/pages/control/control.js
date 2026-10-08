@@ -4,6 +4,9 @@ const mcpResult = require("../../utils/mcp_result");
 const { displayVersion } = require("../../utils/version.js");
 const jobProgress = require("../../utils/job_progress");
 
+// 速度读写等待：覆盖 Portal 40s 设备事务（machine_speed.wait_for_speed）再留网络余量。
+const SPEED_TIMEOUT_MS = 60000;
+
 function readSpeedRates(result) {
   const rates = result && result.rates;
   if (!rates || !["x", "y", "z"].every((axis) =>
@@ -43,6 +46,8 @@ Page({
     statusLine: "",
     manualLocked: true,
     controlError: "",
+    deviceError: "",
+    actionError: "",
     timelineIndex: 0,
     timelineLabels: jobProgress.TIMELINE_LABELS.slice(),
     timelineHint: "",
@@ -75,7 +80,7 @@ Page({
     this.setData({ footVersion: displayVersion(), speedSaving: false,
       speedLoaded: false, speedLoading: false, canSetSpeed: false, speedError: "", statusError: "",
       bound: false, bindingLoading: true, bindingChecked: false,
-      bindingMac: "", status: null, busyAction: "", manualLocked: true, controlError: "",
+      bindingMac: "", status: null, busyAction: "", manualLocked: true, controlError: "", deviceError: "", actionError: "",
       canConfirm: false, canAbort: false, canPause: false, canResume: false, canRepeat: false });
     phoneGate.ensurePhone(api, () => this._isCurrentView(generation, session)).then((me) => {
       if (!this._isCurrentView(generation, session)) return;
@@ -192,6 +197,10 @@ Page({
         manual: "手动控制中", pen_test: "试笔中" })[state] || "查询中",
       controlError: state === "error" && typeof status.control_error === "string"
         ? status.control_error : "",
+      // 出图/预览链失败原因（protocol §10.4 hutuji.status.last_error，仅 error 态出现）
+      // 与手动控制 control_error 并列透出；离开 error 态即清。
+      deviceError: state === "error" && typeof status.last_error === "string"
+        ? status.last_error : "",
       linkOk,
       linkLabel,
       grblLabel: (status && status.grbl_state) || "",
@@ -364,12 +373,13 @@ Page({
     this._controlGeneration = (this._controlGeneration || 0) + 1;
     this._clearPoll();
     // 动作锁定直写后失效 diff 缓存：下一次状态应用全量重发，避免漏发按键。
-    this._syncView({ busyAction: key, manualLocked: true, canConfirm: false,
+    this._syncView({ busyAction: key, manualLocked: true, canConfirm: false, actionError: "",
       canAbort: false, canPause: false, canResume: false, canRepeat: false, canSetSpeed: false });
     return this.control(tool, action).then((r) => {
       if (!this._isCurrentView(generation, session) || this.data.bindingMac !== bindingMac) return false;
-      this.setData({ busyAction: "" });
       const ok = !!(r && r.status === "ok");
+      // toast 会截断长文案；完整失败原因（含「尚未确认」的网络中断）留在页面，直到下一次操作。
+      this.setData({ busyAction: "", actionError: ok ? "" : (r && r.detail) || "设备未响应" });
       // 步距返回 ok 时已同步落地；运动的 started 只是受理，必须等新状态。
       if (ok && tool === "hutuji.manual" && (action === "jog_step_1" || action === "jog_step_10")) {
         this._syncView(this._deriveControls(this.data.status));
@@ -456,6 +466,9 @@ Page({
       .request("/api/settings/machine-speed", {
         method: "POST",
         data: { axis, rate, device_mac: bindingMac || undefined },
+        // Portal 侧 machine_speed.wait_for_speed 最长等设备 40s 才回包；默认 20s 会先于
+        // 后台事务超时，把「尚未确认」误报给用户。超时/失败只还原滑块，绝不自动重写。
+        timeout: SPEED_TIMEOUT_MS,
       })
       .then((r) => {
         if (!current()) return;
@@ -481,7 +494,8 @@ Page({
     const current = () => this._isCurrentView(generation, session) &&
       (this._speedGeneration || 0) === speedGeneration && this.data.bindingMac === bindingMac;
     this.setData({ speedLoading: true, speedError: "" });
-    api.request(`/api/settings/machine-speed?device_mac=${encodeURIComponent(bindingMac)}`)
+    api.request(`/api/settings/machine-speed?device_mac=${encodeURIComponent(bindingMac)}`,
+      { timeout: SPEED_TIMEOUT_MS })
       .then((r) => {
         if (!current()) return;
         const rates = readSpeedRates(r);

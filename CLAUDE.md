@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-08 照片生图续作约定：hatch 结构线先沿等高线平滑（`_STRUCTURE_SMOOTH_SIGMA_PX`）再 RDP，排线各层与串链一律剔除结构线留白带（`_HATCH_HALO_RADIUS_PX` 2.0，2.5 会掏空头发），squiggle 不动；「暗部结构」加权/对比归一候选已对照否决，不得凭墨量复活。小程序精修等待用 job 级绝对时限（5 分钟，切页不重置），ready 回包无 `job_id` 不得落为可发送结果，网络失败只允许只读核对。证据与边界见 `docs/design/weapp-photo-followup-20261008.md`，部署/纸面状态只看 readiness。
+
 2026-10-08 三仓审查候选：设备业务拒绝由 Portal/MCP 共享 `hutuji_mcp.tool_result` 逐层判定，兼容旧固件忙文案；拒绝后不自动确认旧预览。OTA 丢应答保留 uncertain；S3 自愈 WithCaps 成对回收并与运动/OTA 发布互斥。修复及验证见 `docs/design/three-repo-review-20261008.md`，生产状态看 readiness。
 
 2026-09-24 多轮复审修复候选：语音按认证用户隔离并串行处理同会话；Portal OTA 原子占位与阶段/代次回写；S3 OTA 与运动共用占位；Grbl 请求上下文按任务隔离；MCP 配置读取不阻塞事件循环，vpype 调参保留在途计数。**用户再次确认量产写字机不自动换纸，交付只用 `Grbl_Esp32-massprod` 的 `massprod/nopaper-1.3a` 分支；不得移植普通分支换纸模块以满足旧门禁。** 详见 [迭代记录](docs/design/review-fixes-20260924.md)，上线和板上状态只看 readiness。

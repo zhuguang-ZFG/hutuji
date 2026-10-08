@@ -1,4 +1,9 @@
 {
+  "weapp_photo_followup_20261008_authorized": {
+    "note": "用户：继续小程序功能改善，追加「关于照片生图的问题也要处理」「画质和生成体验都要改善」，续作「继续解决照片生图的问题」。照片画质只改 hatch 结构线平滑与结构线留白带（不改 squiggle、不改 RDP/§5 容差、不动纸张快照）；照片体验改精修等待绝对时限、畸形 ready 拒收、网络失败只读核对与本机原图对照。原图只在本机评估，不上传新增第三方；不改固件。",
+    "contract": "docs/design/weapp-photo-followup-20261008.md；protocol §5/§10.4.9/§10.4.13–14/§10.4.21/§10.4.23；2026-10-09 用户「继续改进」，续完图库/聊天/控制三项及回归；随后点名处理未提交、部署和原生验证，授权本批提交推送、照片服务双机部署与小程序0.3.25上传",
+    "paths": ["draw-portal/weapp/**", "draw-portal/tests/weapp/**", "draw-portal/weapp-smoke-checklist.md", "mcp-server/hutuji_mcp/sketch_render.py", "mcp-server/tests/test_sketch_render.py", "mcp-server/scripts/sketch_eval.py", "docs/**", "AGENTS.md", "CLAUDE.md", "results/local-only/**", "tmp/weapp-photo-followup-20261008/**"]
+  },
   "weapp_improvements_20261008_authorized": {
     "note": "用户：继续下一步改善，小程序，以及各种功能的改善；追问优先级答：都做改善。覆盖创作/作品管理/发送控制/设备设置与升级体验，不改固件或机械行为。2026-10-08追加：提交推送上传发布；允许本批代码提交推送、0.3.24上传及平台发布流程，实际完成以平台回执为准。",
     "contract": "docs/design/weapp-improvements-20261008.md；protocol §10.4.0/§10.4.5/§10.4.9–13/§10.4.22/§10.4.24",
