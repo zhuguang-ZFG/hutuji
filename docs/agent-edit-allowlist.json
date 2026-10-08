@@ -1,4 +1,9 @@
 {
+  "fz_release_safety_20261008_authorized": {
+    "note": "用户在四项签核漏洞与三项门禁可靠性问题清单后明确：同意完全修复。仅软件验证层，不执行真机运动。2026-10-08追加：提交推送部署验证；提交推送本批fz与枢纽记录，核验本机应用、远端下载、现役双机服务和固件/设备只读状态。",
+    "contract": "docs/design/fz-release-safety-20261008.md；当前工作树/结构化证据/scope校验、云启动未验告警、报告原子生命周期、跳过统计、缺仓显式记录",
+    "paths": ["D:/Users/zhugu/fz/scripts/release_honesty.py", "D:/Users/zhugu/fz/scripts/release_inputs.py", "D:/Users/zhugu/fz/scripts/gate_report.py", "D:/Users/zhugu/fz/scripts/agent_gate.py", "D:/Users/zhugu/fz/scripts/agent_observe.py", "D:/Users/zhugu/fz/scripts/g3_evidence.py", "D:/Users/zhugu/fz/scripts/g4_ota.py", "D:/Users/zhugu/fz/scripts/test_release_safety.py", "D:/Users/zhugu/fz/scripts/test_gate_report.py", "D:/Users/zhugu/fz/scripts/test_release_honesty.py", "D:/Users/zhugu/fz/scripts/test_agent_gate.py", "D:/Users/zhugu/fz/scripts/test_agent_observe.py", "D:/Users/zhugu/fz/sim_common/case_result.py", "D:/Users/zhugu/fz/hardware_sim/case_runner.py", "D:/Users/zhugu/fz/hardware_sim/run_hw_sim.py", "D:/Users/zhugu/fz/hardware_sim/test_case_outcomes.py", "D:/Users/zhugu/fz/hardware_sim/test_run_hw_sim_unit.py", "D:/Users/zhugu/fz/docs/specs/2026-10-08-release-safety.md", "D:/Users/zhugu/fz/requirements-validation.txt", "docs/**"]
+  },
   "fz_validation_fixes_20261008_authorized": {
     "note": "用户在剩余问题清单后要求继续，并明确先完成软件修复；修fz三处验证漏洞，并处理验证中实证的observe漏quota报告误判，不执行真机运动。2026-10-08追加：提交推送部署下载验证；提交推送本批源码及台账，核验远端源码下载与现役固件下载、双机服务及设备只读状态；本批没有新产品固件或云端代码需要发布。",
     "contract": "docs/design/fz-validation-fixes-20261008.md；fz review建议7/10/12的精确金样身份、trace完整性、位置差断言；不改产品行为",
