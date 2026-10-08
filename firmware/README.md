@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-08 审查候选：S3 `hutuji_job.cc` 将忙、试笔中暂停/继续、换纸中暂停等拒绝改为结构化 `error`，幂等成功保留；自愈任务使用 `vTaskDeleteWithCaps` 回收，最终复核到重启持续持有运动/OTA 发布锁。248 项 host 通过，量产 Freenove 配置编译链接通过，镜像与未部署边界见 `../docs/design/three-repo-review-20261008.md`。未刷机。
+
 > 补丁本体不在本仓库；位于 `D:/Users/xiaozhi-esp32` fork。本文只记录边界、构建入口和验证状态。  
 > 全项目接手防呆：`../docs/agent-handoff.md`。状态：`../docs/release-readiness.md`。
 

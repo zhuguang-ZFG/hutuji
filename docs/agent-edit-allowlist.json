@@ -1,4 +1,28 @@
 {
+  "three_repo_review_20261008_authorized": {
+    "note": "用户原话：三仓code review；找出问题；并完全修复。仅修复本批证实的问题，保留量产 nopaper 与既有工作树。2026-10-08 追加授权：提交部署；允许本批双仓提交、主备服务发布及量产 S3 升版和 OTA。",
+    "contract": "protocol §4/§10.4.5/§10.4.21/§10.4.22；设备业务拒绝、OTA结果不确定、自愈任务生命周期与运动互斥",
+    "paths": [
+      "draw-portal/draw_portal/mcp_result.py",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/tests/test_auto_confirm.py",
+      "draw-portal/tests/test_firmware_ota.py",
+      "mcp-server/hutuji_mcp/tool_result.py",
+      "mcp-server/hutuji_mcp/device_messaging.py",
+      "mcp-server/tests/test_device_messaging.py",
+      "mcp-server/tests/test_write_text.py",
+      "AGENTS.md",
+      "README.md",
+      "CLAUDE.md",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_job_rejections.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_self_heal.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
+      "docs/**",
+      "firmware/*.md"
+    ]
+  },
   "review_continue_20260924_authorized": {
     "note": "用户原话：修复以上code review出来的问题。范围为R24C-01至06，含独立固件仓的请求上下文和OTA任务互斥；不部署、不刷机。 用户继续授权多轮复审修复，并明确交付使用量产无自动换纸分支；本轮含配置缓存合并与vpype动态并发闸。",
     "contract": "protocol §4/§9/§10.4.13/§10.4.22；用户隔离、完整语音轮次、OTA原子会话、单任务互斥与异步I/O",

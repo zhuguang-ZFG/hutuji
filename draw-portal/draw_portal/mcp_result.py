@@ -14,28 +14,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-
-
-def tool_result_failed(raw: str) -> bool:
-    """逐层保留错误旗标；解包正文后再判断会丢失 isError/success。"""
-    for _ in range(8):
-        try:
-            value = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            return False
-        if isinstance(value, dict) and (
-            value.get("isError") is True
-            or value.get("success") is False
-            or value.get("ok") is False
-            or bool(value.get("error"))
-        ):
-            return True
-        unwrapped = unwrap_tool_text(raw)
-        if unwrapped == raw:
-            return False
-        raw = unwrapped
-    # 正常信封至多两层；超深回包不能被当成成功。
-    return True
+from hutuji_mcp.tool_result import tool_result_failed as tool_result_failed
 
 
 def unwrap_tool_text(raw: str) -> str:

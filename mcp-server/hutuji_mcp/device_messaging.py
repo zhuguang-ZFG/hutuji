@@ -127,6 +127,10 @@ async def post_device_tool(
             json={"name": name, "arguments": arguments},
             headers={"Authorization": f"Bearer {device_token}"},
         )
+    from .tool_result import tool_result_failed
+
+    if resp.status_code == 200 and tool_result_failed(resp.text):
+        return resp.status_code, "tool_rejected"
     return resp.status_code, f"http_{resp.status_code}"
 
 
@@ -194,7 +198,7 @@ async def chain_hutuji_draw(
     status, detail = await post_device_tool(
         api_base=api_base, device_token=token, name="hutuji.draw", arguments=arguments
     )
-    if status == 200:
+    if status == 200 and detail != "tool_rejected":
         return True, "ok"
     if status not in (401, 403, 404):
         return False, detail
@@ -206,7 +210,7 @@ async def chain_hutuji_draw(
     status2, detail2 = await post_device_tool(
         api_base=api_base, device_token=fresh, name="hutuji.draw", arguments=arguments
     )
-    if status2 == 200:
+    if status2 == 200 and detail2 != "tool_rejected":
         logger.info("设备链式调用 hutuji.draw 已受理（token 已自愈）")
         return True, "ok_healed"
     return False, detail2 + "+heal_retry"

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import types
 
 import pytest
@@ -15,6 +16,37 @@ from hutuji_mcp import device_messaging as dm
 class _Resp:
     def __init__(self, status_code: int):
         self.status_code = status_code
+        self.text = '{"success":true,"data":"previewing"}'
+
+
+@pytest.mark.parametrize("healed", [False, True])
+@pytest.mark.parametrize("payload", [
+    {"success": True, "data": {"error": "写字机正忙，请稍候再试"}},
+    {"success": True, "data": "写字机正忙，请稍候再试"},
+    {"success": True, "data": {"isError": True, "text": '"previewing"'}},
+])
+def test_chain_http_200_rejection_never_counts_as_accepted(tmp_path, monkeypatch, healed, payload):
+    monkeypatch.setenv("HUTUJI_DEVICE_TOKEN_FILE", str(tmp_path / "token"))
+    monkeypatch.setenv("HUTUJI_DEVICE_MAC", "aa:bb:cc:dd:ee:ff")
+    calls = []
+
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return False
+        async def post(self, *args, **kwargs):
+            calls.append(kwargs)
+            response = _Resp(404 if healed and len(calls) == 1 else 200)
+            response.text = json.dumps(payload)
+            return response
+
+    monkeypatch.setattr(dm, "httpx", types.SimpleNamespace(AsyncClient=Client))
+    monkeypatch.setattr(dm, "mint_messaging_token", lambda **kwargs: "fresh")
+    ok, detail = asyncio.run(dm.chain_hutuji_draw(api_base="https://example.test", env_token="old",
+        url="https://example.test/new.gcode", preview_url="https://example.test/new.png"))
+    assert not ok
+    assert "rejected" in detail
+    assert len(calls) == (2 if healed else 1)
 
 
 def test_load_device_token_prefers_file(tmp_path, monkeypatch):

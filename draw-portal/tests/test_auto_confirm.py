@@ -3,12 +3,66 @@
 from __future__ import annotations
 
 import draw_portal.push as push_mod
+import io
+import json
+import pytest
 from cryptography.fernet import Fernet
 
 from draw_portal.crypto import encrypt_token
 from draw_portal.push import auto_confirm_after_preview, push_draw_self_heal
 
 _FERNET_KEY = Fernet.generate_key()
+
+
+@pytest.mark.parametrize("envelope", ["plain", "data", "quoted_data", "content"])
+def test_busy_draw_never_confirms_another_preview(monkeypatch, envelope):
+    """走真实传输解包：旧固件的成功信封里也可能是忙拒绝。"""
+    busy = "写字机正忙，请稍候再试"
+    payloads = {
+        "plain": busy,
+        "data": {"success": True, "data": busy},
+        "quoted_data": {"success": True, "data": json.dumps(busy)},
+        "content": {"isError": False, "content": [{"type": "text", "text": json.dumps(busy)}]},
+    }
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+    def transport(request, **kwargs):
+        name = json.loads(request.data)["name"]
+        calls.append(name)
+        payload = payloads[envelope] if name == "hutuji.draw" else (
+            {"state": "awaiting_confirmation"} if name == "hutuji.status" else "started"
+        )
+        return Response(json.dumps(payload).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", transport)
+    ok, _ = push_draw_self_heal(
+        api_base="https://example.test", token_cipher_key=_FERNET_KEY,
+        device_mac="aa:bb:cc:dd:ee:ff", device_token_enc=encrypt_token(_FERNET_KEY, "test-token"),
+        gcode_url="https://example.test/new.gcode", preview_url="https://example.test/new.png",
+        auto_confirm=True,
+    )
+    assert not ok
+    assert calls == ["hutuji.draw"]
+
+
+@pytest.mark.parametrize("message,failed", [
+    ("正在试笔，请稍候", True), ("换纸中无法暂停，换纸完成后可再试", True),
+    ("previewing", False), ("started", False), ("已经是暂停状态", False),
+    ("本来就没暂停", False), ("预览已取消", False),
+])
+def test_legacy_rejection_keeps_idempotent_success(message, failed):
+    from draw_portal.mcp_result import tool_result_failed
+    assert tool_result_failed(json.dumps({"success": True, "data": message})) is failed
+
+
+@pytest.mark.parametrize("flag,value", [("isError", True), ("success", False), ("ok", False)])
+def test_intermediate_envelope_error_is_not_lost(flag, value):
+    from draw_portal.mcp_result import tool_result_failed
+    raw = json.dumps({"success": True, "data": {flag: value, "text": '"started"'}})
+    assert tool_result_failed(raw)
 
 
 def test_auto_confirm_waits_for_awaiting_then_confirms(monkeypatch):

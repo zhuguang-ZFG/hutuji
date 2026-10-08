@@ -486,6 +486,7 @@ def test_write_pages_arg_matches_chain_push_byte_for_byte(tmp_path, monkeypatch)
     """
     from hutuji_mcp import server
     from hutuji_mcp.config import Settings
+    from httpx import Response
 
     font_dir = tmp_path / "fonts"
     font_dir.mkdir()
@@ -506,9 +507,6 @@ def test_write_pages_arg_matches_chain_push_byte_for_byte(tmp_path, monkeypatch)
 
     pushed: dict[str, str] = {}
 
-    class _Resp:
-        status_code = 200
-
     class _Client:
         def __init__(self, *a, **kw):
             pass
@@ -520,8 +518,10 @@ def test_write_pages_arg_matches_chain_push_byte_for_byte(tmp_path, monkeypatch)
             return False
 
         async def post(self, url, json=None, headers=None):
+            if json["name"] == "hutuji.status":
+                return Response(200, json={"success": True, "data": {"plotter_sku": "paper"}})
             pushed.update(json["arguments"])
-            return _Resp()
+            return Response(200, json={"success": True, "data": "previewing"})
 
     # 链式推送经 device_messaging（2026-09-08），须补丁该模块 httpx。
     from hutuji_mcp import device_messaging as dm
@@ -683,11 +683,9 @@ def test_write_chain_push_sends_pages_json_string(tmp_path, monkeypatch):
     键序 url→preview_url 固定（设备侧 ParseArticlePages 按此序扫描），
     且 arguments.url/preview_url 必须等于 pages[0]——否则用户看的预览与写的内容不同。"""
     from hutuji_mcp import server
+    from httpx import Response
 
     captured: dict[str, object] = {}
-
-    class _Resp:
-        status_code = 200
 
     class _Client:
         def __init__(self, *a, **kw):
@@ -702,7 +700,7 @@ def test_write_chain_push_sends_pages_json_string(tmp_path, monkeypatch):
         async def post(self, url, json=None, headers=None):
             captured["json"] = json
             captured["auth"] = headers.get("Authorization", "")
-            return _Resp()
+            return Response(200, json={"success": True, "data": "previewing"})
 
     # 链式推送经 device_messaging（2026-09-08 自愈），须补丁该模块的 httpx。
     from hutuji_mcp import device_messaging as dm

@@ -1085,6 +1085,12 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 
 绑定v2探活须解析真实工具状态、拒绝错误信封，并核对完整device_id与签名MAC；S3在线而Grbl离线不妨碍绑定，pending不消费扫码证明。云端记忆MAC统一小写并延用小写MAC旧路径，非MAC标识用原始标识SHA-256独立文件；旧歧义桶不自动迁移、仍保留，核实归属后再人工恢复，分桶不替代身份认证。筛选与全部回忆同受100条/8000字符预算。设备侧按Unicode码点限50/500字，严格恢复JSON，重复主题后写覆盖；回忆40条/4000码点，NVS软限仍3500字节，保存提交成功才可声称已记住。记忆不因绑定变更自动清空。设计与证据见 [本轮复审](design/binding-memory-motion-20260925.md)。
 
+### 2026-10-08 §4 / §10.4.5 / §10.4.22 应答与自愈补充
+
+- `draw/repeat/manual/pen_test` 忙拒绝、试笔期间 `pause/resume` 拒绝、换纸期间 `pause` 拒绝均返回含非空 `error` 的对象；同预览重入与已暂停/已继续等幂等成功保留。Portal 和 MCP 共享设备业务判错，逐层检查 `success/ok/isError/error` 后再拆信封；兼容旧固件的完整拒绝文案，不按 HTTP 200 推断受理。推图被拒绝时不继续查询或自动确认其他预览。
+- OTA 下发遇 HTTP 504、TimeoutError（含 URLError 包装）、RemoteDisconnected、ConnectionResetError 或 IncompleteRead 时，命令可能已送达，保持 `uncertain`，按原目标版本与进度对账，不提前释放升级等待或重复下发。
+- S3 自愈任务与 WithCaps 创建接口成对删除；10s 宽限和20s通知结束均核对仍为 error、TLS失败计数仍达阈值、无运动/OTA/预览/停止收尾所有者。最终复核到 `esp_restart` 持续持有 `stream_mutex_`，锁争用则放弃本轮；不与新任务发布交错。StartDraw 或预算成功清零计数后，旧自愈不得据残留 error 重启。
+
 ### 2026-09-25 §3 / §9-A 短段网络流控补充
 
 窗口化普通行保留512字节上限，并增加最多8条未应答行的限制；两者同时满足才发下一行。payload+LF计数、逐行单独发送、FIFO的ok/error配对、暂停/停止纪元、换纸独立编排和fresh Idle收尾均保持原契约。应答队列仍按字节窗理论最坏条数保留容量，不因发送节流缩小；设置/控制命令仍用独立逐行事务，不进入普通行窗口。8条依据量产机实测16段TCP队列满与短轨迹A/B选取，是当前实现值，不是Grbl上游常量或通用最优值；不同SDK/无线条件必须重新实测。量产Grbl的WiFiServer先begin后setNoDelay，避免Arduino1.0.4启动清零使新客户端回到Nagle模式。官方版本、现场队列快照、对照结果与未验证边界见 [卡顿调查](design/binding-memory-motion-20260925.md)，实际刷机/验收状态以readiness为准。

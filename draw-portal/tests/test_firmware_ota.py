@@ -535,6 +535,34 @@ def test_upgrade_gateway_504_keeps_session_upgrading(
     assert st.json()["state"] == "upgrading"
 
 
+@pytest.mark.parametrize("failure", ["timeout", "wrapped_timeout", "disconnect", "truncated"])
+def test_upgrade_lost_response_from_real_transport_keeps_reservation(tmp_path, monkeypatch, failure):
+    """故障从 urlopen/read 注入，避免模拟摘要掩盖真实 TimeoutError 大小写。"""
+    import io
+    from http.client import IncompleteRead, RemoteDisconnected
+    from urllib.error import URLError
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "LOSS01")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "LOSS01"}).status_code == 200
+    failures = {"timeout": TimeoutError(), "wrapped_timeout": URLError(TimeoutError()),
+                "disconnect": RemoteDisconnected(), "truncated": IncompleteRead(b"{", 10)}
+
+    class Response(io.BytesIO):
+        status = 200
+
+    def transport(request, **kwargs):
+        if json.loads(request.data)["name"] == "hutuji.status":
+            return Response(_status_json().encode())
+        raise failures[failure]
+
+    monkeypatch.setattr("urllib.request.urlopen", transport)
+    result = client.post("/api/device/firmware/upgrade").json()
+    assert result["status"] == "unknown"
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
+    assert client.post("/api/device/firmware/upgrade").json()["detail"] == "busy"
+
+
 def test_unknown_delivery_ignores_old_failure_until_upgrade_is_observed(tmp_path, monkeypatch):
     _, client = _clients(monkeypatch, tmp_path)
     _announce(client, "TTTT01")

@@ -1,5 +1,7 @@
 # hutuji — AI 绘图自动换纸写字机
 
+2026-10-08 三仓审查：修正设备忙拒绝被当成发送成功、OTA 丢应答提前解除等待、S3 自愈任务回收与重启接管竞态。门户与 MCP 的设备业务判错共用 `hutuji_mcp.tool_result`，兼容旧固件。源码、测试与构建记录见 [审查修复](docs/design/three-repo-review-20261008.md)，生产和板上状态仍以 readiness 为准。
+
 2026-09-24 多轮复审修复候选：语音按认证用户隔离并串行处理同会话；Portal OTA 原子占位与阶段/代次回写；S3 OTA 与运动共用占位；Grbl 请求上下文按任务隔离；MCP 配置读取不阻塞事件循环，vpype 调参保留在途计数。**用户再次确认量产写字机不自动换纸，交付只用 `Grbl_Esp32-massprod` 的 `massprod/nopaper-1.3a` 分支；不得移植普通分支换纸模块以满足旧门禁。** 详见 [迭代记录](docs/design/review-fixes-20260924.md)，上线和板上状态只看 readiness。
 
 语音说一句话，云端 AI 生成绘图内容，写字机自动画出来、自动换纸。

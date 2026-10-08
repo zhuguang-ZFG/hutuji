@@ -301,7 +301,11 @@ def _start_upgrade_claimed(
         timeout=_OTA_START_TIMEOUT,
     )
     if not ok:
-        uncertain = result == "HTTP 504" or str(result).startswith("网络 timeout")
+        # urllib 的实际异常类名有大写；超时、响应截断或断连均不能证明命令未送达。
+        uncertain = result == "HTTP 504" or str(result).casefold() in {
+            "网络 timeout", "网络 timeouterror", "网络 remotedisconnected",
+            "网络 connectionreseterror", "网络 incompleteread",
+        }
         if uncertain:
             # 设备消息网关 504/读超时 ≠ 未送达（2026-09-11 实证：504 当轮设备
             # 已进入下载并自升成功）。会话保持 upgrading，由 ota_status 轮询
