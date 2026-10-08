@@ -43,3 +43,13 @@ K08-02倒序分别寻找最后X/Y/Z目标，纯Z与XY后的Z均核对0.05mm既�
 ## 1.0.33发布续作
 
 用户追加授权「提交、部署」。提交上述S3修复与本仓契约/台账，S3升版1.0.33重新构建；先不可变候选上传和公网完整哈希校验，再核对固定量产MAC/板型/空闲状态后单次OTA，版本启动确认后切latest/catalog。云端服务代码与量产Grbl代码无本批变化。发布结果及回滚位置待执行后回填。
+
+**发布完成（2026-10-08，supersede 本文前述未提交/未部署状态）**：
+
+- S3提交`f1fffcec799ff8204ee1cf06c165db48d9633588`与hub审查记录`4228a9a45c72a3ce25d33720c0be5914e3b029af`已推送各自原分支。S3六文件包括升版1.0.33及五个修复/测试文件；Grbl和云端服务代码没有本批修改。
+- 从固定提交构建量产Freenove/ESP32-S3/ESP-IDF v6.0.1，`esptool image-info`确认App version=1.0.33、校验和及验证hash有效。bin为3080192B，SHA-256 `a9979eb204504c910192e6cd53bfe1303281b6db6649551af4efc869a384022a`，ELF SHA `72efaa06e94fd23ef7bc1eebeadfcf78f133da9f0efe45b868f211780dafc816`。
+- 候选目录为主节点`/var/hutuji/firmware/s3/freenove-esp32s3-display-2.8-lcd/hutuji.1.0.33/`；公网完整下载200且大小/SHA一致后，向已核对MAC `b8:1f:3f:c4:58:2c`、同板型且Idle的设备发送一次OTA。首应答与第一次轮询为HTTP 504，未重复下发；15:04:52回包确认1.0.33、idle、connected/ready/authorized/grbl_settings_ok全true、nopaper/Idle。
+- 启动确认后发布latest/catalog，公网两份元数据均验证为1.0.33与同SHA。旧1.0.32镜像保留，推荐指针备份`/root/hutuji-bak-20261008-ota-1.0.33/`；回退时使用备份指针和保留的旧版本镜像，不能覆盖已有同号bin。
+- 云端MCP/portal/bridge仍active；本批没有重启这些服务或发布新云端代码。现役云端服务保持先前已验版本。本次设备验收为OTA版本启动和只读Grbl链路状态，未跑纸面绘图或故障注入。
+
+发布证据目录`results/local-only/2026-10-08-kdraw-release/`：SDK构建日志、image-info、公网bin、原/新catalog、单次OTA日志、设备状态时间线、确认回包与`release-summary.json`。审查期1.0.32候选证据独立保留，不作为本次发布镜像。

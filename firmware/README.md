@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-08 续审发布：S3 `f1fffce`已作为`hutuji.1.0.33`部署到量产Freenove（MAC `b8:1f:3f:c4:58:2c`），15:04:52回包确认版本、idle及nopaper链路ready/authorized/settings全true，公网推荐同步。bin SHA `a9979eb2…4022a`；旧1.0.32镜像与推荐指针备份保留。纸面动作未测，发布/回滚记录见`../docs/design/kdraw-runtime-review-20261008.md`。
+
 2026-10-08 奎享参照续审候选：S3停止归位逐行确认并固定会话；丢应答兜底核XYZ、保留迟到错误并在超时先受控停止；正常灌流完成发布Quiesced。29项新增真实函数回归、277项S3全套host与量产Freenove构建通过，现役设备仍为前批1.0.32。完整本地验证与未部署边界见`../docs/design/kdraw-runtime-review-20261008.md`。
 
 2026-10-08 发布结果：S3修复已提交`3b8a116`并升版`hutuji.1.0.32`，量产Freenove 2.8的MAC `b8:1f:3f:c4:58:2c`经OTA后回报新版本/idle，公网推荐同步。镜像3079328B、SHA `f13752b6…8d2ca`；原候选1.0.28的编译证据保留，不能混用哈希。写字机链路在升级前后均未连接，机械动作未测试。具体发布与回滚证据见`../docs/design/three-repo-review-20261008.md`。
