@@ -63,3 +63,22 @@ MCP 全套 1613/1613（+2，`AGENTS.md`/`worktree-inventory.md` 计数同步）�
 追加5项回归，加上接手已有18项，共23项专项；加照片9项后，Node从原282增至314。两组红证分别钉住预览多派/目录误重试/空分类重试/重复请求/退出原文恢复，以及迟到视口回调（`weapp/followup-resume-red.log`、`weapp/observer-resume-red.log`）。最终小程序全套314/314（`weapp/node-all-resume.log`），Portal487/487（96.75秒，`portal-resume.log`），hub12层PASS含MCP1613/1613（155.67秒）与e2e PASS（`hub-gate-resume.log`）；`git diff --check`通过。Portal警告为既有依赖弃用与本机pytest缓存写权限，不影响测试结果。
 
 **原生验证阻塞**：两次编译调用均在执行编译前返回 `CONNECT_ERROR / wait WechatIDE authorization timeout`。用户已确认在工具内允许Codex；随后状态检查返回授权任务pending，但对同一taskId的两次查询均为`AUTH_TASK_ERROR / Failed to connect to WechatIDE`，无法确认任务最终状态，不据此重发。`pending-native-auth.json`保留任务、项目、最后已知状态与恢复步骤；原生编译/模拟器截图仍未验证。真机、提交、上传、部署与纸面验收均未执行。
+
+## 2026-10-09 发布收口（覆盖上方未提交、未部署及原生阻塞状态）
+
+用户点名处理未提交/部署/原生验证。27文件已提交推送`3074cef9690642f5deb8e44dda6064e04017ef19`，其中小程序编译版本升为0.3.25。15份既有已测源码哈希逐份相同；版本号调整后Node314/314，后端沿用同源码的Portal487/MCP1613/e2e与hub12层证据；上传前冻结全部79份小程序文件，逐文件校验后上传。
+
+原生连接恢复：本轮发现开发者工具进程未运行，启动现有工具后旧任务返回`task not found`；状态检查显示版本equal且CLI无需令牌，但微信登录过期。用户完成登录任务`login_c46306a2-206a-4bf2-adaa-daf7f13e75fb`，官方回执success/login_success，复查loginExpired=false。四页WXML/WXSS共8项原生编译成功；聊天恢复按钮真实点击后输入框等于原文；控制页完整错误、图库失败重试及照片离线等待卡截图复核通过。模拟器的网络mock已恢复，并回到正常首页；这些是夹具展示/交互证据，不替代真机操作。
+
+0.3.25上传任务`confirmation_upload_f251821a-22eb-4994-848e-459352c38be5`经用户在开发者工具确认后，官方返回success/execution_success，包289482B；没有重复上传。**上传为开发版本，未提审/正式发布。** 平台回执与79份文件SHA在`release/upload-result.json`、`release/upload-sources.json`。
+
+云端载荷仅`sketch_render.py`：从明确提交的LF blob经auto_deploy出包，先京东热备后阿里主节点，部署与带包verify均exit0；队列排空与服务恢复由发布脚本执行。两节点文件SHA均为`ea497cc750f7d2064fea6e8f3217a7920e003f957ffaefff34bc94d783208152`、CR=0，主MCP/Portal/bridge与8worker检查通过，备MCP/Portal active、bridge inactive。合成阶跃图在两个生产venv均真跑hatch/squiggle→SVG→vpype→§5，产物分别8790B/48731B，未推送设备；公网health200。preflight最终阿里25/34、京东26/34，失败仍为既有unit/nginx布局与热备角色差异，不称整体通过；首轮热备探测与主节点部署重叠，额外register失败在服务恢复后复查消失，原日志保留。
+
+| 节点 | 包SHA-256 | 回滚备份ID |
+|---|---|---|
+| 阿里主 | `349a2bc030c29f61a670b72b0b55380139cb1dff023c5cf7424257f20d5f72d3` | `587cc41517984e51a03a75a4868e17e9` |
+| 京东热备 | `db4ab82b8f88ca2b1566e322bdc3df5ed20adf776f95d258dfeb7f52084a05fe` | `e8fcc561b8b64cdd9914946a4039957e` |
+
+回滚沿用`auto_deploy.py --rollback --target <节点> --backup-id <上表ID>`。部署/verify日志分别在本机`results/deploy-20261009-010753-ae07653a`、`-011008-f08bd730`（京东）、`-011118-d886830d`、`-011222-a25c99ee`（阿里）；原生编译、截图、冒烟及preflight在本批证据目录`release/`。原生脚本首次使用旧版本运行时全局对象/生命周期方法失败，改用官方页面级setData与网络mock后完成验证；没有因此修改产品代码。安装诊断脚本对含空格Windows路径报`C:\\Program`命令不存在，实际完整路径CLI可用，未重装工具。
+
+未执行：小程序正式发布、纸面实拍及真机运动；本批不更新任何固件。
