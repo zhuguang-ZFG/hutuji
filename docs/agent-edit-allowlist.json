@@ -1,6 +1,6 @@
 {
   "weapp_improvements_20261008_authorized": {
-    "note": "用户：继续下一步改善，小程序，以及各种功能的改善；追问优先级答：都做改善。覆盖创作/作品管理/发送控制/设备设置与升级体验，不改固件或机械行为。",
+    "note": "用户：继续下一步改善，小程序，以及各种功能的改善；追问优先级答：都做改善。覆盖创作/作品管理/发送控制/设备设置与升级体验，不改固件或机械行为。2026-10-08追加：提交推送上传发布；允许本批代码提交推送、0.3.24上传及平台发布流程，实际完成以平台回执为准。",
     "contract": "docs/design/weapp-improvements-20261008.md；protocol §10.4.0/§10.4.5/§10.4.9–13/§10.4.22/§10.4.24",
     "paths": ["draw-portal/weapp/**", "draw-portal/tests/weapp/**", "draw-portal/README.md", "draw-portal/weapp-smoke-checklist.md", "docs/**"]
   },

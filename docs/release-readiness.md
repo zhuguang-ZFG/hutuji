@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-> **2026-10-08 小程序0.3.24功能改善候选（🟡 本地验证，未提交/上传/发布）**：用户要求小程序及各类功能「都做改善」。补齐长请求预算、AI原稿撤回/迟到稿保护、照片草图与精修版一致选择/分享及超时只读查看、历史搜索/照片手绘分类/排序/多卡片预览、发送完整原因和控制入口、纸张编辑恢复/还原、Wi-Fi密码显隐与错误/完成导航、OTA结果原设备只读核对。Node 282 passed（+28）、Portal 487 passed；微信原生模板/样式与5页模拟器样例已取证，原生搜索/撤回交互及hub12层（MCP1611、e2e）通过，详见[改善记录](design/weapp-improvements-20261008.md)。不改后台、G-code参数或固件，没有真实发图、配网或OTA。平台上传/发布与微信真机仍待执行。
+> **2026-10-08 小程序0.3.24功能改善（✅ 代码提交推送、开发版本上传；🟡 未提审/正式发布）**：用户「提交推送上传发布」，源码`387c683`已推送main，23份已测源码SHA一致。Node282、Portal487、MCP1611/e2e及原生编译/模拟器交互通过。用户在开发者工具确认后查询同一upload任务，平台返回success/execution_success、包284603B；回执为`results/local-only/2026-10-08-weapp-improvements/upload-result.json`，pending记录已结清。上传属于开发版本；当前工具未提供公众平台提审/正式发布能力，也无可操作管理后台会话，故未执行这两步，不标已上线。改进与后续入口见[改善记录](design/weapp-improvements-20261008.md)。
 
 > **2026-10-08 fz发布签核与报告修复（✅ 已提交推送、本机应用及发布验证；Wokwi未验）**：用户追加「提交推送部署验证」，fz15文件已推送`e36c125`；独立远端克隆逐文件Git blob与本地应用一致。提交后重跑量产nopaper standard并核对报告SHA，26 pass/8 skip/Wokwi非阻断quota一项，observe hard=0、block_done_claim=false，19项运动/日志通过；此前新增32项、合计94项专项回归与源码SHA相符。当前脏树漏检、空HIL证据、坏scope、云启动告警、原子报告/中断、跳过统计和缺仓记录七项完成。双机已部署4文件SHA/LF及导入冒烟通过；主MCP/portal/bridge和8worker active、备MCP/portal active且bridge inactive；公网health正常，1.0.33完整下载3080192B/SHA及latest/catalog相符，固定量产设备idle/连接/参数校验正常。本批只有本机验证工具应用，没有新的云端或固件载荷，无真机运动。见[发布安全修复记录](design/fz-release-safety-20261008.md)。
 

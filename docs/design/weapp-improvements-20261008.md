@@ -39,3 +39,19 @@
 0.3.24本地候选完成。Node282/282（+28）、Portal487/487、hub12层PASS（MCP1611 passed、e2e PASS）；编译及Git空白检查通过。微信官方原生WXML/WXSS共10项success，5页368×793固定样例截图已人工检查；纸张还原按钮、写字撤回按钮和历史行操作触区经目视收尾。真实模拟器点击撤回后canUndoAiText=false，历史输入“小猫”仅匹配demo1；最终恢复普通创作页。结果和源码SHA见本机`verification-summary.json`。
 
 仅软件与模拟器验证，没有真机绘图、配网、升级、平台上传或正式发布。本批未提交，源码版本0.3.24；后续上传需以明确提交和实际平台回执为准，不把本地候选写成已发布。照片改进是版本对比、预览/分享一致性和精修结果恢复，没有声称算法或纸面画质已提升。
+
+
+## 0.3.24 提交与平台发布续作
+
+用户追加「提交推送上传发布」。代码33文件提交`387c683fde24527ea5398e9212c52e8192874c05`已推送main，上传前23份已测源码SHA一致、weapp受跟踪工作树无差异。
+
+微信原生upload以版本0.3.24和说明“优化创作与作品管理，完善照片预览、设备设置和升级反馈”发起，返回任务`confirmation_upload_3bf6d1cd-efae-47eb-ad8b-aefb43c74db9`、status=pending、Waiting for user confirmation。此为等待开发者工具确认，不是上传成功。未取得包大小、审核或正式发布回执；后续先查询该任务，不重新上传。
+
+原始脱敏回执为`upload-response.log/.json`，恢复上下文为`pending-upload.json`。开发者工具技能规定upload的pending需用户在工具窗口确认，非login/auth不主动轮询；因此当前停在平台确认步骤。源码已提交推送的状态覆盖前述未提交候选，正式发布状态仍待平台证据。
+
+
+### 上传确认结果
+
+用户回复「已在开发者工具确认」后，查询原任务`confirmation_upload_3bf6d1cd-efae-47eb-ad8b-aefb43c74db9`，官方回包status=success、detail=execution_success、result.success=true，TOTAL为284603B。`upload-result.log/.json`保存成功回执，`pending-upload.json`已更新success；不再重复upload。该状态覆盖上段等待确认。
+
+正式发布尚未完成。微信官方文档明确上传后需在公众平台“版本管理→开发版本”提交审核，审核通过后在审核版本中发布；当前可用wechatide工具仅提供预览/上传，没有提审或正式发布工具，也没有可操作的公众平台登录会话。未将开发版本冒充已提审、体验版已选定或线上版本。官方来源（2026-10-08读取）：https://developers.weixin.qq.com/miniprogram/dev/framework/quickstart/release.html ，本机快照`tmp/weapp-improvements-20261008/wechat-release-guide.html`。后续应对0.3.24在公众平台完成审核和发布，以实际平台回执再更新readiness。

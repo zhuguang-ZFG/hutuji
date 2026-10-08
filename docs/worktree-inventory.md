@@ -1,6 +1,6 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
-2026-10-08 小程序全流程改善：hub基线`3597e9e`，本批修改weapp创作/历史/聊天/图库/纸张/Wi-Fi/固件页、新增operation_feedback共享预算与发送反馈、version升0.3.24；新增3份交互回归并更新历史分类断言。Node282/Portal487通过，5页原生编译及固定样例截图在`results/local-only/2026-10-08-weapp-improvements/`；脚本/样例位于`tmp/weapp-improvements-20261008/`，仅本机。微信工具2.02.2608060、skill0.3.9；安装诊断长路径引号错误经同目录短路径复核为compatible=true，未更新工具。后台和两Grbl/S3/fz代码未改，普通Grbl既有.gitignore保留；小程序候选未提交、未上传或发布。设计为`docs/design/weapp-improvements-20261008.md`，hub12层通过（MCP1611/e2e），原生搜索/撤回通过，最终报告与源码SHA已归档同目录。
+2026-10-08 小程序全流程改善发布续作：33文件已提交推送`387c683`，23份已测源码SHA一致。0.3.24原生上传任务`confirmation_upload_3bf6d1cd-efae-47eb-ad8b-aefb43c74db9`在用户确认后查询为success/execution_success，包284603B；`pending-upload.json`已结清，不重发。正式提审/发布尚未执行，当前缺少可操作的公众平台会话。官方回执、`release-status.json`、测试/编译/截图保存在`results/local-only/2026-10-08-weapp-improvements/`；发布脚本与官方发布流程快照在`tmp/weapp-improvements-20261008/`。后台、两Grbl/S3/fz未改，普通Grbl既有.gitignore保留；发布状态文档另行提交。
 
 2026-10-08 fz发布签核与报告修复发布：用户「提交推送部署验证」，fz15文件已提交推送`e36c125`，本机应用逐文件与提交一致，独立远端下载核验通过。提交后的standard报告绑定该SHA、26 pass/8 skip/Wokwi非阻断quota，observe hard=0，19项运动/日志通过。枢纽随本次文档提交收口；两Grbl/S3源码无本批变化，普通Grbl`.gitignore`及fz两个未跟踪文本保留。新增发布证据`results/local-only/2026-10-08-fz-release-safety/release/`含新门禁/观察、双机文件和服务核验、固件完整下载/目录、设备只读状态；父目录保留提交前红绿及94项专项日志，`*-release-download.json`记录远端文件SHA。暂存`tmp/fz-release-safety-20261008/`中的远端克隆/验证脚本仅本机。没有新云端/固件部署或真机运动；见`docs/design/fz-release-safety-20261008.md`。
 
