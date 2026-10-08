@@ -50,3 +50,15 @@
 ## 发布续作（用户追加授权「提交部署」）
 
 按现有 `auto_deploy.py` 从明确提交的LF blob打包，仅发布4个服务文件：共享`tool_result.py`、MCP `device_messaging.py`、Portal `mcp_result.py`与`firmware_ota.py`。主备逐节点发布、保留回滚号、核对哈希和健康；备机bridge保持inactive。量产S3使用新版本`hutuji.1.0.32`，避开先前1.0.29–31诊断镜像号；当前线上推荐版为1.0.28。实际提交、部署及OTA结果待执行后回填，不沿用审查镜像哈希作为升版产物。
+
+**执行结果（14:15–14:22 CST，supersede 上段待执行状态）**：
+
+- 源码已提交并推送：hub `859a46f2c2c10c78a8c3fc1118a105edefdfa02e`，S3 `3b8a1166d36758fb6d0612b72283a2e342d73a74`。量产Grbl无本批变更。
+- 云端先热备后主机发布4文件，服务与文件哈希verify双过，生产venv导入与拒绝/嵌套旗标冒烟双过，LF无CR。京东备份号`6eedfa87c7584153a505019ba6c80794`，阿里备份号`29a3ecc15de3407091ea7f4be5685f7d`。回滚使用`auto_deploy.py --rollback --target <节点> --backup-id <对应号>`。
+- 包SHA：阿里`a39bfceaed072b80f2d37932e32d195f9eb664bde941bf9aedc4e8ccf75bcf9d`；京东`1af790153ee90895940e6cfb09870a105ad016d0d4c87dd15550cf5f92b9a70f`。发布/verify日志在`results/deploy-20261008-141530-d999256b`、`-141644-ec678617`、`-141711-4f4ef38e`、`-141822-e676c753`。
+- 生产preflight阿里25/34、京东26/34，与已登记基线一致；失败仍为主备角色差异、现役systemd drop-in、nginx布局及DNS回源与旧模板不一致。主节点公网HTTPS文件真下载、双机生成与描摹链均通过；未据此把preflight标成全绿，也未改动既定主备架构以迁就模板。
+- S3在固定提交上升版构建：ESP32-S3/Freenove/ESP-IDF v6.0.1，`esptool image-info`验证版本、校验和与镜像hash有效；3079328B，SHA-256 `f13752b6609385b204dbe375bf7c9606be98b84f398d72a90dead86e7dc8d2ca`，ELF SHA `e6720de373206f5eef49e8c4dcc2632c727aa76ede3d27a5d483fb76d0e47fc1`。先上传不可变候选版本，公网完整下载200且SHA逐位相符，再向MAC `b8:1f:3f:c4:58:2c`下发一次OTA。
+- OTA命令回504，重启窗口首查404；未重复下发。14:21:12的只读状态确认相同MAC/板型、`firmware_version=hutuji.1.0.32`、`state=idle`、`ota.state=idle`、heap字段在线。随后promote并验证公网latest/catalog均为1.0.32与同SHA；原推荐1.0.28的指针备份在主节点`/root/hutuji-bak-20261008-ota-1.0.32/`，旧版本镜像保留。
+- 初次升级前后写字机链路为`connected=false/ready=false/grbl_state=Unknown`，离线时`plotter_sku=paper`为保守默认。14:24:59再查：同设备仍为1.0.32，connected/ready/authorized/grbl_settings_ok全true，plotter_sku=nopaper、grbl_state=Idle，链路已恢复。没有串口、归位、试笔或真实绘图；本次板上证据覆盖身份、OTA版本启动与只读链路状态。
+
+发布证据集中于`results/local-only/2026-10-08-release/`，包含公网候选bin、catalog、脱敏状态时间线、双机导入哈希、preflight与升版构建记录；不覆盖审查阶段`three-repo-review`证据目录中的1.0.28候选镜像。
