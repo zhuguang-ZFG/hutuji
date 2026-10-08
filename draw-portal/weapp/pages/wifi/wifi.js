@@ -6,7 +6,7 @@ const transport = require("../../utils/wifi_transport");
 Page({
   data: {
     step: "scan", apSsid: "", homeSsid: "", homePassword: "", apList: [],
-    wifiLocked: false, deviceMac: "", bindState: "", log: "", authReady: false,
+    wifiLocked: false, deviceMac: "", bindState: "", log: "", authReady: false, showPassword: false, wifiError: "",
   },
 
   onLoad(options) {
@@ -30,7 +30,7 @@ Page({
   onShow() {
     if (this._sessionGeneration !== getApp()._sessionGeneration) {
       this._begin();
-      this.setData({ authReady: false });
+      this.setData({ authReady: false, homePassword: "", showPassword: false, bindState: "" });
     }
     if (!this.data.authReady) this.ensureAuthAndInit();
   },
@@ -39,7 +39,12 @@ Page({
     this._unloaded = true;
     this._begin();
     this.data.homePassword = "";
+    this.data.showPassword = false;
   },
+  onHide() { this.setData({ showPassword: false }); },
+  onTogglePassword() { if (this.data.step === "creds") this.setData({ showPassword: !this.data.showPassword }); },
+  onGoCreate() { if (this.data.bindState === "bound") wx.switchTab({ url: "/pages/index/index" }); },
+  onGoControl() { if (this.data.bindState === "bound") wx.switchTab({ url: "/pages/control/control" }); },
 
   _begin() {
     this._generation = (this._generation || 0) + 1;
@@ -155,7 +160,7 @@ Page({
     if (!this.data.authReady) { this.ensureAuthAndInit(); return; }
     if (!this.data.apSsid) { wx.showToast({ title: "请先扫描设备配网码", icon: "none" }); return; }
     const generation = this._begin();
-    this.setData({ step: "working", log: "正在连接设备热点…", apList: [] });
+    this.setData({ step: "working", log: "正在连接设备热点…", apList: [], wifiError: "" });
     this.connectDevice(generation, 0, () => this.scanAps(generation));
   },
 
@@ -179,6 +184,10 @@ Page({
   },
 
   onConnectFail() {
+    if (!this.data.apSsid) {
+      this.setData({ step: "scan", wifiError: "暂时无法使用手机 Wi-Fi，请开启 Wi-Fi 后扫描设备配网码" });
+      return;
+    }
     this.setData({ step: this.data.homeSsid ? "creds" : "manual" });
     this.appendLog("暂时连不上设备热点，请保持设备在配网页面后重试");
     const generation = this._generation;
@@ -202,21 +211,28 @@ Page({
       done: (res) => {
         if (!this._current(generation)) return;
         const aps = res.status === 200 && res.data && Array.isArray(res.data.aps) ? res.data.aps : [];
+        const signal = (ap) => typeof ap.rssi === "number" && Number.isFinite(ap.rssi) ? ap.rssi : -Infinity;
+        const seen = new Set();
         const list = aps.filter((ap) => ap && typeof ap.ssid === "string" && ap.ssid)
-          .sort((a, b) => (b.rssi || 0) - (a.rssi || 0));
+          .sort((a, b) => signal(b) - signal(a))
+          .filter((ap) => { if (seen.has(ap.ssid)) return false; seen.add(ap.ssid); return true; });
         this.setData({ step: list.length ? "aps" : "creds", apList: list });
         if (!list.length) this.appendLog("暂时读不到列表，可以直接输入家里的 Wi-Fi 名称");
       },
     });
   },
 
-  onPickAp(e) { this.setData({ homeSsid: e.currentTarget.dataset.ssid || "", wifiLocked: true, step: "creds" }); },
+  onPickAp(e) {
+    const ssid = e.currentTarget.dataset.ssid || "";
+    this.setData({ homeSsid: ssid, homePassword: ssid === this.data.homeSsid ? this.data.homePassword : "",
+      wifiLocked: true, step: "creds", showPassword: false });
+  },
   onManualSsid() { this.setData({ homeSsid: "", wifiLocked: false, step: "creds" }); },
 
   onSubmitCreds() {
     if (!this.data.homeSsid) { wx.showToast({ title: "先选家里 Wi-Fi", icon: "none" }); return; }
     const generation = this._begin();
-    this.setData({ step: "working", bindState: "" });
+    this.setData({ step: "working", bindState: "", showPassword: false });
     this.appendLog("正在把网络信息发送给设备…");
     this.ensureOnDeviceAp(generation, () => this.submitCreds(generation, 0));
   },
@@ -365,7 +381,7 @@ Page({
   bindDone() {
     this._begin();
     identity.clearPending();
-    this.setData({ step: "done", bindState: "bound", homePassword: "" });
+    this.setData({ step: "done", bindState: "bound", homePassword: "", showPassword: false });
     this.appendLog("绑定成功，现在可以使用这台设备了");
     wx.showToast({ title: "绑定成功", icon: "success" });
   },
@@ -384,6 +400,6 @@ Page({
     this._scan = null;
     this._phase = "scan";
     identity.clearPending();
-    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, homeSsid: "", homePassword: "", apSsid: "", deviceMac: "", bindState: "" });
+    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, homeSsid: "", homePassword: "", apSsid: "", deviceMac: "", bindState: "", showPassword: false });
   },
 });

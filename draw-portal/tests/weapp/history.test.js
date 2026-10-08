@@ -23,7 +23,7 @@ test("收藏筛选已提供选项，私有图片下载后同步到实际显示�
   const h = setup();
   h.storage.set("session_token", "owner-session");
   await load(h);
-  assert.equal(h.page.data.kinds.length, 4);
+  assert.deepEqual(Array.from(h.page.data.kinds, (item) => item.key), ["all", "draw", "write", "teach", "upload"]);
   h.page.onFilter({ currentTarget: { dataset: { kind: "write" } } });
   assert.equal(h.downloads[1].header["x-session"], "owner-session");
   h.downloads[1].success({ statusCode: 200, tempFilePath: "wxfile://b" });

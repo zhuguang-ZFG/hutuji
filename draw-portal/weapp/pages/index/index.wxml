@@ -46,13 +46,15 @@
         </view>
       </view>
     </view>
+    <view class="input-caption"><text>描述主体、动作和风格，轮廓越清楚越好</text><text>{{description.length}}/200</text></view>
+    <view class="example-row"><text>试着画</text><button size="mini" bindtap="onExample" data-text="坐着的小猫，简洁清楚的线条">小猫</button><button size="mini" bindtap="onExample" data-text="一枝兰花，简洁线描">兰花</button><button size="mini" bindtap="onExample" data-text="月亮下的小房子，儿童简笔画">小房子</button></view>
     <view class="weui-btn-area tight">
       <button
         class="weui-btn weui-btn_primary"
         hover-class="btn-press"
         bindtap="onGenerate"
         loading="{{generating}}"
-        disabled="{{generating || !description}}"
+        disabled="{{generating || uploading || !description}}"
       >
         {{generating ? "生成中…" : "生成图画"}}
       </button>
@@ -77,6 +79,7 @@
       </view>
     </view>
 
+    <view class="input-caption"><text>先写文字或主题，再预览排版</text><text>{{writeText.length}}/5000</text></view>
     <view class="ai-row">
       <button
         class="weui-btn weui-btn_default ai-btn"
@@ -93,6 +96,9 @@
         disabled="{{aiWriting || layouting || !writeText}}"
       >润色扩写</button>
     </view>
+
+    <view class="draft-notice" wx:if="{{aiSuggestion}}"><text>AI 新稿已备好，你正在编辑的文字已保留。</text><button size="mini" bindtap="onApplyAiSuggestion" disabled="{{aiWriting || layouting}}">采用AI新稿</button></view>
+    <view class="draft-actions" wx:if="{{canUndoAiText}}"><button size="mini" bindtap="onUndoAiText" disabled="{{aiWriting || layouting}}">恢复AI处理前原稿</button></view>
 
     <view class="layout-controls">
       <view class="layout-row" wx:if="{{fonts.length}}">
@@ -154,6 +160,8 @@
         </view>
       </view>
     </view>
+    <view class="input-caption"><text>按汉字逐笔展示，可输入词语或短句</text><text>{{teachText.length}}/200</text></view>
+    <view class="example-row"><text>试着写</text><button size="mini" bindtap="onExample" data-text="春眠不觉晓">古诗</button><button size="mini" bindtap="onExample" data-text="好好学习">词语</button></view>
     <view class="weui-btn-area tight">
       <button
         class="weui-btn weui-btn_primary"
@@ -168,6 +176,7 @@
   </block>
 
   <!-- 共用预览卡 -->
+  <view class="draft-notice" wx:if="{{generating || aiWriting || layouting || teaching}}">{{aiWriting ? '正在整理文字' : layouting ? '正在排版并生成预览' : teaching ? '正在生成笔顺' : '正在生成图画'}}… 可先查看控制或历史页面，返回创作后查看结果，请勿重复提交。</view>
   <block wx:if="{{job}}">
     <view class="preview-card">
       <view class="refine-waiting" wx:if="{{job.refining}}">
@@ -191,6 +200,10 @@
             disabled="{{pageIndex >= job.pages.length - 1}}"
           >›</button>
         </view>
+        <view class="version-switch" wx:if="{{job.refined}}">
+          <button size="mini" class="{{!job.useRefined ? 'selected' : ''}}" bindtap="onSelectVersion" data-version="original" disabled="{{sending || saving}}">快速草图</button>
+          <button size="mini" class="{{job.useRefined ? 'selected' : ''}}" bindtap="onSelectVersion" data-version="refined" disabled="{{sending || saving}}">AI 精修</button>
+        </view>
         <image
           class="preview"
           src="{{job.pages && job.pages.length ? job.pages[pageIndex].preview_url : (job.useRefined && job.refined ? job.refined.previewUrl : job.previewUrl)}}"
@@ -201,19 +214,20 @@
         <view class="preview-meta muted" wx:if="{{job.inputTruncated}}">仅保留前 20 个汉字</view>
         <view class="preview-meta muted" wx:if="{{job.truncated}}">超过 20 页上限，已截断</view>
         <view class="preview-meta muted" wx:if="{{job.missingCharsText}}">缺字 {{job.missingCharsText}}（写出为空白）</view>
-        <view class="preview-meta muted" wx:if="{{job.refined}}">AI 精修 · 点图放大</view>
+        <view class="preview-meta muted" wx:if="{{job.refined}}">{{job.useRefined ? 'AI 精修' : '快速草图'}} · 收藏、分享和发送使用当前版本</view>
         <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'failed'}}">精修未成功 · 快速草图</view>
-        <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修仍在跑 · 先看草图</view>
+        <view class="preview-meta muted" wx:elif="{{job.refineFailed === 'timeout'}}">精修结果暂未确认 · 先看草图</view>
         <view class="preview-meta muted" wx:elif="{{job.pages && job.pages.length > 1}}">共 {{job.pageCount || job.pages.length}} 页 · 点图放大</view>
         <view class="preview-meta muted" wx:elif="{{mode === 'teach' && job.charsTaught}}">教 {{job.charsTaught.length}} 字 · 点图放大</view>
         <view class="preview-meta muted" wx:else>约 {{job.lines}} 行 · 点图放大</view>
+        <view class="draft-actions" wx:if="{{job.refineFailed === 'timeout'}}"><button size="mini" bindtap="onRetryRefined" loading="{{job.refineChecking}}" disabled="{{job.refineChecking}}">查看精修结果</button></view>
         <view class="preview-actions">
           <button
             class="weui-btn weui-btn_default action-inline"
             hover-class="btn-press"
             bindtap="onSave"
             loading="{{saving}}"
-            disabled="{{saving || sending}}"
+            disabled="{{saving || sending || generating || uploading || layouting || teaching || aiWriting}}"
           >收藏</button>
           <button
             class="weui-btn weui-btn_default action-inline"
@@ -225,7 +239,7 @@
             hover-class="btn-press"
             bindtap="onSend"
             loading="{{sending}}"
-            disabled="{{sending || saving}}"
+            disabled="{{sending || saving || generating || uploading || layouting || teaching || aiWriting}}"
           >发送到丹青</button>
         </view>
       </block>
@@ -259,7 +273,9 @@
       <text class="tile-label">{{uploading ? "转换中" : "文档"}}</text>
     </button>
   </view>
-  <view class="weui-cells__tips" wx:if="{{uploading}}">{{mode === 'write' ? '转换中，文档约 5–15 秒' : '转换中，照片约 5–15 秒'}}</view>
+  <view class="weui-cells__tips" wx:if="{{uploading}}">正在转换并生成预览，内容较多时需要更久，请勿重复上传。</view>
+  <view class="weui-cells__tips" wx:elif="{{mode === 'draw'}}">照片建议光线均匀、主体清晰、背景简洁。可对比快速草图与精修版后再发送。</view>
+  <view class="weui-cells__tips" wx:if="{{mode !== 'teach'}}">文档支持 Word、Excel、PPT、CSV、TXT 和 SVG，单文件不超过 4MB。</view>
 
   <view class="bind-banner market-banner" bindtap="onGoMarket" hover-class="tile-press">
     <view class="bind-copy">

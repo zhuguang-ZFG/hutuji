@@ -32,7 +32,10 @@ Page({
       return this._loadCategories();
     });
   },
-  onHide() { pageSession.hide(this); this._ready = false; },
+  onHide() {
+    pageSession.hide(this); this._ready = false;
+    if (this._previewObserver) { this._previewObserver.disconnect(); this._previewObserver = null; }
+  },
   onUnload() {
     this._unloaded = true;
     if (this._previewObserver) { this._previewObserver.disconnect(); this._previewObserver = null; }
@@ -103,7 +106,7 @@ Page({
   _observePreviews() {
     if (this._previewObserver) this._previewObserver.disconnect();
     if (typeof wx.createIntersectionObserver !== "function") return;
-    const observer = wx.createIntersectionObserver(this);
+    const observer = wx.createIntersectionObserver(this, { observeAll: true });
     this._previewObserver = observer;
     // 可视区懒加载：卡片进视口才派发预览下载（首屏 6 张已由 replace 泵出）
     observer.relativeToViewport().observe(".gallery-card", (res) => {

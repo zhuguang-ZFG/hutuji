@@ -3,11 +3,13 @@ const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
 const pageSession = require("../../utils/page_session");
 const previewCache = require("../../utils/preview_cache");
+const feedback = require("../../utils/operation_feedback");
 const KINDS = [
   { key: "all", label: "全部" },
   { key: "draw", label: "AI 画" },
   { key: "write", label: "写字" },
   { key: "teach", label: "笔顺" },
+  { key: "upload", label: "照片/手绘" },
 ];
 
 // 标题前缀即任务谱系（source_name 在 create_draw_job 时带语种前缀）；
@@ -40,6 +42,8 @@ Page({
     jobs: [],
     filtered: [],
     filterKind: "all",
+    searchText: "",
+    sortOrder: "newest",
     redrawing: false,
     loading: true,
     loadError: "",
@@ -71,6 +75,7 @@ Page({
   onHide() {
     pageSession.hide(this);
     this._ready = false;
+    if (this._previewObserver) { this._previewObserver.disconnect(); this._previewObserver = null; }
   },
   onUnload() {
     this._unloaded = true;
@@ -113,6 +118,7 @@ Page({
             sourceName: it.title || "作品",
             credit: it.credit || null,
             createdAt: formatSavedTime(it.saved_at),
+            savedAt: Number(it.saved_at) || 0,
             kind: parsed.kind,
             content: parsed.content,
           };
@@ -149,7 +155,7 @@ Page({
     if (!state || state.generation !== generation || state.session !== session) {
       this._previews = { generation, session, cache: new Map(), pending: new Set(), queue: [], deferred: [],
         active: 0, current: () => false };
-      this.setData({ jobs: [], filtered: [] });
+      this.setData({ jobs: [], filtered: [], searchText: "", filterKind: "all", sortOrder: "newest" });
     }
     return this._previews;
   },
@@ -219,7 +225,7 @@ Page({
   _observePreviews() {
     if (this._previewObserver) this._previewObserver.disconnect();
     if (typeof wx.createIntersectionObserver !== "function") return;
-    const observer = wx.createIntersectionObserver(this);
+    const observer = wx.createIntersectionObserver(this, { observeAll: true });
     this._previewObserver = observer;
     // 可视区懒加载：卡片进视口才把预览从候命队列提到下载队列
     observer.relativeToViewport().observe(".work-cell", (res) => {
@@ -240,23 +246,40 @@ Page({
 
   _applyFilter() {
     const kind = this.data.filterKind;
-    const filtered =
-      kind === "all" ? this.data.jobs.slice() : this.data.jobs.filter((j) => j.kind === kind);
+    const words = (this.data.searchText || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const filtered = this.data.jobs.filter((job) => {
+      if (kind !== "all" && (kind === "upload" ? !!job.kind : job.kind !== kind)) return false;
+      const text = (String(job.sourceName || "") + " " + String(job.content || "")).toLowerCase();
+      return words.every((word) => text.includes(word));
+    });
+    filtered.sort((a, b) => ((b.savedAt || 0) - (a.savedAt || 0)) * (this.data.sortOrder === "oldest" ? -1 : 1));
     this.setData({ filtered });
   },
 
+  _refreshFilter() {
+    this._applyFilter();
+    this._observePreviews();
+    // 搜索命中的首屏作品可能原本在候命区，不必等再次滚动才加载。
+    this.data.filtered.slice(0, 6).forEach((job) => this._requestPreview(job.savedId));
+  },
+  onSearch(e) { this.setData({ searchText: String(e.detail.value || "").slice(0, 80) }); this._refreshFilter(); },
+  onClearSearch() { this.setData({ searchText: "" }); this._refreshFilter(); },
+  onClearFilters() { this.setData({ searchText: "", filterKind: "all" }); this._refreshFilter(); },
+  onSortToggle() { this.setData({ sortOrder: this.data.sortOrder === "newest" ? "oldest" : "newest" }); this._refreshFilter(); },
+  onGoCreate() { wx.switchTab({ url: "/pages/index/index" }); },
+
   onFilter(e) {
     const key = e.currentTarget.dataset.kind;
-    if (!key || key === this.data.filterKind) return;
+    if (!KINDS.some((kind) => kind.key === key) || key === this.data.filterKind) return;
     this.setData({ filterKind: key });
-    this._applyFilter();
-    this._observePreviews(); // 筛选重建 .work-cell 节点，不补观察 deferred 卡片永停「加载中」
+    this._refreshFilter();
   },
 
   // 一键重画（2026-09-11）：标题谱系还原请求，成功后跨页交接给创作页上屏。
   onRedraw(e) {
     const idx = Number(e.currentTarget.dataset.idx);
-    const item = this.data.filtered[idx];
+    const id = e.currentTarget.dataset.id;
+    const item = id ? this.data.jobs.find((job) => job.savedId === id) : this.data.filtered[idx];
     if (!item || !item.kind || this.data.redrawing) return;
     const current = pageSession.capture(this);
     this.setData({ redrawing: true });
@@ -342,18 +365,10 @@ Page({
         if (!current()) return;
         if (!res.confirm) { this.setData({ sendingId: "" }); return; }
         api
-          .request(`/api/draw/saved/${savedId}/send`, { method: "POST" })
+          .request(`/api/draw/saved/${savedId}/send`, { method: "POST", timeout: feedback.SEND_TIMEOUT_MS })
           .then((r) => {
             if (!current()) return;
-            if (r.status === "sent") {
-              const started = /已自动开始画/.test(r.detail || "");
-              wx.showToast({
-                title: started ? "已开始画" : "已发送",
-                icon: "success",
-              });
-            } else {
-              wx.showModal({ title: "发送失败", content: r.detail || "设备未响应", showCancel: false });
-            }
+            feedback.showSendResult(r, current);
           })
           .catch((err) => {
             if (!current()) return;

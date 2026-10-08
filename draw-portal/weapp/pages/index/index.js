@@ -3,6 +3,7 @@ const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
 const pageSession = require("../../utils/page_session");
 const paperSummary = require("../../utils/paper_summary");
+const feedback = require("../../utils/operation_feedback");
 
 Page({
   onPaperSettings() { wx.navigateTo({ url: "/pages/paper/paper" }); },
@@ -23,6 +24,8 @@ Page({
     // AI 写文（generate/polish）成功后置位，驱动预览卡「AI 生成」标识
     //（《人工智能生成合成内容标识办法》2025-09-01 施行，量产合规项）
     aiTextUsed: false,
+    aiSuggestion: "",
+    canUndoAiText: false,
     teaching: false,
     sending: false,
     saving: false,
@@ -45,8 +48,10 @@ Page({
       this.stopRefinePolling();
       this._writeToken = (this._writeToken || 0) + 1;
       this._shareToken = null;
+      this._aiBackup = null;
+      this._writeEditVersion = 0;
       this.setData({ job: null, binding: null, quotaLeft: null, shareToken: null,
-        description: "", writeText: "", teachText: "", aiTextUsed: false,
+        description: "", writeText: "", teachText: "", aiTextUsed: false, aiSuggestion: "", canUndoAiText: false,
         generating: false, layouting: false, aiWriting: false, teaching: false,
         uploading: false, sending: false, saving: false });
     }
@@ -82,9 +87,12 @@ Page({
   resumeJobState() {
     const job = this.data.job;
     if (!job || !job.jobId) return;
-    if (job.refined || job.refineFailed || job.refining) return; // 已有终态或链在跑
+    if (job.refined || job.refineFailed === "failed" || job.refining) return;
+    if (this._refineResume && this._refineResume.current()) return;
     const visible = pageSession.capture(this);
     const current = () => visible() && this.data.job && this.data.job.jobId === job.jobId;
+    const flight = this._refineResume = { current };
+    this.setData({ "job.refineChecking": true });
     api
       .request("/api/draw/jobs/" + job.jobId)
       .then((res) => {
@@ -99,17 +107,24 @@ Page({
               gcodeUrl: refined.gcode_url,
             },
             "job.useRefined": true,
+            "job.refineFailed": false,
           });
+          this._prefetchShareToken(this.selectedJobId());
           wx.showToast({ title: "AI 精修版好了", icon: "success" });
         } else if (refined.status === "failed") {
           this.setData({ "job.refineFailed": "failed" });
         } else if (refined.status === "pending") {
-          this.setData({ "job.refining": true });
+          this.setData({ "job.refining": true, "job.refineFailed": false });
           this.startRefinePolling(job.jobId);
         }
       })
-      .catch(() => {}); // 补屏失败不打扰，下次 onShow 再试
+      .catch(() => {}) // 补屏失败不打扰，下次 onShow 或主动查看再试。
+      .finally(() => {
+        if (this._refineResume === flight) this._refineResume = null;
+        if (current()) this.setData({ "job.refineChecking": false });
+      });
   },
+  onRetryRefined() { return this.resumeJobState(); },
 
 
   onLoad() {
@@ -167,7 +182,8 @@ Page({
 
   onModeTap(e) {
     const mode = e.currentTarget.dataset.mode;
-    if (mode === this.data.mode) return;
+    if (!["draw", "write", "teach"].includes(mode) || mode === this.data.mode) return;
+    if (this._creationBusy()) { wx.showToast({ title: "当前任务完成后再切换", icon: "none" }); return; }
     this._filePick = null;
     this._pendingJob = null;
     this._pendingMessage = null;
@@ -192,12 +208,51 @@ Page({
     this.setData({ description: e.detail.value });
   },
   onWriteInput(e) {
+    this._writeEditVersion = (this._writeEditVersion || 0) + 1;
     // 修改 AI 原文仍保留来源；清空全文后再手写才开始一份新稿。
     this.setData({ writeText: e.detail.value, aiTextUsed: this.data.aiTextUsed && !!e.detail.value.trim() });
   },
 
   onTeachInput(e) {
     this.setData({ teachText: e.detail.value });
+  },
+
+  _creationBusy() {
+    return this.data.generating || this.data.layouting || this.data.aiWriting || this.data.teaching || this.data.uploading;
+  },
+
+  onExample(e) {
+    if (this._creationBusy()) return;
+    const text = String(e.currentTarget.dataset.text || "");
+    const field = this.data.mode === "write" ? "writeText" : this.data.mode === "teach" ? "teachText" : "description";
+    if (field === "writeText") this.onWriteInput({ detail: { value: text } });
+    else this.setData({ [field]: text });
+  },
+
+  _applyAiText(text) {
+    this._aiBackup = { text: this.data.writeText, aiTextUsed: this.data.aiTextUsed, after: text };
+    this._writeEditVersion = (this._writeEditVersion || 0) + 1;
+    this.setData({ writeText: text, aiTextUsed: true, aiSuggestion: "", canUndoAiText: true });
+  },
+
+  onApplyAiSuggestion() {
+    if (!this._creationBusy() && this.data.aiSuggestion) this._applyAiText(this.data.aiSuggestion);
+  },
+
+  onUndoAiText() {
+    const backup = this._aiBackup;
+    if (!backup || this._creationBusy()) return;
+    const current = pageSession.capture(this);
+    const revision = this._writeEditVersion;
+    const restore = () => {
+      if (!current() || revision !== this._writeEditVersion || this._aiBackup !== backup) return;
+      this._aiBackup = null;
+      this._writeEditVersion = (this._writeEditVersion || 0) + 1;
+      this.setData({ writeText: backup.text, aiTextUsed: backup.aiTextUsed, canUndoAiText: false, aiSuggestion: "" });
+    };
+    if (this.data.writeText === backup.after) restore();
+    else wx.showModal({ title: "恢复AI处理前的文字？", content: "恢复会替换你之后编辑的内容。", confirmText: "恢复原稿",
+      success: (res) => { if (res.confirm) restore(); } });
   },
 
   bumpSize(e) {
@@ -229,7 +284,7 @@ Page({
   },
 
   onGenerate() {
-    if (this.data.generating || !this.data.description) return;
+    if (this._creationBusy() || !this.data.description.trim()) return;
     const task = pageSession.captureTask(this);
     const token = this._writeToken;
     const current = () => task() && token === this._writeToken;
@@ -240,7 +295,7 @@ Page({
         method: "POST",
         // 与 portal DRAW_PORTAL_GENERATE_TIMEOUT_SECONDS(300s) 对齐（2026-09-12
         // 忙批）：旧 150s 会在云端仍在生成时先超时弹「生成失败」，随后图又出现。
-        timeout: 300000,
+        timeout: feedback.CREATION_TIMEOUT_MS,
         data: { description: this.data.description },
       })
       .then((res) => {
@@ -264,7 +319,7 @@ Page({
   },
 
   onTeachGenerate() {
-    if (this.data.teaching || !this.data.teachText) return;
+    if (this._creationBusy() || !this.data.teachText.trim()) return;
     const token = this._writeToken;
     const current = pageSession.captureTask(this);
     subscribe.requestAtTap();
@@ -272,6 +327,7 @@ Page({
     api
       .request("/api/draw/teach", {
         method: "POST",
+        timeout: feedback.CREATION_TIMEOUT_MS,
         data: { text: this.data.teachText },
       })
       .then((res) => {
@@ -300,8 +356,9 @@ Page({
   },
 
   _runWriteAi(mode) {
-    if (this.data.aiWriting || this.data.layouting || !this.data.writeText) return;
+    if (this._creationBusy() || !this.data.writeText.trim()) return;
     const token = this._writeToken;
+    const revision = this._writeEditVersion || 0;
     const current = pageSession.captureTask(this);
     const payload =
       mode === "generate"
@@ -309,11 +366,18 @@ Page({
         : { mode: "polish", text: this.data.writeText };
     this.setData({ aiWriting: true });
     api
-      .request("/api/draw/write/ai", { method: "POST", data: payload })
+      .request("/api/draw/write/ai", { method: "POST", data: payload, timeout: feedback.CREATION_TIMEOUT_MS })
       .then((res) => {
         if (!current() || token !== this._writeToken) return;
-        const text = (res && res.text) || "";
-        this.setData({ aiWriting: false, writeText: text, aiTextUsed: true });
+        const text = res && res.text;
+        if (typeof text !== "string" || !text.trim()) throw { detail: "暂未生成有效文字，原稿已保留" };
+        this.setData({ aiWriting: false });
+        if ((this._writeEditVersion || 0) !== revision) {
+          this.setData({ aiSuggestion: text });
+          if (this._visible !== false) wx.showToast({ title: "新稿已备好，原文保留", icon: "none" });
+          return;
+        }
+        this._applyAiText(text);
         if (this._visible !== false) wx.showToast({
           title: mode === "generate" ? "已生成，可再改" : "已润色，可再改",
           icon: "success",
@@ -331,7 +395,7 @@ Page({
   },
 
   onLayoutPreview() {
-    if (this.data.layouting || !this.data.writeText) return;
+    if (this._creationBusy() || !this.data.writeText.trim()) return;
     const token = this._writeToken;
     const current = pageSession.captureTask(this);
     const data = {
@@ -345,6 +409,7 @@ Page({
     api
       .request("/api/draw/write", {
         method: "POST",
+        timeout: feedback.CREATION_TIMEOUT_MS,
         data,
       })
       .then((res) => {
@@ -378,7 +443,23 @@ Page({
   onPreviewTap() {
     const url = this.currentPreviewUrl();
     if (!url) return;
-    wx.previewImage({ urls: [url] });
+    const pages = this.data.job.pages;
+    const urls = pages && pages.length ? pages.map((page) => api.mediaUrl(page.preview_url)) : [api.mediaUrl(url)];
+    wx.previewImage({ current: api.mediaUrl(url), urls });
+  },
+
+  selectedJobId() {
+    const job = this.data.job;
+    return job ? (job.useRefined && job.refined ? job.refined.jobId : job.jobId) : "";
+  },
+
+  onSelectVersion(e) {
+    const job = this.data.job;
+    if (!job || !job.refined || this.data.sending || this.data.saving) return;
+    const useRefined = e.currentTarget.dataset.version === "refined";
+    if (useRefined === !!job.useRefined) return;
+    this.setData({ "job.useRefined": useRefined, shareToken: null });
+    this._prefetchShareToken(this.selectedJobId());
   },
 
   onPrevPage() {
@@ -394,7 +475,7 @@ Page({
 
   onSend() {
     const job = this.data.job;
-    if (!job) return;
+    if (!job || this._creationBusy()) return;
     // 发预览卡上选中的版本：精修就绪且选中精修版时发精修 job
     // （后端眼里精修 job 就是普通 job，走同一个 send 接口）
     const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
@@ -403,7 +484,7 @@ Page({
 
   onSave() {
     const job = this.data.job;
-    if (!job || job.refining || this.data.saving) return;
+    if (!job || job.refining || this.data.saving || this._creationBusy()) return;
     const jobId = job.useRefined && job.refined ? job.refined.jobId : job.jobId;
     const current = pageSession.capture(this);
     this.setData({ saving: true });
@@ -434,26 +515,11 @@ Page({
     const current = pageSession.capture(this);
     this.setData({ sending: true });
     api
-      .request(`/api/draw/${jobId}/send`, { method: "POST" })
+      .request(`/api/draw/${jobId}/send`, { method: "POST", timeout: feedback.SEND_TIMEOUT_MS })
       .then((res) => {
         if (!current()) return;
         this.setData({ sending: false });
-        if (res.status === "sent") {
-          const started = /已自动开始画/.test(res.detail || "");
-          wx.showModal({
-            title: started ? "已开始画" : "已发送",
-            content: started
-              ? "丹青正在出图，无需再在小派上点确认"
-              : res.detail || "已推送到丹青",
-            showCancel: false,
-          });
-        } else {
-          wx.showModal({
-            title: "发送失败",
-            content: res.detail || "设备未响应，请确认丹青在线",
-            showCancel: false,
-          });
-        }
+        feedback.showSendResult(res, current);
       })
       .catch((err) => {
         if (!current()) return;
@@ -498,24 +564,29 @@ Page({
     };
     if (data.refined && data.refined.status === "pending") {
       job.refining = true;
+    } else if (data.refined && data.refined.status === "ready" && data.refined.job_id) {
+      job.refined = { jobId: data.refined.job_id, previewUrl: data.refined.preview_url, gcodeUrl: data.refined.gcode_url };
+      job.useRefined = true;
     }
     this.setData({ job, pageIndex: 0, shareToken: null });
     if (job.refining) {
       this.startRefinePolling(job.jobId);
     }
-    this._prefetchShareToken(job.jobId);
+    this._prefetchShareToken(this.selectedJobId());
   },
 
   // 分享令牌预取（2026-09-11）：onShareAppMessage 必须同步返回，token 在
   // 出结果时先拿好；失败只回退默认分享文案，不打扰画图主链。
   _prefetchShareToken(jobId) {
     this._shareToken = null;
+    this.setData({ shareToken: null });
+    const request = this._shareRequest = (this._shareRequest || 0) + 1;
     if (!jobId) return;
     const current = pageSession.capture(this);
     api
       .request(`/api/draw/${jobId}/share`, { method: "POST" })
       .then((res) => {
-        if (!current() || !this.data.job || this.data.job.jobId !== jobId) return;
+        if (!current() || request !== this._shareRequest || this.selectedJobId() !== jobId) return;
         this._shareToken = (res && res.share_token) || null;
         this.setData({ shareToken: this._shareToken });
       })
@@ -524,7 +595,7 @@ Page({
 
   onShareAppMessage() {
     const job = this.data.job;
-    if (job && job.previewUrl && this._shareToken) {
+    if (job && this.currentPreviewUrl() && this._shareToken) {
       return {
         title: "看看我刚让丹青画的作品",
         path: `/pages/share/share?share=${this._shareToken}`,
@@ -565,6 +636,7 @@ Page({
               },
               "job.useRefined": true,
             });
+            this._prefetchShareToken(this.selectedJobId());
             wx.showToast({ title: "AI 精修版好了", icon: "success" });
             return;
           }
@@ -617,7 +689,7 @@ Page({
   },
 
   _chooseFile(photo, source) {
-    if (this.data.uploading || this._filePick) return;
+    if (this._creationBusy() || this._filePick) return;
     const pick = this._filePick = { photo, session: getApp()._sessionGeneration };
     const current = () => this._filePick === pick && pick.session === getApp()._sessionGeneration;
     const callbacks = {
@@ -669,7 +741,7 @@ Page({
 
   // 手绘画板：独立页涂鸦 → SVG → /api/draw/upload；回本页经 adoptJob 上预览
   onDrawPad() {
-    if (this.data.uploading) return;
+    if (this._creationBusy()) return;
     const session = getApp()._sessionGeneration;
     subscribe.requestAtTap();
     wx.navigateTo({

@@ -2,6 +2,9 @@
 
 .slim-head {
   margin: 20rpx 28rpx 8rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
 }
 
 .slim-title {
@@ -12,7 +15,9 @@
 
 .work-cell {
   align-items: center;
+  flex-wrap: wrap;
 }
+.work-cell .weui-cell__bd { min-width: 0; }
 
 .thumb {
   width: 112rpx;
@@ -57,6 +62,9 @@
   align-items: center;
   gap: 12rpx;
   flex-shrink: 0;
+  width: 100%;
+  justify-content: flex-end;
+  margin-top: 18rpx;
 }
 
 .redraw-btn,
@@ -68,6 +76,7 @@
   padding: 0 24rpx !important;
   margin: 0;
   line-height: 2;
+  min-height: 64rpx;
 }
 
 .send-btn {
@@ -99,6 +108,7 @@
 .chips {
   display: flex;
   gap: 14rpx;
+  flex-wrap: wrap;
   padding: 4rpx 32rpx 20rpx;
 }
 
@@ -197,6 +207,13 @@
 .btn-press {
   opacity: 0.85;
 }
+
+.result-count { color: #9aa3b5; font-size: 24rpx; }
+.search-row { display: flex; gap: 12rpx; align-items: center; margin: 20rpx 28rpx; }
+.work-search { min-width: 0; flex: 1; background: #14161f; border: 1rpx solid #303747; border-radius: 14rpx; padding: 18rpx; color: #f2f4f8; font-size: 26rpx; }
+.search-clear, .search-sort { margin: 0; padding: 0 12rpx; flex-shrink: 0; background: transparent; color: #9ae6e9; font-size: 23rpx; }
+.search-clear::after, .search-sort::after { border: none; }
+.empty-action { margin-top: 28rpx; background: #00d1e5; color: #061016; font-size: 28rpx; border-radius: 16rpx; }
 
 .generation-note {
   margin: 20rpx 28rpx;

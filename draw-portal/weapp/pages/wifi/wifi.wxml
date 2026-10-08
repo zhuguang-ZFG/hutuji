@@ -8,6 +8,7 @@
     <view class="weui-btn-area">
       <button class="weui-btn weui-btn_primary" bindtap="onScanAp">扫屏幕配网码</button>
     </view>
+    <view class="weui-cells__tips" wx:if="{{wifiError}}">{{wifiError}}<button size="mini" bindtap="openWifiSettings">打开 Wi-Fi 设置</button></view>
     <view class="divider">
       <view class="divider-line"></view>
       <view class="divider-text">或</view>
@@ -65,8 +66,9 @@
       </view>
       <view class="weui-cell">
         <view class="weui-cell__bd">
-          <input class="cell-input" placeholder="家里 WiFi 密码" password value="{{homePassword}}" bindinput="onPwdInput" focus="{{wifiLocked}}" />
+          <input class="cell-input" placeholder="家里 WiFi 密码" password="{{!showPassword}}" value="{{homePassword}}" bindinput="onPwdInput" focus="{{wifiLocked}}" />
         </view>
+        <button class="password-toggle" size="mini" bindtap="onTogglePassword" aria-label="{{showPassword ? '隐藏密码' : '显示密码'}}">{{showPassword ? '隐藏' : '显示'}}</button>
       </view>
     </view>
     <view class="weui-btn-area">
@@ -107,6 +109,8 @@
       <button class="weui-btn weui-btn_primary" bindtap="onGoBind">下一步：绑定设备</button>
     </view>
     <view class="weui-btn-area tight">
+      <button wx:if="{{bindState === 'bound'}}" class="weui-btn weui-btn_primary" bindtap="onGoCreate">开始创作</button>
+      <button wx:if="{{bindState === 'bound'}}" class="weui-btn weui-btn_default" bindtap="onGoControl">查看设备</button>
       <button class="weui-btn weui-btn_default" bindtap="onRestart">再配一台</button>
     </view>
   </block>

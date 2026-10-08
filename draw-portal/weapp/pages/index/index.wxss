@@ -1,4 +1,16 @@
 @import "../../styles/weui-page.wxss";
+
+.input-caption { display: flex; justify-content: space-between; gap: 20rpx; margin: 12rpx 32rpx; color: #9aa3b5; font-size: 23rpx; }
+.input-caption text:last-child { flex-shrink: 0; }
+.example-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12rpx; margin: 20rpx 32rpx; color: #9aa3b5; font-size: 24rpx; }
+.example-row button, .draft-actions button { margin: 0; background: #171b29; color: #9ae6e9; border-radius: 999rpx; font-size: 24rpx; }
+.draft-notice { margin: 22rpx 28rpx; padding: 22rpx 24rpx; border-radius: 16rpx; background: rgba(0,209,229,0.08); color: #b4e8ea; font-size: 26rpx; line-height: 1.7; }
+.draft-notice button { margin: 14rpx 0 0; color: #061016; background: #00d1e5; }
+.draft-actions { margin: 16rpx 32rpx; }
+.draft-actions button { padding: 10rpx 24rpx; min-height: 68rpx; line-height: 1.7; font-size: 26rpx; }
+.version-switch { display: flex; gap: 14rpx; justify-content: center; padding: 20rpx; }
+.version-switch button { margin: 0; background: #171b29; color: #9aa3b5; border-radius: 999rpx; }
+.version-switch .selected { color: #061016; background: #00d1e5; }
 @import "../../styles/paper-summary.wxss";
 
 .create-page {

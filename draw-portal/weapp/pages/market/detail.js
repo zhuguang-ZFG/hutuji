@@ -2,6 +2,7 @@ const api = require("../../utils/api");
 const phoneGate = require("../../utils/phone_gate");
 const pageSession = require("../../utils/page_session");
 const { PreviewQueue } = require("../../utils/preview_queue");
+const feedback = require("../../utils/operation_feedback");
 
 Page({
   data: { id: "", title: "", attribution: "", license: "", changes: "", revision: "",
@@ -79,7 +80,7 @@ Page({
     this.setData({ [field]: true, actionHint: kind === "send" ? "正在准备并发送作品…" : "正在收藏作品…" });
     // 已发出的操作保留同账号结果，离页不续发控制，卸载或退出立即作废。
     return api.request("/api/market/item/" + encodeURIComponent(this.data.id) + "/" + kind,
-      { method: "POST", data, timeout: 90000 }).then((res) => {
+      { method: "POST", data, timeout: kind === "send" ? feedback.SEND_TIMEOUT_MS : 90000 }).then((res) => {
       if (!current()) return;
       const ok = res && res.status === (kind === "send" ? "sent" : "saved");
       const detail = (res && res.detail) || "";

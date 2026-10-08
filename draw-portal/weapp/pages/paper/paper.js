@@ -7,7 +7,7 @@ const paperSummary = require("../../utils/paper_summary");
 Page({
   data: { loading: true, loadError: "", saving: false, capable: false, online: false, form: null,
     deviceMac: "", marker: "", fitError: "", dimensions: null, paperWidth: 154, paperHeight: 220,
-    presets: ["A4", "A3", "A2", "custom"], hint: "", advanced: false },
+    presets: ["A4", "A3", "A2", "custom"], hint: "", advanced: false, dirty: false },
   onShow() {
     pageSession.show(this);
     const session = getApp()._sessionGeneration;
@@ -16,7 +16,8 @@ Page({
       this._token = api.getSession();
       this._before = null;
       this._pending = null;
-      this.setData({ form: null, deviceMac: "", saving: false, hint: "", loadError: "" });
+      this._draft = null;
+      this.setData({ form: null, deviceMac: "", saving: false, hint: "", loadError: "", dirty: false });
     }
     this._ready = false;
     const current = pageSession.capture(this);
@@ -33,7 +34,12 @@ Page({
       return this._load();
     });
   },
-  onHide() { this._ready = false; pageSession.hide(this); },
+  onHide() {
+    if (this.data.dirty && !this._pending && this._session === getApp()._sessionGeneration) {
+      this._draft = { mac: this.data.deviceMac, marker: this.data.marker, form: Object.assign({}, this.data.form) };
+    }
+    this._ready = false; pageSession.hide(this);
+  },
   onUnload() { this._unloaded = true; this.onHide(); },
   onRetry() { return this.onShow(); },
   onBind() { wx.navigateTo({ url: "/pages/bind/bind" }); },
@@ -51,8 +57,12 @@ Page({
   _accept(res) {
     if (!res || res.device_mac !== this.data.deviceMac || res.marker !== paper.marker(res.config)) throw new Error("设备纸张回包不匹配，请刷新");
     this._before = Object.assign({}, res.config);
-    this.setData({ form: Object.assign({}, res.config), marker: res.marker, capable: res.capable === true,
-      online: res.online === true, loading: false, loadError: "" });
+    const draft = this._draft;
+    const restored = draft && draft.mac === res.device_mac && draft.marker === res.marker;
+    this._draft = null;
+    this.setData({ form: Object.assign({}, restored ? draft.form : res.config), marker: res.marker, capable: res.capable === true,
+      online: res.online === true, loading: false, loadError: "", hint: "" });
+    if (draft) this.setData({ hint: restored ? "已保留未保存的修改" : "设备配置已变化，已重新读取，请重新调整" });
     this._recompute();
   },
   _editable() { return this._ready && !this.data.loading && !this.data.saving && this.data.capable && this.data.online; },
@@ -61,8 +71,15 @@ Page({
       const value = paper.fromForm(this.data.form);
       const d = paper.dimensions(value);
       const scale = 220 / Math.max(d.width, d.height);
-      this.setData({ fitError: "", dimensions: d, paperWidth: Math.round(d.width * scale), paperHeight: Math.round(d.height * scale) });
-    } catch (err) { this.setData({ fitError: err.message, dimensions: null }); }
+      this.setData({ fitError: "", dimensions: d, paperWidth: Math.round(d.width * scale), paperHeight: Math.round(d.height * scale),
+        dirty: !!this._before && paper.marker(value) !== paper.marker(this._before) });
+    } catch (err) { this.setData({ fitError: err.message, dimensions: null, dirty: true }); }
+  },
+  onResetForm() {
+    if (!this._editable() || !this._before) return;
+    this._draft = null;
+    this.setData({ form: Object.assign({}, this._before), hint: "已还原为设备当前设置" });
+    this._recompute();
   },
   onPreset(e) {
     if (!this._editable()) return;
@@ -88,7 +105,7 @@ Page({
     this._recompute();
   },
   onSave() {
-    if (!this._editable() || this.data.fitError || !this._before || this._pending) return;
+    if (!this._editable() || !this.data.dirty || this.data.fitError || !this._before || this._pending) return;
     let config;
     try { config = paper.fromForm(this.data.form); } catch (err) { this.setData({ fitError: err.message }); return; }
     const visible = pageSession.capture(this);

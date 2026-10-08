@@ -3,6 +3,7 @@
 // 文字链（2026-09-09）：/api/chat（内容安全+配额）→ 回复气泡；DRAW:: 意图落
 // 画图卡，生成/发送/收藏复用既有 /api/draw/* 接口，不发明第二条出图链。
 const api = require("../../utils/api");
+const feedback = require("../../utils/operation_feedback");
 const phoneGate = require("../../utils/phone_gate");
 const subscribe = require("../../utils/subscribe");
 const pageSession = require("../../utils/page_session");
@@ -514,26 +515,11 @@ Page({
     const current = pageSession.capture(this);
     this._patchDraw(id, { sending: true });
     api
-      .request(`/api/draw/${msg.draw.jobId}/send`, { method: "POST" })
+      .request(`/api/draw/${msg.draw.jobId}/send`, { method: "POST", timeout: feedback.SEND_TIMEOUT_MS })
       .then((res) => {
         if (!current()) return;
         this._patchDraw(id, { sending: false });
-        if (res.status === "sent") {
-          const started = /已自动开始画/.test(res.detail || "");
-          wx.showModal({
-            title: started ? "已开始画" : "已发送",
-            content: started
-              ? "丹青正在出图，无需再点确认"
-              : res.detail || "已推送到丹青",
-            showCancel: false,
-          });
-        } else {
-          wx.showModal({
-            title: "发送失败",
-            content: res.detail || "设备未响应，请确认丹青在线",
-            showCancel: false,
-          });
-        }
+        feedback.showSendResult(res, current);
       })
       .catch((err) => {
         if (!current()) return;

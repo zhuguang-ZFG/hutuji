@@ -1,5 +1,7 @@
 # 发布与出货就绪度
 
+> **2026-10-08 小程序0.3.24功能改善候选（🟡 本地验证，未提交/上传/发布）**：用户要求小程序及各类功能「都做改善」。补齐长请求预算、AI原稿撤回/迟到稿保护、照片草图与精修版一致选择/分享及超时只读查看、历史搜索/照片手绘分类/排序/多卡片预览、发送完整原因和控制入口、纸张编辑恢复/还原、Wi-Fi密码显隐与错误/完成导航、OTA结果原设备只读核对。Node 282 passed（+28）、Portal 487 passed；微信原生模板/样式与5页模拟器样例已取证，原生搜索/撤回交互及hub12层（MCP1611、e2e）通过，详见[改善记录](design/weapp-improvements-20261008.md)。不改后台、G-code参数或固件，没有真实发图、配网或OTA。平台上传/发布与微信真机仍待执行。
+
 > **2026-10-08 fz发布签核与报告修复（✅ 已提交推送、本机应用及发布验证；Wokwi未验）**：用户追加「提交推送部署验证」，fz15文件已推送`e36c125`；独立远端克隆逐文件Git blob与本地应用一致。提交后重跑量产nopaper standard并核对报告SHA，26 pass/8 skip/Wokwi非阻断quota一项，observe hard=0、block_done_claim=false，19项运动/日志通过；此前新增32项、合计94项专项回归与源码SHA相符。当前脏树漏检、空HIL证据、坏scope、云启动告警、原子报告/中断、跳过统计和缺仓记录七项完成。双机已部署4文件SHA/LF及导入冒烟通过；主MCP/portal/bridge和8worker active、备MCP/portal active且bridge inactive；公网health正常，1.0.33完整下载3080192B/SHA及latest/catalog相符，固定量产设备idle/连接/参数校验正常。本批只有本机验证工具应用，没有新的云端或固件载荷，无真机运动。见[发布安全修复记录](design/fz-release-safety-20261008.md)。
 
 > **2026-10-08 fz验证漏洞补丁（✅ 软件提交推送及下载核验通过；Wokwi启动未验证）**：fz已推送`a5fc388`，11文件与通过门禁的源码SHA一致；重新克隆远端后逐文件Git blob核验通过。有符号MPos位移真正比较前后Idle坐标；trace少行/多行/坏形状判负；金样精确匹配并拒绝空名称/歧义；observe补齐quota分类。新增38项、合计62项专项回归与PC模拟器X10两级位移通过；standard退出0，26 pass/8 skip/Wokwi非阻断quota一项，observe hard=0、block_done_claim=false。前两轮启动超时与一次暂停间歇失败及其复跑证据保留。用户追加「提交推送部署下载验证」后，双机现役4文件SHA/LF及导入冒烟、公网1.0.33完整下载3080192B/SHA `a9979eb2…4022a`、latest/catalog和量产设备1.0.33/nopaper/Idle及连接参数均复核通过；本批无新产品固件或云端代码部署、无真机运动。设计/证据见[验证修复记录](design/fz-validation-fixes-20261008.md)。

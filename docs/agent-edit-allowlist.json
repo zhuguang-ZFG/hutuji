@@ -1,4 +1,9 @@
 {
+  "weapp_improvements_20261008_authorized": {
+    "note": "用户：继续下一步改善，小程序，以及各种功能的改善；追问优先级答：都做改善。覆盖创作/作品管理/发送控制/设备设置与升级体验，不改固件或机械行为。",
+    "contract": "docs/design/weapp-improvements-20261008.md；protocol §10.4.0/§10.4.5/§10.4.9–13/§10.4.22/§10.4.24",
+    "paths": ["draw-portal/weapp/**", "draw-portal/tests/weapp/**", "draw-portal/README.md", "draw-portal/weapp-smoke-checklist.md", "docs/**"]
+  },
   "fz_release_safety_20261008_authorized": {
     "note": "用户在四项签核漏洞与三项门禁可靠性问题清单后明确：同意完全修复。仅软件验证层，不执行真机运动。2026-10-08追加：提交推送部署验证；提交推送本批fz与枢纽记录，核验本机应用、远端下载、现役双机服务和固件/设备只读状态。",
     "contract": "docs/design/fz-release-safety-20261008.md；当前工作树/结构化证据/scope校验、云启动未验告警、报告原子生命周期、跳过统计、缺仓显式记录",

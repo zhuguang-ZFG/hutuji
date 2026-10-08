@@ -19,6 +19,7 @@ const REASON_ZH = {
 
 const POLL_MS = 2000;
 const POLL_MAX = 150; // ~5 分钟；超时提示看设备屏
+const POLL_WINDOW_MS = 10 * 60 * 1000; // 包含慢请求耗时；离页不重置等待窗口。
 
 function reasonText(token) {
   if (!token) return "";
@@ -42,6 +43,7 @@ Page({
     checking: false,
     loadError: "",
     upgrading: false,
+    resultUncertain: false,
     progress: 0,
     progressLabel: "升级中…",
     targetVersion: "",
@@ -54,10 +56,11 @@ Page({
     if (this._firmwareSession !== getApp()._sessionGeneration) {
       this._firmwareSession = getApp()._sessionGeneration;
       this._upgradeMac = "";
-      this.setData({ upgrading: false, updateAvailable: false, current: "", latest: "" });
+      this._pollDeadline = 0;
+      this.setData({ upgrading: false, resultUncertain: false, updateAvailable: false, current: "", latest: "", targetVersion: "", progress: 0 });
     }
     const current = pageSession.capture(this);
-    if (!this.data.upgrading) this._deviceMac = "";
+    if (!this.data.upgrading && !this.data.resultUncertain) this._deviceMac = "";
     this.setData({ footVersion: displayVersion(), checking: true, updateAvailable: false, loadError: "" });
     phoneGate.ensurePhone(api, current).then((me) => {
       if (!current()) return;
@@ -67,6 +70,11 @@ Page({
       }
       if (!me) {
         this.setData({ checking: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
+        return;
+      }
+      if (this.data.resultUncertain && this._upgradeMac) {
+        this.setData({ checking: false });
+        this._setTip("上次升级结果尚未确认，可重新核对原设备", "warn");
         return;
       }
       // 切换活动设备不等于取消原设备升级；服务端继续验证原设备的当前归属。
@@ -170,6 +178,7 @@ Page({
   },
 
   onCheck(silent) {
+    if (this.data.resultUncertain) return this.onRecheckResult();
     if (this.data.checking || this.data.upgrading) return;
     const current = pageSession.capture(this);
     const mac = this._deviceMac;
@@ -205,7 +214,7 @@ Page({
   },
 
   onUpgrade() {
-    if (!this.data.updateAvailable || this.data.upgrading || this.data.checking) {
+    if (!this.data.updateAvailable || this.data.upgrading || this.data.checking || this.data.resultUncertain) {
       return;
     }
     const current = pageSession.capture(this);
@@ -224,7 +233,7 @@ Page({
   },
 
   _startUpgrade() {
-    if (this.data.upgrading || this.data.checking) return;
+    if (this.data.upgrading || this.data.checking || this.data.resultUncertain) return;
     const mac = this._deviceMac;
     if (!mac) {
       this._setTip("设备信息未就绪，请刷新后重试", "warn");
@@ -233,8 +242,10 @@ Page({
     const current = pageSession.capture(this);
     this._upgradeMac = mac;
     this._stopPoll();
+    this._pollDeadline = Date.now() + POLL_WINDOW_MS;
     this.setData({
       upgrading: true,
+      resultUncertain: false,
       progress: 0,
       progressLabel: "正在下发升级…",
       targetVersion: this.data.latest || "",
@@ -291,10 +302,9 @@ Page({
     if (this._visible === false || this._pollFlight) return;
     const current = pageSession.capture(this);
     this._pollCount = (this._pollCount || 0) + 1;
-    if (this._pollCount > POLL_MAX) {
-      this._stopPoll();
-      this.setData({ upgrading: false, progress: 0 });
-      this._setTip("超时未确认结果，请查看设备屏幕", "warn");
+    if (!this._pollDeadline) this._pollDeadline = Date.now() + POLL_WINDOW_MS;
+    if (this._pollCount > POLL_MAX || Date.now() >= this._pollDeadline) {
+      this._markUncertain();
       wx.showToast({ title: "请查看设备屏幕", icon: "none" });
       return;
     }
@@ -319,6 +329,7 @@ Page({
           this._stopPoll();
           this.setData({
             upgrading: false,
+            resultUncertain: false,
             progress: 100,
             progressLabel: "升级完成",
             updateAvailable: false,
@@ -336,9 +347,11 @@ Page({
             (state === "rolled_back" ? reasonText("rolled_back") : "升级失败");
           this.setData({
             upgrading: false,
+            resultUncertain: reason === "status_timeout",
             progress,
             progressLabel: reason === "status_timeout" ? "结果待确认" : (state === "rolled_back" ? "已回滚" : "升级失败"),
           });
+          if (reason === "status_timeout") this.setData({ updateAvailable: false });
           this._setTip(msg, "warn");
           wx.showToast({ title: msg.slice(0, 20), icon: "none" });
           return;
@@ -366,5 +379,30 @@ Page({
         this._pollTimer = setTimeout(() => this._pollOnce(), POLL_MS);
       })
       .finally(() => { if (this._pollFlight === flight) this._pollFlight = null; });
+  },
+
+  _markUncertain() {
+    this._stopPoll();
+    this.setData({ upgrading: false, resultUncertain: true, updateAvailable: false, progressLabel: "结果待确认" });
+    this._setTip("暂未确认升级结果，请查看设备屏幕后重新核对", "warn");
+  },
+
+  onRecheckResult() {
+    if (!this.data.resultUncertain || this.data.checking || this.data.upgrading || !this._upgradeMac || !this.data.targetVersion) return;
+    const visible = pageSession.capture(this);
+    const mac = this._upgradeMac, target = this.data.targetVersion;
+    const current = () => visible() && this._upgradeMac === mac && this.data.targetVersion === target;
+    this.setData({ checking: true, updateAvailable: false });
+    return api.request("/api/device/firmware/check?device_mac=" + encodeURIComponent(mac), { timeout: 30000 })
+      .then((data) => {
+        if (!current()) return;
+        if (data && data.current) this.setData({ current: data.current });
+        if (data && data.current === target && !["check_failed", "board_mismatch"].includes(data.reason)) {
+          this.setData({ resultUncertain: false, progress: 100, progressLabel: "升级完成" });
+          this._setTip("已核对原设备运行目标版本", "ok");
+        } else this._setTip("设备尚未回报目标版本，请确认联网后再次核对", "warn");
+      }).catch((err) => {
+        if (current()) this._setTip(err.detail || "暂时无法确认设备版本，请稍后重试", "warn");
+      }).finally(() => { if (current()) this.setData({ checking: false }); });
   },
 });

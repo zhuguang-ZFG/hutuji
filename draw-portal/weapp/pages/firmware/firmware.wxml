@@ -24,17 +24,6 @@
     </view>
   </view>
 
-  <view class="weui-cells__title">丹青</view>
-  <view class="weui-cells">
-    <view class="weui-cell">
-      <view class="weui-cell__bd">固件版本</view>
-      <view class="weui-cell__ft">后续支持</view>
-    </view>
-  </view>
-  <view class="weui-btn-area tight">
-    <button class="weui-btn weui-btn_default" disabled>丹青升级 · 后续支持</button>
-  </view>
-
   <view class="progress-wrap" wx:if="{{upgrading || progress > 0}}">
     <view class="progress-label">{{progressLabel}}</view>
     <view class="progress-bar">
@@ -53,7 +42,10 @@
   </view>
 
   <view class="weui-btn-area">
+    <button wx:if="{{resultUncertain}}" class="weui-btn weui-btn_primary" bindtap="onRecheckResult" loading="{{checking}}" disabled="{{checking}}">重新核对升级结果</button>
+    <view wx:if="{{resultUncertain}}" class="weui-cells__tips">只查询上次升级的设备，不会再次下发升级</view>
     <button
+      wx:else
       class="weui-btn weui-btn_default"
       bindtap="onCheck"
       loading="{{checking}}"
@@ -65,9 +57,10 @@
       class="weui-btn weui-btn_primary"
       bindtap="onUpgrade"
       loading="{{upgrading}}"
-      disabled="{{!updateAvailable || checking || upgrading}}"
+      disabled="{{!updateAvailable || checking || upgrading || resultUncertain}}"
     >立即升级</button>
   </view>
 
+  <navigator class="weui-cells__tips" url="/pages/profile/profile" open-type="switchTab">丹青固件维护可到「我的」联系客服 ›</navigator>
   <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>

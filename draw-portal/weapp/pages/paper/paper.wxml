@@ -32,7 +32,9 @@
       <view class="mapping" wx:if="{{dimensions}}">本页使用 X {{dimensions.x}} × Y {{dimensions.y}} 毫米</view>
     </view>
     <view class="fit-error" wx:if="{{fitError}}">{{fitError}}</view>
-    <button class="save-button" bindtap="onSave" disabled="{{!capable || !online || loading || saving || !!fitError}}">{{saving ? '正在保存并核对…' : '保存到当前设备'}}</button>
+    <view class="save-hint" wx:if="{{dirty}}">有未保存的修改</view>
+    <button class="save-button" bindtap="onSave" disabled="{{!dirty || !capable || !online || loading || saving || !!fitError}}">{{saving ? '正在保存并核对…' : (dirty ? '保存到当前设备' : '已与设备设置一致')}}</button>
+    <button wx:if="{{dirty}}" class="reset-button" bindtap="onResetForm" disabled="{{loading || saving || !online}}">还原修改</button>
     <view class="save-hint">{{hint || '设置用于之后生成的图画、文字、笔顺与手绘'}}</view>
   </block>
 </view>

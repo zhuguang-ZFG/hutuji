@@ -20,12 +20,19 @@
       <view class="empty-glyph"></view>
       <view class="empty-title">还没有收藏</view>
       <view class="empty-sub">去「创作」生成预览后点「收藏」，或跟「小派」聊聊</view>
+      <button class="empty-action" bindtap="onGoCreate">去创作第一件作品</button>
     </view>
   </block>
 
   <block wx:else>
     <view class="slim-head">
       <text class="slim-title">我的作品</text>
+      <text class="result-count">{{filtered.length}} / {{jobs.length}} 件</text>
+    </view>
+    <view class="search-row">
+      <input class="work-search" value="{{searchText}}" bindinput="onSearch" placeholder="搜索作品名称或内容" maxlength="80" confirm-type="search" aria-label="搜索作品" />
+      <button wx:if="{{searchText}}" size="mini" class="search-clear" bindtap="onClearSearch">清空</button>
+      <button size="mini" class="search-sort" bindtap="onSortToggle">{{sortOrder === 'oldest' ? '最早优先' : '最新优先'}}</button>
     </view>
     <view class="chips">
       <view
@@ -38,8 +45,9 @@
     </view>
     <block wx:if="{{!filtered.length}}">
       <view class="empty-panel">
-        <view class="empty-title">该类暂无作品</view>
-        <view class="empty-sub">切换筛选或去「创作」生成</view>
+        <view class="empty-title">{{searchText ? '没有找到匹配作品' : '该类暂无作品'}}</view>
+        <view class="empty-sub">换个关键词，或清空筛选查看全部作品</view>
+        <button class="empty-action" bindtap="onClearFilters">查看全部作品</button>
       </view>
     </block>
     <view class="weui-cells" wx:else>
@@ -66,7 +74,7 @@
           <view wx:if="{{item.previewError}}" class="preview-error">{{item.previewError}}</view>
         </view>
         <view class="weui-cell__ft row-actions">
-          <button wx:if="{{item.kind}}" class="redraw-btn" size="mini" hover-class="btn-press" bindtap="onRedraw" data-idx="{{index}}" disabled="{{redrawing}}">重画</button>
+          <button wx:if="{{item.kind}}" class="redraw-btn" size="mini" hover-class="btn-press" bindtap="onRedraw" data-id="{{item.savedId}}" disabled="{{redrawing}}">重画</button>
           <button class="del-btn" size="mini" hover-class="btn-press" bindtap="onDelete" data-id="{{item.savedId}}" disabled="{{!!deletingId}}">删除</button>
           <button class="send-btn" size="mini" hover-class="btn-press" bindtap="onSend" data-id="{{item.savedId}}" disabled="{{!!sendingId}}">{{sendingId === item.savedId ? '发送中' : '发送'}}</button>
         </view>

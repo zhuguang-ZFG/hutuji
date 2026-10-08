@@ -27,5 +27,7 @@
 .device-note button, .settings-state button { color: var(--cyan); background: var(--panel-2); font-size: 24rpx; margin-top: 12rpx; }
 .fit-error { color: #ffb84d; font-size: 25rpx; line-height: 1.6; padding: 24rpx 4rpx 0; }
 .save-button { background: var(--cyan); color: #061016; font-size: 30rpx; line-height: 86rpx; border-radius: 44rpx; margin-top: 30rpx; }
+.reset-button { color: var(--cyan); background: transparent; border: 1rpx solid var(--cyan); font-size: 27rpx; line-height: 72rpx; border-radius: 38rpx; margin-top: 18rpx; }
+.reset-button::after { border: none; }
 button[disabled] { opacity: .5; }
 .save-hint, .settings-state { color: var(--muted); font-size: 24rpx; text-align: center; padding: 24rpx 8rpx; line-height: 1.65; }
