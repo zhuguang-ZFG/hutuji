@@ -1,5 +1,7 @@
 # 发布与出货就绪度
 
+> **2026-10-08 奎享参照续审（🟡 本地修复候选，未提交/未部署）**：发现并修复S3停止归位首行应答被后续发送清掉、位置兜底漏Z、迟到error被清理、超时缺少物理停止、正常灌流完成未发布Quiesced五项。新增真实C++回归29项与S3全套277项通过；量产Freenove构建/链接/分区检查通过（3080192B，候选SHA a9c1674c…fab81d）。枢纽hub 12层PASS，MCP 1611 passed、e2e PASS。量产Grbl源码不变；只读探针确认现役1.0.32与nopaper链路ready/authorized/settings全true，不视为本批板测。源码、来源和证据见[续审记录](design/kdraw-runtime-review-20261008.md)。
+
 > **2026-10-08 14:22 三仓审查修复发布（✅ 本批云端部署与量产S3版本启动已取证；机械链路未验）**：用户追加「提交部署」，hub `859a46f`与S3 `3b8a116`已提交推送。主备各发布4个服务文件，auto_deploy服务/哈希verify及生产导入冒烟双过；京东bridge维持inactive。preflight阿里25/34、京东26/34为既有配置/角色差异基线，未标全绿。量产Freenove构建`hutuji.1.0.32`（3079328B，SHA `f13752b6…8d2ca`）公网完整下载校验通过，MAC `b8:1f:3f:c4:58:2c` OTA后于14:21:12回报同板型/新版本/idle，公网latest/catalog随后同步。OTA单次504→重启404→1.0.32，未重复下发。初次升级前后写字机未连接；14:24:59复查已恢复connected/ready/authorized/grbl_settings_ok全true、nopaper/Idle。本次无绘图/机械验收。双机回滚号、固件指针备份与逐项证据见[发布续作](design/three-repo-review-20261008.md)。
 
 > **2026-10-08 三仓审查修复候选（🟡 未提交、未部署、未刷机）**：修复设备忙拒绝被成功信封吞掉（含 Portal 自动确认旧预览与 MCP 备用推送）、中间信封错误旗标丢失、OTA 实际 TimeoutError/断连/截断未进入 uncertain、S3 自愈 WithCaps 任务泄漏及最终重启与新任务接管竞态。Portal 487 passed、小程序 254 passed；S3 248 项 host OK，ESP-IDF v6.0.1/Freenove 量产配置真编译并链接通过（3079328B，SHA-256 `510d31ba33a6425419c1ea314507dc6f4a659c22fa0b66afdca2c7296c0b0de4`，分区余量25%）；量产 Grbl 16 项 host OK、无源码改动。枢纽hub门禁12/12 PASS，MCP 1611 passed、e2e PASS。设备仍以既有板上记录为准，本次没有实机验证或发布动作。问题/回归/SDK依据与证据目录见 [审查记录](design/three-repo-review-20261008.md)。

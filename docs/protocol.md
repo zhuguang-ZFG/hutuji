@@ -1087,6 +1087,8 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 
 ### 2026-10-08 §4 / §10.4.5 / §10.4.22 应答与自愈补充
 
+2026-10-08 奎享参照续审补充（本地修复候选，板上状态看readiness）：受限reset后的`G92 X/Y Z0`必须独立等到本行ok且会话未变，才能发送固定G1归位；逐行模式不得连续发送两行再等两个ok。流内丢应答兜底核对最后XYZ目标，纯Z笔控不豁免；状态查询期间到达的error/Deferred不得作为迟到ok清掉，无法确认完成的超时先走既有受控停止再发布终态。正常流成功出口发布Quiesced，异常出口保持Failed。窗口、速度、行序、机械包线与换纸逻辑保持原约定。回归与来源见`design/kdraw-runtime-review-20261008.md`。
+
 - `draw/repeat/manual/pen_test` 忙拒绝、试笔期间 `pause/resume` 拒绝、换纸期间 `pause` 拒绝均返回含非空 `error` 的对象；同预览重入与已暂停/已继续等幂等成功保留。Portal 和 MCP 共享设备业务判错，逐层检查 `success/ok/isError/error` 后再拆信封；兼容旧固件的完整拒绝文案，不按 HTTP 200 推断受理。推图被拒绝时不继续查询或自动确认其他预览。
 - OTA 下发遇 HTTP 504、TimeoutError（含 URLError 包装）、RemoteDisconnected、ConnectionResetError 或 IncompleteRead 时，命令可能已送达，保持 `uncertain`，按原目标版本与进度对账，不提前释放升级等待或重复下发。
 - S3 自愈任务与 WithCaps 创建接口成对删除；10s 宽限和20s通知结束均核对仍为 error、TLS失败计数仍达阈值、无运动/OTA/预览/停止收尾所有者。最终复核到 `esp_restart` 持续持有 `stream_mutex_`，锁争用则放弃本轮；不与新任务发布交错。StartDraw 或预算成功清零计数后，旧自愈不得据残留 error 重启。

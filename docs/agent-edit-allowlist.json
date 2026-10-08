@@ -1,4 +1,18 @@
 {
+  "kdraw_runtime_review_20261008_authorized": {
+    "note": "用户原话：grbl已上线，继续排查bug，参考奎享逆向文件；承接本会话三仓排查并完全修复。2026-10-08追加授权：提交、部署；本批允许S3升为1.0.33并OTA，保留前版与回滚指针。",
+    "contract": "protocol §3/§4.1/§7/§10.4.15；命令应答配对、XYZ到位校验、迟到错误与超时先物理收敛；奎享只作参照",
+    "paths": [
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_abort_home_ack.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_window_fallback.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
+      "docs/**",
+      "firmware/*.md"
+    ]
+  },
   "three_repo_review_20261008_authorized": {
     "note": "用户原话：三仓code review；找出问题；并完全修复。仅修复本批证实的问题，保留量产 nopaper 与既有工作树。2026-10-08 追加授权：提交部署；允许本批双仓提交、主备服务发布及量产 S3 升版和 OTA。",
     "contract": "protocol §4/§10.4.5/§10.4.21/§10.4.22；设备业务拒绝、OTA结果不确定、自愈任务生命周期与运动互斥",
