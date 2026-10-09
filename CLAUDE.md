@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-09 量产Grbl WebSocket生命周期：用户批准`Serial2Socket.cpp/.h`和`WebServer.cpp`追加修复，服务析构须先解绑、丢弃旧待发日志，并与发送/loop共用递归锁。`548c669`已刷机并通过同一AP恢复崩溃复验；S3 1.0.34与云端同批发布，详见`docs/design/three-repo-followup-review-20261009.md`。
+
 2026-10-09 三仓续审：量产Grbl计时单任务维护、网络恢复原子通知；S3 OTA句柄与缓冲按生命周期回收；门户拒绝原因共用`hutuji_mcp.tool_result`的`tool_result_detail`并仅透出已知文案，未知正文不回显。修复与边界见`docs/design/three-repo-followup-review-20261009.md`，部署状态看readiness。
 
 2026-10-08 照片生图续作约定：hatch 结构线先沿等高线平滑（`_STRUCTURE_SMOOTH_SIGMA_PX`）再 RDP，排线各层与串链一律剔除结构线留白带（`_HATCH_HALO_RADIUS_PX` 2.0，2.5 会掏空头发），squiggle 不动；「暗部结构」加权/对比归一候选已对照否决，不得凭墨量复活。小程序精修等待用 job 级绝对时限（5 分钟，切页不重置），ready 回包无 `job_id` 不得落为可发送结果，网络失败只允许只读核对。证据与边界见 `docs/design/weapp-photo-followup-20261008.md`，部署/纸面状态只看 readiness。

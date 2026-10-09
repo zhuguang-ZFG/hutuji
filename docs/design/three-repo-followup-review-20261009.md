@@ -64,3 +64,31 @@
 验证环境问题已留证：`pio`不在PATH，改用现有PlatformIO绝对路径成功；S3首轮host误选ESP交叉clang，明确设置主机MinGW g++后全套通过；服务重启中断时先核对进程及日志再启动未执行的检查，没有重复部署动作。
 
 证据仍在`results/local-only/2026-10-09-trirepo-review/`：`watchdog-{red,green}.log`、`ota-{red,green}.log`、`portal-{red,green}.log`、`{s3,grbl,portal,node,hub,fz}-all.log`及构建日志。最终11份源码与两个候选镜像SHA、门禁报告记录在`fix-verification.json`及`hub-final.json`/`fz-final.json`/`fz-observe-final.json`。正常OTA缓冲释放时序另经RED3错误→最终S3全套288通过（66.21秒）及SDK重编译复核。两份新外仓测试为`test_wifi_watchdog.py`、`test_ota_cleanup.py`。本批**尚未提交、部署、刷机或做真实故障注入**；软件通过不替代板上验收。
+
+## 发布与实机续作（用户追加「处理」）
+
+原三项已提交推送：hub `df8ba2f`、S3 `00fd3ee`（1.0.34）、量产Grbl `4b72ade`。云端四文件（`tool_result.py`及Portal `mcp_result.py/push.py/app.py`）已从hub提交的LF blob双机部署并通过带包verify和生产导入/拒绝原因冒烟；备份京东`bee65e6e8ebd46798dab35fa92808e50`、阿里`7d69238f5e3a45e4b6b6a01180289986`。preflight维持主25/34、备26/34既有差异。
+
+S3固定Freenove/MAC `b8:1f:3f:c4:58:2c`已OTA并启动1.0.34，镜像3080272B、SHA `cea42da2657471c738066a64efc8ec2acb101c791a4f660d2a160cfced2818af`，ELF `2260ff077…`。通过随机单路径的临时代理进行了3次真实OTA断流：每次声明3080272B，仅送65536B后断流，串口3次出现`Failed to read HTTP data: ESP_FAIL`，均回failed/download_failed并恢复Idle；三次内部最大连续块均8704B，未用此粗粒度采样宣称全局零泄漏。最后已重新写入完整同版镜像，串口成功/重启/1.0.34/ELF相符，状态及公网latest/catalog确认。临时nginx代理已删除，原配置哈希一致、nginx -t通过，故障服务/清理定时器均停止。
+
+量产Grbl MAC `4c:c3:82:cc:8a:9c`已通过现有Web OTA安装`4b72ade`：发送镜像1844944B、SHA `f7eeb63c…dac122`，返回SUCCESSFUL且串口捕获重启，前后全部Grbl参数一致（XY6000/Z1200、$1=255），最终Idle/原点。先从旧提交隔离重建回退镜像，SHA `1e742142…1e5ab7`与既有已发布镜像一致。串口一度无应答，用户重新插拔CH340后恢复；未在未核身份/原点时下发升级。
+
+已完成3轮无线电OFF/ON恢复，无整板重启、设置不变；生产控制接口对Idle设备暂停的拒绝原文「当前没在出图」也已穿过真实设备/网关/Portal验证。随后错误SSID/AP回落验证发现下述新增阻塞，不能把该项记为通过。
+
+### R09-04 / P1：AP回落自动重连时访问已释放WebSocket对象
+
+实机日志：恢复原SSID后连上路由器，随后`LoadProhibited`，`EXCVADDR=0xa5a5a5a9`。对本次发布ELF做addr2line，调用链为`WebSocketsServer::broadcastBIN` → `Serial_2_Socket::flush/handle_flush/write` → `client_write/grbl_send` → `WiFiServices::begin` → `WiFiConfig::begin/handle`。`Web_Server::end`删除`_socket_server`却未解绑`Serial2Socket`；重启服务前的日志沿旧指针发送，构成释放后使用。待发缓冲和并发发送/loop也必须与析构同步，仅置空指针不够。
+
+已准备`Serial2Socket.cpp/.h`与`WebServer.cpp`补丁：共享递归锁覆盖日志发送、WebSocket处理与begin/end，先解绑并丢弃旧待发日志再删除对象。新增5项真实C++回归（析构后日志、解绑后flush、并发broadcast/loop与析构、重复重建）从4失败变为5通过。用户随后明确「同意追加修复并刷机复验」，已按下段完成应用、提交和板上验证，原SSID、Idle及原点均恢复。
+
+本段证据在`results/local-only/2026-10-09-trirepo-release/`，包括3次OTA断流日志、完整恢复串口、临时配置回收、Grbl OTA及3轮网络切换、`grbl-fallback-before-ws-fix.log`/回溯/对应ELF、`ws-red.log`/`ws-green.log`。Wokwi重新尝试仍为月度quota，用户明确选择保留未验证记录；其他工作继续。
+
+### 追加修复发布与最终边界
+
+量产Grbl追加提交`548c669c903880b8aef74e1c6184b30fe61d0dae`已推送：三份网络文件及`test_websocket_lifecycle.py`共4文件，不改运动、换纸、引脚或固件版本指纹。33项host通过，PlatformIO release 45.26秒成功；镜像1846416B、SHA `78d96db8ea80e84673aabf0d02f207f07de470001cb71a19bcb5ab8e031e62ec`。提交后fz standard PASS且绑定该SHA、dirty=false，observe无硬问题；枢纽full13层PASS（MCP1640、e2e、266处指纹）。
+
+固定MAC量产Grbl再次Web OTA SUCCESSFUL并观察到重启，前后完整设置相同。**同一错误SSID/AP回落用例已在最终固件通过**：观察到看门狗重试，恢复原SSID后自动回STA，核对SSID已恢复、无panic/整板重启、设置不变、最终Idle/XYZ原点。证据为`grbl-ws-ota-result.json`、`grbl-fallback.json/.log`；首次崩溃保存在`grbl-fallback-before-ws-fix.*`，不覆盖失败证据。
+
+S3最终为1.0.34、Grbl最终为`548c669`，云端运行`df8ba2f`四文件包。S3旧1.0.33镜像及catalog/latest备份保留；实际推荐指针备份目录为`/root/hutuji-bak-20261009-ota-1.0.32`（沿用模板后缀，目录内保存的是升级前1.0.33推荐）。Grbl旧镜像`grbl-rollback-d723f4c.bin`保留，可按既定Web OTA/串口恢复流程回退。临时故障服务和清理timer均已停止，nginx原文件哈希复原；未开放新防火墙端口。
+
+已验的是本批OTA断流与网络恢复边界，没有进行绘图运动、纸面验收或完整触屏HIL。Wokwi按用户决定保留quota未验证，不把宿主/板上证据冒充云启动通过。此节覆盖本文前述“未提交/未部署/未刷机”状态。

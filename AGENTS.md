@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+2026-10-09 实机追加授权：用户点名同意修改量产`Serial2Socket.cpp/.h`和`WebServer.cpp`并刷机复验，仅用于R09-04 WebSocket释放后使用修复（先解绑、丢弃旧待发日志、发送/loop/析构同锁），作为下方Grbl白名单的明确例外；不改运动、换纸或引脚。证据见`docs/design/three-repo-followup-review-20261009.md`。
+
 2026-10-09 三仓续审修复候选：量产Grbl断线时间戳仅由handle维护，网络回调用原子标志记录恢复；S3 OTA句柄和下载缓冲统一RAII回收，end后解除句柄所有权。门户共享`tool_result_detail`只透出已知设备拒绝文案，未知上游正文仍使用固定提示。测试/构建与未部署边界见`docs/design/three-repo-followup-review-20261009.md`，不改换纸、运动、引脚或OTA校验策略。
 
 2026-10-08 三仓审查候选：设备忙/试笔/换纸拒绝用 `error` 对象，Portal 与 MCP 共用 `hutuji_mcp.tool_result` 逐层判错并兼容旧固件完整拒绝文案；拒绝后不得自动确认旧预览。OTA 超时/断连/响应截断保留待确认会话。S3 自愈任务 WithCaps 成对回收，最终复核到重启持有 stream 发布锁并核对堆失败计数和旧 worker。测试、构建及未部署边界见 `docs/design/three-repo-review-20261008.md` 与 readiness。

@@ -1,5 +1,7 @@
 # hutuji — AI 绘图自动换纸写字机
 
+2026-10-09 三仓续审已发布：门户保留已知拒绝原因、S3 1.0.34回收OTA失败资源、量产Grbl修复看门狗计时及实机追加发现的WebSocket生命周期问题。本批空闲态断流/断网恢复通过，Wokwi配额未验；版本、证据与回退见[发布记录](docs/design/three-repo-followup-review-20261009.md)。
+
 2026-10-09 三仓续审修复候选：量产Grbl看门狗计时改为单任务维护，S3 OTA句柄与缓冲统一回收，门户复用共享判错保留已知设备拒绝原因。回归、构建与未部署边界见[续审记录](docs/design/three-repo-followup-review-20261009.md)，当前上线状态只看readiness。
 
 2026-10-08 三仓审查：修正设备忙拒绝被当成发送成功、OTA 丢应答提前解除等待、S3 自愈任务回收与重启接管竞态。门户与 MCP 的设备业务判错共用 `hutuji_mcp.tool_result`，兼容旧固件。源码、测试与构建记录见 [审查修复](docs/design/three-repo-review-20261008.md)，生产和板上状态仍以 readiness 为准。

@@ -1,4 +1,9 @@
 {
+  "grbl_websocket_lifecycle_20261009_authorized": {
+    "note": "实机AP回落复测发现WebSocket释放后使用，用户明确「同意追加修复并刷机复验」，点名批准Serial2Socket.cpp/.h、WebServer.cpp。只修对象生命周期、日志缓冲与跨任务同步，不改运动、换纸、引脚或网络协议。",
+    "contract": "docs/design/three-repo-followup-review-20261009.md R09-04；AGENTS.md用户点名例外",
+    "paths": ["D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.h", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_websocket_lifecycle.py", "docs/**", "AGENTS.md", "CLAUDE.md", "README.md"]
+  },
   "trirepo_followup_fixes_20261009_authorized": {
     "note": "用户在R09-01/02/03三项问题及修复顺序后明确「同意」。限量产Grbl看门狗时序、S3 OTA资源回收和门户拒绝原因透传；不改换纸/运动/引脚。随后点名处理未提交、部署、刷机、Wokwi及实机故障注入，授权三仓提交推送、双机部署、量产S3升1.0.34与Grbl升级，以及有回退路径的空闲态故障验证。",
     "contract": "docs/design/three-repo-followup-review-20261009.md；protocol §4 OTA失败恢复与§10.4.21控制结果",
