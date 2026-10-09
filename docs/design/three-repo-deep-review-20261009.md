@@ -126,3 +126,32 @@ Wokwi本轮由standard调用后返回 **TLS连接失败**，`wokwi_startup fail 
 实机范围：量产Web输入边界、升级与参数保持、S3正常预览/收尾和调速读回、可控失败后的恢复。100ms或写锁内的精确竞态主要由已完成的真实函数注入证明，现场证据按实际覆盖范围登记，不以一般冒烟代替精确窗口注入。Wokwi重新尝试仍独立登记，不影响其他已授权工作。
 
 证据目录 `results/local-only/2026-10-09-trirepo-deep-release/`，发布脚本暂存于 `tmp/trirepo-deep-release-20261009/`。以下回填覆盖上文未提交/未部署状态。
+
+### 发布完成（2026-10-09 20:34复核）
+
+三仓已提交推送，最终以`git ls-remote`逐仓核对远端分支，13份已测产品/测试源码SHA与软件修复冻结清单一致。提交为hub `7a58941093f51544d07ad4ea0d1abaf2d618d33e`、S3 `220048d7139ea90ccde62e0d8889a47b09f49b77`、量产Grbl `9f860f5dbbc0ba03abe5aa1261a163ed947209cf`。
+
+Portal实际部署载荷为`firmware_ota.py`一个文件，取hub提交LF blob；主备deploy与带包verify均成功。最终两机生产文件SHA均为`60cd627b6dc2521c5569f3fb224c056f8114ddb6795f86f2920d61ea509738b3`，LF、解析冒烟及服务状态详见`release-verification.json`的`production`。主备MCP/Portal均active、健康接口200，主bridge active、备bridge inactive。preflight主25/34、备26/34为原有配置/角色差异，未改成全绿。回退分别使用`auto_deploy.py --rollback --target aliyun --backup-id 641711cd43744e5586f3f4513612faf4`及`--target jdcloud --backup-id 840019bb99284101b51b2bd11f74da33`。
+
+| 设备 | 发布镜像 | 落板证据 |
+|---|---|---|
+| S3 Freenove，MAC `b8:1f:3f:c4:58:2c` | 1.0.35；3080784B；SHA `dd5e79dc00570bc1ddf3bf158c68bcc2dac1094f74369aa239e4a51e63bdffb2` | 单次OTA请求返回504后串口继续下载并重启，ELF前缀`748e27c5f`；设备回报同MAC/板型/1.0.35，没有重发OTA |
+| 量产Grbl，MAC `4c:c3:82:cc:8a:9c` | `9f860f5`；1846832B；SHA `35aa138f301d603a89652bfb4ee856baa3f05e061d2fec3a6e27d42d752bbc0d` | Web OTA返回成功并捕获重启，升级前后及最终48项参数相同 |
+
+S3公网完整镜像及latest/catalog三者匹配；旧1.0.34镜像保留，升级前推荐备份为`/root/hutuji-bak-20261009-ota-1.0.35/`。量产Grbl回退镜像`grbl-rollback-548c669.bin`保存在本批证据目录，1846416B/SHA `78d96db8ea80e84673aabf0d02f207f07de470001cb71a19bcb5ab8e031e62ec`；按既定Web OTA/串口流程恢复。版本常量由本地候选1.0.34升为1.0.35后重新构建，旧候选SHA不冒充发布SHA。
+
+### 本批板上验收
+
+- **Web输入6项**：256行`?`请求200、0.209秒正常返回；257行、4097字节及256/300字节ESP命令均413。255字节的故意无效ESP命令进入解析器并返回500/Invalid $ statement，这是预期拒绝，不是超长放行；六项结束后串口身份、参数及Idle/原点相符。
+- **正常完成**：12行/204B合法G-code，起点X10/Y10，0.5mm短线及抬笔往返，坐标不超过12mm；设备经历previewing→awaiting_confirmation→downloading→streaming→done，回XYZ原点。串口确认G1收尾、跳过nopaper换纸及`$MD`应答。
+- **停止归位**：1210行/31352B；仅首段0.5mm落笔，后续10–12mm往返均抬笔。streaming期间单次abort，经过在途排空后发布aborted；串口确认`abort 断流归位完成（无 reset，坐标未失效）`与电机释放，最终Idle/XYZ原点。
+- **同值调速**：穿过真实Portal `/api/settings/machine-speed`，先读XY6000/Z1200，再只把X写回6000；返回axis=x/rate=6000且三个读回值不变。最后串口复核48项完整参数等于升级前，包含$1=255。
+- **预览失败恢复**：先确认随机能力地址PNG为404，再请求该预览，设备进入error；随后合法预览重新到awaiting_confirmation，取消后为aborted。全程未确认绘制，每次状态采样均为Grbl Idle/XYZ原点。此项证明恢复受理与取消，不声称验证了错误文案或精确网络竞态。
+
+上述正常、停止、调速、恢复四组回执及最终设备状态合并在`release-verification.json`；API轨迹为`hil-run-normal.log`、`hil-run-abort.log`、`hil-speed.log`、`hil-recover-preview.log`，串口为`s3-fault-serial.log`与`grbl-final-serial.log`，Web为`grbl-web-bounds.json`。串口采集已正常关闭，验收能力文件沿用600秒TTL；远端临时状态/回执保留且权限600，执行意图用于防止中断后的重复控制。没有新增常驻故障服务或代理配置。
+
+### 门禁与最终边界
+
+发布提交后枢纽full **13层PASS**，报告绑定hub `7a58941`，含MCP **1640 passed/156.36秒**、e2e PASS和266处指纹。量产fz standard **PASS**，报告绑定Grbl `9f860f5`、`dirty=false`，fz `e36c125`无产品/验证代码修改。S3 316、Grbl45、Portal510沿用SHA一致的软件全量回归，发布版本重构建成功；收口只改文档，docs门禁 **9层PASS**。新增台账导致6处引用行号纯移动，按原文唯一匹配同步后266处指纹通过，未追认内容变化。
+
+Wokwi本次重新连上Simulation API后返回**月度免费CI配额耗尽**，仍未执行启动验证；保留用户既定非阻断选择，不能称Wokwi通过。本批没有注入100ms沉降/写锁内的精确竞态，也没有完整触屏或纸面画质验收；精确会话竞态仍以真实函数host回归为证。最终S3是取消后的`aborted`，Grbl是Idle且XYZ原点，连接/ready/授权/参数校验均true。此节覆盖本文前面的未提交、未部署、未刷机快照，不扩大出货结论。
