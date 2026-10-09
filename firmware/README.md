@@ -108,3 +108,6 @@
 - 对应逐台记录和发布清单已填写；否则只能称“开发中”，不能称“可出货”。
 
 历史 USB Host/CH9350 否决依据见 `../docs/hardware.md`，不要重新尝试已否决路线。
+# 2026-10-09 笔控与确认入口候选
+
+S3首笔/试笔固定连接与reset banner，并复用Pipe写锁内会话发送；`hutuji.confirm`可带`expected_url`/`expected_preview_url`，在确认锁内匹配作品，`status.confirm_by_url`声明能力。旧无参人工入口保留，三板工具注册同步，SDK只构建量产Freenove。未发布的同号1.0.35候选不得替换线上镜像。设计、验证及部署状态见`../docs/design/three-repo-next-review-20261009.md`和readiness。

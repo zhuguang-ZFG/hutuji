@@ -110,3 +110,6 @@
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行
 
 实时状态以 `docs/release-readiness.md` 为准。改本仓先跑 `python scripts/agent_gate.py`；改 Grbl 另跑 fz 门禁。
+# 2026-10-09 续审修复候选说明
+
+本地候选增加笔控事务会话校验、Grbl超长行整行拒收及按作品地址自动确认；部署须先S3能力、后Portal，旧固件保留预览并转人工确认。未改变运动参数或换纸行为，实际发布状态只看`docs/release-readiness.md`，详见`docs/design/three-repo-next-review-20261009.md`。

@@ -234,7 +234,7 @@ python3 scripts\release.py lichuang-dev
 ### 7.1 两步衔接观测：真实信号表 + 可观测性缺口
 
 ⚠️ **诚实前提**：当前固件/服务**没有为「两步衔接」留直接观测点**——云端 `hutuji_draw` 返回的 url
-只存在于源 B，而 S3 的 `DownloadToPsram` **不把下载的 url 打进日志**（`hutuji_job.cc:3296` 只打字节数+crc）。
+只存在于源 B，而 S3 的 `DownloadToPsram` **不把下载的 url 打进日志**（`hutuji_job.cc:3321` 只打字节数+crc）。
 所以「LLM 调云端 draw 拿到的 url == 设备 draw 下载的 url」**无法用一行日志直接串起来**，只能间接证。
 白天取证按间接法；要直接证需「观测性增强」（见下表末，**非本 runbook 强制，记待办**）。
 

@@ -57,3 +57,13 @@ def test_detail_controls_and_reason_token():
     raw = json.dumps({"error": "\u202e正在调整速度，请稍候查询结果\n"})
     assert tool_result.tool_result_detail(raw, "fallback") == "正在调整速度，请稍候查询结果"
     assert tool_result.tool_result_detail('{"error":"grbl_settings_mismatch"}', "fallback") == "写字机参数校验未通过，请检查设备设置"
+
+
+@pytest.mark.parametrize("layers", [1, 2, 3])
+def test_encoded_json_string_does_not_hide_rejection(layers):
+    raw = json.dumps({"error": "正在试笔，请稍候"})
+    for _ in range(layers):
+        raw = json.dumps(raw)
+    raw = json.dumps({"success": True, "data": raw})
+    assert tool_result.tool_result_failed(raw)
+    assert tool_result.tool_result_detail(raw) == "正在试笔，请稍候"

@@ -55,6 +55,7 @@ _DEVICE_REJECTIONS = _LEGACY_REJECTIONS | frozenset({
     "当前机型不支持调整速度",
     "当前任务状态不允许调整速度",
     "无法创建速度调整任务",
+    "预览已变化，请重新核对作品",
     "这台机器一次只能画一页哦",
 })
 _REJECTION_LABELS = {
@@ -94,8 +95,8 @@ def _tool_result(raw: str) -> tuple[bool, str | None]:
             except (RecursionError, ValueError):
                 return True, detail
             if isinstance(value, str):
-                rejected = failed or value in _LEGACY_REJECTIONS
-                return rejected, (detail or _known_rejection(value)) if rejected else None
+                # JSON字符串仍可能装着下一层对象；不能提前把编码后的error当成功。
+                continue
         if not isinstance(value, dict):
             return failed, detail
         if (value.get("isError") is True or value.get("success") is False

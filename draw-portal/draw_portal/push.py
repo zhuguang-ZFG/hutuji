@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import secrets
 import shutil
 import time
@@ -196,6 +197,27 @@ def probe_plotter_sku(
 
 
 
+def _device_payload(raw: str):
+    """有界拆开设备正文；仅已知信封可继续，坏正文不猜测状态。"""
+    from draw_portal.mcp_result import unwrap_tool_text, tool_result_failed
+
+    if tool_result_failed(raw):
+        return None
+    value = raw
+    for _ in range(8):
+        if not isinstance(value, str):
+            return value
+        inner = unwrap_tool_text(value)
+        if inner != value:
+            value = inner
+            continue
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError, RecursionError):
+            return value
+    return None
+
+
 def push_draw_to_device(
     *,
     api_base: str,
@@ -215,7 +237,12 @@ def push_draw_to_device(
         name="hutuji.draw",
         arguments=arguments,
     )
-    return (True, "hutuji.draw ok") if ok else (False, result)
+    if not ok:
+        return False, result
+    # 当前设备明确受理只返回previewing；HTTP200和未知正文不能触发旧预览确认。
+    if _device_payload(result) != "previewing":
+        return False, "绘图受理结果尚未确认，请查看设备预览后再操作"
+    return True, "hutuji.draw ok"
 
 
 def auto_confirm_after_preview(
@@ -225,6 +252,8 @@ def auto_confirm_after_preview(
     timeout_s: float = 90.0,
     poll_s: float = 1.5,
     before_action=None,
+    expected_url: str = "",
+    expected_preview_url: str = "",
 ) -> tuple[bool, str]:
     """小程序已预览过：等设备进入 awaiting_confirmation 后自动 hutuji.confirm。
 
@@ -236,10 +265,6 @@ def auto_confirm_after_preview(
     仍在 awaiting → 再试；已越过确认门 → 应答丢失但设备已开画，按成功收；
     落到 idle/error/aborted → 预览已终结，立即出局不再白耗窗口。
     """
-    import json
-
-    from draw_portal.mcp_result import unwrap_tool_text
-
     deadline = time.monotonic() + timeout_s
     last_hint = ""
     while time.monotonic() < deadline:
@@ -253,36 +278,34 @@ def auto_confirm_after_preview(
             timeout=15,
         )
         if ok:
-            text = unwrap_tool_text(raw)
             state = ""
             awaiting = False
-            try:
-                payload = json.loads(text)
-                if isinstance(payload, dict):
-                    state = str(payload.get("state") or "")
-                    awaiting = bool(payload.get("awaiting_confirmation")) or (
-                        state == "awaiting_confirmation"
-                    )
-            except json.JSONDecodeError:
-                awaiting = "awaiting_confirmation" in text
-                state = "awaiting_confirmation" if awaiting else ""
-            last_hint = state or text[:80]
+            payload = _device_payload(raw)
+            if isinstance(payload, dict):
+                state = str(payload.get("state") or "")
+                awaiting = payload.get("awaiting_confirmation") is True or state == "awaiting_confirmation"
+            last_hint = state or "设备状态尚未确认"
             if awaiting:
+                if (expected_url or expected_preview_url) and (
+                    not expected_url or not expected_preview_url or payload.get("confirm_by_url") is not True
+                ):
+                    return False, "设备尚不支持按作品自动确认，请在设备上核对预览后开始画"
                 if before_action is not None:
                     before_action()
                 cok, cres = push_tool_call(
                     api_base=api_base,
                     device_token=device_token,
                     name="hutuji.confirm",
-                    arguments={},
+                    arguments=({"expected_url": expected_url, "expected_preview_url": expected_preview_url}
+                               if expected_url and expected_preview_url else {}),
                     timeout=30,
                 )
-                if cok:
+                if cok and _device_payload(cres) == "started":
                     return True, "hutuji.confirm ok"
-                last_hint = str(cres)
+                last_hint = "确认结果尚未核实" if cok else str(cres)
                 # 「没有待确认」= 预览已被取消/取代，重试无意义；管道瞬断、
                 # 建任务失败回滚 awaiting 等都可恢复，留给下一轮轮询再试。
-                if "没有待确认" in last_hint:
+                if "没有待确认" in last_hint or "预览已变化" in last_hint:
                     return False, f"hutuji.confirm: {cres}"
             # 已越过确认门（重发/竞态/confirm 应答丢失但已开画）：视为已开画，
             # 勿再 confirm
@@ -455,6 +478,8 @@ def push_draw_self_heal(
     cok, csum = auto_confirm_after_preview(
         api_base=api_base,
         device_token=active_token,
+        expected_url=gcode_url,
+        expected_preview_url=preview_url,
         **({"before_action": before_action} if before_action is not None else {}),
     )
     if cok:

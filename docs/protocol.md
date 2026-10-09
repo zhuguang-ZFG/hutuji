@@ -284,7 +284,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:979-1121`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:988-1130`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -1121,3 +1121,12 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 - OTA的HTTP200或网关success不等于设备明确受理。只有有界解包后的设备结果含严格布尔`ok:true`才转明确upgrading；空/损坏JSON、HTML、标量、缺确认或非布尔ok保留uncertain，按原版本/设备进度对账，不消费上一轮failed，也不解除忙闸重复下发。明确拒绝仍由共享逐层判错处理。
 
 来源、回归与发布验收见`design/three-repo-deep-review-20261009.md`；精确竞态窗口为host证据，板上验证范围以readiness为准。
+
+### 2026-10-09 §3 / §7 / §10.4.5 发布后续审修复契约
+
+- 首笔`G92 Z0`和试笔Z5/Z0固定任务受理时的连接/banner，发送复用`SendLineForSession`；沉降、应答和fresh Idle均复核同一身份。试笔从受理到收尾持有Pipe任务会话，失败/创建失败撤销；普通出图/重画从Run建立身份，受控断连恢复完成才更新。不得在每次发送前重新接受当前banner；Z值、速度与沉降时间不变。
+- 量产Grbl每个客户端独立记录超长物理行拒收状态。首次Overflow后丢弃后续所有普通字符（包括backspace），直到CR或LF；换行自身触发Overflow时已到边界，不丢下一行。软复位初始化清除拒收状态，实时字节仍由Serial先行消费，合法payload上限仍254字节。此条修复原“超长行从未执行”实现缺口，不放宽输入预算。
+- `hutuji.draw`只在有界解包后精确得到`previewing`才认明确受理；空、坏JSON、HTML、仅网关success/ok或其他结果返回“绘图受理结果尚未确认”，不自动确认、不自动重发。多层编码的error仍逐层判错；状态损坏时不以字符串包含awaiting_confirmation判定可确认，confirm坏正文也不能当started。
+- 新S3 `status.confirm_by_url=true`声明支持`hutuji.confirm`可选参数`expected_url`与`expected_preview_url`；两者有任一非空就必须成对、与当前作品逐字匹配，校验和撤销awaiting在同一stream锁内完成，不匹配返回“预览已变化，请重新核对作品”。门户自动确认总是携带本次两个地址；旧固件不声明能力时保留已送达预览并提示人工确认。屏幕/语音原有无参确认保持。明确started才即时报成功；确认回包丢失仍按后续状态对账，但不把这种状态观察提升为完整任务身份凭证。
+
+发布顺序为先升级S3并验证能力，再部署共享`tool_result.py`和Portal `push.py`；若后端提前更新，旧设备会落人工确认，不静默发送无参confirm。当前仅本地候选，实际部署以readiness为准，见`design/three-repo-next-review-20261009.md`。
