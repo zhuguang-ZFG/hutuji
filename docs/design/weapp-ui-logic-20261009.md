@@ -54,3 +54,14 @@
 用户明确「提交部署上传验证」。本批发布号 0.3.26，授权提交推送、微信开发版上传、手机预览及分享验证。此前“未提交/未上传”描述为本地验收时快照，以本节后续回执和readiness最新条为准。
 
 部署对象核对：本批未改Portal/MCP或固件，服务端不需要替换或重启；微信端通过官方上传分发。版本常量随上传号同步到0.3.26。发布证据保存 `results/local-only/2026-10-09-weapp-ui/release/`，不将上传开发版当作公众平台正式发布。
+
+### 分发与验证结果
+
+- 代码提交 `dbd5777d4e99132ba5e64a2de4abe27fd82807f4`，21文件，已推送`origin/main`；提交对象与工作树LF内容逐文件相符，远端main当时与该提交一致。12份先前已测代码SHA保持一致，版本常量是新增发布变更，Node全量324项再次通过。
+- 0.3.26上传任务 `confirmation_upload_4c1e1a85-9843-4044-9072-28f11b8795a9` 经用户确认后官方返回 `status=success`、`detail=execution_success`、内层`success=true`，包 **296665B**。随后`auto_preview`推送开发者手机成功，包大小相同。`pending-upload.json`已结清，不重发。
+- 服务核对：阿里与京东两节点 `hutuji-mcp/hutuji-draw-portal` 均active，`/api/health`为200；`tool_result.py`、`sketch_render.py`、Portal `mcp_result.py/push.py/app.py`五份文件与当前Git blob SHA一致，CR=0。公网`/draw-upload/api/health`也为200。本批无需服务端部署，不为小程序UI改动重启生产或刷机。
+- 真实分享：用模拟器当前已登录账号的正常`POST /api/draw/write`生成“分享测试”预览，不走付费生图，不发送到设备；页面真实点击准备分享后出现`open-type=share`按钮。独立无会话HTTP客户端读取分享元数据和PNG均200，PNG **4173B**、SHA-256 `8a519c70f67b7a7b82de94339bea737dc3f4ad27b97b0645624b7bc773ec89ac`；模拟器分享接收页实际加载标题/图像，`failed=false`且`previewError`为空，截图人工复核通过。证据：`share-created.json`、`share-verification.json`、`public-share-preview.png`、`share-receiver.png`。
+- 自动化边界：原SVG测试的多行函数调用超时，恢复存储无结果，生产任务表按唯一测试文件名查询为0；后续多行文字函数又被入口拒绝语法，改成单行参数后真实文字链成功。最初健康探针误用了服务名/路由，按仓内模板改正后核验通过，未据错误探针执行恢复操作。失败取证保留，不把工具参数问题判作线上故障。
+- 手机分享：已给出“写字预览→分享至文件传输助手→打开”的验证步骤，用户回答 **“暂时无法手机验证”**。因此保留手机卡片发送/点击为未验证，不将HTTP或模拟器结果冒充手机验收。开发版上传与手机预览推送已完成，未提审或正式发布。
+
+最终状态为 `release/release-status.json`；临时模拟器测试存储清理并回到创作页，生成的“分享测试”仅作分享取证，没有收藏或设备发送操作。发布状态文档随单独提交收口。
