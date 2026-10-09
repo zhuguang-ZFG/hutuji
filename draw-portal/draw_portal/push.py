@@ -147,10 +147,10 @@ def push_tool_call(
             if resp.status != 200:
                 return False, f"HTTP {resp.status}"
             raw = resp.read().decode("utf-8", "replace")
-            from draw_portal.mcp_result import tool_result_failed
+            from draw_portal.mcp_result import tool_result_detail, tool_result_failed
 
             if tool_result_failed(raw):
-                return False, "设备未执行该操作，请检查设备状态"
+                return False, tool_result_detail(raw)
             return True, raw
     except HTTPError as exc:
         return False, f"HTTP {exc.code}"

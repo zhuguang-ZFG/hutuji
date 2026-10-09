@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-09 OTA回收候选：`main/ota.cc`以RAII统一管理SDK句柄与下载缓冲，读取/写入失败和异常退出均清理，`esp_ota_end`后解除所有权避免重复abort。Freenove/ESP-IDF v6.0.1真实编译通过，app3080272B、SHA `626a92e2…18b4a4`，仅本地候选、仍沿用1.0.33构建版本，不覆盖已发布同号镜像。对应宿主回归与未部署边界见`../docs/design/three-repo-followup-review-20261009.md`。
+
 2026-10-08 续审发布：S3 `f1fffce`已作为`hutuji.1.0.33`部署到量产Freenove（MAC `b8:1f:3f:c4:58:2c`），15:04:52回包确认版本、idle及nopaper链路ready/authorized/settings全true，公网推荐同步。bin SHA `a9979eb2…4022a`；旧1.0.32镜像与推荐指针备份保留。纸面动作未测，发布/回滚记录见`../docs/design/kdraw-runtime-review-20261008.md`。
 
 2026-10-08 奎享参照续审候选：S3停止归位逐行确认并固定会话；丢应答兜底核XYZ、保留迟到错误并在超时先受控停止；正常灌流完成发布Quiesced。29项新增真实函数回归、277项S3全套host与量产Freenove构建通过，现役设备仍为前批1.0.32。完整本地验证与未部署边界见`../docs/design/kdraw-runtime-review-20261008.md`。

@@ -996,10 +996,10 @@ def create_app() -> FastAPI:
             return {"status": "error", "detail": result}
         # 设备侧 McpTool::Call 包一层 content/isError；解出 text 再回前端，
         # 避免小程序把 content 数组当 status → connected 读不到假「未连接」。
-        from draw_portal.mcp_result import tool_result_failed, unwrap_tool_text
+        from draw_portal.mcp_result import tool_result_detail, tool_result_failed, unwrap_tool_text
 
         if tool_result_failed(result):
-            return {"status": "error", "detail": "设备未接受操作，请刷新状态后重试"}
+            return {"status": "error", "detail": tool_result_detail(result, "设备未接受操作，请刷新状态后重试")}
         return {"status": "ok", "result": unwrap_tool_text(result)}
 
     @app.post("/api/device/control", dependencies=phone_secured)

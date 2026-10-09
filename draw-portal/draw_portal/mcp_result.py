@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from hutuji_mcp.tool_result import tool_result_failed as tool_result_failed
+from hutuji_mcp.tool_result import tool_result_detail as tool_result_detail
 
 
 def unwrap_tool_text(raw: str) -> str:

@@ -1,4 +1,9 @@
 {
+  "trirepo_followup_fixes_20261009_authorized": {
+    "note": "用户在R09-01/02/03三项问题及修复顺序后明确「同意」。限量产Grbl看门狗时序、S3 OTA资源回收和门户拒绝原因透传；不改换纸/运动/引脚。随后点名处理未提交、部署、刷机、Wokwi及实机故障注入，授权三仓提交推送、双机部署、量产S3升1.0.34与Grbl升级，以及有回退路径的空闲态故障验证。",
+    "contract": "docs/design/three-repo-followup-review-20261009.md；protocol §4 OTA失败恢复与§10.4.21控制结果",
+    "paths": ["D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.h", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_wifi_watchdog.py", "D:/Users/xiaozhi-esp32/main/ota.cc", "D:/Users/xiaozhi-esp32/scripts/tests/test_ota_cleanup.py", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "mcp-server/hutuji_mcp/tool_result.py", "mcp-server/tests/test_tool_result.py", "draw-portal/draw_portal/mcp_result.py", "draw-portal/draw_portal/push.py", "draw-portal/draw_portal/app.py", "draw-portal/tests/test_control_rejection_detail.py", "docs/**", "firmware/README.md", "AGENTS.md", "CLAUDE.md", "README.md"]
+  },
   "weapp_photo_followup_20261008_authorized": {
     "note": "用户：继续小程序功能改善，追加「关于照片生图的问题也要处理」「画质和生成体验都要改善」，续作「继续解决照片生图的问题」。照片画质只改 hatch 结构线平滑与结构线留白带（不改 squiggle、不改 RDP/§5 容差、不动纸张快照）；照片体验改精修等待绝对时限、畸形 ready 拒收、网络失败只读核对与本机原图对照。原图只在本机评估，不上传新增第三方；不改固件。",
     "contract": "docs/design/weapp-photo-followup-20261008.md；protocol §5/§10.4.9/§10.4.13–14/§10.4.21/§10.4.23；2026-10-09 用户「继续改进」，续完图库/聊天/控制三项及回归；随后点名处理未提交、部署和原生验证，授权本批提交推送、照片服务双机部署与小程序0.3.25上传",
