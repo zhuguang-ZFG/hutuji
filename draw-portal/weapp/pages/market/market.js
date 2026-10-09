@@ -5,7 +5,7 @@ const { PreviewQueue, key, IMMEDIATE_DEFAULT } = require("../../utils/preview_qu
 
 Page({
   data: { categories: [], activeCategory: "", items: [], loading: true,
-    loadError: "", nextCursor: null, empty: false },
+    loadError: "", accountError: "", nextCursor: null, empty: false },
 
   onShow() {
     pageSession.show(this);
@@ -21,21 +21,27 @@ Page({
       this._previews = new PreviewQueue(this, (card, patch) => {
         this.setData({ items: this.data.items.map((row) => key(row) === key(card) ? Object.assign({}, row, patch) : row) });
       });
-      this.setData({ categories: [], activeCategory: "", items: [], nextCursor: null, loadError: "" });
+      this.setData({ categories: [], activeCategory: "", items: [], nextCursor: null, loadError: "", accountError: "" });
     }
     const current = pageSession.capture(this);
     this.setData({ loading: true });
     return phoneGate.ensurePhone(api, current).then((ok) => {
       if (!current()) return;
       if (ok === false) {
-        this.setData({ items: [], loading: false, loadError: "账号信息读取失败，请重试" });
+        // 账号临时不可读不等于列表失效；保留同账号内容，但 _ready 仍为 false。
+        this._reload = reload;
+        this.setData({ loading: false, accountError: "账号信息读取失败，请重试后继续浏览" });
         return;
       }
       if (!ok) {
-        this.setData({ items: [], loading: false, loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
+        this._listLoaded = false;
+        this._retryLoad = null;
+        this.setData({ items: [], categories: [], activeCategory: "", nextCursor: null, loading: false,
+          accountError: "", loadError: "未登录或账号未读取：可先浏览，授权登录请到「我的」页" });
         return;
       }
       this._ready = true;
+      this.setData({ accountError: "" });
       if (!reload && this.data.categories.length && this.data.activeCategory &&
         (this._listLoaded || this.data.items.length || this.data.loadError)) {
         return this._resumeItems();
@@ -54,6 +60,7 @@ Page({
   },
   onRetry() {
     if (this.data.loading) return Promise.resolve();
+    if (this.data.accountError) return this.onShow();
     // 保留失败请求的类别与游标；目录刷新失败不能误判成旧列表翻页。
     if (this._ready && this._retryLoad) {
       const retry = this._retryLoad;
@@ -163,6 +170,7 @@ Page({
     });
   },
   onRetryPreview(e) {
+    if (!this._ready) return;
     const card = this.data.items.find((row) => row.id === e.currentTarget.dataset.id);
     if (card && card.previewState === "error") this._previews.invalidate(card, true);
   },

@@ -179,6 +179,7 @@
   <view class="draft-notice" wx:if="{{generating || aiWriting || layouting || teaching}}">{{aiWriting ? '正在整理文字' : layouting ? '正在排版并生成预览' : teaching ? '正在生成笔顺' : '正在生成图画'}}… 可先查看控制或历史页面，返回创作后查看结果，请勿重复提交。</view>
   <block wx:if="{{job}}">
     <view class="preview-card">
+      <view class="result-head"><text class="result-title">{{job.refining ? '正在创作' : '作品预览'}}</text><text class="result-badge">{{job.refining ? '请稍候' : '先预览 · 再发送'}}</text></view>
       <view class="refine-waiting" wx:if="{{job.refining}}">
         <view class="pulse-ring"></view>
         <view class="refine-waiting-title">AI 正在画</view>
@@ -192,6 +193,8 @@
         <view class="page-nav" wx:if="{{job.pages && job.pages.length > 1}}">
           <button
             class="page-nav-btn"
+            size="mini"
+            aria-label="上一页"
             hover-class="btn-press"
             bindtap="onPrevPage"
             disabled="{{pageIndex <= 0}}"
@@ -199,6 +202,8 @@
           <text class="page-nav-label">第 {{pageIndex + 1}} / {{job.pageCount || job.pages.length}} 页</text>
           <button
             class="page-nav-btn"
+            size="mini"
+            aria-label="下一页"
             hover-class="btn-press"
             bindtap="onNextPage"
             disabled="{{pageIndex >= job.pages.length - 1}}"
@@ -237,18 +242,22 @@
             disabled="{{saving || sending || generating || uploading || layouting || teaching || aiWriting}}"
           >收藏</button>
           <button
+            wx:if="{{shareToken}}"
             class="weui-btn weui-btn_default action-inline"
             hover-class="btn-press"
             open-type="share"
           >分享</button>
+          <button wx:else class="weui-btn weui-btn_default action-inline" bindtap="onRetryShare"
+            loading="{{shareLoading}}" disabled="{{shareLoading}}">{{shareLoading ? '准备分享' : '重试分享'}}</button>
           <button
-            class="weui-btn weui-btn_primary action-inline"
+            class="weui-btn weui-btn_primary action-inline send-primary"
             hover-class="btn-press"
             bindtap="onSend"
             loading="{{sending}}"
             disabled="{{sending || saving || generating || uploading || layouting || teaching || aiWriting}}"
-          >发送到丹青</button>
+          >{{sending ? '正在发送…' : '发送到丹青'}}</button>
         </view>
+        <view wx:if="{{shareError}}" class="share-feedback">{{shareError}}</view>
       </block>
     </view>
   </block>

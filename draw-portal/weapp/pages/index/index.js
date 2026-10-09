@@ -36,6 +36,9 @@ Page({
     saving: false,
     uploading: false,
     job: null,
+    shareToken: null,
+    shareLoading: false,
+    shareError: "",
     quotaLeft: null,
     binding: null,
     paperSummary: { title: "纸张与方向", detail: "正在读取当前设备…", state: "loading" },
@@ -57,7 +60,7 @@ Page({
       this._shareToken = null;
       this._aiBackup = null;
       this._writeEditVersion = 0;
-      this.setData({ job: null, binding: null, quotaLeft: null, shareToken: null,
+      this.setData({ job: null, binding: null, quotaLeft: null, shareToken: null, shareLoading: false, shareError: "",
         description: "", writeText: "", teachText: "", aiTextUsed: false, aiSuggestion: "", canUndoAiText: false,
         generating: false, layouting: false, aiWriting: false, teaching: false,
         uploading: false, sending: false, saving: false });
@@ -84,6 +87,7 @@ Page({
         this._pendingJobExtra = null;
         this.adoptJob(data, extra || {});
       } else this.resumeJobState();
+      this._prefetchShareToken(this.selectedJobId());
       if (this._pendingMessage) {
         wx.showModal(this._pendingMessage);
         this._pendingMessage = null;
@@ -179,7 +183,7 @@ Page({
 
   onHide() {
     pageSession.hide(this);
-    this.setData({ sending: false, saving: false });
+    this.setData({ sending: false, saving: false, shareLoading: false });
     // 页面藏起来就停掉跟踪；链已停而 UI 还挂着"精修中"会变成永久等待的假象，
     // 一并退出等待态，回到页面由 resumeJobState 补查结果。
     this.stopRefinePolling();
@@ -625,6 +629,8 @@ Page({
     } else if (data.refined && (data.refined.status === "pending" || data.refined.status === "ready")) {
       // pending，或缺 job_id 的畸形 ready：都只能继续等（受绝对时限），不能当可发送结果
       job.refining = true;
+    } else if (data.refined && data.refined.status === "failed") {
+      job.refineFailed = "failed";
     }
     this.setData({ job, pageIndex: 0, shareToken: null });
     if (job.refining) {
@@ -633,27 +639,41 @@ Page({
     this._prefetchShareToken(this.selectedJobId());
   },
 
-  // 分享令牌预取（2026-09-11）：onShareAppMessage 必须同步返回，token 在
-  // 出结果时先拿好；失败只回退默认分享文案，不打扰画图主链。
+  // 分享入口必须同步返回；按当前作品预备，回屏补齐中断请求，成功结果同账号内复用。
   _prefetchShareToken(jobId) {
+    if (this._shareJobId === jobId && this._shareToken && this._shareOwner && this._shareOwner()) {
+      this.setData({ shareToken: this._shareToken, shareLoading: false, shareError: "" });
+      return;
+    }
+    if (this._shareFlight && this._shareFlight.jobId === jobId && this._shareFlight.current()) return;
     this._shareToken = null;
-    this.setData({ shareToken: null });
-    const request = this._shareRequest = (this._shareRequest || 0) + 1;
-    if (!jobId) return;
-    const current = pageSession.capture(this);
+    this._shareJobId = jobId;
+    this.setData({ shareToken: null, shareLoading: false, shareError: "" });
+    if (!jobId || this._visible === false) return;
+    const visible = pageSession.capture(this);
+    const flight = this._shareFlight = { jobId, current: () => visible() &&
+      this._shareFlight === flight && this.selectedJobId() === jobId };
+    this.setData({ shareLoading: true });
     api
       .request(`/api/draw/${jobId}/share`, { method: "POST" })
       .then((res) => {
-        if (!current() || request !== this._shareRequest || this.selectedJobId() !== jobId) return;
+        if (!flight.current()) return;
         this._shareToken = (res && res.share_token) || null;
-        this.setData({ shareToken: this._shareToken });
+        this._shareOwner = pageSession.captureTask(this);
+        this.setData({ shareToken: this._shareToken, shareError: this._shareToken ? "" : "分享暂未准备好，请重试" });
       })
-      .catch(() => {});
+      .catch(() => { if (flight.current()) this.setData({ shareError: "分享暂未准备好，请检查网络后重试" }); })
+      .finally(() => {
+        if (flight.current()) this.setData({ shareLoading: false });
+        if (this._shareFlight === flight) this._shareFlight = null;
+      });
   },
+  onRetryShare() { this._prefetchShareToken(this.selectedJobId()); },
 
   onShareAppMessage() {
     const job = this.data.job;
-    if (job && this.currentPreviewUrl() && this._shareToken) {
+    if (job && this.currentPreviewUrl() && this._shareToken && this._shareJobId === this.selectedJobId() &&
+        this._shareOwner && this._shareOwner()) {
       return {
         title: "看看我刚让丹青画的作品",
         path: `/pages/share/share?share=${this._shareToken}`,
@@ -675,22 +695,30 @@ Page({
     let round = 0;
     // 终态收口：停链并退出"精修中"，各分支只补自己的增量字段
     const finish = (patch) => {
+      if (!current() || token !== this._refineToken) return;
       this.stopRefinePolling();
       this.setData(Object.assign({ "job.refining": false, "job.refineOffline": false }, patch));
     };
     // 下一轮：窗口已尽即 timeout（回落草图，但说明 AI 还可能好）；最后一轮贴着截止时刻排
     const next = () => {
+      clearTimeout(this._refineTimer);
       const left = deadline - Date.now();
       if (left <= 0) { finish({ "job.refineFailed": "timeout" }); return; }
       this._refineTimer = setTimeout(poll, Math.min(this.refineDelayMs(round), left));
     };
     const poll = () => {
+      if (!current() || token !== this._refineToken) return;
+      const left = deadline - Date.now();
+      if (left <= 0) { finish({ "job.refineFailed": "timeout" }); return; }
+      // 请求可能一直无应答：等待中的计时器守住原截止点，不把网络超时叠加到窗口上。
+      this._refineTimer = setTimeout(() => finish({ "job.refineFailed": "timeout" }), left);
       round += 1;
       api
         .request("/api/draw/jobs/" + jobId)
         .then((res) => {
           // 令牌变了说明链已作废（换了新任务或离开页面），丢弃过期响应
           if (!current() || token !== this._refineToken) return;
+          if (Date.now() >= deadline) { finish({ "job.refineFailed": "timeout" }); return; }
           if (this._applyRefineState(res && res.refined) !== "pending") return;
           // pending 或畸形回包：网络已通，清掉离线提示后继续等
           if (this.data.job.refineOffline) this.setData({ "job.refineOffline": false });

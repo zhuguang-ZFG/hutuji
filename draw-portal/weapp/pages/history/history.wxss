@@ -16,12 +16,19 @@
 .work-cell {
   align-items: center;
   flex-wrap: wrap;
+  margin-bottom: 20rpx;
+  padding: 26rpx;
+  border-radius: 22rpx;
+  background: #14151f;
+  border: 1rpx solid rgba(255,255,255,.08);
 }
+.work-list { margin: 0 24rpx; }
+.work-cell::before { display: none; }
 .work-cell .weui-cell__bd { min-width: 0; }
 
 .thumb {
-  width: 112rpx;
-  height: 112rpx;
+  width: 136rpx;
+  height: 136rpx;
   border-radius: 16rpx;
   background: #0b0c13;
   margin-right: 24rpx;
@@ -53,7 +60,11 @@
   color: #f2f4f8;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-all;
+  line-height: 1.5;
   margin-bottom: 8rpx;
 }
 
@@ -65,6 +76,8 @@
   width: 100%;
   justify-content: flex-end;
   margin-top: 18rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid rgba(255,255,255,.06);
 }
 
 .redraw-btn,
@@ -76,7 +89,11 @@
   padding: 0 24rpx !important;
   margin: 0;
   line-height: 2;
-  min-height: 64rpx;
+  min-height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
 }
 
 .send-btn {
@@ -117,7 +134,7 @@
   color: #9aa3b5;
   background: #14161f;
   border-radius: 999rpx;
-  padding: 8rpx 26rpx;
+  padding: 14rpx 26rpx;
 }
 
 .chip-on {
@@ -224,3 +241,7 @@
   font-size: 26rpx;
   line-height: 1.6;
 }
+.history-notice { display: flex; align-items: center; gap: 24rpx; margin: 24rpx; padding: 26rpx; border-radius: 18rpx; background: rgba(240,186,120,.06); border: 1rpx solid rgba(240,186,120,.25); color: #e0ba8b; font-size: 24rpx; line-height: 1.6; }
+.history-notice > view { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8rpx; }
+.notice-title { color: #f2e0cb; font-size: 28rpx; font-weight: 600; }
+.history-notice button { margin: 0; min-height: 88rpx; display: flex; align-items: center; flex-shrink: 0; color: #9ae6e9; background: #202431; }

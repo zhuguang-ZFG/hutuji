@@ -63,7 +63,15 @@
       >开始画</button>
     </view>
 
-    <view class="jog-block">
+    <view class="offline-card" wx:if="{{!linkOk}}">
+      <view class="offline-title">{{status ? '设备连接尚未就绪' : '正在确认设备连接'}}</view>
+      <view class="offline-sub">连接恢复后，即可点动、试笔和调整速度。</view>
+      <view class="connection-step"><text class="step-number">1</text><text>确认小派和丹青已开机</text></view>
+      <view class="connection-step"><text class="step-number">2</text><text>确认两台设备连接同一 Wi-Fi</text></view>
+      <button class="connection-refresh" bindtap="onRetrySpeed">刷新连接状态</button>
+    </view>
+    <view class="operation-note" wx:if="{{busyAction}}">正在处理操作，请等待设备确认…</view>
+    <view class="jog-block" wx:if="{{linkOk}}">
       <view class="jog-meta">
         <text class="jog-label">点动</text>
         <button class="step-pill" hover-class="tile-press" bindtap="onStepToggle" disabled="{{manualLocked || speedLoading || speedSaving}}">{{step}} mm</button>
@@ -87,14 +95,14 @@
       </view>
     </view>
 
-    <view class="job-row">
+    <view class="job-row" wx:if="{{linkOk || canPause || canResume || canRepeat || canAbort}}">
       <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.pause" disabled="{{!canPause || !!busyAction || speedLoading || speedSaving}}">暂停</button>
       <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.resume" disabled="{{!canResume || !!busyAction || speedLoading || speedSaving}}">继续</button>
       <button class="job-btn" hover-class="tile-press" bindtap="onJobAction" data-tool="hutuji.repeat" disabled="{{!!busyAction || !canRepeat || speedLoading || speedSaving}}">重画</button>
       <button class="job-btn danger" hover-class="tile-press" bindtap="onStop" disabled="{{!!busyAction || !canAbort || speedLoading || speedSaving}}">停止</button>
     </view>
 
-    <view class="speed-block">
+    <view class="speed-block" wx:if="{{linkOk}}">
       <text class="speed-label">分轴速度</text>
       <view wx:for="{{speedAxes}}" wx:key="key" class="speed-axis">
         <view class="speed-meta">

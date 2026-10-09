@@ -9,6 +9,10 @@
     <view wx:for="{{categories}}" wx:key="name" class="cat-chip {{item.name === activeCategory ? 'active' : ''}}"
       data-name="{{item.name}}" bindtap="onCategoryTap">{{item.name}}<text class="cat-count">{{item.count}}</text></view>
   </scroll-view>
+  <view class="gallery-notice" wx:if="{{accountError || loadError}}">
+    <view class="notice-copy"><text class="notice-title">{{accountError ? '暂时无法读取账号' : '暂时无法读取图库'}}</text><text>{{accountError || loadError}}</text></view>
+    <button size="mini" class="state-button" bindtap="onRetry" loading="{{loading}}" disabled="{{loading}}">重试</button>
+  </view>
   <view class="gallery-grid" wx:if="{{items.length}}">
     <view wx:for="{{items}}" wx:key="id" class="gallery-card" data-id="{{item.id}}" bindtap="onItemTap" hover-class="card-press">
       <view class="card-paper">
@@ -21,9 +25,10 @@
       <view class="card-meta"><text class="work-title">{{item.title}}</text><text class="card-arrow">↗</text></view>
     </view>
   </view>
-  <view class="gallery-state" wx:if="{{loadError}}"><text>{{loadError}}</text><button class="state-button" bindtap="onRetry">重新读取</button></view>
-  <view class="gallery-state" wx:elif="{{loading && !items.length}}"><view class="loading-line"></view><text>正在打开你的灵感画廊</text></view>
+  <block wx:if="{{!accountError && !loadError}}">
+  <view class="gallery-state" wx:if="{{loading && !items.length}}"><view class="loading-line"></view><text>正在打开你的灵感画廊</text></view>
   <view class="gallery-state" wx:elif="{{!items.length}}"><view class="empty-drawing"></view><text class="state-title">好作品，慢慢挑</text><text>更多精选线稿正在准备中</text></view>
   <view class="page-foot" wx:elif="{{loading}}">正在加载更多作品…</view>
   <view class="page-foot" wx:elif="{{nextCursor === null}}">本类作品已全部展出</view>
+  </block>
 </view>

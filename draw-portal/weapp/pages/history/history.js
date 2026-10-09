@@ -129,9 +129,10 @@ Page({
         for (const key of previews.cache.keys()) if (!keys.has(key)) previews.cache.delete(key);
         previews.current = current;
         // 可视区懒加载：首屏 6 张立即泵，其余进视口时经 _requestPreview 派发
-        const pendingJobs = jobs.filter((job) => job.previewPath && !job.previewUrl);
+        const pendingJobs = this.data.filtered.filter((job) => job.previewPath && !job.previewUrl);
+        const immediate = new Set(pendingJobs.slice(0, 6).map(previewKey));
         previews.queue = pendingJobs.slice(0, 6);
-        previews.deferred = pendingJobs.slice(6);
+        previews.deferred = jobs.filter((job) => job.previewPath && !job.previewUrl && !immediate.has(previewKey(job)));
         this._pumpPreviews(previews);
         this._observePreviews();
       })
@@ -227,8 +228,10 @@ Page({
     if (typeof wx.createIntersectionObserver !== "function") return;
     const observer = wx.createIntersectionObserver(this, { observeAll: true });
     this._previewObserver = observer;
+    const current = pageSession.capture(this);
     // 可视区懒加载：卡片进视口才把预览从候命队列提到下载队列
     observer.relativeToViewport().observe(".work-cell", (res) => {
+      if (!current() || this._previewObserver !== observer) return;
       const id = res && res.dataset && res.dataset.id;
       if (id && res.intersectionRatio > 0) this._requestPreview(id);
     });

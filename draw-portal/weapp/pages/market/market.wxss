@@ -26,6 +26,10 @@
 .state-title { font-size: 34rpx; color: var(--text); }
 .state-button { margin: 8rpx auto; padding: 0 34rpx; border-radius: 32rpx; background: var(--panel-2); color: var(--cyan); font-size: 26rpx; }
 .state-button::after { border-color: var(--line); }
+.gallery-notice { display: flex; align-items: center; gap: 20rpx; margin: 24rpx 30rpx 0; padding: 24rpx; border-radius: 18rpx; border: 1rpx solid rgba(240,186,120,.25); background: rgba(240,186,120,.06); color: #e0ba8b; font-size: 24rpx; line-height: 1.6; }
+.notice-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.notice-title { font-size: 28rpx; font-weight: 600; color: #f2e0cb; }
+.gallery-notice .state-button { flex-shrink: 0; width: auto; min-width: 104rpx; margin: 0; min-height: 88rpx; display: flex; align-items: center; justify-content: center; padding: 0 26rpx; }
 .loading-line { width: 70rpx; height: 3rpx; background: #629395; animation: breathe 1.4s ease-in-out infinite; }
 .empty-drawing { width: 92rpx; height: 112rpx; border: 2rpx solid var(--muted); border-radius: 8rpx 28rpx 8rpx 8rpx; transform: rotate(-8deg); opacity: .55; margin-bottom: 12rpx; }
 .page-foot { padding: 32rpx; text-align: center; color: var(--muted); font-size: 23rpx; }

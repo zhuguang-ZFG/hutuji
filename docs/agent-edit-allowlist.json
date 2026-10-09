@@ -1,4 +1,9 @@
 {
+  "weapp_ui_logic_20261009_authorized": {
+    "note": "用户：继续改进优化，寻找bug，逻辑问题，优化小程序ui。随后明确「提交部署上传验证」，授权本批提交推送、0.3.26开发版上传和手机预览/分享验证。限本批小程序及文档，服务未变仅核对生产状态，不操作设备运动。",
+    "contract": "protocol §10.4.9/§10.4.14/§10.4.21/§10.4.23；docs/design/weapp-ui-logic-20261009.md",
+    "paths": ["draw-portal/weapp/utils/version.js", "draw-portal/weapp/pages/index/index.js", "draw-portal/weapp/pages/index/index.wxml", "draw-portal/weapp/pages/index/index.wxss", "draw-portal/weapp/pages/market/market.js", "draw-portal/weapp/pages/market/market.wxml", "draw-portal/weapp/pages/market/market.wxss", "draw-portal/weapp/pages/history/history.js", "draw-portal/weapp/pages/history/history.wxml", "draw-portal/weapp/pages/history/history.wxss", "draw-portal/weapp/pages/control/control.wxml", "draw-portal/weapp/pages/control/control.wxss", "draw-portal/tests/weapp/ui_logic_followup.test.js", "draw-portal/weapp-smoke-checklist.md", "docs/design/weapp-ui-logic-20261009.md", "docs/agent-edit-allowlist.json", "docs/release-readiness.md", "docs/worktree-inventory.md", "docs/agent-line-refs-baseline.json", "docs/kxnx/findings/28-five-slice-crossrepo-review.md", "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md", "results/local-only/2026-10-09-weapp-ui/**", "tmp/weapp-ui-20261009/**"]
+  },
   "grbl_websocket_lifecycle_20261009_authorized": {
     "note": "实机AP回落复测发现WebSocket释放后使用，用户明确「同意追加修复并刷机复验」，点名批准Serial2Socket.cpp/.h、WebServer.cpp。只修对象生命周期、日志缓冲与跨任务同步，不改运动、换纸、引脚或网络协议。",
     "contract": "docs/design/three-repo-followup-review-20261009.md R09-04；AGENTS.md用户点名例外",
