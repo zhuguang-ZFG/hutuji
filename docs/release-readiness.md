@@ -1,5 +1,7 @@
 # 发布与出货就绪度
 
+> **2026-10-10 00:26 续审修复发布完成（✅ 三仓提交推送、双机部署、量产升级与本批验证）**：hub `5e57ed9`、S3 `bd6a10a`、量产Grbl `2cd03f2`已核对远端分支。固定Freenove已单次OTA至1.0.36（3082240B，SHA `e2b524ef…e324f3`），状态`confirm_by_url=true`后才部署主备共享判错/Portal两文件；deploy/带包verify及生产SHA/LF/解析冒烟/服务健康通过。Grbl Web OTA成功并捕获重启，48项参数保持XY6000/Z1200、$1=255。实机超长行报error:11且尾部$I未执行，下一独立查询成功；两次错/缺作品地址确认被拒且保留预览，正确地址自动确认后12行微路径完成、回XYZ原点并确认电机释放。最终S3 done、Grbl Idle/原点；公网1.0.36完整下载及latest/catalog相符。提交后fz standard PASS（绑定2cd03f2/dirty=false），软件full/MCP1643与Portal533等沿用已测源码证据；Wokwi quota未验、preflight主25/34备26/34为既有差异。未做精确竞态、独立试笔故障或完整触屏/纸面画质验收。详见[发布记录](design/three-repo-next-review-20261009.md)，本条覆盖下方未提交/未部署历史。
+
 > **2026-10-09 发布后续审修复（🟡 3项软件修复、构建/门禁通过，未提交未部署）**：用户“开始修复改进”后，S3首笔/试笔固定连接与banner，Grbl按客户端丢弃超长行至CR/LF，Portal仅认明确previewing受理并携作品地址由S3锁内确认。新增45项测试（S3 10、Grbl9、Portal23、MCP3）及既有确认测试内的地址匹配断言；完整S3 326、Grbl54、Portal533、MCP1643/e2e均通过。量产Freenove/IDF6.0.1构建3082240B（SHA `3e5bbb2e…97c84a`），Grbl release1846944B（SHA `20cdd471…036dab`）；full13层和量产fz standard PASS，Wokwi因月度quota未验。旧S3无`confirm_by_url`能力时保留预览并提示人工确认，发布应先设备后Portal；候选仍用1.0.35，仅本地归档，禁止替换已发布同号镜像。未提交、部署、刷机或实机验收，现役版本与上批发布记录不变。见[完整修复与证据](design/three-repo-next-review-20261009.md)，本条覆盖其下“尚未修复”历史状态。
 
 > **2026-10-09 三仓发布后续审（🟡 3项P1已本地复现，未修复）**：基线hub `4b9f3fe`、S3 `220048d`/1.0.35、量产Grbl `9f860f5`。17个正常/故障对照确认：首笔Z0校准与试笔仍可在写锁前会话失效后发送；Grbl超长行报错清空后把同一行尾部作为新命令执行；Portal把空/HTML/截断draw回包当成功并继续确认旧预览。另记录多编码错误正文的条件性漏判，不宣称现网必发该形状。产品代码未改，无设备调用/部署/刷机；前批已发布状态不变。源码SHA、复现、影响范围和建议见[本轮审查](design/three-repo-next-review-20261009.md)。

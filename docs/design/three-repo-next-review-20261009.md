@@ -86,3 +86,27 @@ Wokwi重新连接服务后仍返回月度CI quota，非阻断但**未完成启�
 ## 发布续作（用户「提交部署」）
 
 用户授权本批三仓提交推送、固件与服务部署。S3另升1.0.36并重新构建，先核对固定Freenove身份/空闲态/回退镜像，单次OTA后确认`confirm_by_url`能力，再更新Portal与共享判错；量产Grbl按MAC/原点/全参数保护升级。发布与验证证据保存在`results/local-only/2026-10-09-trirepo-next-release/`，暂存脚本位于`tmp/trirepo-next-release-20261009/`。原有未提交审查记录随本批提交，其他未跟踪资产保留。
+
+### 2026-10-10 00:26 发布与验证完成
+
+三仓已提交推送并用`git ls-remote`核对：hub `5e57ed904feca672e76717f51b09636e60c9a757`（24文件）、S3 `bd6a10a66719ec3018e975b693e75a3a0f2e6cfe`（8文件含版本升1.0.36）、量产Grbl `2cd03f2028eddbca3a808d0567f0054445bd53f4`（2文件）。13份已测源逐项核验；S3新测试提交检查发现一行尾随空格，删除后逐字比较只差该空格，产品源码无变化。提交与新源码SHA在`commit-verification.json`。
+
+| 发布项 | 结果与身份 |
+|---|---|
+| S3 Freenove，MAC b8:1f:3f:c4:58:2c | 1.0.36；3082240B；SHA `e2b524ef828016384eb913471c2d3273260019f83b8607947c73199993e324f3`；启动ELF前缀`2706f9852` |
+| Grbl nopaper，MAC 4c:c3:82:cc:8a:9c | `2cd03f2`；1846944B；SHA `20cdd471e132229f1ce7de7c612f62d418bb2db0c7c234863500e98b5a036dab`；Web OTA status=3并捕获重启 |
+| 双机云端 | `tool_result.py`与Portal `push.py`两文件LF包，deploy/带包verify/最终文件SHA与生产解析冒烟均通过；MCP/Portal active，主bridge active、备inactive，health200 |
+
+S3先候选发布并公网全量核验，再单次OTA；网关504后串口仍完成下载/重启，状态返回同MAC/板型/1.0.36及`confirm_by_url=true`，没有重发。随后切latest/catalog并核对，再部署Portal，满足设备能力先行。Grbl升级前后48项参数一致，XY6000/Z1200、$1=255，最终仍为原点。发布包SHA主`87aa04b1944b3ee6ad019d92e9170ed1f30c6a9178d0cc664f93c9bb607e54a9`、备`69792f3c314a37bb96019e7578fbe593fee9b62b0e5b38fae20866aaff1e8877`。
+
+实机验证：
+
+- 原始Grbl串口输入256个A后紧接`$I\n`，返回error:11且没有VER，证明同一物理行尾部查询被丢弃；再单发$I成功。此用例不含运动/设置写入，随后48项参数和Idle/XYZ原点复核通过，见`grbl-overflow-hil.json`与串口。
+- 12行/204B合法微路径完成预览后，通过真实设备messaging分别发送错误作品地址、缺半对地址，均收到“预览已变化”且原预览保持awaiting。之后用生产Portal `auto_confirm_after_preview`携正确两地址确认，经历streaming→done，串口记录首笔G92、归位与电机释放已确认。见`hil-run-normal.log`的`MISMATCH_CONFIRM_REJECTED_TWICE`/`EXACT_CONFIRM`和`s3-fault-serial.log`。
+- 最终双机源码/LF、生产四种draw受理正文及多编码错误判据冒烟、服务健康、公网完整1.0.36下载、latest/catalog与设备done/Idle/原点均通过，见`release-verification.json`。坏正文冒烟使用生产代码加HTTP替身，没有向实机注入网关坏回包。
+
+提交后量产fz standard PASS（165.5秒，绑定`2cd03f2`/dirty=false；fz `e36c125`/dirty=false），54项host再次通过；Wokwi仍为月度quota，未运行启动。软件full13层/MCP1643/e2e、S3 326/Portal533沿用前节已测源码证据；S3升版后重新真实构建成功。preflight主25/34、备26/34与之前同集合的配置/角色差异，不宣称全绿。最终文档另跑docs门禁。
+
+回退：云端`auto_deploy.py --rollback --target aliyun --backup-id 30ad6f41a36f49b59c377126201ef7f9`、京东`--target jdcloud --backup-id 897029875b9449e3ae073f7aa5358f88`。S3旧1.0.35镜像保留，推荐指针备份为`/root/hutuji-bak-20261009-ota-1.0.36/`；Grbl回退`grbl-rollback-9f860f5.bin`、SHA `35aa138f301d603a89652bfb4ee856baa3f05e061d2fec3a6e27d42d752bbc0d`保存在本批证据目录。
+
+两次S3串口采集均正常关闭，临时产物沿用600秒TTL，远端执行意图/回执600权限保留防重复控制；没有新增常驻故障服务或代理。仍未做精确写锁/reset窗口板上注入、独立试笔故障矩阵、完整触屏或纸面画质验收；只证明本批发布及列明的软件/实机边界。以上覆盖本文前述未提交、未部署、未刷机快照。
