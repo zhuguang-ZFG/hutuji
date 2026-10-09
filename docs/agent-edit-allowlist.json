@@ -1,4 +1,19 @@
 {
+  "trirepo_deep_release_20261009_authorized": {
+    "note": "用户点名处理深审修复的未提交、部署、刷机、Wokwi及实机验证。授权本批三仓提交推送、Portal单文件双机部署、量产S3升1.0.35和量产Grbl候选升级、带回退的实机验证及原状态恢复。",
+    "contract": "docs/design/three-repo-deep-review-20261009.md 发布续作；仅量产nopaper机型，保持既定机械/运动参数",
+    "paths": ["D:/Users/xiaozhi-esp32/CMakeLists.txt", "docs/**", "tmp/trirepo-deep-release-20261009/**", "results/local-only/2026-10-09-trirepo-deep-release/**"]
+  },
+  "trirepo_deep_fixes_20261009_authorized": {
+    "note": "用户针对深审5项明确「开始完全修复」。修复DR09-01/05的事务会话发送与等待，DR09-02/03的Web输入边界，DR09-04的OTA明确受理判定；执行宿主回归、固件构建和三仓门禁，不改机械/运动参数，不在本步骤部署或刷机。",
+    "contract": "docs/design/three-repo-deep-review-20261009.md DR09-01至05；protocol §3/§9/§10.4.21",
+    "paths": ["D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_transaction_session.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_fresh_session.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_speed_core.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_nopaper_core.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_command_bounds.py", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/tests/test_firmware_ota.py", "docs/**", "tmp/trirepo-deep-fixes-20261009/**", "results/local-only/2026-10-09-trirepo-deep-fixes/**"]
+  },
+  "trirepo_deep_review_20261009_authorized": {
+    "note": "用户：继续深度code review 三仓。仅审查与宿主/路由复现，不改产品代码，不调用设备或生产写接口。",
+    "contract": "protocol §3/§9/§10.4.21；docs/design/three-repo-deep-review-20261009.md",
+    "paths": ["docs/design/three-repo-deep-review-20261009.md", "docs/agent-edit-allowlist.json", "docs/worktree-inventory.md", "docs/release-readiness.md", "docs/agent-line-refs-baseline.json", "docs/kxnx/findings/28-five-slice-crossrepo-review.md", "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md", "tmp/trirepo-deep-review-20261009/**", "results/local-only/2026-10-09-trirepo-deep-review/**"]
+  },
   "weapp_ui_logic_20261009_authorized": {
     "note": "用户：继续改进优化，寻找bug，逻辑问题，优化小程序ui。随后明确「提交部署上传验证」，授权本批提交推送、0.3.26开发版上传和手机预览/分享验证。限本批小程序及文档，服务未变仅核对生产状态，不操作设备运动。",
     "contract": "protocol §10.4.9/§10.4.14/§10.4.21/§10.4.23；docs/design/weapp-ui-logic-20261009.md",

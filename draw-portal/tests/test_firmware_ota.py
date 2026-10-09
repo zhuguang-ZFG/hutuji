@@ -584,6 +584,61 @@ def test_unknown_delivery_ignores_old_failure_until_upgrade_is_observed(tmp_path
     assert final["state"] == "failed" and final["reason"] == "verify_failed"
 
 
+@pytest.mark.parametrize("body", [b'{"success":true,"data":', b'', b'<html>unavailable</html>',
+                                  b'{}', b'null', b'[]', b'1', b'{"ok":1}', b'{"success":true}',
+                                  b'{"reason":{}}', b'{"detail":[]}'])
+def test_unconfirmed_ota_body_keeps_reservation(tmp_path, monkeypatch, body):
+    """HTTP读取完成不等于拿到设备受理结果，不能消费旧failed或重复下发。"""
+    import io
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "BODY01")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "BODY01"}).status_code == 200
+    starts = []
+    device_ota = {"state": "failed", "reason": "download_failed"}
+
+    class Response(io.BytesIO):
+        status = 200
+
+    def transport(request, **kwargs):
+        if json.loads(request.data)["name"] == "hutuji.status":
+            return Response(_status_json(ota=device_ota).encode())
+        starts.append(1)
+        return Response(body)
+
+    monkeypatch.setattr("urllib.request.urlopen", transport)
+    assert client.post("/api/device/firmware/upgrade").json()["status"] == "unknown"
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
+    assert client.post("/api/device/firmware/upgrade").json()["detail"] == "busy"
+    assert len(starts) == 1
+    device_ota = {"state": "upgrading", "progress": 20}
+    assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
+    device_ota = {"state": "failed", "reason": "verify_failed"}
+    final = client.get("/api/device/firmware/ota_status").json()
+    assert final["state"] == "failed" and final["reason"] == "verify_failed"
+
+
+@pytest.mark.parametrize("payload", [{"ok": True}, {"success": True, "data": {"ok": True}},
+    {"success": True, "data": {"content": [{"type": "text", "text": '{"ok":true}'}]}},
+    '{"ok":true}'])
+def test_ota_accepts_explicit_device_acknowledgement(tmp_path, monkeypatch, payload):
+    import io
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "BODY02")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "BODY02"}).status_code == 200
+
+    class Response(io.BytesIO):
+        status = 200
+
+    def transport(request, **kwargs):
+        return Response(_status_json().encode() if json.loads(request.data)["name"] == "hutuji.status"
+                        else json.dumps(payload).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", transport)
+    assert client.post("/api/device/firmware/upgrade").json()["status"] == "started"
+
+
 @pytest.mark.parametrize("state,reason", [("ok", None), ("failed", "status_timeout")])
 def test_late_failure_cannot_regress_terminal_ota_session(tmp_path, monkeypatch, state, reason):
     from draw_portal import firmware_ota as ota

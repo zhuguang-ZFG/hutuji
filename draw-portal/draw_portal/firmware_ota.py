@@ -54,6 +54,24 @@ def _parse_status_dict(raw: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _parse_ota_start_result(raw: str) -> dict[str, Any] | None:
+    """受理必须来自设备正文；HTTP200或仅网关success不能证明设备已开始升级。"""
+    for _ in range(8):
+        try:
+            unwrapped = unwrap_tool_text(raw)
+            if unwrapped != raw:
+                raw = unwrapped
+                continue
+            payload = json.loads(raw)
+        except (TypeError, ValueError, RecursionError):
+            return None
+        if isinstance(payload, str):
+            raw = payload
+            continue
+        return payload if isinstance(payload, dict) else None
+    return None
+
+
 def _push_healed(
     *,
     api_base: str,
@@ -314,14 +332,10 @@ def _start_upgrade_claimed(
         return {"status": "error", "detail": result}
 
     # 设备若立即以 reason token 拒升（busy 等），会话回退
-    text = unwrap_tool_text(result)
-    try:
-        payload = json.loads(text) if text else {}
-    except json.JSONDecodeError:
-        payload = {}
+    payload = _parse_ota_start_result(result)
     if isinstance(payload, dict):
         device_reason = payload.get("reason") or payload.get("detail")
-        if device_reason in {
+        if isinstance(device_reason, str) and device_reason in {
             "busy",
             "board_mismatch",
             "check_failed",
@@ -330,6 +344,11 @@ def _start_upgrade_claimed(
             "write_failed",
         }:
             return {"status": "error", "detail": str(device_reason)}
+
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        # 保持uncertain，旧failed不能解除本轮占位；后续由设备进度或版本对账确认。
+        return {"status": "unknown", "target_version": version,
+                "detail": "升级受理结果尚未确认，请等待设备状态更新"}
 
     return {"status": "started", "target_version": version, "board": board}
 
