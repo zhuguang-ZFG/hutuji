@@ -15,6 +15,7 @@ from draw_portal.firmware_catalog import (
 )
 from draw_portal.mcp_result import tool_result_failed, unwrap_tool_text
 from draw_portal.models import DeviceBinding, FirmwareOtaSession
+from draw_portal.firmware_version import is_newer, parse_hutuji_version
 from draw_portal.push import mint_messaging_token, push_tool_call
 from draw_portal.store import Store
 
@@ -304,6 +305,14 @@ def _start_upgrade_claimed(
     relpath = str(entry.get("relpath") or "")
     if not version or not relpath:
         return {"status": "error", "detail": "check_failed"}
+
+    # 两次查询间设备可能已从其它入口升级；发送前必须以最新版本裁决。
+    current = status.get("firmware_version")
+    if (not isinstance(current, str) or parse_hutuji_version(current) is None
+            or parse_hutuji_version(version) is None):
+        return {"status": "error", "detail": "check_failed"}
+    if not is_newer(version, current):
+        return {"status": "error", "detail": "up_to_date"}
 
     url = build_bin_url(
         public_base,

@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-10 PR10修复候选：串口非ASCII及`? ! ~`开口前拒绝，中文走HTTP且保留ESP参数首尾空格；配对$I完整消费终止ok才发布连接；Portal复核二次状态版本；产线missing检查当前代次release三报告附件，released仍为历史事实。39项新增回归，发布/实机边界见`docs/design/three-repo-production-review-20261010.md`修复节。
+
 2026-10-09 发布后续审本地候选：首笔/试笔绑定连接与banner；Grbl超长行按客户端丢弃至CR/LF；Portal仅认明确previewing，并以作品地址请求S3锁内确认，旧固件无`confirm_by_url`能力时提示人工确认。用户“开始修复改进”授权Protocol.cpp仅超长行解析修复，三板confirm仅可选参数透传；不改运动/换纸/引脚。源码及未发布边界见`docs/design/three-repo-next-review-20261009.md`。
 
 2026-10-09 量产Grbl WebSocket生命周期：用户批准`Serial2Socket.cpp/.h`和`WebServer.cpp`追加修复，服务析构须先解绑、丢弃旧待发日志，并与发送/loop共用递归锁。`548c669`已刷机并通过同一AP恢复崩溃复验；S3 1.0.34与云端同批发布，详见`docs/design/three-repo-followup-review-20261009.md`。

@@ -48,8 +48,12 @@
 
 `release --sn <SN> --operator <签核人> --recipe <已批准配方> --delivery <真实资料JSON>`核全部检验、证据SHA、老化/纸面阈值后才放行。法规报告、实际纸面与手机测试不能由脚本自动填“通过”。返修自动撤销放行并要求整表重验。
 
+`released=1`表示本代曾签核，仍须检查`missing`。许可、电气、无线报告任一缺失、摘要/大小改变或附件登记缺项时，`status/export/batch`会列出`release:attachments`；不得按历史放行位单独判定当前档案完整。
+
 ## 6. 固件灰度
 
 Portal目录的稳定board条目可附`rollout: {id, percent, devices, candidate}`。`devices`为MAC白名单；其他设备按id+MAC稳定分桶，percent为整数0–100。candidate是普通版本条目，须填写version/relpath/sha256/size。先percent=0+明确试点名单，记录实际成功率后扩大；删除rollout撤回候选。设备直接读取latest仍指稳定版本，灰度候选仅由已绑定Portal发起，不能提前把latest改成候选。灰度不自动刷机，仍经过原busy、板型和会话闸。
 
 工具依赖：运行Python需pytest/pyserial；设置`HUTUJI_FACTORY_IDF_PYTHON`为已安装esptool及esp-idf-nvs-partition-gen的IDF Python。S3验写后hard-reset启动，Grbl正常断电重启。返修要求未改写的bootloader/分区/资源与包相同，否则转专门迁移。服务中断遗留操作锁时，确认机器停稳并停止旧进程后用`resolve --sn ... --operator ... --evidence ...`解除，再新建返修代次；不能按超时自动解锁。
+
+中文SSID使用小派HTTP配网。串口工具会拒绝非ASCII及实时控制保留字符`? ! ~`，不能通过换编码绕过。HTTP配网保留SSID/密码首尾空格；手机实测矩阵仍按`docs/production-mobile-acceptance.md`单独验收。

@@ -99,3 +99,36 @@ def test_rollout_upgrade_uses_bound_target_and_rechecks_policy(tmp_path, monkeyp
                           'busy' if scenario == 'busy' else 'check_failed'}
         assert not ota.is_upgrading(store, binding.user_id)
     assert len(reads) == (1 if scenario == 'unlisted' else 2)
+
+
+@pytest.mark.parametrize('current,detail', [
+    ('hutuji.1.0.0', None), ('hutuji.1.0.1', 'up_to_date'),
+    ('hutuji.1.0.2', 'up_to_date'), ('', 'check_failed'),
+    (None, 'check_failed'), ('broken', 'check_failed'), (True, 'check_failed'),
+])
+def test_upgrade_rechecks_second_device_version(tmp_path, monkeypatch, current, detail):
+    import json
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+
+    path = tmp_path / 'catalog.json'
+    path.write_text(json.dumps(catalog()), encoding='utf-8')
+    store = Store(tmp_path / 'ota.db')
+    binding = SimpleNamespace(user_id='u', device_mac=MAC)
+    replies = iter(['hutuji.1.0.0', current])
+    pushes = []
+    monkeypatch.setattr(ota, '_fetch_device_status', lambda **kw: (True, {
+        'board': 'board', 'state': 'idle', 'firmware_version': next(replies)}, ''))
+    monkeypatch.setattr(ota, '_push_healed', lambda **kw: (pushes.append(kw) or True, '{"ok":true}'))
+    result = ota.start_upgrade(store=store, binding=binding, catalog_path=str(path),
+                               public_base='https://fw.example.test', signing_secret='',
+                               api_base='', token_cipher_key=b'')
+    if detail:
+        assert result == {'status': 'error', 'detail': detail}
+        assert not pushes
+        assert not ota.is_upgrading(store, 'u')
+        assert not store.get_firmware_ota_session('u').target_version
+    else:
+        assert result['status'] == 'started' and len(pushes) == 1
+        assert pushes[0]['arguments']['version'] == 'hutuji.1.0.1'

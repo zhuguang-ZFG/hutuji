@@ -29,11 +29,12 @@ def test_concurrent_upgrade_claims_before_device_io(monkeypatch, tmp_path):
     def plan(**kw):
         entered.set()
         assert release.wait(5)
-        return {"update_available": True, "board": _BOARD, "latest": "2"}
+        return {"update_available": True, "board": _BOARD, "latest": "hutuji.1.0.1"}
     monkeypatch.setattr(ota, "check_firmware", plan)
     monkeypatch.setattr(ota, "load_catalog", lambda p: {})
-    monkeypatch.setattr(ota, "recommended_for_board", lambda *a: {"version": "2", "relpath": _REL})
-    monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True, {"state": "idle", "board": _BOARD}, ""))
+    monkeypatch.setattr(ota, "recommended_for_board", lambda *a: {"version": "hutuji.1.0.1", "relpath": _REL})
+    monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True, {
+        "state": "idle", "board": _BOARD, "firmware_version": "hutuji.1.0.0"}, ""))
     monkeypatch.setattr(ota, "build_bin_url", lambda *a, **kw: "https://example.invalid/x.bin")
     monkeypatch.setattr(ota, "_push_healed", lambda **kw: (pushes.append(1) or True, '{"ok":true}'))
     def start():
@@ -86,7 +87,7 @@ def test_poll_during_start_cannot_apply_previous_device_failure(monkeypatch, tmp
     from draw_portal.store import Store
     store = Store(tmp_path / "pending.db")
     binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
-    old_status = {"state": "idle", "board": _BOARD,
+    old_status = {"state": "idle", "board": _BOARD, "firmware_version": "hutuji.1.0.0",
                   "ota": {"state": "failed", "reason": "download_failed"}}
     monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True, old_status, ""))
     def poll():
@@ -95,13 +96,13 @@ def test_poll_during_start_cannot_apply_previous_device_failure(monkeypatch, tmp
         assert ota.is_upgrading(store, "u")
     def plan(**kw):
         poll()  # 占位已建立，目标尚未查出。
-        return {"update_available": True, "board": _BOARD, "latest": "2"}
+        return {"update_available": True, "board": _BOARD, "latest": "hutuji.1.0.1"}
     def push(**kw):
         poll()  # 已登记目标，但发送尚未应答，仍不能消费旧状态。
         return True, '{"ok":true}'
     monkeypatch.setattr(ota, "check_firmware", plan)
     monkeypatch.setattr(ota, "load_catalog", lambda p: {})
-    monkeypatch.setattr(ota, "recommended_for_board", lambda *a: {"version": "2", "relpath": _REL})
+    monkeypatch.setattr(ota, "recommended_for_board", lambda *a: {"version": "hutuji.1.0.1", "relpath": _REL})
     monkeypatch.setattr(ota, "build_bin_url", lambda *a, **kw: "https://example.invalid/x.bin")
     monkeypatch.setattr(ota, "_push_healed", push)
     assert ota.start_upgrade(store=store, binding=binding, catalog_path="", public_base="",

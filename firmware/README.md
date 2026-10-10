@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-10 PR10修复候选：配对连接完成只读$I的完整MAC/终止ok事务后才发布连接，分包/截断/错误不遗留应答给正式授权探测。16项新增真实握手及状态机回归通过，S3全套宿主344项通过；构建与发布状态见`../docs/design/three-repo-production-review-20261010.md`修复节。
+
 2026-10-09 1.0.34已发布：S3 `00fd3ee`在固定量产Freenove（MAC `b8:1f:3f:c4:58:2c`）OTA启动确认，3080272B/SHA `cea42da2…2818af`。三次真实下载断流均失败回Idle，最后完整同版镜像升级与启动ELF复验通过，公网推荐一致；不再沿用下条1.0.33未发布候选SHA。完整证据和回退见`../docs/design/three-repo-followup-review-20261009.md`。
 
 2026-10-09 OTA回收候选：`main/ota.cc`以RAII统一管理SDK句柄与下载缓冲，读取/写入失败和异常退出均清理，`esp_ota_end`后解除所有权避免重复abort。Freenove/ESP-IDF v6.0.1真实编译通过，app3080272B、SHA `626a92e2…18b4a4`，仅本地候选、仍沿用1.0.33构建版本，不覆盖已发布同号镜像。对应宿主回归与未部署边界见`../docs/design/three-repo-followup-review-20261009.md`。

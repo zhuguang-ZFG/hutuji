@@ -100,3 +100,46 @@ def test_modified_attachment_blocks_status_and_archive(tmp_path):
     assert 'flash_s3:attachments' in store.status('SN001')['missing']
     with pytest.raises(FactoryError):
         store.archive(tmp_path / 'archive')
+
+
+@pytest.mark.parametrize('damage', ['content', 'size', 'missing', 'missing_record'])
+def test_released_report_integrity_in_status_and_batch(tmp_path, monkeypatch, damage):
+    import csv
+    import sys
+    from scripts.factory.__main__ import main
+    from scripts.factory.core import CHECKS
+    from test_factory import recipe, delivery, measurement
+
+    store = unit(tmp_path)
+    evidence = tmp_path / 'check.json'
+    evidence.write_text('{}')
+    for name in CHECKS:
+        store.event('SN001', name, 'pass', 'qa', evidence, measurement())
+    store.release('SN001', 'qa', recipe(), delivery(tmp_path))
+    assert store.status('SN001')['missing'] == []
+    # 归档搬迁后也检查本地相对路径，不依赖原始报告。
+    store.archive(tmp_path / 'archive')
+    shutil.copytree(tmp_path / 'archive', tmp_path / 'moved')
+    store = Store(tmp_path / 'moved/line.db')
+    released = store.status('SN001')['checks']['release']
+    attachment = released['attachments'][0]
+    path = Path(attachment['path'])
+    if damage == 'content': path.write_bytes(b'x' * path.stat().st_size)
+    elif damage == 'size': path.write_bytes(b'x')
+    elif damage == 'missing': path.unlink()
+    else:
+        with store.connect() as db:
+            db.execute('DELETE FROM event_attachments WHERE event_id=? AND name=?',
+                       (released['id'], attachment['name']))
+    status = store.status('SN001')
+    assert status['released'] == 1
+    assert 'release:attachments' in status['missing']
+    target = tmp_path / 'batch.csv'
+    monkeypatch.setattr(sys, 'argv', ['factory', '--db', str(store.path), 'batch',
+                                    '--batch', 'B001', '--output', str(target)])
+    main()
+    with target.open(encoding='utf-8-sig', newline='') as stream:
+        row = next(csv.DictReader(stream))
+    assert row['released'] == '1' and 'release:attachments' in row['missing']
+    store.rework('SN001', 'repair', '重新验收')
+    assert 'release:attachments' not in store.status('SN001')['missing']

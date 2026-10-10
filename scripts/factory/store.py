@@ -148,9 +148,27 @@ CREATE TABLE IF NOT EXISTS event_attachments(event_id TEXT NOT NULL,name TEXT NO
             if not item or item['result']!='pass':missing.append(name);continue
             path=self.evidence_path(item['evidence'])
             if not path.is_file() or digest(path)!=item['evidence_sha']:missing.append(name+':evidence')
-            if any(not Path(a['path']).is_file() or Path(a['path']).stat().st_size!=a['size'] or digest(Path(a['path']))!=a['sha256'] for a in item['attachments']):
+            if not self._attachments_intact(item['attachments']):
                 missing.append(name+':attachments')
+        if unit['released']:
+            # released保留历史签核；当前报告损坏必须在status/export/batch同时可见。
+            release=latest.get('release')
+            if not release or release['result']!='pass':
+                missing.append('release')
+            elif ({a['name'] for a in release['attachments']} !=
+                  {'license_review','electrical_review','radio_review'}
+                  or not self._attachments_intact(release['attachments'])):
+                missing.append('release:attachments')
         return {**unit,'checks':latest,'missing':missing}
+
+    @staticmethod
+    def _attachments_intact(attachments):
+        try:
+            return all(Path(a['path']).is_file() and Path(a['path']).stat().st_size==a['size']
+                       and digest(Path(a['path']))==a['sha256'] for a in attachments)
+        except OSError:
+            # 文件在检查期间消失或不可读，也属于完整性异常。
+            return False
 
     def evidence_path(self,value):
         path=Path(value)

@@ -36,7 +36,7 @@ send→ok 逐行配对延迟：**中位 80ms**、均值 183ms、p95 530ms（配�
 |---|---|
 | 运动速度/加速度不够 | $120/$121=3000mm/s²、F8000 基本吃满；QD 内容估算 4-7s/幅 |
 | G-code 路径排序差 | 2-opt/greedy_flip A/B 两轮实测零收益（段数太少），vpype `linesort -t` 同结论 |
-| S3→Grbl 方向 Nagle | `hutuji_pipe.cc:527-530` 已设 `TCP_NODELAY`（注释即为此） |
+| S3→Grbl 方向 Nagle | `hutuji_pipe.cc:549-552` 已设 `TCP_NODELAY`（注释即为此） |
 | 窗口 512B 太小 | 512B≈20 行在途上限，但实测有效在途 ≈4 行——窗口根本没被填满过，不是容量问题 |
 | 「Grbl 板 WiFi 省电」缺席推理 | `grep wifi_set_ps` 零命中只是缺席证据，不是现场证据；降级为次选（§4.B） |
 

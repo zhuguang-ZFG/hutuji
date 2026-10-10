@@ -65,11 +65,13 @@ def _read_response(s, *, quiet_s: float = READ_QUIET_S, deadline_s: float = READ
 
 
 def _validate_serial_value(value: str, label: str, *, allow_empty: bool = False) -> None:
-    """拒绝会把单条 ESP 配置命令拆成多条的控制字符。"""
+    """串口共享实时控制字节，不能传输与控制码冲突的配置值。"""
     if not value and not allow_empty:
         raise ValueError(f"{label} 不能为空")
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
         raise ValueError(f"{label} 不得包含控制字符（含换行）")
+    if not value.isascii() or any(char in '?!~' for char in value):
+        raise ValueError(f"{label} 含串口实时控制保留字符或非 ASCII 字符，请使用小派 HTTP 配网")
 
 
 def _resolve_password(args: argparse.Namespace) -> str:

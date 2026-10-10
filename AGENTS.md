@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+2026-10-10 PR10修复候选：串口配网开口前拒绝非ASCII及`? ! ~`，中文走HTTP；HTTP保留ESP参数首尾空格。工厂配对$I须消费完整终止ok后发布连接，Portal第二次状态版本必须低于目标，产线released保留历史但missing核当前代次三份放行附件。回归/构建和未部署边界见`docs/design/three-repo-production-review-20261010.md`修复节。
+
 2026-10-10 量产工具本地候选：`scripts/factory/`为产线CLI，`production/`为配方，`tests/production/`须单独pytest；Portal改动另跑其tests，hub/full不代替这两套。工厂配对/中文SSID/灰度实现与边界见`docs/design/production-readiness-20261010.md`，尚未部署。参数只认完整STA报告末尾MAC与独立VER行；测量携带SN+generation，自动回写复核操作令牌，整片备份/报告作为归档附件；候选包NOT_FOR_RELEASE不得烧录。已批准速度6000/6000/1200、加速度3000/3000/3000与4小时/30次/≤1mm试行门槛，真实首件和交付资料仍须实证。
 
 2026-10-09 实机追加授权：用户点名同意修改量产`Serial2Socket.cpp/.h`和`WebServer.cpp`并刷机复验，仅用于R09-04 WebSocket释放后使用修复（先解绑、丢弃旧待发日志、发送/loop/析构同锁），作为下方Grbl白名单的明确例外；不改运动、换纸或引脚。证据见`docs/design/three-repo-followup-review-20261009.md`。
