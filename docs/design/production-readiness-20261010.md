@@ -63,3 +63,21 @@
 用户确认只有现役量产机，可配合现场换纸与测试；交付型号、主体、联系方式、保修、批量与合规报告答复暂无。本批执行三仓提交推送、S3独立升1.0.37重新构建、双机Portal部署、固定身份S3/Grbl保留NVS升级与实体测试准备。现场S3 MAC `b8:1f:3f:c4:58:2c`为Freenove，升级前1.0.36/done；Grbl MAC `4c:c3:82:cc:8a:9c`、Idle/XYZ原点、48项参数读回（XY6000/Z1200）。不将现役机升级当空白双板首烧，不擦除NVS或替用户生成合规签字。
 
 本批发布证据独立保存在`results/local-only/2026-10-10-production/release/`，脚本暂存在`tmp/production-20261010/release/`。旧候选NOT_FOR_RELEASE包保留；新包必须绑定本次实际提交、升版后的镜像摘要与分区验证。部署、首件和老化进度以实际回执继续登记。
+
+## 发布与板上复核（2026-10-10）
+
+本次续作已完成提交、部署和现役设备升级。枢纽 `9191485350e8c1f0058c52952f3f268a1d843aaf`、S3 `d6b7d98d0bf94932044c49bcb9266766341c98aa`、量产 Grbl `3184ea9668ebe3c860eb68ea1ddf0bb265302de1` 均与远端一致且工作树干净。Portal 主节点和热备节点均以 hub 提交部署并通过带包校验，回执为 `results/local-only/2026-10-10-production/release/aliyun-portal-deploy.json` 与 `jdcloud-portal-deploy.json`。
+
+S3 版本独立升为 `hutuji.1.0.37`。镜像大小 3,084,400 B，SHA-256 为 `34bf547841ea31d0b97e85a691a708d81b5dbf0a4902d21864d1a1b554c18d51`；公网 `latest/catalog`、候选、提升和 OTA 意图均指向同一版本与摘要。现役设备 `b8:1f:3f:c4:58:2c` 的首次 OTA HTTP 504 后未重复下发，轮询取得最终启动状态，确认 `idle`、`connected`、`ready`、`authorized`、`grbl_settings_ok`、`plotter_sku=nopaper`、Grbl `Idle`、XYZ 原点和 `confirm_by_url=true`。完整回执、旧镜像和回滚备份登记在 `results/local-only/2026-10-10-production/release/`，设备状态明确为 `factory_paired=false`。
+
+OTA 后对量产 Grbl 做独立只读复核：48 项设置均有回读，速度为 `$110/$111/$112=6000/6000/1200`，加速度为 `$120/$121/$122=3000/3000/3000`，`$1=255`，STA 身份为 `4C-C3-82-CC-8A-9C`，坐标为 `0,0,0`。本次没有把旧完整离线演练包提升为发布包；该包及其 1.0.36 文件名仍保留 `NOT_FOR_RELEASE` 语义，公开版本只以 1.0.37 catalog 和设备状态为准。
+
+软件证据已收口：`tests/production` 52 项、Portal 553 项、S3 宿主 328 项、量产 Grbl 宿主 55 项、MCP 1643 项/e2e 及量产 fz standard 均通过。仍未完成空白双板首烧、返修恢复、中文 SSID 手机矩阵、20 mm 标准图纸面测量、4 小时/30 次/≤1 mm 老化、交付主体资料、法规签核和正式小程序发布；这些项目不能由软件测试或现役设备 OTA 替代。下一步只执行标准图预览/确认/绘制并保存原始 G-code、纸面照片、误差、漏笔和失步记录，直至证据齐全后再评估实体放行。
+
+## 20 mm 标准图实机绘制（2026-10-10）
+
+已在发布后的现役设备上执行固定 20 mm 标准图。工位脚本按设备当前 A4/nopaper 纸张快照生成并发布成对能力地址，回执写入 `results/local-only/2026-10-10-production/test-artifacts/factory-20mm-receipt.json`。第一次 `hutuji.draw` 只进入 `previewing`，随后状态变为 `awaiting_confirmation`；这段时间 Grbl 始终 `Idle`、坐标 `0,0,0`、电机关闭。
+
+确认阶段同时携带 `expected_url` 和 `expected_preview_url`，设备回 `started`。下载的原始 G-code 为 402 B，SHA-256 `821d0e9bab7c36f89e240b5fdcd347b5dc0933f76e76a1725f349bcfee10222d`；状态经历 `streaming` 后进入 `done`，最终 Grbl `Idle`、坐标 `0,0,0`、电机关闭。完整预览和绘制时间线分别在 `factory-20mm-preview.json`、`factory-20mm-draw.json`，远端实际文件保存在 `factory-20mm.gcode.remote`。
+
+这次只证明预览、地址绑定确认、下载、灌流和归位链路完成。尚未取得纸面照片及 X/Y 边长、对角线、交叉中心偏差、漏笔、重影和失步数据，不能据此判定 ≤1 mm 或零缺陷门槛；4 小时/30 次老化仍未开始。后续记录必须携带本次设备 MAC、SN、generation 和原始附件，空值不得写成通过。
