@@ -1,6 +1,6 @@
 # hutuji — AI 绘图自动换纸写字机
 
-2026-10-10 三仓PR10修复候选：串口配网拒绝实时控制保留字符，HTTP保留凭据空格，工厂握手完整消费应答，OTA发送前复核当前版本，产线导出检查放行附件。5项修复与39项新增回归见[修复记录](docs/design/three-repo-production-review-20261010.md)；本批尚未部署或刷机。
+2026-10-10 三仓PR10修复：串口配网拒绝实时控制保留字符，HTTP保留凭据空格，工厂握手完整消费应答，OTA发送前复核当前版本，产线导出检查放行附件。5项修复与39项新增回归、右括号SSID补修1项见[修复及发布记录](docs/design/three-repo-production-review-20261010.md)。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38和量产Grbl b280e525已升级；HTTP参数保真、恢复原SSID及48项参数保持通过。工厂配对/手机矩阵与纸面/老化等实体缺证仍见readiness。
 
 2026-10-10 量产工具本地候选：`scripts/factory/`提供完整镜像打包、逐台身份/参数核验、烧录备份、验收台账与可迁移档案，`production/`保存已批准配方；使用见[工位手册](production/README.md)。双板配对、中文SSID和Portal固件灰度尚未部署；实体首件、手机与交付签核缺项仍见[改进记录](docs/design/production-readiness-20261010.md)及readiness。产线回归须单独跑`python -m pytest -q tests/production`，不由hub门禁代替。
 

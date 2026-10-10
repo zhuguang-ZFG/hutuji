@@ -81,3 +81,23 @@ Python入口使用本仓 `mcp-server/.venv/Scripts/python.exe`；宿主编译器
 ## 右括号 SSID 补修（2026-10-10）
 
 针对上文保留的 `Home]Wifi` 观察，量产 Grbl `ProcessSettings.cpp` 已将 `[ESPxxx]` 前缀分隔从最后一个 `]` 改为第一个 `]`；SSID/密码其余字节保持原样。新增真实 HTTP handler、命令解析器、StringSetting 和配网校验组合回归 `ssid_right_bracket`，连同既有配网边界共 19 项通过。fz standard 的协议、宿主、硬件模拟、构建均通过；Wokwi 受月度 CI quota 限制未能启动，QEMU 在刷新 release 镜像后报告 `firmware_stale_vs_source=false`、协议响应通过，首轮 Arduino 多核 Guru 仍按既有仿真豁免登记。该修复未刷机、未部署，不改变运动、换纸、引脚或 OTA 策略。
+
+## 发布与实机复核（2026-10-10，覆盖上文未部署状态）
+
+用户追加“刷机部署验证，提交推送”，后续多次“继续”沿用该授权。发布提交为 hub `ca545620924f1fd40d8937da800b47e2556eb6d0`、S3 `301eb6570354bb11960ed4f82e2016b621ea2926`、量产 Grbl `b280e52595e724302ef154f8ff177af153a5fbc6`；三仓远端分支均核对一致。收口文档另行提交，不改变上述发布载荷。
+
+S3 量产 Freenove 独立 `build-1038` 构建完成，应用分区剩余25%。正式1.0.38镜像3084848 B，SHA-256 `3b3b91bc9708227c748c7b5f4ec2c697b58b9db82138eadc9b2a276246766a0a`；与旧1.0.37同号修复候选区分，后者继续NOT_FOR_RELEASE。固定MAC `b8:1f:3f:c4:58:2c` 单次OTA返回504，未重发；状态轮询确认1.0.38，后续Grbl升级和SSID回归后仍为idle、connected/ready/authorized/grbl_settings_ok均true、nopaper、Grbl Idle/XYZ原点。公网完整下载和catalog/latest均与该镜像相同。
+
+量产Grbl MAC `4c:c3:82:cc:8a:9c` 在COM7通过ASCII只读查询核身份/48项参数/Idle原点，DTR/RTS保持false。单次Web OTA上传 `b280e525` 镜像1847344 B，SHA-256 `a4d3fb6a4ae2f8378e7ee425c64630e3086ab911bc38747dfc4c3e4d3a87a0f1`，HTTP回status=3并捕获重启。升级后48项参数逐项相同，速度6000/6000/1200、加速度3000/3000/3000、$1=255。
+
+实机HTTP参数回归使用两条临时SSID：`PR10]Wifi `和` 产测网络] `。通过真实HTTP setter写入，串口仅发ASCII `[ESP100]` 查询，逐字节读回均相等；finally恢复原SSID并核对，未改密码或重启网络。当前实现的HTTP设置查询正文只回ok，不能将它当作值读回；此前探针匹配失败发生在写入前，最终改用独立串口回读。4097 B总预算和256 B ESP行两项均回413。回归后48项设置不变、Idle原点、S3连接正常。此证据证明设备setter保真，不证明能连接真实中文路由器或手机配网全链；密码尾空格仍仅宿主回归。`factory_paired=false`，本机启动仍走未配对兼容分支，不能代替PR10-02配对实机验收。
+
+Portal主备两文件由hub提交LF blob部署，备份号主`6b766951316b4e67889215665dee2f29`、备`2a260b216d134ddd8d09b14f1133da2c`，deploy/带包verify通过。独立复核线上文件SHA/LF，并在两机各自生产Python环境使用临时SQLite和设备网络替身运行7项真实start_upgrade：较旧版允许、同版/新版拒绝、空/缺失/非法/布尔版本拒绝，拒绝后无下发且占位释放。它是线上代码业务冒烟，不向设备实际降级。主MCP/Portal/bridge active，备MCP/Portal active且bridge inactive，公网Portal健康200。
+
+本批旧通用smoke脚本仍引用`df8ba2f`文件快照，两次断言失败原日志保留，不能作为通过证据；最终使用本次提交和真实systemd单元名/各机Python路径的`*-release-smoke.json`。preflight仍为主25/34、备26/34，既有nginx布局、drop-in与热备角色差异不写作全绿。
+
+软件验证：产线62/Portal560沿用与冻结源码逐文件SHA一致的完整回归；当前S3344宿主重新通过，量产Grbl62宿主及fz standard重新通过，fz报告绑定b280e525、dirty=false。full13层/MCP1643/e2e沿用18:06已通过且hub产品源码一致的报告；此前Redis环境失败和fz锁权限失败保留，未跳过测试。文档收口另跑docs门禁。Wokwi月度quota未验，QEMU豁免口径保持既有规则。
+
+回退材料：S3旧1.0.37完整镜像重新下载核SHA `34bf5478…18d51`，对应catalog/latest独立备份在`/root/hutuji-bak-20261010-pr10-1.0.38/`。旧脚本复用的`/root/hutuji-bak-20261010-ota-1.0.37/`保留原内容，不作为本批回退指针。Grbl保留上次明确落板的2cd03f2镜像，SHA `20cdd471…036dab`。汇总、原始回执、镜像、测试日志索引与摘要在`results/local-only/2026-10-10-production/release-1038/release-verification.json`；暂存脚本同名release-1038目录位于`tmp/production-20261010/`，不入库。
+
+本批未发运动，没有新增纸面/老化结论。工厂配对双板、密码尾空格实机、真实中文路由器/手机矩阵、首件尺寸和4小时/30次老化、交付主体及法规签核继续缺证，实体放行仍Hold。

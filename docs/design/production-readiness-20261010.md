@@ -81,3 +81,7 @@ OTA 后对量产 Grbl 做独立只读复核：48 项设置均有回读，速度�
 确认阶段同时携带 `expected_url` 和 `expected_preview_url`，设备回 `started`。下载的原始 G-code 为 402 B，SHA-256 `821d0e9bab7c36f89e240b5fdcd347b5dc0933f76e76a1725f349bcfee10222d`；状态经历 `streaming` 后进入 `done`，最终 Grbl `Idle`、坐标 `0,0,0`、电机关闭。完整预览和绘制时间线分别在 `factory-20mm-preview.json`、`factory-20mm-draw.json`，远端实际文件保存在 `factory-20mm.gcode.remote`。
 
 这次只证明预览、地址绑定确认、下载、灌流和归位链路完成。尚未取得纸面照片及 X/Y 边长、对角线、交叉中心偏差、漏笔、重影和失步数据，不能据此判定 ≤1 mm 或零缺陷门槛；4 小时/30 次老化仍未开始。后续记录必须携带本次设备 MAC、SN、generation 和原始附件，空值不得写成通过。
+
+## PR10发布续作（2026-10-10，supersede前述固件基线）
+
+用户授权“刷机部署验证，提交推送”后，hub `ca54562` 已双机部署Portal，S3 `301eb65`/1.0.38与量产Grbl `b280e525` 均升级并核验。HTTP右括号/中文/首尾空格设置经串口逐字读回且原SSID恢复，48项参数不变；主备各7项OTA版本判断、正式镜像下载与推荐、提交后fz standard/S3宿主通过。正式镜像SHA、回退和完整证据见[PR10发布记录](three-repo-production-review-20261010.md)。本批没有重复20 mm运动或新增纸面结果；工厂配对、真实路由器/手机矩阵、首件测量、老化和交付签核继续缺证。后续不要把本节的软件发布收口当作实体放行，也不要重新执行已完成的1.0.37发布。

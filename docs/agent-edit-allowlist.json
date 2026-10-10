@@ -1,4 +1,9 @@
 {
+  "pr10_release_20261010_authorized": {
+    "note": "用户追加刷机部署验证、提交推送并多次继续。授权PR10五项及右括号SSID补修的三仓发布、S3升1.0.38、固定现役双板升级和参数/HTTP回归；保留NVS、密码与运动参数，临时SSID立即恢复。不将未配对旧机冒充配对实机，不代签实体放行。",
+    "contract": "docs/design/three-repo-production-review-20261010.md 发布与实机复核；protocol §1.5/§3/§10.4.22",
+    "paths": ["docs/**", "AGENTS.md", "CLAUDE.md", "README.md", "firmware/README.md", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/ProcessSettings.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_credentials.py", "tmp/production-20261010/release-1038/**", "results/local-only/2026-10-10-production/release-1038/**"]
+  },
   "pr10_fixes_20261010_authorized": {
     "note": "用户点名要求修复上一轮5项问题并要求继续。范围为PR10-01至05的串口输入拒绝、配对查询终止应答、OTA二次版本复核、HTTP参数保真和放行附件完整性；含测试、构建和门禁。WebServer.cpp仅修ESP参数前后空白处理，不改实时控制字节分类、运动、换纸、引脚或OTA验证策略。",
     "contract": "docs/design/three-repo-production-review-20261010.md；protocol §1.5/§3/§10.4.22",
