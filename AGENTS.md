@@ -214,3 +214,5 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 - **凭据禁入库**：`D:/Downloads/VPS.txt`（VPS 明文密码 + API key）、真实小智 MCP 接入点、`小智控制台token.txt`，一律不复制、不引用、不提交。
 - **默认下一刀**（用户未指定时）：① 完成 Waveshare 当前镜像的预览确认/取消与暂停/继续/停止/重画/试笔屏幕 HIL；② 断连恢复 `paper_active` 窗口的 `abort` 复测；③ 生产与合规签核（含出货级纸面签核）。真实语音出图、页尾归位、自动换纸、换纸中 `abort`、P2 S4 链路与 **AI 虚实交替（2026-08-28 用户确认可画）**、**异步生成+完成推送（2026-08-28 生产启用并经用户屏幕目视确认）** 已有证据，禁止作为默认待办重做。
 - **改完必同步**：契约 → `docs/protocol.md`；进度 → `docs/release-readiness.md`；脏树 → `docs/worktree-inventory.md`；结构与约定 → 本文件 + `README.md` + `CLAUDE.md`；门禁口径 → `docs/agent-gate.md` + `.cursor/rules/hutuji-agent-rails.mdc`。
+
+2026-10-10 DR10修复候选（软件）：Telnet使用会话代次隔离旧字节；开放网络用`[ESP101=]`写空STA密码；预览阶段拒绝pause/resume；nopaper电机/压纸遥测为unknown；设备OTA严格版本递增并验证下载SHA及镜像版本；token回写比较绑定代次和旧密文；历史flash备份登记缺失拒绝归档。未部署/未刷机，验证与边界见枢纽`docs/design/three-repo-deep-review-20261010.md`修复节和readiness。

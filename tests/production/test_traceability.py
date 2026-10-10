@@ -114,7 +114,7 @@ def test_released_report_integrity_in_status_and_batch(tmp_path, monkeypatch, da
     evidence = tmp_path / 'check.json'
     evidence.write_text('{}')
     for name in CHECKS:
-        store.event('SN001', name, 'pass', 'qa', evidence, measurement())
+        store.event('SN001', name, 'pass', 'qa', evidence, measurement(), attachments={'flash_backup':evidence} if name.startswith('flash_') else None)
     store.release('SN001', 'qa', recipe(), delivery(tmp_path))
     assert store.status('SN001')['missing'] == []
     # 归档搬迁后也检查本地相对路径，不依赖原始报告。

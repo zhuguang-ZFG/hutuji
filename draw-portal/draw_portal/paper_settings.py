@@ -46,7 +46,9 @@ def check_owner(store, binding, *, require_active: bool = False):
 
 
 def update_token(store, binding, encrypted: str) -> None:
-    if not store.update_binding_token_if_current(binding, encrypted):
+    if not store.update_binding_token_if_current(
+        binding, encrypted, expected_token_enc=binding.device_token_enc
+    ):
         raise PaperSettingsError("设备绑定已变化，请刷新后重试")
 
 
@@ -68,7 +70,10 @@ def _invoke(store, config, binding, name, arguments, *, require_active=False, ca
         fresh = mint_messaging_token(api_base=config.xiaozhi_api_base, mac=binding.device_mac)
         if fresh:
             check_owner(store, binding, require_active=require_active)
-            if not store.update_binding_token_if_current(binding, encrypt_token(config.token_cipher_key, fresh)):
+            if not store.update_binding_token_if_current(
+                binding, encrypt_token(config.token_cipher_key, fresh),
+                expected_token_enc=current.device_token_enc,
+            ):
                 raise PaperSettingsError("设备绑定已变化，请刷新后重试")
             ok, raw = transport(api_base=config.xiaozhi_api_base, device_token=fresh,
                                 name=name, arguments=arguments, timeout=10)

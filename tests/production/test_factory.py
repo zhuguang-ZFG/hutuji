@@ -47,7 +47,7 @@ def test_missing_evidence_blocks_release(tmp_path):
 
 def test_fail_supersedes_pass_and_rework_requires_all(tmp_path):
     store=unit(tmp_path);evidence=tmp_path/'evidence.json';evidence.write_text('{}')
-    for name in CHECKS:store.event('SN001',name,'pass','operator',evidence,measurement())
+    for name in CHECKS:store.event('SN001',name,'pass','operator',evidence,measurement(), attachments={'flash_backup':evidence} if name.startswith('flash_') else None)
     store.event('SN001','paper','fail','operator',evidence,{})
     assert store.status('SN001')['missing']==['paper']
     store.event('SN001','paper','pass','operator',evidence,measurement())

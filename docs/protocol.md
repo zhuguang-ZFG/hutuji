@@ -272,7 +272,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:680-683` 与 `hutuji_recovery_core.h:1183-1265`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:680-683` 与 `hutuji_recovery_core.h:1187-1269`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -1148,3 +1148,12 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 Portal稳定板型条目可带`rollout`：id、percent(0–100整数)、devices(MAC名单)、candidate(版本/路径/SHA/字节数)。同一id+MAC稳定分桶，未入组仍选稳定版，错误策略拒绝；check与start均按原绑定MAC选取，发布目录在期间改变版本则拒绝本次升级。设备直读latest仍为稳定版，灰度候选不写latest，升级仍走原busy/所有权/不确定结果闸，不自动触发。
 
 **PR10修复补充**：Portal发送OTA前用第二次设备状态的`firmware_version`复核目标严格更新；缺失/无法解析回`check_failed`，同版或更高版回`up_to_date`，均不登记目标、不发送OTA并释放本轮占位。产线`released`保留历史签核事实，`status/export/batch`同时检查当前代次release的三份报告附件（存在、大小、SHA及附件登记齐全），异常列入`release:attachments`；返修后只对新代次计算缺项，旧报告仍由历史归档检查。
+
+## DR10 软件修复补充契约（2026-10-10，覆盖对应旧实现口径）
+
+- §1.2/§3：量产Telnet更换客户端或结束连接时同时清接收环形缓冲、发布Serial队列会话代次。网络线程不得直接写协议半行；协议线程收到队列屏障后清自己的半行/超长行丢弃状态再接收新会话。读出的旧代次字节不能排入新队列；其他client半行保留。已完整提交给运动规划器的命令不在此网络清理范围内。
+- §1.5：S3每轮配网重新读取当前SSID凭据，当前SSID缺失时不跳配、不发上一轮凭据。开放网络使用`[ESP101=]`明确写空STA密码；旧`[ESP101]`保持查询；仅`Sta/Password`允许空字符串，AP及本地认证密码维持原最短长度。旧Grbl拒绝新语法时中止本轮，不继续切STA或重启，须先更新Grbl。非空密码、SSID首尾空格和右括号原样保留。
+- §4：pause/resume仅接受streaming/paused绘制阶段；previewing、awaiting_confirmation和downloading等阶段不得向Grbl发送`!`/`~`或更改确认闸。nopaper缺少电机及压纸机构实时回读，`motor_en`和`panel_hold`均返回unknown，不能从Run/Idle或上次ESP901推断失能。完成/停止后的$MD及应答是独立的释放证据，不修改运动和失能策略。
+- §10.4.22：设备`hutuji.ota_start`必填64位十六进制sha256；当前/目标版本必须严格为`hutuji.N.N.N`，目标严格较新，同版/旧版拒绝，非法版本/摘要拒绝。入队及实际执行点均复核版本，OTA继续持有原运动占位，失败释放、成功到重启才释放。下载层按收到的全部字节增量SHA-256，检查完整Content-Length、分区容量及镜像内版本；摘要/版本/长度不符不结束OTA或切启动分区，所有句柄、缓冲及hash上下文异常路径均回收。它是摘要绑定，不新增固件签名机制；非hutuji上游OTA入口保留默认可选校验参数。
+- 产线追溯：成功flash_s3/flash_grbl必须登记flash_backup；pending/fail记录一旦已完成备份或尝试写入，同样不得丢失备份登记。status只核当前代次，archive核所有历史代次；release的三份签核报告也必须保留登记。历史released事实保留，缺证不允许新放行。
+- 绑定回写：token更新必须在同一SQLite事务中比较user、MAC、bound_at和实际使用的旧密文，只有一个并发写者可成功；落败请求不得覆盖赢家或继续重试设备动作。调用链自愈成功后携带新的密文快照；当前绑定读取与旧请求身份复核不可混用。此约束不依赖云端是否使旧token失效。

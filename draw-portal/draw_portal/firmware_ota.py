@@ -87,12 +87,16 @@ def _push_healed(
     def target_current() -> bool:
         owner = store.get_binding_for_mac(binding.device_mac)
         active = store.get_binding_for_user(binding.user_id)
-        return bool(owner and owner.user_id == binding.user_id and (
+        return bool(owner and owner.user_id == binding.user_id and owner.bound_at == binding.bound_at and (
             name != "hutuji.ota_start" or (active and active.device_mac == binding.device_mac)
         ))
 
     if not target_current():
         return False, "设备绑定已变化，请刷新后重试"
+    current = store.get_binding_for_mac(binding.device_mac)
+    if current is None or current.user_id != binding.user_id or current.bound_at != binding.bound_at:
+        return False, "设备绑定已变化，请刷新后重试"
+    binding = current
     token = decrypt_token(token_cipher_key, binding.device_token_enc)
     ok, result = push_tool_call(
         api_base=api_base,
@@ -107,7 +111,8 @@ def _push_healed(
             if not target_current():
                 return False, "设备绑定已变化，请刷新后重试"
             enc = encrypt_token(token_cipher_key, fresh)
-            store.update_binding_token(binding.user_id, device_token_enc=enc, device_mac=binding.device_mac)
+            if not store.update_binding_token_if_current(binding, enc, expected_token_enc=binding.device_token_enc):
+                return False, "设备凭据已更新，请刷新后重试"
             if on_token_minted:
                 on_token_minted(enc)
             ok, result = push_tool_call(

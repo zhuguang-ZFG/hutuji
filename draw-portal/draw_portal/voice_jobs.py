@@ -85,7 +85,7 @@ def run_voice_draw(
     device_token_enc: str,
     on_token_minted: Callable[[str], None] | None = None,
     snapshot: PaperSnapshot | None = None,
-    before_push: Callable[[], object] | None = None,
+    before_push: Callable[[], str | None] | None = None,
     before_action: Callable[[], object] | None = None,
 ) -> tuple[str, VoicePreview]:
     desc = description.strip()
@@ -136,7 +136,9 @@ def run_voice_draw(
         gcode_url=published.gcode_url,
     )
     if before_push is not None:
-        before_push()
+        current_token_enc = before_push()
+        if current_token_enc is not None:
+            device_token_enc = current_token_enc
     _push_preview(
         preview=preview,
         api_base=api_base,
@@ -170,7 +172,7 @@ def run_voice_write(
     device_token_enc: str,
     on_token_minted: Callable[[str], None] | None = None,
     snapshot: PaperSnapshot | None = None,
-    before_push: Callable[[], object] | None = None,
+    before_push: Callable[[], str | None] | None = None,
     before_action: Callable[[], object] | None = None,
 ) -> tuple[str, VoicePreview]:
     from hutuji_mcp import t2s
@@ -224,7 +226,9 @@ def run_voice_write(
         pages_arg=pages_arg,
     )
     if before_push is not None:
-        before_push()
+        current_token_enc = before_push()
+        if current_token_enc is not None:
+            device_token_enc = current_token_enc
     _push_preview(
         preview=preview,
         api_base=api_base,

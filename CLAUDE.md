@@ -201,3 +201,5 @@ python -m venv .venv
 - 2026-09-10 评审修复约定：中心线预览栅格单边 ≤2048 且先裁线；波纹回折限紧邻行和暗区；日限在新任务登记时扣额。小程序会话代次隔离旧回包，默认字体不传 `font`，显式字体的中文取所选 gfont。契约见 `docs/protocol.md` §5/§10.4.0/§10.4.9/§10.4.10，Node 回归命令见 `draw-portal/README.md`；本地验证不代替生产/真机证据。
 - 修改项目结构、约定或工作流后，同步更新本文件、`README.md`、`AGENTS.md`、`docs/agent-gate.md`，以及 `.cursor/rules/hutuji-agent-rails.mdc`（`alwaysApply` 硬轨，与本文件的「禁止重开 / 禁乱改 / 门禁 / 默认下一刀」同源，改口径时勿漏）。
 - 项目记忆/决策日志：`C:/Users/zhugu/.kimi-code/memory/projects/hutuji.md`。
+
+2026-10-10 DR10修复候选（软件）：Telnet使用会话代次隔离旧字节；开放网络用`[ESP101=]`写空STA密码；预览阶段拒绝pause/resume；nopaper电机/压纸遥测为unknown；设备OTA严格版本递增并验证下载SHA及镜像版本；token回写比较绑定代次和旧密文；历史flash备份登记缺失拒绝归档。未部署/未刷机，验证与边界见枢纽`docs/design/three-repo-deep-review-20261010.md`修复节和readiness。

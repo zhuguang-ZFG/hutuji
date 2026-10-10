@@ -1429,17 +1429,21 @@ class Store:
             conn.commit()
         return cur.rowcount == 1
 
-    def update_binding_token_if_current(self, binding: DeviceBinding, token_enc: str) -> bool:
+    def update_binding_token_if_current(
+        self, binding: DeviceBinding, token_enc: str, *, expected_token_enc: str | None = None
+    ) -> bool:
+        if expected_token_enc is None:
+            expected_token_enc = binding.device_token_enc
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             cur = conn.execute(
-                "UPDATE user_device_bindings SET device_token_enc=? WHERE device_mac=? AND user_id=? AND bound_at=?",
-                (token_enc, binding.device_mac, binding.user_id, binding.bound_at),
+                "UPDATE user_device_bindings SET device_token_enc=? WHERE device_mac=? AND user_id=? AND bound_at=? AND device_token_enc=?",
+                (token_enc, binding.device_mac, binding.user_id, binding.bound_at, expected_token_enc),
             )
             if cur.rowcount:
                 conn.execute(
-                    "UPDATE device_bindings SET device_token_enc=? WHERE device_mac=? AND user_id=? AND bound_at=?",
-                    (token_enc, binding.device_mac, binding.user_id, binding.bound_at),
+                    "UPDATE device_bindings SET device_token_enc=? WHERE device_mac=? AND user_id=? AND bound_at=? AND device_token_enc=?",
+                    (token_enc, binding.device_mac, binding.user_id, binding.bound_at, expected_token_enc),
                 )
             conn.commit()
         return cur.rowcount == 1

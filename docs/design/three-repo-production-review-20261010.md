@@ -101,3 +101,23 @@ Portal主备两文件由hub提交LF blob部署，备份号主`6b766951316b4e6788
 回退材料：S3旧1.0.37完整镜像重新下载核SHA `34bf5478…18d51`，对应catalog/latest独立备份在`/root/hutuji-bak-20261010-pr10-1.0.38/`。旧脚本复用的`/root/hutuji-bak-20261010-ota-1.0.37/`保留原内容，不作为本批回退指针。Grbl保留上次明确落板的2cd03f2镜像，SHA `20cdd471…036dab`。汇总、原始回执、镜像、测试日志索引与摘要在`results/local-only/2026-10-10-production/release-1038/release-verification.json`；暂存脚本同名release-1038目录位于`tmp/production-20261010/`，不入库。
 
 本批未发运动，没有新增纸面/老化结论。工厂配对双板、密码尾空格实机、真实中文路由器/手机矩阵、首件尺寸和4小时/30次老化、交付主体及法规签核继续缺证，实体放行仍Hold。
+
+## 量产控制接口续验（2026-10-10 21:21）
+
+用户补充“继续已接量产板”，随后指出“你设置，jwt部署在阿里云啊”。先前只检查本机过期控制台JWT便要求用户刷新，是探测来源错误；应先使用阿里云现役凭据。此次执行阿里云既有自动登录/refresh链路，第1轮登录成功、主备同步及相关服务重启返回成功，随后独立使用`/etc/hutuji/mcp.env`控制台JWT访问agents得200。设备控制直接使用`/var/lib/hutuji/device_messaging.token`（600），主MCP/Portal/bridge均active；不需要在本机设置或持久保存JWT。
+
+实机仅为现役量产Freenove COM15/MAC `b8:1f:3f:c4:58:2c`，S3状态确认为1.0.38、nopaper、连接/就绪/授权/指纹检查为true，Grbl为COM7/MAC `4c:c3:82:cc:8a:9c`。没有将旧Waveshare/paper_active默认待办用于量产板。使用与先前首件相同的402B G-code（SHA `821d0e9bab7c36f89e240b5fdcd347b5dc0933f76e76a1725f349bcfee10222d`，XY测试轨迹10–30mm），在阿里云按实时纸张快照重新发布；下载正文SHA与`X-Hutuji-Paper`核对后才推送。未更改机械参数、NVS、身份或固件。
+
+| 实机用例 | 实际证据 |
+|---|---|
+| 待确认、作品隔离与取消 | 新产物进入awaiting_confirmation；expected_url不匹配返回“预览已变化，请重新核对作品”，原预览仍待确认；取消后aborted/Idle/原点。 |
+| 确认、暂停与继续 | 正确成对expected_url/expected_preview_url确认回started，streaming/Run后pause回ok；2秒后仍paused且Grbl Hold，resume后完成并归位done。 |
+| 重画 | repeat_available=true时repeat回started，缓存重画经过Run，最终done/Idle/原点。 |
+| 试笔 | pen_test回started，观察到Z约4.95mm后回Z0、done/Idle；未以该用例宣称自动释放。 |
+| 运动中重复停止 | 新预览确认后观察到Run且XY约9.75mm，第一次abort回ok，第二次回“停止处理中”；排空已提交运动后归位，最后才发布aborted。不是瞬时切断运动测试。 |
+
+正常完成、重画和运动中停止的串口均记录`$MD（归位后释放）`、终止ok及“量产机归位后电机释放已确认”，最后Grbl Idle/XYZ原点。status.motor_en在Run期间仍显示off，属于旧遥测，不能作为实时电机状态证据。结束时通过产线Grbl只读snapshot核身份、48项参数与发布前快照逐项相同：6000/6000/1200、3000/3000/3000、$1=255。
+
+前序失败不计通过：旧13:35测试件未重新发布便推送，previewing后error、confirm被拒，未完成暂停验证；初次停止只观察streaming/Idle；之后两次停止脚本因repeat_available=false在下发前退出（不是两次固件停止失败），改为新预览→确认→实际Run才完成最终用例。20:48旧bringup采集器打开COM7触发了Grbl复位，S3随后重新握手、发M5及G53零位移授权探测，不能描述为全程没有控制命令；默认设备号S3-LC-01也不能作量产身份真值。后续五组串口采集均在开口前设置DTR/RTS=false，未使用旧采集器。早期shell/curl探针引号解析失败，改为Python经SSH标准输入传入后才获得有效回执。
+
+完整接口事件、串口、设置、凭据探活和SHA索引在`results/local-only/2026-10-10-production/control-hil-1038/verification.json`；暂存脚本位于`tmp/production-20261010/control-hil-1038/`。本轮只证明上述控制接口路径，不能替代实际触屏点击、纸面测量、4小时/30次老化或工厂配对实机；factory_paired仍false，实体放行Hold。同期深审记录中的待确认暂停/继续缺陷未在本轮修复，streaming阶段暂停通过不覆盖它。

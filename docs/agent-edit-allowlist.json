@@ -1,88 +1,318 @@
 {
+  "dr10_release_20261011_authorized": {
+    "note": "用户要求处理未提交、部署、刷机与验收事项并明确提交部署验证；随后确认量产机已装纸笔、运动范围无障碍。允许DR10三仓及fz夹具提交推送、S3升1.0.39、双机Portal部署、固定身份量产双板升级及控制/参数/纸面/老化取证。保留NVS、身份和全部机设，不代填实体测量或法规签核。",
+    "contract": "docs/design/three-repo-deep-review-20261010.md；protocol §1.5/§3/§4/§10.4.22",
+    "paths": ["docs/**", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "tmp/dr10-release-20261011/**", "results/local-only/2026-10-11-dr10-release/**"]
+  },
   "pr10_release_20261010_authorized": {
     "note": "用户追加刷机部署验证、提交推送并多次继续。授权PR10五项及右括号SSID补修的三仓发布、S3升1.0.38、固定现役双板升级和参数/HTTP回归；保留NVS、密码与运动参数，临时SSID立即恢复。不将未配对旧机冒充配对实机，不代签实体放行。",
     "contract": "docs/design/three-repo-production-review-20261010.md 发布与实机复核；protocol §1.5/§3/§10.4.22",
-    "paths": ["docs/**", "AGENTS.md", "CLAUDE.md", "README.md", "firmware/README.md", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/ProcessSettings.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_credentials.py", "tmp/production-20261010/release-1038/**", "results/local-only/2026-10-10-production/release-1038/**"]
+    "paths": [
+      "docs/**",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "firmware/README.md",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/ProcessSettings.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_credentials.py",
+      "tmp/production-20261010/release-1038/**",
+      "results/local-only/2026-10-10-production/release-1038/**"
+    ]
   },
   "deep_review_20261010_readonly": {
     "note": "用户要求继续深度三仓code review。本轮只读产品源码，允许新增审查记录、证据索引和本机探针，不修改固件、门户、产线业务或部署。",
     "contract": "docs/design/three-repo-deep-review-20261010.md；docs/protocol.md v0.5",
-    "paths": ["docs/**", "tmp/trirepo-deep-review-20261010/**", "results/local-only/2026-10-10-trirepo-deep-review/**"]
+    "paths": [
+      "docs/**",
+      "tmp/trirepo-deep-review-20261010/**",
+      "results/local-only/2026-10-10-trirepo-deep-review/**"
+    ]
   },
   "pr10_fixes_20261010_authorized": {
     "note": "用户点名要求修复上一轮5项问题并要求继续。范围为PR10-01至05的串口输入拒绝、配对查询终止应答、OTA二次版本复核、HTTP参数保真和放行附件完整性；含测试、构建和门禁。WebServer.cpp仅修ESP参数前后空白处理，不改实时控制字节分类、运动、换纸、引脚或OTA验证策略。",
     "contract": "docs/design/three-repo-production-review-20261010.md；protocol §1.5/§3/§10.4.22",
-    "paths": ["scripts/grbl_wifi_setup.py", "scripts/factory/store.py", "tests/production/**", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/tests/test_firmware_ota.py", "draw-portal/tests/test_firmware_rollout.py", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/scripts/tests/test_factory_handshake.py", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_credentials.py", "docs/**", "firmware/README.md", "production/README.md", "AGENTS.md", "CLAUDE.md", "README.md", "tmp/pr10-fixes/**", "results/local-only/2026-10-10-pr10-fixes/**"]
+    "paths": [
+      "scripts/grbl_wifi_setup.py",
+      "scripts/factory/store.py",
+      "tests/production/**",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/tests/test_firmware_ota.py",
+      "draw-portal/tests/test_firmware_rollout.py",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_factory_handshake.py",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_credentials.py",
+      "docs/**",
+      "firmware/README.md",
+      "production/README.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "tmp/pr10-fixes/**",
+      "results/local-only/2026-10-10-pr10-fixes/**"
+    ]
   },
   "production_release_20261010_authorized": {
     "note": "用户对未提交、未部署及实体首件/老化/交付签核要求解决；确认只有现役量产机、可配合现场测试。授权本批三仓提交推送、S3升1.0.37重新构建、双机Portal部署与固定身份现役双板升级/测试。保留NVS/用户身份和机设，空白板首烧不得冒充；真实交付主体资料与报告答复暂无，不得代签或伪造。",
     "contract": "docs/design/production-readiness-20261010.md 发布续作；protocol §1.5/§3/§10.4.22",
-    "paths": ["D:/Users/xiaozhi-esp32/CMakeLists.txt", "docs/**", "tmp/production-20261010/**", "results/local-only/2026-10-10-production/**"]
+    "paths": [
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "docs/**",
+      "tmp/production-20261010/**",
+      "results/local-only/2026-10-10-production/**"
+    ]
   },
   "production_readiness_20261010_authorized": {
     "note": "用户对量产八项问题要求全部修复。允许产线配方/烧录验收/台账/灰度推荐、双板身份配对、UTF-8配网兼容及文档交付工具；无权代签法规或伪造硬件验收。参数与4小时/30次/≤1mm试行门槛已获用户批准；本步不刷现役板、不烧eFuse、不移植换纸。",
     "contract": "docs/design/production-readiness-20261010.md；protocol §1.5/§3/§10.4.22",
-    "paths": ["scripts/factory/**", "production/**", "tests/production/**", "draw-portal/draw_portal/firmware_catalog.py", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/tests/test_firmware_rollout.py", "draw-portal/tests/test_firmware_ota.py", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/factory_identity.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/utf8_ssid.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision_core.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/scripts/tests/test_factory_identity.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_plotter_provision_core.py", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Utf8Ssid.h", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_utf8_ssid.py", "docs/**", "README.md", "AGENTS.md", "CLAUDE.md", "tmp/production-20261010/**", "results/local-only/2026-10-10-production/**"]
+    "paths": [
+      "scripts/factory/**",
+      "production/**",
+      "tests/production/**",
+      "draw-portal/draw_portal/firmware_catalog.py",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/tests/test_firmware_rollout.py",
+      "draw-portal/tests/test_firmware_ota.py",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/factory_identity.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/utf8_ssid.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision_core.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_factory_identity.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_plotter_provision_core.py",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Utf8Ssid.h",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_utf8_ssid.py",
+      "docs/**",
+      "README.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "tmp/production-20261010/**",
+      "results/local-only/2026-10-10-production/**"
+    ]
   },
   "trirepo_next_release_20261009_authorized": {
     "note": "用户在NR09-01/02/03修复通过后明确「提交部署」。授权本批三仓提交推送、S3升1.0.36与量产Grbl升级、共享判错/Portal双机部署，以及固定设备身份下的发布验证和回退材料留存。先设备确认能力后Portal，不改机械参数。",
     "contract": "docs/design/three-repo-next-review-20261009.md 发布续作；protocol §3/§7/§10.4.5",
-    "paths": ["D:/Users/xiaozhi-esp32/CMakeLists.txt", "docs/**", "tmp/trirepo-next-release-20261009/**", "results/local-only/2026-10-09-trirepo-next-release/**"]
+    "paths": [
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "docs/**",
+      "tmp/trirepo-next-release-20261009/**",
+      "results/local-only/2026-10-09-trirepo-next-release/**"
+    ]
   },
   "trirepo_next_fixes_20261009_authorized": {
     "note": "用户针对NR09-01/02/03明确「开始修复改进」。授权笔控事务身份校验、Grbl超长物理行丢弃和绘图明确受理/按作品确认，含正式回归、构建与门禁；不改运动参数、换纸、引脚，不在本步骤部署或刷机。Protocol.cpp仅修超长行拒绝，三板confirm注册仅透传可选作品身份。",
     "contract": "docs/design/three-repo-next-review-20261009.md；protocol §3/§7/§10.4.5",
-    "paths": ["D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc", "D:/Users/xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/freenove-esp32s3-display-2.8-lcd.cc", "D:/Users/xiaozhi-esp32/main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_pen_session.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_paper.py", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Protocol.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_protocol_overflow.py", "draw-portal/draw_portal/push.py", "draw-portal/tests/test_auto_confirm.py", "draw-portal/tests/test_draw_acceptance.py", "draw-portal/tests/test_control_rejection_detail.py", "mcp-server/hutuji_mcp/tool_result.py", "mcp-server/tests/test_tool_result.py", "docs/**", "AGENTS.md", "CLAUDE.md", "README.md", "firmware/README.md", "tmp/trirepo-next-fixes-20261009/**", "results/local-only/2026-10-09-trirepo-next-fixes/**"]
+    "paths": [
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/lichuang_dev_board.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/freenove-esp32s3-display-2.8-lcd/freenove-esp32s3-display-2.8-lcd.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/waveshare/esp32-s3-touch-lcd-3.5/esp32-s3-touch-lcd-3.5.cc",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_pen_session.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_paper.py",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Protocol.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_protocol_overflow.py",
+      "draw-portal/draw_portal/push.py",
+      "draw-portal/tests/test_auto_confirm.py",
+      "draw-portal/tests/test_draw_acceptance.py",
+      "draw-portal/tests/test_control_rejection_detail.py",
+      "mcp-server/hutuji_mcp/tool_result.py",
+      "mcp-server/tests/test_tool_result.py",
+      "docs/**",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "firmware/README.md",
+      "tmp/trirepo-next-fixes-20261009/**",
+      "results/local-only/2026-10-09-trirepo-next-fixes/**"
+    ]
   },
   "trirepo_next_review_20261009_authorized": {
     "note": "用户：继续改进 codereview。延续三仓审查，限只读产品代码、宿主/路由故障复现与问题记录；不视为新的实机动作或协议解析修改授权。",
     "contract": "protocol §3/§7/§10.4.5；docs/design/three-repo-next-review-20261009.md",
-    "paths": ["docs/design/three-repo-next-review-20261009.md", "docs/release-readiness.md", "docs/worktree-inventory.md", "docs/agent-edit-allowlist.json", "docs/agent-line-refs-baseline.json", "docs/kxnx/findings/28-five-slice-crossrepo-review.md", "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md", "tmp/trirepo-next-review-20261009/**", "results/local-only/2026-10-09-trirepo-next-review/**"]
+    "paths": [
+      "docs/design/three-repo-next-review-20261009.md",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/agent-edit-allowlist.json",
+      "docs/agent-line-refs-baseline.json",
+      "docs/kxnx/findings/28-five-slice-crossrepo-review.md",
+      "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md",
+      "tmp/trirepo-next-review-20261009/**",
+      "results/local-only/2026-10-09-trirepo-next-review/**"
+    ]
   },
   "trirepo_deep_release_20261009_authorized": {
     "note": "用户点名处理深审修复的未提交、部署、刷机、Wokwi及实机验证。授权本批三仓提交推送、Portal单文件双机部署、量产S3升1.0.35和量产Grbl候选升级、带回退的实机验证及原状态恢复。",
     "contract": "docs/design/three-repo-deep-review-20261009.md 发布续作；仅量产nopaper机型，保持既定机械/运动参数",
-    "paths": ["D:/Users/xiaozhi-esp32/CMakeLists.txt", "docs/**", "tmp/trirepo-deep-release-20261009/**", "results/local-only/2026-10-09-trirepo-deep-release/**"]
+    "paths": [
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "docs/**",
+      "tmp/trirepo-deep-release-20261009/**",
+      "results/local-only/2026-10-09-trirepo-deep-release/**"
+    ]
   },
   "trirepo_deep_fixes_20261009_authorized": {
     "note": "用户针对深审5项明确「开始完全修复」。修复DR09-01/05的事务会话发送与等待，DR09-02/03的Web输入边界，DR09-04的OTA明确受理判定；执行宿主回归、固件构建和三仓门禁，不改机械/运动参数，不在本步骤部署或刷机。",
     "contract": "docs/design/three-repo-deep-review-20261009.md DR09-01至05；protocol §3/§9/§10.4.21",
-    "paths": ["D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_transaction_session.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_fresh_session.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_speed_core.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_nopaper_core.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_command_bounds.py", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/tests/test_firmware_ota.py", "docs/**", "tmp/trirepo-deep-fixes-20261009/**", "results/local-only/2026-10-09-trirepo-deep-fixes/**"]
+    "paths": [
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_transaction_session.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_fresh_session.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_speed_core.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_nopaper_core.py",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_hutuji_recovery_core.py",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_command_bounds.py",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/tests/test_firmware_ota.py",
+      "docs/**",
+      "tmp/trirepo-deep-fixes-20261009/**",
+      "results/local-only/2026-10-09-trirepo-deep-fixes/**"
+    ]
   },
   "trirepo_deep_review_20261009_authorized": {
     "note": "用户：继续深度code review 三仓。仅审查与宿主/路由复现，不改产品代码，不调用设备或生产写接口。",
     "contract": "protocol §3/§9/§10.4.21；docs/design/three-repo-deep-review-20261009.md",
-    "paths": ["docs/design/three-repo-deep-review-20261009.md", "docs/agent-edit-allowlist.json", "docs/worktree-inventory.md", "docs/release-readiness.md", "docs/agent-line-refs-baseline.json", "docs/kxnx/findings/28-five-slice-crossrepo-review.md", "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md", "tmp/trirepo-deep-review-20261009/**", "results/local-only/2026-10-09-trirepo-deep-review/**"]
+    "paths": [
+      "docs/design/three-repo-deep-review-20261009.md",
+      "docs/agent-edit-allowlist.json",
+      "docs/worktree-inventory.md",
+      "docs/release-readiness.md",
+      "docs/agent-line-refs-baseline.json",
+      "docs/kxnx/findings/28-five-slice-crossrepo-review.md",
+      "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md",
+      "tmp/trirepo-deep-review-20261009/**",
+      "results/local-only/2026-10-09-trirepo-deep-review/**"
+    ]
   },
   "weapp_ui_logic_20261009_authorized": {
     "note": "用户：继续改进优化，寻找bug，逻辑问题，优化小程序ui。随后明确「提交部署上传验证」，授权本批提交推送、0.3.26开发版上传和手机预览/分享验证。限本批小程序及文档，服务未变仅核对生产状态，不操作设备运动。",
     "contract": "protocol §10.4.9/§10.4.14/§10.4.21/§10.4.23；docs/design/weapp-ui-logic-20261009.md",
-    "paths": ["draw-portal/weapp/utils/version.js", "draw-portal/weapp/pages/index/index.js", "draw-portal/weapp/pages/index/index.wxml", "draw-portal/weapp/pages/index/index.wxss", "draw-portal/weapp/pages/market/market.js", "draw-portal/weapp/pages/market/market.wxml", "draw-portal/weapp/pages/market/market.wxss", "draw-portal/weapp/pages/history/history.js", "draw-portal/weapp/pages/history/history.wxml", "draw-portal/weapp/pages/history/history.wxss", "draw-portal/weapp/pages/control/control.wxml", "draw-portal/weapp/pages/control/control.wxss", "draw-portal/tests/weapp/ui_logic_followup.test.js", "draw-portal/weapp-smoke-checklist.md", "docs/design/weapp-ui-logic-20261009.md", "docs/agent-edit-allowlist.json", "docs/release-readiness.md", "docs/worktree-inventory.md", "docs/agent-line-refs-baseline.json", "docs/kxnx/findings/28-five-slice-crossrepo-review.md", "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md", "results/local-only/2026-10-09-weapp-ui/**", "tmp/weapp-ui-20261009/**"]
+    "paths": [
+      "draw-portal/weapp/utils/version.js",
+      "draw-portal/weapp/pages/index/index.js",
+      "draw-portal/weapp/pages/index/index.wxml",
+      "draw-portal/weapp/pages/index/index.wxss",
+      "draw-portal/weapp/pages/market/market.js",
+      "draw-portal/weapp/pages/market/market.wxml",
+      "draw-portal/weapp/pages/market/market.wxss",
+      "draw-portal/weapp/pages/history/history.js",
+      "draw-portal/weapp/pages/history/history.wxml",
+      "draw-portal/weapp/pages/history/history.wxss",
+      "draw-portal/weapp/pages/control/control.wxml",
+      "draw-portal/weapp/pages/control/control.wxss",
+      "draw-portal/tests/weapp/ui_logic_followup.test.js",
+      "draw-portal/weapp-smoke-checklist.md",
+      "docs/design/weapp-ui-logic-20261009.md",
+      "docs/agent-edit-allowlist.json",
+      "docs/release-readiness.md",
+      "docs/worktree-inventory.md",
+      "docs/agent-line-refs-baseline.json",
+      "docs/kxnx/findings/28-five-slice-crossrepo-review.md",
+      "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md",
+      "results/local-only/2026-10-09-weapp-ui/**",
+      "tmp/weapp-ui-20261009/**"
+    ]
   },
   "grbl_websocket_lifecycle_20261009_authorized": {
     "note": "实机AP回落复测发现WebSocket释放后使用，用户明确「同意追加修复并刷机复验」，点名批准Serial2Socket.cpp/.h、WebServer.cpp。只修对象生命周期、日志缓冲与跨任务同步，不改运动、换纸、引脚或网络协议。",
     "contract": "docs/design/three-repo-followup-review-20261009.md R09-04；AGENTS.md用户点名例外",
-    "paths": ["D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.h", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_websocket_lifecycle.py", "docs/**", "AGENTS.md", "CLAUDE.md", "README.md"]
+    "paths": [
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.h",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_websocket_lifecycle.py",
+      "docs/**",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md"
+    ]
   },
   "trirepo_followup_fixes_20261009_authorized": {
     "note": "用户在R09-01/02/03三项问题及修复顺序后明确「同意」。限量产Grbl看门狗时序、S3 OTA资源回收和门户拒绝原因透传；不改换纸/运动/引脚。随后点名处理未提交、部署、刷机、Wokwi及实机故障注入，授权三仓提交推送、双机部署、量产S3升1.0.34与Grbl升级，以及有回退路径的空闲态故障验证。",
     "contract": "docs/design/three-repo-followup-review-20261009.md；protocol §4 OTA失败恢复与§10.4.21控制结果",
-    "paths": ["D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.h", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_wifi_watchdog.py", "D:/Users/xiaozhi-esp32/main/ota.cc", "D:/Users/xiaozhi-esp32/scripts/tests/test_ota_cleanup.py", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "mcp-server/hutuji_mcp/tool_result.py", "mcp-server/tests/test_tool_result.py", "draw-portal/draw_portal/mcp_result.py", "draw-portal/draw_portal/push.py", "draw-portal/draw_portal/app.py", "draw-portal/tests/test_control_rejection_detail.py", "docs/**", "firmware/README.md", "AGENTS.md", "CLAUDE.md", "README.md"]
+    "paths": [
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.h",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_wifi_watchdog.py",
+      "D:/Users/xiaozhi-esp32/main/ota.cc",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_ota_cleanup.py",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "mcp-server/hutuji_mcp/tool_result.py",
+      "mcp-server/tests/test_tool_result.py",
+      "draw-portal/draw_portal/mcp_result.py",
+      "draw-portal/draw_portal/push.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_control_rejection_detail.py",
+      "docs/**",
+      "firmware/README.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md"
+    ]
   },
   "weapp_photo_followup_20261008_authorized": {
     "note": "用户：继续小程序功能改善，追加「关于照片生图的问题也要处理」「画质和生成体验都要改善」，续作「继续解决照片生图的问题」。照片画质只改 hatch 结构线平滑与结构线留白带（不改 squiggle、不改 RDP/§5 容差、不动纸张快照）；照片体验改精修等待绝对时限、畸形 ready 拒收、网络失败只读核对与本机原图对照。原图只在本机评估，不上传新增第三方；不改固件。",
     "contract": "docs/design/weapp-photo-followup-20261008.md；protocol §5/§10.4.9/§10.4.13–14/§10.4.21/§10.4.23；2026-10-09 用户「继续改进」，续完图库/聊天/控制三项及回归；随后点名处理未提交、部署和原生验证，授权本批提交推送、照片服务双机部署与小程序0.3.25上传",
-    "paths": ["draw-portal/weapp/**", "draw-portal/tests/weapp/**", "draw-portal/weapp-smoke-checklist.md", "mcp-server/hutuji_mcp/sketch_render.py", "mcp-server/tests/test_sketch_render.py", "mcp-server/scripts/sketch_eval.py", "docs/**", "AGENTS.md", "CLAUDE.md", "results/local-only/**", "tmp/weapp-photo-followup-20261008/**"]
+    "paths": [
+      "draw-portal/weapp/**",
+      "draw-portal/tests/weapp/**",
+      "draw-portal/weapp-smoke-checklist.md",
+      "mcp-server/hutuji_mcp/sketch_render.py",
+      "mcp-server/tests/test_sketch_render.py",
+      "mcp-server/scripts/sketch_eval.py",
+      "docs/**",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "results/local-only/**",
+      "tmp/weapp-photo-followup-20261008/**"
+    ]
   },
   "weapp_improvements_20261008_authorized": {
     "note": "用户：继续下一步改善，小程序，以及各种功能的改善；追问优先级答：都做改善。覆盖创作/作品管理/发送控制/设备设置与升级体验，不改固件或机械行为。2026-10-08追加：提交推送上传发布；允许本批代码提交推送、0.3.24上传及平台发布流程，实际完成以平台回执为准。",
     "contract": "docs/design/weapp-improvements-20261008.md；protocol §10.4.0/§10.4.5/§10.4.9–13/§10.4.22/§10.4.24",
-    "paths": ["draw-portal/weapp/**", "draw-portal/tests/weapp/**", "draw-portal/README.md", "draw-portal/weapp-smoke-checklist.md", "docs/**"]
+    "paths": [
+      "draw-portal/weapp/**",
+      "draw-portal/tests/weapp/**",
+      "draw-portal/README.md",
+      "draw-portal/weapp-smoke-checklist.md",
+      "docs/**"
+    ]
   },
   "fz_release_safety_20261008_authorized": {
     "note": "用户在四项签核漏洞与三项门禁可靠性问题清单后明确：同意完全修复。仅软件验证层，不执行真机运动。2026-10-08追加：提交推送部署验证；提交推送本批fz与枢纽记录，核验本机应用、远端下载、现役双机服务和固件/设备只读状态。",
     "contract": "docs/design/fz-release-safety-20261008.md；当前工作树/结构化证据/scope校验、云启动未验告警、报告原子生命周期、跳过统计、缺仓显式记录",
-    "paths": ["D:/Users/zhugu/fz/scripts/release_honesty.py", "D:/Users/zhugu/fz/scripts/release_inputs.py", "D:/Users/zhugu/fz/scripts/gate_report.py", "D:/Users/zhugu/fz/scripts/agent_gate.py", "D:/Users/zhugu/fz/scripts/agent_observe.py", "D:/Users/zhugu/fz/scripts/g3_evidence.py", "D:/Users/zhugu/fz/scripts/g4_ota.py", "D:/Users/zhugu/fz/scripts/test_release_safety.py", "D:/Users/zhugu/fz/scripts/test_gate_report.py", "D:/Users/zhugu/fz/scripts/test_release_honesty.py", "D:/Users/zhugu/fz/scripts/test_agent_gate.py", "D:/Users/zhugu/fz/scripts/test_agent_observe.py", "D:/Users/zhugu/fz/sim_common/case_result.py", "D:/Users/zhugu/fz/hardware_sim/case_runner.py", "D:/Users/zhugu/fz/hardware_sim/run_hw_sim.py", "D:/Users/zhugu/fz/hardware_sim/test_case_outcomes.py", "D:/Users/zhugu/fz/hardware_sim/test_run_hw_sim_unit.py", "D:/Users/zhugu/fz/docs/specs/2026-10-08-release-safety.md", "D:/Users/zhugu/fz/requirements-validation.txt", "docs/**"]
+    "paths": [
+      "D:/Users/zhugu/fz/scripts/release_honesty.py",
+      "D:/Users/zhugu/fz/scripts/release_inputs.py",
+      "D:/Users/zhugu/fz/scripts/gate_report.py",
+      "D:/Users/zhugu/fz/scripts/agent_gate.py",
+      "D:/Users/zhugu/fz/scripts/agent_observe.py",
+      "D:/Users/zhugu/fz/scripts/g3_evidence.py",
+      "D:/Users/zhugu/fz/scripts/g4_ota.py",
+      "D:/Users/zhugu/fz/scripts/test_release_safety.py",
+      "D:/Users/zhugu/fz/scripts/test_gate_report.py",
+      "D:/Users/zhugu/fz/scripts/test_release_honesty.py",
+      "D:/Users/zhugu/fz/scripts/test_agent_gate.py",
+      "D:/Users/zhugu/fz/scripts/test_agent_observe.py",
+      "D:/Users/zhugu/fz/sim_common/case_result.py",
+      "D:/Users/zhugu/fz/hardware_sim/case_runner.py",
+      "D:/Users/zhugu/fz/hardware_sim/run_hw_sim.py",
+      "D:/Users/zhugu/fz/hardware_sim/test_case_outcomes.py",
+      "D:/Users/zhugu/fz/hardware_sim/test_run_hw_sim_unit.py",
+      "D:/Users/zhugu/fz/docs/specs/2026-10-08-release-safety.md",
+      "D:/Users/zhugu/fz/requirements-validation.txt",
+      "docs/**"
+    ]
   },
   "fz_validation_fixes_20261008_authorized": {
     "note": "用户在剩余问题清单后要求继续，并明确先完成软件修复；修fz三处验证漏洞，并处理验证中实证的observe漏quota报告误判，不执行真机运动。2026-10-08追加：提交推送部署下载验证；提交推送本批源码及台账，核验远端源码下载与现役固件下载、双机服务及设备只读状态；本批没有新产品固件或云端代码需要发布。",
@@ -1121,6 +1351,48 @@
       "docs/agent-handoff.md",
       "docs/worktree-inventory.md",
       "docs/agent-edit-allowlist.json"
+    ]
+  },
+  "dr10_complete_fixes_authorized": {
+    "note": "用户要求继续完全修复DR10-01至08，包含三仓代码、回归、构建与门禁。限会话隔离、配网、预览控制、遥测、OTA校验、token回写与附件追溯，不改运动、换纸或引脚；本批不部署、不刷机。语音画写须把纸张复核后的凭据传到发送与CAS回调。",
+    "contract": "docs/design/three-repo-deep-review-20261010.md；protocol §1.5/§3/§4/§10.4.22",
+    "paths": [
+      "docs/**",
+      "AGENTS.md",
+      "README.md",
+      "CLAUDE.md",
+      "firmware/README.md",
+      "scripts/factory/store.py",
+      "tests/production/**",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/paper_settings.py",
+      "draw-portal/draw_portal/firmware_ota.py",
+      "draw-portal/draw_portal/voice_jobs.py",
+      "draw-portal/tests/**",
+      "tmp/dr10-fixes/**",
+      "results/local-only/2026-10-10-dr10-fixes/**",
+      "D:/Users/xiaozhi-esp32/main/application.cc",
+      "D:/Users/xiaozhi-esp32/main/application.h",
+      "D:/Users/xiaozhi-esp32/main/ota.cc",
+      "D:/Users/xiaozhi-esp32/main/ota.h",
+      "D:/Users/xiaozhi-esp32/main/ota_validation.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision_core.h",
+      "D:/Users/xiaozhi-esp32/scripts/tests/**",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Protocol.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Serial.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Serial.h",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/ProcessSettings.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Settings.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/TelnetServer.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/TelnetServer.h",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebSettings.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/**",
+      "D:/Users/zhugu/fz/native_sim/test_telnet_server_behavior.py"
     ]
   }
 }

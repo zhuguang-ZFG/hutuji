@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS event_attachments(event_id TEXT NOT NULL,name TEXT NO
             if not path.is_file() or digest(path)!=item['evidence_sha']:missing.append(name+':evidence')
             if not self._attachments_intact(item['attachments']):
                 missing.append(name+':attachments')
+            if not self._required_attachments_intact(item):
+                missing.append(name+':flash_backup')
         if unit['released']:
             # released保留历史签核；当前报告损坏必须在status/export/batch同时可见。
             release=latest.get('release')
@@ -162,11 +164,28 @@ CREATE TABLE IF NOT EXISTS event_attachments(event_id TEXT NOT NULL,name TEXT NO
         return {**unit,'checks':latest,'missing':missing}
 
     @staticmethod
+    def _required_attachments_intact(event):
+        try:
+            detail = json.loads(event['detail'])
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(detail, dict):
+            return False
+        required = set()
+        if event['check_name'] in ('flash_s3', 'flash_grbl') and (
+            event['result'] == 'pass' or detail.get('backup_complete') or detail.get('write_attempted')
+        ):
+            required.add('flash_backup')
+        if event['check_name'] == 'release' and event['result'] == 'pass':
+            required.update(('license_review', 'electrical_review', 'radio_review'))
+        return required.issubset({item['name'] for item in event['attachments']})
+
+    @staticmethod
     def _attachments_intact(attachments):
         try:
             return all(Path(a['path']).is_file() and Path(a['path']).stat().st_size==a['size']
                        and digest(Path(a['path']))==a['sha256'] for a in attachments)
-        except OSError:
+        except (OSError, KeyError, TypeError, ValueError):
             # 文件在检查期间消失或不可读，也属于完整性异常。
             return False
 
@@ -264,6 +283,11 @@ CREATE TABLE IF NOT EXISTS event_attachments(event_id TEXT NOT NULL,name TEXT NO
         bundle=Store(target)
         files=directory/'evidence';files.mkdir()
         with bundle.connect() as db:
+            # 必需附件登记本身被删也要拒绝，包含旧代次和失败前已完成备份的记录。
+            for row in db.execute('SELECT * FROM events').fetchall():
+                event = {**dict(row), 'attachments': bundle._attachments(db, row['id'])}
+                if not self._required_attachments_intact(event):
+                    raise FactoryError('历史必需附件登记缺失，档案不完整: ' + row['id'])
             # 中断锁随备份保存，恢复后仍需显式核对，不自动解除。
             for row in db.execute("SELECT id,evidence,evidence_sha FROM events WHERE evidence<>''").fetchall():
                 source=self.evidence_path(row['evidence'])

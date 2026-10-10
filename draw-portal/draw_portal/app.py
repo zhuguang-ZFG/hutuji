@@ -959,7 +959,7 @@ def create_app() -> FastAPI:
             active = store.get_binding_for_user(user_id)
             owner = store.get_binding_for_mac(binding.device_mac)
             if (active is None or active.device_mac != binding.device_mac
-                    or owner is None or owner.user_id != user_id):
+                    or owner is None or owner.user_id != user_id or owner.bound_at != binding.bound_at):
                 raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
 
         check_target()
@@ -982,9 +982,11 @@ def create_app() -> FastAPI:
                 from draw_portal.crypto import encrypt_token
 
                 check_target()
-                store.update_binding_token(
-                    user_id, device_token_enc=encrypt_token(config.token_cipher_key, fresh), device_mac=binding.device_mac
-                )
+                if not store.update_binding_token_if_current(
+                    binding, encrypt_token(config.token_cipher_key, fresh),
+                    expected_token_enc=binding.device_token_enc,
+                ):
+                    raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
                 ok, result = push_tool_call(
                     api_base=config.xiaozhi_api_base,
                     device_token=fresh,
@@ -1066,6 +1068,7 @@ def create_app() -> FastAPI:
         }
 
         def push_tool(name: str, arguments: dict[str, Any]) -> str:
+            nonlocal binding
             tok = token_holder["token"]
             if tok is None:
                 return "请先绑定丹青"
@@ -1085,6 +1088,8 @@ def create_app() -> FastAPI:
                     new_enc = encrypt_token(config.token_cipher_key, fresh)
                     paper_settings_mod.check_owner(store, binding, require_active=True)
                     paper_settings_mod.update_token(store, binding, new_enc)
+                    from dataclasses import replace
+                    binding = replace(binding, device_token_enc=new_enc)
                     token_holder["token"] = fresh
                     enc_holder["enc"] = new_enc
                     ok, result = push_tool_call(
@@ -1105,9 +1110,20 @@ def create_app() -> FastAPI:
                 raise VoiceJobError("请先绑定丹青")
 
             def on_token_minted(new_enc: str) -> None:
+                nonlocal binding
                 paper_settings_mod.update_token(store, binding, new_enc)
+                from dataclasses import replace
+                binding = replace(binding, device_token_enc=new_enc)
                 enc_holder["enc"] = new_enc
                 token_holder["token"] = decrypt_token(config.token_cipher_key, new_enc)
+
+            def prepare_push(job_path: Path) -> str:
+                nonlocal binding
+                # 纸张复核可能已自愈；发送与后续CAS必须接力同一份新快照。
+                binding = _verify_job_for_binding(binding, job_path)
+                enc_holder["enc"] = binding.device_token_enc
+                token_holder["token"] = decrypt_token(config.token_cipher_key, binding.device_token_enc)
+                return binding.device_token_enc
 
             if name == "voice.draw":
                 if not config.usage_ingest_secret:
@@ -1152,7 +1168,7 @@ def create_app() -> FastAPI:
                         device_token_enc=enc_holder["enc"],
                         on_token_minted=on_token_minted,
                         snapshot=snapshot,
-                        before_push=lambda: _verify_job_for_binding(binding, job_path),
+                        before_push=lambda: prepare_push(job_path),
                         before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
                     )
                 except Exception as exc:
@@ -1202,7 +1218,7 @@ def create_app() -> FastAPI:
                         device_token_enc=enc_holder["enc"],
                         on_token_minted=on_token_minted,
                         snapshot=snapshot,
-                        before_push=lambda: _verify_job_for_binding(binding, job_path),
+                        before_push=lambda: prepare_push(job_path),
                         before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
                     )
                 except Exception:
@@ -1719,7 +1735,7 @@ def create_app() -> FastAPI:
                 device_mac=current.device_mac, device_token_enc=current.device_token_enc,
                 gcode_url=pages[0]["url"], preview_url=pages[0]["preview_url"],
                 pages_arg=pages_argument(pages) if len(pages) > 1 else None,
-                on_token_minted=lambda enc: paper_settings_mod.update_token(store, binding, enc),
+                on_token_minted=lambda enc: paper_settings_mod.update_token(store, current, enc),
                 before_action=lambda: paper_settings_mod.check_owner(store, binding),
             )
             return {"status": "sent" if ok else "push_failed"}
@@ -2970,11 +2986,13 @@ def create_app() -> FastAPI:
         token = decrypt_token(config.token_cipher_key, binding.device_token_enc)
 
         def invoke(name: str, arguments: dict[str, Any], timeout: int):
-            nonlocal token
+            nonlocal token, binding
 
             def check_owner():
                 current = store.get_binding_for_mac(binding.device_mac)
-                if current is None or current.user_id != user_id:
+                active = store.get_binding_for_user(user_id)
+                if (current is None or current.user_id != user_id or current.bound_at != binding.bound_at
+                        or active is None or active.device_mac != binding.device_mac):
                     raise HTTPException(status_code=409, detail="设备绑定已变化，请刷新后重试")
 
             check_owner()
@@ -2987,11 +3005,14 @@ def create_app() -> FastAPI:
             fresh = mint_messaging_token(api_base=config.xiaozhi_api_base, mac=binding.device_mac)
             if fresh:
                 check_owner()
-                store.update_binding_token(
-                    user_id,
-                    device_token_enc=encrypt_token(config.token_cipher_key, fresh),
-                    device_mac=binding.device_mac,
-                )
+                new_enc = encrypt_token(config.token_cipher_key, fresh)
+                if not store.update_binding_token_if_current(
+                    binding, new_enc,
+                    expected_token_enc=binding.device_token_enc,
+                ):
+                    raise HTTPException(status_code=409, detail="设备凭据已更新，请刷新后重试")
+                from dataclasses import replace
+                binding = replace(binding, device_token_enc=new_enc)
                 token = fresh
                 ok, result = push_tool_call(
                     api_base=config.xiaozhi_api_base, device_token=token,

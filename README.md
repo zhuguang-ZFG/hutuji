@@ -117,3 +117,5 @@
 # 2026-10-09 续审修复候选说明
 
 本地候选增加笔控事务会话校验、Grbl超长行整行拒收及按作品地址自动确认；部署须先S3能力、后Portal，旧固件保留预览并转人工确认。未改变运动参数或换纸行为，实际发布状态只看`docs/release-readiness.md`，详见`docs/design/three-repo-next-review-20261009.md`。
+
+2026-10-10 DR10修复候选（软件）：Telnet使用会话代次隔离旧字节；开放网络用`[ESP101=]`写空STA密码；预览阶段拒绝pause/resume；nopaper电机/压纸遥测为unknown；设备OTA严格版本递增并验证下载SHA及镜像版本；token回写比较绑定代次和旧密文；历史flash备份登记缺失拒绝归档。未部署/未刷机，验证与边界见枢纽`docs/design/three-repo-deep-review-20261010.md`修复节和readiness。
