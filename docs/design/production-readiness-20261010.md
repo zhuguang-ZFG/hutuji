@@ -66,7 +66,7 @@
 
 ## 发布与板上复核（2026-10-10）
 
-本次续作已完成提交、部署和现役设备升级。枢纽 `9191485350e8c1f0058c52952f3f268a1d843aaf`、S3 `d6b7d98d0bf94932044c49bcb9266766341c98aa`、量产 Grbl `3184ea9668ebe3c860eb68ea1ddf0bb265302de1` 均与远端一致且工作树干净。Portal 主节点和热备节点均以 hub 提交部署并通过带包校验，回执为 `results/local-only/2026-10-10-production/release/aliyun-portal-deploy.json` 与 `jdcloud-portal-deploy.json`。
+本次续作已完成提交、部署和现役设备升级。发布载荷使用枢纽 `9191485350e8c1f0058c52952f3f268a1d843aaf`、S3 `d6b7d98d0bf94932044c49bcb9266766341c98aa`、量产 Grbl `3184ea9668ebe3c860eb68ea1ddf0bb265302de1`，三仓当时均与远端一致且工作树干净；文档回填随后产生 hub 当前 HEAD `b1e30a2`。Portal 主节点和热备节点均以 hub 发布载荷部署并通过带包校验，回执为 `results/local-only/2026-10-10-production/release/aliyun-portal-deploy.json` 与 `jdcloud-portal-deploy.json`。
 
 S3 版本独立升为 `hutuji.1.0.37`。镜像大小 3,084,400 B，SHA-256 为 `34bf547841ea31d0b97e85a691a708d81b5dbf0a4902d21864d1a1b554c18d51`；公网 `latest/catalog`、候选、提升和 OTA 意图均指向同一版本与摘要。现役设备 `b8:1f:3f:c4:58:2c` 的首次 OTA HTTP 504 后未重复下发，轮询取得最终启动状态，确认 `idle`、`connected`、`ready`、`authorized`、`grbl_settings_ok`、`plotter_sku=nopaper`、Grbl `Idle`、XYZ 原点和 `confirm_by_url=true`。完整回执、旧镜像和回滚备份登记在 `results/local-only/2026-10-10-production/release/`，设备状态明确为 `factory_paired=false`。
 
