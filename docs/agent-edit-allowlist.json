@@ -4,6 +4,11 @@
     "contract": "docs/design/three-repo-production-review-20261010.md 发布与实机复核；protocol §1.5/§3/§10.4.22",
     "paths": ["docs/**", "AGENTS.md", "CLAUDE.md", "README.md", "firmware/README.md", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/ProcessSettings.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_credentials.py", "tmp/production-20261010/release-1038/**", "results/local-only/2026-10-10-production/release-1038/**"]
   },
+  "deep_review_20261010_readonly": {
+    "note": "用户要求继续深度三仓code review。本轮只读产品源码，允许新增审查记录、证据索引和本机探针，不修改固件、门户、产线业务或部署。",
+    "contract": "docs/design/three-repo-deep-review-20261010.md；docs/protocol.md v0.5",
+    "paths": ["docs/**", "tmp/trirepo-deep-review-20261010/**", "results/local-only/2026-10-10-trirepo-deep-review/**"]
+  },
   "pr10_fixes_20261010_authorized": {
     "note": "用户点名要求修复上一轮5项问题并要求继续。范围为PR10-01至05的串口输入拒绝、配对查询终止应答、OTA二次版本复核、HTTP参数保真和放行附件完整性；含测试、构建和门禁。WebServer.cpp仅修ESP参数前后空白处理，不改实时控制字节分类、运动、换纸、引脚或OTA验证策略。",
     "contract": "docs/design/three-repo-production-review-20261010.md；protocol §1.5/§3/§10.4.22",
