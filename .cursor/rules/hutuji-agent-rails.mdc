@@ -83,3 +83,5 @@ python scripts\agent_gate.py --profile hub
 ## 改完必同步
 
 契约 → `protocol.md`；进度 → `release-readiness.md`；工作树 → `worktree-inventory.md`；结构 → `AGENTS.md` + `README.md` + `CLAUDE.md`；门禁 → `agent-gate.md`。
+
+2026-10-10：产线工具`scripts/factory/`另跑`python -m pytest -q tests/production`，Portal另跑其tests；hub/full不能代替这两套。候选包NOT_FOR_RELEASE不用于实际烧录，真实首件和签核状态仍查readiness。

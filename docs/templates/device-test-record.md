@@ -10,10 +10,12 @@
 | 批次号 | |
 | 测试日期 | |
 | 测试人 | |
+| 配方ID/SHA、验收代次 | |
+| S3 STA MAC / Grbl STA MAC / AP BSSID | |
 | 写字机 Grbl commit / 固件哈希 | |
 | S3 xiaozhi commit / 固件哈希 | |
-| 京东云 `HUTUJI_PUBLIC_BASE_URL` | |
-| 写字机固定 IP | |
+| 阿里主/京东热备 `HUTUJI_PUBLIC_BASE_URL` | |
+| 当前写字机 IP（身份以MAC为准） | |
 
 ## 结果
 
@@ -23,7 +25,11 @@
 | 授权 Authorized | | | |
 | S3 connected/ready/authorized | | | |
 | 短图出纸 | | | |
-| M30 换纸 | | | |
+| 正常/停止归位、电机释放与再次出图 | | | nopaper人工换纸 |
+| 双板身份配对与多机防串台 | | | |
+| 触屏确认/取消/暂停/继续/停止/重画/试笔 | | | |
+| 4小时/30次老化、零异常重启/失步/漏笔 | | | |
+| 标准图≤1mm尺寸误差（填原值） | | | |
 | 外观/标签 | | | |
 | 其他（抽样故障等） | | | |
 

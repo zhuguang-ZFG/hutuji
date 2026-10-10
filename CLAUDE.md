@@ -192,6 +192,8 @@ python -m venv .venv
 
 ## 约定
 
+- 2026-10-10 量产CLI位于`scripts/factory/`，配方在`production/`，产线测试`python -m pytest -q tests/production`与Portal测试分别运行，hub/full不代替。工厂身份、归档附件及灰度只为本地候选，尚未部署；参数/试行标准已获用户批准，实际首件与交付信息仍需实证。契约与边界见`docs/design/production-readiness-20261010.md`及readiness。
+
 - **2026-09-15 精品图库首批**：`mcp-server/market/` 为467件、20类的Git真值，`sources.json` 固定官方提交/许可与原图SHA，`review.json` 登记逐件最终预览复核及拒收理由。Twemoji图形用CC-BY-4.0（不可套代码MIT），Tabler MIT、MDI Apache-2.0并排除品牌标志。稀疏矢量不做五点平滑；按绘制顺序处理遮挡/同色/孔洞，隐藏不回流、半透明拒收，导出视口覆盖右下边；文本LF规范化后计算产物SHA，另存原许可SHA；图库.gitattributes固定Windows检出LF。预生成G-code只作入库质量证据，发送/收藏按当前设备纸张重新转换；send直接运动。发布窄白名单支持既定中文类目，2048文件上限与32MiB包预算同时生效。契约§10.4.23，部署/页面验收只看readiness。
 
 - 2026-09-10 评审修复约定：中心线预览栅格单边 ≤2048 且先裁线；波纹回折限紧邻行和暗区；日限在新任务登记时扣额。小程序会话代次隔离旧回包，默认字体不传 `font`，显式字体的中文取所选 gfont。契约见 `docs/protocol.md` §5/§10.4.0/§10.4.9/§10.4.10，Node 回归命令见 `draw-portal/README.md`；本地验证不代替生产/真机证据。

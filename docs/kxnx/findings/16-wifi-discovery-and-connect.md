@@ -122,14 +122,14 @@ SSDP 通道 `d.java:27` 则**硬编码 23**，没走机型判断——即 SSDP �
 2) getpeername → 若与缓存不同则 SaveCachedIp()   ← 【只要 TCP 连上就写缓存】
 ```
 
-协议层校验在别处：收到 `[VER:` 只记版本、不置 `ready_`（`hutuji_pipe.cc:755-759`）；`ready_` 要等零位移授权探测完成（`hutuji_pipe.cc:1025-1033`），
-所有真正会灌流的入口都查 `IsReady()`（确认出图 `RequestConfirmForPreview`、重画 `hutuji_job.cc:1370`、
-试笔 `hutuji_job.cc:1436`；`StartDraw` 只下载预览，不过确认门进不到灌流）。
+协议层校验在别处：收到 `[VER:` 只记版本、不置 `ready_`（`hutuji_pipe.cc:770-774`）；`ready_` 要等零位移授权探测完成（`hutuji_pipe.cc:1040-1048`），
+所有真正会灌流的入口都查 `IsReady()`（确认出图 `RequestConfirmForPreview`、重画 `hutuji_job.cc:1371`、
+试笔 `hutuji_job.cc:1437`；`StartDraw` 只下载预览，不过确认门进不到灌流）。
 **所以不会把错误设备当写字机去出图**——这点是安全的。
 
 **但连接与缓存这一层没有任何协议校验，会自锁**：
 
-1. 子网扫描**从 .1 开始顺序试**（`hutuji_pipe.cc:446` `for host = 1; host < 255`）。家用路由器
+1. 子网扫描**从 .1 开始顺序试**（`hutuji_pipe.cc:461` `for host = 1; host < 255`）。家用路由器
    通常就是 `.1`，且部分型号开着 telnet:23。
 2. 一旦连上 `.1`，`break` 退出扫描 → `SaveCachedIp(.1)` 落 NVS。
 3. 此后每次 `ConnectOnce()`：缓存命中 → `found=true` → **`if (!found)` 为假，

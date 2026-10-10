@@ -1,4 +1,14 @@
 {
+  "production_release_20261010_authorized": {
+    "note": "用户对未提交、未部署及实体首件/老化/交付签核要求解决；确认只有现役量产机、可配合现场测试。授权本批三仓提交推送、S3升1.0.37重新构建、双机Portal部署与固定身份现役双板升级/测试。保留NVS/用户身份和机设，空白板首烧不得冒充；真实交付主体资料与报告答复暂无，不得代签或伪造。",
+    "contract": "docs/design/production-readiness-20261010.md 发布续作；protocol §1.5/§3/§10.4.22",
+    "paths": ["D:/Users/xiaozhi-esp32/CMakeLists.txt", "docs/**", "tmp/production-20261010/**", "results/local-only/2026-10-10-production/**"]
+  },
+  "production_readiness_20261010_authorized": {
+    "note": "用户对量产八项问题要求全部修复。允许产线配方/烧录验收/台账/灰度推荐、双板身份配对、UTF-8配网兼容及文档交付工具；无权代签法规或伪造硬件验收。参数与4小时/30次/≤1mm试行门槛已获用户批准；本步不刷现役板、不烧eFuse、不移植换纸。",
+    "contract": "docs/design/production-readiness-20261010.md；protocol §1.5/§3/§10.4.22",
+    "paths": ["scripts/factory/**", "production/**", "tests/production/**", "draw-portal/draw_portal/firmware_catalog.py", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/tests/test_firmware_rollout.py", "draw-portal/tests/test_firmware_ota.py", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/factory_identity.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/utf8_ssid.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision_core.h", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/scripts/tests/test_factory_identity.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_plotter_provision_core.py", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WifiConfig.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Utf8Ssid.h", "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_utf8_ssid.py", "docs/**", "README.md", "AGENTS.md", "CLAUDE.md", "tmp/production-20261010/**", "results/local-only/2026-10-10-production/**"]
+  },
   "trirepo_next_release_20261009_authorized": {
     "note": "用户在NR09-01/02/03修复通过后明确「提交部署」。授权本批三仓提交推送、S3升1.0.36与量产Grbl升级、共享判错/Portal双机部署，以及固定设备身份下的发布验证和回退材料留存。先设备确认能力后Portal，不改机械参数。",
     "contract": "docs/design/three-repo-next-review-20261009.md 发布续作；protocol §3/§7/§10.4.5",

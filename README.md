@@ -1,5 +1,7 @@
 # hutuji — AI 绘图自动换纸写字机
 
+2026-10-10 量产工具本地候选：`scripts/factory/`提供完整镜像打包、逐台身份/参数核验、烧录备份、验收台账与可迁移档案，`production/`保存已批准配方；使用见[工位手册](production/README.md)。双板配对、中文SSID和Portal固件灰度尚未部署；实体首件、手机与交付签核缺项仍见[改进记录](docs/design/production-readiness-20261010.md)及readiness。产线回归须单独跑`python -m pytest -q tests/production`，不由hub门禁代替。
+
 2026-10-09 三仓续审已发布：门户保留已知拒绝原因、S3 1.0.34回收OTA失败资源、量产Grbl修复看门狗计时及实机追加发现的WebSocket生命周期问题。本批空闲态断流/断网恢复通过，Wokwi配额未验；版本、证据与回退见[发布记录](docs/design/three-repo-followup-review-20261009.md)。
 
 2026-10-09 三仓续审修复候选：量产Grbl看门狗计时改为单任务维护，S3 OTA句柄与缓冲统一回收，门户复用共享判错保留已知设备拒绝原因。回归、构建与未部署边界见[续审记录](docs/design/three-repo-followup-review-20261009.md)，当前上线状态只看readiness。

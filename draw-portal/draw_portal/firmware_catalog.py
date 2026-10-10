@@ -18,14 +18,48 @@ def load_catalog(path: str | Path) -> dict[str, Any]:
     return data
 
 
-def recommended_for_board(catalog: dict[str, Any], board: str) -> dict[str, Any] | None:
+def recommended_for_board(catalog: dict[str, Any], board: str, device_mac: str = "") -> dict[str, Any] | None:
     boards = catalog.get("boards")
     if not isinstance(boards, dict):
         return None
     entry = boards.get(board)
     if not isinstance(entry, dict):
         return None
-    return entry
+    rollout = entry.get("rollout")
+    if rollout is None:
+        return entry
+    # stable条目保留给未升级的设备直查latest；门户仅为明确MAC选择灰度candidate。
+    if not isinstance(rollout, dict):
+        raise ValueError("invalid rollout")
+    candidate = rollout.get("candidate")
+    percent = rollout.get("percent", 0)
+    salt = rollout.get("id")
+    allow = rollout.get("devices", [])
+    if (not isinstance(candidate, dict) or "rollout" in candidate
+            or type(percent) is not int or not 0 <= percent <= 100
+            or not isinstance(salt, str) or not salt
+            or not isinstance(allow, list)):
+        raise ValueError("invalid rollout policy")
+    import re
+    from .firmware_version import parse_hutuji_version
+    if (not parse_hutuji_version(str(candidate.get('version','')))
+            or not isinstance(candidate.get('relpath'),str)
+            or not candidate['relpath'].startswith('s3/'+board+'/')
+            or any(part in ('','.', '..') for part in candidate['relpath'].split('/'))
+            or not candidate['relpath'].endswith('/xiaozhi.bin')
+            or not re.fullmatch('[0-9a-f]{64}',str(candidate.get('sha256','')))
+            or type(candidate.get('size')) is not int or not 0<candidate['size']<=8*1024*1024):
+        raise ValueError('invalid rollout firmware')
+    def normalized(value):
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}", value):
+            raise ValueError("invalid rollout MAC")
+        return value.lower()
+    allow = {normalized(value) for value in allow}
+    if not device_mac:
+        return entry
+    target = normalized(device_mac)
+    bucket = int(hashlib.sha256((salt + ":" + target).encode()).hexdigest()[:8], 16) % 100
+    return candidate if target in allow or bucket < percent else entry
 
 
 def build_bin_url(
@@ -52,8 +86,9 @@ def plan_check(
     board: str,
     current_version: str,
     catalog: dict[str, Any],
+    device_mac: str = "",
 ) -> dict[str, Any]:
-    entry = recommended_for_board(catalog, board)
+    entry = recommended_for_board(catalog, board, device_mac)
     if entry is None:
         return {
             "update_available": False,

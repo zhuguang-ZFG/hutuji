@@ -217,6 +217,10 @@ BLE 实现证据按阶段登记：实现仓的 host 测试、构建、刷写和�
 
 ### 1.5 设备端零接触配网（S3 代配写字机，2026-08-22 起实现）
 
+**2026-10-10 量产配对/中文SSID补充（本地候选，覆盖下文旧ASCII限制）**：工位在空白S3的NVS `hutuji_factory`写schema=1、SN、S3 STA MAC、Grbl STA MAC/AP BSSID。存在且有效时，Telnet候选先收banner再只读$I，完整STA报告末尾MAC匹配才进入连接/授权探测；错误或损坏身份拒连，不回落任意Grbl。未预置的旧机保留原发现兼容，产线放行必须有配对记录。AP扫描、嗅探及跳连均按登记BSSID过滤，不能用共享GRBL_ESP名称选邻机；嗅探继续保留原SSID与帧长度验证。设备状态新增factory_paired/serial_number/paired_grbl_mac供工位只读核验；配对不是密码学认证，不替代网络隔离与用户P-256绑定。
+
+同批S3与Grbl配网校验接受1–32字节合法UTF-8（含中文），拒绝损坏编码、NUL/控制字符/代理区与超范围码点；密码长度和HTTP编码/错误应答判据不变。旧Grbl仍只接ASCII，须成对发布后再宣称中文网络可用。真实手机多机配网与首次空白板烧录尚需实测，见`design/production-readiness-20261010.md`。
+
 目标：用户只给小派扫一次码（xiaozhi 官方配网），写字机的户网凭据由 S3 自动代配，全程不需要 PC 串口/网页操作。**Grbl 侧零改动**——利用 ESP3D WebUI 出厂 AP 的既有 `/command?plain=` 面。
 
 - **触发**：户网 `Connected` 事件后 3s 启动巡检；另在工作台维护页提供「重新配置写字机」手动入口（同一状态机）。
@@ -284,7 +288,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:988-1130`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:989-1131`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -1130,3 +1134,13 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 - 新S3 `status.confirm_by_url=true`声明支持`hutuji.confirm`可选参数`expected_url`与`expected_preview_url`；两者有任一非空就必须成对、与当前作品逐字匹配，校验和撤销awaiting在同一stream锁内完成，不匹配返回“预览已变化，请重新核对作品”。门户自动确认总是携带本次两个地址；旧固件不声明能力时保留已送达预览并提示人工确认。屏幕/语音原有无参确认保持。明确started才即时报成功；确认回包丢失仍按后续状态对账，但不把这种状态观察提升为完整任务身份凭证。
 
 发布顺序为先升级S3并验证能力，再部署共享`tool_result.py`和Portal `push.py`；若后端提前更新，旧设备会落人工确认，不静默发送无参confirm。当前仅本地候选，实际部署以readiness为准，见`design/three-repo-next-review-20261009.md`。
+
+### 2026-10-10 量产配方、台账与灰度约定
+
+量产工位配方`production/nopaper-freenove-v1.json`冻结速度6000/6000/1200、加速度3000/3000/3000，已获用户批准；参数由工位逐轴写入并全表核验，源码默认/NVS旧值不得当作出厂配方。工位只写6个明确参数，$1=255、$20/$21/$22=0只读，不写引脚、授权或行程。4小时、30次标准图、尺寸误差≤1mm、零失步/漏笔为用户批准的首批试行门槛，仍必须有每台真实记录。
+
+首次烧录只允许空白NVS且每台独立生成工厂记录；返修保留NVS/用户密钥，整片备份、ROM MAC/实际分区/镜像SHA、未改分区一致性核验后执行，失败不重发。S3验写后hard-reset，Grbl按工位SOP重启。台账按SN+代次保存历史证据，正在操作时禁止返修/放行，进程中断遗留锁须人工核实后显式解除。
+
+参数识别只接受唯一完整STA报告的末尾MAC和独立VER行，不从SSID/AP或截断字段推断身份。人工测量携带SN与当前generation；自动回写复核操作令牌及代次，解除旧操作后拒绝旧结果。整片备份在写入前成为带SHA/大小的台账附件，成功/失败及放行报告随归档迁移，附件路径为恢复依据。固件版本取app descriptor，内部校验和/SHA与目标芯片也须通过，正文版本文字不能替代。
+
+Portal稳定板型条目可带`rollout`：id、percent(0–100整数)、devices(MAC名单)、candidate(版本/路径/SHA/字节数)。同一id+MAC稳定分桶，未入组仍选稳定版，错误策略拒绝；check与start均按原绑定MAC选取，发布目录在期间改变版本则拒绝本次升级。设备直读latest仍为稳定版，灰度候选不写latest，升级仍走原busy/所有权/不确定结果闸，不自动触发。

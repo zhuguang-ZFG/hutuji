@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+2026-10-10 量产工具本地候选：`scripts/factory/`为产线CLI，`production/`为配方，`tests/production/`须单独pytest；Portal改动另跑其tests，hub/full不代替这两套。工厂配对/中文SSID/灰度实现与边界见`docs/design/production-readiness-20261010.md`，尚未部署。参数只认完整STA报告末尾MAC与独立VER行；测量携带SN+generation，自动回写复核操作令牌，整片备份/报告作为归档附件；候选包NOT_FOR_RELEASE不得烧录。已批准速度6000/6000/1200、加速度3000/3000/3000与4小时/30次/≤1mm试行门槛，真实首件和交付资料仍须实证。
+
 2026-10-09 实机追加授权：用户点名同意修改量产`Serial2Socket.cpp/.h`和`WebServer.cpp`并刷机复验，仅用于R09-04 WebSocket释放后使用修复（先解绑、丢弃旧待发日志、发送/loop/析构同锁），作为下方Grbl白名单的明确例外；不改运动、换纸或引脚。证据见`docs/design/three-repo-followup-review-20261009.md`。
 
 2026-10-09 三仓续审修复候选：量产Grbl断线时间戳仅由handle维护，网络回调用原子标志记录恢复；S3 OTA句柄和下载缓冲统一RAII回收，end后解除句柄所有权。门户共享`tool_result_detail`只透出已知设备拒绝文案，未知上游正文仍使用固定提示。测试/构建与未部署边界见`docs/design/three-repo-followup-review-20261009.md`，不改换纸、运动、引脚或OTA校验策略。

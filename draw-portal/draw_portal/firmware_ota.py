@@ -203,7 +203,11 @@ def check_firmware(
             "device_state": status.get("state"),
         }
 
-    plan = plan_check(board=board, current_version=current, catalog=catalog)
+    try:
+        plan = plan_check(board=board, current_version=current, catalog=catalog,
+                          device_mac=binding.device_mac)
+    except ValueError:
+        return {"update_available": False, "reason": "check_failed", "detail": "固件灰度配置不可用"}
     plan["board"] = board
     plan["device_state"] = status.get("state")
     return plan
@@ -267,9 +271,14 @@ def _start_upgrade_claimed(
 
     board = str(plan.get("board") or "")
     catalog = load_catalog(catalog_path)
-    entry = recommended_for_board(catalog, board)
+    try:
+        entry = recommended_for_board(catalog, board, binding.device_mac)
+    except ValueError:
+        return {"status": "error", "detail": "check_failed"}
     if entry is None:
         return {"status": "error", "detail": "board_mismatch"}
+    if entry.get('version') != plan.get('latest'):
+        return {"status": "error", "detail": "check_failed"}
 
     ok, status, err = _fetch_device_status(
         api_base=api_base,

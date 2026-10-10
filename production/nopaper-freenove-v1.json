@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "nopaper-freenove-v1",
+  "sku": "nopaper",
+  "board": "freenove-esp32s3-display-2.8-lcd",
+  "approved_by": "用户（首批试行）",
+  "approved_at": "2026-10-10",
+  "parameters_approved_by": "用户",
+  "parameters_approved_at": "2026-10-10",
+  "settings": {"110": 6000, "111": 6000, "112": 1200, "120": 3000, "121": 3000, "122": 3000},
+  "readonly": {"1": 255, "20": 0, "21": 0, "22": 0},
+  "acceptance": {"aging_hours": 4, "aging_jobs": 30, "max_error_mm": 1},
+  "notes": "用户批准当前参数及4小时/30次/≤1mm/零失步漏笔试行门槛。须逐台实际测量与签核；首批数据出来后再调整下一版配方。"
+}

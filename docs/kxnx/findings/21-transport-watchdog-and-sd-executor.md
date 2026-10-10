@@ -213,16 +213,16 @@ if (bl2 && !this.i) {                             // :73-75 由真变假 → 完
 
 | 奎享机制 | 我方现状 | 取舍 |
 |---------|---------|------|
-| 发送侧看门狗 5s + 约 1s（`machine/b/a.java:143-144`/`:191-192`、`machine/b/b.java:20-28`）| `hutuji_pipe.cc:38` `kPollIntervalSec=3` × `hutuji_pipe.cc:47` `kSilentPollLimit=7` ≈ 21s，与 TCP keepalive 19s 互补 | 概念已借鉴，**不改**（我方阈值更宽，容得下换纸类长阻塞）|
-| 失联后**不重发** `?`，只空转计数（`machine/grbl/a.java:388-397`）| 每次 recv 超时都重发 `?`（`hutuji_pipe.cc:192-262`）| **不对齐**：重发能穿越瞬时丢包，奎享那套一旦丢掉那唯一一个 `?` 就必然误判 |
+| 发送侧看门狗 5s + 约 1s（`machine/b/a.java:143-144`/`:191-192`、`machine/b/b.java:20-28`）| `hutuji_pipe.cc:39` `kPollIntervalSec=3` × `hutuji_pipe.cc:48` `kSilentPollLimit=7` ≈ 21s，与 TCP keepalive 19s 互补 | 概念已借鉴，**不改**（我方阈值更宽，容得下换纸类长阻塞）|
+| 失联后**不重发** `?`，只空转计数（`machine/grbl/a.java:388-397`）| 每次 recv 超时都重发 `?`（`hutuji_pipe.cc:193-263`）| **不对齐**：重发能穿越瞬时丢包，奎享那套一旦丢掉那唯一一个 `?` 就必然误判 |
 | RTS/DTR 硬复位（`machine/b/f.java:99-113`）| WiFi Telnet 无 DTR 线 | **不适用** |
 | 攒够 ~100 字节一次 flush（`machine/f/b.java:50-81`、窗口 `machine/grbl/a.java:315-317`）| 逐行等 `ok` | **不改**：瓶颈是等 `ok` 的往返，攒批既不解决又会毁掉逐行错误定位 |
-| 收发缓冲 autoExpand（`a/b/b.java:18-21`）| `kRxLineMax=512` 显式上限（`hutuji_pipe.cc:31`）| **故意不对齐**，属加固项 |
+| 收发缓冲 autoExpand（`a/b/b.java:18-21`）| `hutuji_pipe.cc`中的`kRxLineMax=512`显式上限 | **故意不对齐**，属加固项 |
 | 模态上传对话框（`machine/f/g.java:39`）| 语音下发、无人值守 | **禁止对齐**（决策 ③ 哑管道）|
 | `[ESP220]` + HTTP `/upload`（`machine/c/a.java:148-151`/`:164-171`）| 本机固件无该协议，走 Telnet 逐行 | **不适用** |
 | `i = bl \|\| y()` 把 hold 也算"在打印"（`machine/c/a.java:71-72`）| 以 fresh `Idle` 判完成，fail-closed | **禁止对齐**：hold 计为进行中会把卡死当正常 |
-| 收到第一个状态行才算"已连上"、版本硬写 `"1.1"`（`machine/c/a.java:76-84`）| Grbl banner 验证对端身份（`hutuji_pipe.cc:49-55`）| **不对齐**：banner 更早，且能挡住局域网里别的 `:23` 主机 |
-| stop = `0x85`+`0x7E` 后**排入** G-code 抬笔 + `G90G0 X0Y0`（`machine/f/g.java:91-95`、`machine/grbl/a.java:266-287`/`:298-301`）| `!` → 轮询到 Hold/Idle → `0x18` 丢 planner，抬笔交给复位后探活的首个 `M5`（`hutuji_job.cc:988-1130`）【supersede 2026-08-28：用户「停止」主路径已改断流排空归位（无 `!`/reset），`~` 清不动 Hold 才回落此 reset 序列——见 protocol §4.1】| **不对齐**：奎享的收尾行要等 planner 排空才执行，卡死时永远到不了 |
+| 收到第一个状态行才算"已连上"、版本硬写 `"1.1"`（`machine/c/a.java:76-84`）| Grbl banner 验证对端身份（`hutuji_pipe.cc:50-56`）| **不对齐**：banner 更早，且能挡住局域网里别的 `:23` 主机 |
+| stop = `0x85`+`0x7E` 后**排入** G-code 抬笔 + `G90G0 X0Y0`（`machine/f/g.java:91-95`、`machine/grbl/a.java:266-287`/`:298-301`）| `!` → 轮询到 Hold/Idle → `0x18` 丢 planner，抬笔交给复位后探活的首个 `M5`（`hutuji_job.cc:989-1131`）【supersede 2026-08-28：用户「停止」主路径已改断流排空归位（无 `!`/reset），`~` 清不动 Hold 才回落此 reset 序列——见 protocol §4.1】| **不对齐**：奎享的收尾行要等 planner 排空才执行，卡死时永远到不了 |
 
 ## 7 未验证项与 CFR 边界
 
@@ -231,5 +231,5 @@ if (bl2 && !this.i) {                             // :73-75 由真变假 → 完
 - 三个补全类取自 `decompiled_full/`：`machine/grbl/c.java`、`machine/ui/i.java`、`com/kvenjoy/drawsoft/lib/a.java`。混淆名与主树一致，**但行号基准不同**，不可与主树行号互引。
 - CFR 反编译噪音，别当缺陷记：`machine/grbl/a.java:101-103`、`machine/c/a.java:79-82`/`:96-99`/`:103-105`/`:109-111`/`:118-120`/`:140-142` 都是"new 两个事件对象、给第二个赋值、发第一个"的产物。
 - 尚未读：`machine/e/h.java`（HTTP 上传线程本体）、`machine/grbl/GrblSettings.java` 全貌、`machine/kat/b.java`（仅备案"禁止对齐"）、full 树 `machine/b/e.java` 忙轮询的确切行号。
-- **原记「已知文档漂移，本轮未改」的两处，2026-08-11 复核已在 fork 侧修好**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:44` 现写「串口侧两级静默 5s + 约 1s」（原为 "5s+5s"，与 §2.1 一致），同行引的 `machine/grbl/a.java` 行号也已由 `:382-404` 改成 `:379-408`。此条保留作记录，不再是待办；本仓无改动，改 fork 仍须按 `docs/agent-constraint-matrix.md:34` 跟一次 IDF 构建。
+- **原记「已知文档漂移，本轮未改」的两处，2026-08-11 复核已在 fork 侧修好**：`D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc:45` 现写「串口侧两级静默 5s + 约 1s」（原为 "5s+5s"，与 §2.1 一致），同行引的 `machine/grbl/a.java` 行号也已由 `:382-404` 改成 `:379-408`。此条保留作记录，不再是待办；本仓无改动，改 fork 仍须按 `docs/agent-constraint-matrix.md:34` 跟一次 IDF 构建。
 

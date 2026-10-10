@@ -33,6 +33,8 @@
 > `full` **不会**自动替你跑 fz 门禁（耗时长、依赖本机 fz）。  
 > 改了 `D:/Users/Grbl_Esp32` 后，你必须**自己**跑 fz，且 `overall_status=pass` 才能声称修好。
 
+2026-10-10 产线工具新增独立回归：修改`scripts/factory/`须运行`python -m pytest -q tests/production`（真实NVS用例需要IDF生成器及`HUTUJI_FACTORY_IDF_PYTHON`）。该套与Portal tests均不在本仓profile内，必须分别记录；通过不能替代空白双板首烧、返修、纸面与老化实测。
+
 ### 本门禁与 `deploy/preflight.sh` 的分工（别互相冒充）
 
 本门禁跑在**开发机的仓库树**上；`preflight.sh` 跑在**生产主机的已部署树**上。两者证明的东西不重叠，任一为绿都不能替另一放行：
