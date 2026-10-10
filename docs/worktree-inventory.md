@@ -1418,3 +1418,7 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 ## 2026-09-25 自愈批 1.0.28 OTA
 
 产品提交：S3 `8a9ec02`（TLS 堆预算连续耗尽自愈重启 + status heap 四字段；PROJECT_VER 1.0.28），已推送 origin。1.0.28 freenove 构建日志与镜像 SHA 在 `results/20260924-review-fixes/s3-builds/hutuji.1.0.28/freenove-esp32s3-display-2.8-lcd-build-20260925-180751-994888.log`；export/包装日志在 `results/20260925-selfheal/`。构建脚本 `tmp/build_selfheal_0925.cmd`（纯 ASCII + `set MSYSTEM=` 两坑已内联注释）。固件分发在 lima `/var/hutuji/firmware/s3/freenove-esp32s3-display-2.8-lcd/hutuji.1.0.28/`（已 OTA 落板，设备实证 1.0.28）；lima output 真画测试件已手动删除（未等 TTL）。串口抓包片段 `tmp/serial_draw_probe_0925.log`（含 DTR 复位 boot 记录）留存本机。
+
+## 2026-10-10 量产批三仓续审证据
+
+用户“继续 code review 三仓”。基线hub `3413e22`、S3 `d6b7d98`、量产Grbl `3184ea96`；本轮产品源码只读，新增审查记录 `docs/design/three-repo-production-review-20261010.md` 与本登记。确认5项P2：串口中文SSID被实时字节层吞掉、工厂握手遗留ok导致参数指纹误拒、OTA二次状态缺版本复核、HTTP配网丢尾空格、放行报告附件未进入status完整性检查。均未修复，未连接设备、部署、刷机或运动。脚本 `tmp/trirepo-review-20261010/`；证据 `results/local-only/2026-10-10-trirepo-review/` 保存真实函数宿主探针、编译/运行记录、Portal/产线临时数据库和正常/异常对照。临时身份均为本地虚构，不是产线验收记录；既有资料不清理。该目录仅本机保存，不能把宿主或注入结果当实机故障/放行证明。
