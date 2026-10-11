@@ -297,6 +297,48 @@ def test_xlsx_col_widths_and_merges():
     assert table.merges == [(0, 0, 1)]
 
 
+def test_xlsx_merge_row_range_bounded():
+    """R2-01 回归：巨大 mergeCell 行范围不得按原始区间 range() 空转（导入 DoS）。
+
+    单个 `<mergeCell ref="A1:A100000000"/>` 旧实现要迭代 1e8 次 dict.get；修复后
+    迭代有界于真实行数。断言产物只覆盖真实落盘行，且解析在秒级内完成——旧
+    O(ref 跨度) 实现会耗时数十秒，此墙钟上界必红。
+    """
+    import time
+
+    raw = _xlsx(
+        _sheet_xml(
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>甲</t></is></c></row>'
+            '<row r="2"><c r="A2" t="inlineStr"><is><t>乙</t></is></c></row>',
+            merge_xml='<mergeCells count="1"><mergeCell ref="A1:A100000000"/></mergeCells>',
+        )
+    )
+    t0 = time.perf_counter()
+    doc = parse_document(raw, "xlsx")
+    elapsed = time.perf_counter() - t0
+    table = doc.tables[0]
+    # 纵向合并按行拆成每行一条单列 span，只覆盖真实落盘的两行
+    assert table.merges == [(0, 0, 0), (1, 0, 0)]
+    assert elapsed < 5.0
+
+
+def test_xlsx_merge_cell_count_bounded():
+    """R2-01 收口：mergeCell 条数本身无上界时 O(merges×rows) 仍可被打成 DoS
+    （32MiB 部件可塞 ~1.2M 条 × 500 行）。超 MAX_MERGE_CELLS 必须拒绝，而非
+    累积整段 raw_merges 再逐行求交。"""
+    many = "".join(
+        f'<mergeCell ref="A{i}:B{i}"/>' for i in range(1, doc_ingest.MAX_MERGE_CELLS + 2)
+    )
+    raw = _xlsx(
+        _sheet_xml(
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>甲</t></is></c></row>',
+            merge_xml=f'<mergeCells count="{doc_ingest.MAX_MERGE_CELLS + 1}">{many}</mergeCells>',
+        )
+    )
+    with pytest.raises(DocIngestError, match="合并单元格过多"):
+        parse_document(raw, "xlsx")
+
+
 def test_xlsx_hidden_sheet_skipped():
     visible = _sheet_xml('<row r="1"><c r="A1" t="inlineStr"><is><t>可见</t></is></c></row>')
     hidden = _sheet_xml('<row r="1"><c r="A1" t="inlineStr"><is><t>隐藏</t></is></c></row>')

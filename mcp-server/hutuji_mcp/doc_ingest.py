@@ -33,6 +33,7 @@ MAX_TABLES = 8  # xlsx 工作表数上限
 MAX_TABLE_ROWS = 500
 MAX_TABLE_COLS = 24
 MAX_CELL_CHARS = 40
+MAX_MERGE_CELLS = 2048  # mergeCell 条数上限：封堵 O(merges×rows) 展开 DoS（32MiB 部件可塞 ~1.2M 条）
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -546,6 +547,8 @@ def _xlsx_sheet(
         parsed = _merge_ref(mc.get("ref") or "")
         if parsed is not None:
             raw_merges.append(parsed)
+            if len(raw_merges) > MAX_MERGE_CELLS:
+                raise DocIngestError(f"合并单元格过多（上限 {MAX_MERGE_CELLS} 个）")
 
     rows: list[list[str]] = []
     orig_to_out: dict[int, int] = {}
@@ -601,9 +604,11 @@ def _xlsx_sheet(
     for r1, c1, r2, c2 in raw_merges:
         if c1 >= ncols:
             continue
-        for r in range(r1, r2 + 1):
-            out_r = orig_to_out.get(r)
-            if out_r is not None:
+        # mergeCell ref 行范围无上界（可指整列 A1:A1048576 甚至更大），绝不能对
+        # 原始行号区间 range()——那是 O(ref 跨度) 空转、可被单个合并元素打成 DoS。
+        # 改为与实际落盘行号（≤MAX_TABLE_ROWS）求交，迭代次数有界于真实行数。
+        for orig_r, out_r in orig_to_out.items():
+            if r1 <= orig_r <= r2:
                 merges.append((out_r, c1, min(c2, ncols - 1)))
     return rows, col_widths, merges
 

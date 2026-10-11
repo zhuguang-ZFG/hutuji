@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 
@@ -19,6 +21,9 @@ ARTICLE_AI_MAX_CHARS = 2000
 ARTICLE_PROMPT_MAX_CHARS = 500
 ARTICLE_LLM_MAX_TOKENS = 1600
 ARTICLE_LLM_TIMEOUT_SECONDS = 60.0
+# 回包字节上限：文章正文短（≤2000 字 ≈ 6KiB），64KiB 远够正常生成；
+# 必须在网络读取阶段生效，防故障/被接管上游推爆内存（与 chat._call_llm 同口径机制）。
+ARTICLE_LLM_MAX_RESPONSE_BYTES = 64 * 1024
 
 _GENERATE_SYSTEM = """你是中文写作助手，为手写字机生成可誊抄的简体正文。
 硬规则：
@@ -91,20 +96,28 @@ async def generate_or_polish(*, mode: str, prompt: str = "", text: str = "") -> 
     }
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
 
+    body = bytearray()
     try:
-        async with httpx.AsyncClient(timeout=ARTICLE_LLM_TIMEOUT_SECONDS) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-    except httpx.HTTPError as exc:
+        async with asyncio.timeout(ARTICLE_LLM_TIMEOUT_SECONDS):
+            async with httpx.AsyncClient(timeout=ARTICLE_LLM_TIMEOUT_SECONDS) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        logger.warning("文章 LLM HTTP %s", resp.status_code)
+                        # 只带状态码，不回显上游正文
+                        raise LlmError(f"写作服务返回 {resp.status_code}")
+                    async for chunk in resp.aiter_bytes(16384):
+                        body.extend(chunk)
+                        if len(body) > ARTICLE_LLM_MAX_RESPONSE_BYTES:
+                            raise LlmError("写作服务响应超过大小上限")
+    except LlmError:
+        raise
+    except (httpx.HTTPError, TimeoutError) as exc:
         raise LlmError(f"调用写作服务失败：{type(exc).__name__}") from exc
 
-    if resp.status_code != 200:
-        logger.warning("文章 LLM HTTP %s", resp.status_code)
-        raise LlmError(f"写作服务返回 {resp.status_code}")
-
     try:
-        data = resp.json()
+        data = json.loads(bytes(body).decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
+    except (UnicodeDecodeError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise LlmError("写作服务回包异常") from exc
 
     if not isinstance(content, str):
