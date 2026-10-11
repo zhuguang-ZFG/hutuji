@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-11 FR11六项修复准备发布：停止收尾控制隔离、旧会话实时控制、OTA板型路径与异常恢复均沿用已有本地候选。用户明确授权升版/提交推送/部署刷机，S3独立升1.0.40，按量产Grbl→S3顺序执行；准备阶段Grbl离线，尚未刷机或部署，不覆盖现有1.0.39。此前同号候选及宿主369/双板构建只作历史证据，新版本结果另记；`task_verify`未覆盖固件，通知具体文案自动断言减少已披露，实体放行继续Hold。详见`../docs/design/firmware-review-fixes-20261011.md`执行节及readiness。
+
 2026-10-10 PR10修复：配对连接完成只读$I的完整MAC/终止ok事务后才发布连接，分包/截断/错误不遗留应答给正式授权探测。16项新增真实握手及状态机回归通过，S3全套宿主344项通过；**发布supersede候选状态**：301eb65/1.0.38已OTA至固定Freenove，量产Grbl b280e525也已升级；现役factory_paired=false，不能以本次升级代替配对实机验证。构建、SHA和回退见`../docs/design/three-repo-production-review-20261010.md`发布节。
 
 2026-10-09 1.0.34已发布：S3 `00fd3ee`在固定量产Freenove（MAC `b8:1f:3f:c4:58:2c`）OTA启动确认，3080272B/SHA `cea42da2…2818af`。三次真实下载断流均失败回Idle，最后完整同版镜像升级与启动ELF复验通过，公网推荐一致；不再沿用下条1.0.33未发布候选SHA。完整证据和回退见`../docs/design/three-repo-followup-review-20261009.md`。

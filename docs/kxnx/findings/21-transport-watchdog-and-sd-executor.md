@@ -214,7 +214,7 @@ if (bl2 && !this.i) {                             // :73-75 由真变假 → 完
 | 奎享机制 | 我方现状 | 取舍 |
 |---------|---------|------|
 | 发送侧看门狗 5s + 约 1s（`machine/b/a.java:143-144`/`:191-192`、`machine/b/b.java:20-28`）| `hutuji_pipe.cc:39` `kPollIntervalSec=3` × `hutuji_pipe.cc:48` `kSilentPollLimit=7` ≈ 21s，与 TCP keepalive 19s 互补 | 概念已借鉴，**不改**（我方阈值更宽，容得下换纸类长阻塞）|
-| 失联后**不重发** `?`，只空转计数（`machine/grbl/a.java:388-397`）| 每次 recv 超时都重发 `?`（`hutuji_pipe.cc:193-263`）| **不对齐**：重发能穿越瞬时丢包，奎享那套一旦丢掉那唯一一个 `?` 就必然误判 |
+| 失联后**不重发** `?`，只空转计数（`machine/grbl/a.java:388-397`）| 每次 recv 超时都重发 `?`（`hutuji_pipe.cc:196-266`）| **不对齐**：重发能穿越瞬时丢包，奎享那套一旦丢掉那唯一一个 `?` 就必然误判 |
 | RTS/DTR 硬复位（`machine/b/f.java:99-113`）| WiFi Telnet 无 DTR 线 | **不适用** |
 | 攒够 ~100 字节一次 flush（`machine/f/b.java:50-81`、窗口 `machine/grbl/a.java:315-317`）| 逐行等 `ok` | **不改**：瓶颈是等 `ok` 的往返，攒批既不解决又会毁掉逐行错误定位 |
 | 收发缓冲 autoExpand（`a/b/b.java:18-21`）| `hutuji_pipe.cc`中的`kRxLineMax=512`显式上限 | **故意不对齐**，属加固项 |

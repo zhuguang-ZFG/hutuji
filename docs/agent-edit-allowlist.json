@@ -1,4 +1,9 @@
 {
+  "firmware_review_fixes_20261011_authorized": {
+    "note": "用户要求继续审查小派与量产Grbl并开始全量修复。范围为绘图实时控制会话隔离、OTA目标板型及异常恢复、WebUI JSON字符串编码与WebSocket长输出边界；保留运动参数、换纸、授权、引脚和现役部署。",
+    "contract": "docs/design/firmware-review-fixes-20261011.md；docs/protocol.md §1.2/§3/§4/§10.4.22",
+    "paths": ["docs/**", "tmp/fw-review-20261011/**", "results/local-only/2026-10-11-firmware-review/**", "D:/Users/xiaozhi-esp32/main/application.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h", "D:/Users/xiaozhi-esp32/scripts/tests/**", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/JSONEncoder.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/**"]
+  },
   "dr10_release_20261011_authorized": {
     "note": "用户要求处理未提交、部署、刷机与验收事项并明确提交部署验证；随后确认量产机已装纸笔、运动范围无障碍。允许DR10三仓及fz夹具提交推送、S3升1.0.39、双机Portal部署、固定身份量产双板升级及控制/参数/纸面/老化取证。保留NVS、身份和全部机设，不代填实体测量或法规签核。",
     "contract": "docs/design/three-repo-deep-review-20261010.md；protocol §1.5/§3/§4/§10.4.22",
