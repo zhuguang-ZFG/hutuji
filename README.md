@@ -1,6 +1,6 @@
 # hutuji — AI 绘图自动换纸写字机
 
-2026-10-13 生图通道代码已双机部署：`f28477a` 的 `bitmap_svg.py`/`image_racers.py` 由 `ef84526` LF blob 出包，主备 deploy、带包 verify、远端 SHA 与内联 `b64_json` 烟测均通过；preflight 主/备 25/34、26/34，已知节点配置差异未宣称全项绿。生产仍是旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 按泄露处理，未切模型或发起付费 live draw。S3 run `38275272261` 待终态，Grbl 刷机等待物理复位，详见[本批发布记录](docs/design/three-repo-release-20261012.md)和 readiness。
+2026-10-13 生图通道代码已双机部署：`f28477a` 的 `bitmap_svg.py`/`image_racers.py` 由 `ef84526` LF blob 出包，主备 deploy、带包 verify、远端 SHA 与内联 `b64_json` 烟测均通过；preflight 主/备 25/34、26/34，已知节点配置差异未宣称全项绿。生产仍是旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 按泄露处理，未切模型或发起付费 live draw。S3 run `38275272261`（`2b997d4`）已 completed/success，失败/取消作业为空；Grbl 刷机等待物理复位，详见[本批发布记录](docs/design/three-repo-release-20261012.md)和 readiness。
 
 2026-10-10 三仓PR10修复：串口配网拒绝实时控制保留字符，HTTP保留凭据空格，工厂握手完整消费应答，OTA发送前复核当前版本，产线导出检查放行附件。5项修复与39项新增回归、右括号SSID补修1项见[修复及发布记录](docs/design/three-repo-production-review-20261010.md)。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38和量产Grbl b280e525已升级；HTTP参数保真、恢复原SSID及48项参数保持通过。工厂配对/手机矩阵与纸面/老化等实体缺证仍见readiness。
 

@@ -1,6 +1,6 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
-2026-10-13 生图通道双机部署收口：Hub `ef84526`（运行时代码来自 `f28477a`）的 `bitmap_svg.py`、`image_racers.py` 从 LF blob 出包，阿里/京东 deploy 与带包 verify 通过，远端 SHA 逐位相符，内联 `b64_json` 解码烟测两节点 PASS；回滚号见 `docs/deployment.md`。preflight 主/备 25/34、26/34，已知 unit/drop-in/nginx/热备角色差异未宣称全绿。生产 env 仍旧模型与 breaker shadow，商汤 key 按泄露处理，未切模型、未发起付费 live draw。S3 run `38275272261` 待终态，量产 Grbl 仍等物理断电重启；本机证据、部署包和临时脚本不入提交，其他未跟踪资产及 quota 工作流保持不动。
+2026-10-13 生图通道双机部署与 CI 收口：Hub `ef84526`（运行时代码来自 `f28477a`）的 `bitmap_svg.py`、`image_racers.py` 从 LF blob 出包，阿里/京东 deploy 与带包 verify 通过，远端 SHA 逐位相符，内联 `b64_json` 解码烟测两节点 PASS；回滚号见 `docs/deployment.md`。preflight 主/备 25/34、已知 unit/drop-in/nginx/热备角色差异未宣称全绿。生产 env 仍旧模型与 breaker shadow，商汤 key 按泄露处理，未切模型、未发起付费 live draw。S3 `2b997d4` 的 Build Boards run `38275272261` 已 completed/success，失败/取消作业为空；量产 Grbl 仍等物理断电重启；本机证据、部署包和临时脚本不入提交，其他未跟踪资产及 quota 工作流保持不动。
 
 2026-10-12 R7 UTF-16 文档导入修复：续用接手时 `mcp-server/tests/test_doc_ingest.py` 已有的九项回归；新增解析器 DOCTYPE 拒绝回调于 `mcp-server/hutuji_mcp/doc_ingest.py`，同步 protocol §4.2、续审记录、readiness 与测试计数。证据目录 `results/local-only/2026-10-12-utf16-review/`（门禁、文档解析及门户文档回归）；未提交、未部署、未刷机。S3 和量产 Grbl 已跟踪文件无改动，普通 Grbl 既有 `.gitignore` 改动与本仓未跟踪资产保留。根因及拒绝时机见续审 R7，软件验证不代替实体验收。
 

@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-2026-10-13 生图通道代码已双机部署：Hub 代码提交 `f28477a`、收口文档 `ef84526`；`bitmap_svg.py`/`image_racers.py` 从 `ef84526` LF blob 出包，阿里/京东各自 `deploy` 与带包 `verify` 通过，远端 SHA 逐位相符，内联 `b64_json` 解码烟测两节点均 PASS。回滚号阿里 `5fec399163504f37831943465b9cad16`、京东 `4f790cd3b80d4ca0a5d858bc906d72b0`。两节点 preflight 分别 25/34、26/34，失败项是已登记的 unit/drop-in/nginx/热备角色差异，不能写成全项 PASS。生产 env 仍为旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 按泄露处理，未切模型、未做付费 live draw。京东部署使用 SOP 指定密钥后安全闸恢复；S3 CI run `38275272261` 仍待终态，量产 Grbl 刷机仍等物理复位。发布与未完成边界见 `docs/design/three-repo-release-20261012.md` 和 readiness。
+2026-10-13 生图通道代码已双机部署：Hub 代码提交 `f28477a`、收口文档 `ef84526`；`bitmap_svg.py`/`image_racers.py` 从 `ef84526` LF blob 出包，阿里/京东各自 `deploy` 与带包 `verify` 通过，远端 SHA 逐位相符，内联 `b64_json` 解码烟测两节点均 PASS。回滚号阿里 `5fec399163504f37831943465b9cad16`、京东 `4f790cd3b80d4ca0a5d858bc906d72b0`。两节点 preflight 分别 25/34、26/34，失败项是已登记的 unit/drop-in/nginx/热备角色差异，不能写成全项 PASS。生产 env 仍为旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 按泄露处理，未切模型、未做付费 live draw。京东部署使用 SOP 指定密钥后安全闸恢复；S3 CI run `38275272261`（commit `2b997d4`）已 completed/success，失败/取消作业为空；量产 Grbl 刷机仍等物理复位。发布与未完成边界见 `docs/design/three-repo-release-20261012.md` 和 readiness。
 
 2026-10-10 PR10修复：串口配网开口前拒绝非ASCII及`? ! ~`，中文走HTTP；HTTP保留ESP参数首尾空格。工厂配对$I须消费完整终止ok后发布连接，Portal第二次状态版本必须低于目标，产线released保留历史但missing核当前代次三份放行附件。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38及量产Grbl b280e525已升级，HTTP右括号/中文/空格实机保真并恢复原SSID，48项参数不变；factory_paired仍false、纸面/老化未验。回归、回退及边界见`docs/design/three-repo-production-review-20261010.md`发布节。
 
