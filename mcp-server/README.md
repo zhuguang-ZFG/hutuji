@@ -41,7 +41,7 @@ LLM（OpenAI 兼容）文生图 → 位图 → sknw 中心线描摹 → SVG ─�
 | `HUTUJI_LLM_API_KEY` | （空） | LLM key；未配置时 `hutuji_draw` 返回清晰错误 |
 | `HUTUJI_LLM_MODEL` | `auto` | 模型名 |
 | `HUTUJI_IMAGE_MODEL` | `agnes-image-2.1-flash` | Agnes 文生图模型；也是商汤失败时的受控回退，与 LLM 共用 base_url/key |
-| `HUTUJI_SENSENOVA_BASE_URL` / `_API_KEY` / `_IMAGE_MODEL` | 全空 | 可选商汤 PNG 主后端，启用时三项必须齐全；官方配置为 `https://token.sensenova.cn/v1` / 独立 key / `sensenova-u1-fast`。请求固定竖版 `1760x2368`、`n=1`、`watermark=false`；单次失败立即回退 Agnes。仍走 PNG→中心线描摹，不允许改成模型直写 SVG。2026-08-28 评测：平台新型号 `sensenova-u1.5-lite` 实测 33–46s/张（u1-fast 6.5–8.3s）且活不过 20s attempt 闸，结论不接入，勿重试（证据 `../results/local-only/2026-08-28/u15-lite-bench/`） |
+| `HUTUJI_SENSENOVA_BASE_URL` / `_API_KEY` / `_IMAGE_MODEL` | 全空 | 可选商汤 PNG 后端，三项必须齐全；当前模型为 `sensenova-u1.5-lite`，旧 `sensenova-u1-fast` 已被上游移除。请求固定竖版 `1760x2368`、`n=1`、`watermark=false`；响应可为 `data[0].url` 或 `data[0].b64_json`，URL 路走 SSRF 闸，内联图严格 base64 解码后直接进入同一描摹链。该慢通道按 29–64s 实测使用 75s 单次尝试、同轮零重试，响应 JSON 上限 10MiB，解码图片仍受 16MiB 上限；其余端点维持 64KiB JSON 闸。2026-08-28 的“不接入”结论已被 2026-10-12 上游下架 u1-fast 的事实 supersede；仍禁止模型直写 SVG。 |
 | `HUTUJI_IMAGE_FALLBACK_URL` | （空） | 免鉴权备用生图端点；置空=禁用。旧默认 `imagefree.tingfengai.art` 已于 2026-09-09 生产持续 403，默认关闭；自建 https 端点再开。请求 `{prompt, aspect_ratio}`、响应扁平 `image_url` |
 | `HUTUJI_OUTPUT_DIR` | `./output` | G-code/SVG 产出目录 |
 | `HUTUJI_PUBLIC_BASE_URL` | `http://127.0.0.1:8300` | 返回给 S3 的下载 URL 前缀；VPS 上填 nginx 的 HTTPS 公网地址 |

@@ -1,5 +1,7 @@
 # hutuji — AI 绘图自动换纸写字机
 
+2026-10-12 生图通道修复候选：商汤上游移除 `sensenova-u1-fast` 后，现存 `sensenova-u1.5-lite` 返回 `b64_json`，旧服务在 URL 提取处拒绝，叠加 Agnes 免费额度与 1 分钟限流造成可用性和质量同时下降。现已支持 URL/内联图双形态，商汤独立 75s 单次预算与 10MiB 响应闸，描摹、SSRF、16MiB 图片闸和先到先得对冲策略不变；MCP 1669 项与 e2e 通过。S3 CI 修复提交 `45a0149` 保留 P4 的 IDF6 覆盖、移除其已废弃的 IDF5.5 兼容项。部署、CI 与 Grbl 物理复位阻塞见[本批发布记录](docs/design/three-repo-release-20261012.md)和 readiness。
+
 2026-10-10 三仓PR10修复：串口配网拒绝实时控制保留字符，HTTP保留凭据空格，工厂握手完整消费应答，OTA发送前复核当前版本，产线导出检查放行附件。5项修复与39项新增回归、右括号SSID补修1项见[修复及发布记录](docs/design/three-repo-production-review-20261010.md)。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38和量产Grbl b280e525已升级；HTTP参数保真、恢复原SSID及48项参数保持通过。工厂配对/手机矩阵与纸面/老化等实体缺证仍见readiness。
 
 2026-10-10 量产工具本地候选：`scripts/factory/`提供完整镜像打包、逐台身份/参数核验、烧录备份、验收台账与可迁移档案，`production/`保存已批准配方；使用见[工位手册](production/README.md)。双板配对、中文SSID和Portal固件灰度尚未部署；实体首件、手机与交付签核缺项仍见[改进记录](docs/design/production-readiness-20261010.md)及readiness。产线回归须单独跑`python -m pytest -q tests/production`，不由hub门禁代替。
@@ -109,6 +111,8 @@
 3. **③ 智能端**：MCP 生成服务 + 小智官方云 + 阿里云主/京东云热备 — 🟡 当前生产含 `4af959d` + 2026-08-30 19:04 阿里云 **Redis 队列/worker/PG shadow**（OSS 未开；京东云热备不跑队列）。阿里云 preflight 当场 23/33、京东云数字须按热备口径读；真实语音出图 HIL 未执行，剩余设备预览/控制人机验收、纸面画质与生产签核。
 
 > **生图后端边界（2026-08-20）**：正式 `hutuji_draw` 始终保持「PNG → 中心线描摹 → SVG → G-code」。同题完整 draw 事务由独立任务持有，云端取消只结束 waiter；约 35 秒重试复用原任务、同一个限流名额、同一份产物，不得另起付费生成。位图层另有 10 分钟/16 项中心线缓存与覆盖生图+描摹的 in-flight 合并；未命中时商汤 `sensenova-u1-fast`、Agnes、imagefree、可选硅流（schnell + 可图 Kolors）、可选魔搭 Qwen-Image 与可选 TCB 混元（2026-09-08 起，同为对冲 racer）并发对冲、谁先出图用谁，商汤瞬态 500 快速重试一次，全失败才报错。同一逻辑生成轮仍按既定对冲同时调用已配置后端；取消重试去重不改变该成本/延迟决策。同一 SVG 的 G-code 内容缓存命中时跳过 vpype；禁止切成模型直写 SVG。Pollinations 经 6 个冷 seed + 真实描摹否决（5 次 44–46s，含照片/3D 阴影与纹理，描摹 300s 未收敛），不得加入正式 racer。聊天中出现过的 key 视为泄露，不得使用。
+
+> **2026-10-12 生图后端 supersede**：商汤现役模型改为 `sensenova-u1.5-lite`；旧 `u1-fast` 已被上游移除。u1.5-lite 的 URL/`b64_json` 双响应共用一条严格提取链，内联图不经过 URL/SSRF 路但仍受 16MiB 图片闸并进入同一中心线描摹。该慢通道按实测设 75s 单次预算、同轮不重试；其余后端和 first-past-the-post 对冲不变。
 
 > **本地缓存优先（2026-08-24，设计稿用户批准）**：`hutuji_draw` 事务在付费生图前先查 Quick Draw 本地缓存（`quickdraw.lookup`，中文主题→官方类目映射 v4（402 别名键→298 类）已对账 categories.txt；数据 2026-08-25 C 组合换装精选版每类 50 条（14900 样本，原始 200 条/类本地备份）；质量路由：普通描述走 AI 位图链、仅简笔风描述查 QD）；命中则跳过付费生图与付费限流名额，但服务异步 G-code 转换仍与付费路线共用最多 2 个 vpype 子进程的资源闸，直接复用位图路线的同一 SVG 产物面与 §5 校验（含预览 PNG），未命中/禁用/数据损坏一律回落既有 AI 对冲。数据由 `mcp-server/scripts/quickdraw_prep.py` 离线准备（CC BY 4.0 署名见 `mcp-server/hutuji_mcp/QUICKDRAW-ATTRIBUTION.md`），生产开关 `HUTUJI_QUICKDRAW_DIR`，空值即回纯 AI 链。
 4. **④ 小批量出货**：逐台质检、追溯、合规、客户交付 — 🔴 流程已建，须待阶段 0–8 真实证据后放行

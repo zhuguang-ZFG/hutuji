@@ -18,6 +18,8 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from collections import OrderedDict
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import math
@@ -78,10 +80,17 @@ _BITMAP_STYLE = (
 
 _IMAGE_SIZE = "1024x1024"
 _SENSENOVA_IMAGE_SIZE = "1760x2368"
-_SENSENOVA_ATTEMPT_TIMEOUT_SECONDS = 20.0
-# 商汤 500 实测偶发、同 payload 紧接着可 200；只快速重试一次，避免单次波动
-# 把本来 12s 的快路径让给更慢 racer。仍受单次 20s attempt timeout 约束。
-_SENSENOVA_RETRY_DELAYS_SECONDS = (0.5,)
+# 2026-10-12：上游聚合器下架 u1-fast，商汤路仅剩 sensenova-u1.5-lite——实测
+# 29~64s/张（1760×2368 与 1024² 各测两轮，1024² 反而更慢）且响应无 url、只有
+# b64_json。75s 覆盖 ≥1.2× 最坏实测值；单次尝试不重试——u1.5-lite 出图慢，同端点
+# 重试会把 75s 翻倍并撞穿桥接看门狗 300s，对冲轮的「全忙重跑」本身就是它的重试。
+# 旧值 20s/(0.5,) 是 u1-fast 7~8s 时代的口径（2026-08-28 bench.json）。
+_SENSENOVA_ATTEMPT_TIMEOUT_SECONDS = 75.0
+_SENSENOVA_RETRY_DELAYS_SECONDS: tuple[float, ...] = ()
+# b64_json 内联图：实测 1760×2368 响应 JSON ~6.2MB；10MiB 留 ~1.5× 余量，且解码
+# 结果 ≤7.5MB 仍在 16MiB 下载上限内。仅商汤路放宽；其余端点维持 64KiB JSON 闸
+# （R10-BMP-03 的流式上限口径不变）。
+_SENSENOVA_RESPONSE_MAX_BYTES = 10 * 1024 * 1024
 # SiliconFlow 双 racer：schnell（4 步，速度标杆）与可图 Kolors（12 步，已备案
 # Beijing-KeTu-202404280003，中文提示词原生）同 key 并发对冲。单次尝试不重试——
 # 其他 racer 就是它的重试。官方 OpenAPI：POST /v1/images/generations，响应
@@ -106,6 +115,8 @@ _bitmap_cache_clock = time.monotonic
 # 单次尝试的完整上限：agnes 实测 10~22s/张，45s 仍留 >2× 余量。不许无限挂，
 # 也不给 90s：主链最坏 3×45+2×30 下载 ≈ 195s；含备用单次尝试 ≈ 240s，仍低于
 # 桥接看门狗 300s（WATCHDOG_STALL_SECONDS，超时判死重连会丢掉在途 draw 应答）。
+# 商汤路另按 u1.5-lite 慢通道单列 75s 单次尝试（见其常量注释）：一轮对冲最坏
+# 75+2.5+75≈152.5s，与主链同口径低于 300s。
 _IMAGE_ATTEMPT_TIMEOUT_SECONDS = 45
 # 下载单独给更紧的上限：≤16MB 的 PNG 走 30s 已极宽裕。下载不像生图——
 # 重试不再计费，慢连接不值得占住 DrawLimiter 名额久等（课堂级默认并发 8）。
@@ -866,6 +877,7 @@ async def _post_image_request(
     provider: str,
     retry_delays: tuple[float, ...] | None = None,
     attempt_timeout_seconds: float = _IMAGE_ATTEMPT_TIMEOUT_SECONDS,
+    max_bytes: int = _IMAGE_API_MAX_BYTES,
 ) -> dict:
     """两个生图端点共用的 POST + 瞬态重试 + 流式上限闸；返回解析后的 JSON object。
 
@@ -884,9 +896,15 @@ async def _post_image_request(
             # 返回时正文已被 httpx 全量缓冲，事后检查拦不住内存暴涨；恶意/
             # 故障上游在超时窗口内可推送 GB 级正文。声明闸省流量，逐块累计
             # 闸兜住 chunked/畸形头，两道闸都在数据进内存前生效。
+            # 每次请求覆盖 httpx 超时：共享 client 默认 45s 读超时会把慢通道
+            # （u1.5-lite 实测 29~64s 无首字节）误杀；外层 asyncio.timeout 仍是硬闸。
             async with asyncio.timeout(attempt_timeout_seconds):
                 async with client.stream(
-                    "POST", url, json=payload, headers=headers
+                    "POST",
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=attempt_timeout_seconds,
                 ) as resp:
                     status = resp.status_code
                     raw = bytearray()
@@ -895,11 +913,11 @@ async def _post_image_request(
                         if (
                             declared
                             and declared.isdigit()
-                            and int(declared) > _IMAGE_API_MAX_BYTES
+                            and int(declared) > max_bytes
                         ):
                             raise BitmapError(f"{provider} 响应超过读取上限")
                         async for chunk in resp.aiter_bytes():
-                            if len(raw) + len(chunk) > _IMAGE_API_MAX_BYTES:
+                            if len(raw) + len(chunk) > max_bytes:
                                 raise BitmapError(f"{provider} 响应超过读取上限")
                             raw.extend(chunk)
             if status == 200:
@@ -931,19 +949,43 @@ async def _post_image_request(
     return data
 
 
-def _extract_agnes_image_url(data: dict) -> str:
-    """OpenAI 兼容 images/generations 的取链：data[0].url。"""
+def _extract_agnes_image_url(data: dict) -> str | bytes:
+    """OpenAI 兼容 images/generations 的取链：data[0].url；无 url 时解 data[0].b64_json。
+
+    2026-10-12：商汤聚合器下架 u1-fast 后仅剩的 u1.5-lite 不带 url，图片以
+    base64 内联在计费响应里（实测 ~6MB JSON）。解出字节直接交给描摹链，
+    省一跳 CDN；有 url 的既有端点行为逐字不变。
+    """
     try:
-        image_url = data["data"][0]["url"]
-    except (KeyError, IndexError, TypeError) as exc:
+        item = data["data"][0]
+        image_url = item["url"]
+    except KeyError:
+        return _decode_inline_b64_image(data)
+    except (IndexError, TypeError) as exc:
         raise BitmapError(f"生图 API 响应结构异常（{type(exc).__name__}）") from exc
     if not isinstance(image_url, str):
         raise BitmapError("生图 API 未返回有效的 https 图片地址")
     return image_url
 
+
+def _decode_inline_b64_image(data: dict) -> bytes:
+    try:
+        b64 = data["data"][0]["b64_json"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise BitmapError(f"生图 API 响应结构异常（{type(exc).__name__}）") from exc
+    if not isinstance(b64, str) or not b64:
+        raise BitmapError("生图 API 未返回有效的 https 图片地址")
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (ValueError, binascii.Error):
+        raise BitmapError("生图 API 的 b64_json 不是合法 base64") from None
+    if not raw:
+        raise BitmapError("生图 API 未返回有效的 https 图片地址")
+    return raw
+
 async def _request_agnes_image_url(
     client: httpx.AsyncClient, description: str
-) -> str:
+) -> str | bytes:
     url = f"{settings.llm_base_url.rstrip('/')}/images/generations"
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
     styled = {
@@ -974,8 +1016,8 @@ async def _request_agnes_image_url(
 
 async def _request_sensenova_image_url(
     client: httpx.AsyncClient, description: str
-) -> str:
-    """调用商汤 U1 Fast 的官方 PNG 接口；单次尝试 20s 尾延闸，供对冲赛跑。"""
+) -> str | bytes:
+    """调用商汤聚合器 PNG 接口（现仅剩 u1.5-lite：b64_json 内联出图）；单次尝试 75s。"""
     url = f"{settings.sensenova_base_url.rstrip('/')}/images/generations"
     payload = {
         "model": settings.sensenova_image_model,
@@ -993,6 +1035,7 @@ async def _request_sensenova_image_url(
         "商汤生图 API",
         retry_delays=_SENSENOVA_RETRY_DELAYS_SECONDS,
         attempt_timeout_seconds=_SENSENOVA_ATTEMPT_TIMEOUT_SECONDS,
+        max_bytes=_SENSENOVA_RESPONSE_MAX_BYTES,
     )
     return _extract_agnes_image_url(data)
 
@@ -1168,7 +1211,7 @@ def _all_errors_busy(errors: dict[str, BitmapError]) -> bool:
 
 async def _race_dynamic_image_racers(
     client: httpx.AsyncClient, description: str, racers: list[dict[str, Any]]
-) -> str:
+) -> str | bytes:
     from . import breaker, job_ledger
     from .image_racers import request_racer_image_url
 
@@ -1196,7 +1239,7 @@ async def _race_dynamic_image_racers(
         task_meta[task] = (label, backend_id)
     errors: dict[str, BitmapError] = {}
     pending: set[asyncio.Task] = set(task_meta)
-    winner: str | None = None
+    winner: str | bytes | None = None
     try:
         while winner is None and pending:
             done, pending = await asyncio.wait(
@@ -1241,7 +1284,7 @@ async def _race_dynamic_image_racers(
 
 async def _race_image_backends(
     client: httpx.AsyncClient, description: str
-) -> str:
+) -> str | bytes:
     """商汤 / Agnes / imagefree 并发对冲；优先运营后台 image_racers，空则 break-glass env。"""
     from . import breaker, job_ledger
     from .portal_settings import portal_image_racers
@@ -1251,7 +1294,7 @@ async def _race_image_backends(
         return await _race_dynamic_image_racers(client, description, dynamic)
 
     racers: list[
-        tuple[str, str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str]]]
+        tuple[str, str, Callable[[httpx.AsyncClient, str], Coroutine[None, None, str | bytes]]]
     ] = []
     enabled = await asyncio.to_thread(lambda: {
         name: _image_backend_enabled(name)
@@ -1289,7 +1332,7 @@ async def _race_image_backends(
     race_t0 = time.monotonic()
     errors: dict[str, BitmapError] = {}
     pending: set[asyncio.Task] = set(task_meta)
-    winner: str | None = None
+    winner: str | bytes | None = None
     try:
         while winner is None and pending:
             done, pending = await asyncio.wait(
@@ -1371,7 +1414,16 @@ async def _fetch_image_png(description: str, *, transport: httpx.AsyncBaseTransp
     async with httpx.AsyncClient(
         timeout=_IMAGE_ATTEMPT_TIMEOUT_SECONDS, transport=transport
     ) as client:
-        image_url = await _race_image_backends(client, description)
+        image = await _race_image_backends(client, description)
+        if isinstance(image, bytes):
+            # b64_json 内联图（商汤 u1.5-lite）：图已在计费响应里，无 URL 可跳，
+            # 也不存在 SSRF 面；字节闸与下载路同口径。PNG magic 校验留给描摹链
+            # （与 URL 路一致）。
+            if len(image) > _IMAGE_DOWNLOAD_MAX_BYTES:
+                raise BitmapError("图片超过下载上限")
+            logger.info("生图内联返回：%d 字节", len(image))
+            return image
+        image_url = image
         # 只验 https 前缀挡不住内网 https 地址（SSRF，见 IMG-URL-SSRF-GAP）。
         _validate_image_download_url(image_url)
 

@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-12 生图通道修复候选：商汤 `sensenova-u1-fast` 已被上游移除，`sensenova-u1.5-lite` 只返回 `b64_json`。MCP 已支持 URL 优先/严格 base64 内联图，商汤独立 75s 单次预算与 10MiB JSON 闸，解码后仍过 16MiB 图片上限；不改 PNG→中心线→G-code、SSRF URL 闸和先到先得对冲。9 项回归、MCP 1669 与 e2e 通过；部署和付费/模型选择边界见 `docs/design/three-repo-release-20261012.md`。
+
 2026-10-10 PR10修复：串口非ASCII及`? ! ~`开口前拒绝，中文走HTTP且保留ESP参数首尾空格；配对$I完整消费终止ok才发布连接；Portal复核二次状态版本；产线missing检查当前代次release三报告附件，released仍为历史事实。39项新增回归及右括号SSID补修1项；**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38与量产Grbl b280e525已升级，HTTP参数实机保真/恢复和48项参数保持通过。配对、手机矩阵、纸面/老化仍有缺证，详见`docs/design/three-repo-production-review-20261010.md`发布节。
 
 2026-10-09 发布后续审本地候选：首笔/试笔绑定连接与banner；Grbl超长行按客户端丢弃至CR/LF；Portal仅认明确previewing，并以作品地址请求S3锁内确认，旧固件无`confirm_by_url`能力时提示人工确认。用户“开始修复改进”授权Protocol.cpp仅超长行解析修复，三板confirm仅可选参数透传；不改运动/换纸/引脚。源码及未发布边界见`docs/design/three-repo-next-review-20261009.md`。

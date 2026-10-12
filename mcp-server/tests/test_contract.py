@@ -2850,6 +2850,109 @@ def test_bitmap_fetch_hedge_both_fail_report_both_sides(
     assert "Agnes 同样失败" in msg
 
 
+def test_bitmap_fetch_sensenova_b64_inline_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """商汤 u1.5-lite 无 url 只有 b64_json：直接解码返回，不产生任何下载 GET。
+
+    2026-10-12 上游下架 u1-fast 后聚合器仅剩 u1.5-lite，响应把 PNG base64 内联
+    在计费响应里；旧契约在这里判「响应结构异常」，商汤路整条死掉。
+    """
+    import base64 as _b64
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_settings())
+    calls = {"sense": 0, "get": 0}
+    png = _png_stub()
+
+    def handler(request):  # noqa: ANN001, ANN202
+        if request.url.host == "token.sensenova.invalid" and request.method == "POST":
+            calls["sense"] += 1
+            return _httpx.Response(
+                200, json={"data": [{"b64_json": _b64.b64encode(png).decode("ascii")}]}
+            )
+        if request.url.host == "agnes.invalid":
+            # Agnes 400 非瞬态立即出局，让 b64 响应成为唯一胜者。
+            return _httpx.Response(400)
+        calls["get"] += 1
+        return _httpx.Response(404)
+
+    body = asyncio.run(
+        bitmap_svg._fetch_image_png("小猫", transport=_httpx.MockTransport(handler))
+    )
+    assert body == png, "b64 内联图必须原样交给描摹链"
+    assert calls == {"sense": 1, "get": 0}, "内联图不得再发下载请求"
+
+
+def test_extract_agnes_url_prefers_url_over_b64() -> None:
+    from hutuji_mcp import bitmap_svg
+
+    got = bitmap_svg._extract_agnes_image_url(
+        {"data": [{"url": "https://cdn.example/a.png", "b64_json": "AAAA"}]}
+    )
+    assert got == "https://cdn.example/a.png"
+
+
+def test_extract_agnes_url_b64_only_decodes() -> None:
+    import base64 as _b64
+    from hutuji_mcp import bitmap_svg
+
+    got = bitmap_svg._extract_agnes_image_url(
+        {"data": [{"b64_json": _b64.b64encode(b"png-bytes").decode("ascii")}]}
+    )
+    assert got == b"png-bytes"
+
+
+@pytest.mark.parametrize(
+    ("item", "reason"),
+    [
+        ({"url": None}, "未返回有效的 https 图片地址"),
+        ({"b64_json": "!!!not-base64!!!"}, "不是合法 base64"),
+        ({"b64_json": ""}, "未返回有效的 https 图片地址"),
+        ({}, "响应结构异常"),
+    ],
+)
+def test_extract_agnes_url_b64_rejections(item: dict, reason: str) -> None:
+    from hutuji_mcp import bitmap_svg
+
+    with pytest.raises(bitmap_svg.BitmapError, match=reason):
+        bitmap_svg._extract_agnes_image_url({"data": [item]})
+
+
+def test_sensenova_b64_response_over_max_bytes_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """b64 响应超通道上限必须走同一道流式闸；默认 64KiB 闸对其他端点不变。"""
+    from hutuji_mcp import bitmap_svg
+    import httpx as _httpx
+
+    monkeypatch.setattr(bitmap_svg, "settings", _sensenova_settings())
+    monkeypatch.setattr(bitmap_svg, "_SENSENOVA_RESPONSE_MAX_BYTES", 64)
+
+    def handler(request):  # noqa: ANN001, ANN202
+        return _httpx.Response(200, json={"data": [{"b64_json": "A" * 500}]})
+
+    async def run() -> None:
+        async with _httpx.AsyncClient(
+            transport=_httpx.MockTransport(handler)
+        ) as client:
+            with pytest.raises(bitmap_svg.BitmapError, match="响应超过读取上限"):
+                await bitmap_svg._request_sensenova_image_url(client, "星")
+
+    asyncio.run(run())
+
+
+def test_sensenova_attempt_budget_single_attempt() -> None:
+    """常量口径钉死：75s=1.2× 最坏实测、不与其他通道 45s 混用；10MiB=1.5× 实测 6.2MB。"""
+    from hutuji_mcp import bitmap_svg
+
+    assert bitmap_svg._SENSENOVA_ATTEMPT_TIMEOUT_SECONDS == 75.0
+    assert bitmap_svg._SENSENOVA_RETRY_DELAYS_SECONDS == ()
+    assert bitmap_svg._SENSENOVA_RESPONSE_MAX_BYTES == 10 * 1024 * 1024
+    assert bitmap_svg._IMAGE_API_MAX_BYTES == 64 * 1024
+
+
 def _sensenova_fallback_settings() -> SimpleNamespace:
     """商汤三件套 + Agnes 三件套 + imagefree 备用 URL（三路对冲全开）。"""
     return SimpleNamespace(
@@ -3328,10 +3431,14 @@ def test_bitmap_fetch_persistent_500_raises(monkeypatch: pytest.MonkeyPatch) -> 
         asyncio.run(bitmap_svg._fetch_image_png("x", transport=transport))
 
 
-def test_sensenova_image_attempt_has_twenty_second_tail_cap(
+def test_sensenova_image_attempt_has_single_slow_channel_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """U1 Fast 每次尝试仍钉 20s；瞬态 500 仅快速重试一次，不改单 attempt 尾延闸。"""
+    """u1.5-lite 慢通道：单次尝试 75s、轮内不重试（supersede 2026-08-28 u1-fast 20s×2）。
+
+    2026-10-12 实测 u1.5-lite 29~64s 出图；重试会把 75s 翻倍并撞桥接看门狗 300s，
+    对冲轮的「全忙重跑」才是它的重试。
+    """
     from hutuji_mcp import bitmap_svg
     import httpx as _httpx
 
@@ -3360,7 +3467,7 @@ def test_sensenova_image_attempt_has_twenty_second_tail_cap(
                 await bitmap_svg._request_sensenova_image_url(client, "五角星")
 
     asyncio.run(run())
-    assert seen == [20.0, 20.0]
+    assert seen == [75.0]
 
 
 def test_bitmap_fetch_rejects_bad_response_shape(monkeypatch: pytest.MonkeyPatch) -> None:

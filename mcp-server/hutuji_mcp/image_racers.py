@@ -26,7 +26,7 @@ async def request_racer_image_url(
     client: httpx.AsyncClient,
     description: str,
     racer: dict[str, Any],
-) -> str:
+) -> str | bytes:
     provider_type = str(racer.get("provider_type") or "")
     name = str(racer.get("name") or racer.get("id") or provider_type)
     base_url = str(racer.get("base_url") or "").rstrip("/")
@@ -66,6 +66,7 @@ async def request_racer_image_url(
             name,
             retry_delays=bitmap_svg._SENSENOVA_RETRY_DELAYS_SECONDS,
             attempt_timeout_seconds=bitmap_svg._SENSENOVA_ATTEMPT_TIMEOUT_SECONDS,
+            max_bytes=bitmap_svg._SENSENOVA_RESPONSE_MAX_BYTES,
         )
         return bitmap_svg._extract_agnes_image_url(data)
 
