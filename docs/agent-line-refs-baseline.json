@@ -1,5 +1,5 @@
 {
-  "git_head": "4835965b8375f835468a462022ded74f89b5720d",
+  "git_head": "0c4db8635af8254ddc03abdfe992ef4c28a16d1d",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:68": {
       "sha8": "9b1d68b6",
@@ -226,29 +226,99 @@
       "source": "        for (const auto& item : SsidManager::GetInstance().GetSsidList()) {\n            if (item.ssid == current) {\n                home_ssid_ = item.ssid;\n                home_password_ = item.password;\n                break;\n            }\n        }\n        if (home_ssid_.empty()) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/plotter_provision.cc"
     },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:351": {
+      "sha8": "99a4572f",
+      "source": "    acc_chars = 0  # 在途累计：列表编号前缀（lowerRoman/upperRoman 为 O(k)/项）累积可达",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:356-363": {
+      "sha8": "b413bf4f",
+      "source": "    def _emit(text: str, is_heading: bool) -> None:\n        nonlocal acc_chars\n        if text.strip():\n            if is_heading:\n                headings.add(len(paras))\n            paras.append(text)\n            acc_chars += len(text)\n            _check_total_chars(acc_chars)",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
     "docs/design/three-repo-review-20261011.md -> doc_ingest.py:36": {
       "sha8": "ca1f3e31",
       "source": "MAX_MERGE_CELLS = 2048  # mergeCell 条数上限：封堵 O(merges×rows) 展开 DoS（32MiB 部件可塞 ~1.2M 条）",
       "target": "mcp-server/hutuji_mcp/doc_ingest.py"
     },
-    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:550-551": {
-      "sha8": "dfd627f7",
-      "source": "            if len(raw_merges) > MAX_MERGE_CELLS:\n                raise DocIngestError(f\"合并单元格过多（上限 {MAX_MERGE_CELLS} 个）\")",
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:37": {
+      "sha8": "35586c69",
+      "source": "MAX_COL_SPECS = 2048  # <col> 条数上限：与 MAX_MERGE_CELLS 同族，封堵 col_widths 的 O(ncols×specs) 空转",
       "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:442": {
+      "sha8": "db0a05f1",
+      "source": "        seen_targets: set[str] = set()",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:443": {
+      "sha8": "8cf839e2",
+      "source": "        acc_chars = 0  # 累计抽出字符数：边抽边卡 MAX_TEXT_CHARS，封堵 256 部件 × 32MiB",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:453-455": {
+      "sha8": "495f857c",
+      "source": "            if target in seen_targets:\n                continue\n            seen_targets.add(target)",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:467-468": {
+      "sha8": "e6dea7e1",
+      "source": "                        acc_chars += len(text)\n                        _check_total_chars(acc_chars)",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> doc_ingest.py:567-568": {
+      "sha8": "7650dd9f",
+      "source": "    for mc in root.iter(f\"{_S}mergeCell\"):\n        parsed = _merge_ref(mc.get(\"ref\") or \"\")",
+      "target": "mcp-server/hutuji_mcp/doc_ingest.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:115": {
+      "sha8": "d0344112",
+      "source": "        _guard_raster_dimensions(raw)",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:22": {
+      "sha8": "3ccefb77",
+      "source": "_MAX_RASTER_PIXELS = 64_000_000  # 64Mpx：解码峰值 ~700MB，仍远低于合法图上界之上的炸弹区",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:23": {
+      "sha8": "b8a89a49",
+      "source": "_MAX_RASTER_SIDE = 32768         # 对齐 hutuji_mcp.bitmap_svg._MAX_IMAGE_SIDE",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:26": {
+      "sha8": "2c33da4b",
+      "source": "def _guard_raster_dimensions(raw: bytes) -> None:",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:412": {
+      "sha8": "315421b9",
+      "source": "        arr = iio.imread(png_bytes).copy()",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:435": {
+      "sha8": "526930d2",
+      "source": "    _guard_raster_dimensions(png_bytes)",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:96": {
+      "sha8": "126a4b9c",
+      "source": "    _guard_raster_dimensions(raw)",
+      "target": "draw-portal/draw_portal/pipeline.py"
     },
     "docs/design/three-repo-review-20261011.md -> mcp-server/hutuji_mcp/article_llm.py:108": {
       "sha8": "a7232e55",
       "source": "                    async for chunk in resp.aiter_bytes(16384):",
       "target": "mcp-server/hutuji_mcp/article_llm.py"
     },
-    "docs/design/three-repo-review-20261011.md -> mcp-server/hutuji_mcp/doc_ingest.py:607": {
-      "sha8": "2f2ba425",
-      "source": "        # mergeCell ref 行范围无上界（可指整列 A1:A1048576 甚至更大），绝不能对",
+    "docs/design/three-repo-review-20261011.md -> mcp-server/hutuji_mcp/doc_ingest.py:624": {
+      "sha8": "94c3114a",
+      "source": "    merges: list[tuple[int, int, int]] = []",
       "target": "mcp-server/hutuji_mcp/doc_ingest.py"
     },
-    "docs/design/three-repo-review-20261011.md -> test_doc_ingest.py:284": {
-      "sha8": "529be31f",
-      "source": "def test_xlsx_col_widths_and_merges():",
+    "docs/design/three-repo-review-20261011.md -> test_doc_ingest.py:311": {
+      "sha8": "d0b323f4",
+      "source": "        for name in zin.namelist():",
       "target": "mcp-server/tests/test_doc_ingest.py"
     },
     "docs/kxnx/alignment/plan.md -> docs/troubleshooting.md:95": {
@@ -507,8 +577,8 @@
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> AGENTS.md:193": {
-      "sha8": "755712cc",
-      "source": "- 测试文件职责（当前共 **1646 项**，新增 `test_machine_sku.py` **2** 项跨仓机型标识回归）：`test_contract.py` **656** 项（+lee 骨架契约（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归（含 preflight **34** 项形状钉死、设备 token 看门狗形态与 nginx 模板 portal location 钉死）、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01、§9-G′ 长名锁表↔§6.1 golden 13 项集合精确相等交叉钉 R17-XREPO-02——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）、`/internal/draw` loopback+共享密钥闸/请求校验/错误映射、chain_push 分键与强制同步、refresh 对端同步钩子 set -u 子壳隔离 + kb-admin/draw-portal token 互联形状钉死、竖版转置正例互换与 fail-closed 四态拒绝矩阵）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **94** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏、KB `文档已存在` 幂等）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **16** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出、闸输入=塌缩前原文（密集锯齿原文必拒/终稿不拒对照、test_star 好样本过闸、缓存命中返回同一原文））；`test_bitmap_busy.py` **10** 项（2026-09-12 忙批：全忙判别 `_all_errors_busy` 三类错误分类矩阵、动态/静态聚合全忙抛 `BitmapBusyError`、`_generate_bitmap_uncached` 首 fetch 相位 sleep+真重试一次、`/internal/draw` 429 固定白话与 502 透传、队列按类名重建 BitmapBusyError）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_arc_fit.py` **9** 项（G2/G3 弧拟合：直线塌缩单条 G1/已知圆出单弧且方向与圆心正确/急回折 V 字拒弧（342° 整圆事故钉死）/S 形保终点/形状偏差 ≤tol+拐角容差/CRLF 与非运动行原样/单段直通/端到端真 vpype 过 §5 闸）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_draw_queue.py` **43** 项（Redis/memory 队列 attach/enqueue/限深/worker 消费、_decide_attach 决策矩阵、inflight 残留 replace 与 NX 冲突重判回归、worker 优雅停机——stop 事件迭代边界退出/画途中跑完当前 job、干净停机 os._exit(0) 跳过 Py_FinalizeEx 全堆遍历（2026-09-02 生产 8/8 worker 换出堆终结化换入悬挂 267–298s 根因）/错误路径不硬退出、main 接线子进程回归、chain_push 标志分键/旧 payload 缺省 True/Redis inflight 双键隔离）；`test_output_store.py` **5** 项（本地/OSS 产物读写与 §5 复核、错峰 TTL `finalize_job(created_at=…)` 三后缀同改、OSS 清理按 `x-oss-meta-hutuji-created` 判过期、**§5 读闸按机型分档放行**——2026-09-11 生产事故：nopaper 合法产物被默认档读闸判 stale 删除致设备 404，回归钉「两档任一成立即放行、两档都不成立仍拒」）；`test_breaker.py` **9** 项（Phase-3 通道熔断 shadow/enforce、Redis 扫描跳过 samples ZSET、状态 JSON 损坏告警按 closed、Redis 掉线故障隔离——record_outcome/is_open 不砸付费主链、只告警按放行）；`test_job_ledger.py` **8** 项（Postgres 账本后台写，无 DSN 禁用）；`test_queue_metrics.py` **1** 项（队列指标 JSON 日志）；`test_portal_settings.py` **8** 项（运营后台 image_racers 下发）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_modelscope.py` **22** 项（魔搭通道：i2i 提交走 `image_url` 字段（image 会 400）/轮询头钉死/瞬态容忍/FAILED 与 submit 错误不回显上游正文/下载走 url_guard 共享 SSRF 闸（回环/私网/IPv6 回环/本地域名拒绝矩阵）/超时；t2i racer 接线（modelscope/tcb 进对冲池、无 token 缺席、tcb success=false 回落与错误文案）；config 校验（tcb 配对/https/strip））；`test_tcb_i2i.py` **11** 项（TCB 混元 i2i 客户端：载荷 `{prompt,image(b64),mode:\"i2i\"}`/Bearer/默认提示词与魔搭同源/下载链；success=false 不触发下载、401/502/坏 JSON/缺 imageUrl 窄异常、函数回包 http/私网地址被 url_guard 拦死且零下载请求、未配置拒绝；缩图长边 1024/≤3MiB/不可解码与 32MiB 输入拒绝）；`test_curated.py` **6** 项、`test_curated_gate.py` **5** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **6** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v4（过碎判定吃塌缩前原文）、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）；`test_xiaozhi_token_auto.py` **26** 项（控制台 JWT 自动登录器：env 解析/token 形状闸/OCR 形状闸先于登录提交/失败换码重试环/全败抛错/token 只走 argv 不上日志/--selftest 无凭据自检）；`test_xiaozhi_console.py` **16** 项（小派音色/模型切换（2026-09-12 §10.4.19）：清单解析坏行跳过/缓存键含 token 与 TTL/基址 https 无凭据闸/克隆整包语义（人格/KB/MCP 原样透传，白名单外字段拒写）/克隆回包非 int 拒绝/四内部路由闸门矩阵（非 loopback·未配密钥·错密钥 404）/config 与 bind 路由拒共享 agent（「用户不能改所有人的」钉死）/未知音色模型 400/绑定码非 6 位数字 400/成功回包形状）；`test_stroke_order.py` **11** 项（标准笔顺教学链：数据加载/渐显面板逐笔递增/边界不出 277×190/y 翻转贴格顶/缺字与全缺拒绝/21 笔续页无大字头/步序数字标签存在/hutuji_teach 端到端真 vpype+§5+pages_arg 幂等形状/超长与未配置拒绝/多字混合行逐笔递增+行尾成形格+折行——2026-09-12 用户拍板「分解行+成形格」，supersede 09-11「集中到单张纸」）。`test_write_text.py` **55** 项（+手写抖动 5（确定性/默认关/最近点包线 0.115em/分页与页界/笔顺路径仍抖/fit_single 透传）（奎享 .gfont 解析：v2/v5/v6 头/十进制码位条目/cubic 细分/坏版本坏 ZIP 拒绝；排版：折行/长词硬断（超行宽单 token 逐字切分、先切再算 overflow）/避头（277 页限上界）/避尾/空白段跳过/缩进/分页/缺字/字号保真无版式管线/默认选目录内字数最多字库、字库读失败收窄 WriteTextError/扫描跳过坏文件；Tab 与空格测量同价（修复测量 5.5/落版 5.25 错位）、拉丁→CJK 边界避让计入行宽测量（满行交界墨迹越界回归钉）；hutuji_write 端到端过 §5 校验与空文/超长闸；`page_to_preview_png` 每页 RGB 预览（可见性/空页全白）；`pages_arg` 透传件与链式推送 pages 逐字节一致、无 token 时仍在返回值、write chain_push pages 紧凑 JSON 形状钉死——`pages[0]` 必须等于 url/preview_url；多页错峰 TTL：第 1 页=写盘时刻、第 i 页 mtime 前移 i×300s、每页三后缀同窗口、末页未来 mtime 仍 `_serve_file` 200；`layout_text_fit_single` 单页适配：2 页缩号成 1 页/4mm 地板回落原字号多页/单页与地板字号直通——2026-09-11 用户拍板「AI 写字最好也单张纸」，未显式传字号才启用）；`test_doc_ingest.py` **35** 项（文档导入解析：docx 段落/tab/br/编号列表还原（decimal/字母/罗马/中文计数/bullet，浅级重置深级、仅前 3 级，CJK 顿号收尾不补空格）、xlsx 共享串/内联串/稀疏格/自报列宽/合并格/隐藏表跳过/行列上限/合并格行范围越界有界+条数上限 MAX_MERGE_CELLS（R2-01）、pptx 放映序/空拒绝、csv GBK/UTF-8-SIG/分号方言、防御矩阵——DOCTYPE/实体/加密位/条目数/部件超限/总字符上限/伪装扩展名）；`test_table_layout.py` **11** 项（表格排版：277×190 界/相邻行共享边框去重/跨页表头重复/横向合并省内部竖线/文件自报列宽优先/超宽缩字号与地板报错/缺字上报/max_pages 截断/空表拒绝/逐页过 `_validate_svg`/真 vpype normalize=False 端到端过 §5）；`test_device_messaging.py` **14** 项（设备 messaging 链式推送 + 401/403/404 自愈）、`test_i2i_prompt_sketch.py` **6** 项（i2i 提示词导向艺术家素描而非上色本描边/灰阶照片钉死）、`test_article_llm.py` **5** 项（AI 写文章：主题生成/草稿润色纯文本契约，§10.4.12；超大回包流式 64KiB 截断报错 R2-02）、`test_chat.py` **29** 项（小派文字聊天：payload 校验/控制字符剥离/DRAW:: 意图标记解析（坏标记回落、乱位剥离、兜底话术、长度帽）/LLM 窄异常/未配置 fail-closed、/internal/chat 闸门/校验/错误映射）；`test_device_daily_limit.py` **12** 项（达日限的并发/取消/accepted 重试复用原事务；语音画图单设备日限 20：内存/Redis 队列与进程内三路径第 21 次拒绝、空 device_id 不限、跨日键重置、env 解析与越界、DrawDailyLimitError→DrawLimitError 转换）；`test_preview_bounds.py` **14** 项（超大视口/越界线段分配前有界、非法数值拒绝、正常墨密度）；`test_sketch_render.py` **44** 项（+2：2026-10-08 照片画质批——结构线沿等高线平滑（σ3px，不放松 RDP）与结构线留白带（半径 2.0 工作像素×密度比，排线不压眼镜/眼/鼻），见 `docs/design/weapp-photo-followup-20261008.md`）（+6：2026-09-25 显著性主体权重批——谱残差显著性∪暗部保底软掩码，背景排线/波纹/结构线按权重减墨）（+2026-09-25 画质批 11 项：绝对曝光/感知灰度/透明底白合成/高度上限/嵌套格点不重合/竖横图密度一致 9 项，结构线滞回双阈桥接与孤立弱边拒绝 2 项；+结构线/反向尾端/整桥白区/稀疏导出几何回归；2026-09-12 并发会话程序化渲染批 +8，机械对齐；同行白带与行间白缺口不串链；程序化风格渲染：暗三层近邻串链提速/最亮层不串链护面部、色调归一化（近纯色短路+全局/CLAHE混合，hatch gamma0.55、波纹0.7）/中间调照片墨覆盖 <25% 事故回归/排线段数预算闸、排线段落 mask 内/最小段长/暗部层叠递增、波纹振幅不越行/全黑蛇形长折线、纯白双风格 fail-closed、坏字节/未知风格拒绝、确定性逐点复现、trace 同形契约、双风格真 vpype 端到端过 §5）。 `test_memory_isolation.py` **5** 项（设备路径碰撞、MAC规范化与筛选召回预算）。",
+      "sha8": "dfece485",
+      "source": "- 测试文件职责（当前共 **1651 项**，新增 `test_machine_sku.py` **2** 项跨仓机型标识回归）：`test_contract.py` **656** 项（+lee 骨架契约（§5 契约、限流/TTL/脱敏、SVG→G-code、位图对冲与缓存、draw/bitmap 取消后同题 single-flight、vpype 并发上界、Quick Draw 命中资源界、唱歌目录与 `/songs` 路由、记忆三工具上限/LRU/脱敏、激活中转 bind 400 非 dict JSON 边界、描摹实心色块转轮廓环、端点缝合合并/内容保留/平行边内容契约、lifespan 日志 filter 安装顺序、服务/部署/门禁回归（含 preflight **34** 项形状钉死、设备 token 看门狗形态与 nginx 模板 portal location 钉死）、固件点动包线↔云端 §5 限幅交叉钉 R17-XREPO-01、§9-G′ 长名锁表↔§6.1 golden 13 项集合精确相等交叉钉 R17-XREPO-02——字面量断言外仓 `hutuji_recovery_core.h` 与 `gcode_gen.MAX_X_MM/MAX_Y_MM` 互为事实源，外仓缺失跳过，路径解析同 agent_gate 外仓层）、`/internal/draw` loopback+共享密钥闸/请求校验/错误映射、chain_push 分键与强制同步、refresh 对端同步钩子 set -u 子壳隔离 + kb-admin/draw-portal token 互联形状钉死、竖版转置正例互换与 fail-closed 四态拒绝矩阵）；`test_injection.py` **53** 项（SVG/LLM 输出闸门）；`test_cloud_bridge.py` **119** 项（桥接配置、重连/取消（含 spawn 中途取消窗口）/watchdog/空闲与错误探活（云端 ping 心跳不刷新空闲钟）/共享 handler 脱敏）；`test_field_tools.py` **94** 项（实机工具、控制台、门禁运行器、`--fix-line-refs` 行号纯移动自动重定位、cloud health 落盘前脱敏、KB `文档已存在` 幂等）；`test_sim_server.py` **87** 项（PC 仿真 MCP、Grbl/pipe 边界与本地闭环）；`test_quickdraw.py` **36** 项（Quick Draw 类目映射/前缀剥离含礼貌前缀循环/多字别名/最长子串优先/坏行容忍/miss 落 info 日志——QD 退役后仅剩模块级用例，路由用例随 QD 下线删除）；`test_paper_risk.py` **16** 项（纸面风险闸阈值/reason token/状态机与 §5 抬笔一致性、`_run_draw_job` 三轮重试环/耗尽清场/闸关闭单轮、涂鸦团平移不变窗正反断言、拒收缓存逐出、闸输入=塌缩前原文（密集锯齿原文必拒/终稿不拒对照、test_star 好样本过闸、缓存命中返回同一原文））；`test_bitmap_busy.py` **10** 项（2026-09-12 忙批：全忙判别 `_all_errors_busy` 三类错误分类矩阵、动态/静态聚合全忙抛 `BitmapBusyError`、`_generate_bitmap_uncached` 首 fetch 相位 sleep+真重试一次、`/internal/draw` 429 固定白话与 502 透传、队列按类名重建 BitmapBusyError）；`test_bitmap_decimate.py` **13** 项（抽稀地板逐级降 tol 不回退未抽稀、排线簇抑制、trace 顺序钉死、attempt 破缓存）；`test_gcode_min_segment.py` **4** 项（落笔态 G1≥1.0mm 塌缩压 `$1` 空窗、长段保留、不跨抬笔）；`test_arc_fit.py` **9** 项（G2/G3 弧拟合：直线塌缩单条 G1/已知圆出单弧且方向与圆心正确/急回折 V 字拒弧（342° 整圆事故钉死）/S 形保终点/形状偏差 ≤tol+拐角容差/CRLF 与非运动行原样/单段直通/端到端真 vpype 过 §5 闸）；`test_draw_limits_config.py` **3** 项（draw 并发/速率 env 解析与默认值）；`test_draw_queue.py` **43** 项（Redis/memory 队列 attach/enqueue/限深/worker 消费、_decide_attach 决策矩阵、inflight 残留 replace 与 NX 冲突重判回归、worker 优雅停机——stop 事件迭代边界退出/画途中跑完当前 job、干净停机 os._exit(0) 跳过 Py_FinalizeEx 全堆遍历（2026-09-02 生产 8/8 worker 换出堆终结化换入悬挂 267–298s 根因）/错误路径不硬退出、main 接线子进程回归、chain_push 标志分键/旧 payload 缺省 True/Redis inflight 双键隔离）；`test_output_store.py` **5** 项（本地/OSS 产物读写与 §5 复核、错峰 TTL `finalize_job(created_at=…)` 三后缀同改、OSS 清理按 `x-oss-meta-hutuji-created` 判过期、**§5 读闸按机型分档放行**——2026-09-11 生产事故：nopaper 合法产物被默认档读闸判 stale 删除致设备 404，回归钉「两档任一成立即放行、两档都不成立仍拒」）；`test_breaker.py` **9** 项（Phase-3 通道熔断 shadow/enforce、Redis 扫描跳过 samples ZSET、状态 JSON 损坏告警按 closed、Redis 掉线故障隔离——record_outcome/is_open 不砸付费主链、只告警按放行）；`test_job_ledger.py` **8** 项（Postgres 账本后台写，无 DSN 禁用）；`test_queue_metrics.py` **1** 项（队列指标 JSON 日志）；`test_portal_settings.py` **8** 项（运营后台 image_racers 下发）；`test_usage_report.py` **2** 项（usage 埋点后台 POST）；`test_modelscope.py` **22** 项（魔搭通道：i2i 提交走 `image_url` 字段（image 会 400）/轮询头钉死/瞬态容忍/FAILED 与 submit 错误不回显上游正文/下载走 url_guard 共享 SSRF 闸（回环/私网/IPv6 回环/本地域名拒绝矩阵）/超时；t2i racer 接线（modelscope/tcb 进对冲池、无 token 缺席、tcb success=false 回落与错误文案）；config 校验（tcb 配对/https/strip））；`test_tcb_i2i.py` **11** 项（TCB 混元 i2i 客户端：载荷 `{prompt,image(b64),mode:\"i2i\"}`/Bearer/默认提示词与魔搭同源/下载链；success=false 不触发下载、401/502/坏 JSON/缺 imageUrl 窄异常、函数回包 http/私网地址被 url_guard 拦死且零下载请求、未配置拒绝；缩图长边 1024/≤3MiB/不可解码与 32MiB 输入拒绝）；`test_curated.py` **6** 项、`test_curated_gate.py` **5** 项、`test_curated_prep.py` **1** 项、`test_curated_server.py` **6** 项、`test_curated_vector.py` **4** 项（curated 精选库入库闸 v4（过碎判定吃塌缩前原文）、替换路由与达标优先路由、viewBox 预览坐标框；Twemoji 矢量源映射/转换/量化闸）；`test_xiaozhi_token_auto.py` **26** 项（控制台 JWT 自动登录器：env 解析/token 形状闸/OCR 形状闸先于登录提交/失败换码重试环/全败抛错/token 只走 argv 不上日志/--selftest 无凭据自检）；`test_xiaozhi_console.py` **16** 项（小派音色/模型切换（2026-09-12 §10.4.19）：清单解析坏行跳过/缓存键含 token 与 TTL/基址 https 无凭据闸/克隆整包语义（人格/KB/MCP 原样透传，白名单外字段拒写）/克隆回包非 int 拒绝/四内部路由闸门矩阵（非 loopback·未配密钥·错密钥 404）/config 与 bind 路由拒共享 agent（「用户不能改所有人的」钉死）/未知音色模型 400/绑定码非 6 位数字 400/成功回包形状）；`test_stroke_order.py` **11** 项（标准笔顺教学链：数据加载/渐显面板逐笔递增/边界不出 277×190/y 翻转贴格顶/缺字与全缺拒绝/21 笔续页无大字头/步序数字标签存在/hutuji_teach 端到端真 vpype+§5+pages_arg 幂等形状/超长与未配置拒绝/多字混合行逐笔递增+行尾成形格+折行——2026-09-12 用户拍板「分解行+成形格」，supersede 09-11「集中到单张纸」）。`test_write_text.py` **55** 项（+手写抖动 5（确定性/默认关/最近点包线 0.115em/分页与页界/笔顺路径仍抖/fit_single 透传）（奎享 .gfont 解析：v2/v5/v6 头/十进制码位条目/cubic 细分/坏版本坏 ZIP 拒绝；排版：折行/长词硬断（超行宽单 token 逐字切分、先切再算 overflow）/避头（277 页限上界）/避尾/空白段跳过/缩进/分页/缺字/字号保真无版式管线/默认选目录内字数最多字库、字库读失败收窄 WriteTextError/扫描跳过坏文件；Tab 与空格测量同价（修复测量 5.5/落版 5.25 错位）、拉丁→CJK 边界避让计入行宽测量（满行交界墨迹越界回归钉）；hutuji_write 端到端过 §5 校验与空文/超长闸；`page_to_preview_png` 每页 RGB 预览（可见性/空页全白）；`pages_arg` 透传件与链式推送 pages 逐字节一致、无 token 时仍在返回值、write chain_push pages 紧凑 JSON 形状钉死——`pages[0]` 必须等于 url/preview_url；多页错峰 TTL：第 1 页=写盘时刻、第 i 页 mtime 前移 i×300s、每页三后缀同窗口、末页未来 mtime 仍 `_serve_file` 200；`layout_text_fit_single` 单页适配：2 页缩号成 1 页/4mm 地板回落原字号多页/单页与地板字号直通——2026-09-11 用户拍板「AI 写字最好也单张纸」，未显式传字号才启用）；`test_doc_ingest.py` **40** 项（文档导入解析：docx 段落/tab/br/编号列表还原（decimal/字母/罗马/中文计数/bullet，浅级重置深级、仅前 3 级，CJK 顿号收尾不补空格）/roman 前缀 O(N²) 累积增量止损（R6）、xlsx 共享串/内联串/稀疏格/自报列宽/合并格/隐藏表跳过/行列上限/合并格行范围越界有界+条数上限 MAX_MERGE_CELLS+列定义条数上限 MAX_COL_SPECS（R2-01/R3）、pptx 放映序/空拒绝/重复 slide 引用去重（R3）/跨部件抽字累积有界（R4）、csv GBK/UTF-8-SIG/分号方言、防御矩阵——DOCTYPE/实体/加密位/条目数/部件超限/总字符上限/伪装扩展名）；`test_table_layout.py` **11** 项（表格排版：277×190 界/相邻行共享边框去重/跨页表头重复/横向合并省内部竖线/文件自报列宽优先/超宽缩字号与地板报错/缺字上报/max_pages 截断/空表拒绝/逐页过 `_validate_svg`/真 vpype normalize=False 端到端过 §5）；`test_device_messaging.py` **14** 项（设备 messaging 链式推送 + 401/403/404 自愈）、`test_i2i_prompt_sketch.py` **6** 项（i2i 提示词导向艺术家素描而非上色本描边/灰阶照片钉死）、`test_article_llm.py` **5** 项（AI 写文章：主题生成/草稿润色纯文本契约，§10.4.12；超大回包流式 64KiB 截断报错 R2-02）、`test_chat.py` **29** 项（小派文字聊天：payload 校验/控制字符剥离/DRAW:: 意图标记解析（坏标记回落、乱位剥离、兜底话术、长度帽）/LLM 窄异常/未配置 fail-closed、/internal/chat 闸门/校验/错误映射）；`test_device_daily_limit.py` **12** 项（达日限的并发/取消/accepted 重试复用原事务；语音画图单设备日限 20：内存/Redis 队列与进程内三路径第 21 次拒绝、空 device_id 不限、跨日键重置、env 解析与越界、DrawDailyLimitError→DrawLimitError 转换）；`test_preview_bounds.py` **14** 项（超大视口/越界线段分配前有界、非法数值拒绝、正常墨密度）；`test_sketch_render.py` **44** 项（+2：2026-10-08 照片画质批——结构线沿等高线平滑（σ3px，不放松 RDP）与结构线留白带（半径 2.0 工作像素×密度比，排线不压眼镜/眼/鼻），见 `docs/design/weapp-photo-followup-20261008.md`）（+6：2026-09-25 显著性主体权重批——谱残差显著性∪暗部保底软掩码，背景排线/波纹/结构线按权重减墨）（+2026-09-25 画质批 11 项：绝对曝光/感知灰度/透明底白合成/高度上限/嵌套格点不重合/竖横图密度一致 9 项，结构线滞回双阈桥接与孤立弱边拒绝 2 项；+结构线/反向尾端/整桥白区/稀疏导出几何回归；2026-09-12 并发会话程序化渲染批 +8，机械对齐；同行白带与行间白缺口不串链；程序化风格渲染：暗三层近邻串链提速/最亮层不串链护面部、色调归一化（近纯色短路+全局/CLAHE混合，hatch gamma0.55、波纹0.7）/中间调照片墨覆盖 <25% 事故回归/排线段数预算闸、排线段落 mask 内/最小段长/暗部层叠递增、波纹振幅不越行/全黑蛇形长折线、纯白双风格 fail-closed、坏字节/未知风格拒绝、确定性逐点复现、trace 同形契约、双风格真 vpype 端到端过 §5）。 `test_memory_isolation.py` **5** 项（设备路径碰撞、MAC规范化与筛选召回预算）。",
       "target": "AGENTS.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> Config.h:489": {
@@ -586,19 +656,14 @@
       "source": "        static const int TELNETRXBUFFERSIZE = 1200;",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h"
     },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:985": {
-      "sha8": "12408ced",
-      "source": "| `mcp-server/hutuji_mcp/quickdraw_categories.json` | 类目映射 v3（**387 别名键 → 298 官方在册类目**，已对账 categories.txt；手机改指 cell phone）。2026-08-24 实测：去 `_meta` 后 387 键、去重后 298 值，与 `quickdraw-data/` 的 298 个 `.jsonl` 双向零差；本轮补入 14 个多字别名覆盖原单字类目；2026-08-25 v4 批演进 402 键、C 组合双机部署见本页 C 组合节 |",
-      "target": "docs/worktree-inventory.md"
-    },
-    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:989": {
-      "sha8": "6cb99411",
-      "source": "| `mcp-server/tests/test_quickdraw.py` | **34 项**契约/集成测试（此前 16 项；本轮补入 4 个最长子串碰撞断言 + 14 个单字类目增强短语断言 + fixture 缓存隔离）；2026-08-25 v4 批后演进为 **39 项**（+3 礼貌前缀/循环剥离/NO_STRIP 守卫），全套 **1145** 项（2026-08-31 写字排版批 +16：test_write_text.py；2026-08-31 +2：refresh 对端钩子 set -u 子壳隔离 + kb-admin token 互联形状钉死；2026-08-30 停机宽限批 +1：worker unit TimeoutStopSec 形状钉死；2026-08-30 优雅停机批 +3：test_draw_queue.py 17→20，worker stop 事件迭代边界退出/画途中跑完当前 job/main 接线子进程回归；2026-08-30 评审修复批 +13：test_draw_queue.py 4→17，_decide_attach 决策矩阵 + Redis inflight 残留 replace/NX 冲突重判回归；此前 2026-08-30 高并发 Phase-1/2/3a +19：`test_draw_queue.py` 4、`test_output_store.py` 2、`test_breaker.py` 4、`test_job_ledger.py` 5、`test_queue_metrics.py` 1、`test_portal_settings.py` 4；2026-08-30 +6：`test_draw_limits_config.py` 3、`test_usage_report.py` 2、`test_field_tools.py` 92→93；2026-08-30 晚 +1：`文档已存在` 幂等；余下历史批次见 git 历史） |",
+    "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:986": {
+      "sha8": "435518d5",
+      "source": "|------|------|",
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> docs/worktree-inventory.md:990": {
-      "sha8": "aea86d4d",
-      "source": "| `mcp-server/tmp/quickdraw-data/` | 全量数据产物（2026-08-24 基线 298 类 × 200 条 ≈ 20MiB；2026-08-25 C 组合换装精选版每类 50 条，见 C 组合节）。历史误记「gitignored 目录内」已于 2026-08-24 撤（实测 `git check-ignore` exit=1、`?? mcp-server/tmp/`、`git add -An` 干跑可见 314 文件）。**决策状态（2026-08-24 用户 advisory 点名）**：本页 `edf68e7` 条目「不新增忽略规则」对**整目录忽略 tmp/** 仍成立——advisory 同文否决整目录方案：AGENTS.md 刷机坑段引用根 `tmp/` 工具（flash_hil_ws35.ps1、reset_wdt_capture.py），整目录忽略会把它们变成只在本机的隐形文件；仅对**数据集本体**开窄例外：`.gitignore` 新增 `mcp-server/tmp/quickdraw-data/` + `mcp-server/tmp/**/*.jsonl` 两条——后者兜住 qd_smoke/qd_trial/qd_verify 下 4 个散落 .jsonl（同属 CC BY 4.0 素材，入库即构成再分发）。实测 `check-ignore -v` 双向命中正确、`git add -An` 下数据集不可见；mcp-server/tmp/ 剩余可见面 = 12 个实验/工具件（abkit、twoopt_star、capture_resilient.py 等，干跑实测）**仍未忽略**，故**禁止 `git add .`/`git add -A`**，提交必须点名暂存 |",
+      "sha8": "a08e09ba",
+      "source": "| `mcp-server/hutuji_mcp/{config.py,server.py}`（已修改） | `HUTUJI_QUICKDRAW_DIR` 配置项 + `_run_draw_job` 命中旁路 |",
       "target": "docs/worktree-inventory.md"
     },
     "docs/kxnx/findings/28-five-slice-crossrepo-review.md -> hutuji_job.cc:127": {
@@ -721,7 +786,7 @@
       "source": "            // 调用点澄清（findings #30 R4）：此处在 WiFi.begin() 返回后、ConnectSTA2AP()\n            // 之前执行，关联尚未完成；esp_wifi_set_ps 允许关联前设置，行为正确。0e1b7ed\n            // commit message 写「STA 连上后」属措辞偏差，以本注释为准。",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WifiConfig.cpp"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:2716-2760": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> draw-portal/draw_portal/app.py:2739-2783": {
       "sha8": "b69578f1",
       "source": "            \"title\": (job.source_name or \"作品\").strip(),\n            \"preview_url\": f\"/api/draw/share/{share_token}/preview.png\",\n            \"created_at\": job.created_at,\n        }\n\n    @app.get(\"/api/draw/share/{share_token}/preview.png\")\n    def draw_share_preview_png(share_token: str) -> FileResponse:\n        from draw_portal import share_token as st_mod\n\n        job_id = st_mod.parse_token(config.session_secret, share_token)\n        if not job_id:\n            raise HTTPException(status_code=404, detail=\"分享已失效\")\n        job = store.get_draw_job_any(job_id)\n        if job is None or job.status != \"ready\":\n            raise HTTPException(status_code=404, detail=\"分享已失效\")\n        preview_file = _job_dir(config.data_dir, job.id) / \"preview.png\"\n        if not preview_file.is_file():\n            raise HTTPException(status_code=404, detail=\"预览已丢失\")\n        return FileResponse(preview_file, media_type=\"image/png\")\n    @app.post(\"/api/device/conversation/report\")\n    def conversation_report(body: ConversationReportBody) -> dict[str, Any]:\n        try:\n            mac = normalize_mac(body.mac)\n            session_id = body.session_id.strip()[:64]\n        except ValueError as exc:\n            raise HTTPException(status_code=400, detail=str(exc)) from exc\n        user_id = store.get_user_id_for_mac(mac)\n        if user_id is None:\n            raise HTTPException(status_code=403, detail=\"设备未绑定呼图账号\")\n        now = time.time()\n        store.purge_conversation_before(\n            retention_cutoff(retention_days=config.conversation_retention_days)\n        )\n        accepted = 0\n        for turn in body.events:\n            try:\n                role = normalize_role(turn.role)\n            except ValueError as exc:\n                raise HTTPException(status_code=400, detail=str(exc)) from exc\n            content = truncate_conversation_content(\n                turn.content, max_len=config.conversation_max_content\n            )\n            if not content:\n                continue\n            client_ts = turn.client_ts if turn.client_ts is not None else now",
       "target": "draw-portal/draw_portal/app.py"
@@ -746,7 +811,7 @@
       "source": "| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1099` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1099` 自此降级为 fast-path advisory（只负责 web 侧 `\"busy\"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |",
       "target": "docs/protocol.md"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:301": {
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> release-readiness.md:299": {
       "sha8": "3f107c13",
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
@@ -756,9 +821,9 @@
       "source": "def test_gate_rejects_weakened_edit_allowlist(",
       "target": "mcp-server/tests/test_contract.py"
     },
-    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:1056": {
-      "sha8": "218f3480",
-      "source": "- **2026-08-23 烧录 `fb2b3b5`（COM13，用户批准后执行）**：`pio run -e release` 重建 SUCCESS（仅重编 PaperSystem.cpp/WebSettings.cpp，与 E′ 触碰面一致；新 bin 1857936 字节，取代 08-15 旧镜像）→ `pio run -t upload --upload-port COM13` app-only `0x10000`，esptool `Hash of data verified`，RTS 硬复位。启动自证 `results/local-only/2026-08-23/fb2b3b5-com13-boot.log`（抓取脚本 `tmp/cap_fb2b3b5_com13.py`）：`Grbl_ESP32 Ver 1.3a`、paper system vM716 ready、`[License] Authorized (restored from NVS)`、连上 `ChinaNet-jJmz` 获 `192.168.1.13`、HTTP/TELNET:23 起来，无崩溃重启。**矛盾待澄清**：本次启动自报 ChipID（efuse MAC）`0000FC7742C63C94`，与 §2 上文 08-22 记录的 `00002C876AE9BFB4` 不一致（本地证据文件中检索不到后者出处），COM 号漂移或多台写字机皆有可能——物理身份需用户确认；可确认的是「今天 COM13 这块板」已跑 `fb2b3b5` 且授权/.13 网络身份正常。物理并发复现（E′ 的 HIL）仍未做。**wokwi 同日登记**：复跑 `run_wokwi_smoke.py`（新镜像已就位）失败根因为 Wokwi 免费版月度 CI 配额耗尽（`API Error: ... Free plan monthly CI minute quota`，serial 0 行），属外部阻塞非固件回归；该可选层本月不可跑，不阻断产品门禁。",
+    "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> worktree-inventory.md:1057": {
+      "sha8": "54e12c53",
+      "source": "- **有证据的板上行为基线**：`e3b1cad`（2026-08-15 烧录与启动自证）；源码后续 `847b564` 增加 §9-D′ 蓝牙功率，**没有本轮烧录证据，不能把源码 HEAD 写成板上基线**。",
       "target": "docs/worktree-inventory.md"
     },
     "docs/protocol.md -> Custom/paper_system.cpp:182": {
@@ -1331,6 +1396,11 @@
       "source": "        _telnetserver->setNoDelay(true);",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp"
     },
+    "docs/worktree-inventory.md -> draw-portal/draw_portal/pipeline.py:22": {
+      "sha8": "3ccefb77",
+      "source": "_MAX_RASTER_PIXELS = 64_000_000  # 64Mpx：解码峰值 ~700MB，仍远低于合法图上界之上的炸弹区",
+      "target": "draw-portal/draw_portal/pipeline.py"
+    },
     "docs/worktree-inventory.md -> hutuji_job.cc:3110-3147": {
       "sha8": "e25ece96",
       "source": "    bool reset_ok = true;\n    // R21-F02：abort 终态播报延到 while 循环外（stream_mutex_ 已释放、reset 结果\n    // 已确定）再发；0=不播 1=已停止 2=取消失败。\n    int abort_notify = 0;\n    while (true) {\n        std::unique_lock<std::mutex> stream_lock(stream_mutex_);\n        if (abort_reset_owner_.Running() ||\n            abort_reset_worker_active_.load(std::memory_order_acquire)) {\n            stream_lock.unlock();\n            const bool waited = WaitForAbortReset();\n            // 断流归位路径不占 owner：只在 owner 真的 Started 时才据返回值判失败。\n            if (abort_reset_owner_.Started() && !waited) {\n                reset_ok = false;\n            }\n            continue;\n        }\n        if (abort_reset_owner_.Started() && !abort_reset_owner_.Succeeded()) {\n            reset_ok = false;\n        }\n        if (!ResetAbortResetState()) {\n            stream_lock.unlock();\n            continue;\n        }\n        if (!reset_ok &&\n            hutuji::AbortSettledDespiteResetFailure(abort_requested_.load(),\n                                                    abort_home_done_.load(),\n                                                    Pipe::GetInstance().IsConnected(),\n                                                    Pipe::GetInstance().GetGrblState() == GrblState::Idle)) {\n            // owner 账面失败但断流归位已完成且机器健康 Idle：按物理事实收尾，\n            // 不把已停稳的停止误判成「取消失败…请断电重启」（2026-09-23 量产机事故）。\n            ESP_LOGW(TAG, \"reset owner 未收敛但断流归位完成且机器 Idle，按已停止收尾\");\n            reset_ok = true;\n        }\n        if (!reset_ok) {\n            last_error_ = \"abort reset 恢复失败\";\n            SetState(\"error\");\n            ok = false;\n        }",
@@ -1341,12 +1411,12 @@
       "source": "                    if (++silent_polls >= kSilentPollLimit) {",
       "target": "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc"
     },
-    "docs/worktree-inventory.md -> release-readiness.md:301": {
+    "docs/worktree-inventory.md -> release-readiness.md:299": {
       "sha8": "3f107c13",
       "source": "> **2026-08-28 Grbl 机型默认 `$1=255` 已固化并刷 COM13（`7f48217`）**：`custom_3axis_hr4988.h` 的 `DEFAULT_STEPPER_IDLE_LOCK_TIME` 25→**255**（空闲常使能；用户原话要求进固件）。fz `standard` overall=pass（PATH 前置 llvm 22.1.8）；`pio run -e release` SUCCESS，`firmware.bin` 1858032B SHA-256 `8FE663BE…80E635`；COM13 upload `Hash of data verified`；串口 `$$` 复核 `$1=255`（NVS 原值保留，证据 `results/local-only/2026-08-28/grbl-dollar1-default255-com13-verify.log`）。换板/`$RST=$` 现回落 **255** 而非 25。S3 无需为此刷机。",
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-10-11T13:13:51Z",
+  "updated": "2026-10-12T01:11:53Z",
   "version": 1
 }

@@ -232,6 +232,56 @@ def test_pptx_single_slide_no_marker():
     assert doc.paragraphs == ["唯一页"]
 
 
+def test_pptx_duplicate_slide_ref_deduped():
+    # sldIdLst 把同一个 slide 部件（rId1）引用多次：旧行为逐条 _parse_xml_part
+    # 重解析同一 part 并累积 N 份段落（N 个「—— 第 X 页 ——」+ N 份正文），
+    # 32MiB presentation.xml 可塞数十万条 → CPU/内存 DoS（R3，R2-01 同族）。
+    # 去重后同一部件只解析一次：单页输出、无分页标记、正文仅一份。
+    dup_ids = "".join(f'<p:sldId id="{256 + i}" r:id="rId1"/>' for i in range(64))
+    raw = _zip(
+        {
+            "ppt/presentation.xml": (
+                f'<p:presentation xmlns:p="{_P_NS}" xmlns:r="{_R_NS}">'
+                f"<p:sldIdLst>{dup_ids}</p:sldIdLst></p:presentation>"
+            ),
+            "ppt/_rels/presentation.xml.rels": (
+                f'<Relationships xmlns="{_PR_NS}">'
+                f'<Relationship Id="rId1" Target="slides/slide1.xml"/></Relationships>'
+            ),
+            "ppt/slides/slide1.xml": (
+                f'<p:sld xmlns:p="{_P_NS}" xmlns:a="{_A_NS}"><p:cSld><p:spTree>'
+                f"<p:sp><p:txBody><a:p><a:r><a:t>重复页</a:t></a:r></a:p></p:txBody>"
+                f"</p:sp></p:spTree></p:cSld></p:sld>"
+            ),
+        }
+    )
+    doc = parse_document(raw, "pptx")
+    assert doc.paragraphs == ["重复页"]
+
+
+def test_pptx_aggregate_char_budget_bails_early(monkeypatch):
+    # 每页独立部件（不触发去重），单页约 1000 字、共 50 页 → 聚合远超 5000。
+    # 旧行为 post-hoc 卡 MAX_TEXT_CHARS：先把 50 个 slide 部件全解析、全累积
+    # （256 部件 × 32MiB 可放大到数 GiB）才报错；增量卡后越过 5000 立即停，
+    # 只摸到前几页部件（R4，R2-01 同族）。
+    slides = ["页" * 1000 for _ in range(50)]
+    raw = _pptx(slides)
+    parsed_slides = 0
+    real = doc_ingest._parse_xml_part
+
+    def _counting(zf, name):
+        nonlocal parsed_slides
+        if name.startswith("ppt/slides/"):
+            parsed_slides += 1
+        return real(zf, name)
+
+    monkeypatch.setattr(doc_ingest, "_parse_xml_part", _counting)
+    with pytest.raises(DocIngestError, match="文字过多"):
+        parse_document(raw, "pptx")
+    # 6×1000 > 5000：第 6 页后即越界停手；旧行为会摸满 50 个部件。
+    assert parsed_slides <= 7
+
+
 def test_pptx_empty_rejected():
     raw = _zip(
         {
@@ -336,6 +386,24 @@ def test_xlsx_merge_cell_count_bounded():
         )
     )
     with pytest.raises(DocIngestError, match="合并单元格过多"):
+        parse_document(raw, "xlsx")
+
+
+def test_xlsx_col_spec_count_bounded():
+    """R2-01 同族收口：<col> 条数无上界时 col_widths 的 O(ncols×specs) 扫描
+    （32MiB 部件可塞 ~80 万条 × 24 列）仍可被打成空转 DoS。超 MAX_COL_SPECS
+    必须拒绝，而非累积整段 col_specs 再逐列线性求交。"""
+    many = "".join(
+        f'<col min="{i}" max="{i}" width="7"/>'
+        for i in range(1, doc_ingest.MAX_COL_SPECS + 2)
+    )
+    raw = _xlsx(
+        _sheet_xml(
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>甲</t></is></c></row>',
+            cols_xml=f"<cols>{many}</cols>",
+        )
+    )
+    with pytest.raises(DocIngestError, match="列定义过多"):
         parse_document(raw, "xlsx")
 
 
@@ -501,3 +569,56 @@ def test_pptx_title_placeholder_marked_heading():
 
 def test_txt_csv_have_no_headings():
     assert parse_document("标题\n正文".encode(), "txt").headings == set()
+
+
+def test_docx_roman_list_bails_incrementally_not_quadratic():
+    """R6-01：lowerRoman 列表编号前缀是 O(k)/项，N 项累积 O(N²) 字符。
+
+    旧行为 post-hoc 卡 MAX_TEXT_CHARS 要等整个 w:p 循环跑完才触发——攻击者用
+    几十 KB 的 document.xml 塞满 roman 列表即可在校验前把 CPU 烧到分钟级
+    （实测 100000 项 ~70s）。增量卡：越过 5000 立即抛，只摸到前几百项前缀。
+
+    判别器：统计 `_roman` 调用次数。旧代码 == N（全摸），新代码远小于 N。
+    """
+    n = 4000
+    body = "".join(_list_para("x") for _ in range(n))
+    raw = _zip(
+        {
+            "word/numbering.xml": _numbering_xml(fmt="lowerRoman", lvl_text="%1."),
+            "word/document.xml": (
+                f'<w:document xmlns:w="{_W_NS}"><w:body>{body}</w:body></w:document>'
+            ),
+        }
+    )
+
+    calls = {"n": 0}
+    real_roman = doc_ingest._roman
+
+    def _counting_roman(k: int) -> str:
+        calls["n"] += 1
+        return real_roman(k)
+
+    doc_ingest._roman = _counting_roman
+    try:
+        with pytest.raises(DocIngestError):
+            parse_document(raw, "docx")
+    finally:
+        doc_ingest._roman = real_roman
+
+    # 旧代码摸满全部 n 项（calls == n）；增量卡越过 5000 字符即停，远早于全摸。
+    assert calls["n"] < n // 4, f"roman 前缀未增量止损：{calls['n']} 次（n={n}）"
+
+
+def test_docx_roman_list_legit_still_correct():
+    """增量止损不得破坏正常 roman 列表：3 项仍逐项成形。"""
+    raw = _zip(
+        {
+            "word/numbering.xml": _numbering_xml(fmt="lowerRoman", lvl_text="%1."),
+            "word/document.xml": (
+                f'<w:document xmlns:w="{_W_NS}"><w:body>'
+                + _list_para("甲") + _list_para("乙") + _list_para("丙")
+                + "</w:body></w:document>"
+            ),
+        }
+    )
+    assert parse_document(raw, "docx").paragraphs == ["i. 甲", "ii. 乙", "iii. 丙"]

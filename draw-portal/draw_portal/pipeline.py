@@ -8,6 +8,51 @@ from pathlib import Path
 from draw_portal.upload_kinds import detect_upload_kind
 
 
+# 解码前按文件头拦「解码即 OOM」级像素炸弹。app.py 的 _MAX_UPLOAD_BYTES=4MB 字节上限
+# 挡不住高压缩比图幅：纯色/低熵 JPEG/PNG/WebP 可 4MB 文件头声明数亿像素，imageio/skimage
+# 全量解码会在 Pillow 自带 ~179Mpx 闸触发前就吃垮 worker 内存（RGB 解码 + rgb2gray float64
+# 峰值 ~11 字节/像素）。门户 /api/draw/upload 直收 JPEG/WebP/GIF/BMP 原件，用 Pillow 惰性
+# 读头（只解析尺寸、不解码像素）在 iio.imread 之前拦下。
+#
+# 阈值刻意远高于 bitmap_svg 的 5Mpx 描摹闸：门户的 shrink_oversized_png 会把 5–5.9Mpx 手机
+# 照片**等比缩进**描摹闸（2026-09-08 生产修复：客户端按 4MB 字节压缩、不按像素，12MP 照片压完
+# 仍 5.9Mpx），若在此按 5Mpx 拒就把合法上传 400 掉、UX 回退。本闸只负责 OOM 级别的巨幅拒绝，
+# 5Mpx 以下/以上但仍可解码的图继续走既有缩放链。合法 4MB 图经验上 ≤~40Mpx，64Mpx 闸干净分离
+# 合法上传与数百 Mpx~Gpx 炸弹；单边 32768 另拦细长退化图（如 40000×3，总像素虽小但单行巨量分配）。
+_MAX_RASTER_PIXELS = 64_000_000  # 64Mpx：解码峰值 ~700MB，仍远低于合法图上界之上的炸弹区
+_MAX_RASTER_SIDE = 32768         # 对齐 hutuji_mcp.bitmap_svg._MAX_IMAGE_SIDE
+
+
+def _guard_raster_dimensions(raw: bytes) -> None:
+    """位图解码前按文件头校验尺寸；确认超限才抛 ValueError（上层映射 400）。
+
+    读不出尺寸（非图片/头部损坏）一律静默返回，交由后续解码链按原逻辑报错，
+    不新增 fail 面、不改既有「图片转换失败」路径的状态码。
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            width, height = im.size
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        # Pillow 自带闸（警告 ~89Mpx / 报错 2×=179Mpx）在读头时判巨幅——直接视作炸弹
+        # 拒绝，不回落解码（否则 iio.imread 同样炸且已占满内存）。警告仅在调用方把
+        # warnings 升为 error 时才成异常，一并兜住。
+        raise ValueError("图片像素过多（超出安全解码上限，疑似解压炸弹）") from None
+    except Exception:
+        # 读不出尺寸（非图片/头部损坏）：交后续解码链按原逻辑报错，不新增 fail 面。
+        return
+    if width >= _MAX_RASTER_SIDE or height >= _MAX_RASTER_SIDE:
+        raise ValueError(
+            f"图片单边过大（{width}x{height}，单边上限 {_MAX_RASTER_SIDE}）"
+        )
+    if width * height > _MAX_RASTER_PIXELS:
+        raise ValueError(
+            f"图片像素过多（{width}x{height}="
+            f"{width * height / 1e6:.1f}Mpx，上限 {_MAX_RASTER_PIXELS / 1e6:.1f}Mpx）"
+        )
+
+
 @dataclass(frozen=True)
 class PipelineResult:
     lines: int
@@ -48,6 +93,7 @@ def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:
     """
     import imageio.v3 as iio
 
+    _guard_raster_dimensions(raw)
     arr = iio.imread(raw)
     if line_art and _looks_like_photo(arr):
         arr = _photo_to_line_art(arr)
@@ -66,6 +112,7 @@ def is_photo_raster(raw: bytes) -> bool:
     import imageio.v3 as iio
 
     try:
+        _guard_raster_dimensions(raw)
         arr = iio.imread(raw)
         return _looks_like_photo(arr)
     except Exception:
@@ -385,6 +432,7 @@ def shrink_oversized_png(png_bytes: bytes, *, max_mpx: float = 4.8) -> bytes:
     """
     import imageio.v3 as iio
 
+    _guard_raster_dimensions(png_bytes)
     arr = iio.imread(png_bytes)
     h, w = arr.shape[:2]
     mpx = (h * w) / 1e6

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from draw_portal.pipeline import process_upload
 
 
@@ -97,3 +99,127 @@ def test_corner_watermark_stripped_but_dark_strokes_survive():
     assert (out[180:190, 160:190] == 255).all()  # 水印洗白
     assert (out[176:179, 150:195] == 20).all()   # 近黑笔画保留
     assert (out[50:60, 50:60] == 150).all()      # 非角区不动
+
+
+def _png_declaring_size(width: int, height: int) -> bytes:
+    """构造几十字节的 PNG：IHDR 真实声明 width×height，IDAT 不足以表达该图幅。
+
+    Pillow 的 `Image.open(...).size` 只解析 IHDR（不解码像素），故能拿到声明尺寸；
+    用它触发解码前尺寸闸，而无需在测试里真的分配数亿像素。
+    """
+    import struct
+    import zlib
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = _chunk("IHDR".encode(), struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    idat = _chunk("IDAT".encode(), zlib.compress(b"\x00" * 16))
+    iend = _chunk("IEND".encode(), b"")
+    return sig + ihdr + idat + iend
+
+
+def test_raster_bomb_rejected_before_decode(monkeypatch):
+    """4MB 字节上限内但头部声明 40000×40000（1.6Gpx）的位图：解码前尺寸闸拦下，
+    绝不进 iio.imread 全量解码（否则 worker OOM）。旧码无闸 → imread 被调用。"""
+    import imageio.v3 as iio
+
+    from draw_portal import pipeline
+
+    bomb = _png_declaring_size(40000, 40000)
+    assert len(bomb) < 1024  # 文件本体几十字节，4MB 上限挡不住
+    seen: list[int] = []
+    real = iio.imread
+    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+
+    with pytest.raises(ValueError, match="像素过多"):
+        pipeline.normalize_raster_to_png(bomb)
+    assert seen == []  # 守卫在解码前短路
+
+
+def test_shrink_oversized_rejects_bomb_before_decode(monkeypatch):
+    """PNG 描摹路径的首个解码点（shrink_oversized_png）同样在解码前拦像素炸弹。"""
+    import imageio.v3 as iio
+
+    from draw_portal import pipeline
+
+    bomb = _png_declaring_size(40000, 40000)
+    seen: list[int] = []
+    real = iio.imread
+    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+
+    with pytest.raises(ValueError, match="像素过多"):
+        pipeline.shrink_oversized_png(bomb)
+    assert seen == []
+
+
+def test_is_photo_raster_bomb_returns_false_without_decode(monkeypatch):
+    """照片启发式对像素炸弹走 fail-soft（返回 False），且不触发全量解码。"""
+    import imageio.v3 as iio
+
+    from draw_portal import pipeline
+
+    bomb = _png_declaring_size(40000, 40000)
+    seen: list[int] = []
+    real = iio.imread
+    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+
+    assert pipeline.is_photo_raster(bomb) is False
+    assert seen == []
+
+
+def test_oversized_side_rejected(monkeypatch):
+    """单边超 32768 即便总像素未过阈也拒（对齐 bitmap_svg 单边硬闸，防 nMpx×1 退化图）。"""
+    import imageio.v3 as iio
+
+    from draw_portal import pipeline
+
+    bomb = _png_declaring_size(40000, 3)
+    seen: list[int] = []
+    real = iio.imread
+    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+
+    with pytest.raises(ValueError, match="单边过大"):
+        pipeline.normalize_raster_to_png(bomb)
+    assert seen == []
+
+
+def test_decode_memory_band_rejected_above_pillow_warn(monkeypatch):
+    """64–179Mpx 带：Pillow 自带闸只告警不报错、仍会全量解码（OOM 风险），本地
+    64Mpx 闸才是真正拦截点——证明守卫带来额外保护，而非只复述 Pillow 自带 DOS 闸。"""
+    import warnings
+
+    import imageio.v3 as iio
+    from PIL import Image
+
+    from draw_portal import pipeline
+
+    band = _png_declaring_size(10000, 10000)  # 100Mpx：> 64Mpx 本地闸、< 179Mpx Pillow 硬闸
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with Image.open(io.BytesIO(band)) as im:
+            assert im.size == (10000, 10000)  # 能读到尺寸即说明 Pillow 未硬拦，解码本会放行
+    seen: list[int] = []
+    real = iio.imread
+    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+
+    with pytest.raises(ValueError, match="像素过多"):
+        pipeline.normalize_raster_to_png(band)
+    assert seen == []
+
+
+def test_normal_small_raster_passes_guard(tmp_path):
+    """闸内正常图不受影响：合法 JPEG 仍描摹出图（守卫纯增量、不误伤）。"""
+    result = process_upload(
+        _drawing_jpeg(),
+        content_type="image/jpeg",
+        filename="ok.jpg",
+        job_dir=tmp_path / "job",
+    )
+    assert result.lines > 0

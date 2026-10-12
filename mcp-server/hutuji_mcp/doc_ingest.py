@@ -34,6 +34,7 @@ MAX_TABLE_ROWS = 500
 MAX_TABLE_COLS = 24
 MAX_CELL_CHARS = 40
 MAX_MERGE_CELLS = 2048  # mergeCell 条数上限：封堵 O(merges×rows) 展开 DoS（32MiB 部件可塞 ~1.2M 条）
+MAX_COL_SPECS = 2048  # <col> 条数上限：与 MAX_MERGE_CELLS 同族，封堵 col_widths 的 O(ncols×specs) 空转
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -347,12 +348,19 @@ def _docx_paragraphs(root: ET.Element, zf: zipfile.ZipFile) -> tuple[list[str], 
     counters = _ListCounters(_docx_numbering(zf))
     paras: list[str] = []
     headings: set[int] = set()
+    acc_chars = 0  # 在途累计：列表编号前缀（lowerRoman/upperRoman 为 O(k)/项）累积可达
+    # O(N²) 字符，第 391 行的 post-hoc 校验要等整个 w:p 循环跑完才触发——攻击者用
+    # 32MiB document.xml 塞满 roman 编号列表即可在校验前耗尽 CPU/内存。逐段落地即查，
+    # 越过 MAX_TEXT_CHARS 立刻抛（与 pptx R4-01 同族），把放大收敛为 O(bail²)。
 
     def _emit(text: str, is_heading: bool) -> None:
+        nonlocal acc_chars
         if text.strip():
             if is_heading:
                 headings.add(len(paras))
             paras.append(text)
+            acc_chars += len(text)
+            _check_total_chars(acc_chars)
 
     for p in root.iter(f"{_W}p"):
         ppr = p.find(f"{_W}pPr")
@@ -431,11 +439,20 @@ def _parse_pptx(raw: bytes) -> ParsedDoc:
         pres = _parse_xml_part(zf, "ppt/presentation.xml")
         rels = _rels_map(zf, "ppt/_rels/presentation.xml.rels")
         slides: list[list[tuple[str, bool]]] = []
+        seen_targets: set[str] = set()
+        acc_chars = 0  # 累计抽出字符数：边抽边卡 MAX_TEXT_CHARS，封堵 256 部件 × 32MiB
+                       # 的聚合放大（post-hoc 卡太晚，R4，R2-01 同族）
         # 放映顺序以 presentation.xml 的 sldIdLst 为准（不是文件名数字序）
         for sld_id in pres.iter(f"{_P}sldId"):
             target = rels.get(sld_id.get(f"{_R}id") or "", "")
             if not target:
                 continue
+            # 同一 slide 部件被重复引用只解析一次：sldIdLst 可塞 ~数十万条
+            # 全指向同一 rId，逐条 _parse_xml_part 会放大为 CPU DoS（R3，R2-01 同族）；
+            # 去重后展开上界 = 不同部件数 ≤ MAX_ZIP_ENTRIES
+            if target in seen_targets:
+                continue
+            seen_targets.add(target)
             slide = _parse_xml_part(zf, _join_part("ppt", target))
             paras: list[tuple[str, bool]] = []
             # 按形状遍历：占位符类型（p:ph@type=title/ctrTitle）在 sp 级，
@@ -447,6 +464,8 @@ def _parse_pptx(raw: bytes) -> ParsedDoc:
                     text = "".join(t.text or "" for t in ap.iter(f"{_A}t")).strip()
                     if text:
                         paras.append((text, is_title))
+                        acc_chars += len(text)
+                        _check_total_chars(acc_chars)
             if paras:
                 slides.append(paras)
     finally:
@@ -541,6 +560,8 @@ def _xlsx_sheet(
         if lo < 0 or hi < lo:
             continue
         col_specs.append((lo, min(hi, lo + _XLSX_COL_SPEC_SPAN), w))
+        if len(col_specs) > MAX_COL_SPECS:
+            raise DocIngestError(f"列定义过多（上限 {MAX_COL_SPECS} 个）")
 
     raw_merges: list[tuple[int, int, int, int]] = []
     for mc in root.iter(f"{_S}mergeCell"):

@@ -65,12 +65,12 @@
 
 ### R2-01 / P2（confirmed）：xlsx mergeCell 行范围未设上界 → 文档导入 CPU 耗尽 DoS
 
-- 位置：`mcp-server/hutuji_mcp/doc_ingest.py:607`（**修复已落地**：改为对 `orig_to_out` 键集合与 `[r1,r2]` 求交迭代，次数有界于真实行数 ≤`MAX_TABLE_ROWS`）；原缺陷为 `for r in range(r1, r2+1)` 配无上限正则，`_merge_ref` 第 509 行 `r2 = int(m.group(4)) - 1`，正则 `(\d+)` 对行号不设上限。
+- 位置：`mcp-server/hutuji_mcp/doc_ingest.py:624`（**修复已落地**：改为对 `orig_to_out` 键集合与 `[r1,r2]` 求交迭代，次数有界于真实行数 ≤`MAX_TABLE_ROWS`）；原缺陷为 `for r in range(r1, r2+1)` 配无上限正则，`_merge_ref` 第 509 行 `r2 = int(m.group(4)) - 1`，正则 `(\d+)` 对行号不设上限。
 - 触发：portal 文档导入上传含 `<mergeCell ref="A1:A999999999"/>` 的 xlsx；A 列 `c1=0 < ncols` 必进内层循环，单个 <100B 元素即触发。
 - 期望 vs 实际：期望合并展开有界——同文件对**列**展开已用 `_XLSX_COL_SPEC_SPAN=64` 显式钳死（第 497–498 行注释「展开必须有界」）。实际 `r2` 直接取自无上限正则，`range(r1, r2+1)` 对单元素产生 1e9+ 次 `orig_to_out.get(r)` 空转；解析在 portal 同步导入路径执行，CPU 耗尽、worker 挂死，与已解析行数（≤`MAX_TABLE_ROWS=500`）完全脱钩。
-- 测试覆盖：`test_doc_ingest.py:284` 仅覆盖 `A1:B1` 横向小合并（range 迭代 1 次）；无大范围/纵向合并回归。
+- 测试覆盖：`test_doc_ingest.py:311` 仅覆盖 `A1:B1` 横向小合并（range 迭代 1 次）；无大范围/纵向合并回归。
 - 修复落地（已实现）：内层改迭代 `orig_to_out.items()` 与 `[r1,r2]` 求交，与 `_XLSX_COL_SPEC_SPAN` 列展开上界对齐；回归 `test_doc_ingest.py` 的 `test_xlsx_merge_row_range_bounded`（单个 `A1:A100000000` 合并断言产物只覆盖真实两行 + 墙钟 <5s，旧 O(ref 跨度) 实现必红）。
-- 残留收口（已实现）：单元素行范围封堵后，`raw_merges` 条数本身仍无上界——32MiB 部件可塞 ~1.2M 条 `<mergeCell>`，每条逐行求交即 O(merges×rows) 仍可打成 DoS。`doc_ingest.py:36` 增 `MAX_MERGE_CELLS=2048`（与 `_XLSX_COL_SPEC_SPAN=64` 同族显式上界），`doc_ingest.py:550-551` 累积即查、超限抛 `DocIngestError("合并单元格过多…")`，不等整段收齐再逐行展开；回归 `test_doc_ingest.py` 的 `test_xlsx_merge_cell_count_bounded`（`MAX_MERGE_CELLS+1` 条 `<mergeCell>` 断言拒绝，无上界旧码必不抛必红）。
+- 残留收口（已实现）：单元素行范围封堵后，`raw_merges` 条数本身仍无上界——32MiB 部件可塞 ~1.2M 条 `<mergeCell>`，每条逐行求交即 O(merges×rows) 仍可打成 DoS。`doc_ingest.py:36` 增 `MAX_MERGE_CELLS=2048`（与 `_XLSX_COL_SPEC_SPAN=64` 同族显式上界），`doc_ingest.py:567-568` 累积即查、超限抛 `DocIngestError("合并单元格过多…")`，不等整段收齐再逐行展开；回归 `test_doc_ingest.py` 的 `test_xlsx_merge_cell_count_bounded`（`MAX_MERGE_CELLS+1` 条 `<mergeCell>` 断言拒绝，无上界旧码必不抛必红）。
 
 ### R2-02 / P3（confirmed）：article_llm LLM 回包无字节上限，与 chat.py 既有防线不一致
 
@@ -90,6 +90,58 @@
 
 `AGENTS.md` / `docs/agent-edit-allowlist.json` 把 `src/WebUI/StatusBeacon.{h,cpp}`、`src/ProtocolDecisionCore.h` 列为 §9 可碰文件，但 R2Grbl `glob` 实测在 `Grbl_Esp32-massprod` 分支**无命中**（§9-H′ StatusBeacon 奎享守护、§9-C′ 决策谓词 header 均属普通分支，未并入 massprod/nopaper-1.3a）。非代码缺陷，但白名单对 massprod 而言含不存在路径，易误导后续代理。建议在白名单/矩阵标注这些条目仅适用普通分支。
 
+## 第三轮扩展审查（R3，2026-10-11）
+
+沿用 R2-01 镜头（攻击者可控 count/length/value → 无界循环或分配，且须绕过既有字节/`MAX_*` 闸才算真缺陷），续读 `doc_ingest.py` OOXML 解析剩余面。产品源码只读；两条均为 R2-01 同族防御纵深，发现即修复并补回归。
+
+### R3-01 / P3（confirmed，已修复）：xlsx `<col>` 列定义条数无上界 → `col_widths` 构建 O(ncols×specs) 空转
+
+- 位置：`doc_ingest.py` 的 `_xlsx_sheet` 列定义循环（`for col in root.iter(f"{_S}col")`）累积 `col_specs` 无条数上界——行范围与 `MAX_MERGE_CELLS` 已封堵，但 `<col>` 条数本身只受部件字节上限约束。
+- 触发：高压缩 xlsx 塞入海量互不匹配的 `<col min=i max=i width=7/>`（每条 ~40B，32MiB 部件可塞 ~1e5+ 条）；后续 `for c in range(ncols): for lo,hi,w in col_specs` 为 O(ncols×specs)，小文件即可放大到千万级空转。
+- 期望 vs 实际：期望与 `MAX_MERGE_CELLS=2048` 同族显式钳死；实际 `col_specs` 无上界，与真实列数（≤`MAX_TABLE_COLS=24`）脱钩。
+- 修复落地（已实现）：`doc_ingest.py:37` 增 `MAX_COL_SPECS=2048`，列循环累积即查、超限抛 `DocIngestError("列定义过多…")`；回归 `test_doc_ingest.py` 的 `test_xlsx_col_spec_count_bounded`（`MAX_COL_SPECS+2` 条非匹配 `<col>` 断言拒绝，无上界旧码必不抛必红）。
+
+### R3-02 / P3（confirmed，已修复）：pptx `sldIdLst` 重复 rId 引用致同一 slide 部件被逐条重解析 → CPU/内存 DoS
+
+- 位置：`doc_ingest.py` 的 `_parse_pptx`（`for sld_id in pres.iter(f"{_P}sldId")` 内按 `r:id` 查 `rels` 并逐条 `_parse_xml_part`）；原实现对同一 target 不去重。
+- 触发：`presentation.xml` 的 `<p:sldIdLst>` 塞入海量 `<p:sldId r:id="rId1"/>` 全指向同一 slide 部件（每条 ~40B，32MiB 可塞 ~数十万条）；每条都重新 `_parse_xml_part` 解析同一（可较大）部件 → O(N) 重解析，`_check_total_chars` 仅在循环末尾触发、拦不住过程中的 CPU/内存累积。
+- 期望 vs 实际：期望每个 slide 部件至多解析一次；实际同一 rId 被引用 N 次即重解析 N 次。合法 pptx 的 `sldIdLst` 每条指向不同 slide，去重对正常文件不可见。
+- 修复落地（已实现）：`doc_ingest.py:442`（`seen_targets` 定义）、`doc_ingest.py:453-455`（去重守卫：同一 target 命中即 `continue`、否则登记）——展开上界收敛为不同部件数 ≤`MAX_ZIP_ENTRIES=256`；回归 `test_doc_ingest.py` 的 `test_pptx_duplicate_slide_ref_deduped`（64 条 `sldId` 全指向 `rId1`，断言 `paragraphs == ["重复页"]`：去重后单页无分页标记、正文仅一份；旧实现产 64 份正文 + 64 个「—— 第 X 页 ——」标记，throwaway 实证 OLD len=128 / NEW len=1）。
+
+### R4-01 / P2（confirmed，已修复）：pptx 跨部件抽字累积绕过 `MAX_TEXT_CHARS` → 内存放大 DoS
+
+- 位置：`doc_ingest.py` 的 `_parse_pptx`——`_check_total_chars` 仅在循环末尾（展平 `slides`→`paragraphs` 之后）触发；过程中逐 slide 把抽出文本累积进 `paras`/`slides` 无在途上界。
+- 触发：`MAX_MEMBER_BYTES=32MiB` 是**单部件**上界，`MAX_ZIP_ENTRIES=256` 允许至多 256 个不同 slide 部件（去重后仍是 256）。每个部件可塞满 32MiB 文本 → 聚合抽出文本上界 = 256×32MiB ≈ 8GiB，全部累积进 `paragraphs` 后 `MAX_TEXT_CHARS=5000` 才报错——post-hoc 卡太晚，单部件字节闸拦不住跨部件聚合（R2-01 同族：攻击者控的部件数 → 无界累积）。
+- 期望 vs 实际：期望抽字累积以 `MAX_TEXT_CHARS` 为界；实际累积以 256 部件字节总量为界、仅末尾一次性校验。
+- 修复落地（已实现）：`doc_ingest.py:443`（`acc_chars` 计数）、`doc_ingest.py:467-468`（每追加一段正文即 `acc_chars += len(text)` 并 `_check_total_chars(acc_chars)`）——越过 5000 立即抛，累积上界收敛为 `MAX_TEXT_CHARS` + 单段文本（≤单部件）；对合法 pptx（远低于 5000 字）行为不变，仅把同一 `文字过多` 报错前移。回归 `test_doc_ingest.py` 的 `test_pptx_aggregate_char_budget_bails_early`（50 个各 ~1000 字的独立 slide 部件，监视 `_parse_xml_part` 命中 `ppt/slides/` 次数：新码越过 5000 后 `parsed_slides<=7`、旧码摸满 50，throwaway 掐 `_check_total_chars` 实证循环自然摸满 50 部件 /100 段）。
+
+## 第五轮扩展审查（R5，2026-10-12）
+
+沿用 R2-01 镜头移到位图解码面：攻击者可控**图幅**（而非 count）→ 解码即 OOM，且绕过既有字节上限与下游像素闸。产品源码只读，发现即修复并补 fails-before/pass-after 回归。门户专用改动，不动 MCP 侧 1649 项。
+
+### R5-01 / P2（confirmed，已修复）：门户位图上传解码前无尺寸闸 → 高压缩比图幅解码放大 OOM
+
+- 位置：`draw-portal/draw_portal/pipeline.py` 的 `normalize_raster_to_png`、`is_photo_raster`、`shrink_oversized_png` 三处均直接 `iio.imread(<上传原件>)`，解码前无任何像素/单边上界。
+- 触发：`app.py` 的 `_MAX_UPLOAD_BYTES=4MB` 只钳**字节**；纯色/低熵 JPEG/PNG/WebP 可在 4MB 内头部声明数亿像素（如 10000×10000=100Mpx、乃至 40000×40000=1.6Gpx）。`iio.imread` 全量解码 RGB + `_looks_like_photo` 的 `rgb2gray` float64 峰值 ~11 字节/像素，100Mpx ≈ 1GB、远超 worker 预算 → OOM DoS。
+- 为何绕过既有闸：`hutuji_mcp.bitmap_svg._reject_oversized_png`（5Mpx/32768 边 IHDR 预检）只护 **MCP 侧**（输入恒为模型产出 PNG，≤1760×2368）；门户 `/api/draw/upload` 直收 JPEG/WebP/GIF/BMP 原件，且该闸在门户链里位于 `shrink_oversized_png`→`trace_bitmap_to_polylines` **下游**——门户已先 `iio.imread` 全量解码（OOM 点）才轮到它，形同虚设。另：Pillow 自带 DOS 闸 **179Mpx（2×MAX_IMAGE_PIXELS）才 `DecompressionBombError`**、~89Mpx 起只 `DecompressionBombWarning` 仍放行解码——故 >179Mpx 原本已被 Pillow 以异常拦下（崩为 500、非 OOM），**本修复真正新封堵的是 64–179Mpx「只告警仍全量解码」窗口**（OOM 点），并把全部超限统一前移为解码前的干净 `ValueError`。
+- 期望 vs 实际：期望解码前按文件头拒绝 OOM 级图幅；实际 4MB 字节闸放行后直接全量解码。
+- 修复落地（已实现，门户专用）：`draw-portal/draw_portal/pipeline.py:26` 新增 `_guard_raster_dimensions`，用 Pillow 惰性 `Image.open(...).size` 只读头部尺寸、在 `iio.imread` 前拦；阈值 `_MAX_RASTER_PIXELS=64_000_000`（`draw-portal/draw_portal/pipeline.py:22`）、`_MAX_RASTER_SIDE=32768`（`draw-portal/draw_portal/pipeline.py:23`）刻意**远高于** bitmap_svg 的 5Mpx 描摹闸，使门户既有的 5–5.9Mpx 手机照片 `shrink_oversized_png` 等比缩放链（2026-09-08 生产修复）不被误拒；Pillow 自带 `DecompressionBombError/Warning` 一并视作炸弹拒。三处解码入口（`draw-portal/draw_portal/pipeline.py:96`/`draw-portal/draw_portal/pipeline.py:115`/`draw-portal/draw_portal/pipeline.py:435`）均前置该闸；`is_photo_raster` 走 fail-soft（超限返回 False、不改既有语义）。
+- 回归（门户 `tests/test_pipeline_raster.py` 4→10，+6；门户全量 574→580 passed 实测）：`test_raster_bomb_rejected_before_decode`（1.6Gpx 头部，断言 `iio.imread` 未被调用且抛「像素过多」）、`test_shrink_oversized_rejects_bomb_before_decode`、`test_is_photo_raster_bomb_returns_false_without_decode`、`test_oversized_side_rejected`（40000×3 走单边闸）、`test_decode_memory_band_rejected_above_pillow_warn`（100Mpx 带：先证 `Image.open().size` 不报错即 Pillow 本会放行解码，再证本地 64Mpx 闸拦下——证明守卫带来额外保护而非复述 Pillow）、`test_normal_small_raster_passes_guard`（合法 JPEG 仍描摹出图不误伤）。fails-before 实证：中和守卫后 `normalize_raster_to_png(100Mpx)` 到达 `iio.imread`（`imread_called=True`）且不抛「像素过多」。
+- 范围说明：第 4 处 `iio.imread` 在 `strip_corner_watermark`（`draw-portal/draw_portal/pipeline.py:412`）**不在本修复内**——全仓检索其仅有定义与单测、无生产调用方，且设计输入为 TCB/魔搭 i2i 模型产出 PNG（经 `url_guard` + 16MiB 字节闸的受信中间件），非攻击者可控上传原件，不属上传 OOM 威胁面；其自身 `except Exception` fail-soft 返回原图，不额外加闸以免改既有可用性语义。
+
+## 第六轮扩展审查（R6，2026-10-12）
+
+继续位图/文档解析面扫描，锁定 docx 列表编号前缀的 O(N²) 字符放大——与 R4-01（pptx 跨部件累积）同族但发生在 docx 单部件内、放大来自前缀**长度随项序增长**而非部件数。
+
+### R6-01 / P2（confirmed，已修复）：docx roman 列表编号前缀 O(N²) 累积绕过 `MAX_TEXT_CHARS` → CPU/内存放大 DoS
+
+- 位置：`doc_ingest.py` 的 `_docx_paragraphs`——`for p in root.iter(w:p)` 循环对每个列表项调 `prefix_for`→`_fmt_counter`→`_roman`，`lowerRoman`/`upperRoman` 前缀长度为 O(k)/项（第 k 项 ≈ k/10 字符）；`_check_total_chars(MAX_TEXT_CHARS=5000)` 仅在整个循环跑完后一次性触发。
+- 触发：`document.xml` 为单部件、受 32MiB 流式上限约束，但 roman 列表前缀累积字符为 Σ(k/10) = O(N²)。实测几十 KB 的 document.xml（n=100000 项仅 ~37KB）即可在 post-hoc 校验前把前缀生成烧到分钟级 CPU：n=25000→3.1s、n=50000→14.2s、n=100000→70.7s、n=200000→>300s 超时（典型 O(N²)：N 翻倍、耗时约 4–5 倍）。
+- 为何绕过既有闸：`_check_total_chars` 是 post-hoc——`root.iter` 虽惰性，但旧码循环体无提前退出，必摸满全部 N 个 `<w:p>` 并为每项生成 O(k) 前缀后才在末尾求和校验；字节上限（32MiB 部件）钳的是输入体量、钳不住前缀生成的平方级放大。
+- 期望 vs 实际：期望编号前缀累积以 `MAX_TEXT_CHARS` 为界即止损；实际必跑完整循环、生成全部 N 项前缀后才校验。
+- 修复落地（已实现）：`doc_ingest.py:351` 新增在途累计 `acc_chars`，`doc_ingest.py:356-363` 把段落追加收敛进 `_emit`——每追加一段即 `acc_chars += len(text)` 并 `_check_total_chars(acc_chars)`，越过 5000 立即抛，放大收敛为 O(bail²)（纯 roman 约第 274 项即越界）。合法文档（远低于 5000 字）行为不变，仅把同一 `文字过多` 报错前移；与 R4-01 pptx 增量卡同族。
+- 回归（`test_doc_ingest.py` 38→40，+2）：`test_docx_roman_list_bails_incrementally_not_quadratic`（4000 项 lowerRoman 列表，监视 `_roman` 调用次数：新码越界即停 274 次 < n/4、旧码摸满 4000，throwaway 掐增量卡实证 `calls==4000` 判别器红）、`test_docx_roman_list_legit_still_correct`（3 项 roman 仍逐项成形 `i. / ii. / iii.`，增量止损不破坏正常路径）。fails-before 实证：注释掉 `_check_total_chars(acc_chars)` 后 `_roman` 调用 4000 次、判别器断言红。
+
 ## 边界
 
-本轮及续作未修改任何产品源码、正式测试或部署文件；F-NEW-01 尚未修复，NR12-GRBL-01 撤回。原始 P3 级别与“双板重刷”建议不再作为行动依据。宿主探针/静态复核结果不等于实机故障或出货结论；实体纸面、4h/30 次老化、工厂配对与出货签核仍缺证，出货放行继续 Hold。
+本轮复审本体为只读；R2-01/R2-02（已提交 `6853c24` 并双机部署）之后，R3-01/R3-02/R4-01/R6-01（改 `mcp-server/hutuji_mcp/doc_ingest.py` 与 `mcp-server/tests/test_doc_ingest.py`）与 R5-01（改 `draw-portal/draw_portal/pipeline.py` 与 `draw-portal/tests/test_pipeline_raster.py`）各带 fails-before/pass-after 回归已在工作树落地，**尚未提交、未部署**。F-NEW-01 已在工作树由未提交的 quota 工作流（`draw-portal/draw_portal/quota.py` 新增 + `store.py` `reserve_usage`/`settle_usage`/`release_usage` 走 `BEGIN IMMEDIATE` 跨进程预留）实现，**但本轮未复跑 8 并发屏障探针复测、不作已修复结论**（该工作流非本轮产出，提交须按文件选择性暂存、勿与 R3/R4/R5 混并）。NR12-GRBL-01 撤回。原始 P3 级别与“双板重刷”建议不再作为行动依据。宿主探针/静态复核结果不等于实机故障或出货结论；实体纸面、4h/30 次老化、工厂配对与出货签核仍缺证，出货放行继续 Hold。

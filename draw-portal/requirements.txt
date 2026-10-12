@@ -11,3 +11,6 @@ networkx>=3,<4
 sknw>=0.15,<1
 imageio>=2.34,<3
 numpy>=1.26,<3
+# R5-01 位图解码前尺寸闸（pipeline._guard_raster_dimensions）直接用 PIL 惰性读头；
+# scikit-image 本就传递依赖 Pillow，这里显式钉以示直接使用
+pillow>=10,<13
