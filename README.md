@@ -1,6 +1,6 @@
 # hutuji — AI 绘图自动换纸写字机
 
-2026-10-12 生图通道修复候选：商汤上游移除 `sensenova-u1-fast` 后，现存 `sensenova-u1.5-lite` 返回 `b64_json`，旧服务在 URL 提取处拒绝，叠加 Agnes 免费额度与 1 分钟限流造成可用性和质量同时下降。现已支持 URL/内联图双形态，商汤独立 75s 单次预算与 10MiB 响应闸，描摹、SSRF、16MiB 图片闸和先到先得对冲策略不变；MCP 1669 项与 e2e 通过。S3 CI 修复提交 `45a0149` 保留 P4 的 IDF6 覆盖、移除其已废弃的 IDF5.5 兼容项。部署、CI 与 Grbl 物理复位阻塞见[本批发布记录](docs/design/three-repo-release-20261012.md)和 readiness。
+2026-10-12 生图通道修复候选：商汤上游移除 `sensenova-u1-fast` 后，现存 `sensenova-u1.5-lite` 返回 `b64_json`，旧服务在 URL 提取处拒绝，叠加 Agnes 免费额度与 1 分钟限流造成可用性和质量同时下降。现已支持 URL/内联图双形态，商汤独立 75s 单次预算与 10MiB 响应闸，描摹、SSRF、16MiB 图片闸和先到先得对冲策略不变；Hub `f28477a` 已推，MCP 1669 项与 e2e 门禁通过。S3 CI 续提交 `2b997d4` 以 release matrix 的真实 target 覆盖全部 ESP32-P4 变体，保留 IDF6 覆盖并移除已废弃的 P4 IDF5.5 兼容项；云端 run 待终态。生产部署还受京东云 SSH 与商汤 key 轮换双重安全闸，Grbl 刷机等待物理复位，详见[本批发布记录](docs/design/three-repo-release-20261012.md)和 readiness。
 
 2026-10-10 三仓PR10修复：串口配网拒绝实时控制保留字符，HTTP保留凭据空格，工厂握手完整消费应答，OTA发送前复核当前版本，产线导出检查放行附件。5项修复与39项新增回归、右括号SSID补修1项见[修复及发布记录](docs/design/three-repo-production-review-20261010.md)。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38和量产Grbl b280e525已升级；HTTP参数保真、恢复原SSID及48项参数保持通过。工厂配对/手机矩阵与纸面/老化等实体缺证仍见readiness。
 

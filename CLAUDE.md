@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-2026-10-12 生图通道修复候选：商汤 `sensenova-u1-fast` 已被上游移除，`sensenova-u1.5-lite` 只返回 `b64_json`。MCP 已支持 URL 优先/严格 base64 内联图，商汤独立 75s 单次预算与 10MiB JSON 闸，解码后仍过 16MiB 图片上限；不改 PNG→中心线→G-code、SSRF URL 闸和先到先得对冲。9 项回归、MCP 1669 与 e2e 通过；部署和付费/模型选择边界见 `docs/design/three-repo-release-20261012.md`。
+2026-10-12 生图通道修复候选：商汤 `sensenova-u1-fast` 已被上游移除，`sensenova-u1.5-lite` 只返回 `b64_json`。MCP 已支持 URL 优先/严格 base64 内联图，商汤独立 75s 单次预算与 10MiB JSON 闸，解码后仍过 16MiB 图片上限；不改 PNG→中心线→G-code、SSRF URL 闸和先到先得对冲。9 项回归、MCP 1669 与 e2e 通过，Hub `f28477a` 已推且提交后门禁通过。S3 CI 续提交 `2b997d4` 改按 release matrix 的真实 target 处理全部 P4，run `38275272261` 待终态。生产必须先轮换已泄露商汤 key 并恢复京东云 SSH/单 bridge 安全闸，禁止旧 key 与半部署；Grbl 等物理复位。部署和付费/模型选择边界见 `docs/design/three-repo-release-20261012.md`。
 
 2026-10-10 PR10修复：串口非ASCII及`? ! ~`开口前拒绝，中文走HTTP且保留ESP参数首尾空格；配对$I完整消费终止ok才发布连接；Portal复核二次状态版本；产线missing检查当前代次release三报告附件，released仍为历史事实。39项新增回归及右括号SSID补修1项；**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38与量产Grbl b280e525已升级，HTTP参数实机保真/恢复和48项参数保持通过。配对、手机矩阵、纸面/老化仍有缺证，详见`docs/design/three-repo-production-review-20261010.md`发布节。
 
