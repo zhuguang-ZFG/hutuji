@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-2026-10-12 生图通道修复候选：上游已移除 `sensenova-u1-fast`，现存 `sensenova-u1.5-lite` 只返回 `b64_json`；旧代码在 URL 提取边界拒绝该响应，生产因此只剩受免费额度/1 分钟限流约束的 Agnes。现支持 URL 优先或严格 base64 内联图片，商汤单次 75s、不在同轮重试，只有该通道放宽响应 JSON 至 10MiB，解码后仍过 16MiB 图片闸；静态/动态 racer 共用实现。9 项回归使 MCP 全套为 1669 项，e2e PASS；Hub `f28477a` 已推且提交后门禁通过。S3 CI 首轮单板特例不完整，续提交 `2b997d4` 以 release matrix 的 `target=esp32p4` 覆盖全部 P4 变体，云端 run `38275272261` 待终态。生产部署须先轮换已泄露的商汤 key 并恢复京东云 SSH/单 bridge 安全检查，禁止复用旧 key 或半部署；量产 Grbl 刷机仍等物理复位。Agnes 2.5 样张 8.3s 仅作候选证据，本批不替用户升级付费计划或默认切模型。发布与未完成边界见 `docs/design/three-repo-release-20261012.md` 和 readiness。
+2026-10-13 生图通道代码已双机部署：Hub 代码提交 `f28477a`、收口文档 `ef84526`；`bitmap_svg.py`/`image_racers.py` 从 `ef84526` LF blob 出包，阿里/京东各自 `deploy` 与带包 `verify` 通过，远端 SHA 逐位相符，内联 `b64_json` 解码烟测两节点均 PASS。回滚号阿里 `5fec399163504f37831943465b9cad16`、京东 `4f790cd3b80d4ca0a5d858bc906d72b0`。两节点 preflight 分别 25/34、26/34，失败项是已登记的 unit/drop-in/nginx/热备角色差异，不能写成全项 PASS。生产 env 仍为旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 按泄露处理，未切模型、未做付费 live draw。京东部署使用 SOP 指定密钥后安全闸恢复；S3 CI run `38275272261` 仍待终态，量产 Grbl 刷机仍等物理复位。发布与未完成边界见 `docs/design/three-repo-release-20261012.md` 和 readiness。
 
 2026-10-10 PR10修复：串口配网开口前拒绝非ASCII及`? ! ~`，中文走HTTP；HTTP保留ESP参数首尾空格。工厂配对$I须消费完整终止ok后发布连接，Portal第二次状态版本必须低于目标，产线released保留历史但missing核当前代次三份放行附件。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38及量产Grbl b280e525已升级，HTTP右括号/中文/空格实机保真并恢复原SSID，48项参数不变；factory_paired仍false、纸面/老化未验。回归、回退及边界见`docs/design/three-repo-production-review-20261010.md`发布节。
 

@@ -22,8 +22,8 @@
 
 ## 发布状态与边界
 
-- Hub 生图修复 `f28477a` 已推，提交后 hub 门禁为 1669 项与 e2e PASS；生产仍运行旧代码。发布器在单 bridge 安全预检拒绝继续：京东云 TCP/22 可达但 SSH 在 `kex_exchange_identification` 阶段断开，无法确认热备 bridge inactive；同时商汤生产 key 已出现在工具输出，按泄露处理，必须轮换后才能把模型名切到 `sensenova-u1.5-lite`。禁止绕过双机安全闸或复用旧 key。本批不切 Agnes 2.5、不升级付费计划、不充值魔搭/TCB，也不启用 breaker enforce。
-- S3 CI 修复 `2b997d4` 已推 `feat/hutuji-usb-pipe` 与 `ci/p4-build-fix-20261012`；云端 Build Boards run `38275272261` 验证 target 驱动策略，最终绿灯仍以该 run 终态为准，旧 run `38269592381` 已取消。
+- Hub 生图修复 `f28477a` 的运行时代码已随收口提交 `ef84526` 从 LF blob 双机部署；阿里与京东各自 deploy/带包 verify 通过，`bitmap_svg.py`/`image_racers.py` SHA 与提交逐位相符，远端内联 `b64_json` 解码烟测均 PASS。回滚号分别为 `5fec399163504f37831943465b9cad16`、`4f790cd3b80d4ca0a5d858bc906d72b0`，详见 `docs/deployment.md`。两节点 preflight 为主 25/34、备 26/34，失败项仍是登记的 unit/drop-in/nginx/热备角色差异，不能写成全项 PASS。生产 env 保持 `sensenova-u1-fast` 与 `BREAKER_ENFORCE=0`；商汤生产 key 按泄露处理，须轮换后才能切 `sensenova-u1.5-lite`，本批未做付费 live draw。
+- S3 CI 修复 `2b997d4` 已推 `feat/hutuji-usb-pipe` 与 `ci/p4-build-fix-20261012`；云端 Build Boards run `38275272261` 仍在验证 target 驱动策略，旧 run `38269592381` 已取消。
 - Grbl 刷机和发布后 48 项回归阻塞于物理断电重启；当前不可执行，不得写成已刷。
-- 本机证据在 `results/local-only/2026-10-12-image-quality/` 与 `results/local-only/2026-10-12-utf16-review/`；临时脚本在 `mcp-server/tmp/`、`tmp/review-utf16-20261012/`，均不入发布提交。
+- 本机证据在 `results/local-only/2026-10-12-image-quality/` 与 `results/local-only/2026-10-12-utf16-review/`；临时脚本/部署包在 `mcp-server/tmp/`、`tmp/`，均不入发布提交。
 - 纸面尺量、4小时/30次老化、工厂配对和交付签核仍缺证，实体放行保持 Hold。

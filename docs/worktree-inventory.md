@@ -1,6 +1,6 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
-2026-10-12 生图通道修复候选：Hub `f28477a` 已提交推送，跟踪改动为 `bitmap_svg.py`、`image_racers.py`、`test_contract.py` 及 AGENTS/README/CLAUDE、MCP/env 模板、本批发布记录、readiness 和本清单。根因是商汤 u1-fast 下架且 u1.5-lite 改回 `b64_json`，旧 URL-only 提取在首个协议边界拒绝；修复后静态/动态 racer 可返回 URL 或内联字节，商汤独享 75s/10MiB 特例，其余管线不变。RED=旧代码 7 项失败，GREEN=位图链 57 项、全套 1669 与 e2e PASS，提交后 hub 门禁通过。S3 首轮 `45a0149` 单板名特例不足，云端其他 P4 同样在 BSP 5.2.3/esp_video 求解边界失败；续提交 `2b997d4` 给 release matrix 增 `target` 并按全部 `esp32p4` 变体临时降为 2.0.*，release 工具 6/6、YAML 与 172/28 变体冒烟通过，run `38275272261` 待终态。量产 Grbl 仍半挂，等待物理断电重启，未重复 OTA。`results/local-only/2026-10-12-image-quality/` 与 `mcp-server/tmp/` 为本机证据/临时脚本，不入提交；其余 1593 个未跟踪资产和 quota 工作流保持不动。Hub 生产未部署：京东云 SSH 密钥交换失败，且商汤生产 key 已按泄露处理，必须轮换；付费计划和默认 Agnes 模型未改。
+2026-10-13 生图通道双机部署收口：Hub `ef84526`（运行时代码来自 `f28477a`）的 `bitmap_svg.py`、`image_racers.py` 从 LF blob 出包，阿里/京东 deploy 与带包 verify 通过，远端 SHA 逐位相符，内联 `b64_json` 解码烟测两节点 PASS；回滚号见 `docs/deployment.md`。preflight 主/备 25/34、26/34，已知 unit/drop-in/nginx/热备角色差异未宣称全绿。生产 env 仍旧模型与 breaker shadow，商汤 key 按泄露处理，未切模型、未发起付费 live draw。S3 run `38275272261` 待终态，量产 Grbl 仍等物理断电重启；本机证据、部署包和临时脚本不入提交，其他未跟踪资产及 quota 工作流保持不动。
 
 2026-10-12 R7 UTF-16 文档导入修复：续用接手时 `mcp-server/tests/test_doc_ingest.py` 已有的九项回归；新增解析器 DOCTYPE 拒绝回调于 `mcp-server/hutuji_mcp/doc_ingest.py`，同步 protocol §4.2、续审记录、readiness 与测试计数。证据目录 `results/local-only/2026-10-12-utf16-review/`（门禁、文档解析及门户文档回归）；未提交、未部署、未刷机。S3 和量产 Grbl 已跟踪文件无改动，普通 Grbl 既有 `.gitignore` 改动与本仓未跟踪资产保留。根因及拒绝时机见续审 R7，软件验证不代替实体验收。
 
