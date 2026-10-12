@@ -809,7 +809,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | 生成语义 | 内部端点强制**同步 + 不推送**（`force_sync=True, chain_push=False`）：即使生产开了 `HUTUJI_DRAW_ASYNC=1`，网页单也等完整结果返回，且**不**经全局 device token 推到任何设备（推送由买家显式点「发送到小派」走 §10.4.5）。`_draw_inflight` 以 `(description, chain_push)` 分键，语音单与网页单互不搭车；Redis 队列旧 payload 缺省 `chain_push=true` 向后兼容 |
 | 回包 | `{url, preview_url, lines, bytes, pen_lifts, ttl_seconds}`（同 `hutuji_draw` 同步面）。portal 只取文件名（正则 `draw_\d{8}_\d{6}_[A-Za-z0-9_-]{22}\.(gcode\|png)`）从 loopback 基址重拼下载，不经公网回绕；下载限长 512KiB/4MiB（对齐 §5） |
 | 错误 | MCP 侧 400 输入白话 / 429 限流 / 504 超时 / 502 生图失败；**全忙瞬态（2026-09-12 忙批）**：位图链所有对冲通道同一轮全撞 429/5xx/超时判「忙」（`BitmapBusyError`，`_all_errors_busy` 分类判别，内容审核 400 与配置错不算忙），生成轮**整链真重试一次**（停 2.5s 重跑生图，不复用首轮产物，仅一次；二次仍忙原样上抛），`/internal/draw` 映射 **429 + 固定白话「生图通道都在忙，请稍等几秒再试」**（不透传聚合文本）；Redis 队列 worker 异常按类名重建（`draw_queue._exception_from_job` 注册 `BitmapBusyError`）。portal 只透传 400/429 的 detail，504/502 换固定白话（不回显内部细节，2026-08-31 评审裁决）；**429 忙类不推「生成失败」订阅消息**（瞬态忙重试即成，失败推送+随后的成功推送会误导；400/502/504 照推） |
-| 配额 | 成功单记 `web_generate` usage 事件；24h 窗口计数上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认 **20**，2026-09-10 用户拍板「文生图每天用户 20 次」，旧默认 10 supersede），超限 429；**失败单不占配额**。check-then-act 并发超发 1–2 单为已知可接受残差 |
+| 配额 | 成功单记 `web_generate` usage 事件；滚动24h上限 `DRAW_PORTAL_GENERATE_DAILY_LIMIT`（默认20）。2026-10-11并发修复 supersede 旧超发残差：网页与语音画图在付费前经SQLite写事务共享预占，成功事件与预占结算同事务；明确失败释放，客户端取消等待不释放仍在执行的操作。进程退出或成功结算失败等结果不明时，预占保守保留最多24h，不自动重发付费请求；超限429。 |
 | 公网暴露 | `/internal/*` 不经 nginx 反代（uvicorn 只听 loopback），无需 nginx 变更 |
 
 物化后的 job（`draw.gcode` + `preview.png`）与上传流完全同形，`send`/`save` 零改动；语音链路的异步推送行为不受影响。
@@ -912,7 +912,7 @@ token、探活、机型和最后推送时间的异步回写必须绑定发起时
 | LLM | 复用 `HUTUJI_LLM_*` 三件套（不新增凭据）；20s 超时、max_tokens 400、64KiB 响应上限（网络读取阶段生效）；人格 = `hutuji_mcp/chat.py` SYSTEM_PROMPT（与 `docs/xiaozhi-agent/role-prompt.md` 同源裁剪，改人格两边同步）；聊天域不带工具、不真出图 |
 | 画图意图 | LLM 输出 `DRAW::{"description": ≤60 字}` 独立行 → MCP 解析为 `draw_intent`：首条完整合法标记即升格（2026-09-23 supersede 首行契约——0.3.17 体验版实证重画措辞下模型先寒暄再放标记，旧契约静默丢意图致按钮消失）；残缺/多余标记行一律剥离按普通回复处理，绝不透给前端。小程序收到意图后由用户点按钮走既有 `/api/draw/generate` → send/save——§5 闸、限流、校验零改动 |
 | 回包 | `{reply ≤500 字, draw_intent: null\|{description}, remaining}` |
-| 配额 | 成功回话记 `wx_chat` usage 事件；24h 窗口上限 `DRAW_PORTAL_CHAT_DAILY_LIMIT`（默认 50），超限 429；失败不占配额（与 web_generate 同口径） |
+| 配额 | 成功回话记 `wx_chat` usage 事件；滚动24h上限 `DRAW_PORTAL_CHAT_DAILY_LIMIT`（默认50），与web_generate共用SQLite原子预占/成功结算/失败释放及结果不明保守占额机制，超限429；remaining按结算后成功数读回且不小于0。 |
 | 错误映射 | 400 输入白话透传 / 401 未登录 / 403 仅小程序账号 / 429 日配额 / 502·503 固定白话不回显内部细节 |
 
 合规面：聊天消息与模型回复会传输给第三方 LLM 服务（`HUTUJI_LLM_*` 所配通道）生成回话——小程序《用户隐私保护指引》须一并补「文字对话传第三方 AI 生成回复」条款与 AI 生成标识（用户 MP 后台动作）；聊天内容只在小程序本地留存（服务端不落会话历史，仅 usage 事件 detail 留 120 字摘要）。

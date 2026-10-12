@@ -229,6 +229,17 @@ CREATE TABLE IF NOT EXISTS usage_events (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usage_reservations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_reservation_scope
+    ON usage_reservations(user_id, event_type, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_user_event_time
+    ON usage_events(user_id, event_type, created_at);
+
 CREATE INDEX IF NOT EXISTS idx_usage_type_time
     ON usage_events(event_type, created_at DESC);
 
@@ -2719,6 +2730,51 @@ class Store:
                 "WHERE id=? AND user_id=? AND event_type='xiaopai_bind'",
                 (int(ok), "bound" if ok else "failed", attempt_id, user_id),
             )
+            conn.commit()
+
+    def reserve_usage(self, user_id: str, event_type: str, limit: int, *, when: float) -> str | None:
+        """付费调用前预占；跨线程/进程使用同一写事务判断成功数与在途数。"""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # 无法判断结果的进程退出保守占额一个完整窗口，不能立即退款后重复付费。
+            conn.execute("DELETE FROM usage_reservations WHERE created_at<?", (when - 86400,))
+            used = conn.execute(
+                "SELECT COUNT(*) FROM usage_events WHERE user_id=? AND event_type=? AND created_at>=?",
+                (user_id, event_type, when - 86400),
+            ).fetchone()[0]
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM usage_reservations WHERE user_id=? AND event_type=?",
+                (user_id, event_type),
+            ).fetchone()[0]
+            if used + pending >= limit:
+                conn.commit()
+                return None
+            token = uuid.uuid4().hex
+            conn.execute("INSERT INTO usage_reservations VALUES (?,?,?,?)", (token, user_id, event_type, when))
+            conn.commit()
+            return token
+
+    def release_usage(self, token: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM usage_reservations WHERE id=?", (token,))
+            conn.commit()
+
+    def settle_usage(self, token: str, *, source: str, event_type: str, user_id: str,
+                     device_mac: str | None, detail: str | None, ok: bool | None) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            reservation = conn.execute(
+                "SELECT id FROM usage_reservations WHERE id=? AND user_id=? AND event_type=?",
+                (token, user_id, event_type),
+            ).fetchone()
+            if reservation is None:
+                raise RuntimeError("usage reservation missing")
+            conn.execute(
+                "INSERT INTO usage_events (source,event_type,user_id,device_mac,detail,ok,created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (source, event_type, user_id, device_mac, detail, None if ok is None else int(ok), time.time()),
+            )
+            conn.execute("DELETE FROM usage_reservations WHERE id=?", (token,))
             conn.commit()
 
     def usage_counts_for_user_since(

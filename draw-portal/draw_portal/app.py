@@ -34,6 +34,7 @@ from draw_portal.auth import (
     set_session_cookie,
 )
 from draw_portal.config import load_config
+from draw_portal import quota
 from draw_portal.device_identity import DeviceIdentityError, parse_identity, verify_announce
 from draw_portal import chat as chat_mod
 from draw_portal import xiaopai as xiaopai_mod
@@ -415,14 +416,10 @@ def _record_portal_usage(
     detail: str | None = None,
     ok: bool | None = None,
 ) -> None:
-    store.insert_usage_event(
-        source="draw_portal",
-        event_type=usage_event_type(event_type),
-        user_id=user_id,
-        device_mac=device_mac,
-        detail=detail,
-        ok=ok,
-    )
+    event = dict(source="draw_portal", event_type=usage_event_type(event_type),
+                 user_id=user_id, device_mac=device_mac, detail=detail, ok=ok)
+    if not quota.record(store, **event):
+        store.insert_usage_event(**event)
     global _usage_purge_last
     now = time.time()
     if now - _usage_purge_last >= 3600:
@@ -1129,65 +1126,57 @@ def create_app() -> FastAPI:
                 if not config.usage_ingest_secret:
                     raise VoiceJobError("生图通道未配置", status=503)
                 desc = str(arguments.get("description") or "").strip()
-                since = time.time() - 86400
-                used = sum(
-                    row["count"]
-                    for row in store.usage_counts_for_user_since(user_id, since)
-                    if row["event_type"] == "web_generate"
-                )
-                if used >= config.generate_daily_limit:
-                    raise VoiceJobError(
-                        f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来",
-                        status=429,
+                with quota.slot(store, user_id, "web_generate", config.generate_daily_limit,
+                                f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来",
+                                error=VoiceJobError):
+                    job = store.create_draw_job(
+                        user_id=user_id, source_name=("语音画: " + desc)[:120]
                     )
-                job = store.create_draw_job(
-                    user_id=user_id, source_name=("语音画: " + desc)[:120]
-                )
-                job_path = _job_dir(config.data_dir, job.id)
-                try:
-                    snapshot = _paper_snapshot_for_user(user_id, binding=binding)
-                    summary, preview = run_voice_draw(
-                        description=desc,
+                    job_path = _job_dir(config.data_dir, job.id)
+                    try:
+                        snapshot = _paper_snapshot_for_user(user_id, binding=binding)
+                        summary, preview = run_voice_draw(
+                            description=desc,
+                            user_id=user_id,
+                            job_id=job.id,
+                            job_dir=job_path,
+                            mcp_internal_base_url=config.mcp_internal_base_url,
+                            usage_ingest_secret=config.usage_ingest_secret,
+                            generate_timeout_seconds=config.generate_timeout_seconds,
+                            mcp_output_dir=config.mcp_output_dir,
+                            public_base_url=config.public_base_url,
+                            mark_ready=lambda jid, base: store.mark_draw_job_ready(
+                                jid, basename=base
+                            ),
+                            mark_failed=lambda jid, err: store.mark_draw_job_failed(
+                                jid, error_summary=err
+                            ),
+                            api_base=config.xiaozhi_api_base,
+                            token_cipher_key=config.token_cipher_key,
+                            device_mac=device_mac,
+                            device_token_enc=enc_holder["enc"],
+                            on_token_minted=on_token_minted,
+                            snapshot=snapshot,
+                            before_push=lambda: prepare_push(job_path),
+                            before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
+                        )
+                    except Exception as exc:
+                        # 已建任务后的失败才通知（守卫级 429/未绑定不打扰）；忙批全忙 429
+                        # 同属瞬态忙——与 /api/draw/generate 同口径不推「生成失败」，否则
+                        # 失败推送+稍后重试成功推送只会误导用户。
+                        if not (isinstance(exc, VoiceJobError) and exc.status == 429):
+                            _notify_subscribe(config, store, user_id=user_id, status="failed", title=desc)
+                        raise
+                    _record_portal_usage(
+                        store,
+                        event_type="web_generate",
                         user_id=user_id,
-                        job_id=job.id,
-                        job_dir=job_path,
-                        mcp_internal_base_url=config.mcp_internal_base_url,
-                        usage_ingest_secret=config.usage_ingest_secret,
-                        generate_timeout_seconds=config.generate_timeout_seconds,
-                        mcp_output_dir=config.mcp_output_dir,
-                        public_base_url=config.public_base_url,
-                        mark_ready=lambda jid, base: store.mark_draw_job_ready(
-                            jid, basename=base
-                        ),
-                        mark_failed=lambda jid, err: store.mark_draw_job_failed(
-                            jid, error_summary=err
-                        ),
-                        api_base=config.xiaozhi_api_base,
-                        token_cipher_key=config.token_cipher_key,
                         device_mac=device_mac,
-                        device_token_enc=enc_holder["enc"],
-                        on_token_minted=on_token_minted,
-                        snapshot=snapshot,
-                        before_push=lambda: prepare_push(job_path),
-                        before_action=lambda: paper_settings_mod.check_owner(store, binding, require_active=True),
+                        detail=desc[:120],
+                        ok=True,
                     )
-                except Exception as exc:
-                    # 已建任务后的失败才通知（守卫级 429/未绑定不打扰）；忙批全忙 429
-                    # 同属瞬态忙——与 /api/draw/generate 同口径不推「生成失败」，否则
-                    # 失败推送+稍后重试成功推送只会误导用户。
-                    if not (isinstance(exc, VoiceJobError) and exc.status == 429):
-                        _notify_subscribe(config, store, user_id=user_id, status="failed", title=desc)
-                    raise
-                _record_portal_usage(
-                    store,
-                    event_type="web_generate",
-                    user_id=user_id,
-                    device_mac=device_mac,
-                    detail=desc[:120],
-                    ok=True,
-                )
-                _notify_subscribe(config, store, user_id=user_id, status="success", title=desc)
-                return summary, preview.as_dict()
+                    _notify_subscribe(config, store, user_id=user_id, status="success", title=desc)
+                    return summary, preview.as_dict()
 
             if name == "voice.write":
                 raw_text = str(arguments.get("text") or "")
@@ -2258,6 +2247,7 @@ def create_app() -> FastAPI:
         return payload
 
     @app.post("/api/draw/generate", dependencies=phone_secured)
+    @quota.guarded(store, "web_generate", config.generate_daily_limit, f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来")
     async def draw_generate(
         body: GenerateDrawBody,
         user_id: str = Depends(user_dep),
@@ -2265,26 +2255,13 @@ def create_app() -> FastAPI:
         """网页文字生图（2026-08-31）：转发本机 MCP /internal/draw。
 
         配额按「成功次数」计 24h 窗口（失败不占额——付费失败不该罚买家）；
-        先查后记存在并发超限一单的窄窗，按可接受残余风险处理（日上限是
-        防滥用闸，不是精确计费）。
+        付费前原子预占，成功事件与预占在同一事务结算；请求取消不释放在途操作。
         """
         if not config.usage_ingest_secret:
             raise HTTPException(status_code=503, detail="生图通道未配置")
         description = body.description.strip()
         if not description:
             raise HTTPException(status_code=400, detail="描述不能为空")
-
-        since = time.time() - 86400
-        used = sum(
-            row["count"]
-            for row in store.usage_counts_for_user_since(user_id, since)
-            if row["event_type"] == "web_generate"
-        )
-        if used >= config.generate_daily_limit:
-            raise HTTPException(
-                status_code=429,
-                detail=f"今日生图次数已达上限（{config.generate_daily_limit} 次），明天再来",
-            )
 
         job = store.create_draw_job(
             user_id=user_id, source_name=("AI: " + description)[:120]
@@ -2888,6 +2865,7 @@ def create_app() -> FastAPI:
         return {"status": "deleted"}
 
     @app.post("/api/chat", dependencies=phone_secured)
+    @quota.guarded(store, "wx_chat", config.chat_daily_limit, f"今日聊天次数已达上限（{config.chat_daily_limit} 次），明天再来")
     async def chat_send(body: ChatBody, user_id: str = Depends(user_dep)) -> dict[str, Any]:
         """小程序文字聊天（2026-09-09）：内容安全 → 本机 MCP /internal/chat。
 
@@ -2905,17 +2883,6 @@ def create_app() -> FastAPI:
         if not message:
             raise HTTPException(status_code=400, detail="消息不能为空")
 
-        since = time.time() - 86400
-        used = sum(
-            row["count"]
-            for row in store.usage_counts_for_user_since(user_id, since)
-            if row["event_type"] == "wx_chat"
-        )
-        if used >= config.chat_daily_limit:
-            raise HTTPException(
-                status_code=429,
-                detail=f"今日聊天次数已达上限（{config.chat_daily_limit} 次），明天再来",
-            )
 
         history = [{"role": it.role, "content": it.content} for it in body.history]
         try:
@@ -2961,7 +2928,6 @@ def create_app() -> FastAPI:
         return {
             "reply": reply,
             "draw_intent": result.get("draw_intent"),
-            "remaining": config.chat_daily_limit - used - 1,
         }
 
     # ---- 小派设置：音色/模型切换（2026-09-12 §10.4.19）----
@@ -3088,6 +3054,7 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/api/settings/xiaopai", dependencies=phone_secured)
+    @quota.guarded(store, "xiaopai_setting", 20, "今日设置次数已达上限，明天再来")
     async def xiaopai_setting_apply(
         body: XiaopaiSettingBody, user_id: str = Depends(user_dep)
     ) -> dict[str, Any]:
@@ -3098,14 +3065,6 @@ def create_app() -> FastAPI:
         }
         if not updates:
             raise HTTPException(status_code=400, detail="tts_voice / llm_model 至少一项")
-        since = time.time() - 86400
-        used = sum(
-            row["count"]
-            for row in store.usage_counts_for_user_since(user_id, since)
-            if row["event_type"] == "xiaopai_setting"
-        )
-        if used >= 20:
-            raise HTTPException(status_code=429, detail="今日设置次数已达上限，明天再来")
         row = store.xiaopai_settings_get(user_id)
         if not row:
             try:

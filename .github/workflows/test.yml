@@ -1,0 +1,64 @@
+name: Hub Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/hub/mcp-server:${{ github.workspace }}/hub/draw-portal:${{ github.workspace }}/hub
+      XIAOZHI_ROOT: ${{ github.workspace }}/xiaozhi-esp32
+      GRBL_ROOT: ${{ github.workspace }}/Grbl_Esp32
+      GRBL_MASSPROD_ROOT: ${{ github.workspace }}/Grbl_Esp32-massprod
+      IDF_PATH: ${{ github.workspace }}/esp-idf
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hub
+      - uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/xiaozhi-esp32
+          ref: 3d94f8ffeb307ff7166e1bcf695ed7b756d34547
+          path: xiaozhi-esp32
+      - uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/Grbl_Esp32
+          ref: fix/panel-hold-after-align-116687e
+          path: Grbl_Esp32
+      - uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/Grbl_Esp32
+          ref: 2a7350c9bb3732c6fc8e165032029172e60379aa
+          path: Grbl_Esp32-massprod
+      - uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-idf
+          ref: v6.0.1
+          path: esp-idf
+          sparse-checkout: components/nvs_flash/nvs_partition_generator
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: 安装测试依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+          python -m pip install -r hub/mcp-server/requirements-dev.txt -r hub/draw-portal/requirements.txt esptool esp-idf-nvs-partition-gen
+      - name: MCP 独立回归
+        working-directory: hub/mcp-server
+        run: python -m pytest -q tests
+      - name: Portal 独立回归
+        working-directory: hub/draw-portal
+        run: python -m pytest -q tests
+      - name: 产线独立回归
+        working-directory: hub
+        run: python -m pytest -q tests/production
+      - name: 生成与假设备闭环
+        working-directory: hub/mcp-server
+        run: python scripts/e2e_local.py

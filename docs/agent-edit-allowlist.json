@@ -2,12 +2,30 @@
   "firmware_review_fixes_20261011_authorized": {
     "note": "用户要求继续审查小派与量产Grbl并开始全量修复。范围为绘图实时控制会话隔离、OTA目标板型及异常恢复、WebUI JSON字符串编码与WebSocket长输出边界；保留运动参数、换纸、授权、引脚和现役部署。",
     "contract": "docs/design/firmware-review-fixes-20261011.md；docs/protocol.md §1.2/§3/§4/§10.4.22",
-    "paths": ["docs/**", "tmp/fw-review-20261011/**", "results/local-only/2026-10-11-firmware-review/**", "D:/Users/xiaozhi-esp32/main/application.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h", "D:/Users/xiaozhi-esp32/scripts/tests/**", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/JSONEncoder.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/**"]
+    "paths": [
+      "docs/**",
+      "tmp/fw-review-20261011/**",
+      "results/local-only/2026-10-11-firmware-review/**",
+      "D:/Users/xiaozhi-esp32/main/application.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_ota.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.cc",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_pipe.h",
+      "D:/Users/xiaozhi-esp32/scripts/tests/**",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/JSONEncoder.cpp",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/Serial2Socket.cpp",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/**"
+    ]
   },
   "dr10_release_20261011_authorized": {
     "note": "用户要求处理未提交、部署、刷机与验收事项并明确提交部署验证；随后确认量产机已装纸笔、运动范围无障碍。允许DR10三仓及fz夹具提交推送、S3升1.0.39、双机Portal部署、固定身份量产双板升级及控制/参数/纸面/老化取证。保留NVS、身份和全部机设，不代填实体测量或法规签核。",
     "contract": "docs/design/three-repo-deep-review-20261010.md；protocol §1.5/§3/§4/§10.4.22",
-    "paths": ["docs/**", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "tmp/dr10-release-20261011/**", "results/local-only/2026-10-11-dr10-release/**"]
+    "paths": [
+      "docs/**",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "tmp/dr10-release-20261011/**",
+      "results/local-only/2026-10-11-dr10-release/**"
+    ]
   },
   "pr10_release_20261010_authorized": {
     "note": "用户追加刷机部署验证、提交推送并多次继续。授权PR10五项及右括号SSID补修的三仓发布、S3升1.0.38、固定现役双板升级和参数/HTTP回归；保留NVS、密码与运动参数，临时SSID立即恢复。不将未配对旧机冒充配对实机，不代签实体放行。",
@@ -1398,6 +1416,26 @@
       "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebSettings.cpp",
       "D:/Users/Grbl_Esp32-massprod/scripts/tests/**",
       "D:/Users/zhugu/fz/native_sim/test_telnet_server_behavior.py"
+    ]
+  },
+  "quota_ci_release_20261011_authorized": {
+    "note": "用户明确要求修复改进优化部署刷机、推送GitHub、三仓CI变绿。只修已证实配额并发和交付分支验证；固定量产双板保留机设与NVS。",
+    "contract": "docs/design/quota-ci-release-20261011.md；protocol §10.4.8/§10.4.14/§10.4.19",
+    "paths": [
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/quota.py",
+      "draw-portal/tests/**",
+      ".github/workflows/**",
+      "docs/**",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "draw-portal/README.md",
+      "tmp/quota-ci-release-20261011/**",
+      "results/local-only/2026-10-11-quota-ci-release/**",
+      "D:/Users/xiaozhi-esp32/.github/workflows/**",
+      "D:/Users/Grbl_Esp32-massprod/.github/workflows/**"
     ]
   }
 }
