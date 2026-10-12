@@ -6,8 +6,8 @@ csv）解析，**不引第三方依赖**（本仓无 pyproject，依赖收紧是
 安全口径与 llm_svg 的 SVG 闸门同族——先限量/prefilter 再解析：
 - ZIP：条目数 / 单条目 / 加密三项闸；只按白名单部件名读取（从不遍历落盘，
   目录穿越天然不可达）；流式读 + 上限截断，不信用中央目录的声明大小。
-- XML：解析前字节级拒 `<!DOCTYPE` / `<!ENTITY`——ElementTree 不取外部实体，
-  但内部子集照常展开（billion laughs），prefilter 一刀切两种都死。
+- XML：字节预检拒 `<!DOCTYPE` / `<!ENTITY`，解析器识别 DOCTYPE 时再次拒绝，
+  覆盖 UTF-16 等编码；ElementTree 不取外部实体，但会展开内部子集，须提前阻断。
 - 内容量：总字符 / 行 / 列 / 单元格长全有上界，超限报错而非静默截断
   （截断会悄丢用户内容；write_text 的 max_pages 是最后一道）。
 
@@ -131,6 +131,13 @@ def _read_part(zf: zipfile.ZipFile, name: str) -> bytes:
     return data
 
 
+class _NoDoctypeTreeBuilder(ET.TreeBuilder):
+    def doctype(self, name: str, pubid: str | None, system: str | None) -> None:
+        # 由解析器按实际编码识别声明，避免 UTF-16 绕过 ASCII 字节预检。
+        # 此回调在内部子集解析前触发，不依赖展开后的正文字符预算止损。
+        raise DocIngestError("文档含 XML 实体声明，拒绝解析")
+
+
 def _parse_xml_part(zf: zipfile.ZipFile, name: str) -> ET.Element:
     data = _read_part(zf, name)
     # billion laughs / 外部实体一刀切：ElementTree 本身不取外部实体，但会展开
@@ -138,7 +145,7 @@ def _parse_xml_part(zf: zipfile.ZipFile, name: str) -> ET.Element:
     if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
         raise DocIngestError("文档含 XML 实体声明，拒绝解析")
     try:
-        return ET.fromstring(data)
+        return ET.fromstring(data, parser=ET.XMLParser(target=_NoDoctypeTreeBuilder()))
     except ET.ParseError:
         raise DocIngestError("文档 XML 结构损坏") from None
 

@@ -159,6 +159,39 @@ def test_reject_doctype_entity():
         parse_document(evil, "docx")
 
 
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+@pytest.mark.parametrize("declaration", [
+    '<!DOCTYPE document [<!ENTITY e "expanded">]>',
+    '<!DOCTYPE document SYSTEM "https://example.invalid/document.dtd">',
+])
+def test_reject_utf16_doctype_before_building_content(encoding, declaration, monkeypatch):
+    """非 ASCII 编码也拒 DTD；不得先展开正文再按字符预算补救。"""
+    xml = (
+        declaration + f'<w:document xmlns:w="{_W_NS}"><w:body>'
+        '<w:p><w:r><w:t>&e;</w:t></w:r></w:p></w:body></w:document>'
+    )
+    if "SYSTEM" in declaration:
+        xml = xml.replace("&e;", "正文")
+    raw = _zip({"word/document.xml": xml.encode(encoding)})
+
+    def unexpected_content(*args):
+        pytest.fail("含 DTD 的 XML 不得进入正文提取")
+
+    monkeypatch.setattr(doc_ingest, "_docx_paragraphs", unexpected_content)
+    with pytest.raises(DocIngestError, match="实体"):
+        parse_document(raw, "docx")
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_utf16_document_without_doctype_remains_supported(encoding):
+    xml = (
+        f'<w:document xmlns:w="{_W_NS}"><w:body>'
+        '<w:p><w:r><w:t>正常中文正文</w:t></w:r></w:p></w:body></w:document>'
+    )
+    raw = _zip({"word/document.xml": xml.encode(encoding)})
+    assert parse_document(raw, "docx").paragraphs == ["正常中文正文"]
+
+
 def test_reject_too_many_entries(monkeypatch):
     monkeypatch.setattr(doc_ingest, "MAX_ZIP_ENTRIES", 3)
     big = _zip({f"f{i}.txt": "x" for i in range(5)} | {"word/document.xml": "<w/>"})
