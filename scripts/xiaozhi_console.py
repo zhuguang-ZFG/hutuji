@@ -224,6 +224,11 @@ def _redact_text(text: str) -> str:
     return _SK_KEY_RE.sub("<redacted>", text)
 
 
+def _network_reason_name(reason: object) -> str:
+    """按异常根类输出，避免平台把 OSError 细分名带入用户面。"""
+    return "OSError" if isinstance(reason, OSError) else type(reason).__name__
+
+
 def _parse_device_arguments(tool_name: str, raw: str | None) -> dict:
     expected = _DEVICE_TOOL_ARGUMENTS.get(tool_name)
     if expected is None:
@@ -284,7 +289,7 @@ def _api_upload_lib(path, file_path):
         raise XiaozhiConsoleError(f"上传错误 {e.code}: {body_text}") from e
     except URLError as e:
         raise XiaozhiConsoleError(
-            f"上传网络错误: {type(e.reason).__name__}"
+            f"上传网络错误: {_network_reason_name(e.reason)}"
         ) from e
 
 
