@@ -41,7 +41,9 @@ jobs:
           repository: espressif/esp-idf
           ref: v6.0.1
           path: esp-idf
-          sparse-checkout: components/nvs_flash/nvs_partition_generator
+          sparse-checkout: |
+            components/nvs_flash/nvs_partition_generator
+            components/nvs_flash/nvs_partition_tool
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
