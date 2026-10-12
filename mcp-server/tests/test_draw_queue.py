@@ -770,6 +770,10 @@ def test_worker_main_wiring_subprocess():
     （main() 误删 loop 创建行，worker 全量 NameError 崩溃回环）。
     单元测试只调 run_forever，从不经过 main()，故须子进程真起。"""
     py = ROOT / ".venv" / "Scripts" / "python.exe"
+    if not py.is_file():
+        py = ROOT / ".venv" / "bin" / "python"
+    if not py.is_file():
+        py = Path(sys.executable)
     env = {k: v for k, v in os.environ.items() if k != "HUTUJI_DRAW_QUEUE_URL"}
     # 门禁将子进程输出设为 UTF-8；父进程也须显式同编码，避免 Windows 按 GBK 解码中文。
     env["PYTHONIOENCODING"] = "utf-8"
