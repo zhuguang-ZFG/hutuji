@@ -1,5 +1,7 @@
 # hutuji — AI 绘图自动换纸写字机
 
+2026-10-13 本批最终收口：Hub `8c843d9` 修复生图 breaker half-open 永久跳过和跨 worker 多探针风险，主节点真实 Redis、热备内存 store 均验证只放一个探针，生产仍保持 `HUTUJI_BREAKER_ENFORCE=0`；双机 deploy/verify 通过，回滚号见部署记录。MCP 1671 项通过。S3 CI `38275272261` 成功，宿主全套用 x86_64 g++ 为 366/366。量产 Grbl `539e3f9b` 已单次 Web OTA、观察到重启并确认 48 项设置不变。SenseNova 因 key 泄露仍未切 u1.5-lite 或 live draw；实体签核继续 Hold。详见[本批发布记录](docs/design/three-repo-release-20261012.md)与 readiness。
+
 2026-10-13 生图通道代码已双机部署：`f28477a` 的 `bitmap_svg.py`/`image_racers.py` 由 `ef84526` LF blob 出包，主备 deploy、带包 verify、远端 SHA 逐位相符。两节点执行的是固定 PNG 的离线 `b64_json` 解码契约烟测（含 75s/10MiB 常量），均 PASS；未调用上游 API，不等同生产 SenseNova live draw 验证。preflight 主/备 25/34、26/34，已知节点配置差异未宣称全项绿。生产仍是旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 按泄露处理，未切模型或发起付费 live draw。S3 run `38275272261`（`2b997d4`）已 completed/success，失败/取消作业为空；Grbl 刷机等待物理复位，详见[本批发布记录](docs/design/three-repo-release-20261012.md)和 readiness。
 
 2026-10-10 三仓PR10修复：串口配网拒绝实时控制保留字符，HTTP保留凭据空格，工厂握手完整消费应答，OTA发送前复核当前版本，产线导出检查放行附件。5项修复与39项新增回归、右括号SSID补修1项见[修复及发布记录](docs/design/three-repo-production-review-20261010.md)。**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38和量产Grbl b280e525已升级；HTTP参数保真、恢复原SSID及48项参数保持通过。工厂配对/手机矩阵与纸面/老化等实体缺证仍见readiness。

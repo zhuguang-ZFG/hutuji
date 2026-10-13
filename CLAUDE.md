@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-13 本批最终收口：Hub `8c843d9` 修复生图 breaker half-open 永久跳过和跨 worker 多探针风险，Redis Lua 原子迁移/认领唯一 permit，状态 TTL 长于锁；主节点真实 Redis、热备内存 store 冒烟均 `claims=1`，生产仍保持 `HUTUJI_BREAKER_ENFORCE=0`。双机 deploy/verify 已过，MCP 1671 项通过；S3 CI `38275272261` 成功且宿主 366/366；量产 Grbl `539e3f9b` 已单次 HTTP OTA、重启与 48 项设置不变复核。SenseNova key 轮换、u1.5-lite live draw 及实体签核仍未完成。
+
 2026-10-13 生图通道代码已双机部署：`f28477a` 的 `bitmap_svg.py`/`image_racers.py` 由 `ef84526` LF blob 出包，主备 deploy、带包 verify、远端 SHA 逐位相符。两节点执行的是固定 PNG 的离线 `b64_json` 解码契约烟测（含 75s/10MiB 常量），均 PASS；未调用上游 API，不等同生产 SenseNova live draw 验证。回滚号记录在 `docs/deployment.md`。preflight 主/备为 25/34、26/34，保留已知 unit/drop-in/nginx/热备角色差异，不宣称全项绿。生产仍是旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 已泄露，未切模型或发起付费 live draw。S3 run `38275272261`（`2b997d4`）已 completed/success，失败/取消作业为空；Grbl 等物理复位。
 
 2026-10-10 PR10修复：串口非ASCII及`? ! ~`开口前拒绝，中文走HTTP且保留ESP参数首尾空格；配对$I完整消费终止ok才发布连接；Portal复核二次状态版本；产线missing检查当前代次release三报告附件，released仍为历史事实。39项新增回归及右括号SSID补修1项；**发布supersede候选状态**：hub ca54562双机Portal已部署，S3 301eb65/1.0.38与量产Grbl b280e525已升级，HTTP参数实机保真/恢复和48项参数保持通过。配对、手机矩阵、纸面/老化仍有缺证，详见`docs/design/three-repo-production-review-20261010.md`发布节。

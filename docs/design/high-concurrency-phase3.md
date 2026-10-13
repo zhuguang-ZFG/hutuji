@@ -152,40 +152,35 @@ Curated / Quick Draw **不经熔断**（无付费 HTTP 通道）。
 
 ### 5.2 状态机（每 backend_id 独立）
 
-```
-closed ──(滑动窗口失败率≥阈值 或 连续 N 次超时)──► open
-open ──(冷却 T 秒)──► half_open
-half_open ──(探测 M 次成功)──► closed
-half_open ──(任一次失败)──► open
+```text
+closed ──(滑动窗口失败率≥阈值 或 连续 N 次失败)──► open
+open ──(冷却 T 秒；原子认领唯一探针)──────────► half_open
+half_open ──(探针成功)──────────────────────► closed
+half_open ──(探针失败)──────────────────────► open
 ```
 
-**默认参数（可 env 覆盖，实施前须 bench 调参）**：
+**默认参数（可 env 覆盖）**：
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | 窗口 | 60s | Redis ZSET 存 `(timestamp, outcome)` |
 | 失败率阈值 | 50% | 至少 5 样本才判 |
-| 连续失败开断 | 3 | 超时或 http_5xx/429 |
+| 连续失败开断 | 3 | `error`、超时、HTTP 5xx/429 等非 `ok` 结果 |
 | open 冷却 | 120s | |
-| half_open 探测 | 1 次成功即 closed |  classroom 场景求快恢复 |
+| half_open 探测 | 1 次成功即 closed | classroom 场景求快恢复 |
 
-**存储**：Redis key `hutuji:breaker:{backend_id}`（JSON：`state`, `opened_at`, `stats`）。  
-**进程内缓存**：100ms TTL，避免每 racer 打 Redis。
-
+**存储**：Redis 状态键 `hutuji:breaker:{backend_id}`，样本键 `hutuji:breaker:samples:{backend_id}`，探针锁 `hutuji:breaker:probe:{backend_id}`。open 冷却完成后，由 Lua 在同一原子操作内核对状态、迁移为 half_open 并以 `SET NX EX` 认领唯一探针；状态 TTL 必须长于探针锁，避免 worker 崩溃时先丢状态而把通道误判 closed。内存 store 用同一语义供无 Redis 环境和测试使用。
 ### 5.3 与对冲集成
 
-在 `_race_image_backends` / `_race_dynamic_image_racers` 启动 task **前**过滤：
+`_race_image_backends` / `_race_dynamic_image_racers` 在创建 task 前逐通道取得 `BackendPermit`：
 
-```python
-racers = [r for r in racers if not breaker.is_open(r.id)]
-if not racers:
-    raise BitmapError("生图通道暂不可用，请稍后再试")
-```
+- closed 返回普通 permit，正常参加对冲；
+- 未冷却 open 或已被其他 worker 认领的 half_open 返回 `None`，跳过该通道；
+- 唯一 half_open 探针携 `probe_token`，结果随 `record_outcome(..., permit=permit)` 决定 closed/open；
+- task 取消、对冲输家和数量上限裁剪均在 `finally` 释放 permit，异常释放失败由 TTL 兜底；
+- breaker Redis 故障仍 fail-open，只告警，不砸付费生成主链。
 
-- 与 `HUTUJI_DRAW_RACER_MAX` **串联**：先熔断过滤，再截断数量。  
-- 商汤瞬态 500 **现有**快速重试仍保留，但两次均失败计 2 次失败样本。  
-- `HUTUJI_BREAKER_ENABLED=0` 关闭 enforce（与 paper_risk shadow 同模式）。
-
+与 `HUTUJI_DRAW_RACER_MAX` 串联：动态 racer 先按运营顺序截断后认领；静态 racer 先认领再释放超出 cap 的 permit。生产变量是 `HUTUJI_BREAKER_ENFORCE`；`0` 为 shadow（记事件、不滤通道），`1` 才执行过滤。本批保持生产为 `0`。
 ### 5.4 运维
 
 - draw-admin 只读页：各通道 state + 最近 1h 失败率（读 PG `draw_backend_events` + Redis state）。  
