@@ -32,6 +32,12 @@ class BreakerStore(Protocol):
     def get_state(self, backend_id: str) -> dict[str, Any]: ...
 
     def set_state(self, backend_id: str, state: dict[str, Any]) -> None: ...
+    def set_state_if_current(
+        self,
+        backend_id: str,
+        expected: dict[str, Any],
+        state: dict[str, Any],
+    ) -> bool: ...
 
     def claim_half_open_probe(
         self, backend_id: str, token: str, *, now: float, ttl: int
@@ -73,6 +79,19 @@ class MemoryBreakerStore:
     def set_state(self, backend_id: str, state: dict[str, Any]) -> None:
         with self._lock:
             self._states[backend_id] = dict(state)
+
+    def set_state_if_current(
+        self,
+        backend_id: str,
+        expected: dict[str, Any],
+        state: dict[str, Any],
+    ) -> bool:
+        with self._lock:
+            current = self._states.get(backend_id, {"state": "closed"})
+            if current != expected:
+                return False
+            self._states[backend_id] = dict(state)
+            return True
 
     def list_open_backends(self) -> list[str]:
         with self._lock:
@@ -149,6 +168,43 @@ class RedisBreakerStore:
             json.dumps(state, ensure_ascii=False),
             ex=ttl,
         )
+
+    def set_state_if_current(
+        self,
+        backend_id: str,
+        expected: dict[str, Any],
+        state: dict[str, Any],
+    ) -> bool:
+        from redis.exceptions import WatchError
+
+        key = f"{BREAKER_PREFIX}{backend_id}"
+        ttl = max(300, getattr(_settings(), "breaker_open_sec", 120) * 3)
+        with self._client.pipeline() as pipe:
+            try:
+                pipe.watch(key)
+                raw = pipe.get(key)
+                if raw:
+                    try:
+                        current = json.loads(raw)
+                    except json.JSONDecodeError:
+                        current = {"state": "closed"}
+                    if not isinstance(current, dict):
+                        current = {"state": "closed"}
+                else:
+                    current = {"state": "closed"}
+                if current != expected:
+                    pipe.unwatch()
+                    return False
+                pipe.multi()
+                pipe.set(
+                    key,
+                    json.dumps(state, ensure_ascii=False),
+                    ex=ttl,
+                )
+                pipe.execute()
+                return True
+            except WatchError:
+                return False
 
     def list_open_backends(self) -> list[str]:
         open_ids: list[str] = []
@@ -274,7 +330,7 @@ def _evaluate_state(
     *,
     now: float,
     probe_outcome: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     state = store.get_state(backend_id)
     current = str(state.get("state") or "closed")
     open_sec = getattr(_settings(), "breaker_open_sec", 120)
@@ -284,19 +340,23 @@ def _evaluate_state(
     if current == "open":
         opened_at = float(state.get("opened_at") or 0)
         if now - opened_at >= open_sec:
-            return {"state": "half_open", "opened_at": opened_at}
-        return state
+            return state, {"state": "half_open", "opened_at": opened_at}
+        return state, state
 
     if current == "half_open":
         if probe_outcome is None:
-            return state
+            return state, state
         if _is_failure(probe_outcome):
-            return {"state": "open", "opened_at": now, "reason": "half_open_fail"}
-        return {"state": "closed"}
+            return state, {
+                "state": "open",
+                "opened_at": now,
+                "reason": "half_open_fail",
+            }
+        return state, {"state": "closed"}
 
     samples = _recent_samples(store, backend_id, now=now)
     if not samples:
-        return {"state": "closed"}
+        return state, {"state": "closed"}
 
     failures = sum(1 for s in samples if _is_failure(s))
     ratio = failures / len(samples)
@@ -311,8 +371,23 @@ def _evaluate_state(
     would_open = would_open or consecutive >= consecutive_limit
 
     if would_open:
-        return {"state": "open", "opened_at": now, "reason": "threshold"}
-    return {"state": "closed"}
+        return state, {"state": "open", "opened_at": now, "reason": "threshold"}
+    return state, {"state": "closed"}
+
+
+def _commit_evaluation(
+    backend_id: str,
+    store: BreakerStore,
+    observed: dict[str, Any],
+    evaluated: dict[str, Any],
+) -> dict[str, Any]:
+    # 同态结果不刷新存储；真实转移只在读取快照仍为当前值时提交，
+    # 防止旧 racer 把探针刚写入的 fresh open 回滚成 half_open。
+    if evaluated == observed:
+        return observed
+    if store.set_state_if_current(backend_id, observed, evaluated):
+        return evaluated
+    return store.get_state(backend_id)
 
 
 def _cached_state(backend_id: str) -> dict[str, Any]:
@@ -323,8 +398,10 @@ def _cached_state(backend_id: str) -> dict[str, Any]:
             return dict(entry.state)
     try:
         store = get_store()
-        evaluated = _evaluate_state(backend_id, store, now=time.time())
-        store.set_state(backend_id, evaluated)
+        observed, evaluated = _evaluate_state(backend_id, store, now=time.time())
+        evaluated = _commit_evaluation(
+            backend_id, store, observed, evaluated
+        )
     except Exception as exc:
         # 熔断存储（Redis）故障不得砸付费生成主链：按 closed 放行生成。
         logger.warning(
@@ -363,7 +440,7 @@ def record_outcome(
     try:
         store = get_store()
         store.record_sample(backend_id, outcome, now=now)
-        evaluated = _evaluate_state(
+        observed, evaluated = _evaluate_state(
             backend_id,
             store,
             now=now,
@@ -373,7 +450,9 @@ def record_outcome(
                 else None
             ),
         )
-        store.set_state(backend_id, evaluated)
+        evaluated = _commit_evaluation(
+            backend_id, store, observed, evaluated
+        )
     except Exception as exc:
         # 熔断存储（Redis）故障不得砸付费生成主链：样本/状态丢失只告警，
         # 按无闸放行——账本事件独立于熔断存储，照常入队

@@ -169,7 +169,7 @@ half_open ──(探针失败)────────────────�
 | open 冷却 | 120s | |
 | half_open 探测 | 1 次成功即 closed | classroom 场景求快恢复 |
 
-**存储**：Redis 状态键 `hutuji:breaker:{backend_id}`，样本键 `hutuji:breaker:samples:{backend_id}`，探针锁 `hutuji:breaker:probe:{backend_id}`。open 冷却完成后，由 Lua 在同一原子操作内核对状态、迁移为 half_open 并以 `SET NX EX` 认领唯一探针；状态 TTL 必须长于探针锁，避免 worker 崩溃时先丢状态而把通道误判 closed。内存 store 用同一语义供无 Redis 环境和测试使用。
+**存储**：Redis 状态键 `hutuji:breaker:{backend_id}`，样本键 `hutuji:breaker:samples:{backend_id}`，探针锁 `hutuji:breaker:probe:{backend_id}`。open 冷却完成后，由 Lua 在同一原子操作内核对状态、迁移为 half_open 并以 `SET NX EX` 认领唯一探针；状态 TTL 必须长于探针锁，避免 worker 崩溃时先丢状态而把通道误判 closed。结果结算采用比较后写入：状态未变化不刷新；真实转移仅在读取快照仍为当前值时提交，冲突时读取胜出状态，防止旧常规 racer 把探针刚写入的 fresh open 回滚成 half_open。内存 store 用同一语义供无 Redis 环境和测试使用。
 ### 5.3 与对冲集成
 
 `_race_image_backends` / `_race_dynamic_image_racers` 在创建 task 前逐通道取得 `BackendPermit`：

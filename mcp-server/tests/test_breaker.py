@@ -176,6 +176,160 @@ def test_breaker_half_open_allows_exactly_one_probe(
     assert breaker.acquire_backend("agnes") is None
 
 
+def test_regular_outcome_cannot_undo_fresh_probe_failure(
+    memory_breaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = load_settings()
+    patched = Settings(
+        **{
+            **base.__dict__,
+            "draw_queue_url": "memory://",
+            "breaker_enforce": True,
+            "breaker_open_sec": 120,
+        }
+    )
+    monkeypatch.setattr("hutuji_mcp.config.settings", patched)
+    monkeypatch.setattr("hutuji_mcp.server.settings", patched)
+    regular_read = threading.Event()
+    probe_written = threading.Event()
+
+    class _InterleavingStore(breaker.MemoryBreakerStore):
+        def get_state(self, backend_id: str) -> dict[str, object]:
+            state = super().get_state(backend_id)
+            if threading.current_thread().name == "regular-outcome":
+                regular_read.set()
+                if not probe_written.wait(timeout=2):
+                    raise AssertionError("探针失败未在时限内写回")
+            return state
+
+    store = _InterleavingStore()
+    store.set_state(
+        "agnes", {"state": "open", "opened_at": time.time() - 121}
+    )
+    monkeypatch.setattr(breaker, "get_store", lambda: store)
+    breaker.reset_breaker_for_tests()
+    permit = breaker.acquire_backend("agnes")
+    assert permit is not None and permit.probe_token
+    assert store.get_state("agnes").get("state") == "half_open"
+    errors: list[BaseException] = []
+
+    def _record_regular_outcome() -> None:
+        try:
+            breaker.record_outcome("agnes", "ok")
+        except BaseException as exc:  # pragma: no cover - 只为跨线程回传断言
+            errors.append(exc)
+
+    worker = threading.Thread(
+        target=_record_regular_outcome, name="regular-outcome"
+    )
+    worker.start()
+    try:
+        assert regular_read.wait(timeout=2)
+        breaker.record_outcome(
+            "agnes", "http_5xx", permit=permit
+        )
+        fresh_open = store.get_state("agnes")
+        assert fresh_open.get("state") == "open"
+        assert fresh_open.get("reason") == "half_open_fail"
+    finally:
+        probe_written.set()
+        worker.join(timeout=2)
+
+    assert worker.is_alive() is False
+    assert errors == []
+    assert store.get_state("agnes") == fresh_open
+    assert breaker.acquire_backend("agnes") is None
+
+
+def test_real_redis_stale_transition_cannot_undo_probe_failure(
+    memory_breaker, live_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = load_settings()
+    patched = Settings(
+        **{
+            **base.__dict__,
+            "breaker_enforce": True,
+            "breaker_window_sec": 600,
+            "breaker_open_sec": 120,
+            "breaker_consecutive_fail": 3,
+        }
+    )
+    monkeypatch.setattr("hutuji_mcp.config.settings", patched)
+    monkeypatch.setattr("hutuji_mcp.server.settings", patched)
+    url, client = live_redis
+    regular_read = threading.Event()
+    probe_written = threading.Event()
+    regular_now = 1_000.0
+    fresh_now = regular_now + 121.0
+    real_monotonic = time.monotonic
+
+    class _ThreadClock:
+        @staticmethod
+        def time() -> float:
+            if threading.current_thread().name == "redis-regular-outcome":
+                return regular_now
+            return fresh_now
+
+        monotonic = staticmethod(real_monotonic)
+
+    class _InterleavingRedisStore(breaker.RedisBreakerStore):
+        def get_state(self, backend_id: str) -> dict[str, object]:
+            state = super().get_state(backend_id)
+            if threading.current_thread().name == "redis-regular-outcome":
+                regular_read.set()
+                if not probe_written.wait(timeout=2):
+                    raise AssertionError("Redis 探针失败未在时限内写回")
+            return state
+
+    monkeypatch.setattr(breaker, "time", _ThreadClock)
+    store = _InterleavingRedisStore(url)
+    store.record_sample("agnes", "http_5xx", now=regular_now - 2)
+    store.record_sample("agnes", "http_5xx", now=regular_now - 1)
+    monkeypatch.setattr(breaker, "get_store", lambda: store)
+    breaker.reset_breaker_for_tests()
+    errors: list[BaseException] = []
+
+    def _record_regular_outcome() -> None:
+        try:
+            breaker.record_outcome("agnes", "http_5xx")
+        except BaseException as exc:  # pragma: no cover - 只为跨线程回传断言
+            errors.append(exc)
+
+    worker = threading.Thread(
+        target=_record_regular_outcome, name="redis-regular-outcome"
+    )
+    worker.start()
+    try:
+        assert regular_read.wait(timeout=2)
+        store.set_state(
+            "agnes",
+            {"state": "half_open", "opened_at": fresh_now - 121},
+        )
+        permit = breaker.acquire_backend("agnes")
+        assert permit is not None and permit.probe_token
+        assert client.get("hutuji:breaker:probe:agnes") == permit.probe_token
+        breaker.record_outcome(
+            "agnes", "http_5xx", permit=permit
+        )
+        fresh_open = store.get_state("agnes")
+        assert fresh_open == {
+            "state": "open",
+            "opened_at": fresh_now,
+            "reason": "half_open_fail",
+        }
+    finally:
+        probe_written.set()
+        worker.join(timeout=2)
+
+    assert worker.is_alive() is False
+    assert errors == []
+    with breaker._cache_lock:
+        assert breaker._cache["agnes"].state == fresh_open
+    assert store.get_state("agnes") == fresh_open
+    assert client.get("hutuji:breaker:probe:agnes") is None
+    assert breaker.acquire_backend("agnes") is None
+
+
 def test_real_redis_open_cooldown_claim_is_atomic(live_redis) -> None:
     url, client = live_redis
     first = breaker.RedisBreakerStore(url)
