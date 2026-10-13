@@ -20,6 +20,8 @@
 - breaker 最小复现：旧实现中过期 open 的真实 Redis 原子 claim 返回 false；修复后真实 Redis 并发双认领恰好一条成功，half-open 状态 TTL 长于 probe 锁，释放后续探针同样保持该不变量。合并回归 `124 passed, 570 deselected`，全套 `1671 passed`；`task_verify` 仍因配置范围只覆盖 weapp 返回 `unverified`，不能替代项目测试。
 - 部署后的主节点真实 Redis、热备内存 store 冒烟均为 `claims=1`、state=half_open、enforce=false；没有调用任何生图上游。两节点 breaker/bitmap 文件带包 verify 与服务检查通过。preflight 主 25/34、备 26/34，失败仍是登记的 unit/drop-in/nginx/热备角色差异。
 - S3 Build Boards run `38275272261` 对 `2b997d4` completed/success；宿主全套指定 x86_64 MinGW g++ 后 `366/366`。默认 Espressif riscv clang 的旧红发生在 `_Unwind_*` 链接边界，不是纸张产品回归。
+- Hub 最终 `python scripts/agent_gate.py --profile hub` 在 `3dcff84` 通过：pytest `1671 passed`，`e2e_local` 输出 PASS；该门禁是本批 Hub 代码与文档的最终验证。
+- fz `standard` 以要求的 x86_64 MinGW `CXX` 重跑后 `product_host` PASS；overall 仍为 fail，仅剩 Wokwi `ready_timeout`（24 行 UART，停在笔控初始化，无 panic/restart）与实验 QEMU `Unhandled debug exception/BREAK instr` 重启循环。两层输入的 bootloader、partition、app SHA 一致，app 即本次 OTA 候选 `f21b07d9432ead0220756294849c6c4ba773464752b8aac6377c2cc4f6fe235e`；因此只登记芯片启动层未验证，不据此改固件、ready oracle 或产品测试求绿。
 
 ## 发布状态与边界
 
