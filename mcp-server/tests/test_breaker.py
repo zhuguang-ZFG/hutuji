@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+import threading
 
 import pytest
 
@@ -34,7 +35,7 @@ def test_breaker_shadow_records_without_blocking(memory_breaker) -> None:
     breaker.record_outcome("agnes", "error")
     breaker.record_outcome("agnes", "error")
     assert breaker.is_open("agnes") is False
-    assert breaker.should_skip_backend("agnes") is False
+    assert breaker.acquire_backend("agnes") is not None
 
 
 def test_breaker_enforce_opens_after_consecutive_failures(
@@ -56,20 +57,23 @@ def test_breaker_enforce_opens_after_consecutive_failures(
     for _ in range(3):
         breaker.record_outcome("agnes", "http_5xx")
     assert breaker.is_open("agnes") is True
-    assert breaker.should_skip_backend("agnes") is True
+    assert breaker.acquire_backend("agnes") is None
 
 
-def test_redis_breaker_list_open_skips_sample_zsets() -> None:
-    """scan_iter 前缀 hutuji:breaker:* 会命中 samples ZSET；GET 会 ResponseError。"""
+def test_redis_breaker_list_open_skips_auxiliary_keys() -> None:
+    """状态前缀会命中 samples ZSET 与 probe lock；两者都不得按 JSON 状态 GET。"""
 
     class _FakeClient:
         def scan_iter(self, match=None):
             yield "hutuji:breaker:samples:agnes"
+            yield "hutuji:breaker:probe:agnes"
             yield "hutuji:breaker:agnes"
 
         def get(self, key):
-            if str(key).startswith("hutuji:breaker:samples:"):
-                raise AssertionError("不得 GET samples ZSET")
+            if str(key).startswith((
+                "hutuji:breaker:samples:", "hutuji:breaker:probe:"
+            )):
+                raise AssertionError("不得 GET samples ZSET 或 probe lock")
             return '{"state": "open"}'
 
     store = breaker.RedisBreakerStore.__new__(breaker.RedisBreakerStore)
@@ -95,14 +99,18 @@ def test_image_race_runs_breaker_io_off_event_loop(monkeypatch):
     loop_thread = threading.get_ident()
     observed = []
 
-    def check(backend_id):
+    def acquire(backend_id):
         assert threading.get_ident() != loop_thread
-        observed.append("check")
-        return False
+        observed.append("acquire")
+        return breaker.BackendPermit()
 
     def record(*args, **kwargs):
         assert threading.get_ident() != loop_thread
         observed.append("record")
+
+    def release(*args):
+        assert threading.get_ident() != loop_thread
+        observed.append("release")
 
     async def image(*args):
         return "https://example.test/image.png"
@@ -110,10 +118,11 @@ def test_image_race_runs_breaker_io_off_event_loop(monkeypatch):
     monkeypatch.setattr(portal_settings, "portal_image_racers", lambda _: [])
     monkeypatch.setattr(bitmap_svg, "_image_backend_enabled", lambda name: name == "agnes")
     monkeypatch.setattr(bitmap_svg, "_request_agnes_image_url", image)
-    monkeypatch.setattr(breaker, "should_skip_backend", check)
+    monkeypatch.setattr(breaker, "acquire_backend", acquire)
     monkeypatch.setattr(breaker, "record_outcome", record)
+    monkeypatch.setattr(breaker, "release_backend", release)
     assert asyncio.run(bitmap_svg._race_image_backends(None, "测试")) == "https://example.test/image.png"
-    assert observed == ["check", "record"]
+    assert observed == ["acquire", "record", "release"]
 
 
 def test_breaker_success_closes_from_half_open(memory_breaker, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,6 +133,92 @@ def test_breaker_success_closes_from_half_open(memory_breaker, monkeypatch: pyte
     breaker.record_outcome("agnes", "ok")
     state = store.get_state("agnes")
     assert state.get("state") == "closed"
+
+
+def test_breaker_half_open_allows_exactly_one_probe(
+    memory_breaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = load_settings()
+    patched = Settings(
+        **{
+            **base.__dict__,
+            "draw_queue_url": "memory://",
+            "breaker_enforce": True,
+            "breaker_open_sec": 120,
+        }
+    )
+    monkeypatch.setattr("hutuji_mcp.config.settings", patched)
+    monkeypatch.setattr("hutuji_mcp.server.settings", patched)
+    store = breaker.MemoryBreakerStore()
+    store.set_state(
+        "agnes", {"state": "open", "opened_at": time.time() - 121}
+    )
+    monkeypatch.setattr(breaker, "get_store", lambda: store)
+    breaker.reset_breaker_for_tests()
+
+    permit = breaker.acquire_backend("agnes")
+    assert permit is not None and permit.probe_token
+    assert breaker.acquire_backend("agnes") is None
+    with breaker._cache_lock:
+        breaker._cache.clear()
+    assert breaker.acquire_backend("agnes") is None
+    breaker.record_outcome("agnes", "ok", permit=permit)
+    regular = breaker.acquire_backend("agnes")
+    assert regular is not None and regular.probe_token is None
+
+    store.set_state(
+        "agnes", {"state": "open", "opened_at": time.time() - 121}
+    )
+    breaker.reset_breaker_for_tests()
+    failed_probe = breaker.acquire_backend("agnes")
+    assert failed_probe is not None and failed_probe.probe_token
+    breaker.record_outcome("agnes", "http_5xx", permit=failed_probe)
+    assert breaker.acquire_backend("agnes") is None
+
+
+def test_real_redis_open_cooldown_claim_is_atomic(live_redis) -> None:
+    url, client = live_redis
+    first = breaker.RedisBreakerStore(url)
+    second = breaker.RedisBreakerStore(url)
+    now = time.time()
+    first.set_state("agnes", {"state": "open", "opened_at": now - 121})
+    client.pexpire("hutuji:breaker:agnes", 239_000)
+    barrier = threading.Barrier(3)
+    claims: dict[str, bool] = {}
+
+    def _claim(store: breaker.RedisBreakerStore, token: str) -> None:
+        barrier.wait()
+        claims[token] = store.claim_half_open_probe(
+            "agnes", token, now=now, ttl=300
+        )
+
+    workers = [
+        threading.Thread(target=_claim, args=(first, "first")),
+        threading.Thread(target=_claim, args=(second, "second")),
+    ]
+    for worker in workers:
+        worker.start()
+    barrier.wait()
+    for worker in workers:
+        worker.join()
+
+    assert sorted(claims.values()) == [False, True]
+    winner = next(token for token, claimed in claims.items() if claimed)
+    assert first.get_state("agnes")["state"] == "half_open"
+    assert client.get("hutuji:breaker:probe:agnes") == winner
+    assert client.pttl("hutuji:breaker:agnes") > client.pttl(
+        "hutuji:breaker:probe:agnes"
+    )
+    first.release_half_open_probe("agnes", winner)
+    client.pexpire("hutuji:breaker:agnes", 1_000)
+    assert second.claim_half_open_probe(
+        "agnes", "retry", now=now + 1, ttl=300
+    )
+    assert client.pttl("hutuji:breaker:agnes") > client.pttl(
+        "hutuji:breaker:probe:agnes"
+    )
+    second.release_half_open_probe("agnes", "retry")
+    assert client.get("hutuji:breaker:probe:agnes") is None
 
 
 class _DeadStore:

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from hutuji_mcp import bitmap_svg, draw_queue
+from hutuji_mcp import bitmap_svg, breaker, draw_queue
 
 
 def _settings(**over):
@@ -83,10 +83,13 @@ class TestRaceAggregateBusy:
         )
         monkeypatch.setattr(bitmap_svg, "settings", _settings())
         monkeypatch.setattr(
-            "hutuji_mcp.breaker.should_skip_backend", lambda bid: False
+            breaker, "acquire_backend", lambda bid: breaker.BackendPermit()
         )
         monkeypatch.setattr(
             "hutuji_mcp.breaker.record_outcome", lambda *a, **k: None
+        )
+        monkeypatch.setattr(
+            "hutuji_mcp.breaker.release_backend", lambda *a, **k: None
         )
         racers = [
             {"id": "r1", "name": "通道甲", "url": "https://r1.example.com/x"},
