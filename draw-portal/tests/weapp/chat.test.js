@@ -191,6 +191,7 @@ for (const method of ["onConfirmPreview", "onCancelPreview"]) {
     h.page[method]({ currentTarget: { dataset: { id } } });
     const request = h.requests.at(-1);
     assert.equal(request.data.device_mac, "aa:bb:cc:dd:ee:ff");
+    if (method === "onConfirmPreview") assert.equal(request.data.job_id, "job-1");
     request.success({ statusCode: 200, data: { status: "error", detail: "设备未接受操作" } });
     await flush();
     assert.equal(h.page._findMsg(id).previewPending, true);
@@ -208,6 +209,17 @@ for (const method of ["onConfirmPreview", "onCancelPreview"]) {
     assert.match(h.toasts.at(-1).title, /重新生成/);
   });
 }
+
+test("旧语音卡缺少作品身份时不能降级为当前预览确认", async () => {
+  const h = await setup();
+  const id = h.page._pushMessage("assistant", "旧卡", [], {
+    preview_url: "/old.png", device_mac: "aa:bb:cc:dd:ee:ff",
+  });
+  const before = h.requests.length;
+  h.page.onConfirmPreview({ currentTarget: { dataset: { id } } });
+  assert.equal(h.requests.length, before);
+  assert.match(h.toasts.at(-1).title, /失效/);
+});
 
 test("画图卡消息在历史中回填 DRAW:: 标记（多轮后模型仍能见到出图范式）", async () => {
   const h = await setup();

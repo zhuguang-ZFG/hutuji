@@ -126,6 +126,22 @@ def test_sniff_txt_and_csv():
     assert sniff_doc_kind("a,b\n1,2".encode(), "a.csv", "text/csv") == "csv"
 
 
+@pytest.mark.parametrize("kind", ["txt", "csv"])
+@pytest.mark.parametrize("encoding", ["utf-8", "gbk"])
+@pytest.mark.parametrize("prefix", [4094, 4095, 4096])
+def test_sniff_text_preserves_multibyte_sample_boundary(kind, encoding, prefix):
+    raw = ("a" * prefix + "中" * 10).encode(encoding)
+    assert sniff_doc_kind(raw, f"input.{kind}", "") == kind
+
+
+@pytest.mark.parametrize("kind", ["txt", "csv"])
+@pytest.mark.parametrize("raw", [b"abc\xff", b"a" * 4095 + b"\x81", b"a" * 4100 + b"\xff"],
+                         ids=["short-invalid", "incomplete-boundary", "invalid-after-boundary"])
+def test_sniff_text_rejects_invalid_encoding_including_sample_tail(kind, raw):
+    with pytest.raises(DocIngestError, match="编码"):
+        sniff_doc_kind(raw, f"input.{kind}", "")
+
+
 def test_sniff_unrelated_returns_none():
     assert sniff_doc_kind(b"\x00\x01\x02\x03" * 8, "a.bin", "application/octet-stream") is None
     # ZIP 但不是 Office（扩展名也没声明是）：不接盘、不报错，交回上层判不支持

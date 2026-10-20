@@ -241,6 +241,10 @@ class DeviceTargetBody(BaseModel):
     device_mac: str | None = Field(default=None, min_length=17, max_length=17)
 
 
+class VoiceConfirmBody(DeviceTargetBody):
+    job_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class MarketActionBody(DeviceTargetBody):
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
@@ -934,7 +938,8 @@ def create_app() -> FastAPI:
         store.set_user_phone(user_id, phone)
         return {"status": "ok", "phone": phone}
 
-    def _device_control(body: DeviceControlBody, user_id: str, *, timeout: int = 15) -> dict[str, Any]:
+    def _device_control(body: DeviceControlBody, user_id: str, *, timeout: int = 15,
+                        expected_preview: tuple[str, str] | None = None) -> dict[str, Any]:
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定设备")
@@ -952,6 +957,9 @@ def create_app() -> FastAPI:
             arguments = {}
         else:
             raise HTTPException(status_code=400, detail="不支持的控制工具")
+        if expected_preview is not None:
+            assert tool == "hutuji.confirm"
+            arguments = {"expected_url": expected_preview[0], "expected_preview_url": expected_preview[1]}
         def check_target() -> None:
             active = store.get_binding_for_user(user_id)
             owner = store.get_binding_for_mac(binding.device_mac)
@@ -1261,17 +1269,22 @@ def create_app() -> FastAPI:
             payload["preview"] = dict(out["preview"], device_mac=device_mac)
         return payload
 
-    def _voice_device_tool(user_id: str, tool_name: str, device_mac: str | None) -> dict[str, str]:
+    def _voice_device_tool(user_id: str, tool_name: str, device_mac: str | None,
+                           *, expected_preview: tuple[str, str] | None = None) -> dict[str, str]:
         binding = store.get_binding_for_user(user_id)
         if binding is None:
             raise HTTPException(status_code=400, detail="请先绑定丹青")
         # 共用普通控制入口的归属复核、重签重试和设备业务错误判断。
         result = _device_control(
             DeviceControlBody(tool=tool_name, device_mac=device_mac or binding.device_mac),
-            user_id, timeout=30,
+            user_id, timeout=30, expected_preview=expected_preview,
         )
         if result["status"] != "ok":
             raise HTTPException(status_code=502, detail=str(result.get("detail") or "设备未接受操作")[:120])
+        if expected_preview is not None:
+            from draw_portal.push import _device_payload
+            if _device_payload(result.get("result", "")) != "started":
+                raise HTTPException(status_code=502, detail="确认结果尚未收到，请先查看设备状态")
         _record_portal_usage(
             store,
             event_type=f"web_voice_{tool_name.split('.')[-1]}",
@@ -1283,9 +1296,33 @@ def create_app() -> FastAPI:
         return result
 
     @app.post("/api/voice/confirm", dependencies=phone_secured)
-    def voice_confirm(body: DeviceTargetBody | None = None,
+    def voice_confirm(body: VoiceConfirmBody | None = None,
                       user_id: str = Depends(require_phone)) -> dict[str, str]:
-        return _voice_device_tool(user_id, "hutuji.confirm", body.device_mac if body else None)
+        if body is None or not body.job_id or not body.device_mac:
+            raise HTTPException(status_code=409, detail="预览已失效，请重新生成")
+        job = store.get_draw_job(body.job_id, user_id=user_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="作品不存在")
+        if job.status != "ready" or not job.basename:
+            raise HTTPException(status_code=409, detail="作品尚未就绪，请重新生成")
+        try:
+            snapshot = paper_settings_mod.read_job_context(_job_dir(config.data_dir, job.id))
+        except paper_settings_mod.PaperSettingsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        if snapshot is None or snapshot.device_mac != body.device_mac.lower():
+            raise HTTPException(status_code=409, detail="作品与设备不匹配，请重新生成")
+        status = _device_control(DeviceControlBody(tool="hutuji.status", device_mac=body.device_mac), user_id)
+        if status["status"] != "ok":
+            raise HTTPException(status_code=502, detail="设备状态不可读，请稍后重试")
+        from draw_portal.push import _device_payload
+        payload = _device_payload(status.get("result", ""))
+        if not isinstance(payload, dict) or payload.get("confirm_by_url") is not True:
+            raise HTTPException(status_code=409, detail="请在设备屏幕核对预览后确认，或升级设备固件")
+        # 地址只由本用户任务推导；两地址的最终比较交给 S3 的确认锁。
+        prefix = config.public_base_url.rstrip("/")
+        return _voice_device_tool(user_id, "hutuji.confirm", body.device_mac,
+                                  expected_preview=(f"{prefix}/files/{job.basename}.gcode",
+                                                    f"{prefix}/files/{job.basename}.png"))
 
     @app.post("/api/voice/cancel", dependencies=phone_secured)
     def voice_cancel(body: DeviceTargetBody | None = None,

@@ -65,12 +65,12 @@
 
 ### R2-01 / P2（confirmed）：xlsx mergeCell 行范围未设上界 → 文档导入 CPU 耗尽 DoS
 
-- 位置：`mcp-server/hutuji_mcp/doc_ingest.py:631`（**修复已落地**：改为对 `orig_to_out` 键集合与 `[r1,r2]` 求交迭代，次数有界于真实行数 ≤`MAX_TABLE_ROWS`）；原缺陷为 `for r in range(r1, r2+1)` 配无上限正则，`_merge_ref` 第 509 行 `r2 = int(m.group(4)) - 1`，正则 `(\d+)` 对行号不设上限。
+- 位置：`mcp-server/hutuji_mcp/doc_ingest.py:632`（**修复已落地**：改为对 `orig_to_out` 键集合与 `[r1,r2]` 求交迭代，次数有界于真实行数 ≤`MAX_TABLE_ROWS`）；原缺陷为 `for r in range(r1, r2+1)` 配无上限正则，`_merge_ref` 第 509 行 `r2 = int(m.group(4)) - 1`，正则 `(\d+)` 对行号不设上限。
 - 触发：portal 文档导入上传含 `<mergeCell ref="A1:A999999999"/>` 的 xlsx；A 列 `c1=0 < ncols` 必进内层循环，单个 <100B 元素即触发。
 - 期望 vs 实际：期望合并展开有界——同文件对**列**展开已用 `_XLSX_COL_SPEC_SPAN=64` 显式钳死（第 497–498 行注释「展开必须有界」）。实际 `r2` 直接取自无上限正则，`range(r1, r2+1)` 对单元素产生 1e9+ 次 `orig_to_out.get(r)` 空转；解析在 portal 同步导入路径执行，CPU 耗尽、worker 挂死，与已解析行数（≤`MAX_TABLE_ROWS=500`）完全脱钩。
-- 测试覆盖：`test_doc_ingest.py:344` 仅覆盖 `A1:B1` 横向小合并（range 迭代 1 次）；无大范围/纵向合并回归。
+- 测试覆盖：`test_doc_ingest.py:360` 仅覆盖 `A1:B1` 横向小合并（range 迭代 1 次）；无大范围/纵向合并回归。
 - 修复落地（已实现）：内层改迭代 `orig_to_out.items()` 与 `[r1,r2]` 求交，与 `_XLSX_COL_SPEC_SPAN` 列展开上界对齐；回归 `test_doc_ingest.py` 的 `test_xlsx_merge_row_range_bounded`（单个 `A1:A100000000` 合并断言产物只覆盖真实两行 + 墙钟 <5s，旧 O(ref 跨度) 实现必红）。
-- 残留收口（已实现）：单元素行范围封堵后，`raw_merges` 条数本身仍无上界——32MiB 部件可塞 ~1.2M 条 `<mergeCell>`，每条逐行求交即 O(merges×rows) 仍可打成 DoS。`doc_ingest.py:36` 增 `MAX_MERGE_CELLS=2048`（与 `_XLSX_COL_SPEC_SPAN=64` 同族显式上界），`doc_ingest.py:574-575` 累积即查、超限抛 `DocIngestError("合并单元格过多…")`，不等整段收齐再逐行展开；回归 `test_doc_ingest.py` 的 `test_xlsx_merge_cell_count_bounded`（`MAX_MERGE_CELLS+1` 条 `<mergeCell>` 断言拒绝，无上界旧码必不抛必红）。
+- 残留收口（已实现）：单元素行范围封堵后，`raw_merges` 条数本身仍无上界——32MiB 部件可塞 ~1.2M 条 `<mergeCell>`，每条逐行求交即 O(merges×rows) 仍可打成 DoS。`doc_ingest.py:36` 增 `MAX_MERGE_CELLS=2048`（与 `_XLSX_COL_SPEC_SPAN=64` 同族显式上界），`doc_ingest.py:575-576` 累积即查、超限抛 `DocIngestError("合并单元格过多…")`，不等整段收齐再逐行展开；回归 `test_doc_ingest.py` 的 `test_xlsx_merge_cell_count_bounded`（`MAX_MERGE_CELLS+1` 条 `<mergeCell>` 断言拒绝，无上界旧码必不抛必红）。
 
 ### R2-02 / P3（confirmed）：article_llm LLM 回包无字节上限，与 chat.py 既有防线不一致
 
@@ -106,14 +106,14 @@
 - 位置：`doc_ingest.py` 的 `_parse_pptx`（`for sld_id in pres.iter(f"{_P}sldId")` 内按 `r:id` 查 `rels` 并逐条 `_parse_xml_part`）；原实现对同一 target 不去重。
 - 触发：`presentation.xml` 的 `<p:sldIdLst>` 塞入海量 `<p:sldId r:id="rId1"/>` 全指向同一 slide 部件（每条 ~40B，32MiB 可塞 ~数十万条）；每条都重新 `_parse_xml_part` 解析同一（可较大）部件 → O(N) 重解析，`_check_total_chars` 仅在循环末尾触发、拦不住过程中的 CPU/内存累积。
 - 期望 vs 实际：期望每个 slide 部件至多解析一次；实际同一 rId 被引用 N 次即重解析 N 次。合法 pptx 的 `sldIdLst` 每条指向不同 slide，去重对正常文件不可见。
-- 修复落地（已实现）：`doc_ingest.py:449`（`seen_targets` 定义）、`doc_ingest.py:460-462`（去重守卫：同一 target 命中即 `continue`、否则登记）——展开上界收敛为不同部件数 ≤`MAX_ZIP_ENTRIES=256`；回归 `test_doc_ingest.py` 的 `test_pptx_duplicate_slide_ref_deduped`（64 条 `sldId` 全指向 `rId1`，断言 `paragraphs == ["重复页"]`：去重后单页无分页标记、正文仅一份；旧实现产 64 份正文 + 64 个「—— 第 X 页 ——」标记，throwaway 实证 OLD len=128 / NEW len=1）。
+- 修复落地（已实现）：`doc_ingest.py:450`（`seen_targets` 定义）、`doc_ingest.py:461-463`（去重守卫：同一 target 命中即 `continue`、否则登记）——展开上界收敛为不同部件数 ≤`MAX_ZIP_ENTRIES=256`；回归 `test_doc_ingest.py` 的 `test_pptx_duplicate_slide_ref_deduped`（64 条 `sldId` 全指向 `rId1`，断言 `paragraphs == ["重复页"]`：去重后单页无分页标记、正文仅一份；旧实现产 64 份正文 + 64 个「—— 第 X 页 ——」标记，throwaway 实证 OLD len=128 / NEW len=1）。
 
 ### R4-01 / P2（confirmed，已修复）：pptx 跨部件抽字累积绕过 `MAX_TEXT_CHARS` → 内存放大 DoS
 
 - 位置：`doc_ingest.py` 的 `_parse_pptx`——`_check_total_chars` 仅在循环末尾（展平 `slides`→`paragraphs` 之后）触发；过程中逐 slide 把抽出文本累积进 `paras`/`slides` 无在途上界。
 - 触发：`MAX_MEMBER_BYTES=32MiB` 是**单部件**上界，`MAX_ZIP_ENTRIES=256` 允许至多 256 个不同 slide 部件（去重后仍是 256）。每个部件可塞满 32MiB 文本 → 聚合抽出文本上界 = 256×32MiB ≈ 8GiB，全部累积进 `paragraphs` 后 `MAX_TEXT_CHARS=5000` 才报错——post-hoc 卡太晚，单部件字节闸拦不住跨部件聚合（R2-01 同族：攻击者控的部件数 → 无界累积）。
 - 期望 vs 实际：期望抽字累积以 `MAX_TEXT_CHARS` 为界；实际累积以 256 部件字节总量为界、仅末尾一次性校验。
-- 修复落地（已实现）：`doc_ingest.py:450`（`acc_chars` 计数）、`doc_ingest.py:474-475`（每追加一段正文即 `acc_chars += len(text)` 并 `_check_total_chars(acc_chars)`）——越过 5000 立即抛，累积上界收敛为 `MAX_TEXT_CHARS` + 单段文本（≤单部件）；对合法 pptx（远低于 5000 字）行为不变，仅把同一 `文字过多` 报错前移。回归 `test_doc_ingest.py` 的 `test_pptx_aggregate_char_budget_bails_early`（50 个各 ~1000 字的独立 slide 部件，监视 `_parse_xml_part` 命中 `ppt/slides/` 次数：新码越过 5000 后 `parsed_slides<=7`、旧码摸满 50，throwaway 掐 `_check_total_chars` 实证循环自然摸满 50 部件 /100 段）。
+- 修复落地（已实现）：`doc_ingest.py:451`（`acc_chars` 计数）、`doc_ingest.py:475-476`（每追加一段正文即 `acc_chars += len(text)` 并 `_check_total_chars(acc_chars)`）——越过 5000 立即抛，累积上界收敛为 `MAX_TEXT_CHARS` + 单段文本（≤单部件）；对合法 pptx（远低于 5000 字）行为不变，仅把同一 `文字过多` 报错前移。回归 `test_doc_ingest.py` 的 `test_pptx_aggregate_char_budget_bails_early`（50 个各 ~1000 字的独立 slide 部件，监视 `_parse_xml_part` 命中 `ppt/slides/` 次数：新码越过 5000 后 `parsed_slides<=7`、旧码摸满 50，throwaway 掐 `_check_total_chars` 实证循环自然摸满 50 部件 /100 段）。
 
 ## 第五轮扩展审查（R5，2026-10-12）
 
@@ -139,7 +139,7 @@
 - 触发：`document.xml` 为单部件、受 32MiB 流式上限约束，但 roman 列表前缀累积字符为 Σ(k/10) = O(N²)。实测几十 KB 的 document.xml（n=100000 项仅 ~37KB）即可在 post-hoc 校验前把前缀生成烧到分钟级 CPU：n=25000→3.1s、n=50000→14.2s、n=100000→70.7s、n=200000→>300s 超时（典型 O(N²)：N 翻倍、耗时约 4–5 倍）。
 - 为何绕过既有闸：`_check_total_chars` 是 post-hoc——`root.iter` 虽惰性，但旧码循环体无提前退出，必摸满全部 N 个 `<w:p>` 并为每项生成 O(k) 前缀后才在末尾求和校验；字节上限（32MiB 部件）钳的是输入体量、钳不住前缀生成的平方级放大。
 - 期望 vs 实际：期望编号前缀累积以 `MAX_TEXT_CHARS` 为界即止损；实际必跑完整循环、生成全部 N 项前缀后才校验。
-- 修复落地（已实现）：`doc_ingest.py:358` 新增在途累计 `acc_chars`，`doc_ingest.py:363-370` 把段落追加收敛进 `_emit`——每追加一段即 `acc_chars += len(text)` 并 `_check_total_chars(acc_chars)`，越过 5000 立即抛，放大收敛为 O(bail²)（纯 roman 约第 274 项即越界）。合法文档（远低于 5000 字）行为不变，仅把同一 `文字过多` 报错前移；与 R4-01 pptx 增量卡同族。
+- 修复落地（已实现）：`doc_ingest.py:359` 新增在途累计 `acc_chars`，`doc_ingest.py:364-371` 把段落追加收敛进 `_emit`——每追加一段即 `acc_chars += len(text)` 并 `_check_total_chars(acc_chars)`，越过 5000 立即抛，放大收敛为 O(bail²)（纯 roman 约第 274 项即越界）。合法文档（远低于 5000 字）行为不变，仅把同一 `文字过多` 报错前移；与 R4-01 pptx 增量卡同族。
 - 回归（`test_doc_ingest.py` 38→40，+2）：`test_docx_roman_list_bails_incrementally_not_quadratic`（4000 项 lowerRoman 列表，监视 `_roman` 调用次数：新码越界即停 274 次 < n/4、旧码摸满 4000，throwaway 掐增量卡实证 `calls==4000` 判别器红）、`test_docx_roman_list_legit_still_correct`（3 项 roman 仍逐项成形 `i. / ii. / iii.`，增量止损不破坏正常路径）。fails-before 实证：注释掉 `_check_total_chars(acc_chars)` 后 `_roman` 调用 4000 次、判别器断言红。
 
 ## 第七轮续作（R7，2026-10-12）：UTF-16 DTD 拒绝旁路

@@ -203,7 +203,8 @@ def sniff_doc_kind(raw: bytes, filename: str, content_type: str) -> str | None:
             raise DocIngestError("文件内容与格式声明不符")
         if b"\x00" in raw[:512]:
             raise DocIngestError("不是文本文件")
-        _decode_text(raw[:4096] if len(raw) > 4096 else raw)  # 抽样验码
+        # 上传已有字节预算；验证完整文本，不能把采样边界的半个字符当坏编码。
+        _decode_text(raw)
         return kind
     return None
 

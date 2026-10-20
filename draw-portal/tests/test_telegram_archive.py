@@ -416,6 +416,27 @@ def test_append_archive_log_guarded_by_row(
     assert store.list_archive_log_for_user("u1") == []
 
 
+@pytest.mark.parametrize("raises", [False, True])
+def test_failed_verification_after_user_delete_retracts_copy(monkeypatch, tmp_path, raises):
+    _set_env(monkeypatch, on=True)
+    store = _store(tmp_path)
+    saved = _saved(tmp_path, store)
+    deleted = []
+    def verify(*args):
+        old = store.delete_saved_preview(saved.id, user_id="u1")
+        ta.delete_message_async(old)
+        if raises:
+            raise TimeoutError("校验超时")
+        return False
+    monkeypatch.setattr(ta, "_upload_document", lambda path: ("F1", 5))
+    monkeypatch.setattr(ta, "_verify_download", verify)
+    monkeypatch.setattr(ta, "_delete_channel_copy_async", deleted.append)
+    ta._process(store, ta._Task(saved.id, Path(saved.preview_path), saved.title, "u1", store))
+    assert deleted == [5]
+    assert store.get_saved_preview(saved.id, user_id="u1") is None
+    assert store.list_archive_log_for_user("u1") == []
+
+
 def test_mark_preview_telegram_returns_row_presence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

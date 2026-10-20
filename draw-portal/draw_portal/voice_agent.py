@@ -294,8 +294,16 @@ def _chat(*, history: list[dict[str, Any]], user_text: str, device_mac: str | No
         if round_idx < MAX_TOOL_ROUNDS:
             payload["tools"] = tools
 
-        data = _post_chat(url=url, headers=headers, payload=payload)
-        message = _extract_assistant_message(data)
+        try:
+            data = _post_chat(url=url, headers=headers, payload=payload)
+            message = _extract_assistant_message(data)
+        except VoiceAgentError:
+            if not tool_traces:
+                raise
+            # 工具已经执行，后续措辞生成失败不能抹掉副作用和预览回执。
+            reply = ("作品已推到丹青预览，请核对后点「开始画」或「取消」。"
+                     if last_preview else "对话服务暂不可用，本轮工具调用结果已保留，请查看调用记录。")
+            break
         tool_calls = message.get("tool_calls")
 
         if not tool_calls:

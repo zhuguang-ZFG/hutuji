@@ -152,7 +152,9 @@ def _process(store: Any, task: _Task) -> None:
     except Exception:  # noqa: BLE001 校验网络失败等同失败态，本地仍在。
         ok = False
     if not ok:
-        store.mark_preview_telegram(task.saved_id, state="failed", file_id=file_id, message_id=message_id)
+        if not store.mark_preview_telegram(task.saved_id, state="failed", file_id=file_id, message_id=message_id):
+            # 校验异常不撤销用户的删除；本地行已消失时仍须回收已上传副本。
+            _delete_channel_copy_async(message_id)
         return
     # 删除/归档竞态收口（2026-09-12 评审①）：mark 返回行是否存在；台账 INSERT
     # 以行仍存在为守卫。任何一步发现行已删 → 立即尽力撤回频道副本，不落台账

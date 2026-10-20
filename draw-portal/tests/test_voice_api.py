@@ -238,6 +238,12 @@ def _bound_voice_client(monkeypatch, tmp_path):
         device_token_enc=Fernet(key).encrypt(b"old-token").decode("ascii"),
         bound_at=1.0, token_probe_ok=True,
     )
+    from draw_portal.paper_settings import PaperSnapshot, write_job_context
+    from hutuji_mcp.paper_config import PaperConfig
+    job = store.create_draw_job(user_id=user.id, source_name="语音画")
+    store.mark_draw_job_ready(job.id, basename="portal_" + job.id.replace("-", ""))
+    write_job_context(tmp_path / "data/jobs" / job.id, PaperSnapshot(PaperConfig(), "aa:bb:cc:dd:ee:ff"))
+    client.voice_confirm_body = {"job_id": job.id, "device_mac": "aa:bb:cc:dd:ee:ff"}
     return client, store, user, key
 
 
@@ -251,7 +257,7 @@ def test_voice_preview_rejection_is_not_success(monkeypatch, tmp_path, action, r
     monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kw: (True, result))
     usage = []
     monkeypatch.setattr("draw_portal.app._record_portal_usage", lambda *args, **kw: usage.append(kw))
-    response = client.post(f"/api/voice/{action}")
+    response = client.post(f"/api/voice/{action}", json=client.voice_confirm_body if action == "confirm" else None)
     assert response.status_code == 502
     assert not any(event.get("ok") for event in usage)
 
@@ -266,7 +272,7 @@ def test_voice_preview_rejects_changed_target(monkeypatch, tmp_path, action):
     )
     calls = []
     monkeypatch.setattr("draw_portal.app.push_tool_call", lambda **kw: (calls.append(kw), (True, "ok"))[1])
-    response = client.post(f"/api/voice/{action}", json={"device_mac": "aa:bb:cc:dd:ee:ff"})
+    response = client.post(f"/api/voice/{action}", json=client.voice_confirm_body)
     assert response.status_code == 409
     assert calls == []
 
@@ -291,7 +297,7 @@ def test_voice_retry_rechecks_owner_after_token_refresh(monkeypatch, tmp_path, a
         return "refreshed-token"
 
     monkeypatch.setattr("draw_portal.push.mint_messaging_token", mint)
-    response = client.post(f"/api/voice/{action}")
+    response = client.post(f"/api/voice/{action}", json=client.voice_confirm_body if action == "confirm" else None)
     assert response.status_code == 409
     assert len(calls) == 1
     binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")

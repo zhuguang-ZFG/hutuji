@@ -341,14 +341,14 @@ Page({
     const id = e.currentTarget.dataset.id;
     if (!id || this.data.busy || !this.data.enabled) return;
     const msg = this._findMsg(id);
-    if (!msg || !msg.previewPending || !msg.previewDeviceMac) {
+    if (!msg || !msg.previewPending || !msg.previewDeviceMac || !msg.jobId) {
       wx.showToast({ title: "预览已失效，请重新生成", icon: "none" });
       return;
     }
     const current = pageSession.capture(this);
     this.setData({ busy: true });
     api
-      .request("/api/voice/confirm", { method: "POST", data: { device_mac: msg.previewDeviceMac } })
+      .request("/api/voice/confirm", { method: "POST", data: { device_mac: msg.previewDeviceMac, job_id: msg.jobId } })
       .then((result) => {
         if (!current()) return;
         if (!result || result.status !== "ok") throw { detail: (result && result.detail) || "设备未接受确认" };

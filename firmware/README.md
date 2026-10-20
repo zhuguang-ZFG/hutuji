@@ -117,3 +117,5 @@
 S3首笔/试笔固定连接与reset banner，并复用Pipe写锁内会话发送；`hutuji.confirm`可带`expected_url`/`expected_preview_url`，在确认锁内匹配作品，`status.confirm_by_url`声明能力。旧无参人工入口保留，三板工具注册同步，SDK只构建量产Freenove。未发布的同号1.0.35候选不得替换线上镜像。设计、验证及部署状态见`../docs/design/three-repo-next-review-20261009.md`和readiness。
 
 2026-10-10 DR10修复候选（软件）：Telnet使用会话代次隔离旧字节；开放网络用`[ESP101=]`写空STA密码；预览阶段拒绝pause/resume；nopaper电机/压纸遥测为unknown；设备OTA严格版本递增并验证下载SHA及镜像版本；token回写比较绑定代次和旧密文；历史flash备份登记缺失拒绝归档。未部署/未刷机，验证与边界见枢纽`docs/design/three-repo-deep-review-20261010.md`修复节和readiness。
+
+2026-10-20 CR20本地候选：用户要求全部修复后，静默Web应答、聊天卡作品身份、激活RAII、文档编码、语音事务回执、归档删除失败分支和会话UTF-8七项已落代码与回归；未提交、未部署、未刷机。契约与验证记录见docs/design/three-repo-review-20261020.md及protocol末节，最终构建/门禁以本批证据为准，实体Hold不变。

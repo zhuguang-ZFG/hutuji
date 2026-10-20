@@ -332,3 +332,44 @@ def test_active_session_survives_eviction_and_failure_releases_lock(monkeypatch)
             raise RuntimeError("模拟上游失败")
     with va._session_history("other", "s") as history:
         assert history == []
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_completed_preview_survives_followup_llm_failure(monkeypatch, malformed):
+    _configure_llm(monkeypatch)
+    monkeypatch.setattr(va, "_sessions", va.OrderedDict())
+    calls, requests = [], []
+    def model(**kw):
+        requests.append(kw["payload"]["messages"][:])
+        if len(requests) == 1:
+            return {"choices": [{"message": {"role": "assistant", "tool_calls": [
+                {"id": "p1", "type": "function", "function": {"name": "voice.draw", "arguments": '{}'}}
+            ]}}]}
+        if len(requests) == 2:
+            if malformed:
+                return {"choices": []}
+            raise va.VoiceAgentError("服务暂不可用")
+        return {"choices": [{"message": {"content": "已在预览"}}]}
+    def draw(*args):
+        calls.append(args)
+        return "已推送预览", {"job_id": "j1", "preview_url": "/p.png", "gcode_url": "/g.gcode"}
+    monkeypatch.setattr(va, "_post_chat", model)
+    first = va.chat(user_id="u", session_id="s", user_text="画猫", device_mac="mac",
+                    push_tool=lambda *a: "", run_portal_tool=draw)
+    assert first["preview"]["job_id"] == "j1"
+    assert "预览" in first["reply"]
+    va.chat(user_id="u", session_id="s", user_text="完成了吗", device_mac="mac",
+            push_tool=lambda *a: "", run_portal_tool=draw)
+    assert len(calls) == 1
+    assert any(m.get("role") == "tool" and m.get("tool_call_id") == "p1" for m in requests[-1])
+
+
+def test_llm_failure_without_completed_preview_is_not_success(monkeypatch):
+    _configure_llm(monkeypatch)
+    monkeypatch.setattr(va, "_sessions", va.OrderedDict())
+    def fail(**kw):
+        raise va.VoiceAgentError("服务暂不可用")
+    monkeypatch.setattr(va, "_post_chat", fail)
+    with pytest.raises(va.VoiceAgentError):
+        va.chat(user_id="u", session_id="s", user_text="你好", device_mac=None, push_tool=lambda *a: "")
+    assert va._sessions[("u", "s")].history == []
