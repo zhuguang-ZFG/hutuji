@@ -58,3 +58,5 @@ S3 首次推送 TLS EOF，重试成功；但新提交没有 Actions 检查。权
 - 本机证据 `results/local-only/2026-10-20-followup/probe-results.json` 与 `probe-*` 目录中的隔离 SQLite、图片占位文件、编译的宿主探针；不含真实用户数据或凭据。
 - 本次新增三项没有改产品代码。此前七项继续以已提交修复为准，不将“新问题待修复”写成“七项尚未修复”。
 - 云端 CI 不运行 fz 的 Wokwi/QEMU 启动层；GitHub检查通过不能消除本地 fz overall=fail，也不证明纸面/老化/配对/交付放行。NOT_FOR_RELEASE 与实体 Hold 不变。
+
+2026-10-20 CR20远端CI收口：Hub产品修复4437dad及续审文档b43370a、S3产品修复34dc2ca/CI触发46aa527、量产Grbl99d14a13均已推送。Hub Tests、Hutuji Mass Production、Hutuji S3（宿主+两交付板）及S3 PR Build Boards完整175项均completed/success，未跳过失败或缩减矩阵。精确提交、作业列表与链接在results/local-only/2026-10-20-followup/ci-final.json及本批续审报告。新增三项R20F-01至03仍待修复；GitHub绿色不覆盖本地fz Wokwi/QEMU启动失败，未部署、未刷机，NOT_FOR_RELEASE与实体Hold不变。
