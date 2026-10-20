@@ -443,3 +443,5 @@
 2026-10-20 CR20验证收口：七项补丁与回归已落本地，MCP1691/e2e及枢纽full通过、Portal595、小程序325、S3宿主368、量产Grbl宿主70通过；Freenove/LICHUANG_DEV_S3与量产Grbl release构建成功。fz产品宿主/协议/硬件仿真通过，但Wokwi ready_timeout与QEMU启动异常仍使overall=fail，未改门禁求绿。源码/镜像摘要及回执在results/local-only/2026-10-20-fixes/verification.json，镜像NOT_FOR_RELEASE。未提交、未部署、未刷机，实体Hold不变；详见docs/design/three-repo-review-20261020.md最终验证节。
 
 2026-10-20 CR20提交推送授权：用户要求提交推送、继续审查并使CI通过。S3提交34dc2ca、量产Grbl提交99d14a13均已推送；枢纽随本批提交，Hub CI两份外仓快照同步到这两个精确提交。继续审查与远端CI结果另行登记；未部署或刷机，候选镜像NOT_FOR_RELEASE和实体Hold不变。
+
+2026-10-20 CR20推送与续审：七项产品修复已推Hub4437dad、S3 34dc2ca、量产Grbl99d14a13；S3仓库Actions异常经用户页面启用后，以空提交46aa527重新触发分支与PR检查。继续只读审查确认三项待修复：恢复快照复活已删图库作品、S3批次会话错归、Grbl查询忙态守卫恒false；证据和各CI入口见docs/design/three-repo-followup-review-20261020.md。本轮未部署或刷机，fz芯片启动与实体Hold不变。
