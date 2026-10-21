@@ -101,3 +101,8 @@ COM6为ESP32-S3 rev v0.2、16MB、Freenove（应用内含`freenove-esp32s3-displ
 
 - Hub Tests 对最终提交 `87053c3`（run `39572011496`）completed success；S3 Hutuji S3 对 `03854cf`（run `39571466242`）completed success，host/Freenove/立创三作业全绿。上节运行/排队描述为当时快照，由本节覆盖。
 - Build Boards PR 矩阵（run `39571472192`）运行中（66 绿/20 跑/89 队，前次同矩阵 1h3m 绿）；终态结论补录 `results/local-only/2026-10-21-codereview/ci-final-20261021.json`，不另行修改本文。普通 Grbl 仓 push 无固件 CI。
+
+
+#### 17:1x 生产 OTA 路径实机验证（1.0.42→1.0.43，PASS）
+
+绑定表已切至新 S3 `b8:1f:3f:c3:70:bc`（16:39 绑定，machine_type=nopaper），老量产板 `b8:1f:3f:c4:58:2c` 已不在绑定表、无法云端驱动。为验证真实 OTA 链路：COM6 经 USB 刷回 1.0.42 回滚件（Hash verified，NVS 未动，`com6-1.0.42-boot.log`）→ 云端探得 1.0.42/Idle 且 `update_available: true` → Portal `start_upgrade`（首次响应 504 与 1.0.41 发布同型，会话保留 upgrading，设备实际已开工）→ 串口实录设备从公网 URL 下载 3,091,760/3,091,760 字节（`com6-ota-live.log`）→ 从 **ota_1 分区**（OTA 槽位，非 USB 所写的 ota_0）以 1.0.43 启动并 `Marking firmware as valid`（`com6-ota-reboot.log`）→ `ota_status` 终态 `ok/100`，终探 1.0.43、connected/ready/authorized/grbl_settings_ok、Grbl Idle、plan up_to_date。回执 `results/local-only/2026-10-21-codereview/ota-verify-1.0.43.json`。下载字节数与 promote 镜像一致；镜像即提交 `03854cf` 干净树重建件。未做运动/作业/屏幕人工验证；老板自身升级机制未验证。
