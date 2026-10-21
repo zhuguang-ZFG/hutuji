@@ -1,4 +1,33 @@
 {
+  "onboarding_improvements_20261021_authorized": {
+    "note": "2026-10-21 用户要求把本轮检查发现的问题全部改善：扫错码引导、切换网络/设备清密码、未发送配网失败、后台绑定重试和二维码页面长提示布局；包含回归、构建和版本递增。不放宽身份校验，不改运动、引脚、NVS身份或网络协议。",
+    "contract": "docs/design/onboarding-improvements-20261021.md；protocol §10.4.2–4 与量产屏幕显示约束。",
+    "paths": [
+      "docs/**",
+      "draw-portal/weapp/utils/bind_identity.js",
+      "draw-portal/weapp/utils/version.js",
+      "draw-portal/weapp/pages/bind/**",
+      "draw-portal/weapp/pages/wifi/**",
+      "draw-portal/tests/weapp/**",
+      "tmp/s3-ui-20261021/**",
+      "results/local-only/2026-10-21-onboarding-review/**",
+      "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_provisioning_qr.py",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt"
+    ]
+  },
+  "s3_screen_polish_20261021_authorized": {
+    "note": "2026-10-21 用户要求优化美化S3量产屏幕，并选择深色科技风；后续确认已换同款新板，要求USB首次烧录。限定Freenove横屏样式、显示布局、版本1.0.42与完整镜像下载验证，不改运动、引脚、网络、身份或OTA逻辑。新板身份独立取证，不克隆旧板NVS。",
+    "contract": "docs/design/s3-screen-polish-20261021.md；protocol §10预览确认与控制语义不变。",
+    "paths": [
+      "docs/**",
+      "tmp/s3-ui-20261021/**",
+      "results/local-only/2026-10-21-s3-ui/**",
+      "results/local-only/2026-10-21-s3-newboard/**",
+      "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt"
+    ]
+  },
   "firmware_review_fixes_20261011_authorized": {
     "note": "用户要求继续审查小派与量产Grbl并开始全量修复。范围为绘图实时控制会话隔离、OTA目标板型及异常恢复、WebUI JSON字符串编码与WebSocket长输出边界；保留运动参数、换纸、授权、引脚和现役部署。",
     "contract": "docs/design/firmware-review-fixes-20261011.md；docs/protocol.md §1.2/§3/§4/§10.4.22",

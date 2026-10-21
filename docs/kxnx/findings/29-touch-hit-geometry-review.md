@@ -11,7 +11,7 @@
 - `managed_components/espressif__esp_lvgl_port/src/lvgl9/esp_lvgl_port_touch.c:120-160`：`lvgl_port_touchpad_read` 每次 `esp_lcd_touch_read_data` 读芯片**当前态**；`int_gpio_num == GPIO_NUM_NC` 时不注册中断回调、不设 `LV_INDEV_MODE_EVENT`——纯周期轮询，按压必须活到某次读瞬间。
 - `managed_components/lvgl__lvgl/src/indev/lv_indev.c:132`：读定时器周期默认 `LV_DEF_REFR_PERIOD`（sdkconfig=33ms）；本仓在板级代码显式改 10ms。
 - 触摸变换（板 cc:304-309）：`swap_xy=1, mirror_x=1, mirror_y=0` → LVGL=(479−chip_y, chip_x)。**按钮位置经拖动存 NVS**（`hutuji_ui` trig/talk/wifi×_x/_y），离线分析不可假设默认矩形——本文配网钮锚点即实测 NVS 位。
-- 自定义层（`main/display/lcd_display.cc:836-843` 注释）：24px 拖动阈值区分点按/拖动；`PRESS_LOCK` 锁定首触对象；位置从首个采样起跟手。均不吞短按。
+- 自定义层（`main/display/lcd_display.cc:956-963` 注释）：24px 拖动阈值区分点按/拖动；`PRESS_LOCK` 锁定首触对象；位置从首个采样起跟手。均不吞短按。
 
 ## 外部参照
 

@@ -70,7 +70,7 @@ SerialException: Cannot configure port, something went wrong.
 
 ## 笔控 / 落笔出墨（2026-07-29 实测）
 
-> **纸面是唯一判据。** `ok` 只表示该行已进 planner（`Protocol.cpp:147-158`），MPos 是开环步计数、无任何位置反馈（`Stepper.cpp:313-324`、`System.cpp:220-234`）——失步或笔尖未触纸时，日志照样报 `Z=5.000` 全程保持。**禁止用日志宣称“已落笔”。**
+> **纸面是唯一判据。** `ok` 只表示该行已进 planner（`Protocol.cpp:227`），MPos 是开环步计数、无任何位置反馈（`Stepper.cpp:313-324`、`System.cpp:220-234`）——失步或笔尖未触纸时，日志照样报 `Z=5.000` 全程保持。**禁止用日志宣称“已落笔”。**
 
 | 现象 | 可能原因 | 处置 |
 |------|----------|------|
@@ -121,7 +121,7 @@ G1 Z0.0 F10000     ← 抬笔
 定量对照（机制推演，**已被本地实测限定适用范围**，见下一节）：
 
 - planner 块深 `BLOCK_BUFFER_SIZE 250`（`Config.h:473`）够深，不是瓶颈。
-- 在途量看 S3 窗口：512字节（`hutuji_recovery_core.h:17`）；2026-09-25起另限最多8条未应答行（`hutuji_job.cc:4460`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:4457`，商业固件会少应答、窗口计数永久漂移）。
+- 在途量看 S3 窗口：512字节（`hutuji_recovery_core.h:17`）；2026-09-25起另限最多8条未应答行（`hutuji_job.cc:4429`），且**一行一个应答、禁止多行合并进同一 TCP 包**（`hutuji_job.cc:4426`，商业固件会少应答、窗口计数永久漂移）。
 - 失能门槛可解析求出：planner 空窗 = `RTT − 21 × 段长 ÷ 133.33mm/s`，空窗 > `$1`=25ms 才失能 → **只有段长 < (RTT−25) × 6.349 µm/ms 时才可能断粮**。RTT=40ms → 0.095mm；RTT=30ms → 0.032mm；RTT ≤ 25ms → 恒不失能。**注意这里代入的 20–40ms 已被实测证否**，实测值与重算后的门槛见下面「实测 `$110/$111/$112` 与链路 RTT」一节。
 - 奎享为什么不受这条约束：它 0.044mm 段长下 21 段仅 6.93ms 在途。奎享支持三条通道——USB 串口（我们 COM3 实测往返 ~6ms）、WiFi TCP（port 23，与 hutuji 同构）、**蓝牙 SPP**（商业上位机无线主路径，`PAPER_AUTO_CHANGE_ON_BT_CONNECT` 量产验证，RTT 未知）。下方 6ms 是串口实测基线；同一份文件搬到 WiFi 40ms+ 往返就必失能——**奎享 `simplePaths=0.02mm` 不可照搬到 Telnet 路径**，hutuji 的 `linesimplify 0.05mm` 反倒是 WiFi 路径的必要保护。
 - 交叉印证：`hutuji_pipe.cc:552-553` 关 Nagle 的注释已独立记过同一物理机制（Z5 执行后 `$1` 到点失能、下一条 XY 因等 ACK 滞留 → 轨迹在走但笔已回弹）。
@@ -176,7 +176,7 @@ G1 Z0.0 F10000     ← 抬笔
 
 局限：Telnet 长连接（S3 实际走的通道）RTT 仍未直接实测，见下条「PC 侧无法并连 Telnet」；`WiFi.setSleep(false)` 的收益仍是推演，未实测。本轮只证明在 `13057e8`/`0x2ce890` 自动路径和当前网络条件下，压力阶梯没有触发断粮。
 
-**PC 侧无法并连 Telnet（2026-07-30 坐实，调试必读）**：`MAX_TLNT_CLIENTS = 1`（`D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31`）。S3 在线时它握着唯一槽位，PC 连 `:23` 会 accept 成功后立刻收到 0 字节 EOF——**不是网络故障，也不是固件挂了**。要在 PC 侧走 Telnet 调试必须先停 S3；不想停 S3 就走 HTTP:80 `/command` + ws:81 只读旁路（`WebServer.cpp:121` 端口 `_port+1`，`:126` `Serial2Socket.attachWS`）。注意 `/command` 的 G-code 分支把响应写进 ws 而非 HTTP body（`WebServer.cpp:515-519`，body 恒为空），所以 `?plain=$$` 必须从 ws:81 收结果；`[ESP` 开头的命令才直接回在 HTTP body（`:468-486`）。`[ESP400]` 只枚举 `WEBSET` 类型项（`WebSettings.cpp:710-722`），**不含 `$110` 这类 Grbl 编号设置**，别用它读进给上限。
+**PC 侧无法并连 Telnet（2026-07-30 坐实，调试必读）**：`MAX_TLNT_CLIENTS = 1`（`D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h:31`）。S3 在线时它握着唯一槽位，PC 连 `:23` 会 accept 成功后立刻收到 0 字节 EOF——**不是网络故障，也不是固件挂了**。要在 PC 侧走 Telnet 调试必须先停 S3；不想停 S3 就走 HTTP:80 `/command` + ws:81 只读旁路（`WebServer.cpp:121` 端口 `_port+1`，`:126` `Serial2Socket.attachWS`）。注意 `/command` 的 G-code 分支把响应写进 ws 而非 HTTP body（`WebServer.cpp:515-519`，body 恒为空），所以 `?plain=$$` 必须从 ws:81 收结果；`[ESP` 开头的命令才直接回在 HTTP body（`:468-486`）。`[ESP400]` 只枚举 `WEBSET` 类型项（`WebSettings.cpp:711-723`），**不含 `$110` 这类 Grbl 编号设置**，别用它读进给上限。
 
 **测试件设计的真实定位**：`f1000-line.gcode` 里 Y=185 那条 0.2mm × 250 段，在 HTTP/ws 旁路 RTT 代入下是有效压力档；但 B-12 纸面实测全连，说明它更适合作为“压力测试刻度”而不是“断粮复现件”。后续若改 WiFi 省电或窗口参数，可继续用这三档看卡顿是否改善，但不能再按模型预期宣称“必断”。
 
@@ -227,14 +227,14 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 
 | 假设 | 证伪依据 |
 |------|----------|
-| Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:140-247` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
+| Telnet 环形缓冲乱序/溢出 | `TelnetServer.cpp:233-284` 环绕算术正确；满则整批拒收 + readlen=0 背压，字节留在 socket，不丢不乱 |
 | 跨连接残留 1073 字节污染 run1 | run1 全程 `Bf:24x,1200`，Telnet RX 全空（`Bf:249,127` 是 S4 断连那次的另一会话，别往 run1 身上套） |
-| `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-63`/`:99-111`）自身无锁但受外层保护：实测 `Serial.cpp:185-187`（write）与 `:232-234`（read）**都在** `vTaskEnterCritical(&myMutex)` 临界区内 |
+| `client_buffer` 跨任务竞争 | `InputBuffer::write/read`（`WebUI/InputBuffer.cpp:48-63`/`:99-111`）自身无锁但受外层保护：实测 `Serial.cpp:94-101`（write）与 `:270-276`（read）**都在** `vTaskEnterCritical(&myMutex)` 临界区内 |
 | 重入 `protocol_poll_client` 导致行乱序 | 全项目 6 个调用点都在 `Protocol.cpp`；`protocol_service_during_blocking` 只被 `PaperSystem.cpp:151`（换纸）调用，画线期不进 |
-| 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:38-43,162`） |
+| 行缓冲被覆盖 | `client_lines[CLIENT_COUNT]` 是 per-client（`Protocol.cpp:39-46,162`） |
 | `mc_line` planner 满忙等重入 | `MotionControl.cpp:69-83` 忙等只 `yield()` 不读行；planner 250 深（`Config.h:473`）而本文件仅 11 块 |
-| 换纸期行被缓存后 replay | `Protocol.cpp:129-144` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
-| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:4660-4666` 窗口化分支收 `error:8` 先发 `!`、清窗、受控 reset（重发只在 `hutuji_job.cc:4389-4402` 换纸逐行分支），run1 完整走完且日志无 error——该错序机制不成立 |
+| 换纸期行被缓存后 replay | `Protocol.cpp:142-157` 只在 `paper_auto_change_is_running()` 时**回 `error:8` 拒绝**（`Error::IdleError=8`，`Error.h:36`），不缓存不重放；run1 无 error |
+| `error:8` 触发重发把 A 排到 B 之后 | `hutuji_job.cc:4629-4635` 窗口化分支收 `error:8` 先发 `!`、清窗、受控 reset（重发只在 `hutuji_job.cc:4358-4371` 换纸逐行分支），run1 完整走完且日志无 error——该错序机制不成立 |
 | 有代码把行重新注入 | `WebUI::inputBuffer.push` 全项目仅 `System.cpp:422` 用户宏路径，画线期不可达 |
 
 另：**字节级「丢字节/缓冲读错位」类假设整体站不住**——丢字节只能产生原序列的子序列，解释不了 run1 的「B 完整出现在 A 之前」；A、B 相邻两行只差 `Y60.000`↔`Y200.000`，这种跨行字段互换也无法由读错位生成。
@@ -244,7 +244,7 @@ run1 实走 (30,60)→(180,200)→(180,60)→(30,200)→(30,60)，即 A/B 对调
 **下一刀＝改用可观测手段，停止纯推理**。Grbl 有两个上游 echo 开关，同时打开即可二分：
 
 - `Config.h:414` `REPORT_ECHO_LINE_RECEIVED` → 挂在 `GCode.cpp:141`，`collapseGCode` 之后、解析之前，是**解析器即将执行的行**。
-- `Config.h:419` `REPORT_ECHO_RAW_LINE_RECEIVED` → 挂在 `Protocol.cpp:180`，是**从缓冲拼出的原始行**。
+- `Config.h:419` `REPORT_ECHO_RAW_LINE_RECEIVED` → 挂在 `Protocol.cpp:203`，是**从缓冲拼出的原始行**。
 
 判据：两处都 A,B 而机器仍先走 B → 故障在解析器下游（目标值被改，查 `gc_block.values.xyz` 与本 fork Stepper/segment 改动）；raw 是 A,B 而 GCode 是 B,A → 在拼行与解析之间；两处都 B,A → 在字节通路，与上表冲突，回头查 TCP/socket 层。
 
@@ -489,7 +489,7 @@ BLE 排障必须先确认边界：S3 BLE 阶段 A 已提供 6 字节公开粗粒
 - 厂商真实零位是手动「设置原点」= `G92 X<ox> Y<oy> Z0` 把当前位置声明为原点（findings/02 的 2026-08-18 用户实测），同属任意高度校准，靠操作员每会话手动对笔尖状态兜底。
 - 对照结论：「G92 在任意高度校准」是厂商原始行为，非 hutuji 引入的偏差；hutuji 的差异只是校准点受时序控制（fresh Idle + 100ms）。故 Z 叙事的判别力全在上一节可证伪预测：出墨=校准点叙事成立但非「已修」；不出墨=叙事作废转物理面。
 
-纸路语义纠偏（2026-08-25 用户指正 + 源码复核，撤消本行旧版「装纸前置」结论）：`[ESP901]` 的 `Paper=` 是**进纸/弹纸槽**传感器（GPIO34，LOW=纸在槽位，`PaperSystem.cpp:349-359`、`custom_3axis_hr4988.h:245-246`），量的是换纸流程里「旧纸是否还在槽里/新纸是否到位」，**不是画台有无纸**；idle 有纸时读 `Paper=No` 属正常。S3 侧更不把纸当出图闸：`PaperPresentState` 仅上云遥测、`Unknown` fail-open 不得解释为缺纸（`hutuji_recovery_core.h:988-991`），预览期 `[ESP901]` 刷新尽力而为、不挡预览（`hutuji_job.cc:2193-2202`），**S3 没有缺纸出图闸**（inventory a1afd2a 行「Paper=No 早退」表述同日撤正）。唯一纸相关拒绝在 M30 换纸内：进纸 10s 未触发传感器=OUT_OF_PAPER、传感器持续有纸=卡纸，均收敛 error:90（`PaperSystem.cpp:835-848`）。故 16:57 error:90 = 换纸的进纸阶段失败（feeder 无下一张或卡纸），不是「画台没纸」；22:02「没画直接换纸」与纸态无关，仍用 (0,0) 归位判别器分档。旧证据 `grbl-probe-2210-com13.txt` 保留但只作传感器现态记录，不作有无纸判据。另：G92 Z=5 仍在而 MPos Z 由 5→0，G92 未清=未复位，开环步计数事后重建不可靠——按本节口径停止跨场次反推。
+纸路语义纠偏（2026-08-25 用户指正 + 源码复核，撤消本行旧版「装纸前置」结论）：`[ESP901]` 的 `Paper=` 是**进纸/弹纸槽**传感器（GPIO34，LOW=纸在槽位，`PaperSystem.cpp:349-359`、`custom_3axis_hr4988.h:245-246`），量的是换纸流程里「旧纸是否还在槽里/新纸是否到位」，**不是画台有无纸**；idle 有纸时读 `Paper=No` 属正常。S3 侧更不把纸当出图闸：`PaperPresentState` 仅上云遥测、`Unknown` fail-open 不得解释为缺纸（`hutuji_recovery_core.h:988-991`），预览期 `[ESP901]` 刷新尽力而为、不挡预览（`hutuji_job.cc:2162-2171`），**S3 没有缺纸出图闸**（inventory a1afd2a 行「Paper=No 早退」表述同日撤正）。唯一纸相关拒绝在 M30 换纸内：进纸 10s 未触发传感器=OUT_OF_PAPER、传感器持续有纸=卡纸，均收敛 error:90（`PaperSystem.cpp:835-848`）。故 16:57 error:90 = 换纸的进纸阶段失败（feeder 无下一张或卡纸），不是「画台没纸」；22:02「没画直接换纸」与纸态无关，仍用 (0,0) 归位判别器分档。旧证据 `grbl-probe-2210-com13.txt` 保留但只作传感器现态记录，不作有无纸判据。另：G92 Z=5 仍在而 MPos Z 由 5→0，G92 未清=未复位，开环步计数事后重建不可靠——按本节口径停止跨场次反推。
 
 ## 「能生成、能预览、却画不了」先别怪云端 / `Paper=`（2026-08-29）
 

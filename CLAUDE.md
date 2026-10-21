@@ -75,7 +75,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **哑管道原则**：G-code 全部在云端（阿里云主节点 MCP 服务生成+转换完毕，京东云作为热备）。S3 板只做**下载 + 校验 + 流控转发**，绝不生成/编辑/预览。
 
-**行长上限是 254 字节 payload，不是 255**：`Protocol.h:34` 是 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能进缓冲，紧随的换行符先撞上 `len == 255` 回 `error:11`，`:218` 的 `empty_line()` 把整行丢掉，**该行从未进 `execute_line()`**。上游 grblHAL 用 257 正是为绕开这个 off-by-one。校验器口径 `MAX_LINE_PAYLOAD_BYTES = 254`，**禁止改回 255**（旧口径会放行一种设备静默吃行的产物）。同理 **CRLF 行尾会让设备每行回两个 `ok`**（`\r`、`\n` 各触发一次 EOL，空行也回 ok），故 **S3 必须重切行、禁止原样透传下载字节**——透传会让在途窗口计数正向漂移。两条都在 `docs/protocol.md` §3。
+**行长上限是 254 字节 payload，不是 255**：`Protocol.h:34` 是 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:81` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能进缓冲，紧随的换行符先撞上 `len == 255` 回 `error:11`，`:218` 的 `empty_line()` 把整行丢掉，**该行从未进 `execute_line()`**。上游 grblHAL 用 257 正是为绕开这个 off-by-one。校验器口径 `MAX_LINE_PAYLOAD_BYTES = 254`，**禁止改回 255**（旧口径会放行一种设备静默吃行的产物）。同理 **CRLF 行尾会让设备每行回两个 `ok`**（`\r`、`\n` 各触发一次 EOL，空行也回 ok），故 **S3 必须重切行、禁止原样透传下载字节**——透传会让在途窗口计数正向漂移。两条都在 `docs/protocol.md` §3。
 
 **Grbl 错误码有数字与文本两种线上形态**：`$Errors/Verbose=1` 时 `Report.cpp:236` 回 `error: Line too long` 而非 `error:11`。只认数字不是降级而是**行为反转**（`error:8` 换纸推迟会变成整单失败）。该 `$`-设置存在 NVS、可被任何上位机改写。S3 侧解析走 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()`，两种形态由 `scripts/tests/test_hutuji_recovery_core.py` 的 host 编译单测钉住。
 

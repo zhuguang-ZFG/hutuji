@@ -31,7 +31,7 @@
 
 ### 1.1 Telnet 独占（固件硬约束）
 
-`TelnetServer.h:31` **`MAX_TLNT_CLIENTS = 1`**——Telnet 服务器同时只接受 **1 个**客户端，第二个客户端被 `clearClients()`（`TelnetServer.cpp:98`）直接 `.stop()` 拒绝。
+`TelnetServer.h:31` **`MAX_TLNT_CLIENTS = 1`**——Telnet 服务器同时只接受 **1 个**客户端，第二个客户端被 `clearClients()`（`TelnetServer.cpp:109`）直接 `.stop()` 拒绝。
 
 **因此格局定为：Telnet 数据链 = S3 独占；CH340 串口 = PC 只读旁观。**
 
@@ -261,7 +261,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | **普通画线行断连** | `[ESP901]` 查 `Changing=Off`（需 §9-B2′） | **2026-07-29 已实测到主路径**：受限 reset 恢复 → 确认抬笔/Idle/授权 → `M30` 走掉废纸（`[PaperStatus] 0`）→ 从 PSRAM 缓存开头重发（§5.1）→ 55/55 行完成并 fresh `Idle`；最终页尾自动换纸因无纸 `error:90`，完整任务仍非 `done` |
 | **换纸窗口内断连** | `[ESP901]` 查 `Changing=On`，或本次断连前最后发出的是 M30/M721/[ESP910] | **不发 `0x18`、不发 `M30`**（`0x18` 会被 8s 窗吞、`M30` 会叠成二次换纸）；抬笔停机 + 推送提示用户，由人决定重画 |
 
-- **`[ESP901]` 可达性已源码验证**（非推断，v0.5 勘察）：① `anyState()` 恒返回 `false`（`Settings.cpp:6-8`，守卫语义是「是否拒绝」）→ 任何 `sys.state` 下都不拒；② 换纸阻塞期 `protocol_poll_client()` 的换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`；③ 响应经 `ESPResponseStream(client)` → `grbl_send(CLIENT_TELNET)` 回给发命令的 client（`ESPResponse.cpp:46,99`，且 `:55` 专为 Telnet 用 `\r\n`）。**故换纸期间 S3 发 `[ESP901]` 收得到含 `Changing` 的响应。**
+- **`[ESP901]` 可达性已源码验证**（非推断，v0.5 勘察）：① `anyState()` 恒返回 `false`（`Settings.cpp:6-8`，守卫语义是「是否拒绝」）→ 任何 `sys.state` 下都不拒；② 换纸阻塞期 `protocol_poll_client()` 的换纸拦截（`Protocol.cpp:206`）**只拦 G0–G3**，`[ESP901]` 落到 `:227` 正常 `execute_line`；③ 响应经 `ESPResponseStream(client)` → `grbl_send(CLIENT_TELNET)` 回给发命令的 client（`ESPResponse.cpp:46,99`，且 `:55` 专为 Telnet 用 `\r\n`）。**故换纸期间 S3 发 `[ESP901]` 收得到含 `Changing` 的响应。**
 - ✅ 已验证（2026-08-15 收口）：有纸时页尾自动换纸成功并最终 `done/Idle`（S4 2026-08-03 + 归位版 `4c60ca8`）、`Changing=On` 分流（B-13 2026-07-30 + §8.5 2026-07-31）、换纸物理耗时（多次实测，含归位版 M30→ok 16.5s）。🔬 仍缺：断连恢复 `paper_active` 窗口的 abort 复测、缺纸 error:90 路径（归位版）。
   半成品纸处置 2026-07-29 已实测主路径。非换纸 abort 自恢复通过不覆盖上述仍缺项。
 - **v1 再做**：自动穿越换纸续接（在未完成的换纸上安全接续），v0 不赌机械安全。
@@ -290,7 +290,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:989-1131`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:958-1100`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -303,8 +303,8 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
   - **丢 `ok` 状态兜底必须绑定 fresh finite MPos**：通用状态序号只证明收到 `<...>`，不证明本帧有机器坐标。`$10` 可持久化为 WPos，`sscanf %f` 还接受 NaN/Inf；因此 Pipe 另维护只在完整有限 MPos 成功提交时递增的位置序号。释放整窗必须同时满足同连接的新状态序号、新位置序号、Idle 与目标容差；WPos/缺轴/尾缀/NaN/Inf 一律 fail-closed。
   - ⚠️ **错误码有两种线上形态，解析必须都认**：`$Errors/Verbose` 为真时 `Report.cpp:236` 把应答从 `error:11` 换成 **`error: Line too long`**（文本，取自 `Error.cpp` 的 `ErrorNames`）。出厂默认是 0（`Defaults.h:82`），但该 `$`-设置存在 NVS 里，能被任何上位机（奎享本体、ESP3D WebUI）改写并持久化。只认数字的解析器不是降级而是**行为反转**：`error:8`（换纸期推迟、需重发该行）解析成 -1 后走 `Failed` → 整单失败而非重试；`error:110`（未授权）同样落进 `Failed` 而非「已知未授权」。S3 侧解析实现见 `hutuji_recovery_core.h` 的 `ParseGrblErrorCode()`，两种形态由 host 编译单测钉住。
 - **单行仅 ASCII 且 ≤ 254 字节 payload**（不含行尾换行符），非 ASCII 或超长回 `error:11`。MCP 生成端折行负责。
-  - **是 254，不是 255**：`Protocol.h:34` 定义 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:68` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能存进缓冲（`len` 变 255），紧随的换行符进来时先撞上 `len == LINE_BUFFER_SIZE - 1` → 回 `error:11`，且 `:218` 的 `empty_line()` 把整行丢掉，**该行从未进入 `execute_line()`**。即 255 字节的行不是「勉强执行」而是「整行被设备静默吃掉」。上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters plus terminator"）正是为绕开这个 off-by-one；Grbl_Esp32 未加 1，故本机可用 payload 是 254。校验器口径见 `gcode_gen.py` 的 `MAX_LINE_PAYLOAD_BYTES`。
-- **CRLF 行尾会让设备每行回两个 `ok`；S3 必须重切行，禁止原样透传下载字节**。`\r` 触发一次 EOL（执行真实行），紧随的 `\n` 又触发一次 EOL，而 `execute_line()` 对 `line[0] == 0` 直接返回 `Error::Ok`（`Protocol.cpp:84-86`）于是再回一个 `ok`。CRLF 不是假想形态：奎享真实缓存产物就是 CRLF（946 CRLF / 0 裸 LF），Windows 上 `vpype gwrite` 走 `click.File("w")` 文本模式同样产 CRLF。当前 S3 安全是因为 `ParseLines()` 自己按 `\n`/`\r` 切行并跳过空行、`SendLine()` 只补一个 `\n`——**这是契约要求，不是实现细节**。一旦为省内存改成 zero-copy 直发 PSRAM 字节，每行多一个 `ok` 会让在途窗口计数持续正向漂移，表现为「越画越超发」。
+  - **是 254，不是 255**：`Protocol.h:34` 定义 `LINE_BUFFER_SIZE 256`，但 `Protocol.cpp:81` 的溢出判定排在换行判定**之前**——第 255 个 payload 字节能存进缓冲（`len` 变 255），紧随的换行符进来时先撞上 `len == LINE_BUFFER_SIZE - 1` → 回 `error:11`，且 `:218` 的 `empty_line()` 把整行丢掉，**该行从未进入 `execute_line()`**。即 255 字节的行不是「勉强执行」而是「整行被设备静默吃掉」。上游 grblHAL 把 `LINE_BUFFER_SIZE` 定为 257（`protocol.h:36`，注释 "256 characters plus terminator"）正是为绕开这个 off-by-one；Grbl_Esp32 未加 1，故本机可用 payload 是 254。校验器口径见 `gcode_gen.py` 的 `MAX_LINE_PAYLOAD_BYTES`。
+- **CRLF 行尾会让设备每行回两个 `ok`；S3 必须重切行，禁止原样透传下载字节**。`\r` 触发一次 EOL（执行真实行），紧随的 `\n` 又触发一次 EOL，而 `execute_line()` 对 `line[0] == 0` 直接返回 `Error::Ok`（`Protocol.cpp:97-99`）于是再回一个 `ok`。CRLF 不是假想形态：奎享真实缓存产物就是 CRLF（946 CRLF / 0 裸 LF），Windows 上 `vpype gwrite` 走 `click.File("w")` 文本模式同样产 CRLF。当前 S3 安全是因为 `ParseLines()` 自己按 `\n`/`\r` 切行并跳过空行、`SendLine()` 只补一个 `\n`——**这是契约要求，不是实现细节**。一旦为省内存改成 zero-copy 直发 PSRAM 字节，每行多一个 `ok` 会让在途窗口计数持续正向漂移，表现为「越画越超发」。
 - **换纸阻塞期**（数十秒）：该行的 `ok`/`error:90` 在**整个换纸完成后**才返回——这类行（M30/M721/[ESP910]）等 ok 超时 ≥ 60s（换纸行放宽到 90s）。此期间**禁发任何 G0–G3**（会被吞并回 `error:8`，见 §7）。换纸期间 Grbl 主循环不转，S3 周期性 `?` 不会收到状态行；Pipe 用 `expect_blocking_peer_` 标记换纸期，silent-poll 超时不掐链（TCP keepalive 兜底），换纸结束/任务收尾清回。
   - ⚠️ **进度反馈不能靠 `[PaperAuto-N]`**（§2：那些走 CLIENT_SERIAL，Telnet 收不到）。S3 判「仍在换纸」的手段只有：**自己发的是 M30/M721**（自知，正常出图期够用），或换纸期周期性 `?` 探活（走实时旁路、换纸期可响应，见 §2）。结果码 `[PaperStatus] N` 须靠 §9 的路由改动才能到达。
 - 实时命令（`!` 暂停、`~` 恢复、`?` 状态、`0x18` 软复位）单字节立即生效，走实时旁路**不进 client_buffer、不吃 `ok`**（`is_realtime_command` 仅认这四个 + `≥0x80`）；`?` 的应答只回给发送 client。
@@ -572,10 +572,10 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | 情况 | 含义 | S3 行为 |
 |------|------|---------|
-| `error:8` | 换纸进行中，运动行被推迟（实为 `Error::IdleError`，`Protocol.cpp:186`） | **不算失败**，但 **⚠️ 该行已被 `empty_line()` 丢弃、不会排队**——S3 必须**自己重发这一行**，不可假设写字机记着。做法：暂停发送、等换纸行 ok 后**重发被拒的那一行**再继续（`[PaperStatus]` 须先做 §9 B1′ 才可达）。注：写字机侧的 `[MSG:]` 推迟提示有 3s 节流（`protocol_notify_paper_motion_deferred`）且只发 SERIAL，S3 只看得到 `error:8` 本身 |
+| `error:8` | 换纸进行中，运动行被推迟（实为 `Error::IdleError`，`Protocol.cpp:207`） | **不算失败**，但 **⚠️ 该行已被 `empty_line()` 丢弃、不会排队**——S3 必须**自己重发这一行**，不可假设写字机记着。做法：暂停发送、等换纸行 ok 后**重发被拒的那一行**再继续（`[PaperStatus]` 须先做 §9 B1′ 才可达）。注：写字机侧的 `[MSG:]` 推迟提示有 3s 节流（`protocol_notify_paper_motion_deferred`）且只发 SERIAL，S3 只看得到 `error:8` 本身 |
 | `error:11` | 行含非 ASCII 或 payload 超 **254** 字节（见 §3；该行同样被 `empty_line()` 丢弃、从未执行） | 任务 error，上报（MCP 生成端 bug） |
 | `error:90` | 换纸失败 | 任务 error，按 `[PaperStatus]` 码提示用户（**依赖 §9 B1′**；未改动前只能报「换纸失败，原因未知」） |
-| `error:110` | 未授权 | 停止全部发送，提示走授权 SOP。**正常不应出现**——§6 前置门已挡住。该行同样被 `empty_line()` 丢弃（`Protocol.cpp:195-204`） |
+| `error:110` | 未授权 | 停止全部发送，提示走授权 SOP。**正常不应出现**——§6 前置门已挡住。该行同样被 `empty_line()` 丢弃（`Protocol.cpp:216-225`） |
 | 其他 `error:NN` | 语法/参数错 | 停止，记录行号，任务 error 上报 |
 | **`error: <文本>`** | `$Errors/Verbose=1` 时的等价形态（`Report.cpp:236`），如 `error: Command requires idle state` = 8 | **必须映射回数字码后按本表同一行处置**，不得当作未知错误。只认数字会把 `error:8` 变成整单失败、把 `error:110` 变成未知故障（见 §3）。映射表见 `ParseGrblErrorCode()` |
 | `ALARM:n` | 报警 | 停止；一般 `$X`/`$RST` 解锁走人工 SOP。唯一例外是 S3 自己刚发出并标记的 abort reset，只允许一次 §4.1 受限 `$X` 恢复 |
@@ -603,31 +603,31 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 
 | # | 文件:行 | 改动 | 为什么必须 |
 |---|---------|------|-----------|
-| A | `WebUI/TelnetServer.cpp:92` | 新客户端 `available()` 后设 **4 个** socket 选项：`SO_KEEPALIVE=1` + `TCP_KEEPIDLE=10` + `TCP_KEEPINTVL=3` + `TCP_KEEPCNT=3`（~19s 回收） | `MAX_TLNT_CLIENTS=1` + 无 keepalive → 半开死连接独占唯一槽位，S3 重连被 `:98` 拒死（§1.2）。`WiFiClient::setSocketOption(level, option, value, len)` 已暴露（`WiFiClient.h:90`，已核验） |
+| A | `WebUI/TelnetServer.cpp:103` | 新客户端 `available()` 后设 **4 个** socket 选项：`SO_KEEPALIVE=1` + `TCP_KEEPIDLE=10` + `TCP_KEEPINTVL=3` + `TCP_KEEPCNT=3`（~19s 回收） | `MAX_TLNT_CLIENTS=1` + 无 keepalive → 半开死连接独占唯一槽位，S3 重连被 `:98` 拒死（§1.2）。`WiFiClient::setSocketOption(level, option, value, len)` 已暴露（`WiFiClient.h:90`，已核验） |
 
 > ⚠️ **A 条必须设全 4 个参数，只开 `SO_KEEPALIVE` 是无效的**——lwip 默认 `KEEPIDLE=7200s`(2h)/`INTVL=75s`/`CNT=9`，等于 2h11m 后才回收，形同没有保活。同一坑在 S3 侧 M1 代码中已实际发生并修复（`hutuji_pipe.cc` 原仅设 `SO_KEEPALIVE`，注释却写「尽快发现对端断电」）。
-| A2 | `WebUI/TelnetServer.cpp:43-74,82,105,153,175` | 文件作用域 `static SemaphoreHandle_t telnetClientMutex = xSemaphoreCreateRecursiveMutex()` + RAII `TelnetClientLock`，在 `begin()`/`end()`/`write()`/`handle()` 四个公开入口顶部各取一次（**只加锁，不改任何路由/状态字/换纸/运动**） | `Telnet_Server::write()` 跑在 loopTask（`Grbl_Esp32.ino:28 run_once` → `grbl_sendf`/`report_*` → `Serial.cpp:380 client_write`），`Telnet_Server::handle()` 跑在 clientCheckTask（`Serial.cpp:120` → `wifi_config.handle()` → `WifiServices::handle()`），两者同优先级同核（`SUPPORT_TASK_CORE`）并发操作**同一个 `WiFiClient` 与同一个 slot**：① `write()` 里 `WiFiClient::write()` 遇非 `EAGAIN` 错误会调 `stop()`（`WiFiClient.cpp:389-443`），`stop()` 把 `_rxBuffer` 置空并释放（`:209-214`），而读侧正在 `available()`/`read()` 的 `WiFiClientRxBuffer::fillBuffer` → `lwip_recv` → `pbuf_free` 中，命中 assert `pbuf_free: p->ref > 0`（上游 bdring/Grbl_Esp32#1364，reporter fork 的修复同样是加 semaphore）；② `clearClients()` 被两个任务并发调用，先 `available()` 再对同一 slot `stop()` + 拷贝赋值，等于在读侧脚下换掉 `_rxBuffer` 智能指针。`MAX_TLNT_CLIENTS=1` 不能规避——两个任务抢的就是同一个槽位 |
+| A2 | `WebUI/TelnetServer.cpp:43-74,82,105,153,175` | 文件作用域 `static SemaphoreHandle_t telnetClientMutex = xSemaphoreCreateRecursiveMutex()` + RAII `TelnetClientLock`，在 `begin()`/`end()`/`write()`/`handle()` 四个公开入口顶部各取一次（**只加锁，不改任何路由/状态字/换纸/运动**） | `Telnet_Server::write()` 跑在 loopTask（`Grbl_Esp32.ino:28 run_once` → `grbl_sendf`/`report_*` → `Serial.cpp:420 client_write`），`Telnet_Server::handle()` 跑在 clientCheckTask（`Serial.cpp:151` → `wifi_config.handle()` → `WifiServices::handle()`），两者同优先级同核（`SUPPORT_TASK_CORE`）并发操作**同一个 `WiFiClient` 与同一个 slot**：① `write()` 里 `WiFiClient::write()` 遇非 `EAGAIN` 错误会调 `stop()`（`WiFiClient.cpp:389-443`），`stop()` 把 `_rxBuffer` 置空并释放（`:209-214`），而读侧正在 `available()`/`read()` 的 `WiFiClientRxBuffer::fillBuffer` → `lwip_recv` → `pbuf_free` 中，命中 assert `pbuf_free: p->ref > 0`（上游 bdring/Grbl_Esp32#1364，reporter fork 的修复同样是加 semaphore）；② `clearClients()` 被两个任务并发调用，先 `available()` 再对同一 slot `stop()` + 拷贝赋值，等于在读侧脚下换掉 `_rxBuffer` 智能指针。`MAX_TLNT_CLIENTS=1` 不能规避——两个任务抢的就是同一个槽位 |
 
 > ⚠️ **A2 必须用递归锁**：`handle()` 内 `report_init_message(CLIENT_TELNET)` 会经 `grbl_send` 回到 `write()`，同一任务需重入；普通 mutex 直接自锁死。
 > **A2 的 abort 时延口径（不是新增风险）**：持锁期间 `write()` 最坏阻塞约 10s（`WIFI_CLIENT_SELECT_TIMEOUT_US=1s` × `WIFI_CLIENT_MAX_WRITE_RETRY=10`，`WiFiClient.cpp:26-28`），此窗口内 clientCheckTask 取不到字节，`!`/`0x18` 的**提取**被推迟。但 `!`/`0x18` 的**执行**本就在 loopTask 的 `protocol_execute_realtime()` 里，而 loopTask 正是被 `write()` 阻塞的那一个——即无锁时同样停摆。故 A2 不恶化 §4.1 abort 时延上界，仅把「崩溃」换成「已存在的阻塞」。
 > **2026-08-02 A2 写路径收口（取代上段 10s 口径，源码未提交/未烧录 → **2026-08-03 supersede：已提交 Grbl `1b56393` 并烧录 COM11，551 行 S4 有纸实测通过，`pbuf_free: p->ref > 0` 本轮未复现**）**：`write()` 不再调用可能阻塞约 10s 的 `WiFiClient::write()`，改为 `send(..., MSG_DONTWAIT)` + **1s 绝对 deadline**；deadline 覆盖 EAGAIN 与每次正 partial write，EAGAIN 重试同时 `COMMANDS::wait(0)` + `vTaskDelay(1)`，完整写出才返回长度，超时/零进展/真实错误则关闭该 Telnet session 并返回 0。这样仍保持 A2 递归锁的跨任务串行化，同时把 loopTask/clientCheckTask 的单次写占用收窄到有界 1s；host 行为回归覆盖正 partial deadline、无效 fd、EAGAIN 让步/看门狗。
 | B1′ | `PaperSystem.cpp:843,848,970,1051` | `[PaperStatus] %d` 的 `CLIENT_SERIAL` → `CLIENT_ALL` | §7 换纸失败码（0/2/3/4/5）的唯一来源；不改则 S3 永远收不到，§7 表空转 |
 | B2′ | `PaperSystem.cpp:358` | `paper_get_status_str()` 的 `snprintf` 增 `Changing=%s` 字段，取现成 `paper_auto_change_is_running()`（`PaperSystem.cpp:54`） | §2.1/§4.1 abort 分流的**唯一跨 session 地基** |
-| C′ | `Protocol.cpp:639-672`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
+| C′ | `Protocol.cpp:664-697`、`:763`、`:777-779` + `ProtocolDecisionCore.h:287-293` | `cycle_stop` 分支先快照本次停止的状态与意图，再由 `should_resume_segment_underflow()` 判定:**仅**「`Cycle` 中 + planner 仍有 block + 无 `endMotion`/`executeHold`/`motionCancel`/`soft_limit`」的真实断粮才置 `sys.state = State::Cycle` 并 `st_prep_buffer()+st_wake_up()` 续跑;其余停止意图全部落回原停止分支。续跑后 `:777` 不再重复 `st_prep_buffer()` | 恢复期 `?` 回 `<Idle>` 而步进仍在走，S3 侧 `WaitForIdle` 只看一次 fresh Idle 状态行即返回 true → 页尾提前 `M30` 撕在笔下。与 Grbl 自身 cycle-start 路径（`:627-629`）对齐:先置 Cycle 再 prep+wake。**但不得吞掉有意停止**:`motionCancel`（jog/探针取消）与 `soft_limit` 必须照原路进 `Idle`/`Alarm`，否则 abort 与限位保护会被这条恢复路径吃掉 |
 | D′ | `WebUI/BTConfig.cpp`（`begin()`） | 经典蓝牙启动成功后 `esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9)`（GRBL_PAPER_SYSTEM 守卫内，失败只记消息不阻断） | 2026-08-15 用户决策：IDF 默认发射功率上限仅 P3=+3dBm（`esp_bt.h:331`），拉满 +9dBm 改善 BT 链路质量。纯射频参数，不碰数据面/换纸/运动/授权；§8「不用蓝牙走正式数据链路」不变 |
 | F′ | `GCode.cpp:1732`、`:1789`、`PaperSystem.cpp:708-714`、`:837`、`:959`、`:1047-1049` | **`$1=255` 常使能守卫**：M30 页尾与换纸 abort/进纸超时/卡纸不得无条件失能 XYZ；`paper_finish_xyz_after_fault()` 在 `$1≠255` 时仍立即失能、在 `$1=255` 时显式 `motors_set_disable(false)` 恢复（含 M30 已失能的残留）；换纸成功路径仍恢复使能 | 商业固件在 M30 与 `PaperAuto-2` feeder timeout 等处硬编码 `motors_set_disable(true)`，弹簧笔架在「逻辑 Z 仍可能为 5」时失能抬笔 → 下一页没墨。2026-08-28 COM13 刷机 + 用户确认修复后正常 |
-| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1099` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1099` 自此降级为 fast-path advisory（只负责 web 侧 `"busy"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |
+| E′ | `PaperSystem.cpp:42`、`:733-758` | 换纸流程**入口原子认领**：`paper_auto_change_running` 由 `volatile bool` 改 `std::atomic<bool>`，函数体在 `PAPER_DISABLED` 早退之后用 `compare_exchange_strong(false→true)` 做 test-and-set；败者只打一条 `[PaperAuto] Busy` 并回 `Error::MessageFailed`(90)，**不清 flag、不碰任何 GPIO/电机/状态字、不发 `[PaperStatus]`** | R20-GW-03 的 check-then-act 残余窗口：`WebSettings.cpp:1100` 的 `running` 预检跑在 clientCheckTask，与 loopTask 的 M30 交叉——预检到入口置位之间仍可双入，两个实例并发驱动同一组换纸 GPIO。认领点是四个调用者（`[ESP910]`、M30、M721 `PaperSystem.cpp:1239`、BT 连接 `:1113`）**唯一**的公共收口；`WebSettings.cpp:1100` 自此降级为 fast-path advisory（只负责 web 侧 `"busy"` 文本应答）。**位置不可上移到早退之前**（早退不清 flag → 认领永久泄漏，比原缺陷更重）；认领之后到函数结束的 16 个 return 全部已清 flag（13 处 `abort_cleanup:708`、缺纸 `:841`、卡纸 `:962`、成功 `:1039`），**禁止再插新出口**；函数共 18 个 return——另 2 个是认领点之前的 `PAPER_DISABLED` 早退与认领失败出口（后者故意不清 flag，归赢家所有） |
 | G′ | `ProtocolDecisionCore.h`、`ProcessSettings.cpp`（`is_hutuji_locked_setting_key` → `SettingDisabled`） | **Golden `$` 写保护**：Telnet/WebUI 对 `$1/$3/$20-22/$100/$101/$110/$111/$130/$131/$132`/`Errors/Verbose` 的写入统一回 `Error::SettingDisabled`(5)，数字名与长名（`X/MaxTravel` 等 12 个）双形态同锁；S3 侧只读指纹见 §6.1 | 奎享/WebUI 可改 `$130/$131` 行程，绕过 MCP X≤277/Y≤190mm 安全限幅；2026-08-29 实机 golden 见 §6.1；2026-08-31 长名形态补锁（findings #30 R1） |
 | H′ | `WebUI/StatusBeacon.{h,cpp}`（新）、`Config.h`（`ENABLE_STATUS_BEACON` 宏）、`WebUI/WifiServices.cpp`（begin/end/handle 三挂钩） | **状态 UDP 广播**：UDP :2325 广播 255.255.255.255，1s 心跳 + 状态变化即发；payload `<state\|Changing=On\|Seq=N>`（48B snprintf 有界）；`state` 是 `report_state_text()` **只读调用**（函数本体不改），`Changing` 取 `paper_auto_change_is_running()`，`Seq` 仅随真实发送递增（组包失败回滚不丢号）；默认关（编译期宏），UDP 失败静默丢包无回压 | 奎享完成守护检测层（2026-09-12 用户授权）：奎享独占 :23/串口驱动写字机时 S3 无法观察任务终态；UDP 无连接不占 `MAX_TLNT_CLIENTS=1` 槽位、奎享零感知。奎享多页任务页间换纸时 `sys.state` 是 Idle，观察者必须叠加 `Changing` 字段抑制完成误报。fz standard overall pass（2026-09-12，qemu 新镜像过；wokwi 可选层预置 exit 42 与本改动无关） |
 
-> **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:131`/`:233`、`System.cpp:314`、`WebSettings.cpp:1099`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
-> **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1104` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:191`、`WebSettings.cpp:217`），且 M30 路径看不到它，换不来任何 S3 可见收益。
+> **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:144`/`:233`、`System.cpp:314`、`WebSettings.cpp:1100`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
+> **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1105` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:230`、`WebSettings.cpp:217`），且 M30 路径看不到它，换不来任何 S3 可见收益。
 > **E′ 未覆盖**：物理并发触发（人手按 `[ESP910]` 与 S3 发 M30 精确交叠）未实机复现；本轮只有源码级证据与 host 侧推理。
 
 **B2′ 的可行性已逐环核验（不再是推断）**：
-1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1057`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
-2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1180`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
-3. **换纸阻塞期可分发**：换纸中 `protocol_service_during_blocking()` 遍历全部 client 调 `protocol_poll_client()`；其换纸拦截（`Protocol.cpp:184`）**只拦 G0–G3**，`[ESP901]` 落到 `:205` 正常 `execute_line`。
+1. **缓冲够**：`paperStatusHandler`（`WebSettings.cpp:1058`）用 `char buf[64]`，现输出 `Paper=OK MotorEn=On PanelHold=On` 约 34 字节，加 `Changing=Off` 仍富余；`snprintf` 自带边界保护。
+2. **任何状态可执行**：`[ESP901]` 注册为 `anyState`（`WebSettings.cpp:1181`），而 `anyState()` **恒返回 false**（`Settings.cpp:6-8`，这些守卫返回的是「是否拒绝」）→ 永不被状态拦。
+3. **换纸阻塞期可分发**：换纸中 `protocol_service_during_blocking()` 遍历全部 client 调 `protocol_poll_client()`；其换纸拦截（`Protocol.cpp:206`）**只拦 G0–G3**，`[ESP901]` 落到 `:227` 正常 `execute_line`。
 4. **响应回得到 S3**：`ESPResponseStream stream(client, true)`（`ProcessSettings.cpp:617`）用**发命令进来的 client** 构造 → `_client = CLIENT_TELNET`（`ESPResponse.cpp:46`）→ `grbl_send(_client, data)`（`:99`）；`println` 还专为 `CLIENT_TELNET` 用 `\r\n` 行尾（`:55`）。
 5. **调用时机安全**：`[ESP901]` 是普通命令会吃 `ok`（§3 单写者），但 Q5/Q8 需要它的时刻正是**重连后、尚未开始发 G-code** 的流控空闲期——恰好契合。
 
@@ -636,7 +636,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 - `report_state_text()`——状态字 `<Idle|…>` 是 Grbl 协议核心，现役商业上位机与 ESP3D WebUI 均依赖，加非标状态会破坏商业出图。
 - 换纸消息全量改 `CLIENT_ALL`（63 处）——无必要，徒增 Telnet 流量；v0 有 `?` + `[ESP901]` 已够。
 
-**留档备用**：`Protocol.cpp:257-266` 有 BT 专属的 400ms 主动状态保活（「部分上位机只等状态行、不主动发 `?`」），**Telnet 无此待遇**。若 ② 实测 S3 在换纸长阻塞期判死，可考虑同类小改扩至 Telnet。
+**留档备用**：`Protocol.cpp:282-291` 有 BT 专属的 400ms 主动状态保活（「部分上位机只等状态行、不主动发 `?`」），**Telnet 无此待遇**。若 ② 实测 S3 在换纸长阻塞期判死，可考虑同类小改扩至 Telnet。
 
 ## 10. 唱歌与记忆契约（2026-08-21 落地）
 
@@ -1180,3 +1180,11 @@ Portal稳定板型条目可带`rollout`：id、percent(0–100整数)、devices(
 - §10.4.5：用户主动删图库作品时，删行与台账 removed 必须在同一 SQLite 写事务提交。恢复下载结束后，在同一写事务重新核对 saved_id/user_id/file_id/message_id 与未删除标记，再原子落文件和按需重建行；失效快照计 skipped。自动 trim 保留台账资格，重建仅预览且无 G-code；不使用 INSERT OR REPLACE 覆盖现存作品。
 - §10.5：每次会话上报只消费队首连续同 session_id 的事件；遇下一会话留队，下一批再发。cap=8、UTF-8 完整边界、Idle 冲刷与失败即丢策略保持。
 - 量产 Grbl 查询守卫：依赖 notCycleOrHold 的查询在 Cycle 或 Hold 返回 IdleError，Idle 正常执行。用户于本批明确授权 Settings.cpp 窄谓词修复；不改运动设置、换纸、引脚或授权语义。
+
+### 2026-10-21 量产屏幕显示约束
+
+Freenove量产逻辑屏幕为320×240横屏。主题保持语义分色，触摸按钮高度至少56px，启用/禁用状态继续由原Job状态闸决定。停止在控制主页独占底行，任务活跃时仍回主页保留停止入口。预览加载时确认禁用、图像就绪后才启用；固定提示/图片/底栏预算按实际字体行高验证，图片等比完整显示，不裁掉作品。界面样式不改变确认/取消回调、运动命令、配网载荷、引脚或NVS约定。实现与未上板边界见`docs/design/s3-screen-polish-20261021.md`。
+
+### 2026-10-21 配网与绑定交互补充
+
+小程序误扫本域另一用途的合法设备码时保留原身份校验，明确用途并由用户确认跳正确页面；损坏/部分身份/异域码仍拒绝，不能把用途判断当绑定成功。切换SSID或扫码目标清理旧密码与显隐/锁定状态，临时进入系统Wi-Fi设置的同次配网保留内存密码，卸载/退出仍清空。两次均未建立TCP且未发送载荷时返回明确未发送；已发送后断流仍为待确认，不自动补发。绑定页隐藏停止后续绑定请求/计时，回屏先查原二维码身份的已完成记录；缺完整身份不拿账号其他设备冒充成功。原生扫码相机暂时遮挡不丢弃该次扫码。量产二维码固定图片与文字预算，保留至少2像素整模块与四模块静区；提示说明用途与小程序入口，不改变载荷、密钥、nonce或签名。软件状态与边界见`docs/design/onboarding-improvements-20261021.md`。
