@@ -38,6 +38,7 @@ Page({
     if (this._scanning && this._scanning.session === getApp()._sessionGeneration) return;
     this._scanning = null;
     if (returning && this.data.authReady) {
+      if (this.data.bindState === "bound") return;
       if (this._phase === "waiting" && this._scan) { this.checkBinding(); return; }
       if (this.data.step === "working") this.setData({ step: this.data.homeSsid ? "creds" : "scan" });
     }
@@ -350,7 +351,7 @@ Page({
     const generation = this._generation;
     const scan = this._scan;
     if (!scan || !scan.mac) {
-      this.setData({ step: "creds", bindState: "manual" });
+      this.setData({ step: "done", bindState: "manual" });
       return;
     }
     this.setData({ step: "done", bindState: "waiting" });
@@ -448,6 +449,7 @@ Page({
 
   bindDone() {
     this._begin();
+    this._phase = "bound";
     identity.clearPending();
     this.setData({ step: "done", bindState: "bound", homePassword: "", showPassword: false });
     this.appendLog("绑定成功，现在可以使用这台设备了");

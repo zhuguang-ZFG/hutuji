@@ -251,3 +251,48 @@ test('配网页扫码相机往返继续本次扫码，账号变化则拒绝旧�
     assert.equal(!!h.page._scan, !changed);
   }
 });
+
+test('旧WIFI码已发送结果未知，回屏保留下一步绑定且不重发凭据', async () => {
+  const h = await open('wifi');
+  const scan = h.load('utils/bind_identity.js').parseQr('WIFI:T:nopass;S:old-device;;', 'wifi');
+  h.page.applyScan(scan);
+  h.page.setData({ step: 'done', homeSsid: 'router', bindState: 'waiting' });
+  h.page._phase = 'waiting';
+  const before = h.requests.length;
+  h.page.onHide(); h.page.onShow();
+  assert.equal(h.page.data.step, 'done');
+  assert.equal(h.page.data.bindState, 'manual');
+  assert.equal(h.page.data.deviceMac, '');
+  assert.equal(h.requests.length, before);
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../../weapp/pages/wifi/wifi.wxml'), 'utf8');
+  assert(wxml.includes(`wx:if="{{step === 'done'}}"`));
+  assert(wxml.includes(`wx:if="{{bindState !== 'bound' && !deviceMac}}"`));
+  assert(wxml.includes('bindtap="onGoBind">下一步：绑定设备'));
+});
+
+test('已确认绑定跨后台保留完成状态，不因网络不可用再请求绑定', async () => {
+  const h = await open('wifi', { q: qr('wifi') });
+  h.page.autoBind();
+  h.requests.at(-1).success({ statusCode: 200, data: { status: 'bound' } });
+  await flush();
+  const before = h.requests.length;
+  h.page.onHide(); h.page.onShow(); h.clock.advance(60000);
+  assert.equal(h.page.data.bindState, 'bound');
+  assert.equal(h.page.data.step, 'done');
+  assert.equal(h.page._phase, 'bound');
+  assert.equal(h.requests.length, before);
+  h.page.onGoControl();
+  assert.equal(h.tabs.at(-1).url, '/pages/control/control');
+});
+
+test('已确认绑定遇登录代次改变仍重新认证，不沿用旧账号完成状态', async () => {
+  const h = await open('wifi', { q: qr('wifi') });
+  h.page.autoBind(); h.requests.at(-1).success({ statusCode: 200, data: { status: 'bound' } });
+  await flush();
+  h.page.onHide(); h.app._sessionGeneration++; h.page.onShow(); await flush();
+  assert.equal(h.page.data.bindState, '');
+  assert.equal(h.page.data.authReady, false);
+  assert(h.requests.at(-1).url.endsWith('/api/auth/me'));
+});
