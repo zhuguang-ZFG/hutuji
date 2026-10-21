@@ -85,3 +85,13 @@ COM6为ESP32-S3 rev v0.2、16MB、Freenove（应用内含`freenove-esp32s3-displ
 
 实机overflow复核（`com3-overflow-hil.json`）：Idle下发送255个`A`加`$I
 `，得到`error:11`且未执行行尾`$I`；随后显式`$I`正常返回`[VER:1.3a.20260910:]`，`suffix_executed=false`，判定PASS。**未改massprod任何源码，也未重刷**；未执行运动/换纸/试笔。Telnet换连边界仅有宿主`test_telnet_session.py`证据——该S3长期独占Grbl唯一Telnet槽位，按计划不抢占，故未做实机换连验证，不得宣称实机通过。
+
+
+### 16:5x 推送三仓与 1.0.43 指针发布（本轮收口，用户授权「刷机部署验证推送」）
+
+- 普通Grbl推送 `fix/panel-hold-after-align-116687e`：`f632f587`（WebCommand 空输出丢弃流）、`4a654d36`（Telnet 换连会话代次隔离与超长行 overflow 丢弃）、`f9719a15`（.gitignore）。该仓 GitHub 只有转换器 workflow，无固件门禁；两项修补仍无实机证据（见上节边界）。
+- S3推送 `feat/hutuji-usb-pipe`：`3e2d836`（RequestAbort 取消/占位/回滚同锁）、`03854cf`（1.0.43 版本+屏幕布局+配网 QR 回归）。
+- **干净树可复现**：提交后 HEAD `03854cf` 工作树为空，重建 Freenove 镜像 3091760B、SHA `171d30ec…`，与已刷 COM6 并验证的镜像及 NOT_FOR_RELEASE 候选件逐字节一致，未重刷；1.0.43 的 NOT_FOR_RELEASE 保留标记就此解除（版本串现在唯一对应已提交源码）。
+- **1.0.43 指针发布**：lima（阿里主）与 jdcloud（京东热备）先把 1.0.41 现役 `catalog.json`/`latest.json` 备份至 `/root/hutuji-bak-20261021-promote-1.0.43/`，再以 `scripts/publish_s3_firmware.py`（脚本 SHA `8981ff51…`，装至两节点 `/opt/hutuji/scripts/`）发布 `hutuji.1.0.43`，notes 注明源码提交。两节点 latest/catalog 与公网下载三向核对：公网 latest 指向 1.0.43，完整镜像 HTTP 200、3091760B、SHA `171d30ec…` 逐位一致。回执 `results/local-only/2026-10-21-codereview/s3-promote-1.0.43.json`。**未强制任何设备 OTA**，机群在下次检查时自行拉取；立创变体不发指针；Hub 后端产品文件未变、未重部署。
+- Hub推送 `main`：`09a24e1`（本轮与历史文档/治理记录）、`374c650`（weapp 0.3.28 配网与绑定调用链）、`4c379ed`（onboarding/screen-polish/公众号规划设计与配网回归用例）。**0.3.28 未上传微信平台**。scratch 未入库（arena 图片、USER_MEMORY、build 目录、tmp 日志等）。
+- CI：push 触发 Hub Tests（`39571927099`）与 S3 Hutuji S3（`39571466242`）；Build Boards PR 矩阵（`39571472192`）在队，完成前不宣称通过。
