@@ -582,3 +582,5 @@ hub `f7463e3`三个部署产物app.py/probe.py/memory_store.py，先京东后阿
 最终S3 `83ed8a7` / hutuji.1.0.27 / 3077712B / SHA `0939e802c0ba9c1b667bebc7d1bffc7d0731f6e633e2ea1d276b8b61d7b1f472`，COM15/MAC `b8:1f:3f:c4:58:2c`；量产Grbl `14c8308` / 1.3a.20260910 / 1844096B / SHA `4e0b13b807216fe8f7d4f89328a17deb0f11885ce1122ed9c79d43b04e4e53db`，COM7/MAC `4c:c3:82:cc:8a:9c`。按用户要求直接下载、不读取备份；Grbl用户手动BOOT，刷前无复位，写入和独立verify后复位，S3两段哈希通过后watchdog重启并核版本/指纹。NVS保持，XY6000/Z1200、加速度/行程不变。
 
 短段在途预算修复三轮零中途Idle采样，用户确认“明显改善，基本连贯”；最终版被动对照、暂停/继续、连续停止、新任务和重画均完成归位，电机释放次数核对。fz Wokwi/QEMU启动仍失败，其他生产preflight旧差异及长期老化未在本轮关闭。详情与原始证据见 [绑定记忆和卡顿记录](design/binding-memory-motion-20260925.md)。
+
+2026-10-21 R20F技术发布完成：Hub eb25bb2五文件主备deploy+verify/生产烟测通过，S3 a8f13b72/1.0.41与量产Grbl bc2cf670均单次OTA、重启/身份与48项参数复核有证；控制回归通过，Run查询守卫实机error8、Hold查询入队延迟导致附加探针未覆盖（宿主action已验），不混记。小程序0.3.27上传295665B；双机Freenove推荐/catalog/latest一致。preflight25/34、26/34已知差异保留，fz仅Wokwi超时失败、本轮QEMU PASS。产品三仓已推送，CI完成情况单独记录；factory_paired=false与纸面/老化/交付签核Hold不变。详见 docs/design/three-repo-release-20261021.md 及本机 results/local-only/2026-10-21-release/verification.json。

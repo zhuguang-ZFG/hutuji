@@ -449,3 +449,5 @@
 2026-10-20 CR20远端CI收口：Hub产品修复4437dad及续审文档b43370a、S3产品修复34dc2ca/CI触发46aa527、量产Grbl99d14a13均已推送。Hub Tests、Hutuji Mass Production、Hutuji S3（宿主+两交付板）及S3 PR Build Boards完整175项均completed/success，未跳过失败或缩减矩阵。精确提交、作业列表与链接在results/local-only/2026-10-20-followup/ci-final.json及本批续审报告。新增三项R20F-01至03仍待修复；GitHub绿色不覆盖本地fz Wokwi/QEMU启动失败，未部署、未刷机，NOT_FOR_RELEASE与实体Hold不变。
 
 2026-10-21 R20F发布执行中：用户要求先修复三项续审问题，再部署刷机验证上传推送。归档恢复/删除事务、S3连续会话分批及量产Grbl忙态查询守卫已实现。新版本计划S3 hutuji.1.0.41、小程序0.3.27；未完成步骤不预记成功。证据在 results/local-only/2026-10-21-release，脚本 tmp/r20f-release；详细阶段见 docs/design/three-repo-release-20261021.md。实体纸面/老化/工厂配对/交付签核仍Hold。
+
+2026-10-21 R20F技术发布完成：Hub eb25bb2五文件主备deploy+verify/生产烟测通过，S3 a8f13b72/1.0.41与量产Grbl bc2cf670均单次OTA、重启/身份与48项参数复核有证；控制回归通过，Run查询守卫实机error8、Hold查询入队延迟导致附加探针未覆盖（宿主action已验），不混记。小程序0.3.27上传295665B；双机Freenove推荐/catalog/latest一致。preflight25/34、26/34已知差异保留，fz仅Wokwi超时失败、本轮QEMU PASS。产品三仓已推送，CI完成情况单独记录；factory_paired=false与纸面/老化/交付签核Hold不变。详见 docs/design/three-repo-release-20261021.md 及本机 results/local-only/2026-10-21-release/verification.json。
