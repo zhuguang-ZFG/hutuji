@@ -95,3 +95,9 @@ COM6为ESP32-S3 rev v0.2、16MB、Freenove（应用内含`freenove-esp32s3-displ
 - **1.0.43 指针发布**：lima（阿里主）与 jdcloud（京东热备）先把 1.0.41 现役 `catalog.json`/`latest.json` 备份至 `/root/hutuji-bak-20261021-promote-1.0.43/`，再以 `scripts/publish_s3_firmware.py`（脚本 SHA `8981ff51…`，装至两节点 `/opt/hutuji/scripts/`）发布 `hutuji.1.0.43`，notes 注明源码提交。两节点 latest/catalog 与公网下载三向核对：公网 latest 指向 1.0.43，完整镜像 HTTP 200、3091760B、SHA `171d30ec…` 逐位一致。回执 `results/local-only/2026-10-21-codereview/s3-promote-1.0.43.json`。**未强制任何设备 OTA**，机群在下次检查时自行拉取；立创变体不发指针；Hub 后端产品文件未变、未重部署。
 - Hub推送 `main`：`09a24e1`（本轮与历史文档/治理记录）、`374c650`（weapp 0.3.28 配网与绑定调用链）、`4c379ed`（onboarding/screen-polish/公众号规划设计与配网回归用例）。**0.3.28 未上传微信平台**。scratch 未入库（arena 图片、USER_MEMORY、build 目录、tmp 日志等）。
 - CI：push 触发 Hub Tests（`39571927099`）与 S3 Hutuji S3（`39571466242`）；Build Boards PR 矩阵（`39571472192`）在队，完成前不宣称通过。
+
+
+#### CI 结果补充（快照，Build Boards 终态见证据 JSON）
+
+- Hub Tests 对最终提交 `87053c3`（run `39572011496`）completed success；S3 Hutuji S3 对 `03854cf`（run `39571466242`）completed success，host/Freenove/立创三作业全绿。上节运行/排队描述为当时快照，由本节覆盖。
+- Build Boards PR 矩阵（run `39571472192`）运行中（66 绿/20 跑/89 队，前次同矩阵 1h3m 绿）；终态结论补录 `results/local-only/2026-10-21-codereview/ci-final-20261021.json`，不另行修改本文。普通 Grbl 仓 push 无固件 CI。
