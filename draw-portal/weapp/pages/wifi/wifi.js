@@ -13,6 +13,7 @@ Page({
     this._generation = 0;
     this._timers = new Set();
     this._unloaded = false;
+    this._visible = true;
     this._begin();
     try {
       const scan = identity.fromLaunch(options, "wifi");
@@ -28,9 +29,17 @@ Page({
   },
 
   onShow() {
+    const returning = this._visible === false;
+    this._visible = true;
     if (this._sessionGeneration !== getApp()._sessionGeneration) {
       this._begin();
       this.setData({ authReady: false, homePassword: "", showPassword: false, bindState: "" });
+    }
+    if (this._scanning && this._scanning.session === getApp()._sessionGeneration) return;
+    this._scanning = null;
+    if (returning && this.data.authReady) {
+      if (this._phase === "waiting" && this._scan) { this.checkBinding(); return; }
+      if (this.data.step === "working") this.setData({ step: this.data.homeSsid ? "creds" : "scan" });
     }
     if (!this.data.authReady) this.ensureAuthAndInit();
   },
@@ -41,7 +50,12 @@ Page({
     this.data.homePassword = "";
     this.data.showPassword = false;
   },
-  onHide() { this.setData({ showPassword: false }); },
+  onHide() {
+    this.setData({ showPassword: false });
+    if (this._scanning && this._scanning.session === getApp()._sessionGeneration) return;
+    this._visible = false;
+    this._begin();
+  },
   onTogglePassword() { if (this.data.step === "creds") this.setData({ showPassword: !this.data.showPassword }); },
   onGoCreate() { if (this.data.bindState === "bound") wx.switchTab({ url: "/pages/index/index" }); },
   onGoControl() { if (this.data.bindState === "bound") wx.switchTab({ url: "/pages/control/control" }); },
@@ -57,7 +71,7 @@ Page({
   },
 
   _current(generation) {
-    return !this._unloaded && generation === this._generation &&
+    return !this._unloaded && this._visible !== false && generation === this._generation &&
       this._sessionGeneration === getApp()._sessionGeneration;
   },
 
@@ -87,7 +101,7 @@ Page({
       this._sessionGeneration = getApp()._sessionGeneration;
       this.setData({ authReady: true });
       if (this._scan) identity.remember(this._scan, "wifi", this._phase, false);
-      if (this._phase === "waiting") { this.autoBind(); return; }
+      if (this._phase === "waiting") { this.checkBinding(); return; }
       wx.startWifi({
         success: () => {
           if (!this._current(generation)) return;
@@ -122,8 +136,12 @@ Page({
 
   onScanAp() {
     const generation = this._begin();
+    const operation = { generation, session: this._sessionGeneration };
+    this._scanning = operation;
     wx.scanCode({
       success: (res) => {
+        if (this._scanning !== operation) return;
+        this._scanning = null;
         if (!this._current(generation)) return;
         try {
           const parsed = identity.parseScan(res.result, "wifi");
@@ -154,7 +172,7 @@ Page({
           wx.showModal({ title: "请扫设备配网码", content: e.message, showCancel: false });
         }
       },
-      fail: () => {},
+      fail: () => { if (this._scanning === operation) this._scanning = null; },
     });
   },
 
@@ -270,12 +288,15 @@ Page({
 
   submitCreds(generation, attempt) {
     if (!this._current(generation)) return;
+    // 发起提交后跨后台的结果可能不明，回屏先核原身份，不能自动重发凭据。
+    this._phase = "waiting";
     this._cancelTcp = transport.request({
       method: "POST", path: "/submit", timeout: 20000,
       body: { ssid: this.data.homeSsid, password: this.data.homePassword },
       done: (res) => {
         if (!this._current(generation)) return;
         if ((res.data && res.data.success === false) || res.status >= 400) {
+          this._phase = "scan";
           this.setData({ step: "creds" });
           this.appendLog("设备未接受网络信息，请核对 Wi-Fi 名称和密码后重试");
           return;
@@ -286,6 +307,7 @@ Page({
             return;
           }
           this.setData({ step: "creds", bindState: "" });
+          this._phase = "scan";
           this.appendLog("网络信息未发送，请连接设备热点后重试");
           wx.showModal({ title: "网络信息未发送", content: "请保持设备在配网页面，并连接它的热点后重试。", showCancel: false });
           return;
@@ -323,6 +345,26 @@ Page({
 
   onClaimOnly() { this.autoBind(); },
   onRetryBind() { this.autoBind(); },
+
+  checkBinding() {
+    const generation = this._generation;
+    const scan = this._scan;
+    if (!scan || !scan.mac) {
+      this.setData({ step: "creds", bindState: "manual" });
+      return;
+    }
+    this.setData({ step: "done", bindState: "waiting" });
+    const query = identity.query(Object.assign({ mac: scan.mac }, identity.fieldsFor(scan)));
+    api.request("/api/user/bind/claim/status?" + query, { timeout: 12000 }).then((res) => {
+      if (!this._current(generation)) return;
+      if (res.status === "bound") { this.bindDone(); return; }
+      // GET 可能撮合先前已发出的认领，但没有认领时必须由用户明确重试。
+      this.setData({ bindState: "manual" });
+      this.appendLog("绑定尚未确认，请保持手机联网后点“重试绑定”，或核对网络信息。");
+    }).catch((err) => {
+      if (this._current(generation)) this.bindError(err);
+    });
+  },
 
   autoBind(generation) {
     if (generation === undefined) generation = this._begin();

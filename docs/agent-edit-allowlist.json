@@ -1,4 +1,17 @@
 {
+  "n21_fixes_release_authorized": {
+    "note": "2026-10-21 用户明确要求五项续审完全修复、部署验证上传推送刷机。授权普通及量产Grbl实时提交会话锁与普通查询守卫、S3停止归位结果及小程序生命周期修复，附回归、版本递增、构建、门禁、精确提交发布与同SKU设备验证；不改运动、换纸、引脚、身份或机设。",
+    "contract": "docs/design/three-repo-next-review-20261021.md N21-01至05；protocol §1.2/§4/§10.4.2–4/§10.4.15。",
+    "paths": [
+      "docs/**", "AGENTS.md", "README.md", "CLAUDE.md", "firmware/README.md",
+      "draw-portal/weapp/pages/wifi/**", "draw-portal/weapp/pages/bind/**", "draw-portal/weapp/utils/version.js", "draw-portal/tests/weapp/**",
+      ".github/workflows/test.yml", "tmp/n21-release/**", "results/local-only/2026-10-21-n21-release/**",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.cc", "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_job.h",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_recovery_core.h", "D:/Users/xiaozhi-esp32/scripts/tests/**", "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Serial.cpp", "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.cpp", "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/TelnetServer.h", "D:/Users/Grbl_Esp32/Grbl_Esp32/src/Settings.cpp", "D:/Users/Grbl_Esp32/scripts/tests/**",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Serial.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/TelnetServer.cpp", "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/TelnetServer.h", "D:/Users/Grbl_Esp32-massprod/scripts/tests/**"
+    ]
+  },
   "onboarding_improvements_20261021_authorized": {
     "note": "2026-10-21 用户要求把本轮检查发现的问题全部改善：扫错码引导、切换网络/设备清密码、未发送配网失败、后台绑定重试和二维码页面长提示布局；包含回归、构建和版本递增。不放宽身份校验，不改运动、引脚、NVS身份或网络协议。",
     "contract": "docs/design/onboarding-improvements-20261021.md；protocol §10.4.2–4 与量产屏幕显示约束。",

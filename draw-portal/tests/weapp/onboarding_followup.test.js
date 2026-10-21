@@ -165,3 +165,89 @@ test('已确认的手动绑定成功回屏后保持成功状态', async () => {
   assert.equal(h.page.data.step, 'bound');
   assert.equal(h.requests.length, count);
 });
+
+test('配网页隐藏取消TCP，迟到连接不发凭据、不切网，回屏核原身份', async () => {
+  const h = await open('wifi', { q: qr('wifi') });
+  const sockets = [];
+  h.wx.getConnectedWifi = options => options.success({ wifi: { SSID: 'test-device' } });
+  h.wx.createTCPSocket = () => {
+    const handlers = {}, socket = { writes: 0, closes: 0, handlers,
+      onConnect: f => { handlers.connect = f; }, onMessage: f => { handlers.message = f; },
+      onClose: f => { handlers.close = f; }, onError: f => { handlers.error = f; },
+      connect() {}, write() { this.writes++; }, close() { this.closes++; } };
+    sockets.push(socket); return socket;
+  };
+  h.page.setData({ homeSsid: 'test-router', homePassword: 'TEST-ONLY' });
+  h.page.onSubmitCreds(); h.page.onHide();
+  sockets[0].handlers.connect(); sockets[0].handlers.error(); h.clock.advance(60000);
+  assert.equal(sockets[0].writes, 0);
+  assert.equal(sockets[0].closes, 1);
+  assert.equal(h.connections.length, 0);
+  assert.equal(h.clock.pending.size, 0);
+  h.page.onShow();
+  assert.equal(h.requests.at(-1).method, 'GET');
+  assert(h.requests.at(-1).url.includes('/bind/claim/status?'));
+  h.requests.at(-1).success({ statusCode: 200, data: { status: 'bound' } });
+  await flush();
+  assert.equal(h.page.data.bindState, 'bound');
+});
+
+test('配网页隐藏停止认领重试和延迟切网，失败回包不改隐藏页面', async () => {
+  const h = await open('wifi', { q: qr('wifi') });
+  h.page.autoBind(); const original = h.requests.at(-1);
+  h.page._later(h.page._generation, () => h.page.restoreHome(h.page._generation, 0), 2500);
+  h.page.onHide(); const before = h.requests.length;
+  original.fail({ errMsg: 'request:fail timeout' }); await flush(); h.clock.advance(60000);
+  assert.equal(h.requests.length, before);
+  assert.equal(h.connections.length, 0);
+  assert.equal(h.clock.pending.size, 0);
+});
+
+test('系统WiFi设置同次往返保留内存密码，隐藏时不续调控制', async () => {
+  const h = await open('wifi');
+  h.page.setData({ homeSsid: 'router', homePassword: 'TEST-ONLY', step: 'creds' });
+  h.wx.openSystemWifiSetting = () => { h.page.onHide(); };
+  h.page.openWifiSettings(); h.clock.advance(60000); h.page.onShow();
+  assert.equal(h.page.data.homePassword, 'TEST-ONLY');
+  assert.equal(h.page.data.step, 'creds');
+  assert.equal(h.connections.length, 0);
+  assert.equal(JSON.stringify([...h.storage]).includes('TEST-ONLY'), false);
+});
+
+for (const outcome of ['success', 'fail']) {
+  test(`绑定扫码${outcome}跨登录代次后结算标记且回屏重新认证`, async () => {
+    const h = await open('bind');
+    h.page.onScanBind(); h.page.onHide();
+    h.app._sessionGeneration++;
+    const before = h.requests.length;
+    h.scans.at(-1)[outcome](outcome === 'success' ? { result: qr('bind') } : {});
+    assert.equal(h.page._scanning, null);
+    assert.equal(h.requests.length, before);
+    h.page.onShow(); await flush();
+    assert.equal(h.requests.at(-1).method, 'GET');
+    assert(h.requests.at(-1).url.endsWith('/api/auth/me'));
+    assert.equal(h.page._sessionGeneration, h.app._sessionGeneration);
+  });
+}
+
+test('旧扫码完成不清除更新扫码的所有者', async () => {
+  const h = await open('bind');
+  h.page.onScanBind(); const first = h.scans.at(-1);
+  h.page.onScanBind(); const owner = h.page._scanning;
+  first.fail({}); assert.equal(h.page._scanning, owner);
+  h.scans.at(-1).success({ result: qr('bind') });
+  assert.equal(h.page._scanning, null);
+  assert.equal(h.requests.at(-1).data.bind_code, 'ABC123');
+});
+
+test('配网页扫码相机往返继续本次扫码，账号变化则拒绝旧码', async () => {
+  for (const changed of [false, true]) {
+    const h = await open('wifi');
+    h.page.onScanAp(); h.page.onHide();
+    if (changed) h.app._sessionGeneration++;
+    else h.page.onShow();
+    h.scans.at(-1).success({ result: qr('wifi') });
+    assert.equal(h.page._scanning, null);
+    assert.equal(!!h.page._scan, !changed);
+  }
+});

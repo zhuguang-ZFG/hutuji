@@ -129,8 +129,14 @@ test("授权跳转恢复扫码和等待阶段，但不持久化 Wi-Fi 密码", a
   assert.equal(h.page.data.homePassword, "");
   const restored = await openPage("wifi", {}, { storage: h.storage });
   assert.equal(restored.page._scan.identity.nonce, fields.n);
-  const claim = restored.requests.find((request) => request.url.endsWith("/api/user/bind/claim"));
-  assert.ok(claim);
+  const check = restored.requests.find((request) => request.url.includes("/api/user/bind/claim/status?"));
+  assert.ok(check);
+  assert(check.url.includes("device_id=" + fields.d));
+  assert.equal(restored.requests.filter((request) => request.method === "POST").length, 0);
+  check.success({ statusCode: 200, data: { status: "expired" } });
+  await flush();
+  restored.page.onRetryBind();
+  const claim = restored.requests.at(-1);
   assert.equal(claim.data.device_id, fields.d);
   assert.equal(restored.page.data.homePassword, "");
 });

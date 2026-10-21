@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zhuguang-ZFG/xiaozhi-esp32
-          ref: a8f13b72e3dd73e30f7911b6f43004f786a5776e
+          ref: 217253d030abe701207ea63607f10803eeac579c
           path: xiaozhi-esp32
       - uses: actions/checkout@v4
         with:
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zhuguang-ZFG/Grbl_Esp32
-          ref: bc2cf670ad58dc080a8d8c838ec771c35ce5a23b
+          ref: e77c3dabb254cdb349897d88044dd65fff11c0b1
           path: Grbl_Esp32-massprod
       - uses: actions/checkout@v4
         with:

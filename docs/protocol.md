@@ -272,7 +272,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 2. **接口**：`Pipe::SetTaskSessionActive(bool)` 保护会话（置 `false` 且未授权时同步清 `ready_`，
    禁止下一任务复用旧会话残留的 ready）；`Pipe::SendAbortReset(session, status_baseline,
    paper_baseline)` 是 `0x18` 的**唯一出口**，内部按 `CanSendAbortReset()` 六项与会话代号
-   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:680-683` 与 `hutuji_recovery_core.h:1187-1269`）判定，Arm 成功即先清
+   一次性令牌 `AbortResetToken`（`hutuji_recovery_core.h:680-683` 与 `hutuji_recovery_core.h:1190-1272`）判定，Arm 成功即先清
    `ready_/authorized_`；发送失败、断连、`CloseSocket`/`ShutdownSocket` 与新连接发布都必须
    `CancelAbortReset()`，banner 侧只能 `Consume(connection_seq)` 一次——跨连接的旧令牌一律失效。
 3. **顺序契约**：重连只验 Telnet banner，保持 `ready=false` 且不发 `M5/G1`；`!` 之后必须先用 `?`
@@ -290,7 +290,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
    `重连 banner → 查 Changing → Off 才 reset/探活，On 则停`。
 8. **单 owner 事务**（原实现状态:工作树未提交、未构建、未烧录 → **2026-08-03 supersede：已提交 `6545ec9`、已构建并烧录 S3，551 行 S4 有纸实测通过**）：每个任务最多一个 reset owner
    ——`abort_reset_owner_.TryClaim()` 抢占，后到者走 `WaitForAbortReset()` 复用同一次结果，`busy_`
-   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:958-1100`）；窗口模式的在途应答由
+   在 `abort_reset_owner_.Complete()` 前不得释放（`hutuji_job.cc:959-1101`）；窗口模式的在途应答由
    `stream_window_active_` 表达,`wait_for_stream_quiescence` 路径必须等它清零才允许发 `!`，
    否则旧窗口迟到的 `ok` 会被计入 reset 之后的新流。
 
@@ -606,7 +606,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | A | `WebUI/TelnetServer.cpp:103` | 新客户端 `available()` 后设 **4 个** socket 选项：`SO_KEEPALIVE=1` + `TCP_KEEPIDLE=10` + `TCP_KEEPINTVL=3` + `TCP_KEEPCNT=3`（~19s 回收） | `MAX_TLNT_CLIENTS=1` + 无 keepalive → 半开死连接独占唯一槽位，S3 重连被 `:98` 拒死（§1.2）。`WiFiClient::setSocketOption(level, option, value, len)` 已暴露（`WiFiClient.h:90`，已核验） |
 
 > ⚠️ **A 条必须设全 4 个参数，只开 `SO_KEEPALIVE` 是无效的**——lwip 默认 `KEEPIDLE=7200s`(2h)/`INTVL=75s`/`CNT=9`，等于 2h11m 后才回收，形同没有保活。同一坑在 S3 侧 M1 代码中已实际发生并修复（`hutuji_pipe.cc` 原仅设 `SO_KEEPALIVE`，注释却写「尽快发现对端断电」）。
-| A2 | `WebUI/TelnetServer.cpp:43-74,82,105,153,175` | 文件作用域 `static SemaphoreHandle_t telnetClientMutex = xSemaphoreCreateRecursiveMutex()` + RAII `TelnetClientLock`，在 `begin()`/`end()`/`write()`/`handle()` 四个公开入口顶部各取一次（**只加锁，不改任何路由/状态字/换纸/运动**） | `Telnet_Server::write()` 跑在 loopTask（`Grbl_Esp32.ino:28 run_once` → `grbl_sendf`/`report_*` → `Serial.cpp:420 client_write`），`Telnet_Server::handle()` 跑在 clientCheckTask（`Serial.cpp:151` → `wifi_config.handle()` → `WifiServices::handle()`），两者同优先级同核（`SUPPORT_TASK_CORE`）并发操作**同一个 `WiFiClient` 与同一个 slot**：① `write()` 里 `WiFiClient::write()` 遇非 `EAGAIN` 错误会调 `stop()`（`WiFiClient.cpp:389-443`），`stop()` 把 `_rxBuffer` 置空并释放（`:209-214`），而读侧正在 `available()`/`read()` 的 `WiFiClientRxBuffer::fillBuffer` → `lwip_recv` → `pbuf_free` 中，命中 assert `pbuf_free: p->ref > 0`（上游 bdring/Grbl_Esp32#1364，reporter fork 的修复同样是加 semaphore）；② `clearClients()` 被两个任务并发调用，先 `available()` 再对同一 slot `stop()` + 拷贝赋值，等于在读侧脚下换掉 `_rxBuffer` 智能指针。`MAX_TLNT_CLIENTS=1` 不能规避——两个任务抢的就是同一个槽位 |
+| A2 | `WebUI/TelnetServer.cpp:43-74,82,105,153,175` | 文件作用域 `static SemaphoreHandle_t telnetClientMutex = xSemaphoreCreateRecursiveMutex()` + RAII `TelnetClientLock`，在 `begin()`/`end()`/`write()`/`handle()` 四个公开入口顶部各取一次（**只加锁，不改任何路由/状态字/换纸/运动**） | `Telnet_Server::write()` 跑在 loopTask（`Grbl_Esp32.ino:28 run_once` → `grbl_sendf`/`report_*` → `Serial.cpp:430 client_write`），`Telnet_Server::handle()` 跑在 clientCheckTask（`Serial.cpp:151` → `wifi_config.handle()` → `WifiServices::handle()`），两者同优先级同核（`SUPPORT_TASK_CORE`）并发操作**同一个 `WiFiClient` 与同一个 slot**：① `write()` 里 `WiFiClient::write()` 遇非 `EAGAIN` 错误会调 `stop()`（`WiFiClient.cpp:389-443`），`stop()` 把 `_rxBuffer` 置空并释放（`:209-214`），而读侧正在 `available()`/`read()` 的 `WiFiClientRxBuffer::fillBuffer` → `lwip_recv` → `pbuf_free` 中，命中 assert `pbuf_free: p->ref > 0`（上游 bdring/Grbl_Esp32#1364，reporter fork 的修复同样是加 semaphore）；② `clearClients()` 被两个任务并发调用，先 `available()` 再对同一 slot `stop()` + 拷贝赋值，等于在读侧脚下换掉 `_rxBuffer` 智能指针。`MAX_TLNT_CLIENTS=1` 不能规避——两个任务抢的就是同一个槽位 |
 
 > ⚠️ **A2 必须用递归锁**：`handle()` 内 `report_init_message(CLIENT_TELNET)` 会经 `grbl_send` 回到 `write()`，同一任务需重入；普通 mutex 直接自锁死。
 > **A2 的 abort 时延口径（不是新增风险）**：持锁期间 `write()` 最坏阻塞约 10s（`WIFI_CLIENT_SELECT_TIMEOUT_US=1s` × `WIFI_CLIENT_MAX_WRITE_RETRY=10`，`WiFiClient.cpp:26-28`），此窗口内 clientCheckTask 取不到字节，`!`/`0x18` 的**提取**被推迟。但 `!`/`0x18` 的**执行**本就在 loopTask 的 `protocol_execute_realtime()` 里，而 loopTask 正是被 `write()` 阻塞的那一个——即无锁时同样停摆。故 A2 不恶化 §4.1 abort 时延上界，仅把「崩溃」换成「已存在的阻塞」。
@@ -621,7 +621,7 @@ S3 只给“自己刚标记并发出的 abort reset”一次自动 `$X` 权限�
 | H′ | `WebUI/StatusBeacon.{h,cpp}`（新）、`Config.h`（`ENABLE_STATUS_BEACON` 宏）、`WebUI/WifiServices.cpp`（begin/end/handle 三挂钩） | **状态 UDP 广播**：UDP :2325 广播 255.255.255.255，1s 心跳 + 状态变化即发；payload `<state\|Changing=On\|Seq=N>`（48B snprintf 有界）；`state` 是 `report_state_text()` **只读调用**（函数本体不改），`Changing` 取 `paper_auto_change_is_running()`，`Seq` 仅随真实发送递增（组包失败回滚不丢号）；默认关（编译期宏），UDP 失败静默丢包无回压 | 奎享完成守护检测层（2026-09-12 用户授权）：奎享独占 :23/串口驱动写字机时 S3 无法观察任务终态；UDP 无连接不占 `MAX_TLNT_CLIENTS=1` 槽位、奎享零感知。奎享多页任务页间换纸时 `sys.state` 是 Idle，观察者必须叠加 `Changing` 字段抑制完成误报。fz standard overall pass（2026-09-12，qemu 新镜像过；wokwi 可选层预置 exit 42 与本改动无关） |
 
 > **E′ 的机制取舍（用 `std::atomic` CAS，不用 `portMUX_TYPE` 临界区）**：① 本仓同形先例就是 atomic——`Stepper.cpp:210` 的 `busy.compare_exchange_strong`（本认领落地前是全仓唯一 CAS），与本认领同为单 bool test-and-set；`Serial.cpp:66` 的 `portMUX` + `vTaskEnterCritical`（`:185`/`:232`）保护的是多字段接收缓冲区，范式不同。② 临界区只护写侧，护不到 flag 的 8 处跨任务读（`PaperSystem.cpp:55`/`:59`/`:115`/`:362`、`Protocol.cpp:144`/`:233`、`System.cpp:314`、`WebSettings.cpp:1100`），那些仍会是裸 `volatile` 读；改 atomic 后全部读写一并定义化，零改动。③ `vTaskEnterCritical` 关中断，而换纸全程依赖步进定时器 ISR。④ flag 无 ISR 读者：`system_exec_control_pin()`（唯一疑似 ISR 路径）在本机 `ENABLE_CONTROL_SW_DEBOUNCE`（`Machines/custom_3axis_hr4988.h:84`）下跑在 `controlCheckTask`，非 ISR。
-> **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1105` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:230`、`WebSettings.cpp:217`），且 M30 路径看不到它，换不来任何 S3 可见收益。
+> **E′ 的错误码取舍（`MessageFailed`=90，不用 `IdleError`=8）**：§7 把 error:8 定义为「不算失败、上位机须自己重发该行」——M30/M721 被拒后回 8 会诱发 S3 重发换纸命令 → **双次换纸**。90 与本函数既有三个失败出口同码，且 M30 路径本就被 `Custom/paper_system.cpp:182 user_m30` + `GCode.cpp:1653`/`:1766`/`:1787` 压平成 90，S3 侧零协议变更；`WebSettings.cpp:1105` 只在 `Ok` 时打 `"done"`，故 web 侧仍能区分「拒了 / 跑完」。`AnotherInterfaceBusy`(120) 语义更贴但全仓仅用于 client 抢占（`Serial.cpp:240`、`WebSettings.cpp:217`），且 M30 路径看不到它，换不来任何 S3 可见收益。
 > **E′ 未覆盖**：物理并发触发（人手按 `[ESP910]` 与 S3 发 M30 精确交叠）未实机复现；本轮只有源码级证据与 host 侧推理。
 
 **B2′ 的可行性已逐环核验（不再是推断）**：
@@ -1188,3 +1188,9 @@ Freenove量产逻辑屏幕为320×240横屏。主题保持语义分色，触摸�
 ### 2026-10-21 配网与绑定交互补充
 
 小程序误扫本域另一用途的合法设备码时保留原身份校验，明确用途并由用户确认跳正确页面；损坏/部分身份/异域码仍拒绝，不能把用途判断当绑定成功。切换SSID或扫码目标清理旧密码与显隐/锁定状态，临时进入系统Wi-Fi设置的同次配网保留内存密码，卸载/退出仍清空。两次均未建立TCP且未发送载荷时返回明确未发送；已发送后断流仍为待确认，不自动补发。绑定页隐藏停止后续绑定请求/计时，回屏先查原二维码身份的已完成记录；缺完整身份不拿账号其他设备冒充成功。原生扫码相机暂时遮挡不丢弃该次扫码。量产二维码固定图片与文字预算，保留至少2像素整模块与四模块静区；提示说明用途与小程序入口，不改变载荷、密钥、nonce或签名。软件状态与边界见`docs/design/onboarding-improvements-20261021.md`。
+
+### 2026-10-21 N21停止失败与会话提交补充
+
+S3断流归位worker独立发布运行/成功/失败/移交结果；未取得fresh Idle、发送/应答/归位或电机释放失败不能发布aborted或“已停止”。终态在worker收敛后决定，无需运动的预览/下载取消保持原行为，重画清除旧归位结果。Grbl实时输入在Telnet会话锁内复核代次并提交，与换连/断开同锁线性化；网络输出不进入Serial自旋临界区，非Telnet实时命令与普通入队边界不变。普通Grbl查询守卫在Cycle或Hold拒绝，量产既有OR判据保持。
+
+配网页一般后台/离页停止TCP、计时与后续切网/认领重试；提交结果未知时回屏先GET核原身份，不自动再发凭据或认领。系统Wi-Fi设置同次往返保留内存密码；同账号原生扫码临时遮挡保留当前扫码，账号变化丢弃旧数据并结算自身操作标记，旧扫码不能清新扫码标记。版本与发布/实机证据见`docs/design/three-repo-next-review-20261021.md`和readiness。

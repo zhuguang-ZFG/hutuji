@@ -6,7 +6,7 @@
 
 ### DR10-01 / P1：Telnet 断线不清空该客户端的半行缓冲
 
-量产 Grbl 的 `Protocol.cpp` 为每个 client 保留 `client_lines[client]`，超长行和普通半行都要等 CR/LF 才结束；`Serial.cpp:262` 的 `client_reset_read_buffer()` 只在协议启动时调用。`TelnetServer::end()` 与 `clearClients()` 只关闭 `WiFiClient`，没有重置 `CLIENT_TELNET` 的 `client_buffer` 或 `client_lines`。
+量产 Grbl 的 `Protocol.cpp` 为每个 client 保留 `client_lines[client]`，超长行和普通半行都要等 CR/LF 才结束；`Serial.cpp:272` 的 `client_reset_read_buffer()` 只在协议启动时调用。`TelnetServer::end()` 与 `clearClients()` 只关闭 `WiFiClient`，没有重置 `CLIENT_TELNET` 的 `client_buffer` 或 `client_lines`。
 
 真实函数宿主探针 `cpp-probes.json` 的 `telnet_session` 证明了边界：上一连接发送未终止的 `G1 X10 F100` 后断开，新连接发送 `$I\n` 时，协议层仍可见旧连接数据。当前测试覆盖短读、零读、关闭和重新 accept，但没有跨连接半行用例。影响是旧连接残片可与新连接首行拼接，造成错误命令或在特定拼接下执行旧运动参数；这是会话隔离缺口。
 
@@ -22,7 +22,7 @@
 
 ### DR10-04 / P2：待确认预览接受暂停/继续，状态可伪装成 streaming
 
-`hutuji_job.cc:1254` 的 `RequestPause()` 只检查 `busy_`，没有拒绝 `awaiting_confirmation_`；`RequestResume()` 同样只看 `paused_`。在待确认态调用暂停会向 Grbl 发送 `!`，继续会发送 `~` 并把状态写成 `streaming`，但确认门仍为真且没有出图任务。探针 `cpp-probes.json` 的 `pause_preview` 输出为 `!~`、`confirm_gate_still=1`、`local_state=aborted`（随后 abort 取消预览）。现有 `test_hutuji_job_rejections.py` 只覆盖 streaming/试笔/换纸和重复暂停，没有把 awaiting_confirmation 作为暂停/继续输入。
+`hutuji_job.cc:1266` 的 `RequestPause()` 只检查 `busy_`，没有拒绝 `awaiting_confirmation_`；`RequestResume()` 同样只看 `paused_`。在待确认态调用暂停会向 Grbl 发送 `!`，继续会发送 `~` 并把状态写成 `streaming`，但确认门仍为真且没有出图任务。探针 `cpp-probes.json` 的 `pause_preview` 输出为 `!~`、`confirm_gate_still=1`、`local_state=aborted`（随后 abort 取消预览）。现有 `test_hutuji_job_rejections.py` 只覆盖 streaming/试笔/换纸和重复暂停，没有把 awaiting_confirmation 作为暂停/继续输入。
 
 ### DR10-05 / P2：产线状态/归档不要求烧录事件保留整片备份附件
 

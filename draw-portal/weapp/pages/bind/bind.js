@@ -24,13 +24,14 @@ Page({
   },
 
   onShow() {
-    if (this._scanning) return;
     const returning = this._visible === false;
     this._visible = true;
     if (this._sessionGeneration !== getApp()._sessionGeneration) {
       this._begin();
       this._authReady = false;
     }
+    if (this._scanning && this._scanning.session === getApp()._sessionGeneration) return;
+    this._scanning = null;
     if (returning) {
       this.setData({ submitting: false });
       this._resumeCheck = !!this.data.code && this.data.step !== "bound";
@@ -40,7 +41,7 @@ Page({
   },
   onHide() {
     // 原生扫码相机会暂时遮住页面；这一轮扫码本身不能被离页判据丢弃。
-    if (this._scanning) return;
+    if (this._scanning && this._scanning.session === getApp()._sessionGeneration) return;
     this._visible = false;
     this._begin();
     this.setData({ submitting: false });
@@ -145,12 +146,14 @@ Page({
 
   onScanBind() {
     const generation = this._begin();
-    this._scanning = true;
+    const operation = { generation, session: this._sessionGeneration };
+    this._scanning = operation;
     this.setData({ submitting: false });
     wx.scanCode({
       success: (res) => {
+        if (this._scanning !== operation) return;
+        this._scanning = null;
         if (!this._current(generation)) return;
-        this._scanning = false;
         try {
           const parsed = identity.parseScan(res.result, "bind");
           if (parsed.kind === "wifi") {
@@ -177,7 +180,7 @@ Page({
           this.setData({ code: "", step: "input" });
           wx.showModal({ title: "请扫描设备绑定码", content: e.message, showCancel: false });
         }
-      }, fail: () => { if (this._current(generation)) this._scanning = false; },
+      }, fail: () => { if (this._scanning === operation) this._scanning = null; },
     });
   },
 

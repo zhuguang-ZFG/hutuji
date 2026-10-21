@@ -422,7 +422,7 @@ fresh `Idle` + 100ms，再由 S3 旁路固定 `G92 Z0`，随后窗口化连续�
 **保持现状**。理由不是「我们更严格」（这个说法已被推翻），而是
 **无人值守语音场景不能弹框**——`error:9` 我们没法问用户，只能失败上报。
 `error:120` 本机固件**也有定义并可产生**（`Error.h:86` `AnotherInterfaceBusy=120`；
-`Serial.cpp:230` SD 占用时以空格形态 `error 120` 发出、`WebSettings.cpp:217` WebCommand
+`Serial.cpp:240` SD 占用时以空格形态 `error 120` 发出、`WebSettings.cpp:217` WebCommand
 checker 拒时返回），但 hutuji 链路实际触达不到——换纸族命令挂 anyState、不启 SD——
 fail-closed 方向不变，无需特例。（2026-08-13 勘误：早前「本机不产此码」与实文不符。）
 
