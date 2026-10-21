@@ -101,6 +101,8 @@ N21-03配网页隐藏取消TCP及定时器、停止迟到回包续调，回屏�
 
 远端S3交付板CI [39595436177](https://github.com/zhuguang-ZFG/xiaozhi-esp32/actions/runs/39595436177)、量产Grbl [39595446183](https://github.com/zhuguang-ZFG/Grbl_Esp32/actions/runs/39595446183)已completed/success；S3 Build Boards [39595443773](https://github.com/zhuguang-ZFG/xiaozhi-esp32/actions/runs/39595443773)排队，Hub本批推送/CI待后续回执。工厂配对、出货级纸面、老化与交付签核仍Hold。
 
+后续范围与提交确认：Hub产品及审查文档提交 `a1904ef5cb20751ae9fdf19a43cd68d31014402f` 已推origin/main；产品四仓已跟踪文件均无未提交修改。用户明确“另一台S3不用了”，故c4:58:2c从本轮升级目标移除，不再作为待完成项，也不改变其绑定/NVS。主用COM6及量产COM3升级与控制验收已完成；普通纸系统镜像无匹配硬件，保持仅源码/构建/fz交付边界。最终证据汇总在verification.json，CI完整作业与状态快照独立登记，不用排队状态冒充通过。
+
 ### 根因与防复发
 
 按trellis-break-loop分析：停止失败属于跨层结果契约与测试盲区，bool表示移交而非成功、stub恒成功使问题漏检；独立phase及真实尾段故障回归已落实。实时失效属于隐含“检查即拥有”的假设，普通入队改了而实时分流未传播；锁内回调给出提交线性化点、两仓同套回归已落实。页面问题属于生命周期传播遗漏，wifi隐藏只改样式、扫码操作状态借用账号代次结算；展示闸及独立扫码所有者已落实。分支查询守卫为变更传播缺口，普通/量产分开编译action核对，不能用某一分支修复概括另一仓。

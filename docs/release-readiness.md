@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-2026-10-21 N21五项修复技术发布：S3 217253d/1.0.44、普通Grbl c0ed039a、量产Grbl e77c3dab均提交推送；S3宿主381、普通48、量产75、Portal601、小程序347及Hub full（MCP1691+e2e）通过，两Grbl fz standard最终pass，Wokwi配额nonblocking但芯片云启动未验证。量产COM3单次HTTP OTA并重启，刷后/控制后48项不变；主备1.0.44指针/3091888B镜像SHA一致，COM6 c3:70:bc生产OTA ok/100且预览取消/正常/停止归位/暂停恢复/重画通过。小程序0.3.29上传300659B。普通纸系统镜像未刷nopaper板，未绑S3 c4:58:2c待USB接入；主备preflight25/34与26/34保留差异，S3完整矩阵尚排队。详见[本批记录](design/three-repo-next-review-20261021.md)，实体Hold不变。
+2026-10-21 N21五项修复技术发布：Hub a1904ef、S3 217253d/1.0.44、普通Grbl c0ed039a、量产Grbl e77c3dab均提交推送；S3宿主381、普通48、量产75、Portal601、小程序347及Hub full（MCP1691+e2e）通过，两Grbl fz standard最终pass，Wokwi配额nonblocking但芯片云启动未验证。量产COM3单次HTTP OTA并重启，刷后/控制后48项不变；主备1.0.44指针/3091888B镜像SHA一致，COM6 c3:70:bc生产OTA ok/100且预览取消/正常/停止归位/暂停恢复/重画通过。小程序0.3.29上传300659B。普通纸系统镜像未刷nopaper板；用户明确另一S3 c4:58:2c不用，本轮排除。主备preflight25/34与26/34保留差异，S3完整矩阵仍须按CI回执核对。详见[本批记录](design/three-repo-next-review-20261021.md)，实体Hold不变。
 
 2026-10-21 三仓继续只读审查：S3断流归位失败仍提示“已停止”（P1）、普通及量产Grbl实时命令在代次检查后跨会话失效提交（P2）、小程序配网页后台续调（P2）、绑定页失效扫码标记阻塞恢复（P3）与普通Grbl旧查询守卫（P3）已由真实函数/页面宿主探针复现，均未修复；量产查询守卫已有修正。相邻回归小程序59/S3专项11/普通Grbl专项42通过，不覆盖新增失败交错。审查基线、建议及验证边界见[续审记录](design/three-repo-next-review-20261021.md)，证据在本机 `results/local-only/2026-10-21-review-next/`。未改产品、未部署或刷机，实体Hold不变。
 
