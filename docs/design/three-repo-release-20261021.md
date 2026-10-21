@@ -106,3 +106,6 @@ COM6为ESP32-S3 rev v0.2、16MB、Freenove（应用内含`freenove-esp32s3-displ
 #### 17:1x 生产 OTA 路径实机验证（1.0.42→1.0.43，PASS）
 
 绑定表已切至新 S3 `b8:1f:3f:c3:70:bc`（16:39 绑定，machine_type=nopaper），老量产板 `b8:1f:3f:c4:58:2c` 已不在绑定表、无法云端驱动。为验证真实 OTA 链路：COM6 经 USB 刷回 1.0.42 回滚件（Hash verified，NVS 未动，`com6-1.0.42-boot.log`）→ 云端探得 1.0.42/Idle 且 `update_available: true` → Portal `start_upgrade`（首次响应 504 与 1.0.41 发布同型，会话保留 upgrading，设备实际已开工）→ 串口实录设备从公网 URL 下载 3,091,760/3,091,760 字节（`com6-ota-live.log`）→ 从 **ota_1 分区**（OTA 槽位，非 USB 所写的 ota_0）以 1.0.43 启动并 `Marking firmware as valid`（`com6-ota-reboot.log`）→ `ota_status` 终态 `ok/100`，终探 1.0.43、connected/ready/authorized/grbl_settings_ok、Grbl Idle、plan up_to_date。回执 `results/local-only/2026-10-21-codereview/ota-verify-1.0.43.json`。下载字节数与 promote 镜像一致；镜像即提交 `03854cf` 干净树重建件。未做运动/作业/屏幕人工验证；老板自身升级机制未验证。
+
+
+> **补充（用户确认）**：`b8:1f:3f:c3:70:bc`（COM6）同为量产板，非实验板——本轮在其上做的 USB 降级/OTA 验证收在已发布的 1.0.43（终探 idle/全绿、ota 空闲、NVS 未动），即量产机群将走的同一路径。两台 S3（`c4:58:2c` 1.0.41 未绑、`c3:70:bc` 1.0.43 已绑）均为量产 nopaper 机；`c4:58:2c` 的升级方式待用户在「重绑推送 / USB 直刷 / 暂留 1.0.41」中选择。
