@@ -69,6 +69,13 @@ function parseQr(raw, kind) {
   return invalid();
 }
 
+function parseScan(raw, kind) {
+  const other = kind === "bind" ? "wifi" : "bind";
+  // 只识别本域另一种完整设备码；坏身份不能借跳页绕开原校验。
+  const target = String(raw || "").trim().startsWith(ORIGIN + other + "?") ? other : kind;
+  return { kind: target, scan: parseQr(raw, target) };
+}
+
 function fromLaunch(options, kind) {
   options = options || {};
   if (options.q) {
@@ -148,4 +155,4 @@ function resumeAfterAuth() {
   });
 }
 
-module.exports = { parseQr, fromLaunch, fieldsFor, claimPayload, query, remember, restore, clearPending, resumeAfterAuth };
+module.exports = { parseQr, parseScan, fromLaunch, fieldsFor, claimPayload, query, remember, restore, clearPending, resumeAfterAuth };

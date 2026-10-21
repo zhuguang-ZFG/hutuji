@@ -110,8 +110,10 @@ Page({
   },
 
   applyScan(scan) {
+    const changed = this.data.apSsid !== scan.ssid || this.data.deviceMac !== scan.mac;
     this._scan = scan;
-    this.setData({ apSsid: scan.ssid, deviceMac: scan.mac, bindState: "" });
+    this.setData({ apSsid: scan.ssid, deviceMac: scan.mac, bindState: "", showPassword: false,
+      ...(changed ? { homePassword: "", wifiLocked: false } : {}) });
   },
 
   appendLog(text) {
@@ -124,7 +126,22 @@ Page({
       success: (res) => {
         if (!this._current(generation)) return;
         try {
-          const scan = identity.parseQr(res.result, "wifi");
+          const parsed = identity.parseScan(res.result, "wifi");
+          if (parsed.kind === "bind") {
+            this._scan = null;
+            identity.clearPending();
+            this.setData({ step: "scan", apSsid: "", deviceMac: "", homePassword: "", showPassword: false, wifiLocked: false, bindState: "" });
+            wx.showModal({
+              title: "这是设备绑定码", content: "设备已经连好网时，请到绑定页面继续。", confirmText: "去绑定", cancelText: "取消",
+              success: (answer) => {
+                if (!answer.confirm || !this._current(generation)) return;
+                identity.remember(parsed.scan, "bind", "scan", !this.data.authReady);
+                wx.redirectTo({ url: "/pages/bind/bind" });
+              },
+            });
+            return;
+          }
+          const scan = parsed.scan;
           this._phase = "scan";
           this.applyScan(scan);
           identity.remember(scan, "wifi", "scan", !this.data.authReady);
@@ -133,7 +150,7 @@ Page({
         } catch (e) {
           this._scan = null;
           identity.clearPending();
-          this.setData({ apSsid: "", deviceMac: "", bindState: "" });
+          this.setData({ apSsid: "", deviceMac: "", bindState: "", homePassword: "", showPassword: false, wifiLocked: false });
           wx.showModal({ title: "请扫设备配网码", content: e.message, showCancel: false });
         }
       },
@@ -145,15 +162,18 @@ Page({
     this._begin();
     this._scan = null;
     identity.clearPending();
-    this.setData({ step: "manual", apSsid: "", deviceMac: "", bindState: "" });
+    this.setData({ step: "manual", apSsid: "", deviceMac: "", bindState: "", homePassword: "", showPassword: false, wifiLocked: false });
   },
 
   onApInput(e) {
     this._scan = null;
     identity.clearPending();
-    this.setData({ apSsid: e.detail.value, deviceMac: "" });
+    this.setData({ apSsid: e.detail.value, deviceMac: "", homePassword: "", showPassword: false, wifiLocked: false });
   },
-  onSsidInput(e) { this.setData({ homeSsid: e.detail.value }); },
+  onSsidInput(e) {
+    this.setData({ homeSsid: e.detail.value,
+      ...(e.detail.value !== this.data.homeSsid ? { homePassword: "", showPassword: false } : {}) });
+  },
   onPwdInput(e) { this.setData({ homePassword: e.detail.value }); },
 
   onStart() {
@@ -227,7 +247,7 @@ Page({
     this.setData({ homeSsid: ssid, homePassword: ssid === this.data.homeSsid ? this.data.homePassword : "",
       wifiLocked: true, step: "creds", showPassword: false });
   },
-  onManualSsid() { this.setData({ homeSsid: "", wifiLocked: false, step: "creds" }); },
+  onManualSsid() { this.setData({ homeSsid: "", homePassword: "", showPassword: false, wifiLocked: false, step: "creds" }); },
 
   onSubmitCreds() {
     if (!this.data.homeSsid) { wx.showToast({ title: "先选家里 Wi-Fi", icon: "none" }); return; }
@@ -260,8 +280,14 @@ Page({
           this.appendLog("设备未接受网络信息，请核对 Wi-Fi 名称和密码后重试");
           return;
         }
-        if (!res.sent && attempt < 1) {
-          this.connectDevice(generation, 0, () => this.submitCreds(generation, attempt + 1));
+        if (!res.sent) {
+          if (attempt < 1) {
+            this.connectDevice(generation, 0, () => this.submitCreds(generation, attempt + 1));
+            return;
+          }
+          this.setData({ step: "creds", bindState: "" });
+          this.appendLog("网络信息未发送，请连接设备热点后重试");
+          wx.showModal({ title: "网络信息未发送", content: "请保持设备在配网页面，并连接它的热点后重试。", showCancel: false });
           return;
         }
         // AP 关闭/连接中断只说明发送结果不确定，必须等本次身份绑定完成才显示成功。

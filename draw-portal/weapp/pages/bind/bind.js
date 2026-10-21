@@ -9,6 +9,7 @@ Page({
     this._generation = 0;
     this._timers = new Set();
     this._unloaded = false;
+    this._visible = true;
     this._begin();
     try {
       const scan = identity.fromLaunch(options, "bind");
@@ -23,11 +24,26 @@ Page({
   },
 
   onShow() {
+    if (this._scanning) return;
+    const returning = this._visible === false;
+    this._visible = true;
     if (this._sessionGeneration !== getApp()._sessionGeneration) {
       this._begin();
       this._authReady = false;
     }
+    if (returning) {
+      this.setData({ submitting: false });
+      this._resumeCheck = !!this.data.code && this.data.step !== "bound";
+      if (this._authReady && this._resumeCheck) { this.checkBinding(); return; }
+    }
     if (!this._authReady) this.ensureAuth();
+  },
+  onHide() {
+    // 原生扫码相机会暂时遮住页面；这一轮扫码本身不能被离页判据丢弃。
+    if (this._scanning) return;
+    this._visible = false;
+    this._begin();
+    this.setData({ submitting: false });
   },
   onUnload() { this._unloaded = true; this._begin(); },
 
@@ -39,7 +55,7 @@ Page({
     return this._generation;
   },
   _current(generation) {
-    return !this._unloaded && generation === this._generation && this._sessionGeneration === getApp()._sessionGeneration;
+    return !this._unloaded && this._visible !== false && generation === this._generation && this._sessionGeneration === getApp()._sessionGeneration;
   },
   _later(generation, action, delay) {
     const timer = setTimeout(() => {
@@ -65,7 +81,8 @@ Page({
       this._authReady = true;
       this._sessionGeneration = getApp()._sessionGeneration;
       identity.remember(this._scan, "bind", "scan", false);
-      if (this.data.code) this.doBind(false);
+      if (this._resumeCheck && this.data.code) this.checkBinding();
+      else if (this.data.code) this.doBind(false);
       else this.pollStatus();
     }).catch(() => {}).finally(() => { if (this._authPending === generation) this._authPending = false; });
   },
@@ -73,6 +90,7 @@ Page({
   onCodeInput(e) {
     this._begin();
     this._scan = null;
+    this._resumeCheck = false;
     identity.clearPending();
     this.setData({ code: String(e.detail.value || "").toUpperCase().replace(/[^0-9A-Z]/g, ""), submitting: false });
   },
@@ -127,12 +145,29 @@ Page({
 
   onScanBind() {
     const generation = this._begin();
+    this._scanning = true;
     this.setData({ submitting: false });
     wx.scanCode({
       success: (res) => {
         if (!this._current(generation)) return;
+        this._scanning = false;
         try {
-          this._scan = identity.parseQr(res.result, "bind");
+          const parsed = identity.parseScan(res.result, "bind");
+          if (parsed.kind === "wifi") {
+            this._scan = null;
+            identity.clearPending();
+            this.setData({ code: "", step: "input", waitSeconds: 0 });
+            wx.showModal({
+              title: "这是设备配网码", content: "请到一键配网页面连接 Wi-Fi，联网后会继续绑定。", confirmText: "去配网", cancelText: "取消",
+              success: (answer) => {
+                if (!answer.confirm || !this._current(generation)) return;
+                identity.remember(parsed.scan, "wifi", "scan", !this._authReady);
+                wx.redirectTo({ url: "/pages/wifi/wifi" });
+              },
+            });
+            return;
+          }
+          this._scan = parsed.scan;
           this.setData({ code: this._scan.code, step: "input" });
           identity.remember(this._scan, "bind", "scan", !this._authReady);
           this.doBind(false);
@@ -142,7 +177,34 @@ Page({
           this.setData({ code: "", step: "input" });
           wx.showModal({ title: "请扫描设备绑定码", content: e.message, showCancel: false });
         }
-      }, fail: () => {},
+      }, fail: () => { if (this._current(generation)) this._scanning = false; },
+    });
+  },
+
+  checkBinding() {
+    this._resumeCheck = false;
+    const generation = this._generation;
+    // 回到页面先核原二维码的已完成记录，不重发后台结果不明的绑定请求。
+    if (!this._scan || !this._scan.mac || !this._scan.identity) {
+      this.setData({ step: "input", waitSeconds: 0 });
+      wx.showToast({ title: "请核对设备绑定码后继续", icon: "none" });
+      return;
+    }
+    const query = identity.query(Object.assign({ mac: this._scan.mac }, identity.fieldsFor(this._scan)));
+    api.request("/api/user/bind/claim/status?" + query, { timeout: 12000 }).then((res) => {
+      if (!this._current(generation)) return;
+      if (res.status === "bound") {
+        this._boundMac = this._scan.mac;
+        identity.clearPending();
+        this.setData({ step: "bound", macSuffix: this._boundMac.slice(-5), waitSeconds: 0 });
+      } else {
+        this.setData({ step: "input", waitSeconds: 0 });
+        wx.showToast({ title: "绑定尚未确认，请核对设备后继续", icon: "none" });
+      }
+    }).catch((err) => {
+      if (!this._current(generation)) return;
+      this.setData({ step: "input", waitSeconds: 0 });
+      wx.showToast({ title: err.detail || "暂时无法核对绑定，请稍后重试", icon: "none" });
     });
   },
 
@@ -164,6 +226,7 @@ Page({
   onReset() {
     this._begin();
     this._scan = null;
+    this._resumeCheck = false;
     identity.clearPending();
     this.setData({ step: "input", code: "", submitting: false, waitSeconds: 0 });
   },
