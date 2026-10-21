@@ -353,27 +353,20 @@ def _restore_one(store: Any, user_id: str, entry: dict[str, Any], tmp: Path, sum
             summary["skipped"] += 1
             return
         dest = Path(live.preview_path)
-        action = "restored"
     else:
         dest = _saved_dir_for(user_id) / f"{saved_id}.png"
-        action = "recreated"
     blob = _download_with_retry(file_id)
     if blob is None:
         summary["failed"] += 1
         return
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(blob)
-    if live is None:
-        store.restore_saved_preview(
-            user_id=user_id,
-            saved_id=saved_id,
-            title=str(entry["title"]),
-            preview_path=str(dest),
-            saved_at=float(entry["archived_at"]),
-            tg_file_id=file_id,
-            tg_message_id=int(entry["tg_message_id"]),
-            credit_json=entry.get("credit_json"),
-        )
+    action = store.restore_saved_preview(
+        user_id=user_id,
+        saved_id=saved_id,
+        preview_path=str(dest),
+        preview_bytes=blob,
+        tg_file_id=file_id,
+        tg_message_id=int(entry["tg_message_id"]),
+    )
     summary[action] += 1
 
 

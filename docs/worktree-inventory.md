@@ -1471,3 +1471,5 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 2026-10-20 CR20推送与续审：七项产品修复已推Hub4437dad、S3 34dc2ca、量产Grbl99d14a13；S3仓库Actions异常经用户页面启用后，以空提交46aa527重新触发分支与PR检查。继续只读审查确认三项待修复：恢复快照复活已删图库作品、S3批次会话错归、Grbl查询忙态守卫恒false；证据和各CI入口见docs/design/three-repo-followup-review-20261020.md。本轮未部署或刷机，fz芯片启动与实体Hold不变。
 
 2026-10-20 CR20远端CI收口：Hub产品修复4437dad及续审文档b43370a、S3产品修复34dc2ca/CI触发46aa527、量产Grbl99d14a13均已推送。Hub Tests、Hutuji Mass Production、Hutuji S3（宿主+两交付板）及S3 PR Build Boards完整175项均completed/success，未跳过失败或缩减矩阵。精确提交、作业列表与链接在results/local-only/2026-10-20-followup/ci-final.json及本批续审报告。新增三项R20F-01至03仍待修复；GitHub绿色不覆盖本地fz Wokwi/QEMU启动失败，未部署、未刷机，NOT_FOR_RELEASE与实体Hold不变。
+
+2026-10-21 R20F发布执行中：用户要求先修复三项续审问题，再部署刷机验证上传推送。归档恢复/删除事务、S3连续会话分批及量产Grbl忙态查询守卫已实现。新版本计划S3 hutuji.1.0.41、小程序0.3.27；未完成步骤不预记成功。证据在 results/local-only/2026-10-21-release，脚本 tmp/r20f-release；详细阶段见 docs/design/three-repo-release-20261021.md。实体纸面/老化/工厂配对/交付签核仍Hold。

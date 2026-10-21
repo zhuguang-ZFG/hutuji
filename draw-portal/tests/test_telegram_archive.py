@@ -300,7 +300,9 @@ def test_restore_trimmed_row_recreated(
         preview_path=str(tmp_path / "old.png"),
         tg_file_id="F2", tg_message_id=12,
     ) is True
-    store.delete_saved_preview(live.id, user_id="u1")  # 模拟 trim 清行
+    store.create_saved_preview(user_id="u1", job_id=None, title="新图",
+                               preview_path=str(tmp_path / "new.png"), gcode_path=None, tg_pending=False)
+    store.trim_saved_previews("u1", limit=1)
     saved_id = live.id
     monkeypatch.setattr(ta, "_download_document", lambda _f, _dest: blob)
     summary = ta.restore_user(store, "u1")
@@ -355,7 +357,9 @@ def test_restore_download_failure_counts_failed(
         preview_path=str(tmp_path / "x.png"),
         tg_file_id="F4", tg_message_id=14,
     ) is True
-    store.delete_saved_preview(live.id, user_id="u1")
+    store.create_saved_preview(user_id="u1", job_id=None, title="新图",
+                               preview_path=str(tmp_path / "new.png"), gcode_path=None, tg_pending=False)
+    store.trim_saved_previews("u1", limit=1)
     saved_id = live.id
     monkeypatch.setattr(ta, "_download_document", lambda _f, _d: None)
     summary = ta.restore_user(store, "u1")

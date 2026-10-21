@@ -1380,13 +1380,24 @@
     "note": "2026-10-20 用户逐项引用 CR20-01 至 07 后明确要求全部修复。授权限本批七项代码、回归、构建和门禁；不改运动、换纸、引脚，不部署刷机。",
     "contract": "docs/design/three-repo-review-20261020.md；protocol 文档导入/语音预览确认/会话上报；静默应答使用既有 CLIENT_INPUT。",
     "paths": [
-      "docs/**", "firmware/README.md", "AGENTS.md", "README.md", "CLAUDE.md",
-      "mcp-server/hutuji_mcp/doc_ingest.py", "mcp-server/tests/test_doc_ingest.py",
-      "draw-portal/draw_portal/app.py", "draw-portal/draw_portal/voice_agent.py",
-      "draw-portal/draw_portal/telegram_archive.py", "draw-portal/weapp/pages/chat/chat.js",
-      "draw-portal/tests/test_voice_api.py", "draw-portal/tests/test_voice_agent.py",
-      "draw-portal/tests/test_voice_preview_identity.py", "draw-portal/tests/test_telegram_archive.py",
-      "draw-portal/tests/weapp/chat.test.js", "tmp/cr20-fixes/**", "results/local-only/2026-10-20-fixes/**",
+      "docs/**",
+      "firmware/README.md",
+      "AGENTS.md",
+      "README.md",
+      "CLAUDE.md",
+      "mcp-server/hutuji_mcp/doc_ingest.py",
+      "mcp-server/tests/test_doc_ingest.py",
+      "draw-portal/draw_portal/app.py",
+      "draw-portal/draw_portal/voice_agent.py",
+      "draw-portal/draw_portal/telegram_archive.py",
+      "draw-portal/weapp/pages/chat/chat.js",
+      "draw-portal/tests/test_voice_api.py",
+      "draw-portal/tests/test_voice_agent.py",
+      "draw-portal/tests/test_voice_preview_identity.py",
+      "draw-portal/tests/test_telegram_archive.py",
+      "draw-portal/tests/weapp/chat.test.js",
+      "tmp/cr20-fixes/**",
+      "results/local-only/2026-10-20-fixes/**",
       "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/WebUI/WebServer.cpp",
       "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_command_bounds.py",
       "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_web_silent_response.py",
@@ -1400,7 +1411,9 @@
     "note": "2026-10-20 用户要求提交推送、继续code review、CI变绿。允许精确提交已验证的CR20七项与后续CI修复，不部署或刷机。",
     "contract": "docs/design/three-repo-review-20261020.md；不得跳过测试、放宽断言或移除构建矩阵以获取绿色状态。",
     "paths": [
-      ".github/workflows/test.yml", "docs/**", "tmp/cr20-push/**",
+      ".github/workflows/test.yml",
+      "docs/**",
+      "tmp/cr20-push/**",
       "D:/Users/xiaozhi-esp32/.github/workflows/hutuji-s3.yml",
       "D:/Users/xiaozhi-esp32/.github/workflows/build.yml",
       "D:/Users/Grbl_Esp32-massprod/.github/workflows/hutuji-grbl.yml"
@@ -1466,6 +1479,30 @@
       "results/local-only/2026-10-11-quota-ci-release/**",
       "D:/Users/xiaozhi-esp32/.github/workflows/**",
       "D:/Users/Grbl_Esp32-massprod/.github/workflows/**"
+    ]
+  },
+  "r20f_release_authorized": {
+    "note": "2026-10-21 用户要求部署刷机验证上传推送，并明确选择先修复三项续审问题再一起发布。Settings.cpp 查询守卫为此次点名例外，不改运动/换纸/引脚。",
+    "contract": "three-repo-followup-review-20261020.md R20F-01至03；protocol §10.4.5/§10.5；新S3版本1.0.41，小程序0.3.27。",
+    "paths": [
+      "docs/**",
+      "AGENTS.md",
+      "README.md",
+      "CLAUDE.md",
+      "firmware/README.md",
+      ".github/workflows/test.yml",
+      "draw-portal/draw_portal/store.py",
+      "draw-portal/draw_portal/telegram_archive.py",
+      "draw-portal/tests/test_telegram_archive.py",
+      "draw-portal/tests/test_archive_restore_race.py",
+      "draw-portal/weapp/utils/version.js",
+      "tmp/r20f-release/**",
+      "results/local-only/2026-10-21-release/**",
+      "D:/Users/xiaozhi-esp32/main/boards/lichuang-dev/hutuji_conversation_report.cc",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Settings.cpp",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/xiaozhi-esp32/scripts/tests/test_conversation_batch_sessions.py",
+      "D:/Users/Grbl_Esp32-massprod/scripts/tests/test_settings_query_guard.py"
     ]
   }
 }

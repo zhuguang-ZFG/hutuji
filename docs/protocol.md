@@ -1174,3 +1174,9 @@ Portal稳定板型条目可带`rollout`：id、percent(0–100整数)、devices(
 - **会话 UTF-8**：保留 500 字节预算和失败即丢策略；截断必须退回完整码点边界，保证 cJSON 输出能被 UTF-8 JSON 解码器读取，不能一条中文残字符拖掉整个批次。
 
 实现、回归与发布边界见 `docs/design/three-repo-review-20261020.md`；这些是本地软件候选，未部署或刷机。
+
+### 2026-10-21 R20F 续审修复契约
+
+- §10.4.5：用户主动删图库作品时，删行与台账 removed 必须在同一 SQLite 写事务提交。恢复下载结束后，在同一写事务重新核对 saved_id/user_id/file_id/message_id 与未删除标记，再原子落文件和按需重建行；失效快照计 skipped。自动 trim 保留台账资格，重建仅预览且无 G-code；不使用 INSERT OR REPLACE 覆盖现存作品。
+- §10.5：每次会话上报只消费队首连续同 session_id 的事件；遇下一会话留队，下一批再发。cap=8、UTF-8 完整边界、Idle 冲刷与失败即丢策略保持。
+- 量产 Grbl 查询守卫：依赖 notCycleOrHold 的查询在 Cycle 或 Hold 返回 IdleError，Idle 正常执行。用户于本批明确授权 Settings.cpp 窄谓词修复；不改运动设置、换纸、引脚或授权语义。

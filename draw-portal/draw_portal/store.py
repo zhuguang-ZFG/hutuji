@@ -1957,25 +1957,46 @@ class Store:
         *,
         user_id: str,
         saved_id: str,
-        title: str,
         preview_path: str,
-        saved_at: float,
+        preview_bytes: bytes,
         tg_file_id: str,
         tg_message_id: int,
-        credit_json: str | None = None,
-    ) -> None:
-        """召回重建行：沿用原 saved_id（台账主键连贯），无 gcode 副本不可再发送。"""
+    ) -> str:
+        """在删除共用的写事务内核台账并落盘，禁止快照复活已删除作品。"""
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO saved_previews (
-                    id, user_id, job_id, title, preview_path, gcode_path, saved_at,
-                    tg_state, tg_file_id, tg_message_id, tg_checked_at, credit_json
-                ) VALUES (?, ?, NULL, ?, ?, NULL, ?, 'uploaded', ?, ?, ?, ?)
-                """,
-                (saved_id, user_id, title, preview_path, saved_at, tg_file_id, tg_message_id, time.time(), credit_json),
-            )
-            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            entry = conn.execute(
+                """SELECT * FROM telegram_archive_log
+                   WHERE saved_id = ? AND user_id = ? AND tg_removed_at IS NULL
+                     AND tg_file_id = ? AND tg_message_id = ?""",
+                (saved_id, user_id, tg_file_id, tg_message_id),
+            ).fetchone()
+            if entry is None:
+                return "skipped"
+            live = conn.execute("SELECT * FROM saved_previews WHERE id = ?", (saved_id,)).fetchone()
+            if live is not None and live["user_id"] != user_id:
+                return "skipped"
+            dest = Path(live["preview_path"] if live is not None else preview_path)
+            if live is not None and dest.is_file():
+                return "skipped"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            pending = dest.with_name(dest.name + "." + secrets.token_hex(8) + ".tmp")
+            try:
+                pending.write_bytes(preview_bytes)
+                pending.replace(dest)
+                if live is None:
+                    conn.execute(
+                        """INSERT INTO saved_previews (
+                            id, user_id, job_id, title, preview_path, gcode_path, saved_at,
+                            tg_state, tg_file_id, tg_message_id, tg_checked_at, credit_json
+                        ) VALUES (?, ?, NULL, ?, ?, NULL, ?, 'uploaded', ?, ?, ?, ?)""",
+                        (saved_id, user_id, entry["title"], str(dest), entry["archived_at"],
+                         tg_file_id, tg_message_id, time.time(), entry["credit_json"]),
+                    )
+                conn.commit()
+            finally:
+                pending.unlink(missing_ok=True)
+            return "restored" if live is not None else "recreated"
 
     def list_saved_previews(self, user_id: str) -> list[SavedPreview]:
         with self._connect() as conn:
@@ -1997,10 +2018,19 @@ class Store:
         return self._row_saved_preview(row) if row else None
 
     def delete_saved_preview(self, saved_id: str, *, user_id: str) -> SavedPreview | None:
-        item = self.get_saved_preview(saved_id, user_id=user_id)
-        if item is None:
-            return None
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM saved_previews WHERE id = ? AND user_id = ?", (saved_id, user_id),
+            ).fetchone()
+            if row is None:
+                return None
+            item = self._row_saved_preview(row)
+            # 主动删除和撤销召回资格必须一起提交，自动 trim 不走此入口。
+            conn.execute(
+                "UPDATE telegram_archive_log SET tg_removed_at = ? WHERE saved_id = ? AND user_id = ?",
+                (time.time(), saved_id, user_id),
+            )
             conn.execute(
                 "DELETE FROM saved_previews WHERE id = ? AND user_id = ?",
                 (saved_id, user_id),
