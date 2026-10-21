@@ -103,6 +103,8 @@ N21-03配网页隐藏取消TCP及定时器、停止迟到回包续调，回屏�
 
 后续范围与提交确认：Hub产品及审查文档提交 `a1904ef5cb20751ae9fdf19a43cd68d31014402f` 已推origin/main；产品四仓已跟踪文件均无未提交修改。用户明确“另一台S3不用了”，故c4:58:2c从本轮升级目标移除，不再作为待完成项，也不改变其绑定/NVS。主用COM6及量产COM3升级与控制验收已完成；普通纸系统镜像无匹配硬件，保持仅源码/构建/fz交付边界。最终证据汇总在verification.json，CI完整作业与状态快照独立登记，不用排队状态冒充通过。
 
+CI终核补充：Hub产品a1904ef的 [39597770198](https://github.com/zhuguang-ZFG/hutuji/actions/runs/39597770198) completed/success，MCP/Portal/产线/e2e所有步骤均success；文档0581d3f的检查独立记录。S3交付板与量产GrblCI成功，Build Boards完整矩阵仍运行，尚未宣称全矩阵通过。最后设备探活final-status.json为1.0.44、done、Grbl Idle、原点及OTA idle，未遗留控制任务。四仓最终提交及作业快照见本机verification.json和ci-current.json。
+
 ### 根因与防复发
 
 按trellis-break-loop分析：停止失败属于跨层结果契约与测试盲区，bool表示移交而非成功、stub恒成功使问题漏检；独立phase及真实尾段故障回归已落实。实时失效属于隐含“检查即拥有”的假设，普通入队改了而实时分流未传播；锁内回调给出提交线性化点、两仓同套回归已落实。页面问题属于生命周期传播遗漏，wifi隐藏只改样式、扫码操作状态借用账号代次结算；展示闸及独立扫码所有者已落实。分支查询守卫为变更传播缺口，普通/量产分开编译action核对，不能用某一分支修复概括另一仓。
