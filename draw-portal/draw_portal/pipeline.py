@@ -439,11 +439,19 @@ def shrink_oversized_png(png_bytes: bytes, *, max_mpx: float = 4.8) -> bytes:
     import imageio.v3 as iio
 
     _guard_raster_dimensions(png_bytes)
-    arr = iio.imread(png_bytes)
+    arr = _imread_oriented(png_bytes)
     h, w = arr.shape[:2]
     mpx = (h * w) / 1e6
     if mpx <= max_mpx:
-        return png_bytes
+        from PIL import Image
+
+        with Image.open(io.BytesIO(png_bytes)) as im:
+            if im.size == (w, h) and not im.getexif().get(274):
+                return png_bytes
+        # 闸内但带方向：写出已转置、无 EXIF 的原尺寸，禁止按 max_mpx 放大。
+        buf = io.BytesIO()
+        iio.imwrite(buf, arr, extension=".png")
+        return buf.getvalue()
     from skimage import transform
 
     scale = (max_mpx / mpx) ** 0.5
@@ -568,7 +576,10 @@ def process_upload(
     # BitmapError（2026-09-07 iPhone 拍照 422「图片转换失败」实证）。按魔数判定，
     # 不信客户端 content_type。
     if raw[:8] == b"\x89PNG\r\n\x1a\n":
-        return process_upload_png(raw, job_dir, profile=profile)
+        # PNG 也可能带 EXIF 方向；line_art=False 只消费方向、不把线稿 PNG 再走 Canny。
+        return process_upload_png(
+            normalize_raster_to_png(raw, line_art=False), job_dir, profile=profile
+        )
     return process_upload_png(normalize_raster_to_png(raw), job_dir, profile=profile)
 
 

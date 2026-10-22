@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-22 F48 收口：S3 升 `hutuji.1.0.49`。放弃接收线程后泄漏整个 EspSsl，`Connect` 拒绝重用；新增 `esp-ml307-z-tls-abandon-leak.patch`（CI glob 字母序最后）。板上与公网状态只看 readiness。详见 `../docs/design/f48-followup-fixes-20261022.md`。
+
 2026-10-22 TLS有限等待收口：S3 升 `hutuji.1.0.48`，Disconnect 最多 3×10s，超时放弃 TLS 所有权并泄漏事件组；tracked 补丁 `esp-ml307-tls-socket-lifecycle.patch` 含 `diff --git` 头以过 CI `--recount`。Freenove 目标板已 OTA；板上与公网状态只看 readiness。详见 `../docs/design/tls-followup-20261022.md`。
 
 2026-10-21 R2停止/试笔收尾修复：S3 fe7120b/1.0.45已主备发布并OTA至现役量产Freenove c3:70:bc，普通创建失败与预启动取消、新试笔失败终态均有宿主回归，S3全389/代表双板构建/Hub full通过。量产Grbl39ecd288同步修补断连会话清理，COM3单次HTTP OTA重启及刷后48项不变。小程序0.3.30已上传；实机预览取消与正常小图通过，后续控制验收因USB双板缺席与消息探活404等待重接，不混记全部HIL通过。详见[本批发布](../docs/design/three-repo-postrelease-review-20261021.md)及readiness；实体Hold继续。

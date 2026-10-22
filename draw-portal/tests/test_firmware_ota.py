@@ -416,8 +416,7 @@ def test_other_device_upgrade_does_not_block_active_device_send(tmp_path, monkey
     assert store.get_firmware_ota_session(binding.user_id).state == "upgrading"
 
 
-@pytest.mark.parametrize("device_state,progress", [("idle", 90), ("upgrading", 0)])
-def test_stalled_ota_polling_does_not_renew_expiry(tmp_path, monkeypatch, device_state, progress):
+def test_stalled_idle_ota_expires_when_device_reachable(tmp_path, monkeypatch):
     import time
     from types import SimpleNamespace
     from draw_portal import firmware_ota
@@ -433,7 +432,7 @@ def test_stalled_ota_polling_does_not_renew_expiry(tmp_path, monkeypatch, device
     monkeypatch.setattr(firmware_ota, "time", SimpleNamespace(time=lambda: clock[0]))
     store.upsert_firmware_ota_session(user_id=binding.user_id, device_mac=binding.device_mac,
                                     state="upgrading", target_version="hutuji.1.0.1", updated_at=started)
-    monkeypatch.setattr(firmware_ota, "push_tool_call", lambda **kw: (True, _status_json(ota={"state": device_state, "progress": progress})))
+    monkeypatch.setattr(firmware_ota, "push_tool_call", lambda **kw: (True, _status_json(ota={"state": "idle", "progress": 90})))
     assert client.get("/api/device/firmware/ota_status").json()["state"] == "upgrading"
     assert store.get_firmware_ota_session(binding.user_id).updated_at == started
     clock[0] = started + 600
@@ -441,6 +440,52 @@ def test_stalled_ota_polling_does_not_renew_expiry(tmp_path, monkeypatch, device
     assert response["state"] == "failed"
     assert response["reason"] == "status_timeout"
     assert client.post("/api/draw/nonexistent/send").status_code == 404
+
+
+def test_stalled_upgrading_ota_keeps_lock(tmp_path, monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota
+    from draw_portal.store import Store
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    store = Store(tmp_path / "t.db")
+    binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    started = time.time()
+    clock = [started + 600]
+    monkeypatch.setattr(firmware_ota, "time", SimpleNamespace(time=lambda: clock[0]))
+    store.upsert_firmware_ota_session(user_id=binding.user_id, device_mac=binding.device_mac,
+                                    state="upgrading", target_version="hutuji.1.0.1", updated_at=started)
+    monkeypatch.setattr(firmware_ota, "push_tool_call", lambda **kw: (True, _status_json(ota={"state": "upgrading", "progress": 0})))
+    response = client.get("/api/device/firmware/ota_status").json()
+    assert response["state"] == "upgrading"
+    assert firmware_ota.is_upgrading(store, binding.user_id, device_mac=binding.device_mac)
+    assert client.post("/api/draw/nonexistent/send").status_code == 400
+
+
+def test_unreachable_device_does_not_expire_ota_lock(tmp_path, monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota
+    from draw_portal.store import Store
+
+    _, client = _clients(monkeypatch, tmp_path)
+    _announce(client, "AAAAAA")
+    assert client.post("/api/user/bind/complete", json={"bind_code": "AAAAAA"}).status_code == 200
+    store = Store(tmp_path / "t.db")
+    binding = store.get_binding_for_mac("aa:bb:cc:dd:ee:ff")
+    started = time.time()
+    clock = [started + 600]
+    monkeypatch.setattr(firmware_ota, "time", SimpleNamespace(time=lambda: clock[0]))
+    store.upsert_firmware_ota_session(user_id=binding.user_id, device_mac=binding.device_mac,
+                                    state="uncertain", target_version="hutuji.1.0.1", updated_at=started)
+    monkeypatch.setattr(firmware_ota, "push_tool_call", lambda **kw: (False, "网络 timeout"))
+    response = client.get("/api/device/firmware/ota_status").json()
+    assert response["state"] == "upgrading"
+    assert firmware_ota.is_upgrading(store, binding.user_id, device_mac=binding.device_mac)
+    assert client.post("/api/draw/nonexistent/send").status_code == 400
 
 
 def test_ota_expiry_does_not_overwrite_new_progress(tmp_path):

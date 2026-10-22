@@ -1680,7 +1680,17 @@ def create_app() -> FastAPI:
 
     def _reject_if_firmware_upgrading(user_id: str) -> None:
         binding = store.get_binding_for_user(user_id)
-        if binding and firmware_ota_mod.is_upgrading(store, user_id, device_mac=binding.device_mac):
+        if not binding:
+            return
+        session = store.get_firmware_ota_session(user_id)
+        if session and session.device_mac == binding.device_mac:
+            firmware_ota_mod.get_ota_status(
+                store=store,
+                binding=binding,
+                api_base=config.xiaozhi_api_base,
+                token_cipher_key=config.token_cipher_key,
+            )
+        if firmware_ota_mod.is_upgrading(store, user_id, device_mac=binding.device_mac):
             raise HTTPException(status_code=400, detail="固件升级中，请稍后再出图")
 
 

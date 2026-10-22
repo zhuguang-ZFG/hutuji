@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-22 F48 三项修复：放弃 TLS 后泄漏整个 EspSsl、PNG 直传消费 EXIF、uncertain OTA 查询失败不按墙钟放锁。S3 `hutuji.1.0.49`，小程序 0.3.33。部署/刷机/上传证据只看 readiness；另一 S3 排除，Grbl 无 delta。详见 `docs/design/f48-followup-fixes-20261022.md`。
+
 2026-10-22 TLS有限等待与EXIF启发式收口：S3 Disconnect 最多 3×10s 后放弃仍被接收线程占用的 TLS 对象；Portal 共用有向解码。Hub `f487258` 已双机部署，Freenove 目标板已 OTA 1.0.48；CI 补丁头跟进 `66f2cc5`。部署/刷机/上传只看 readiness；另一 S3 排除，Grbl 无 delta。详见 `docs/design/tls-followup-20261022.md`。
 
 2026-10-13 本批最终收口：Hub `8c843d9` 修复生图 breaker half-open 永久跳过和跨 worker 多探针风险；`e6eb326` 补齐写侧竞态——旧常规 racer 不得把探针失败刚写入的 fresh open 回滚为旧状态，内存 store 锁内比较，Redis 以 WATCH/MULTI 条件提交，同态结果不写、冲突读取胜出状态。双机与兼容 `bitmap_svg.py` 同包 deploy/verify，主备 CAS 冒烟 PASS 且 `enforce=false`，生产仍保持 `HUTUJI_BREAKER_ENFORCE=0`。内存/真实 Redis 两项回归旧码 RED、新码 GREEN；MCP 1673、hub pytest 1673 + e2e PASS。S3 CI `38275272261` 成功且宿主 366/366；量产 Grbl `539e3f9b` 已单次 HTTP OTA、重启与 48 项设置不变复核。fz `standard` 的 `product_host` 在指定 x86_64 g++ 后通过，overall 仍被 Wokwi ready timeout 与实验 QEMU BREAK panic 阻塞，芯片启动层记为未验证。SenseNova key 轮换、u1.5-lite live draw 及实体签核仍未完成。

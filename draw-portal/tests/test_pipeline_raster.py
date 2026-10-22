@@ -12,12 +12,9 @@ import io
 import pytest
 
 
-@pytest.mark.parametrize("orientation", range(1, 9))
-def test_photo_exif_orientation_consumed_once(orientation):
-    """手机显示方向必须与归一化图片相同，镜像/旋转八种方向且重复归一不再旋转。"""
+def _oriented_raster(fmt: str, orientation: int):
     import numpy as np
     from PIL import Image, ImageOps
-    from draw_portal.pipeline import normalize_raster_to_png
 
     arr = np.full((48, 80, 3), 255, dtype=np.uint8)
     arr[:24, :40] = [0, 40, 80]
@@ -25,16 +22,49 @@ def test_photo_exif_orientation_consumed_once(orientation):
     exif = Image.Exif()
     exif[274] = orientation
     source = io.BytesIO()
-    Image.fromarray(arr).save(source, format="JPEG", quality=95, exif=exif)
+    Image.fromarray(arr).save(source, format=fmt, **({"quality": 95} if fmt == "JPEG" else {}), exif=exif)
     raw = source.getvalue()
     with Image.open(io.BytesIO(raw)) as im:
         expected = np.asarray(ImageOps.exif_transpose(im))
+    return raw, expected
+
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_photo_exif_orientation_consumed_once(orientation):
+    """手机显示方向必须与归一化图片相同，镜像/旋转八种方向且重复归一不再旋转。"""
+    import numpy as np
+    from PIL import Image, ImageOps
+    from draw_portal.pipeline import normalize_raster_to_png
+
+    raw, expected = _oriented_raster("JPEG", orientation)
     normalized = normalize_raster_to_png(raw, line_art=False)
     with Image.open(io.BytesIO(normalized)) as im:
         np.testing.assert_array_equal(np.asarray(im), expected)
         assert not im.getexif().get(274), "方向已应用后不应留重复旋转元数据"
     with Image.open(io.BytesIO(normalize_raster_to_png(normalized, line_art=False))) as im:
         np.testing.assert_array_equal(np.asarray(im), expected)
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_png_exif_orientation_consumed_before_trace(orientation, tmp_path):
+    """PNG 魔数直传也必须先消费 EXIF；闸内无方向块时 shrink 仍原样返回。"""
+    import numpy as np
+    from PIL import Image
+    from draw_portal.pipeline import normalize_raster_to_png, process_upload, shrink_oversized_png
+
+    raw, expected = _oriented_raster("PNG", orientation)
+    assert raw[:8] == b"\x89PNG\r\n\x1a\n"
+    normalized = normalize_raster_to_png(raw, line_art=False)
+    with Image.open(io.BytesIO(normalized)) as im:
+        np.testing.assert_array_equal(np.asarray(im), expected)
+        assert not im.getexif().get(274)
+    shrunk = shrink_oversized_png(raw)
+    with Image.open(io.BytesIO(shrunk)) as im:
+        np.testing.assert_array_equal(np.asarray(im), expected)
+    if orientation == 6:
+        result = process_upload(raw, content_type="image/png", filename="photo.png", job_dir=tmp_path)
+        assert result.lines > 0
+        assert result.gcode_path.exists()
+
 
 from draw_portal.pipeline import process_upload
 

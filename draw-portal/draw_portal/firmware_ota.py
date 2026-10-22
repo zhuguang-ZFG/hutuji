@@ -383,14 +383,32 @@ def get_ota_status(
     api_base: str,
     token_cipher_key: bytes,
 ) -> dict[str, Any]:
-    store.expire_firmware_ota_session(binding.user_id, cutoff=time.time() - _OTA_STALE_SECONDS)
     session = store.get_firmware_ota_session(binding.user_id)
     if session and session.device_mac != binding.device_mac:
         session = None
     ok, status, _err = _fetch_device_status(
         api_base=api_base, token_cipher_key=token_cipher_key, binding=binding, store=store,
     )
-    ota = status.get("ota") if ok else None
+    ota_now = status.get("ota") if ok else None
+    if session and session.state in {"starting", "uncertain", "upgrading"}:
+        stale = session.updated_at <= time.time() - _OTA_STALE_SECONDS
+        device_upgrading = (
+            isinstance(ota_now, dict)
+            and str(ota_now.get("state") or "").strip().lower() == "upgrading"
+        )
+        version_match = bool(
+            session.target_version
+            and str(status.get("firmware_version") or "").strip() == session.target_version
+        )
+        # 设备离线刷写或仍在 upgrading 时不按墙钟放锁；可达且已离开升级、版本未对上才过期。
+        if stale and ok and not device_upgrading and not version_match:
+            store.expire_firmware_ota_session(
+                binding.user_id, cutoff=time.time() - _OTA_STALE_SECONDS
+            )
+            session = store.get_firmware_ota_session(binding.user_id)
+            if session and session.device_mac != binding.device_mac:
+                session = None
+    ota = ota_now if ok else None
     # starting 尚未收到命令应答，设备仍可能携带上一轮的失败/进度。
     # 外部继续显示 upgrading 并拦出图，内部阶段也使迟到查询的 CAS 失效。
     if session and session.state != "starting" and ok:
@@ -437,6 +455,14 @@ def get_ota_status(
 
 
 def is_upgrading(store: Store, user_id: str, *, device_mac: str | None = None) -> bool:
+    session = store.get_firmware_ota_session(user_id)
+    in_flight = bool(
+        session and session.state in {"starting", "uncertain", "upgrading"}
+        and (device_mac is None or session.device_mac == device_mac)
+    )
+    # 已登记目标则查询失败也不放锁，由 get_ota_status 在设备可达且离开升级后过期。
+    if in_flight and session is not None and session.target_version:
+        return True
     store.expire_firmware_ota_session(user_id, cutoff=time.time() - _OTA_STALE_SECONDS)
     session = store.get_firmware_ota_session(user_id)
     return bool(session and session.state in {"starting", "uncertain", "upgrading"}

@@ -1,5 +1,9 @@
 # 发布与出货就绪度
 
+2026-10-22 F48 三项修复已落代码：S3 `3b0d6df`/1.0.49 泄漏放弃的 EspSsl；Hub PNG 直传消费 EXIF、OTA 查询失败不按墙钟放锁，小程序 0.3.33。Portal 栅格+OTA 73、S3 TLS 宿主 6 已过。双机部署、Freenove 单次 OTA、上传与 CI 回执待本批写入；现役仍为 1.0.48 直至刷机证据。详见 [F48 修复](design/f48-followup-fixes-20261022.md)。`factory_paired`/纸面/老化/交付仍 Hold。
+
+2026-10-22 1.0.48发布后只读续审：Hub `bd97821` / S3 `66f2cc5` / 量产 Grbl `a268e05c` 三项未修复——放弃TLS后HttpClient仍销毁EspSsl（P1）、PNG直传不消费EXIF（P2）、uncertain OTA 600s过期放锁（P2）。源码顺序与本机PNG探针复现，未上板、未改产品。现役1.0.48与实体Hold不变。见[本轮记录](design/three-repo-followup-review-20261022.md)。
+
 2026-10-22 TLS有限等待与EXIF启发式技术发布：Hub `f487258` 双机只发 `pipeline.py`，EXIF 烟测 PASS；S3 产品 `0141de4`/1.0.48，CI 补丁头跟进 `66f2cc5`。目标 Freenove `c3:70:bc` 单次 HTTP OTA 504 后结清 `ok/100`，绑定探活 1.0.48/Idle/原点；主备推荐镜像 3092672B SHA 一致。小程序 0.3.32 上传 303445B，不等于平台发布。COM7 刷前/刷后 48 项 PASS，Grbl 无产品 delta。preflight 主 25/34、备 26/34 已知差异保留。Hub Tests `f487258` success；`0141de4` CI 因补丁 `--recount` 失败；`66f2cc5` Hutuji S3 宿主与 Freenove/立创交付板均 success，完整 Build Boards 仍排队不以 queued 当绿。运动控制 HIL 未做；`factory_paired`/纸面/老化/交付仍 Hold。详见 [本批记录](design/tls-followup-20261022.md)。
 
 2026-10-22 C22技术发布完成：Hub4ca1f0c、S3 161174d/1.0.46、量产Grbla268e05c及普通e5d7199a已提交推送；本地宿主/Hub full及两Grbl fz standard通过，Hub/S3专项/量产/完整175板型CI均success。量产COM7单次Web OTA；目标S3 c3:70:bc首次HTTP OTA504后download_failed，用户接回COM6，16MB完整备份后单次USB写入/独立校验和NVS不变通过，绑定探活确认1.0.46并按版本结清ok/100。七项控制最终通过，控制后48项参数不变、原点Idle；暂停首轮云504/TLS失败保留并完整复验。主备同SHA1.0.46推荐与小程序0.3.31上传301395B已验，上传不等于平台发布。最新preflight主25/34、备27/34，备公网files新增失败不写基线一致；Wokwi云启动、手机生命周期及factory_paired=false/纸面/老化/交付仍Hold。详见[本批记录](design/three-repo-review-20261022.md)及本机verification.json。

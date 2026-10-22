@@ -1,5 +1,9 @@
 # 跨仓工作树清单（2026-08-24 更新）
 
+2026-10-22 F48 三项修复进行中：Hub 改 pipeline/firmware_ota/app、PNG EXIF 与 OTA 闸回归、小程序 0.3.33；S3 升 1.0.49 并新增 z-tls-abandon-leak 补丁。既有未跟踪 tmp/results 保留，不覆盖外仓其他改动。另一 S3 排除，Grbl 无产品 delta。详见 `docs/design/f48-followup-fixes-20261022.md`。
+
+2026-10-22 1.0.48发布后只读续审：Hub `bd97821`、S3 `66f2cc5`、量产Grbl `a268e05c`、普通Grbl `e5d7199a` 已跟踪文件干净。新增 `docs/design/three-repo-followup-review-20261022.md`；三项未修复（放弃TLS后销毁EspSsl、PNG直传不消费EXIF、OTA 600s过期放锁）。产品/正式测试/外仓未改，未部署刷机。既有未跟踪 tmp/results 保留。
+
 2026-10-22 TLS有限等待与EXIF启发式收口：Hub `f487258` 改 `pipeline.py` 共用有向解码并已双机部署；Portal 栅格 610。S3 产品 `0141de4`/1.0.48，CI 补丁头跟进 `66f2cc5`（`diff --git` 防 `--recount` 吞文件头）。既有未跟踪 tmp/results 保留，不覆盖外仓其他改动。目标 Freenove `b8:1f:3f:c3:70:bc` 已 OTA 1.0.48，另一 S3 排除，Grbl 无产品 delta。证据 `results/local-only/2026-10-22-tls-followup/`，脚本 `tmp/tls-followup-20261022/` 仅本机。详见 `docs/design/tls-followup-20261022.md`。
 
 2026-10-22 C22续作：保留接手的页面修复、回归、契约及53处引用纯移动；Hub CI三个外仓快照更新为161174d/a268e05c/e5d7199a，外仓已推送。新增本批回执及USB恢复脚本`tmp/c22-release/usb_recover.py`，仅本机；量产COM7单次OTA/48项参数不变、主备1.0.46同SHA与小程序0.3.31上传已验。S3单次OTA504后download_failed，用户接回同MAC COM6后完整备份/分区核对先行，不覆盖其他资产或旧回执。详情见`docs/design/three-repo-review-20261022.md`，实体Hold保持。

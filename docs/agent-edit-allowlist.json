@@ -1,4 +1,22 @@
 {
+  "f48_followup_fixes_authorized": {
+    "note": "2026-10-22 用户原话：同意修复，刷机部署验证，上传推送。承接 F48-01/02/03：放弃TLS后泄漏整个EspSsl、PNG直传消费EXIF、uncertain OTA 查询失败不放锁。限定这些路径、版本1.0.49、小程序0.3.33、双机精确发布与目标 Freenove 单次OTA。另一S3排除，Grbl无产品delta，不改机械/运动/身份或§5闸。",
+    "contract": "docs/design/three-repo-followup-review-20261022.md F48-01至03；docs/design/tls-followup-20261022.md；protocol §1.2/§4/§5/§10.4.22。",
+    "paths": [
+      "docs/**", "AGENTS.md", "CLAUDE.md", "firmware/README.md", "draw-portal/README.md", ".github/workflows/test.yml",
+      "draw-portal/draw_portal/pipeline.py", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/draw_portal/app.py",
+      "draw-portal/tests/test_pipeline_raster.py", "draw-portal/tests/test_firmware_ota.py",
+      "draw-portal/weapp/utils/version.js",
+      "tmp/f48-followup-20261022/**", "results/local-only/2026-10-22-f48-followup/**",
+      "D:/Users/xiaozhi-esp32/patches/**", "D:/Users/xiaozhi-esp32/scripts/tests/test_tls_lifecycle.py",
+      "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/xiaozhi-esp32/managed_components/78__esp-ml307/include/tcp.h",
+      "D:/Users/xiaozhi-esp32/managed_components/78__esp-ml307/include/http_client.h",
+      "D:/Users/xiaozhi-esp32/managed_components/78__esp-ml307/src/http_client.cc",
+      "D:/Users/xiaozhi-esp32/managed_components/78__esp-ml307/src/esp/esp_ssl.h",
+      "D:/Users/xiaozhi-esp32/managed_components/78__esp-ml307/src/esp/esp_ssl.cc"
+    ]
+  },
   "tls_followup_20261022_authorized": {
     "note": "2026-10-22 用户原话：修复完全，部署验证刷机，上传推送。承接审查发现的 EspSsl Disconnect 无限等待、补丁表漏登、is_photo_raster 未消费 EXIF、readiness 未提交口径。限定 TLS 有限等待+放弃所有权、Portal 共用 EXIF 解码、版本 1.0.48、双机精确发布、目标 Freenove 升级与已有 0.3.32 上传。另一 S3 继续排除，不改机械/运动/身份或校验，Grbl 无产品 delta。",
     "contract": "docs/design/tls-followup-20261022.md；docs/design/tls-release-20261022.md；protocol §1.2/§4/§5/§10.4.22；SDK esp_tls_conn_destroy 拥有 socket 关闭权。",
