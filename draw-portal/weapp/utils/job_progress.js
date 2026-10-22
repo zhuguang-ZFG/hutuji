@@ -67,8 +67,14 @@ function deriveProgressView(status) {
   const page = pageProgress(st.page, st.pages);
   let otaLine = "";
   if (otaState && otaState !== "idle") {
-    const prog = typeof ota.progress === "number" ? ota.progress : 0;
-    otaLine = "OTA " + otaState + " " + prog + "%";
+    const prog = Number.isFinite(ota.progress) ? Math.max(0, Math.min(100, ota.progress)) : 0;
+    const failures = { download_failed: "下载失败，请确认联网后到固件页检查更新",
+      verify_failed: "固件校验失败，请到固件页检查更新", write_failed: "固件写入失败",
+      status_timeout: "升级结果待确认，请到固件页核对" };
+    otaLine = otaState === "failed" ? (failures[ota.reason] || "升级失败，请到固件页查看") :
+      otaState === "rolled_back" ? "已回滚到旧版，请到固件页检查更新" :
+      otaState === "upgrading" ? (prog >= 100 ? "等待设备重启并核对版本" : "固件升级中 " + prog + "%") :
+      "升级状态待确认，请到固件页核对";
   }
   // 固件在任务结束后仍累加计时，终态不能把空闲时间显示为绘制耗时。
   const showTiming = !!BUSY_STATES[state];

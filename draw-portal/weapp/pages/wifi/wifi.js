@@ -6,7 +6,7 @@ const transport = require("../../utils/wifi_transport");
 Page({
   data: {
     step: "scan", apSsid: "", homeSsid: "", homePassword: "", apList: [],
-    wifiLocked: false, deviceMac: "", bindState: "", log: "", authReady: false, showPassword: false, wifiError: "",
+    wifiLocked: false, wifiOpen: false, deviceMac: "", bindState: "", log: "", authReady: false, showPassword: false, wifiError: "",
   },
 
   onLoad(options) {
@@ -57,7 +57,7 @@ Page({
     this._visible = false;
     this._begin();
   },
-  onTogglePassword() { if (this.data.step === "creds") this.setData({ showPassword: !this.data.showPassword }); },
+  onTogglePassword() { if (this.data.step === "creds" && !this.data.wifiOpen) this.setData({ showPassword: !this.data.showPassword }); },
   onGoCreate() { if (this.data.bindState === "bound") wx.switchTab({ url: "/pages/index/index" }); },
   onGoControl() { if (this.data.bindState === "bound") wx.switchTab({ url: "/pages/control/control" }); },
 
@@ -129,7 +129,7 @@ Page({
     const changed = this.data.apSsid !== scan.ssid || this.data.deviceMac !== scan.mac;
     this._scan = scan;
     this.setData({ apSsid: scan.ssid, deviceMac: scan.mac, bindState: "", showPassword: false,
-      ...(changed ? { homePassword: "", wifiLocked: false } : {}) });
+      ...(changed ? { homePassword: "", wifiLocked: false, wifiOpen: false } : {}) });
   },
 
   appendLog(text) {
@@ -150,7 +150,7 @@ Page({
           if (parsed.kind === "bind") {
             this._scan = null;
             identity.clearPending();
-            this.setData({ step: "scan", apSsid: "", deviceMac: "", homePassword: "", showPassword: false, wifiLocked: false, bindState: "" });
+            this.setData({ step: "scan", apSsid: "", deviceMac: "", homePassword: "", showPassword: false, wifiLocked: false, wifiOpen: false, bindState: "" });
             wx.showModal({
               title: "这是设备绑定码", content: "设备已经连好网时，请到绑定页面继续。", confirmText: "去绑定", cancelText: "取消",
               success: (answer) => {
@@ -170,7 +170,7 @@ Page({
         } catch (e) {
           this._scan = null;
           identity.clearPending();
-          this.setData({ apSsid: "", deviceMac: "", bindState: "", homePassword: "", showPassword: false, wifiLocked: false });
+          this.setData({ apSsid: "", deviceMac: "", bindState: "", homePassword: "", showPassword: false, wifiLocked: false, wifiOpen: false });
           wx.showModal({ title: "请扫设备配网码", content: e.message, showCancel: false });
         }
       },
@@ -182,19 +182,19 @@ Page({
     this._begin();
     this._scan = null;
     identity.clearPending();
-    this.setData({ step: "manual", apSsid: "", deviceMac: "", bindState: "", homePassword: "", showPassword: false, wifiLocked: false });
+    this.setData({ step: "manual", apSsid: "", deviceMac: "", bindState: "", homePassword: "", showPassword: false, wifiLocked: false, wifiOpen: false });
   },
 
   onApInput(e) {
     this._scan = null;
     identity.clearPending();
-    this.setData({ apSsid: e.detail.value, deviceMac: "", homePassword: "", showPassword: false, wifiLocked: false });
+    this.setData({ apSsid: e.detail.value, deviceMac: "", homePassword: "", showPassword: false, wifiLocked: false, wifiOpen: false });
   },
   onSsidInput(e) {
     this.setData({ homeSsid: e.detail.value,
-      ...(e.detail.value !== this.data.homeSsid ? { homePassword: "", showPassword: false } : {}) });
+      ...(e.detail.value !== this.data.homeSsid ? { homePassword: "", showPassword: false, wifiOpen: false } : {}) });
   },
-  onPwdInput(e) { this.setData({ homePassword: e.detail.value }); },
+  onPwdInput(e) { if (!this.data.wifiOpen) this.setData({ homePassword: e.detail.value }); },
 
   onStart() {
     if (!this.data.authReady) { this.ensureAuthAndInit(); return; }
@@ -264,12 +264,15 @@ Page({
 
   onPickAp(e) {
     const ssid = e.currentTarget.dataset.ssid || "";
-    this.setData({ homeSsid: ssid, homePassword: ssid === this.data.homeSsid ? this.data.homePassword : "",
-      wifiLocked: true, step: "creds", showPassword: false });
+    const wifiOpen = this.data.apList.some((item) => item.ssid === ssid && item.authmode === 0);
+    this.setData({ homeSsid: ssid,
+      homePassword: !wifiOpen && ssid === this.data.homeSsid ? this.data.homePassword : "",
+      wifiLocked: true, wifiOpen, step: "creds", showPassword: false });
   },
-  onManualSsid() { this.setData({ homeSsid: "", homePassword: "", showPassword: false, wifiLocked: false, step: "creds" }); },
+  onManualSsid() { this.setData({ homeSsid: "", homePassword: "", showPassword: false, wifiLocked: false, wifiOpen: false, step: "creds" }); },
 
   onSubmitCreds() {
+    if (this.data.step === "working" || !this.data.authReady) return;
     if (!this.data.homeSsid) { wx.showToast({ title: "先选家里 Wi-Fi", icon: "none" }); return; }
     const generation = this._begin();
     this.setData({ step: "working", bindState: "", showPassword: false });
@@ -294,7 +297,7 @@ Page({
     this._phase = "waiting";
     this._cancelTcp = transport.request({
       method: "POST", path: "/submit", timeout: 20000,
-      body: { ssid: this.data.homeSsid, password: this.data.homePassword },
+      body: { ssid: this.data.homeSsid, password: this.data.wifiOpen ? "" : this.data.homePassword },
       done: (res) => {
         if (!this._current(generation)) return;
         if ((res.data && res.data.success === false) || res.status >= 400) {
@@ -328,7 +331,7 @@ Page({
     if (!this._current(generation)) return;
     if (!this.data.homeSsid) { this.autoBind(generation); return; }
     wx.connectWifi({
-      SSID: this.data.homeSsid, password: this.data.homePassword,
+      SSID: this.data.homeSsid, password: this.data.wifiOpen ? "" : this.data.homePassword,
       success: () => {
         if (!this._current(generation)) return;
         this.appendLog("手机已连接家里的 Wi-Fi，正在确认设备状态…");
@@ -471,6 +474,6 @@ Page({
     this._scan = null;
     this._phase = "scan";
     identity.clearPending();
-    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, homeSsid: "", homePassword: "", apSsid: "", deviceMac: "", bindState: "", showPassword: false });
+    this.setData({ step: "scan", log: "", apList: [], wifiLocked: false, wifiOpen: false, homeSsid: "", homePassword: "", apSsid: "", deviceMac: "", bindState: "", showPassword: false });
   },
 });

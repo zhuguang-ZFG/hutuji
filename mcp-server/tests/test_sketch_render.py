@@ -254,6 +254,21 @@ def test_hatch_chaining_collapses_pen_lifts():
     assert len(polys) < 40, f"串链失效，折线数={len(polys)}"
 
 
+def test_long_hatch_chain_keeps_every_endpoint_and_owns_output():
+    """长暗区串链保留全部端点、蛇形顺序，不因性能改动丢线或别名修改输入。"""
+    segs = []
+    for x in range(2, 1002, 2):
+        segs.append(np.array([[x, 2], [x, 20]], dtype=np.float64))
+    originals = [p.copy() for p in segs]
+    chains = sketch_render._chain_hatch_segments(segs, np.ones((24, 1008), dtype=bool))
+    assert len(chains) == 1
+    expected = np.concatenate([p if i % 2 == 0 else p[::-1] for i, p in enumerate(segs)])
+    np.testing.assert_array_equal(chains[0], expected)
+    chains[0][:] = 0
+    for original, current in zip(originals, segs):
+        np.testing.assert_array_equal(current, original)
+
+
 def test_hatch_reversed_segment_does_not_draw_across_white_notch():
     """反向接入后须从真实尾端续接，不能从上一段另一端校验白区。"""
     mask = np.ones((12, 18), dtype=bool)

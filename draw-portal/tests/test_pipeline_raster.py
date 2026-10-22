@@ -11,6 +11,31 @@ import io
 
 import pytest
 
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_photo_exif_orientation_consumed_once(orientation):
+    """手机显示方向必须与归一化图片相同，镜像/旋转八种方向且重复归一不再旋转。"""
+    import numpy as np
+    from PIL import Image, ImageOps
+    from draw_portal.pipeline import normalize_raster_to_png
+
+    arr = np.full((48, 80, 3), 255, dtype=np.uint8)
+    arr[:24, :40] = [0, 40, 80]
+    arr[24:, 40:] = [180, 10, 60]
+    exif = Image.Exif()
+    exif[274] = orientation
+    source = io.BytesIO()
+    Image.fromarray(arr).save(source, format="JPEG", quality=95, exif=exif)
+    raw = source.getvalue()
+    with Image.open(io.BytesIO(raw)) as im:
+        expected = np.asarray(ImageOps.exif_transpose(im))
+    normalized = normalize_raster_to_png(raw, line_art=False)
+    with Image.open(io.BytesIO(normalized)) as im:
+        np.testing.assert_array_equal(np.asarray(im), expected)
+        assert not im.getexif().get(274), "方向已应用后不应留重复旋转元数据"
+    with Image.open(io.BytesIO(normalize_raster_to_png(normalized, line_art=False))) as im:
+        np.testing.assert_array_equal(np.asarray(im), expected)
+
 from draw_portal.pipeline import process_upload
 
 

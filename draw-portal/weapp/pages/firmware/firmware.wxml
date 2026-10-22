@@ -42,10 +42,12 @@
   </view>
 
   <view class="weui-btn-area">
+    <button wx:if="{{upgrading}}" class="weui-btn weui-btn_default" bindtap="onQueryUpgrade">查询升级进度</button>
+    <view wx:if="{{upgrading}}" class="weui-cells__tips">可暂时离开本页，回来后继续核对设备状态</view>
     <button wx:if="{{resultUncertain}}" class="weui-btn weui-btn_primary" bindtap="onRecheckResult" loading="{{checking}}" disabled="{{checking}}">重新核对升级结果</button>
     <view wx:if="{{resultUncertain}}" class="weui-cells__tips">只查询上次升级的设备，不会再次下发升级</view>
     <button
-      wx:else
+      wx:if="{{!resultUncertain && !upgrading}}"
       class="weui-btn weui-btn_default"
       bindtap="onCheck"
       loading="{{checking}}"

@@ -473,3 +473,5 @@
 2026-10-21 R20F技术发布完成：Hub eb25bb2五文件主备deploy+verify/生产烟测通过，S3 a8f13b72/1.0.41与量产Grbl bc2cf670均单次OTA、重启/身份与48项参数复核有证；控制回归通过，Run查询守卫实机error8、Hold查询入队延迟导致附加探针未覆盖（宿主action已验），不混记。小程序0.3.27上传295665B；双机Freenove推荐/catalog/latest一致。preflight25/34、26/34已知差异保留，fz仅Wokwi超时失败、本轮QEMU PASS。产品三仓已推送，CI完成情况单独记录；factory_paired=false与纸面/老化/交付签核Hold不变。详见 docs/design/three-repo-release-20261021.md 及本机 results/local-only/2026-10-21-release/verification.json。
 
 2026-10-22 三仓继续只读审查：当前Hub9ae7d55/S3fe7120b/量产Grbl39ecd288与普通c0ed039a对照，四项P2已复现未修复：两Grbl完整行取出后会话失效仍交执行器、S3试笔应答失败缺本次status原因或沿用旧错误、配网bound重新认证自动切旧AP、绑定完成跨代次保留并自动重发旧短码。真实函数/页面探针与正常对照有证，相邻C++33及小程序69通过不覆盖新增条件。记录[本轮审查](design/three-repo-review-20261022.md)，本机证据 `results/local-only/2026-10-22-review/`。未改产品、部署刷机或设备控制，不覆盖R2未完成控制复核，实体Hold继续。
+
+2026-10-22 体验优化本地候选：用户要求各方向都改善，Hub修复照片EXIF方向与两风格串链复制成本，小程序增加升级阶段/失败恢复/只读查询、控制升级中文原因、开放Wi-Fi空密码及重复提交保护。八种方向逐像素对照及串链旧新版逐点等值有证，长排线/暗波纹算法段约12%/10%提速，非整单/纸面速度结论。小程序363通过、Portal609通过，Hub最终1692/1692+e2e及overall=pass；未提交/部署/上传/刷机，生产仍C22版本与实体Hold。详见docs/design/experience-optimization-20261022.md及本机results/local-only/2026-10-22-optimization/。

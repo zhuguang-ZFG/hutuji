@@ -9,7 +9,7 @@ const REASON_ZH = {
   board_mismatch: "固件与机型不符",
   check_failed: "检查更新失败，请稍后",
   status_timeout: "暂未确认升级结果，请检查设备后重新查询",
-  download_failed: "下载失败，可重试",
+  download_failed: "下载失败。请确认设备联网；若仍失败，重启小派后重新检查更新",
   verify_failed: "固件校验失败",
   write_failed: "写入失败，请重试",
   up_to_date: "已是最新版本",
@@ -233,7 +233,7 @@ Page({
   },
 
   _startUpgrade() {
-    if (this.data.upgrading || this.data.checking || this.data.resultUncertain) return;
+    if (!this.data.updateAvailable || this.data.upgrading || this.data.checking || this.data.resultUncertain) return;
     const mac = this._deviceMac;
     if (!mac) {
       this._setTip("设备信息未就绪，请刷新后重试", "warn");
@@ -245,6 +245,7 @@ Page({
     this._pollDeadline = Date.now() + POLL_WINDOW_MS;
     this.setData({
       upgrading: true,
+      updateAvailable: false,
       resultUncertain: false,
       progress: 0,
       progressLabel: "正在下发升级…",
@@ -316,7 +317,7 @@ Page({
         if (!current()) return;
         const state = String((st && st.state) || "").toLowerCase();
         const progress =
-          typeof (st && st.progress) === "number" ? Math.max(0, Math.min(100, st.progress)) : this.data.progress;
+          Number.isFinite(st && st.progress) ? Math.max(0, Math.min(100, st.progress)) : this.data.progress;
         const reason = (st && st.reason) || "";
         if (st && st.target_version) {
           this.setData({ targetVersion: st.target_version });
@@ -348,6 +349,7 @@ Page({
           this.setData({
             upgrading: false,
             resultUncertain: reason === "status_timeout",
+            updateAvailable: false,
             progress,
             progressLabel: reason === "status_timeout" ? "结果待确认" : (state === "rolled_back" ? "已回滚" : "升级失败"),
           });
@@ -359,11 +361,23 @@ Page({
 
         // upgrading / idle / 其它进行中
         let label = "升级中…";
-        if (state === "upgrading") label = "下载 / 写入中…";
+        let tip = "升级中，请保持设备联网";
+        if (state === "upgrading") {
+          const ota = (st && st.ota) || {};
+          if (ota.state === "failed" || ota.state === "rolled_back") {
+            // 该失败可能属于上次升级；保留占位，只解释设备报告并查询本轮结果。
+            label = "正在核对升级结果…";
+            const failure = { download_failed: "下载失败", verify_failed: "校验失败", write_failed: "写入失败" };
+            tip = "设备报告" + (ota.state === "rolled_back" ? "已回滚" : failure[ota.reason] || "升级失败") + "，本次结果仍在核对，请勿重复升级";
+          } else if (progress >= 100) label = "等待设备重启并核对版本…";
+          else if (ota.state === "upgrading") label = "下载 / 写入中…";
+          else label = "等待设备确认升级…";
+        }
         this.setData({
           upgrading: true,
           progress,
           progressLabel: label,
+          statusTip: tip,
         });
         this._pollTimer = setTimeout(() => this._pollOnce(), POLL_MS);
       })
@@ -385,6 +399,13 @@ Page({
     this._stopPoll();
     this.setData({ upgrading: false, resultUncertain: true, updateAvailable: false, progressLabel: "结果待确认" });
     this._setTip("暂未确认升级结果，请查看设备屏幕后重新核对", "warn");
+  },
+
+  onQueryUpgrade() {
+    if (this._visible === false || !this.data.upgrading || this._pollFlight) return;
+    if (this._pollTimer) clearTimeout(this._pollTimer);
+    this._pollTimer = null;
+    this._pollOnce();
   },
 
   onRecheckResult() {

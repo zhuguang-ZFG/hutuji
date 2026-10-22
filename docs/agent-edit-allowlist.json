@@ -1,4 +1,14 @@
 {
+  "tls_release_20261022_authorized": {
+    "note": "2026-10-22 用户明确要求部署上传此前优化，找出固件TLS下载失败原因修复改进。限定EspSsl关闭所有权/诊断补丁、宿主交错回归、版本1.0.47与原板构建升级验证及Hub精确发布/小程序0.3.32上传。另一S3继续排除，不改机械/运动/身份或校验。",
+    "contract": "docs/design/tls-release-20261022.md；protocol §1.2/§4/§10.4.22；SDK esp_tls_conn_destroy拥有socket关闭权。",
+    "paths": ["docs/**", "AGENTS.md", "draw-portal/README.md", "mcp-server/README.md", "firmware/README.md", ".github/workflows/test.yml", "draw-portal/weapp/utils/version.js", "tmp/tls-release-20261022/**", "results/local-only/2026-10-22-tls-release/**", "D:/Users/xiaozhi-esp32/patches/**", "D:/Users/xiaozhi-esp32/scripts/apply_tls_lifecycle_patch.py", "D:/Users/xiaozhi-esp32/scripts/tests/test_tls_lifecycle.py", "D:/Users/xiaozhi-esp32/CMakeLists.txt"]
+  },
+  "experience_optimization_20261022_authorized": {
+    "note": "2026-10-22 用户要求继续改进优化，并明确下载稳定性、配网控制体验、画质与速度都要改善；本批限定Hub本地实现和验证，不新增硬件运动/身份/校验规则。",
+    "contract": "docs/design/experience-optimization-20261022.md；protocol §5/§10.4.2–4/§10.4.10/§10.4.22。",
+    "paths": ["docs/**", "draw-portal/README.md", "mcp-server/README.md", "draw-portal/draw_portal/pipeline.py", "draw-portal/tests/**", "draw-portal/weapp/pages/wifi/**", "draw-portal/weapp/pages/firmware/**", "draw-portal/weapp/utils/job_progress.js", "mcp-server/hutuji_mcp/sketch_render.py", "mcp-server/tests/test_sketch_render.py", "tmp/optimization-20261022/**", "results/local-only/2026-10-22-optimization/**"]
+  },
   "c22_fixes_release_authorized": {
     "note": "2026-10-22 用户要求四项完全修复下载刷机部署验证推送。授权两Grbl完整行会话领取与对应回归、S3试笔错误状态与1.0.46、配网/绑定认证恢复与小程序0.3.31、真实构建门禁、主备精确发布、量产双板同SKU升级/验证及Git推送；普通换纸镜像不得刷量产nopaper板，另一S3排除。",
     "contract": "docs/design/three-repo-review-20261022.md C22-01至04；protocol §1.2/§3/§4/§10.4.2–4。",

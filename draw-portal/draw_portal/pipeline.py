@@ -94,7 +94,8 @@ def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:
     import imageio.v3 as iio
 
     _guard_raster_dimensions(raw)
-    arr = iio.imread(raw)
+    # 手机照片常把竖拍方向存在EXIF；消费一次后再写无EXIF的PNG，避免横倒或重复旋转。
+    arr = iio.imread(raw, plugin="pillow", rotate=True)
     if line_art and _looks_like_photo(arr):
         arr = _photo_to_line_art(arr)
     buf = io.BytesIO()

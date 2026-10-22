@@ -468,7 +468,9 @@ def _chain_hatch_segments(
         return bool(mask[xy[:, 1], xy[:, 0]].all())
 
     chains: list[np.ndarray] = []
-    cur = segs[0].copy()
+    # 长链逐段vstack会反复复制已累积顶点；只保留分段引用，在换笔时一次拼接。
+    # 近邻选择、翻转、白区校验和顶点顺序均保持，性能改动不改变纸面轨迹。
+    cur = [segs[0]]
     used[0] = True
     pos = ends[0]
     for _ in range(len(segs) - 1):
@@ -483,18 +485,18 @@ def _chain_hatch_segments(
         else:
             j, dist, nxt = j_e, d_end[j_e], segs[j_e][::-1]
         if dist <= _CHAIN_MAX_GAP_PX and linkable(pos, nxt[0]):
-            cur = np.vstack([cur, nxt])
+            cur.append(nxt)
             used[j] = True
             # nxt 可能反向；原段 ends[j] 此时是刚接入的头，不能再当作尾端。
             pos = nxt[-1]
         else:
-            chains.append(cur)
+            chains.append(np.concatenate(cur))
             free = np.flatnonzero(~used)
             j = int(free[np.argmin(np.hypot(starts[free, 0] - pos[0], starts[free, 1] - pos[1]))])
-            cur = segs[j].copy()
+            cur = [segs[j]]
             used[j] = True
             pos = ends[j]
-    chains.append(cur)
+    chains.append(np.concatenate(cur))
     return chains
 
 
@@ -569,7 +571,7 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
     h, w = gray.shape
     weight = _saliency_subject_weight(original)
     darkness = 1.0 - _apply_background_suppression(gray, _subject_keep_weight(weight, gray))
-    polys: list[np.ndarray] = []
+    chains: list[list[np.ndarray]] = []
     x = np.arange(w, dtype=np.float64)
     phase = 2.0 * np.pi * x / _SQUIGGLE_WAVELENGTH_PX
     rows = np.arange(_SQUIGGLE_ROW_SPACING_PX / 2, h, _SQUIGGLE_ROW_SPACING_PX)
@@ -606,11 +608,13 @@ def render_squiggle(image_bytes: bytes) -> tuple[list[np.ndarray], int, int]:
                 and abs(seg[0, 0] - serpentine_prev_end[0]) <= w * 0.2
                 and _squiggle_link_stays_dark(serpentine_prev_end, seg[0], darkness)
             ):
-                polys[-1] = np.vstack([polys[-1], seg])
+                chains[-1].append(seg)
             else:
-                polys.append(seg)
+                chains.append([seg])
             serpentine_prev_end = seg[-1]
             serpentine_prev_row = row_idx
+    # 先收分段再拼接，避免纯暗区数百行蛇形链反复复制整幅顶点。
+    polys = [np.concatenate(chain) for chain in chains]
     polys.extend(_filter_polys_by_weight(_iso_contours(gray), weight))
     if not polys:
         raise SketchRenderError("波纹渲染产出为空（图片可能为纯白）")
