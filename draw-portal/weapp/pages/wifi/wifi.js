@@ -102,7 +102,8 @@ Page({
       this._sessionGeneration = getApp()._sessionGeneration;
       this.setData({ authReady: true });
       if (this._scan) identity.remember(this._scan, "wifi", this._phase, false);
-      if (this._phase === "waiting") { this.checkBinding(); return; }
+      // 完成态跨登录代次必须只读核归属，不能借重新认证自动切回旧设备热点。
+      if (this._phase === "waiting" || this._phase === "bound") { this.checkBinding(); return; }
       wx.startWifi({
         success: () => {
           if (!this._current(generation)) return;

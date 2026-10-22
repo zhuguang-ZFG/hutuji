@@ -40,13 +40,13 @@
 | 层 | 奎享 | 我方（Grbl_Esp32 fork） |
 |----|------|------------------------|
 | 传输暂存 | `a/b/b.java:18-21` 包装 Apache MINA `IoBuffer`，`setAutoExpand(true)` → **自动扩容，不会溢出、不会静默丢字节** | `WebUI/InputBuffer.h:55` `RXBUFFERSIZE = 2048` 固定；`InputBuffer.cpp:48-63` 满则 `return 0` |
-| 写入返回值 | Java 侧无「写不进」这一状态 | `Serial.cpp:236` `client_accept_byte(client, data, rx_epoch)` **返回值被忽略**，满时丢字节且无日志 |
-| 并发保护 | 单读线程 + `LinkedBlockingDeque` | `InputBuffer` 自身无锁，但 `Serial.cpp:94-101`（写）与 `:270-276`（读）都在 `vTaskEnterCritical(&myMutex)` 内 —— **已核实，不是竞态点** |
+| 写入返回值 | Java 侧无「写不进」这一状态 | `Serial.cpp:253` `client_accept_byte(client, data, rx_epoch)` **返回值被忽略**，满时丢字节且无日志 |
+| 并发保护 | 单读线程 + `LinkedBlockingDeque` | `InputBuffer` 自身无锁，但 `Serial.cpp:111-118`（写）与 `:270-276`（读）都在 `vTaskEnterCritical(&myMutex)` 内 —— **已核实，不是竞态点** |
 
 另两个观察（尚未确认是否有实际影响）：
 
-- `InputBuffer::flush()`（`InputBuffer.cpp:113-116`）是**空实现**，清缓冲只能靠 `client_reset_read_buffer()`（`Serial.cpp:271-277`），而后者**没有进临界区**。
-- `getClientChar()` 只在 CLIENT_SERIAL 分支（`Serial.cpp:166`/`:136`）查了 `availableforwrite()`，telnet / BT / Serial2Socket 分支没查。奎享窗口 100 时在途 4–5 行，几乎撞不到 2048 上限；我方窗口 512 字节，余量小一个量级。
+- `InputBuffer::flush()`（`InputBuffer.cpp:113-116`）是**空实现**，清缓冲只能靠 `client_reset_read_buffer()`（`Serial.cpp:288-294`），而后者**没有进临界区**。
+- `getClientChar()` 只在 CLIENT_SERIAL 分支（`Serial.cpp:183`/`:136`）查了 `availableforwrite()`，telnet / BT / Serial2Socket 分支没查。奎享窗口 100 时在途 4–5 行，几乎撞不到 2048 上限；我方窗口 512 字节，余量小一个量级。
 
 ## 4 我方 error:8 重发：设计上已避开奎享的坑
 
@@ -55,8 +55,8 @@
 | 位置 | 行为 |
 |------|------|
 | `hutuji_pipe.cc:879-890` | `error:8` 单独归类为 `WaitResult::Deferred`，其余 error 归 `Failed` |
-| `hutuji_job.cc:4386-4399` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`hutuji_job.cc:143`） |
-| `hutuji_job.cc:4528-4539` | 窗口化普通行分支：`Failed/Deferred` 先发 `!`、清窗并标记 Quiesced（调用点 `hutuji_job.cc:4658-4664`），退出流循环后同步受控 reset，再发布失败终态；不再只改软件状态 |
+| `hutuji_job.cc:4404-4417` | 换纸行逐行分支：`Deferred` → 等 2s 原地重发同一行，上限 `kDeferredMaxRetries = 8`（`hutuji_job.cc:143`） |
+| `hutuji_job.cc:4546-4557` | 窗口化普通行分支：`Failed/Deferred` 先发 `!`、清窗并标记 Quiesced（调用点 `hutuji_job.cc:4676-4682`），退出流循环后同步受控 reset，再发布失败终态；不再只改软件状态 |
 
 **由此证伪一条假设**（我今晚提出后自行推翻，记在此处防止重走）：「run1 的 A/B 对调 = error:8 触发重发把 A 排到 B 之后」。当前窗口化分支收到 `error:8` 会先物理停机并受控 reset，而不是重发；run1 是完整走完的，且日志无 error。已同步记入 `docs/troubleshooting.md` 的证伪表。
 
@@ -65,7 +65,7 @@
 | 项 | 奎享 | 我方 | 取舍理由 |
 |----|------|------|----------|
 | 断线恢复 | `pollLast()` 挪到队尾（缺陷） | 断连后从第 1 行整体重画 | 正确性优先；重画代价是废一张纸，错序代价是废一张纸**且不自知** |
-| 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:4426-4427`） |
+| 合批写 | 一个窗口多行拼进 TX 暂存，`machine/f/b.java:73` 泵完只 flush 一次 → 一次 socket write | 每行一次 `send()` | 本机固件实测多行同包会少应答、窗口计数永久漂移（`hutuji_job.cc:4444-4445`） |
 | 出图收尾 | `machine/grbl/a.java:298-301` `b()` = `G90G0 X0Y0` 回原点（字面量在 `:300`） | 文件只抬笔；S3 页尾旁路 `G1G90 X0Y0F8000` 归位（G1 不触发换纸，2026-08-14 归位决策）+ `M30` 换纸 | 本机固件把 `G0 X0Y0` 判为换纸触发，见 `docs/protocol.md` §5 |
 | stop/reset | 普通 stop 队尾追加抬笔+回原点；独立 reset2 才由 `machine/grbl/a.java:365-373` 发 `0x18` | 发 `!` 后按 Hold/Idle/任务状态处理 | 奎享 stop 非实时，reset2 又无安全 Hold；均不对齐（findings/20） |
 | 笔控落点 | `GrblSettings.java` 默认 `zOn=2.0 / zOff=0.0 / zSpeed=3000` | 实测 `zOn=5.0 / zOff=0.0 / F10000` | **结构对齐、数值按本机实测**；奎享默认值是出厂缺省，不是本机可用值 |

@@ -27,14 +27,19 @@ Page({
     const returning = this._visible === false;
     this._visible = true;
     if (this._sessionGeneration !== getApp()._sessionGeneration) {
+      const completed = this.data.step === "bound";
       this._begin();
       this._authReady = false;
+      this._boundMac = null;
+      this._resumeCheck = !!this.data.code;
+      if (completed) this._completedNeedsCheck = true;
+      this.setData({ step: "input", submitting: false, macSuffix: "", waitSeconds: 0 });
     }
     if (this._scanning && this._scanning.session === getApp()._sessionGeneration) return;
     this._scanning = null;
     if (returning) {
       this.setData({ submitting: false });
-      this._resumeCheck = !!this.data.code && this.data.step !== "bound";
+      this._resumeCheck = this._resumeCheck || (!!this.data.code && this.data.step !== "bound");
       if (this._authReady && this._resumeCheck) { this.checkBinding(); return; }
     }
     if (!this._authReady) this.ensureAuth();
@@ -82,7 +87,17 @@ Page({
       this._authReady = true;
       this._sessionGeneration = getApp()._sessionGeneration;
       identity.remember(this._scan, "bind", "scan", false);
-      if (this._resumeCheck && this.data.code) this.checkBinding();
+      if (this._completedNeedsCheck) {
+        this._completedNeedsCheck = false;
+        if (this._scan && this._scan.mac && this._scan.identity) this.checkBinding();
+        else if (!this.data.code) this.pollStatus();
+        else {
+          this._resumeCheck = false;
+          this.setData({ step: "input", submitting: false });
+          wx.showToast({ title: "请核对设备绑定码后继续", icon: "none" });
+        }
+      }
+      else if (this._resumeCheck && this.data.code) this.checkBinding();
       else if (this.data.code) this.doBind(false);
       else this.pollStatus();
     }).catch(() => {}).finally(() => { if (this._authPending === generation) this._authPending = false; });
@@ -92,6 +107,8 @@ Page({
     this._begin();
     this._scan = null;
     this._resumeCheck = false;
+    this._completedNeedsCheck = false;
+    this._boundMac = null;
     identity.clearPending();
     this.setData({ code: String(e.detail.value || "").toUpperCase().replace(/[^0-9A-Z]/g, ""), submitting: false });
   },
@@ -221,6 +238,9 @@ Page({
       if (active) {
         this._boundMac = active.device_mac;
         this.setData({ step: "bound", macSuffix: active.device_mac.slice(-5) });
+      } else {
+        this._boundMac = null;
+        this.setData({ step: "input", macSuffix: "", submitting: false, waitSeconds: 0 });
       }
     }).catch(() => {});
   },
@@ -230,6 +250,8 @@ Page({
     this._begin();
     this._scan = null;
     this._resumeCheck = false;
+    this._completedNeedsCheck = false;
+    this._boundMac = null;
     identity.clearPending();
     this.setData({ step: "input", code: "", submitting: false, waitSeconds: 0 });
   },

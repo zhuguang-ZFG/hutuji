@@ -165,7 +165,7 @@ S3 → [TCP/lwip] → ①Telnet 环形缓冲 1200B → ②client_buffer[TELNET] 
 | 级 | 容量 | 源码 | 满了会怎样 |
 |---|---|---|---|
 | ① | **1200** | `WebUI/TelnetServer.h:33` | **有反压**：只从 socket 读 `min(available, 1200-已用)`（`TelnetServer.cpp:251-268`），剩下的留在 lwip → TCP 窗口关闭 → 发送方阻塞。**安全** |
-| ② | **2048** | `WebUI/InputBuffer.h:55` | **无反压**：`getClientChar()` 搬字节时**不检查** ②的余量（`Serial.cpp:192-201`），而 `InputBuffer::write()` 满了直接 `return 0` **静默丢字节**（`InputBuffer.cpp:48-63`） |
+| ② | **2048** | `WebUI/InputBuffer.h:55` | **无反压**：`getClientChar()` 搬字节时**不检查** ②的余量（`Serial.cpp:209-218`），而 `InputBuffer::write()` 满了直接 `return 0` **静默丢字节**（`InputBuffer.cpp:48-63`） |
 | 行缓冲 | 256 | `Protocol.h:33-34` | 超长回 `error:11` |
 
 ### 一个必须知道的固件不对称（新发现，决定窗口不能省）
@@ -173,10 +173,10 @@ S3 → [TCP/lwip] → ①Telnet 环形缓冲 1200B → ②client_buffer[TELNET] 
 `getClientChar()` 对串口有空间检查，对 Telnet **没有**：
 
 ```cpp
-// Serial.cpp:166-172  串口：先问 client_buffer 有没有空位
+// Serial.cpp:183-189  串口：先问 client_buffer 有没有空位
 if (client_buffer[CLIENT_SERIAL].availableforwrite() && (res = Uart0.read()) != -1) { ... }
 
-// Serial.cpp:192-201  Telnet：不问，直接搬
+// Serial.cpp:209-218  Telnet：不问，直接搬
 const int telnet_byte = WebUI::telnet_server.read(rx_epoch);  // ← 从①取出（①的计数已减）
 if (telnet_byte != -1) {
     *data = telnet_byte;
@@ -360,7 +360,7 @@ while (lines_sent_ < lines_.size() && !c_line.empty()) {
 | **S1** | ✅ Pipe 侧应答队列 + 兼容包装 | 已编译、烧录 COM9、Telnet 连通（§5.1） |
 | **S2** | ✅ Job 侧预解析成零拷贝行索引，窗口=1 | 旧/新解析对真实产物与边界集逐字一致；IDF 构建、烧录、45s 启动观察通过（§5.2） |
 | **S3** | ✅ 窗口=512（`kStreamWindowBytes` / `kWindow`），应答队列按最短非空行最坏在途数推导为 255，换纸行前排空 `c_line`（`paper_pending`） | 历史镜像已烧录并通过 B-12 409 行连续出图；2026-08-06 容量修复 host 回归和 ESP-IDF v6.0.1 构建通过，**新镜像未烧录** |
-| **S4** | 🟡 容差已回调 0.05mm（`gcode_gen.py`）；自适应 `Bf` 反压**未做**（`hutuji_job.cc:4228-4229` TODO） | 缺 0.05mm 真实图样的**有纸**出图证据：曲线细节改善且无停顿 |
+| **S4** | 🟡 容差已回调 0.05mm（`gcode_gen.py`）；自适应 `Bf` 反压**未做**（`hutuji_job.cc:4246-4247` TODO） | 缺 0.05mm 真实图样的**有纸**出图证据：曲线细节改善且无停顿 |
 
 S2 是**关键安全阀**：窗口=1 时行为必须与现状完全一致，S3 出问题一个常量回退。
 
@@ -476,7 +476,7 @@ S3 窗口化需要在发送前知道「下一行长度」（peek）；本设计�
 | 串口 `Bf` 第二数恒 128 | **实测** | 6 次采样全 128；`Report.cpp:55` `DEFAULTBUFFERSIZE=64` 不匹配，实为 `client_get_rx_buffer_available` 结果 | — |
 | **Telnet `Bf` 第二数 = 1200** | **实测** | S3 侧抓到 `<Idle|...|Bf:249,1200|...>`（S1 烧录后首条应答，§5.1） | 未在灌数据时观察下降 |
 | ①容量 1200、②容量 2048 | 源码 | `TelnetServer.h:33`、`InputBuffer.h:55` | 未做溢出实测（静默丢字节，需长文件+CRC 比对写字机实收） |
-| ①有反压、②无反压 | 源码 | `TelnetServer.cpp:251-268`、`Serial.cpp:192-201`、`InputBuffer.cpp:48-63` | 逻辑闭环 |
+| ①有反压、②无反压 | 源码 | `TelnetServer.cpp:251-268`、`Serial.cpp:209-218`、`InputBuffer.cpp:48-63` | 逻辑闭环 |
 | 换纸期是②溢出的危险窗口 | **推断** | 主循环阻塞 → ②只进不出（§3 推理） | 未实测（换纸期灌数据风险高，不建议实测） |
 | 512 起步值 | 工程判断 | ①的 43% | 非最优值，S3 定夺 |
 | 窗口化能消除 WiFi 卡顿 | **推断** | 原理 + 奎享现役产品间接证据 | **S3 必须走 Telnet 实测**；串口实测已证明不能外推 |

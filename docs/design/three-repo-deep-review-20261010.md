@@ -6,7 +6,7 @@
 
 ### DR10-01 / P1：Telnet 断线不清空该客户端的半行缓冲
 
-量产 Grbl 的 `Protocol.cpp` 为每个 client 保留 `client_lines[client]`，超长行和普通半行都要等 CR/LF 才结束；`Serial.cpp:272` 的 `client_reset_read_buffer()` 只在协议启动时调用。`TelnetServer::end()` 与 `clearClients()` 只关闭 `WiFiClient`，没有重置 `CLIENT_TELNET` 的 `client_buffer` 或 `client_lines`。
+量产 Grbl 的 `Protocol.cpp` 为每个 client 保留 `client_lines[client]`，超长行和普通半行都要等 CR/LF 才结束；`Serial.cpp:289` 的 `client_reset_read_buffer()` 只在协议启动时调用。`TelnetServer::end()` 与 `clearClients()` 只关闭 `WiFiClient`，没有重置 `CLIENT_TELNET` 的 `client_buffer` 或 `client_lines`。
 
 真实函数宿主探针 `cpp-probes.json` 的 `telnet_session` 证明了边界：上一连接发送未终止的 `G1 X10 F100` 后断开，新连接发送 `$I\n` 时，协议层仍可见旧连接数据。当前测试覆盖短读、零读、关闭和重新 accept，但没有跨连接半行用例。影响是旧连接残片可与新连接首行拼接，造成错误命令或在特定拼接下执行旧运动参数；这是会话隔离缺口。
 
