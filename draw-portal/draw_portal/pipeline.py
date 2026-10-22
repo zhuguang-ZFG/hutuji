@@ -80,6 +80,13 @@ class DocPipelineResult:
     preview_path: Path
 
 
+def _imread_oriented(raw: bytes):
+    """消费 EXIF 方向（含镜像）；normalize 与照片启发式必须同一解码口径。"""
+    import imageio.v3 as iio
+
+    return iio.imread(raw, plugin="pillow", rotate=True)
+
+
 def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:
     """WebP/GIF/BMP/PNG/JPEG 统一为 PNG 字节。
 
@@ -95,7 +102,7 @@ def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:
 
     _guard_raster_dimensions(raw)
     # 手机照片常把竖拍方向存在EXIF；消费一次后再写无EXIF的PNG，避免横倒或重复旋转。
-    arr = iio.imread(raw, plugin="pillow", rotate=True)
+    arr = _imread_oriented(raw)
     if line_art and _looks_like_photo(arr):
         arr = _photo_to_line_art(arr)
     buf = io.BytesIO()
@@ -110,11 +117,9 @@ def is_photo_raster(raw: bytes) -> bool:
     一律 False——判不出就维持现状（只有 Canny 结果），不为可用性特性加
     fail-closed 面。
     """
-    import imageio.v3 as iio
-
     try:
         _guard_raster_dimensions(raw)
-        arr = iio.imread(raw)
+        arr = _imread_oriented(raw)
         return _looks_like_photo(arr)
     except Exception:
         return False

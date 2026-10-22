@@ -184,6 +184,29 @@ def test_shrink_oversized_rejects_bomb_before_decode(monkeypatch):
     assert seen == []
 
 
+def test_photo_heuristic_uses_oriented_decode(monkeypatch):
+    """照片启发式必须与归一化共用 EXIF 方向消费，避免竖拍被横着判类。"""
+    import imageio.v3 as iio
+
+    from draw_portal import pipeline
+
+    seen: list[dict] = []
+    real = iio.imread
+
+    def wrapped(*args, **kwargs):
+        seen.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(iio, "imread", wrapped)
+    jpeg = _drawing_jpeg()
+    pipeline.is_photo_raster(jpeg)
+    pipeline.normalize_raster_to_png(jpeg, line_art=False)
+    assert seen
+    assert all(
+        call.get("plugin") == "pillow" and call.get("rotate") is True for call in seen
+    )
+
+
 def test_is_photo_raster_bomb_returns_false_without_decode(monkeypatch):
     """照片启发式对像素炸弹走 fail-soft（返回 False），且不触发全量解码。"""
     import imageio.v3 as iio

@@ -1,5 +1,7 @@
 # 发布与出货就绪度
 
+2026-10-22 TLS有限等待与EXIF启发式源码已提交：S3 `0141de4`/1.0.48，Hub 本提交含 Portal 共用有向解码。宿主 TLS 5/5、S3 全套 398、Portal 610、Hub full 1692+e2e 与 docs 通过。部署、刷机、小程序上传与公网推荐另记本条后续或下一段；不得把源码提交写成已上板或实体放行。另一 S3 排除，Grbl 无 delta。详见 [本批记录](design/tls-followup-20261022.md)。
+
 2026-10-22 C22技术发布完成：Hub4ca1f0c、S3 161174d/1.0.46、量产Grbla268e05c及普通e5d7199a已提交推送；本地宿主/Hub full及两Grbl fz standard通过，Hub/S3专项/量产/完整175板型CI均success。量产COM7单次Web OTA；目标S3 c3:70:bc首次HTTP OTA504后download_failed，用户接回COM6，16MB完整备份后单次USB写入/独立校验和NVS不变通过，绑定探活确认1.0.46并按版本结清ok/100。七项控制最终通过，控制后48项参数不变、原点Idle；暂停首轮云504/TLS失败保留并完整复验。主备同SHA1.0.46推荐与小程序0.3.31上传301395B已验，上传不等于平台发布。最新preflight主25/34、备27/34，备公网files新增失败不写基线一致；Wokwi云启动、手机生命周期及factory_paired=false/纸面/老化/交付仍Hold。详见[本批记录](design/three-repo-review-20261022.md)及本机verification.json。
 
 2026-10-21 R2五项修复发布：S3 fe7120b/1.0.45与量产Grbl39ecd288已提交推送并量产双板单次OTA成功，Grbl重启/刷后48项不变；主备1.0.45指针与3092112B镜像SHA一致。S3全389、Grbl76、Portal601、小程序350、Hub full1691+e2e、fz standard通过，Wokwi配额未执行不混记芯片启动验证；小程序0.3.30上传300718B。预览取消/拒绝与正常小图实机通过，后续repeat/stop/pen初始只读探活504→404且USB COM3/6均消失，未下发动作，控制后48项复核待设备恢复。详见[本批发布](design/three-repo-postrelease-review-20261021.md)及本机 `results/local-only/2026-10-21-r2-release/`。已请求重接，未宣称全部HIL通过，实体Hold不变。

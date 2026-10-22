@@ -1,5 +1,7 @@
 # draw-portal（买家绑机 + 网页传图）
 
+2026-10-22 照片启发式与归一化共用 `_imread_oriented`（Pillow `rotate=True`），避免竖拍 EXIF 未转置被横着判类。Portal pytest 610 项；部署与纸面状态只看 readiness。
+
 2026-10-08 小程序0.3.24候选：创作/AI写文/排版/笔顺请求统一300s，发送150s覆盖设备确认窗口，普通读取仍20s；共用`utils/operation_feedback.js`，不自动重发生成或运动。AI原稿撤回和迟到新稿主动采用、照片草图/精修对比与选中版本分享、历史搜索/照片手绘分类/排序、纸张未保存编辑恢复、配网密码显隐/空热点错误提示、升级结果只读核对均已加入。原生多卡片预览须`observeAll:true`；账号/设备/页面边界仍走page_session和纸张marker。实现与回归见[本批设计](../docs/design/weapp-improvements-20261008.md)，上传/发布状态只看readiness。
 
 2026-09-25 网页量产候选：传图门户/运营后台修复请求乱序、重复操作、取消封禁、防注入和手机设备表隐藏；小程序API严格检查HTTP/JSON、提交失败提示核对状态。浏览器24项、小程序252项、本服务pytest449项通过，未上线。共享浏览器回归入口见 [tests/web/README.md](tests/web/README.md)，设计与验证边界见 [网页复审](../docs/design/web-production-review-20260925.md)。

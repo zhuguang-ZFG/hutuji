@@ -1,5 +1,7 @@
 # firmware/：S3 哑管道固件补丁资料
 
+2026-10-22 TLS有限等待收口：S3 升 `hutuji.1.0.48`，Disconnect 最多 3×10s，超时放弃 TLS 所有权并泄漏事件组；tracked 补丁表登记 `esp-ml307-tls-socket-lifecycle.patch`。宿主 `test_tls_lifecycle` 5/5。板上与公网状态只看 readiness；不改运动/身份/OTA 校验。详见 `../docs/design/tls-followup-20261022.md`。
+
 2026-10-21 R2停止/试笔收尾修复：S3 fe7120b/1.0.45已主备发布并OTA至现役量产Freenove c3:70:bc，普通创建失败与预启动取消、新试笔失败终态均有宿主回归，S3全389/代表双板构建/Hub full通过。量产Grbl39ecd288同步修补断连会话清理，COM3单次HTTP OTA重启及刷后48项不变。小程序0.3.30已上传；实机预览取消与正常小图通过，后续控制验收因USB双板缺席与消息探活404等待重接，不混记全部HIL通过。详见[本批发布](../docs/design/three-repo-postrelease-review-20261021.md)及readiness；实体Hold继续。
 
 2026-10-11 FR11六项修复准备发布：停止收尾控制隔离、旧会话实时控制、OTA板型路径与异常恢复均沿用已有本地候选。用户明确授权升版/提交推送/部署刷机，S3独立升1.0.40，按量产Grbl→S3顺序执行；准备阶段Grbl离线，尚未刷机或部署，不覆盖现有1.0.39。此前同号候选及宿主369/双板构建只作历史证据，新版本结果另记；`task_verify`未覆盖固件，通知具体文案自动断言减少已披露，实体放行继续Hold。详见`../docs/design/firmware-review-fixes-20261011.md`执行节及readiness。

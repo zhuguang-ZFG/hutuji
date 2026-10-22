@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-22 TLS有限等待与EXIF启发式收口：S3 Disconnect 最多 3×10s 后放弃仍被接收线程占用的 TLS 对象；补丁表登记第四份生命周期补丁；Portal 照片启发式与归一化共用有向解码。版本 1.0.48，小程序无新产品 diff。部署/刷机/上传只看 readiness；另一 S3 排除，Grbl 无 delta。详见 `docs/design/tls-followup-20261022.md`。
+
 2026-10-13 本批最终收口：Hub `8c843d9` 修复生图 breaker half-open 永久跳过和跨 worker 多探针风险；`e6eb326` 补齐写侧竞态——旧常规 racer 不得把探针失败刚写入的 fresh open 回滚为旧状态，内存 store 锁内比较，Redis 以 WATCH/MULTI 条件提交，同态结果不写、冲突读取胜出状态。双机与兼容 `bitmap_svg.py` 同包 deploy/verify，主备 CAS 冒烟 PASS 且 `enforce=false`，生产仍保持 `HUTUJI_BREAKER_ENFORCE=0`。内存/真实 Redis 两项回归旧码 RED、新码 GREEN；MCP 1673、hub pytest 1673 + e2e PASS。S3 CI `38275272261` 成功且宿主 366/366；量产 Grbl `539e3f9b` 已单次 HTTP OTA、重启与 48 项设置不变复核。fz `standard` 的 `product_host` 在指定 x86_64 g++ 后通过，overall 仍被 Wokwi ready timeout 与实验 QEMU BREAK panic 阻塞，芯片启动层记为未验证。SenseNova key 轮换、u1.5-lite live draw 及实体签核仍未完成。
 
 2026-10-13 生图通道代码已双机部署：`f28477a` 的 `bitmap_svg.py`/`image_racers.py` 由 `ef84526` LF blob 出包，主备 deploy、带包 verify、远端 SHA 逐位相符。两节点执行的是固定 PNG 的离线 `b64_json` 解码契约烟测（含 75s/10MiB 常量），均 PASS；未调用上游 API，不等同生产 SenseNova live draw 验证。回滚号记录在 `docs/deployment.md`。preflight 主/备为 25/34、26/34，保留已知 unit/drop-in/nginx/热备角色差异，不宣称全项绿。生产仍是旧 `sensenova-u1-fast`、`BREAKER_ENFORCE=0`；商汤 key 已泄露，未切模型或发起付费 live draw。S3 run `38275272261`（`2b997d4`）已 completed/success，失败/取消作业为空；量产 Grbl 后续已按 `539e3f9b` 完成单次 OTA、重启与 48 项设置不变复核。

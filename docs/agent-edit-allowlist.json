@@ -1,4 +1,9 @@
 {
+  "tls_followup_20261022_authorized": {
+    "note": "2026-10-22 用户原话：修复完全，部署验证刷机，上传推送。承接审查发现的 EspSsl Disconnect 无限等待、补丁表漏登、is_photo_raster 未消费 EXIF、readiness 未提交口径。限定 TLS 有限等待+放弃所有权、Portal 共用 EXIF 解码、版本 1.0.48、双机精确发布、目标 Freenove 升级与已有 0.3.32 上传。另一 S3 继续排除，不改机械/运动/身份或校验，Grbl 无产品 delta。",
+    "contract": "docs/design/tls-followup-20261022.md；docs/design/tls-release-20261022.md；protocol §1.2/§4/§5/§10.4.22；SDK esp_tls_conn_destroy 拥有 socket 关闭权。",
+    "paths": ["docs/**", "AGENTS.md", "draw-portal/README.md", "mcp-server/README.md", "firmware/README.md", ".github/workflows/test.yml", "draw-portal/draw_portal/pipeline.py", "draw-portal/tests/test_pipeline_raster.py", "tmp/tls-followup-20261022/**", "results/local-only/2026-10-22-tls-followup/**", "D:/Users/xiaozhi-esp32/patches/**", "D:/Users/xiaozhi-esp32/scripts/tests/test_tls_lifecycle.py", "D:/Users/xiaozhi-esp32/CMakeLists.txt"]
+  },
   "tls_release_20261022_authorized": {
     "note": "2026-10-22 用户明确要求部署上传此前优化，找出固件TLS下载失败原因修复改进。限定EspSsl关闭所有权/诊断补丁、宿主交错回归、版本1.0.47与原板构建升级验证及Hub精确发布/小程序0.3.32上传。另一S3继续排除，不改机械/运动/身份或校验。",
     "contract": "docs/design/tls-release-20261022.md；protocol §1.2/§4/§10.4.22；SDK esp_tls_conn_destroy拥有socket关闭权。",
