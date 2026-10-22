@@ -1,6 +1,6 @@
 # 发布与出货就绪度
 
-2026-10-22 F48 三项修复已落代码：S3 `3b0d6df`/1.0.49 泄漏放弃的 EspSsl；Hub PNG 直传消费 EXIF、OTA 查询失败不按墙钟放锁，小程序 0.3.33。Portal 栅格+OTA 73、S3 TLS 宿主 6 已过。双机部署、Freenove 单次 OTA、上传与 CI 回执待本批写入；现役仍为 1.0.48 直至刷机证据。详见 [F48 修复](design/f48-followup-fixes-20261022.md)。`factory_paired`/纸面/老化/交付仍 Hold。
+2026-10-22 F48 三项修复技术发布：Hub `d58a671` 双机只发 pipeline/firmware_ota/app，PNG EXIF 与 OTA 占位烟测 PASS；S3 `3b0d6df`/1.0.49 已构建并主备 catalog/latest 与公网下载一致（Freenove 3092896B SHA-256 `543f576d…8f454`）。小程序 0.3.33 上传 303445B，不等于平台发布。目标 Freenove `c3:70:bc` **未 OTA**：绑定探活与重铸后均 HTTP 404，本机无 COM6。现役板上仍为 1.0.48。preflight 主 25/34、备 26/34 已知差异保留。Grbl 无产品 delta。详见 [F48 修复](design/f48-followup-fixes-20261022.md)。`factory_paired`/纸面/老化/交付仍 Hold。
 
 2026-10-22 1.0.48发布后只读续审：Hub `bd97821` / S3 `66f2cc5` / 量产 Grbl `a268e05c` 三项未修复——放弃TLS后HttpClient仍销毁EspSsl（P1）、PNG直传不消费EXIF（P2）、uncertain OTA 600s过期放锁（P2）。源码顺序与本机PNG探针复现，未上板、未改产品。现役1.0.48与实体Hold不变。见[本轮记录](design/three-repo-followup-review-20261022.md)。
 
