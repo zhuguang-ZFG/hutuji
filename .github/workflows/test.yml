@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zhuguang-ZFG/xiaozhi-esp32
-          ref: 0141de40aa1392e4da45567be1c25c461abc28ed
+          ref: 66f2cc500ae44d5c2dfed39708ba2d82d0ed4bc7
           path: xiaozhi-esp32
       - uses: actions/checkout@v4
         with:

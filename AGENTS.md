@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-2026-10-22 TLS有限等待与EXIF启发式收口：审查发现 EspSsl Disconnect 无限等待、补丁表漏登、is_photo_raster 未消费 EXIF。S3 1.0.48 最多 3×10s 后放弃 TLS 所有权；Portal 共用 `_imread_oriented`。宿主 TLS 5/5、Portal 栅格定向通过，全量 Portal 610。发布/刷机/上传证据只看 readiness；另一 S3 排除，Grbl 无 delta，实体 Hold 不变。详见 `docs/design/tls-followup-20261022.md`。
+2026-10-22 TLS有限等待与EXIF启发式收口：S3 1.0.48 Disconnect 最多 3×10s 后放弃 TLS 所有权；Portal 共用 `_imread_oriented`。Hub `f487258` 已双机部署，Freenove `c3:70:bc` 已 OTA；CI 补丁头跟进 `66f2cc5`。发布/刷机/上传证据只看 readiness；另一 S3 排除，Grbl 无 delta，实体 Hold 不变。详见 `docs/design/tls-followup-20261022.md`。
 
 2026-10-13 本批最终收口：生图 breaker 半开自愈缺陷已在 `8c843d9` 修复并双机部署；后续确认写侧仍可由旧常规 racer 盲写回滚探针刚写入的 fresh open，`e6eb326` 改为内存锁/Redis WATCH 比较后写入，同态结果不刷新、冲突读取胜出状态，双机与兼容 `bitmap_svg.py` 同包 deploy+verify。内存与真实 Redis 两项交错回归均旧码 RED、新码 GREEN；MCP 全套 1673 项、hub 门禁 pytest 1673 + e2e PASS。主备生产 CAS 冲突冒烟 PASS 且 `enforce=false`，生产仍保持 `HUTUJI_BREAKER_ENFORCE=0`。量产 Grbl `539e3f9b` 已经 HTTP `/updatefw` 单次 OTA、重启和 48 项参数不变复核；S3 宿主全套指定 x86_64 g++ 后 366/366，云端 CI `38275272261` 成功。fz `standard` 使用要求的 x86_64 g++ 后 `product_host` PASS；overall 仍因 Wokwi ready timeout 与实验 QEMU BREAK panic 为 fail，两项只记芯片启动层未验证，不改固件或门禁求绿。SenseNova 仍待泄露 key 轮换后切 u1.5-lite 与 live draw；纸面/老化/配对/交付签核继续 Hold。详见本批发布记录与 readiness。
 
