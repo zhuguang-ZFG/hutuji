@@ -92,3 +92,17 @@ C22-01两Grbl在EOL实时检查后以Serial短临界区原子比较代次并领�
 量产COM7 Web `/updatefw`单次发送 `a268e05c` 镜像1848864B，SHA-256 `d9cf7aaa9d8b1c69c4ca5eaa031b26e4e10002e7d2d41f417e7536ea56443847`，应答status=3、重启及48项参数前后相同均有证；精确字节数以grbl镜像回执为准。主备Freenove1.0.46均发布并验证3092496B、SHA-256 `783e3272a2a1edbee34942033ca385797b466d9b72269add05e4a9ad2f5d9158`，catalog/latest及公网文件逐位相符；推荐备份均为`/root/hutuji-bak-20261022-c22-1.0.46`。本批后端没有产品改动，小程序0.3.31上传301395B成功。
 
 S3本次单次OTA经当前绑定发送，受理回包HTTP504，随后只读核到目标仍1.0.45、设备ota=failed/reason=download_failed，未记升级成功。Portal本轮为uncertain（对外upgrading），按既有保护规则未用一次failed读取直接清占位。当前只有COM7，未见目标S3串口，已请求接回c3:70:bc的数据线以读日志；未重复下发OTA、未刷另一台S3。控制回归、控制后机设复核、远端CI及最终收口继续执行，实体Hold不变。
+
+### 最终技术发布与验证（覆盖上段执行中状态）
+
+用户接回USB后COM6再次核ROM MAC `b8:1f:3f:c3:70:bc`。被动运行日志曾见约2.9小时uptime及SRAM最大连续8KiB，作为下载失败线索保留，未认定根因。首次整片读取断流，改为64个256KiB块，保留一次块重读，最终16MB完整备份SHA-256 `31dae9b248b852e5a71355355c444879ec00b404d3828e39a85e521160380b32`；分区与构建一致。ota_0虽有1.0.46应用头，但完整候选摘要不符，证实不能据头宣称升级完成。
+
+USB单次仅写otadata和ota_0，两个段的写入摘要及独立verify-flash均通过；启动前NVS与备份逐字节一致，SHA-256 `866e756868ba3bc99b19297d1055229f716afb795ea70608f210acef4d0bccbc`。watchdog-reset因USB重枚举退出1，日志确有重启指令，随后同MAC串口与绑定探活确认运行1.0.46、原点Idle、连接/ready/授权/机设均通过，无需再次写入。Portal按实际目标版本将原uncertain结清为ok/100，这不把首次HTTP OTA改记成功。普通换纸镜像未刷nopaper板，另一S3继续排除。
+
+七项真实控制回归最终通过：预览期pause/resume拒绝、错误作品确认拒绝及取消；正常小图；暂停后持续Hold再恢复；重画；先见非原点Run再连续停止并归位；试笔Z5/Z0至done；同版/旧版/非法版本/坏SHA升级拒绝。暂停首轮在预览下载期间遇云504，串口随后TLS读失败；没有发送pause/confirm，脚本只收敛已领取任务，保留失败日志，新测试件完整复验通过。控制后COM7重新读取48项与升级前完全相同，最终S3为done/Grbl Idle/XYZ全0/ota idle。正常/停止收尾仍有`$MD`应答；试笔保持既有不自动释放策略。
+
+Hub产品提交 `4ca1f0c2ce7543b1a169dcc39f9ebeeb4e1939b4`及三个外仓均已推送。Hub Tests [39728108710](https://github.com/zhuguang-ZFG/hutuji/actions/runs/39728108710)、Hutuji S3 [39722949285](https://github.com/zhuguang-ZFG/xiaozhi-esp32/actions/runs/39722949285)三作业、量产Grbl [39722952796](https://github.com/zhuguang-ZFG/Grbl_Esp32/actions/runs/39722952796)与完整Build Boards [39722953286](https://github.com/zhuguang-ZFG/xiaozhi-esp32/actions/runs/39722953286)175作业均completed/success，失败/取消清单为空，未缩减矩阵。产品源码自本批验证后无新增改动。
+
+主备发布是同一Freenove镜像与catalog/latest验证；本批Hub后端产品没有改动，无需服务器代码重启。小程序0.3.31上传成功不等于平台审核发布。最新preflight阿里25/34、京东27/34，京东首次SSH超时后重验；京东公网HTTPS files探针本次失败，不能写与26/34历史基线一致或全绿，其余unit/drop-in/nginx/热备角色差异继续保留。真实手机账号切换/后台生命周期、强制运动应答丢失和Wokwi云启动未验证；factory_paired=false、纸面、老化及交付签核继续Hold。
+
+本机总索引`results/local-only/2026-10-22-c22-release/verification.json`，包括红绿/宿主/构建、双fz及Hub门禁、发布SHA/上传、首次OTA与TLS失败、完整Flash备份/NVS、单次USB下载、控制与48项复核、完整CI回执。临时脚本和备份不入Git，不覆盖既有未跟踪资产。

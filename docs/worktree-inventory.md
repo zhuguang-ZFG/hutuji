@@ -1495,3 +1495,5 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 2026-10-21 R20F技术发布完成：Hub eb25bb2五文件主备deploy+verify/生产烟测通过，S3 a8f13b72/1.0.41与量产Grbl bc2cf670均单次OTA、重启/身份与48项参数复核有证；控制回归通过，Run查询守卫实机error8、Hold查询入队延迟导致附加探针未覆盖（宿主action已验），不混记。小程序0.3.27上传295665B；双机Freenove推荐/catalog/latest一致。preflight25/34、26/34已知差异保留，fz仅Wokwi超时失败、本轮QEMU PASS。产品三仓已推送，CI完成情况单独记录；factory_paired=false与纸面/老化/交付签核Hold不变。详见 docs/design/three-repo-release-20261021.md 及本机 results/local-only/2026-10-21-release/verification.json。
 
 2026-10-22 三仓只读续审：接手Hub9ae7d55、S3fe7120b、量产Grbl39ecd288及普通c0ed039a/fz已跟踪文件无改动。新增 `docs/design/three-repo-review-20261022.md`，仅尾部追加readiness与本清单，不移动既有引用。临时真实函数/页面探针在 `tmp/review-20261022/`，证据在 `results/local-only/2026-10-22-review/`，包含两Grbl完整行提交、S3试笔错误快照、重新认证后配网/绑定恢复、源码摘要与验证回执。四项已复现未修复；产品、正式测试、授权清单、门禁与既有未跟踪资产保留，未部署刷机、上传、提交推送或设备调用。
+
+2026-10-22 C22最终续作：Hub产品4ca1f0c及三个外仓已推送，CI四套均completed/success含Build Boards175项。本机tmp/c22-release新增USB完整备份/两段单次写入/回读/NVS、CI及事实汇总工具；results/local-only/2026-10-22-c22-release总索引verification.json含首次OTA504/下载失败、USB恢复1.0.46、七项控制及控制后48项不变、主备指针/小程序上传。失败/超时过程保留，当前无新增产品代码改动，文档收口/固件说明随后提交。用户已排除另一S3，普通镜像未刷量产板，实体Hold保持。

@@ -114,6 +114,8 @@
 - 对应逐台记录和发布清单已填写；否则只能称“开发中”，不能称“可出货”。
 
 历史 USB Host/CH9350 否决依据见 `../docs/hardware.md`，不要重新尝试已否决路线。
+
+2026-10-22 C22技术发布：S3 `161174d`/1.0.46试笔领取清旧错误，发送/应答/会话失败先发布本次status原因；两Grbl `a268e05c`/`e5d7199a`完整行按会话短锁领取、锁外执行。量产Grbl单次Web OTA和S3单次HTTP OTA失败后同板USB恢复均有独立回执，48项参数及NVS保持，七项控制最终通过。构建/宿主/CI、首次失败与实体Hold详见`../docs/design/three-repo-review-20261022.md`及readiness，不能据此宣称出货。
 # 2026-10-09 笔控与确认入口候选
 
 S3首笔/试笔固定连接与reset banner，并复用Pipe写锁内会话发送；`hutuji.confirm`可带`expected_url`/`expected_preview_url`，在确认锁内匹配作品，`status.confirm_by_url`声明能力。旧无参人工入口保留，三板工具注册同步，SDK只构建量产Freenove。未发布的同号1.0.35候选不得替换线上镜像。设计、验证及部署状态见`../docs/design/three-repo-next-review-20261009.md`和readiness。
