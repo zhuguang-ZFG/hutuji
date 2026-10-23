@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createWeapp, createClock, flush } = require('./harness');
 const MAC = 'aa:bb:cc:dd:ee:01';
+const ME = { phone_bound: true, active_device_mac: MAC, binding: { bound: true, device_mac: 'aa:bb:cc:**:**:**' } };
 const reply = (r, data) => r.success({ statusCode: 200, data });
 async function firmware() {
   const h = createWeapp({ clock: createClock() });
@@ -44,6 +45,111 @@ test('真实进度与重启阶段有区分，无效百分比不污染显示', as
   assert.equal(h.page.data.progress, 100);
   h.page.onHide(); const count = h.requests.length; h.page.onQueryUpgrade();
   assert.equal(h.requests.length, count);
+});
+function firmwareBusy() {
+  const clock = createClock(); const h = createWeapp({ clock });
+  h.load('pages/firmware/firmware.js'); h.page._deviceMac = MAC;
+  h.page.setData({ updateAvailable: true, latest: 'hutuji.1.0.50' });
+  h.page._startUpgrade();
+  reply(h.requests.at(-1), { status: 'error', detail: 'busy' });
+  return { h, clock };
+}
+test('设备忙只核对一次原设备状态，重复点击不重复下发', async () => {
+  const { h, clock } = firmwareBusy(); await flush();
+  const posts = () => h.requests.filter(r => r.method === 'POST');
+  const statuses = () => h.requests.filter(r => /firmware\/ota_status/.test(r.url));
+  assert.equal(posts().length, 1);
+  assert.equal(posts()[0].data.device_mac, MAC);
+  assert.equal(statuses().length, 1);
+  assert.match(statuses()[0].url, /ota_status\?device_mac=aa%3Abb/);
+  assert.equal(h.page.data.upgrading, true);
+  assert.match(h.page.data.progressLabel, /核对/);
+  assert.match(h.page.data.statusTip, /设备忙|已有升级/);
+  assert.equal(h.page.data.updateAvailable, false);
+  h.page.onUpgrade(); h.page._startUpgrade(); h.page.onQueryUpgrade();
+  assert.equal(posts().length, 1);
+  assert.equal(statuses().length, 1);
+  statuses()[0].success({ statusCode: 200, data: { state: 'upgrading', progress: 55, target_version: 'hutuji.1.0.50' } }); await flush();
+  assert.equal(posts().length, 1);
+  assert.equal(h.page.data.upgrading, true);
+  assert.equal(h.page.data.progress, 55);
+  assert.equal(h.page.data.targetVersion, 'hutuji.1.0.50');
+  assert.equal(h.page.data.resultUncertain, false);
+  clock.advance(2000);
+  assert.equal(statuses().length, 2);
+  h.page.onHide();
+});
+test('设备忙核对后设备并未升级时给忙碌提示，须重新检查才能再升级', async () => {
+  const { h } = firmwareBusy(); await flush();
+  const status = h.requests.filter(r => /firmware\/ota_status/.test(r.url)).at(-1);
+  status.success({ statusCode: 200, data: { state: 'idle' } }); await flush();
+  assert.equal(h.page.data.upgrading, false);
+  assert.equal(h.page.data.resultUncertain, false);
+  assert.equal(h.page.data.updateAvailable, false);
+  assert.match(h.page.data.statusTip, /设备忙/);
+  h.page.onUpgrade(); h.page._startUpgrade();
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 1);
+  h.page.onCheck();
+  const checks = h.requests.filter(r => /firmware\/check/.test(r.url));
+  assert.equal(checks.length, 1);
+  reply(checks[0], { update_available: true, latest: 'hutuji.1.0.50' }); await flush();
+  assert.equal(h.page.data.updateAvailable, true);
+  h.page.onHide();
+});
+test('设备忙核对失败回到设备忙，重新检查后才能再次确认下发', async () => {
+  const { h } = firmwareBusy(); await flush();
+  const status = h.requests.filter(r => /firmware\/ota_status/.test(r.url)).at(-1);
+  status.fail({ errMsg: 'request:fail' }); await flush();
+  assert.equal(h.page.data.upgrading, false);
+  assert.equal(h.page.data.resultUncertain, false);
+  assert.equal(h.page.data.updateAvailable, false);
+  assert.equal(h.page._upgradeMac, '');
+  assert.equal(h.page.data.statusTipClass, 'warn');
+  assert.match(h.page.data.statusTip, /设备忙/);
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 1);
+  // 未重新确认前不能再下发
+  h.page._startUpgrade();
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 1);
+  // 重新检查更新可用，结果仍可进入确认流程
+  h.page.onCheck();
+  const check = h.requests.filter(r => /firmware\/check/.test(r.url)).at(-1);
+  reply(check, { update_available: true, latest: 'hutuji.1.0.50' }); await flush();
+  assert.equal(h.page.data.updateAvailable, true);
+  assert.equal(h.page.data.resultUncertain, false);
+  h.page.onHide();
+});
+test('设备忙核对被离页打断后回屏仍按设备忙收口', async () => {
+  const { h } = firmwareBusy(); await flush();
+  const status = h.requests.filter(r => /firmware\/ota_status/.test(r.url)).at(-1);
+  h.page.onHide();
+  status.fail({ errMsg: 'request:fail' }); await flush();
+  h.page.onShow(); await flush();
+  reply(h.requests.at(-1), ME); await flush();
+  const resumed = h.requests.filter(r => /firmware\/ota_status/.test(r.url));
+  assert.equal(resumed.length, 2);
+  reply(resumed.at(-1), { state: 'idle' }); await flush();
+  assert.equal(h.page.data.upgrading, false);
+  assert.equal(h.page.data.resultUncertain, false);
+  assert.equal(h.page._upgradeMac, '');
+  assert.match(h.page.data.statusTip, /设备忙/);
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 1);
+  h.page.onHide();
+});
+test('下发未结算前不启动状态查询，避免读到上一次完成账本', async () => {
+  const h = createWeapp({ clock: createClock() });
+  h.load('pages/firmware/firmware.js'); h.page._deviceMac = MAC;
+  h.page.setData({ updateAvailable: true, latest: 'hutuji.1.0.50' });
+  h.page._startUpgrade();
+  const post = h.requests.filter(r => r.method === 'POST').at(-1);
+  const statuses = () => h.requests.filter(r => /firmware\/ota_status/.test(r.url)).length;
+  assert.equal(statuses(), 0);
+  h.page.onQueryUpgrade();
+  h.page._pollOnce();
+  assert.equal(statuses(), 0);
+  reply(post, { status: 'started' }); await flush();
+  assert.equal(statuses(), 1);
+  assert.equal(h.page.data.resultUncertain, false);
+  h.page.onHide();
 });
 test('控制页显示升级失败原因而非裸英文OTA状态', () => {
   const h = createWeapp(); const progress = h.load('utils/job_progress.js');
