@@ -83,3 +83,47 @@
 13 个新探针场景、70 项现有测试通过是审查复现和基线证据，**不是缺陷已修复的证明**。现有测试缺少本文交错；TLS 现有 leak 检查偏源码字符串，不能证明 owner 寿命安全。C++ 平台调用为确定性桩，未跑 IDF/PIO 构建、fz standard、全量 Hub/Portal 门禁或硬件注入。
 
 证据文件：`ota-probe.json`、`tls-owner-lifetime.json`、`grbl-reply-session.json`、对应生成 C++/编译日志、`source-sha256.json`、`verification.json`、`docs-gate.json` 与 `docs-gate.log`。本轮没有使用外部资料或上游网络结论。
+
+## 2026-10-23 六项续修与发布
+
+本节承接上方 5 项审查：本轮用户批准「全部修复部署验证，上传推送ci变绿」，范围固定为当时复核确认的六项缺陷（S3 WebSocket 主动关闭漏业务通知、消费者回调寿命；Hub OTA 旧观察污染新会话、页面重建后无法恢复；索引 PNG 镜像 EXIF；量产 Grbl 应答标签跨任务误用）。其余历史项保持各自状态，不在本批宣称修复。
+
+### 修复与判据
+
+| 项 | 提交 | 行为判据 | 回归（旧码 RED → 新码 GREEN） |
+|---|---|---|---|
+| S3 WebSocket 生命周期（1.0.51） | xiaozhi `be52d51` | 每次连接独占状态对象；传输回调只持弱引用；主动/远端/失败/替换/析构统一一次性终结，先退休唤醒等待者、锁外清传输并通知；关闭通知只发一次；失败路径先降功耗再回 Idle | `test_websocket_protocol_lifetime.py` 源码编译交错 36 项；旧码关闭通知缺失且析构窗访问失效事件 |
+| Portal OTA 观察快照 | draw-portal `31b555e` | 观察在 I/O 前捕获同设备 session/binding，只对原 session 一次条件更新或过期；starting/uncertain/离线/畸形正文不消费旧结果；100% 不代替目标版本确认；busy 只核对不下发 | `test_firmware_ota.py` 真实 SQLite 交错：旧观察返回不改替换后会话；busy 版本核对不增加 `hutuji.ota_start` |
+| 小程序固件页恢复（0.3.34） | draw-portal `2a243fa` | 冷启动先只读查询捕获 MAC 的 `ota_status`，idle 才查版本；busy 只查状态；单飞查询；离页/登录代次/切机/迟到回包防护 | Node 页面实际脚本 380 项；GET/POST 计数与在途单飞断言 |
+| 索引 PNG 方向 | draw-portal `c2f48d6` | `exif_transpose` 先于调色板展开，镜像方向不落到颜色通道；输出无方向元数据；幂等 | `test_pipeline_raster.py` 70 项；2/4/5/7 方向旧码 14 项失败 |
+| 量产 Grbl 应答标签 | massprod `e3cc4f81` | `client_response_tag` 只对领取任务返回标签；欢迎与 `?` 实时应答任务得到 0；释放只结算匹配任务；不加长锁 | `test_telnet_response_session.py` 编译真实 `client_write` 分派；同核任务切换与 CLIENT_ALL 分派矩阵 |
+
+S3 版本 `hutuji.1.0.51`；小程序 `0.3.34`。补丁链（六个 `esp-ml307-*.patch`）按 CI 方式在纯净组件上重放通过，宿主 48 项专项通过且组件恢复后逐字节一致。
+
+### 本机验证
+
+| 范围 | 命令 | 结果 |
+|---|---|---|
+| S3 host | `python -m unittest discover -s scripts/tests -v`（x86_64 MinGW g++） | 444 OK（含补丁链重放与新增交错） |
+| S3 firmware | ESP-IDF v6.0.1，两板真实配置，`CCACHE_DISABLE=1` | Freenove `xiaozhi.bin` 3,105,360 B SHA-256 `5366f053…0b7a`；LICHUANG_DEV_S3 3,140,016 B SHA-256 `e24d628e…51fc`；各 215 个 CXX 对象，版本串 `hutuji.1.0.51` |
+| Portal | `python -m pytest -q tests` | 764 passed |
+| 小程序 | `node --test draw-portal/tests/weapp/*.test.js` | 380 passed |
+| Hub 门禁 | `python scripts/agent_gate.py --profile full` | 13/13 层 PASS，pytest 1692、e2e PASS，exit 0 |
+| MCP/生产工具 | `pytest -q tests` / `tests/production` / `scripts/e2e_local.py` | 全套通过，e2e PASS |
+| 量产 Grbl host | `python -m pytest -q scripts/tests` | 85 passed |
+| 量产 release | `pio run -e release`（e3cc4f81 精确提交） | SUCCESS，`firmware.bin` 1,849,168 B SHA-256 `25b8a507…6566` |
+| fz | `agent_gate.py --profile standard`（GRBL_ROOT=量产仓，Python 3.10） | overall pass exit=0，hard=0 soft=2；`wokwi_startup` 云端不可用（月度配额，非阻断）明确启动未验证；`qemu_startup`/`product_host`/`qwen_evidence` PASS |
+
+`wokwi_startup` 未通过属既有配额例外，不能写成芯片云端启动已验证；实体纸面/老化/交付签核仍 Hold。
+
+证据目录 `results/local-only/2026-10-23-f49-followup/`（三仓日志、构建 JSON、RED/GREEN 记录）与暂存 `tmp/f49-followup-20261023/` 均仅本机，已登记 inventory。
+### 发布与远端回执
+
+- **Hub 提交与 CI**：分支 `worktree-f49-followup-20261023` 已推送，产品提交 `31b555e`、`c2f48d6`、`2a243fa`，CI 引用 `fab2aa3`。Hub Tests `39916022920` completed/success（headSha `fab2aa3`）；Hutuji Mass Production `39915771591` success（`e3cc4f81`）；Hutuji S3 `39915609896` success（`be52d519`）；S3 PR Build Boards `39915614313` success；S3 push 全量 Build Boards `39915613218` completed/success（`be52d519`，175 job：174 success、1 skipped、0 failed）。
+- **双机部署**：京东热备先行、阿里主节点随后，均从 `fab2aa3` 出包部署，`verify` 逐文件 SHA PASS，离线烟测 `SMOKE_PASS`（P 模式镜像 EXIF 1/2/4 与真实 SQLite OTA CAS）。备份：京东 `51aab6dd78934556a5b94b72bd2cce4f`，阿里 `8889ad39bec7491897afe57c5d6872e5`。两节点 `app.py` 未变；`store.py`/`pipeline.py`/`firmware_ota.py` 运行时 SHA-256 与 `fab2aa3` 的 LF blob 一致。
+- **偏差一（包内容）**：生产运行时原为 `d58a671`，缺 `b4508f9` 的 `expire_firmware_ota_session(expected=...)` 条件写签名。计划预期只含 `pipeline.py`/`firmware_ota.py` 的包会让新 `firmware_ota.py` 在过期路径抛 TypeError（京东首次部署烟测实测）。本批改为三文件包（加入 `store.py`），京东先回滚到 `4b7b44ce2481438083d010a0b3ebeb0c` 再重发；未改 `app.py` 与数据库 schema。
+- **偏差二（阿里窗口）**：阿里首次部署因 `hutuji-curated-prep` 处于 `activating (auto-restart)` 被 `_active()` 拒绝（既有循环失败，与本批无关）；在 active 窗口重试成功，部署按常态停/启该服务，未改 unit。
+- **preflight**：部署前后失败集逐条相同——阿里 25/34（9 项既有 nginx 布局差异）、京东 27/34（7 项热备预期差异），无新增失败，不能称全绿。
+- **固件 1.0.51**：Freenove `xiaozhi.bin` 3,105,360 B、SHA-256 `5366f053429d11b49dad73b9bff016b5e35ded0554d76dca7df4c830c0ab0b7a`。先京东后阿里执行 `publish_s3_firmware.py`；发布前指针备份在 `/root/hutuji-bak-20261023-f49-1.0.51/`（catalog `5b8a01c8…`、latest `1a80b7a8…`，原推荐 1.0.49）。发布后两节点目录/manifest/catalog/latest 哈希一致（catalog `c64660a2…`、latest `0d791fa8…`），公网下载与京东定向下载均 HTTP 200 且 SHA-256 相符。推荐指针为 1.0.51；目标板实际版本因设备离线未取证。
+- **小程序**：`0.3.34` 已用微信开发者工具 CLI 上传（AppID `wxbf3c1e0013b46343`，79 文件，307,291 B，来源 `fab2aa3`，回执 `weapp-upload.json`）；仅上传，未提审、未正式发布。
+- **实机未验证**：当前 LAN 未见 `192.168.1.13`，本机仅蓝牙 COM4/COM5、无 USB 串口；授权 S3 `b8:1f:3f:c3:70:bc` 与 nopaper Grbl `4c:c3:82:cc:8a:9c` 的身份、Idle、备份、48 项与单次 OTA 均未执行。WebSocket 专项因此未在板上验证，不得以源码和宿主交错替代。

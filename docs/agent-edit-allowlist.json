@@ -1,4 +1,17 @@
 {
+  "f49_followup_20261023_authorized": {
+    "note": "2026-10-23 用户原话：同意全部修复部署验证，上传推送ci变绿。授权本轮六项：S3主动关闭通知与消费者回调寿命（含application.cc打开失败路径的低功耗恢复，因旧关闭通知可能已被消费）、OTA旧观察快照隔离与页面重建恢复、索引PNG镜像EXIF、量产Grbl任务级应答标签；含行为回归、真实构建门禁、精确CI引用、提交推送、主备部署及小程序上传。设备仅Freenove b8:1f:3f:c3:70:bc与nopaper Grbl 4c:c3:82:cc:8a:9c；排除S3 b8:1f:3f:c4:58:2c和普通换纸固件。单次OTA须身份/Idle/备份闸；不改运动、换纸、引脚、身份、校验或削弱测试，实体Hold不变。",
+    "contract": "docs/design/three-repo-f49-review-20261022.md；protocol §1.2/§3/§4/§5/§10.4.22。",
+    "paths": [
+      "docs/agent-edit-allowlist.json", "docs/design/three-repo-f49-review-20261022.md", "docs/protocol.md", "docs/release-readiness.md", "docs/worktree-inventory.md", "docs/agent-line-refs-baseline.json",
+      ".github/workflows/test.yml", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/draw_portal/pipeline.py",
+      "draw-portal/tests/test_firmware_ota.py", "draw-portal/tests/test_pipeline_raster.py", "draw-portal/tests/weapp/device_experience.test.js", "draw-portal/tests/weapp/page_lifecycle.test.js", "draw-portal/tests/weapp/optimization_recovery.test.js",
+      "draw-portal/weapp/pages/firmware/firmware.js", "draw-portal/weapp/utils/version.js",
+      "tmp/f49-followup-20261023/**", "results/local-only/2026-10-23-f49-followup/**",
+      "D:/Users/xiaozhi-esp32/main/protocols/websocket_protocol.cc", "D:/Users/xiaozhi-esp32/main/protocols/websocket_protocol.h", "D:/Users/xiaozhi-esp32/main/application.cc", "D:/Users/xiaozhi-esp32/scripts/tests/**", "D:/Users/xiaozhi-esp32/CMakeLists.txt",
+      "D:/Users/Grbl_Esp32-massprod/Grbl_Esp32/src/Serial.cpp", "D:/Users/Grbl_Esp32-massprod/scripts/tests/**", "D:/Users/Grbl_Esp32-massprod/.github/workflows/hutuji-grbl.yml"
+    ]
+  },
   "f49_fixes_authorized": {
     "note": "2026-10-22 用户要求：修复改进，推送github。授权 F49-01至05 的共享接收状态寿命、量产Telnet应答会话隔离、Portal OTA可信状态与会话过期修复、行为回归、真实构建、门禁、逐仓提交推送。不含部署刷机，不改运动/换纸/引脚/身份或校验。",
     "contract": "docs/design/three-repo-f49-review-20261022.md；protocol §1.2/§3/§4/§10.4.22。",

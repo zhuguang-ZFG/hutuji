@@ -1,5 +1,5 @@
 {
-  "git_head": "0c8ac79335b8ef1a80686e56196c84caee534f9c",
+  "git_head": "b069bbc2ad524f600183b54d4bca972a5e472466",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:81": {
       "sha8": "9b1d68b6",
@@ -266,12 +266,12 @@
       "source": "    for mc in root.iter(f\"{_S}mergeCell\"):\n        parsed = _merge_ref(mc.get(\"ref\") or \"\")",
       "target": "mcp-server/hutuji_mcp/doc_ingest.py"
     },
-    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:103": {
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:122": {
       "sha8": "126a4b9c",
       "source": "    _guard_raster_dimensions(raw)",
       "target": "draw-portal/draw_portal/pipeline.py"
     },
-    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:121": {
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:140": {
       "sha8": "d0344112",
       "source": "        _guard_raster_dimensions(raw)",
       "target": "draw-portal/draw_portal/pipeline.py"
@@ -291,12 +291,12 @@
       "source": "def _guard_raster_dimensions(raw: bytes) -> None:",
       "target": "draw-portal/draw_portal/pipeline.py"
     },
-    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:418": {
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:437": {
       "sha8": "315421b9",
       "source": "        arr = iio.imread(png_bytes).copy()",
       "target": "draw-portal/draw_portal/pipeline.py"
     },
-    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:441": {
+    "docs/design/three-repo-review-20261011.md -> draw-portal/draw_portal/pipeline.py:460": {
       "sha8": "526930d2",
       "source": "    _guard_raster_dimensions(png_bytes)",
       "target": "draw-portal/draw_portal/pipeline.py"
@@ -1101,7 +1101,7 @@
       "source": "                        if (((100 * upload.totalSize) / maxSketchSpace) != last_upload_update) {",
       "target": "D:/Users/Grbl_Esp32/Grbl_Esp32/src/WebUI/WebServer.cpp"
     },
-    "docs/release-readiness.md -> application.cc:1260": {
+    "docs/release-readiness.md -> application.cc:1265": {
       "sha8": "6a10b9cc",
       "source": "void Application::SendMcpMessage(const std::string& payload) {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
@@ -1111,7 +1111,7 @@
       "source": "    protocol_->OnAudioChannelClosed([this, &board]() {",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
     },
-    "docs/release-readiness.md -> application.cc:991": {
+    "docs/release-readiness.md -> application.cc:996": {
       "sha8": "9db5f6db",
       "source": "#if CONFIG_SEND_WAKE_WORD_DATA",
       "target": "D:/Users/xiaozhi-esp32/main/application.cc"
@@ -1412,6 +1412,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-10-23T03:51:59Z",
+  "updated": "2026-10-23T06:50:17Z",
   "version": 1
 }
