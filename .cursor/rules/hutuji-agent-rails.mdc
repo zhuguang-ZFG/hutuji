@@ -14,6 +14,7 @@ alwaysApply: true
 5. `docs/release-readiness.md`（状态真值）
 6. `docs/agent-gate.md` + 任务相关契约（`protocol.md` / bringup / mcp-server README）
 7. 外仓动手前还要读该仓根 `AGENTS.md`（Grbl / xiaozhi / fz）
+8. `docs/system-design.md`（系统级设计总览；索引性质，不改上面的权威顺序）
 
 ## 防幻觉
 

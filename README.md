@@ -77,6 +77,7 @@
 
 ## 目录
 
+- `docs/system-design.md` — **系统级设计规划**（2026-10-22：架构大图 / 模块分解 / 数据流 / 安全 / 可靠性 / 部署拓扑 / 测试体系 / 完成度快照 / 演进路线；总览索引，不裁决冲突）
 - `docs/agent-handoff.md` — **Agent 防呆页**（误判表 / 默认下一刀；接手先读）
 - `docs/agent-anti-drift.md` — **防幻觉 / 禁乱改**铁律
 - `docs/agent-constraint-matrix.md` — 三仓 agent 开发约束矩阵

@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 7. `docs/hardware.md` — 链路/备用接线；**MK38**见 `docs/hardware/mk38-board.md`；**实战派 S3**见 `docs/hardware/lichuang-szpi-esp32s3-board.md`
 8. `docs/release-readiness.md` — 当前真实进度；不得把“文档/代码已齐”说成“可出货”
 
+系统级大图（架构 / 模块 / 数据流 / 演进规划）另见 `docs/system-design.md`——总览索引，不改变上面的权威顺序。
+
 ## 架构要点（读多个文件才能拼出的大图）
 
 **双芯片，禁止合并固件**：ESP32-S3 跑 xiaozhi（AI/语音/WiFi），独立 ESP32 跑 Grbl（运动+换纸）。

@@ -232,3 +232,5 @@ python scripts\xiaozhi_console.py device-call hutuji.status
 2026-10-20 CR20本地候选：用户要求全部修复后，静默Web应答、聊天卡作品身份、激活RAII、文档编码、语音事务回执、归档删除失败分支和会话UTF-8七项已落代码与回归；未提交、未部署、未刷机。契约与验证记录见docs/design/three-repo-review-20261020.md及protocol末节，最终构建/门禁以本批证据为准，实体Hold不变。
 
 2026-10-21 R20F技术发布完成：Hub eb25bb2五文件主备deploy+verify/生产烟测通过，S3 a8f13b72/1.0.41与量产Grbl bc2cf670均单次OTA、重启/身份与48项参数复核有证；控制回归通过，Run查询守卫实机error8、Hold查询入队延迟导致附加探针未覆盖（宿主action已验），不混记。小程序0.3.27上传295665B；双机Freenove推荐/catalog/latest一致。preflight25/34、26/34已知差异保留，fz仅Wokwi超时失败、本轮QEMU PASS。产品三仓已推送，CI完成情况单独记录；factory_paired=false与纸面/老化/交付签核Hold不变。详见 docs/design/three-repo-release-20261021.md 及本机 results/local-only/2026-10-21-release/verification.json。
+
+2026-10-22 系统级设计文档落地：新增 `docs/system-design.md` 作为系统级设计规划总览（架构大图 / 模块分解 / 端到端数据流 / 安全与可靠性 / 部署拓扑 / 测试验证体系 / 完成度快照 / 演进规划）。入口文档已同步指针（`docs/README.md` 文档地图、根 `README.md` 目录、`CLAUDE.md` 必读清单、`.cursor/rules/hutuji-agent-rails.mdc`）。真值优先级不变（根 README 决策 → protocol v0.5 → bringup-sop → release-readiness），system-design.md 为总览索引不参与冲突裁决；`docs/design/` 批次记录仍为历史证据，不随文重写。
