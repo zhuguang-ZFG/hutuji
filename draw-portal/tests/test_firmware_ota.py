@@ -14,6 +14,289 @@ from draw_portal.app import create_app
 
 _BOARD = "freenove-esp32s3-display-2.8-lcd"
 _REL = f"s3/{_BOARD}/hutuji.1.0.1/xiaozhi.bin"
+_TOKEN_KEY = Fernet.generate_key()
+
+
+def _bind_ota_device(store, *, device_mac="aa:bb:cc:dd:ee:ff", user_id="u", bound_at=10):
+    return store.set_device_binding(
+        user_id=user_id, device_mac=device_mac,
+        device_token_enc=Fernet(_TOKEN_KEY).encrypt(b"test-device-token").decode(),
+        bound_at=bound_at, token_probe_ok=True,
+    )
+
+
+@pytest.fixture
+def ota_case(tmp_path):
+    from draw_portal.store import Store
+    store = Store(tmp_path / "reconcile.db")
+    return store, _bind_ota_device(store), _write_catalog(tmp_path)
+
+
+def _call_ota(entry, store, binding, catalog):
+    from draw_portal import firmware_ota as ota
+    kwargs = dict(store=store, binding=binding, api_base="https://example.invalid",
+                  token_cipher_key=_TOKEN_KEY)
+    if entry == "status":
+        return ota.get_ota_status(**kwargs)
+    kwargs["catalog_path"] = str(catalog)
+    if entry == "check":
+        return ota.check_firmware(**kwargs)
+    return ota.start_upgrade(**kwargs, public_base="https://fw.example.invalid", signing_secret="")
+
+
+@pytest.mark.parametrize("entry", ["status", "check", "busy"])
+@pytest.mark.parametrize("new_mac,new_target,new_time", [
+    ("aa:bb:cc:dd:ee:ff", "hutuji.1.0.1", 100),
+    ("aa:bb:cc:dd:ee:ff", "hutuji.1.0.2", 100),
+    ("aa:bb:cc:dd:ee:ff", "hutuji.1.0.2", 1000),
+    ("11:22:33:44:55:66", "hutuji.1.0.2", 100),
+])
+def test_late_observation_cannot_touch_replacement_session(
+    ota_case, monkeypatch, entry, new_mac, new_target, new_time,
+):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    from draw_portal import store as store_mod
+
+    store, binding, catalog = ota_case
+    old = store.upsert_firmware_ota_session(
+        user_id=binding.user_id, device_mac=binding.device_mac, state="upgrading",
+        target_version="hutuji.1.0.1", progress=20, updated_at=100,
+    )
+    monkeypatch.setattr(ota, "time", SimpleNamespace(time=lambda: 1000))
+    monkeypatch.setattr(store_mod, "time", SimpleNamespace(time=lambda: new_time))
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def push(**kw):
+        calls.append(kw["name"])
+        assert kw["name"] == "hutuji.status"
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(10)
+        return True, _status_json(ota={"state": "failed", "reason": "download_failed"})
+
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    with ThreadPoolExecutor(1) as pool:
+        pending = pool.submit(_call_ota, entry, store, binding, catalog)
+        try:
+            assert entered.wait(10), "入口未核对已有会话"
+            assert _call_ota("status", store, binding, catalog)["state"] == "failed"
+            if new_mac != binding.device_mac:
+                _bind_ota_device(store, device_mac=new_mac)
+            new = store.reserve_firmware_ota_session(binding.user_id, new_mac)
+            assert new and new.session_id != old.session_id
+            assert store.set_firmware_ota_target(new, new_target)
+            store.accept_firmware_ota_start(new)
+            accepted = store.get_firmware_ota_session(binding.user_id)
+            before = store.update_firmware_ota_session(
+                accepted, state="upgrading", progress=35, reason=None, updated_at=new_time,
+            )
+        finally:
+            release.set()
+        response = pending.result(timeout=10)
+    assert store.get_firmware_ota_session(binding.user_id) == before
+    assert store.reserve_firmware_ota_session(binding.user_id, new_mac) is None
+    assert calls == ["hutuji.status", "hutuji.status"]
+    if entry == "busy":
+        assert response == {"status": "error", "detail": "busy"}
+    elif entry == "status":
+        assert response["state"] == ("upgrading" if new_mac == binding.device_mac else "idle")
+
+
+@pytest.mark.parametrize("entry", ["status", "check", "busy"])
+def test_stale_failure_cannot_overwrite_concurrent_progress(ota_case, monkeypatch, entry):
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    store, binding, catalog = ota_case
+    old = store.upsert_firmware_ota_session(
+        user_id=binding.user_id, device_mac=binding.device_mac, state="upgrading",
+        target_version="hutuji.1.0.1", progress=20, updated_at=100,
+    )
+    monkeypatch.setattr(ota, "time", SimpleNamespace(time=lambda: 1000))
+    winner = []
+
+    def push(**kw):
+        assert kw["name"] == "hutuji.status"
+        winner.append(store.update_firmware_ota_session(
+            old, state="upgrading", progress=60, reason=None, updated_at=999,
+        ))
+        return True, _status_json(ota={"state": "failed", "reason": "write_failed"})
+
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    _call_ota(entry, store, binding, catalog)
+    assert len(winner) == 1
+    assert store.get_firmware_ota_session(binding.user_id) == winner[0]
+    assert store.reserve_firmware_ota_session(binding.user_id, binding.device_mac) is None
+
+
+@pytest.mark.parametrize("entry", ["status", "check", "busy"])
+@pytest.mark.parametrize("phase,device_ota,version,want", [
+    ("upgrading", {"state": "failed", "reason": "verify_failed"}, "hutuji.1.0.0", ("failed", 20, "verify_failed")),
+    ("upgrading", {"state": "rolled_back", "reason": "write_failed"}, "hutuji.1.0.0", ("rolled_back", 20, "write_failed")),
+    ("upgrading", {"state": "upgrading", "progress": 60}, "hutuji.1.0.0", ("upgrading", 60, None)),
+    ("upgrading", {"state": "upgrading", "progress": 100}, "hutuji.1.0.0", ("upgrading", 100, None)),
+    ("upgrading", {"state": "failed", "reason": "download_failed"}, "hutuji.1.0.1", ("ok", 100, None)),
+    ("uncertain", {"state": "idle"}, "hutuji.1.0.1", ("ok", 100, None)),
+    ("uncertain", {"state": "upgrading", "progress": 50}, "hutuji.1.0.0", ("upgrading", 50, None)),
+    ("upgrading", {"state": "idle"}, "hutuji.1.0.0", ("failed", 20, "status_timeout")),
+])
+def test_recovery_entries_reconcile_without_resending(
+    ota_case, monkeypatch, entry, phase, device_ota, version, want,
+):
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    store, binding, catalog = ota_case
+    store.upsert_firmware_ota_session(
+        user_id=binding.user_id, device_mac=binding.device_mac, state=phase,
+        target_version="hutuji.1.0.1", progress=20, updated_at=100,
+    )
+    monkeypatch.setattr(ota, "time", SimpleNamespace(time=lambda: 1000))
+    calls = []
+
+    def push(**kw):
+        calls.append(kw["name"])
+        return True, _status_json(version=version, ota=device_ota)
+
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    response = _call_ota(entry, store, binding, catalog)
+    after = store.get_firmware_ota_session(binding.user_id)
+    assert (after.state, after.progress, after.reason) == want
+    assert calls == ["hutuji.status"]
+    if entry == "busy":
+        assert response == {"status": "error", "detail": "busy"}
+
+
+@pytest.mark.parametrize("entry", ["status", "check", "busy"])
+@pytest.mark.parametrize("phase,raw,when", [
+    ("starting", "failed", 999),
+    ("starting", "progress", 999),
+    ("starting", "matched", 999),
+    ("uncertain", "failed", 999),
+    ("upgrading", "same_progress", 100),
+    ("upgrading", "lower_progress", 100),
+    ("uncertain", "offline", 100),
+    ("upgrading", "{}", 100),
+    ("upgrading", '{"state":"idle","firmware_version":"bad","ota":{"state":"idle"}}', 100),
+    ("upgrading", '{"state":"idle","firmware_version":"hutuji.1.0.0","ota":{"state":"unknown"}}', 100),
+])
+def test_unconfirmed_observation_preserves_reservation(ota_case, monkeypatch, entry, phase, raw, when):
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    store, binding, catalog = ota_case
+    before = store.upsert_firmware_ota_session(
+        user_id=binding.user_id, device_mac=binding.device_mac, state=phase,
+        target_version="hutuji.1.0.1", progress=20, updated_at=when,
+    )
+    monkeypatch.setattr(ota, "time", SimpleNamespace(time=lambda: 1000))
+    responses = {
+        "failed": _status_json(ota={"state": "failed", "reason": "download_failed"}),
+        "progress": _status_json(ota={"state": "upgrading", "progress": 50}),
+        "matched": _status_json(version="hutuji.1.0.1", ota={"state": "idle"}),
+        "same_progress": _status_json(ota={"state": "upgrading", "progress": 20}),
+        "lower_progress": _status_json(ota={"state": "upgrading", "progress": 10}),
+    }
+    calls = []
+
+    def push(**kw):
+        calls.append(kw["name"])
+        return (False, "网络 timeout") if raw == "offline" else (True, responses.get(raw, raw))
+
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    _call_ota(entry, store, binding, catalog)
+    assert store.get_firmware_ota_session(binding.user_id) == before
+    assert store.reserve_firmware_ota_session(binding.user_id, binding.device_mac) is None
+    assert calls == ["hutuji.status"]
+
+
+@pytest.mark.parametrize("entry", ["status", "check", "busy"])
+@pytest.mark.parametrize("change", ["unbind", "rebind", "transfer"])
+@pytest.mark.parametrize("during_io", [False, True])
+def test_observation_requires_original_binding_ownership(ota_case, monkeypatch, entry, change, during_io):
+    from draw_portal import firmware_ota as ota
+    store, binding, catalog = ota_case
+    before = store.upsert_firmware_ota_session(
+        user_id=binding.user_id, device_mac=binding.device_mac, state="upgrading",
+        target_version="hutuji.1.0.1", updated_at=100,
+    )
+
+    def replace_binding():
+        assert store.delete_binding_for_mac(binding.device_mac, user_id=binding.user_id)
+        if change != "unbind":
+            _bind_ota_device(store, user_id="other" if change == "transfer" else binding.user_id,
+                             bound_at=binding.bound_at + 1)
+
+    calls = []
+
+    def push(**kw):
+        calls.append(kw["name"])
+        replace_binding()
+        return True, _status_json(version="hutuji.1.0.1", ota={"state": "idle"})
+
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    if not during_io:
+        replace_binding()
+    result = _call_ota(entry, store, binding, catalog)
+    assert store.get_firmware_ota_session(binding.user_id) == before
+    assert calls == (["hutuji.status"] if during_io else [])
+    if entry == "check":
+        assert result["reason"] == "check_failed"
+    elif entry == "status":
+        assert "firmware_version" not in result
+
+
+@pytest.mark.parametrize("entry", ["status", "check", "busy"])
+def test_other_device_recovery_cannot_release_original_ledger(ota_case, monkeypatch, entry):
+    from draw_portal import firmware_ota as ota
+    store, binding, catalog = ota_case
+    before = store.upsert_firmware_ota_session(
+        user_id=binding.user_id, device_mac=binding.device_mac, state="upgrading",
+        target_version="hutuji.1.0.1", updated_at=100,
+    )
+    other = _bind_ota_device(store, device_mac="11:22:33:44:55:66")
+    calls = []
+
+    def push(**kw):
+        calls.append(kw["name"])
+        return True, _status_json(version="hutuji.1.0.1", ota={"state": "idle"})
+
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    _call_ota(entry, store, other, catalog)
+    assert store.get_firmware_ota_session(binding.user_id) == before
+    assert store.reserve_firmware_ota_session(binding.user_id, other.device_mac) is None
+    assert calls == ([] if entry == "busy" else ["hutuji.status"])
+
+
+@pytest.mark.parametrize("same_device", [False, True])
+def test_reservation_conflict_recovers_but_requires_new_upgrade_request(ota_case, monkeypatch, same_device):
+    from draw_portal import firmware_ota as ota
+    store, binding, catalog = ota_case
+    reserve = store.reserve_firmware_ota_session
+    winner = []
+    calls = []
+
+    def conflict(user_id, device_mac):
+        other_mac = device_mac if same_device else "11:22:33:44:55:66"
+        session = reserve(user_id, other_mac)
+        assert session and store.set_firmware_ota_target(session, "hutuji.1.0.1")
+        store.accept_firmware_ota_start(session)
+        winner.append(store.get_firmware_ota_session(user_id))
+        return reserve(user_id, device_mac)
+
+    def push(**kw):
+        calls.append(kw["name"])
+        return True, _status_json(version="hutuji.1.0.1", ota={"state": "idle"})
+
+    monkeypatch.setattr(store, "reserve_firmware_ota_session", conflict)
+    monkeypatch.setattr(ota, "push_tool_call", push)
+    assert _call_ota("busy", store, binding, catalog) == {"status": "error", "detail": "busy"}
+    after = store.get_firmware_ota_session(binding.user_id)
+    assert len(winner) == 1
+    assert after.session_id == winner[0].session_id
+    assert after.state == ("ok" if same_device else "upgrading")
+    assert calls == (["hutuji.status"] if same_device else [])
 
 
 def test_stale_other_device_check_preserves_ota_session(tmp_path):
@@ -43,7 +326,7 @@ def test_invalid_status_cannot_expire_ota(tmp_path, monkeypatch, raw):
     from draw_portal import firmware_ota as ota
     from draw_portal.store import Store
     store = Store(tmp_path / "invalid-status.db")
-    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    binding = _bind_ota_device(store)
     before = store.upsert_firmware_ota_session(
         user_id="u", device_mac=binding.device_mac, state="uncertain",
         target_version="hutuji.1.0.49", updated_at=time.time() - 700,
@@ -83,7 +366,7 @@ def test_concurrent_upgrade_claims_before_device_io(monkeypatch, tmp_path):
     from draw_portal import firmware_ota as ota
     from draw_portal.store import Store
     store = Store(tmp_path / "concurrent.db")
-    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    binding = _bind_ota_device(store)
     entered, release = threading.Event(), threading.Event()
     pushes = []
     def plan(**kw):
@@ -131,7 +414,7 @@ def test_failed_upgrade_check_releases_reservation(monkeypatch, tmp_path):
     from draw_portal import firmware_ota as ota
     from draw_portal.store import Store
     store = Store(tmp_path / "failure.db")
-    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    binding = _bind_ota_device(store)
     def fail(**kw):
         raise OSError("模拟目录读取失败")
     monkeypatch.setattr(ota, "check_firmware", fail)
@@ -146,7 +429,7 @@ def test_poll_during_start_cannot_apply_previous_device_failure(monkeypatch, tmp
     from draw_portal import firmware_ota as ota
     from draw_portal.store import Store
     store = Store(tmp_path / "pending.db")
-    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    binding = _bind_ota_device(store)
     old_status = {"state": "idle", "board": _BOARD, "firmware_version": "hutuji.1.0.0",
                   "ota": {"state": "failed", "reason": "download_failed"}}
     monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True, old_status, ""))
@@ -751,7 +1034,7 @@ def test_late_failure_cannot_regress_terminal_ota_session(tmp_path, monkeypatch,
     from draw_portal.store import Store
     from types import SimpleNamespace
     store = Store(tmp_path / "terminal.db")
-    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    binding = _bind_ota_device(store)
     store.upsert_firmware_ota_session(user_id="u", device_mac=binding.device_mac, state=state,
                                     reason=reason, target_version="v2")
     monkeypatch.setattr(ota, "_fetch_device_status", lambda **kw: (True,
