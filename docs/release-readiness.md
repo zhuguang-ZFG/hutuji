@@ -1,5 +1,9 @@
 # 发布与出货就绪度
 
+2026-10-22 F49 修复批次本地收口并推送（未部署/未刷机）：F49-04/05 Portal OTA 修复——切机检查不改他机升级账本、墙钟过期须取得可信设备终态（state/firmware_version/ota.state 齐备且 settled）、条件更新绑定 session_id/device_mac/state/updated_at/target_version 快照，`draw-portal` 含 4 项新回归，Portal 629 过（本机复跑）。F49-01/02 S3 TLS 共享接收 State 补丁 `esp-ml307-zz-shared-receive-state.patch`（HTTP/WebSocket 回调弱引用+retired 关闭、放弃接收后保留借用 TLS 指针并拒发送；zz 字母序最后应用）+ 版本 1.0.50 + `test_transport_owner_lifetime.py`/`test_tls_lifecycle.py` 宿主回归 408 过。F49-03 量产 Grbl 应答会话归属修复待 massprod 工作树恢复后移植（普通分支 e5d7199a 已含同类修复且为 Hub CI 基线）。证据 `tmp/f49-fixes-20261022/`（patch-replay、s3-host-final.log、portal-full.log）仅本机，已登记 inventory。CI 回执另记，现役版本/实体 Hold 不变。
+
+2026-10-22 F49 三仓审查（未修复）：Hub `bec84b0`、S3 `3b0d6df`、量产 Grbl `a268e05c` 固定提交确认 5 项——HTTP 放弃 TLS 后迟到回调访问旧 owner、WebSocket 未处理放弃对象析构（P1×2），Grbl 旧应答跨连接、切换设备过期另一设备 OTA、无效状态正文误作 OTA 放锁证据（P2×3）。13 个本机探针场景及 Portal46/S3 TLS6/量产快照18 项现有回归通过；产品代码未改，未部署/刷机/硬件验证。量产原工作树目录缺失，本轮从 Git 对象导出快照，不宣称其工作树干净。现役 S3 仍按下方 1.0.48 记录，实体 Hold 不变。见 [F49 审查](design/three-repo-f49-review-20261022.md)。
+
 2026-10-22 F48 三项修复技术发布：Hub `d58a671` 双机只发 pipeline/firmware_ota/app，PNG EXIF 与 OTA 占位烟测 PASS；S3 `3b0d6df`/1.0.49 已构建并主备 catalog/latest 与公网下载一致（Freenove 3092896B SHA-256 `543f576d…8f454`）。小程序 0.3.33 上传 303445B，不等于平台发布。目标 Freenove `c3:70:bc` **未 OTA**：绑定探活与重铸后均 HTTP 404，本机无 COM6。现役板上仍为 1.0.48。preflight 主 25/34、备 26/34 已知差异保留。Grbl 无产品 delta。详见 [F48 修复](design/f48-followup-fixes-20261022.md)。`factory_paired`/纸面/老化/交付仍 Hold。
 
 2026-10-22 1.0.48发布后只读续审：Hub `bd97821` / S3 `66f2cc5` / 量产 Grbl `a268e05c` 三项未修复——放弃TLS后HttpClient仍销毁EspSsl（P1）、PNG直传不消费EXIF（P2）、uncertain OTA 600s过期放锁（P2）。源码顺序与本机PNG探针复现，未上板、未改产品。现役1.0.48与实体Hold不变。见[本轮记录](design/three-repo-followup-review-20261022.md)。

@@ -1,4 +1,9 @@
 {
+  "f49_fixes_authorized": {
+    "note": "2026-10-22 用户要求：修复改进，推送github。授权 F49-01至05 的共享接收状态寿命、量产Telnet应答会话隔离、Portal OTA可信状态与会话过期修复、行为回归、真实构建、门禁、逐仓提交推送。不含部署刷机，不改运动/换纸/引脚/身份或校验。",
+    "contract": "docs/design/three-repo-f49-review-20261022.md；protocol §1.2/§3/§4/§10.4.22。",
+    "paths": ["docs/**", "AGENTS.md", "CLAUDE.md", "README.md", "firmware/README.md", "draw-portal/README.md", ".github/workflows/test.yml", "draw-portal/draw_portal/firmware_ota.py", "draw-portal/draw_portal/store.py", "draw-portal/tests/test_firmware_ota.py", "tmp/f49-fixes-20261022/**", "results/local-only/2026-10-22-f49-fixes/**", "D:/Users/xiaozhi-esp32/patches/**", "D:/Users/xiaozhi-esp32/scripts/tests/**", "D:/Users/xiaozhi-esp32/CMakeLists.txt", "D:/Users/xiaozhi-esp32/main/protocols/websocket_protocol.cc", "Grbl_Esp32/src/Serial.cpp", "Grbl_Esp32/src/Serial.h", "Grbl_Esp32/src/WebUI/TelnetServer.cpp", "scripts/tests/**"]
+  },
   "f48_followup_fixes_authorized": {
     "note": "2026-10-22 用户原话：同意修复，刷机部署验证，上传推送。承接 F48-01/02/03：放弃TLS后泄漏整个EspSsl、PNG直传消费EXIF、uncertain OTA 查询失败不放锁。限定这些路径、版本1.0.49、小程序0.3.33、双机精确发布与目标 Freenove 单次OTA。另一S3排除，Grbl无产品delta，不改机械/运动/身份或§5闸。",
     "contract": "docs/design/three-repo-followup-review-20261022.md F48-01至03；docs/design/tls-followup-20261022.md；protocol §1.2/§4/§5/§10.4.22。",
