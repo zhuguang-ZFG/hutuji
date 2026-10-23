@@ -81,10 +81,29 @@ class DocPipelineResult:
 
 
 def _imread_oriented(raw: bytes):
-    """消费 EXIF 方向（含镜像）；normalize 与照片启发式必须同一解码口径。"""
-    import imageio.v3 as iio
+    """消费 EXIF 方向（含镜像）；normalize 与照片启发式必须同一解码口径。
 
-    return iio.imread(raw, plugin="pillow", rotate=True)
+    imageio 的 Pillow 插件先把 P 图展开成 RGB、再按原始 mode 选翻转轴，
+    镜像方向（2/4/5/7）会翻到颜色通道、形状却正常。这里先对 Pillow 图做
+    exif_transpose，再按 mode 展开调色板，翻转始终作用在像素坐标上。
+    """
+    import sys
+
+    import numpy as np
+    from PIL import Image, ImageOps
+
+    with Image.open(io.BytesIO(raw)) as im:
+        is_png = im.format == "PNG"
+        oriented = ImageOps.exif_transpose(im)
+        if oriented.mode in ("P", "PA"):
+            has_alpha = oriented.mode == "PA" or "transparency" in oriented.info
+            oriented = oriented.convert("RGBA" if has_alpha else "RGB")
+        elif is_png and oriented.mode == "I":
+            # 与 imageio 旧口径一致：16 位灰度 PNG 保持 uint16，不退成 int32。
+            oriented = oriented.convert(
+                "I;16" if sys.byteorder == "little" else "I;16B"
+            )
+        return np.array(oriented)
 
 
 def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:

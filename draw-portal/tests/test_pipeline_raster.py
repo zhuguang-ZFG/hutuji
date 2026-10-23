@@ -29,11 +29,73 @@ def _oriented_raster(fmt: str, orientation: int):
     return raw, expected
 
 
+def _oriented_mode_png(mode: str, orientation: int):
+    import numpy as np
+    from PIL import Image, ImageOps
+
+    if mode == "L":
+        arr = (np.arange(80, dtype=np.uint8) * 3)[None, :].repeat(48, axis=0)
+    elif mode == "LA":
+        base = (np.arange(80, dtype=np.uint8) * 3)[None, :].repeat(48, axis=0)
+        alpha = np.full((48, 80), 255, dtype=np.uint8)
+        alpha[:12, :20] = 40
+        arr = np.dstack([base, alpha])
+    elif mode == "RGBA":
+        arr = np.zeros((48, 80, 4), dtype=np.uint8)
+        arr[..., 0] = (np.arange(80, dtype=np.uint8) * 3)[None, :]
+        arr[..., 1] = 40
+        arr[..., 2] = 200
+        arr[:12, :20, 3] = 30
+    else:  # pragma: no cover
+        raise AssertionError(mode)
+    exif = Image.Exif()
+    exif[274] = orientation
+    source = io.BytesIO()
+    Image.fromarray(arr).save(source, format="PNG", exif=exif)
+    raw = source.getvalue()
+    with Image.open(io.BytesIO(raw)) as im:
+        expected = np.array(ImageOps.exif_transpose(im))
+    return raw, expected
+
+
+def _indexed_png(orientation: int, *, transparent: bool):
+    """非对称 P 模式 PNG（真实编码）：2/4/5/7 镜像方向必须翻像素而非颜色通道。"""
+    import numpy as np
+    from PIL import Image, ImageOps
+
+    idx = np.zeros((48, 80), dtype=np.uint8)
+    idx[:12, :30] = 1
+    idx[12:24, 30:] = 2
+    idx[24:36, :20] = 3
+    idx[36:, 20:60] = 4
+    im = Image.new("P", (80, 48))
+    im.putdata(idx.flatten().tolist())
+    palette = [
+        255, 255, 255,
+        200, 30, 40,
+        10, 120, 220,
+        0, 0, 0,
+        40, 200, 90,
+    ]
+    im.putpalette(palette + [0] * (768 - len(palette)))
+    exif = Image.Exif()
+    exif[274] = orientation
+    save_kwargs = {"transparency": 0} if transparent else {}
+    source = io.BytesIO()
+    im.save(source, format="PNG", exif=exif, **save_kwargs)
+    raw = source.getvalue()
+    with Image.open(io.BytesIO(raw)) as src:
+        oriented = ImageOps.exif_transpose(src)
+        mode = "RGBA" if "transparency" in oriented.info else "RGB"
+        expected = np.array(oriented.convert(mode))
+    return raw, expected
+
+
 @pytest.mark.parametrize("orientation", range(1, 9))
 def test_photo_exif_orientation_consumed_once(orientation):
     """手机显示方向必须与归一化图片相同，镜像/旋转八种方向且重复归一不再旋转。"""
     import numpy as np
-    from PIL import Image, ImageOps
+    from PIL import Image
     from draw_portal.pipeline import normalize_raster_to_png
 
     raw, expected = _oriented_raster("JPEG", orientation)
@@ -43,6 +105,55 @@ def test_photo_exif_orientation_consumed_once(orientation):
         assert not im.getexif().get(274), "方向已应用后不应留重复旋转元数据"
     with Image.open(io.BytesIO(normalize_raster_to_png(normalized, line_art=False))) as im:
         np.testing.assert_array_equal(np.asarray(im), expected)
+
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_indexed_png_exif_mirror_flips_pixels_not_channels(orientation):
+    """索引 PNG 的镜像方向必须作用在像素坐标：旧 imageio 插件先转 RGB 再按 P
+    选轴，2/4/5/7 会把颜色通道左右/上下翻转（形状与元数据都看不出异常）。"""
+    import numpy as np
+    from PIL import Image
+    from draw_portal.pipeline import normalize_raster_to_png
+
+    raw, expected = _indexed_png(orientation, transparent=False)
+    normalized = normalize_raster_to_png(raw, line_art=False)
+    with Image.open(io.BytesIO(normalized)) as im:
+        assert im.mode == "RGB"
+        np.testing.assert_array_equal(np.asarray(im), expected)
+        assert not im.getexif().get(274)
+    with Image.open(io.BytesIO(normalize_raster_to_png(normalized, line_art=False))) as im:
+        np.testing.assert_array_equal(np.asarray(im), expected)
+
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_indexed_png_transparency_expands_to_rgba(orientation):
+    """P 模式带 transparency 必须保留透明通道，方向仍按像素转置。"""
+    import numpy as np
+    from PIL import Image
+    from draw_portal.pipeline import normalize_raster_to_png
+
+    raw, expected = _indexed_png(orientation, transparent=True)
+    normalized = normalize_raster_to_png(raw, line_art=False)
+    with Image.open(io.BytesIO(normalized)) as im:
+        assert im.mode == "RGBA"
+        np.testing.assert_array_equal(np.asarray(im), expected)
+        assert not im.getexif().get(274)
+
+
+@pytest.mark.parametrize("mode", ["L", "LA", "RGBA"])
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_gray_and_alpha_modes_keep_orientation_and_shape(mode, orientation):
+    """灰度/带 alpha 模式保持原通道数与 dtype，方向消费与 Pillow 有向图一致。"""
+    import numpy as np
+    from PIL import Image
+    from draw_portal.pipeline import normalize_raster_to_png
+
+    raw, expected = _oriented_mode_png(mode, orientation)
+    normalized = normalize_raster_to_png(raw, line_art=False)
+    with Image.open(io.BytesIO(normalized)) as im:
+        assert im.mode == mode
+        np.testing.assert_array_equal(np.asarray(im), expected)
+        assert not im.getexif().get(274)
 
 @pytest.mark.parametrize("orientation", range(1, 9))
 def test_png_exif_orientation_consumed_before_trace(orientation, tmp_path):
@@ -64,6 +175,20 @@ def test_png_exif_orientation_consumed_before_trace(orientation, tmp_path):
         result = process_upload(raw, content_type="image/png", filename="photo.png", job_dir=tmp_path)
         assert result.lines > 0
         assert result.gcode_path.exists()
+
+
+@pytest.mark.parametrize("orientation", [2, 6])
+def test_indexed_png_shrink_consumes_mirror_orientation(orientation):
+    """shrink 闸内的索引 PNG 带方向时重编码：镜像方向同样先转置再展开调色板。"""
+    import numpy as np
+    from PIL import Image
+    from draw_portal.pipeline import shrink_oversized_png
+
+    raw, expected = _indexed_png(orientation, transparent=False)
+    shrunk = shrink_oversized_png(raw)
+    with Image.open(io.BytesIO(shrunk)) as im:
+        np.testing.assert_array_equal(np.asarray(im), expected)
+        assert not im.getexif().get(274)
 
 
 from draw_portal.pipeline import process_upload
@@ -180,18 +305,29 @@ def _png_declaring_size(width: int, height: int) -> bytes:
     return sig + ihdr + idat + iend
 
 
+def _spy_pixel_load(monkeypatch) -> list[int]:
+    """以 Pillow 真正解码像素的 Image.load 为「全量解码」边界（读头只解析 IHDR）。"""
+    from PIL import Image
+
+    seen: list[int] = []
+    real = Image.Image.load
+
+    def wrapped(self, *args, **kwargs):
+        seen.append(1)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "load", wrapped)
+    return seen
+
+
 def test_raster_bomb_rejected_before_decode(monkeypatch):
     """4MB 字节上限内但头部声明 40000×40000（1.6Gpx）的位图：解码前尺寸闸拦下，
-    绝不进 iio.imread 全量解码（否则 worker OOM）。旧码无闸 → imread 被调用。"""
-    import imageio.v3 as iio
-
+    绝不进行像素解码（否则 worker OOM）。旧码无闸 → 像素解码被触发。"""
     from draw_portal import pipeline
 
     bomb = _png_declaring_size(40000, 40000)
     assert len(bomb) < 1024  # 文件本体几十字节，4MB 上限挡不住
-    seen: list[int] = []
-    real = iio.imread
-    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+    seen = _spy_pixel_load(monkeypatch)
 
     with pytest.raises(ValueError, match="像素过多"):
         pipeline.normalize_raster_to_png(bomb)
@@ -200,14 +336,10 @@ def test_raster_bomb_rejected_before_decode(monkeypatch):
 
 def test_shrink_oversized_rejects_bomb_before_decode(monkeypatch):
     """PNG 描摹路径的首个解码点（shrink_oversized_png）同样在解码前拦像素炸弹。"""
-    import imageio.v3 as iio
-
     from draw_portal import pipeline
 
     bomb = _png_declaring_size(40000, 40000)
-    seen: list[int] = []
-    real = iio.imread
-    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+    seen = _spy_pixel_load(monkeypatch)
 
     with pytest.raises(ValueError, match="像素过多"):
         pipeline.shrink_oversized_png(bomb)
@@ -216,37 +348,30 @@ def test_shrink_oversized_rejects_bomb_before_decode(monkeypatch):
 
 def test_photo_heuristic_uses_oriented_decode(monkeypatch):
     """照片启发式必须与归一化共用 EXIF 方向消费，避免竖拍被横着判类。"""
-    import imageio.v3 as iio
+    from PIL import ImageOps
 
     from draw_portal import pipeline
 
-    seen: list[dict] = []
-    real = iio.imread
+    jpeg, _ = _oriented_raster("JPEG", 6)
+    seen: list[int | None] = []
+    real = ImageOps.exif_transpose
 
-    def wrapped(*args, **kwargs):
-        seen.append(kwargs)
-        return real(*args, **kwargs)
+    def wrapped(im, *args, **kwargs):
+        seen.append(im.getexif().get(274))
+        return real(im, *args, **kwargs)
 
-    monkeypatch.setattr(iio, "imread", wrapped)
-    jpeg = _drawing_jpeg()
+    monkeypatch.setattr(ImageOps, "exif_transpose", wrapped)
     pipeline.is_photo_raster(jpeg)
     pipeline.normalize_raster_to_png(jpeg, line_art=False)
-    assert seen
-    assert all(
-        call.get("plugin") == "pillow" and call.get("rotate") is True for call in seen
-    )
+    assert seen == [6, 6]
 
 
 def test_is_photo_raster_bomb_returns_false_without_decode(monkeypatch):
-    """照片启发式对像素炸弹走 fail-soft（返回 False），且不触发全量解码。"""
-    import imageio.v3 as iio
-
+    """照片启发式对像素炸弹走 fail-soft（返回 False），且不触发像素解码。"""
     from draw_portal import pipeline
 
     bomb = _png_declaring_size(40000, 40000)
-    seen: list[int] = []
-    real = iio.imread
-    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+    seen = _spy_pixel_load(monkeypatch)
 
     assert pipeline.is_photo_raster(bomb) is False
     assert seen == []
@@ -254,14 +379,10 @@ def test_is_photo_raster_bomb_returns_false_without_decode(monkeypatch):
 
 def test_oversized_side_rejected(monkeypatch):
     """单边超 32768 即便总像素未过阈也拒（对齐 bitmap_svg 单边硬闸，防 nMpx×1 退化图）。"""
-    import imageio.v3 as iio
-
     from draw_portal import pipeline
 
     bomb = _png_declaring_size(40000, 3)
-    seen: list[int] = []
-    real = iio.imread
-    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+    seen = _spy_pixel_load(monkeypatch)
 
     with pytest.raises(ValueError, match="单边过大"):
         pipeline.normalize_raster_to_png(bomb)
@@ -273,7 +394,6 @@ def test_decode_memory_band_rejected_above_pillow_warn(monkeypatch):
     64Mpx 闸才是真正拦截点——证明守卫带来额外保护，而非只复述 Pillow 自带 DOS 闸。"""
     import warnings
 
-    import imageio.v3 as iio
     from PIL import Image
 
     from draw_portal import pipeline
@@ -283,13 +403,20 @@ def test_decode_memory_band_rejected_above_pillow_warn(monkeypatch):
         warnings.simplefilter("ignore")
         with Image.open(io.BytesIO(band)) as im:
             assert im.size == (10000, 10000)  # 能读到尺寸即说明 Pillow 未硬拦，解码本会放行
-    seen: list[int] = []
-    real = iio.imread
-    monkeypatch.setattr(iio, "imread", lambda *a, **k: (seen.append(1), real(*a, **k))[1])
+    seen = _spy_pixel_load(monkeypatch)
 
     with pytest.raises(ValueError, match="像素过多"):
         pipeline.normalize_raster_to_png(band)
     assert seen == []
+
+
+def test_bad_raster_still_rejected_and_probe_false():
+    """坏输入维持既有失败面：转换抛错（上层 422），启发式 fail-soft 返回 False。"""
+    from draw_portal.pipeline import is_photo_raster, normalize_raster_to_png
+
+    with pytest.raises(OSError):
+        normalize_raster_to_png(b"not an image")
+    assert is_photo_raster(b"not an image") is False
 
 
 def test_normal_small_raster_passes_guard(tmp_path):
