@@ -1522,13 +1522,20 @@ class Store:
             "token_probe_ok": binding.token_probe_ok,
         }
 
-    def expire_firmware_ota_session(self, user_id: str, *, cutoff: float) -> None:
-        # 条件更新避免超时清理覆盖刚收到的进度或新会话；不声称设备升级失败。
+    def expire_firmware_ota_session(
+        self, user_id: str, *, cutoff: float, expected: FirmwareOtaSession | None = None,
+    ) -> None:
+        # 旧调用也先取快照；条件写必须覆盖目标新增、同时间戳新代次与换设备三类交错。
+        expected = expected or self.get_firmware_ota_session(user_id)
+        if expected is None or expected.user_id != user_id:
+            return
         with self._connect() as conn:
             conn.execute(
                 "UPDATE firmware_ota_sessions SET state='failed', reason='status_timeout' "
-                "WHERE user_id=? AND state IN ('starting','uncertain','upgrading') AND updated_at<=?",
-                (user_id, cutoff),
+                "WHERE user_id=? AND state IN ('starting','uncertain','upgrading') AND updated_at<=? "
+                "AND session_id=? AND device_mac=? AND state=? AND updated_at=? AND target_version IS ?",
+                (user_id, cutoff, expected.session_id, expected.device_mac, expected.state,
+                 expected.updated_at, expected.target_version),
             )
             conn.commit()
 

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # 设备侧只受理不下载；短于画图推送即可
 _OTA_START_TIMEOUT = 20
 _STATUS_TIMEOUT = 15
-# 连续十分钟没有进度即结束门户等待；设备升级/绘图忙闸仍由固件裁决。
+# 十分钟无进度后仍须取得可信设备终态，才能结束门户等待。
 _OTA_STALE_SECONDS = 600
 
 
@@ -145,7 +145,12 @@ def _fetch_device_status(
     )
     if not ok:
         return False, {}, raw
-    return True, _parse_status_dict(raw), raw
+    status = _parse_status_dict(raw)
+    if not isinstance(status.get("state"), str) or not isinstance(status.get("firmware_version"), str):
+        return False, {}, "设备状态尚未确认，请稍后重试"
+    if parse_hutuji_version(status["firmware_version"]) is None:
+        return False, {}, "设备状态尚未确认，请稍后重试"
+    return True, status, raw
 
 
 def check_firmware(
@@ -400,10 +405,19 @@ def get_ota_status(
             session.target_version
             and str(status.get("firmware_version") or "").strip() == session.target_version
         )
-        # 设备离线刷写或仍在 upgrading 时不按墙钟放锁；可达且已离开升级、版本未对上才过期。
-        if stale and ok and not device_upgrading and not version_match:
+        # 缺失/未知字段不能证明已离开升级；网关 HTTP200 也可能没有设备正文。
+        device_stopped = (
+            isinstance(status.get("state"), str)
+            and status["state"] in _SETTLED_FOR_OTA
+            and isinstance(status.get("firmware_version"), str)
+            and parse_hutuji_version(status["firmware_version"]) is not None
+            and isinstance(ota_now, dict)
+            and isinstance(ota_now.get("state"), str)
+            and ota_now.get("state") in {"idle", "ok", "failed", "rolled_back"}
+        )
+        if stale and ok and device_stopped and not device_upgrading and not version_match:
             store.expire_firmware_ota_session(
-                binding.user_id, cutoff=time.time() - _OTA_STALE_SECONDS
+                binding.user_id, cutoff=time.time() - _OTA_STALE_SECONDS, expected=session,
             )
             session = store.get_firmware_ota_session(binding.user_id)
             if session and session.device_mac != binding.device_mac:
@@ -456,6 +470,9 @@ def get_ota_status(
 
 def is_upgrading(store: Store, user_id: str, *, device_mac: str | None = None) -> bool:
     session = store.get_firmware_ota_session(user_id)
+    if session is None or (device_mac is not None and session.device_mac != device_mac):
+        # 另一设备可出图，但本次检查没有该升级设备的状态证据，不得改其账本。
+        return False
     in_flight = bool(
         session and session.state in {"starting", "uncertain", "upgrading"}
         and (device_mac is None or session.device_mac == device_mac)
@@ -463,7 +480,7 @@ def is_upgrading(store: Store, user_id: str, *, device_mac: str | None = None) -
     # 已登记目标则查询失败也不放锁，由 get_ota_status 在设备可达且离开升级后过期。
     if in_flight and session is not None and session.target_version:
         return True
-    store.expire_firmware_ota_session(user_id, cutoff=time.time() - _OTA_STALE_SECONDS)
+    store.expire_firmware_ota_session(user_id, cutoff=time.time() - _OTA_STALE_SECONDS, expected=session)
     session = store.get_firmware_ota_session(user_id)
     return bool(session and session.state in {"starting", "uncertain", "upgrading"}
                 and (device_mac is None or session.device_mac == device_mac))

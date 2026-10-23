@@ -16,6 +16,66 @@ _BOARD = "freenove-esp32s3-display-2.8-lcd"
 _REL = f"s3/{_BOARD}/hutuji.1.0.1/xiaozhi.bin"
 
 
+def test_stale_other_device_check_preserves_ota_session(tmp_path):
+    import time
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+    store = Store(tmp_path / "isolation.db")
+    before = store.upsert_firmware_ota_session(
+        user_id="u", device_mac="aa:bb:cc:dd:ee:ff", state="uncertain",
+        target_version="hutuji.1.0.49", updated_at=time.time() - 700,
+    )
+    assert not ota.is_upgrading(store, "u", device_mac="11:22:33:44:55:66")
+    assert store.get_firmware_ota_session("u") == before
+    assert store.reserve_firmware_ota_session("u", "11:22:33:44:55:66") is None
+
+
+@pytest.mark.parametrize("raw", [
+    "{}", "<html>gateway</html>", '{"success":true}',
+    '{"firmware_version":"hutuji.1.0.48"}',
+    '{"state":"idle","firmware_version":"hutuji.1.0.48","ota":{"state":"unknown"}}',
+    '{"state":"idle","firmware_version":"bad","ota":{"state":"idle"}}',
+    '{"state":"alien","firmware_version":"hutuji.1.0.48","ota":{"state":"idle"}}',
+])
+def test_invalid_status_cannot_expire_ota(tmp_path, monkeypatch, raw):
+    import time
+    from types import SimpleNamespace
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+    store = Store(tmp_path / "invalid-status.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    before = store.upsert_firmware_ota_session(
+        user_id="u", device_mac=binding.device_mac, state="uncertain",
+        target_version="hutuji.1.0.49", updated_at=time.time() - 700,
+    )
+    assert not ota.tool_result_failed(raw)
+    monkeypatch.setattr(ota, "_push_healed", lambda **kw: (True, raw))
+    result = ota.get_ota_status(store=store, binding=binding, api_base="", token_cipher_key=b"")
+    assert result["state"] == "upgrading"
+    assert store.get_firmware_ota_session("u") == before
+
+
+def test_expiration_cannot_clear_target_added_after_snapshot(tmp_path):
+    from draw_portal.store import Store
+    store = Store(tmp_path / "target-race.db")
+    before = store.reserve_firmware_ota_session("u", "aa:bb:cc:dd:ee:ff")
+    assert store.set_firmware_ota_target(before, "hutuji.1.0.49")
+    store.expire_firmware_ota_session("u", cutoff=before.updated_at, expected=before)
+    after = store.get_firmware_ota_session("u")
+    assert after.state == "starting" and after.target_version == "hutuji.1.0.49"
+
+
+def test_expiration_cannot_clear_replacement_with_same_timestamp(tmp_path):
+    from draw_portal.store import Store
+    store = Store(tmp_path / "generation-race.db")
+    old = store.upsert_firmware_ota_session(user_id="u", device_mac="aa:bb:cc:dd:ee:ff",
+                                          state="uncertain", target_version="hutuji.1.0.49", updated_at=100)
+    new = store.upsert_firmware_ota_session(user_id="u", device_mac="11:22:33:44:55:66",
+                                          state="uncertain", target_version="hutuji.1.0.50", updated_at=100)
+    store.expire_firmware_ota_session("u", cutoff=100, expected=old)
+    assert store.get_firmware_ota_session("u") == new
+
+
 def test_concurrent_upgrade_claims_before_device_io(monkeypatch, tmp_path):
     import threading
     from concurrent.futures import ThreadPoolExecutor
