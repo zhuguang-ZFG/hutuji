@@ -431,7 +431,7 @@ def deploy_package(target: str, package_path: Path) -> bool:
     try:
         return _transport(target, 'deploy', package_path)
     except (OSError, ValueError, SyntaxError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as exc:
-        print('部署未通过：' + type(exc).__name__, file=sys.stderr)
+        print(f'部署未通过：{type(exc).__name__}: {exc}', file=sys.stderr)
         return False
 
 
@@ -698,5 +698,5 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except (OSError, ValueError, RuntimeError, SyntaxError, subprocess.SubprocessError, tarfile.TarError) as error:
-        print('发布操作失败：' + type(error).__name__, file=sys.stderr)
+        print(f'发布操作失败：{type(error).__name__}: {error}', file=sys.stderr)
         raise SystemExit(1)
