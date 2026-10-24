@@ -1683,7 +1683,9 @@ def create_app() -> FastAPI:
         if not binding:
             return
         session = store.get_firmware_ota_session(user_id)
-        if session and session.device_mac == binding.device_mac:
+        # 只对在途会话做状态对账推送；终态行没有可推进的状态，推送只是给断连
+        # 设备的每次出图加 15-45s 同步停顿（F50-01）。
+        if session and session.device_mac == binding.device_mac and session.state in firmware_ota_mod.IN_FLIGHT_STATES:
             firmware_ota_mod.get_ota_status(
                 store=store,
                 binding=binding,

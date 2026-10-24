@@ -31,6 +31,10 @@ _OTA_STALE_SECONDS = 600
 # 与设备 JobIsIdleForOta / 手动控制 settled 对齐（出图中态才 busy）
 _SETTLED_FOR_OTA = frozenset({"idle", "done", "error", "aborted"})
 
+# 出图闸只对在途会话做状态对账推送；终态行（ok/failed）没有可推进的状态，
+# 每次出图都先推一次 hutuji.status 纯属浪费（F50-01）。
+IN_FLIGHT_STATES = frozenset({"starting", "uncertain", "upgrading"})
+
 
 def assert_upgrade_allowed(
     *,
@@ -413,7 +417,7 @@ def get_ota_status(
             and parse_hutuji_version(status["firmware_version"]) is not None
             and isinstance(ota_now, dict)
             and isinstance(ota_now.get("state"), str)
-            and ota_now.get("state") in {"idle", "ok", "failed", "rolled_back"}
+            and str(ota_now.get("state")).strip().lower() in {"idle", "ok", "failed", "rolled_back"}
         )
         if stale and ok and device_stopped and not device_upgrading and not version_match:
             store.expire_firmware_ota_session(
@@ -422,6 +426,14 @@ def get_ota_status(
             session = store.get_firmware_ota_session(binding.user_id)
             if session and session.device_mac != binding.device_mac:
                 session = None
+        elif (session and session.state == "starting" and ok and device_stopped
+                and not device_upgrading and version_match):
+            # start_upgrade 在 set_target 之后、终态回写之前进程死亡会留下带目标的
+            # starting；设备已重启到目标版本且状态 settle 即证明升级完成，starting
+            # 也须收口为 ok，否则该设备出图被永久拦、同账号新升级永久 busy（F50-03）。
+            session = store.update_firmware_ota_session(
+                session, state="ok", progress=100, reason=None, updated_at=time.time(),
+            )
     ota = ota_now if ok else None
     # starting 尚未收到命令应答，设备仍可能携带上一轮的失败/进度。
     # 外部继续显示 upgrading 并拦出图，内部阶段也使迟到查询的 CAS 失效。

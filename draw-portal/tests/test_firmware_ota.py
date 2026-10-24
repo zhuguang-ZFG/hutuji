@@ -34,6 +34,7 @@ def test_stale_other_device_check_preserves_ota_session(tmp_path):
     "{}", "<html>gateway</html>", '{"success":true}',
     '{"firmware_version":"hutuji.1.0.48"}',
     '{"state":"idle","firmware_version":"hutuji.1.0.48","ota":{"state":"unknown"}}',
+    '{"state":"idle","firmware_version":"hutuji.1.0.48"}',
     '{"state":"idle","firmware_version":"bad","ota":{"state":"idle"}}',
     '{"state":"alien","firmware_version":"hutuji.1.0.48","ota":{"state":"idle"}}',
 ])
@@ -404,6 +405,86 @@ def test_draw_blocked_while_upgrading(tmp_path: Path, monkeypatch: pytest.Monkey
     blocked_saved = c2.post("/api/draw/saved/nonexistent/send")
     assert blocked_saved.status_code == 400
     assert "升级" in blocked_saved.json()["detail"]
+
+
+def test_terminal_ota_session_draw_gate_skips_status_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """F50-01：终态会话（ok/failed）出图闸不得再做状态对账推送。"""
+    import time as _time
+    _, c2 = _clients(monkeypatch, tmp_path)
+    _announce(c2, "JJJJ01")
+    assert c2.post("/api/user/bind/complete", json={"bind_code": "JJJJ01"}).status_code == 200
+
+    status_pushes = []
+
+    device_upgraded = []
+
+    def fake_push(**kw):
+        if kw.get("name") == "hutuji.status":
+            status_pushes.append(1)
+            # ota_start 下发前后的当前版本复核都须看到旧版；设备瞬时完成升级并
+            # 重启后，后续状态查询报目标版本。
+            version = "hutuji.1.0.1" if device_upgraded else "hutuji.1.0.0"
+            return True, _status_json(
+                state="idle", version=version, ota={"state": "idle", "progress": 100})
+        if kw.get("name") == "hutuji.ota_start":
+            device_upgraded.append(1)
+            return True, json.dumps({"ok": True})
+        return True, json.dumps({"ok": True})
+
+    monkeypatch.setattr("draw_portal.firmware_ota.push_tool_call", fake_push)
+    assert c2.post("/api/device/firmware/upgrade").json()["status"] == "started"
+    # 设备已重启到目标版本：状态对账把会话收口为终态 ok（纯 API 驱动，不读 cookie）。
+    assert c2.get("/api/device/firmware/ota_status").json()["state"] == "ok"
+    status_pushes.clear()
+
+    resp = c2.post("/api/draw/nonexistent/send")
+    assert resp.status_code == 404  # 未被升级闸拦截；任务不存在才是结论
+    assert status_pushes == []
+
+
+def test_starting_session_settles_ok_when_device_reached_target(tmp_path, monkeypatch):
+    """F50-03：set_target 后进程死亡遗留的 starting，设备到目标版本且 settle 即收口 ok。"""
+    import time as _time
+    from types import SimpleNamespace
+
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+
+    store = Store(tmp_path / "starting-settle.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    store.upsert_firmware_ota_session(
+        user_id="u", device_mac=binding.device_mac, state="starting",
+        target_version="hutuji.1.0.9", updated_at=_time.time() - 700,
+    )
+    raw = _status_json(state="idle", version="hutuji.1.0.9", ota={"state": "idle", "progress": 100})
+    monkeypatch.setattr(ota, "_push_healed", lambda **kw: (True, raw))
+    result = ota.get_ota_status(store=store, binding=binding, api_base="", token_cipher_key=b"")
+    assert result["state"] == "ok"
+    after = store.get_firmware_ota_session("u")
+    assert after.state == "ok" and after.progress == 100
+    assert not ota.is_upgrading(store, "u", device_mac=binding.device_mac)
+    assert store.reserve_firmware_ota_session("u", binding.device_mac) is not None
+
+
+def test_normalized_terminal_ota_state_allows_expiration(tmp_path, monkeypatch):
+    """F50-05：ota.state 大小写/空白归一化后，可信终态才放锁——"Idle " 也认。"""
+    import time as _time
+    from types import SimpleNamespace
+
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+
+    store = Store(tmp_path / "normalized-idle.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    store.upsert_firmware_ota_session(
+        user_id="u", device_mac=binding.device_mac, state="uncertain",
+        target_version="hutuji.1.0.49", updated_at=_time.time() - 700,
+    )
+    raw = _status_json(state="idle", version="hutuji.1.0.48", ota={"state": "Idle "})
+    monkeypatch.setattr(ota, "_push_healed", lambda **kw: (True, raw))
+    result = ota.get_ota_status(store=store, binding=binding, api_base="", token_cipher_key=b"")
+    assert result["state"] == "failed"
+    assert store.get_firmware_ota_session("u").state == "failed"
 
 
 def test_firmware_check_and_ota_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

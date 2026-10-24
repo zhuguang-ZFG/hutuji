@@ -879,6 +879,7 @@ _REF_SKIP_DIRS = {
     ".venv",
     ".git",
     ".claude",
+    ".qoder",
     ".worktrees",
     ".pytest_cache",
     "__pycache__",

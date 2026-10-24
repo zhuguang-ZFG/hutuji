@@ -69,6 +69,34 @@ def test_png_exif_orientation_consumed_before_trace(orientation, tmp_path):
 from draw_portal.pipeline import process_upload
 
 
+def test_orientation_free_png_upload_skips_normalize(monkeypatch, tmp_path):
+    """F50-06：无 EXIF 方向的 PNG 直传描摹链，不再强制整幅解码+重编码。"""
+    import numpy as np
+    from PIL import Image
+
+    from draw_portal import pipeline
+
+    _raw, expected = _oriented_raster("PNG", 6)
+    buf = io.BytesIO()
+    Image.fromarray(expected).save(buf, format="PNG")  # 已转正像素、无 EXIF
+    raw = buf.getvalue()
+
+    calls = []
+    real = pipeline.normalize_raster_to_png
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "normalize_raster_to_png", counting)
+    result = pipeline.process_upload(
+        raw, content_type="image/png", filename="p.png", job_dir=tmp_path
+    )
+    assert calls == []
+    assert result.lines > 0
+    assert result.gcode_path.exists()
+
+
 def _drawing_jpeg() -> bytes:
     """合成简单线稿 JPEG（白底黑框），走真实 JPEG 编码。"""
     import imageio.v3 as iio

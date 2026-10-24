@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-10-24 F50/F51 修复批次：出图闸只对在途 OTA 会话推送对账、starting+目标版本收口、ota.state 归一化、无方向 PNG 免重编码（Hub）；旧 WebSocket 改一次性任务析构（S3 1.0.52，F50-02 评估后维持保守并留档）；WebCommand 空输出丢弃流与 CLIENT_ALL 失配回退广播（量产 Grbl）。portal 634 / S3 448 / massprod host 86 过；F50-02 应用层修法与 patch 层 P3、F50-14/16 延后。修复与延后边界见 `docs/design/f50-f51-fixes-20261024.md`，部署状态只看 readiness。
+
 2026-10-22 F48 三项修复：放弃 TLS 后泄漏整个 EspSsl、PNG 直传消费 EXIF、uncertain OTA 查询失败不按墙钟放锁。S3 `hutuji.1.0.49`，小程序 0.3.33。部署/刷机/上传证据只看 readiness；另一 S3 排除，Grbl 无 delta。详见 `docs/design/f48-followup-fixes-20261022.md`。
 
 2026-10-22 TLS有限等待与EXIF启发式收口：S3 Disconnect 最多 3×10s 后放弃仍被接收线程占用的 TLS 对象；Portal 共用有向解码。Hub `f487258` 已双机部署，Freenove 目标板已 OTA 1.0.48；CI 补丁头跟进 `66f2cc5`。部署/刷机/上传只看 readiness；另一 S3 排除，Grbl 无 delta。详见 `docs/design/tls-followup-20261022.md`。

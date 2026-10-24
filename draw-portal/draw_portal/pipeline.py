@@ -87,6 +87,20 @@ def _imread_oriented(raw: bytes):
     return iio.imread(raw, plugin="pillow", rotate=True)
 
 
+def _png_orientation(raw: bytes):
+    """PNG 的 eXIf 方向标签；无 EXIF、无方向或方向=1 返回 None。
+
+    只读头部与 EXIF 块不解码像素——无方向 PNG 直传描摹链时可凭此跳过
+    normalize 的整幅解码+重编码（F50-06）。与 shrink_oversized_png 的
+    `getexif().get(274)` 同一探测口径。
+    """
+    from PIL import Image
+
+    with Image.open(io.BytesIO(raw)) as im:
+        value = im.getexif().get(274)
+    return value if isinstance(value, int) and value != 1 else None
+
+
 def normalize_raster_to_png(raw: bytes, *, line_art: bool = True) -> bytes:
     """WebP/GIF/BMP/PNG/JPEG 统一为 PNG 字节。
 
@@ -577,6 +591,9 @@ def process_upload(
     # 不信客户端 content_type。
     if raw[:8] == b"\x89PNG\r\n\x1a\n":
         # PNG 也可能带 EXIF 方向；line_art=False 只消费方向、不把线稿 PNG 再走 Canny。
+        # 无方向 PNG 已是目标格式，跳过 normalize 的整幅解码+重编码（F50-06）。
+        if _png_orientation(raw) is None:
+            return process_upload_png(raw, job_dir, profile=profile)
         return process_upload_png(
             normalize_raster_to_png(raw, line_art=False), job_dir, profile=profile
         )
