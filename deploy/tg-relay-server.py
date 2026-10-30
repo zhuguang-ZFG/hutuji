@@ -12,12 +12,40 @@ DNS 污染+SNI 封锁、经 lima 的 SSH 中继被 jd HIDS 疑似节流反复挂
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NOTIFY_SH = "/opt/hutuji/deploy/tg-notify.sh"
 MAX_BODY = 4096
+REQUEST_TTL_SECONDS = 300.0
+_request_lock = threading.Lock()
+_request_expiry: dict[str, float] = {}
+
+
+def _claim_request(request_id: str | None, *, now: float | None = None) -> bool:
+    """同一通知重试只执行一次；无/旧版 request id 保持兼容并直接放行。"""
+    if not request_id or re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", request_id) is None:
+        return True
+    current = time.monotonic() if now is None else now
+    with _request_lock:
+        expired = [key for key, deadline in _request_expiry.items() if deadline <= current]
+        for key in expired:
+            _request_expiry.pop(key, None)
+        if request_id in _request_expiry:
+            return False
+        _request_expiry[request_id] = current + REQUEST_TTL_SECONDS
+        return True
+
+
+def _release_request(request_id: str | None) -> None:
+    if not request_id:
+        return
+    with _request_lock:
+        _request_expiry.pop(request_id, None)
 
 
 class Relay(BaseHTTPRequestHandler):
@@ -28,8 +56,13 @@ class Relay(BaseHTTPRequestHandler):
             self.end_headers()
             return
         body = self.rfile.read(length)
+        request_id = self.headers.get("X-Hutuji-Notify-Id")
+        if not _claim_request(request_id):
+            self.send_response(202)
+            self.end_headers()
+            return
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [NOTIFY_SH, "--stdin"],
                 input=body,
                 timeout=15,
@@ -38,8 +71,13 @@ class Relay(BaseHTTPRequestHandler):
                 stderr=subprocess.DEVNULL,
             )
         except Exception:
-            # 中继不回 500 细节：发不出去接收端也无能为力，统一 202 吞掉。
-            pass
+            result = None
+        if result is None or result.returncode != 0:
+            # 释放幂等键并让发送端重试；响应仍不携带内部错误细节。
+            _release_request(request_id)
+            self.send_response(503)
+            self.end_headers()
+            return
         self.send_response(200)
         self.end_headers()
 

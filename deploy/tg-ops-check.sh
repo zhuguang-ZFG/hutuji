@@ -7,25 +7,45 @@
 # 无异常静默退出；--digest 无条件发一条现状，否则长时间静默分不清「健康」和「脚本死了」。
 set -uo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
+exec 9>/run/lock/hutuji-tg-ops-check.lock
+flock -n 9 || exit 0
 DIGEST=0
 [[ "${1:-}" == "--digest" ]] && DIGEST=1
 msg=""
 host=$(hostname -s)
 
-# failed units：全量扫，不限 hutuji-（nginx/ssh 挂了一样要人看）
-failed=$(systemctl list-units --state=failed --no-legend --no-pager 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+is_expected_inactive() {
+  local unit="${1%.service}"
+  [[ -n "${JD_HOT_STANDBY:-}" ]] || return 1
+  [[ "$unit" == "hutuji-cloud-bridge" || "$unit" == "hutuji-draw-admin" ]]
+}
+
+# 只扫本项目 failed unit；--plain 去掉 systemd 的“●”状态列。
+failed=""
+while read -r unit _; do
+  [[ -n "$unit" ]] || continue
+  is_expected_inactive "$unit" && continue
+  [[ "$unit" == hutuji-draw-worker@*.service ]] && continue
+  failed+="$unit "
+done < <(LC_ALL=C systemctl list-units 'hutuji-*' --state=failed --plain --no-legend --no-pager 2>/dev/null)
 [[ -n "$failed" ]] && msg+="failed: ${failed% }"$'\n'
 
 for u in hutuji-mcp hutuji-cloud-bridge hutuji-draw-portal hutuji-draw-admin; do
+  is_expected_inactive "$u" && continue
   if ! systemctl is-active --quiet "$u" 2>/dev/null; then
-    # 京东热备按设计停 bridge/admin（preflight is-enabled 分歧），不算异常
-    [[ "$u" == "hutuji-cloud-bridge" && -n "${JD_HOT_STANDBY:-}" ]] && continue
     msg+="not active: $u"$'\n'
   fi
 done
+
+# 宿主层只点名业务必需依赖，避免同机其他项目/可选 timer 污染项目告警。
+systemctl is-active --quiet nginx 2>/dev/null || msg+="not active dependency: nginx"$'\n'
+if ! systemctl is-active --quiet ssh 2>/dev/null && ! systemctl is-active --quiet sshd 2>/dev/null; then
+  msg+="not active dependency: ssh/sshd"$'\n'
+fi
+
 # worker 模板实例逐个点名（任一 failed 即报，八实例分推费）
-wfail=$(systemctl list-units 'hutuji-draw-worker@*' --no-legend --no-pager 2>/dev/null \
-  | awk '$4=="failed"{print $1}' | tr '\n' ' ')
+wfail=$(LC_ALL=C systemctl list-units 'hutuji-draw-worker@*' --plain --no-legend --no-pager 2>/dev/null \
+  | awk '$3=="failed" || $4=="failed" {print $1}' | tr '\n' ' ')
 [[ -n "$wfail" ]] && msg+="worker failed: ${wfail% }"$'\n'
 
 disk=$(df -x tmpfs -x devtmpfs --output=pcent,target 2>/dev/null \

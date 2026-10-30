@@ -15,7 +15,9 @@
 # 用法: tg-notify.sh <TAG> <TEXT...>      普通调用（TAG 如 unit-failed/token-watch）
 #       tg-notify.sh --stdin             中继接收端：正文读 stdin（≤4KB）
 set -uo pipefail
+RELAY_INPUT=0
 if [[ "${1:-}" == "--stdin" ]]; then
+  RELAY_INPUT=1
   TAG=relay
   TEXT=$(head -c 4000)
 else
@@ -32,7 +34,9 @@ if [[ -n "${TG_RELAY_URL:-}" ]]; then
   # 中继路径：正文进 body（≤4096 由接收端把关），不撞 argv/引号面。
   # jd HIDS 疑似 SSH 节流的教训：偶发失败重试 3 次、间隔 2s，全败仍静默。
   tries=0
-  until curl -fsS --max-time 10 -s -o /dev/null --data-binary "$FULLTEXT" \
+  notify_id="$(hostname -s)-$$-$(date +%s%N)"
+  until curl -fsS --max-time 20 -s -o /dev/null \
+    -H "X-Hutuji-Notify-Id: ${notify_id}" --data-binary "$FULLTEXT" \
     "${TG_RELAY_URL}" 2>/dev/null; do
     tries=$((tries + 1))
     [[ $tries -ge 3 ]] && break
@@ -49,5 +53,6 @@ if ! curl -fsS --max-time 10 -s -o /dev/null "${PROXY_ARGS[@]}" \
   --data-urlencode "text=${FULLTEXT}" 2>/dev/null; then
   # 通知发失败必须留痕（journald），否则「静默=健康」分不清通道死了没。
   logger -t tg-notify -p user.warning "sendMessage 失败（非 2xx/网络），消息: ${FULLTEXT:0:200}"
+  [[ $RELAY_INPUT -eq 1 ]] && exit 1
 fi
 exit 0

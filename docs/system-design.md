@@ -193,7 +193,7 @@ systemd unit / nginx 模板 / 拆分 env / `prepare-host.sh` / `install-from-rep
 
 | 面 | 规模（当前口径） | 入口 |
 |---|---|---|
-| MCP 契约 / 注入回归 | 1692 项 | `mcp-server/.venv` pytest |
+| MCP 契约 / 注入回归 | 1696 项 | `mcp-server/.venv` pytest |
 | Portal | 610 项 | draw-portal tests（hub 门禁不含，改动须单独跑） |
 | 小程序逻辑 | 约 350 项 | weapp Node 测试 |
 | S3 / Grbl host | 389 / 76 项（10-21 口径） | 各 fork host 测试 |
