@@ -395,6 +395,10 @@ def get_ota_status(
     session = store.get_firmware_ota_session(binding.user_id)
     if session and session.device_mac != binding.device_mac:
         session = None
+    # 本次设备状态只属于查询开始时看到的会话代次。下面的过期/CAS 可能与另一
+    # 请求结算旧会话并领取新目标交错；一旦 session_id 改变，旧正文只能用于
+    # 返回展示，不能继续消费为新会话的 failed/progress/version 证据。
+    observed_session_id = session.session_id if session else None
     ok, status, _err = _fetch_device_status(
         api_base=api_base, token_cipher_key=token_cipher_key, binding=binding, store=store,
     )
@@ -437,7 +441,8 @@ def get_ota_status(
     ota = ota_now if ok else None
     # starting 尚未收到命令应答，设备仍可能携带上一轮的失败/进度。
     # 外部继续显示 upgrading 并拦出图，内部阶段也使迟到查询的 CAS 失效。
-    if session and session.state != "starting" and ok:
+    if (session and session.session_id == observed_session_id
+            and session.state != "starting" and ok):
         state, progress, reason = session.state, session.progress, session.reason
         if isinstance(ota, dict):
             device_state = str(ota.get("state") or "").strip().lower()

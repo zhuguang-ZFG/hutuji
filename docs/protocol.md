@@ -1216,3 +1216,7 @@ S3断流归位worker独立发布运行/成功/失败/移交结果；未取得fre
 ### 2026-10-22 TLS关闭等待补充
 
 受管 EspSsl 关闭只 shutdown、不抢 close；接收线程退出后由 `esp_tls_conn_destroy` 唯一释放 sockfd。等待接收退出上限 3×10s：到点则放弃 TLS 对象所有权并泄漏其事件组，不得无限阻塞，也不得 destroy 仍可能被接收线程使用的对象。主动关闭的读失败不得记为网络故障。补丁登记与宿主交错见 `docs/design/tls-followup-20261022.md`；板上版本与部署只看 readiness。
+
+### 2026-10-30 F52 会话与回收上界补充
+
+Portal 的设备状态正文只能结算查询开始时冻结的同一 OTA `session_id`，过期或条件更新后发现会话换代，必须停止消费旧正文，不能把旧 failed/progress/version 证据写入新目标。S3 WebSocket 异步析构的 holder 分配不得抛异常，同时在途回收任务须有固定上限；资源不足时回退原有同步有界析构。量产 Grbl 的 `CLIENT_ALL` 默认仍属于领取命令并受会话屏障，只有显式无主 ALARM 可在 stale 会话时回退广播。实现与验证见 `docs/design/three-repo-f52-fixes-20261030.md`。

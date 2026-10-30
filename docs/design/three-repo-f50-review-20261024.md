@@ -25,9 +25,9 @@
 
 ## F50-01 / P2：终态 OTA 会话使每次出图都触发一次同步设备推送
 
-位置：Hub `draw-portal/draw_portal/app.py:1682`（`_reject_if_firmware_upgrading`）+ `firmware_ota.py:398`（`get_ota_status` 无条件 `_fetch_device_status`）。
+位置：Hub `draw-portal/draw_portal/app.py:1682`（`_reject_if_firmware_upgrading`）+ `firmware_ota.py:402`（`get_ota_status` 无条件 `_fetch_device_status`）。
 
-出图闸对"存在同 MAC 会话"即调 `get_ota_status`,无 state 过滤;`get_ota_status` 先做设备推送再做状态分派（`starting/uncertain/upgrading` 过滤在取数之后,`firmware_ota.py:401`）。而 `firmware_ota_sessions` 以 user_id 为主键,终态行（ok/failed）无任何删除或清理路径（全仓无 `DELETE FROM firmware_ota_sessions`）,只被下一次 reserve 覆盖。于是用户只要历史上完成过一次升级,之后每次出图发送（`app.py` 三处 send 入口）都先做一次 `hutuji.status` 推送（timeout 15s）;终态会话这次调用不可能改变任何状态,纯属浪费。设备关机/失联时单次请求最坏可停顿 ~45s（推送超时 + 401/403/404 时补 token 重试）才放行出图。
+出图闸对"存在同 MAC 会话"即调 `get_ota_status`,无 state 过滤;`get_ota_status` 先做设备推送再做状态分派（`starting/uncertain/upgrading` 过滤在取数之后,`firmware_ota.py:405`）。而 `firmware_ota_sessions` 以 user_id 为主键,终态行（ok/failed）无任何删除或清理路径（全仓无 `DELETE FROM firmware_ota_sessions`）,只被下一次 reserve 覆盖。于是用户只要历史上完成过一次升级,之后每次出图发送（`app.py` 三处 send 入口）都先做一次 `hutuji.status` 推送（timeout 15s）;终态会话这次调用不可能改变任何状态,纯属浪费。设备关机/失联时单次请求最坏可停顿 ~45s（推送超时 + 401/403/404 时补 token 重试）才放行出图。
 
 本机证据：源码行复核确认调用条件与无条件取数;一次性内联探针（真实 Store + 真实 `get_ota_status`,monkeypatch 推送计数）对 state=ok、updated_at 极旧的会话仍产生 device_pushes=1、is_upgrading=False。既有出图测试全部 mock 推送,故时延不可见。
 
@@ -35,7 +35,7 @@
 
 ## F50-02 / P2：远端断开后第一次唤醒被"退休回合"吞掉
 
-位置：S3 `main/protocols/websocket_protocol.cc:207-250`（OpenAudioChannel previous 存在即返回 false；行号随 F50/F51 批次顺移）+ `application.cc` 失败分支静默回 Idle。
+位置：S3 `main/protocols/websocket_protocol.cc:230-273`（OpenAudioChannel previous 存在即返回 false；行号随 F50/F51 批次顺移）+ `application.cc` 失败分支静默回 Idle。
 
 远端断开时 OnDisconnected 只 RetireLocked 不清 `channel_`;120s 空闲超时同样留下未清通道。下一次唤醒/按键触发 OpenAudioChannel 时,只要 previous 存在就"只退休+返回 false",唤醒词被静默丢弃,**第二次触发才真正重连**。代码注释仅论证了"关闭通知未消费（previous_closed 非空）时排队 Idle 可能覆盖新会话"的情形;对"已退休且通知已消费"（previous_closed 为空）的通路不存在该风险,却同样失败。官方语音 WebSocket 使用此路径,属 1.0.51 相对 1.0.49 的用户可见回归（旧码同场景第一枪即新建连接成功）。
 
@@ -45,7 +45,7 @@
 
 ## F50-03 / P3：进程死于 set_target 之后,starting+版本匹配的会话永久卡死
 
-位置：Hub `firmware_ota.py:422`（expire 被 version_match 挡住）、中段对账块与 is_upgrading 同函数内（行号随 F50/F51 修复批次顺移）。
+位置：Hub `firmware_ota.py:426`（expire 被 version_match 挡住）、中段对账块与 is_upgrading 同函数内（行号随 F50/F51 修复批次顺移）。
 
 `start_upgrade` 在 `set_firmware_ota_target` 之后、finally 之前若进程死亡（部署重启/OOM）,会话停在 starting 且带 target。设备随后完成升级并永远上报目标版本:stale 与 device_stopped 均成立,但 version_match=True 阻止 expire;中段版本对账成 ok 只覆盖 upgrading/uncertain/status_timeout。会话永远 starting→该设备出图永久被拦、同账号新升级永久 busy,设备自身完全健康。
 
@@ -55,13 +55,13 @@
 
 ## F50-04 / P3（运维风险）：设备永久离线 ⇒ 升级锁无限保持,无逃生门
 
-位置：Hub `firmware_ota.py:422`（放锁必须设备可信终态）+ `store.py:1542`（reserve 要求旧会话终结）。
+位置：Hub `firmware_ota.py:426`（放锁必须设备可信终态）+ `store.py:1542`（reserve 要求旧会话终结）。
 
 "查询失败不放锁、新升级须待旧会话终结"是 d58a671/b4508f9 的**有意设计**（方向正确,防误放锁）。代价是被升级设备永久失联/退役时,该账号在任何设备上都无法再发起升级,draw_admin 无会话管理,只能手工改库。不算修复缺陷,记录为运维风险;建议补管理侧手动终结或超长龄人工确认释放通道。
 
 ## F50-05 / P3：ota.state 两处判定口径不对称（失效方向为保守）
 
-位置：Hub `firmware_ota.py:404`（device_upgrading 先 `str().strip().lower()`）vs `:414`（device_stopped 用原串做集合成员判断）。
+位置：Hub `firmware_ota.py:408`（device_upgrading 先 `str().strip().lower()`）vs `:414`（device_stopped 用原串做集合成员判断）。
 
 设备上报 `"Idle"` 或 `"idle "` 时 device_stopped 永远 False→不放锁,而大写 `"Upgrading"` 却能被识别。fail-closed 方向,不构成误放锁;协议契约为小写缺省,现网大概率不触发。建议成员判断同样归一化。
 
@@ -97,7 +97,7 @@ d58a671 之后每个 PNG 上传固定付出"normalize 全量解码+PNG 重编码
 
 ## F50-11 / P3：FailChannel 在调用线程上同步销毁 WebSocket（阻塞点前移）
 
-位置：S3 `main/protocols/websocket_protocol.cc:174`（审查时为锁外 `websocket.reset()`，F50/F11 批次已改异步回收任务）。
+位置：S3 `main/protocols/websocket_protocol.cc:197`（审查时为锁外 `websocket.reset()`，F50/F11 批次已改异步回收任务）。
 
 ~WebSocket→Shutdown→EspSsl::Disconnect 3×10s 有限等待;接收任务卡死时音频编码任务或主循环被拖住最长 ~30s 后才收到 on_error/on_closed。旧码发送失败只 SetError、销毁推迟到下次 Open。有界（符合 F48 纪律）,但停滞点从"下次打开"前移到"失败当场"。建议失败路径延迟销毁,留待下次 OpenAudioChannel 替换时回收。
 

@@ -655,6 +655,52 @@ def test_late_ota_response_cannot_overwrite_new_device_session(tmp_path):
     assert current.target_version == "v2" and current.state == "upgrading"
 
 
+def test_old_status_payload_cannot_be_reused_after_ota_session_generation_changes(
+    tmp_path, monkeypatch,
+):
+    """旧查询完成前若会话已换代，不得拿旧 ota.failed 结算新目标。"""
+    import time as _time
+    from types import SimpleNamespace
+
+    from draw_portal import firmware_ota as ota
+    from draw_portal.store import Store
+
+    store = Store(tmp_path / "ota-generation.db")
+    binding = SimpleNamespace(user_id="u", device_mac="aa:bb:cc:dd:ee:ff")
+    store.upsert_firmware_ota_session(
+        user_id="u", device_mac=binding.device_mac, state="uncertain",
+        target_version="hutuji.1.0.9", updated_at=_time.time() - 700,
+    )
+    raw = _status_json(
+        state="idle", version="hutuji.1.0.8",
+        ota={"state": "failed", "progress": 0, "reason": "old_failed"},
+    )
+    monkeypatch.setattr(ota, "_push_healed", lambda **kw: (True, raw))
+
+    real_expire = store.expire_firmware_ota_session
+    interleaved = False
+
+    def expire_after_new_generation(user_id, *, cutoff, expected=None):
+        nonlocal interleaved
+        if not interleaved:
+            interleaved = True
+            store.upsert_firmware_ota_session(
+                user_id="u", device_mac=binding.device_mac, state="upgrading",
+                target_version="hutuji.1.0.10", updated_at=_time.time(),
+            )
+        return real_expire(user_id, cutoff=cutoff, expected=expected)
+
+    monkeypatch.setattr(store, "expire_firmware_ota_session", expire_after_new_generation)
+    result = ota.get_ota_status(
+        store=store, binding=binding, api_base="", token_cipher_key=b"",
+    )
+
+    after = store.get_firmware_ota_session("u")
+    assert after.target_version == "hutuji.1.0.10"
+    assert after.state == "upgrading" and after.reason is None
+    assert result["state"] == "upgrading"
+
+
 def test_expired_ota_can_reconcile_only_matching_version(tmp_path, monkeypatch):
     import time
     from draw_portal.store import Store
