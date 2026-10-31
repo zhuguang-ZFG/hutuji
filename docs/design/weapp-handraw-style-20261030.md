@@ -58,3 +58,12 @@
 - 截图在 `results/local-only/2026-10-30-handraw-web-final/`；已人工查看 Portal、运营后台、知识库后台的移动与桌面截图，品牌、文字层级、弹窗和表单均无肉眼可见遮挡。
 
 仍需：在微信开发者工具和至少一台手机目视检查安全区、长标题、弱视对比度及字体回退；把候选固件刷入 Freenove，逐屏检查主页、字幕、二维码、预览、控制抽屉、禁用按钮和 17 种表情；三套网页部署后再做公网实页目视。软件回归、离线浏览器截图与成功构建均不替代这些实体/生产验证。
+
+## 提交、部署与发布验证（2026-10-31）
+
+- S3 产品提交 `bbc1ec91bbcc6a18209a6cc439716b66073ac60d` 已推送 `origin/feat/hutuji-usb-pipe`；Hub 产品提交 `bc5a8ce36f6d8561c278c2ca5a6df487a19342ee` 已推送 `origin/main`。
+- 从 Hub 提交的 Git LF blob 仅打包三份生产静态页，按京东热备→阿里主节点顺序部署。京东回滚号 `fe3a238e6c4e45ae9161e8c84f9db02d`，阿里回滚号 `f63b576cf3e242a78b652e0c0c7c4fbf`；两节点带包 verify 均为 `PASS services and file hashes`。
+- 公网 `/draw-upload/`、`/draw-admin/`、`/kb-admin/` 均 HTTP 200，正文同时命中 HandRaw 与奶油/小派主题标记。自动化哈希与 HTTP 探针证明部署内容和路由有效，不替代用户账号内的生产交互目视。
+- 小程序 `0.3.34` 经微信开发者工具 CLI 上传开发版成功，AppID `wxbf3c1e0013b46343`，包体 327,020B；上传不等于体验版选择、提审或正式发布。
+- `hutuji.1.0.54` 以不可变候选同步到阿里、京东 `s3/freenove-esp32s3-display-2.8-lcd/hutuji.1.0.54/`，两节点均返回 `CANDIDATE_OK`；公网下载 3,106,000B、SHA-256 `B2453D2D8944D50D66B918383C1511BE62D1B5C3AB4ABF6EB7CF6C7B81ACC19C`。目标设备 `b8:1f:3f:c3:70:bc` 两种绑定探活均 HTTP 404，本机仅 COM4/COM5 蓝牙口，故未 OTA、未刷机，`latest.json` 与 catalog 均保持 `hutuji.1.0.53`，没有用离线状态冒充实体验证。
+- CI：Hub Tests run `41156757814` 1/1 success；Hutuji S3 run `41156469970` 3/3 success；Build Boards run `41156473973` 175/175 success，无失败或取消作业。
