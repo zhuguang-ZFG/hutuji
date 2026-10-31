@@ -69,3 +69,20 @@ HandRaw Style 钉在 `572dff8`（v1.9.8），许可是 MIT 加署名要求，记
 | S3 IDF 构建 | Freenove、立创各 1 份，见上表 |
 
 没做的：Freenove 舞台底色和 emoji 兜底字没上屏看过；小程序只跑了 node，没在开发者工具和手机上看；网页只有自动化对比度，没有公网实页目视。
+
+## 提交、部署与发布（2026-10-31）
+
+- S3 `0797ee446986caba0141e1ac5ca1593bb62933ee` 已推送 `origin/feat/hutuji-usb-pipe`，Hub `c1e9305acb27df780990deb22c6fbda17049d1bb` 已推送 `origin/main`。
+- Hub 代码与静态页：用 `auto_deploy.py` 从 `c1e9305` 的 LF blob 打包，共 5 个文件：`activation_relay.py`、`tg_notify.py` 和三份静态页。京东包 SHA-256 `3e18b18d…0209`，回滚号 `feda07bb9455486992d400c99170cb0a`；阿里包 `3fbd05d1…8ef5`，回滚号 `3d97acef44ae42dcab363a3e417cd498`。两节点带包 verify 均 `PASS services and file hashes`。公网三个入口 HTTP 200，正文都含 `#b03f5a`。
+- 阿里第一次部署被拒，代码没有改动。原因是 `hutuji-curated-prep` 处于 auto-restart 循环，`is-active` 返回 `activating`，部署脚本判为状态不可读。这个服务以 hutuji 身份运行，`/opt/hutuji/curated-audit` 的属主却从 08-30 起就是 root，每轮都在写审计文件时报 `Permission denied` 退出，到 20:41 已重启 343 次。按 90s 重试间隔推算，循环大约从 09:47 HandRaw 部署重启它时开始。每轮还会往 journal 写约 1300 行，阿里的 journal 上限是 99M，这时最早只剩 18:23 以后的日志。处理：只执行了 `systemctl stop hutuji-curated-prep`，enabled 保持不变，然后重新部署成功。目录属主没改，灌库也没恢复，这两件要等用户决定。恢复命令是 `systemctl start hutuji-curated-prep`。
+- 运维脚本：用 `git show c1e9305:` 导出，CR=0。两机先备份到 `/root/hutuji-bak-20261031-f53-ops/`，再用 `install` 替换。京东替换 `tg-ops-check.sh`、`tg-notify.sh`；阿里另外替换 `tg-relay-server.py`，并重启 `hutuji-tg-relay`（20:49:53 active）。远端 SHA：ops `3c0de341…2831`、notify `87ddfd6a…57cf`、relay `5223f7f7…d066`。两机都按 cron 原参数做了 `bash -x` 实跑，`msg` 为空；阿里检查了 redis、postgresql、sing-box，京东三项未启用，跳过。
+- 小程序 0.3.35：微信开发者工具 CLI 上传开发版，exit 0，包体 323,833B，AppID `wxbf3c1e0013b46343`。只上传了开发版，没有设体验版、提审或发布。
+- S3 `hutuji.1.0.55`：Freenove 镜像以不可变候选写入两节点 `s3/freenove-esp32s3-display-2.8-lcd/hutuji.1.0.55/`，两节点都返回 `CANDIDATE_OK`；公网下载 3,106,352B，SHA 与上表一致。目标 `b8:1f:3f:c3:70:bc` 绑定探活 HTTP 404，本机只有 COM4、COM5 两个蓝牙口，所以没有 OTA，`latest.json` 仍是 `hutuji.1.0.53`。立创镜像只构建、不发布。
+- CI：Hub Tests `41201538910` 1/1；Hutuji S3 `41198134303` 3/3；Build Boards `41198138334` 175/175，都是 success。
+- Hub 提交消息第 10 行有两个乱码字节，原文应为「钉住」。为了不强推 main，没有改写。
+
+仍未关闭：
+- `tg-ops-check.sh` 只看 failed 状态和显式列出的服务，`hutuji-curated-prep` 这种 auto-restart 循环它发现不了。
+- 1.0.55 还没上屏，也没 OTA。
+- 小程序没在手机上看过。
+- 网页没有用生产账号逐页目视。

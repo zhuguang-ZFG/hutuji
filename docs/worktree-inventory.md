@@ -1529,3 +1529,5 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 2026-10-31 HandRaw 发布收口：Hub `bc5a8ce`、S3 `bbc1ec9` 已推送；三网页双机部署回滚号京东 `fe3a238e6c4e45ae9161e8c84f9db02d`、阿里 `f63b576cf3e242a78b652e0c0c7c4fbf`，带包哈希/服务与公网三入口 200 通过。小程序 0.3.34 开发版上传 327020B。S3 1.0.54 候选在主备不可变目录及公网下载 SHA `b2453d2d…acc19c` 一致；目标设备探活404且无本地USB口，未OTA、未切1.0.53推荐指针。忽略证据位于 `results/deploy-20261031-094650-3bbea86e/`、`results/deploy-20261031-094710-e3551043/`、`results/deploy-20261031-094807-b40089e0/`、`results/deploy-20261031-095103-77839eb8/` 与 `tmp/handraw-release-20261031/`；CI Hub 41156757814、S3 41156469970、Build Boards 41156473973 全 success。实体屏与手机目视仍未完成。
 
 2026-10-31 F53 三仓复审修复：S3 `0797ee4`（1.0.55）已推送 `origin/feat/hutuji-usb-pipe`；Hub 改 `deploy/tg-{ops-check,notify}.sh`、`deploy/tg-relay-server.py`、`draw_portal/tg_notify.py`、`hutuji_mcp/activation_relay.py`、三份网页静态页、小程序主题与 10 个页面 wxss、版本 0.3.35 及对应测试。量产 Grbl 无改动。验证与部署记录见 `docs/design/three-repo-f53-fixes-20261031.md`。
+
+2026-10-31 F53 部署：Hub `c1e9305` 已推送并主备部署；运维脚本两机已换；S3 1.0.55 候选已主备落盘、未 OTA；小程序 0.3.35 已上传开发版。阿里 `hutuji-curated-prep` 已停（原为 auto-restart 循环），待用户决定是否修属主后恢复。
