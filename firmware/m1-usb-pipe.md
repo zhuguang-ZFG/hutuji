@@ -175,3 +175,10 @@ Pipe 先尝试 NVS 缓存 IP，再扫描当前 `/24` 子网的 Telnet:23；缓�
   直连 CH340，因 S3 原生 USB 被板载 CH334F HUB 占为设备口否决。API 查证来源：
   https://components.espressif.com/components/espressif/usb_host_ch34x_vcp 、
   esp-usb 仓 `host/class/cdc/` 头文件、IDF 示例 `cdc_acm_vcp`。
+
+## 2026-10-30 HandRaw 奶油卖萌显示候选（未刷机）
+
+- 外仓 `D:/Users/xiaozhi-esp32` 产品提交 `bbc1ec9` 已推送 `origin/feat/hutuji-usb-pipe`：量产 Freenove 的主题令牌由深色科技改为 FH-031 奶油手绘，Kawaii 桌宠新增可配置舞台底色并在量产板使用暖莓色；其他板仍默认黑底。候选版本唯一化为 `hutuji.1.0.54`，避免与不同内容的 1.0.53 同号。
+- 仅改 `CMakeLists.txt`、`main/display/lcd_display.cc`、`main/boards/lichuang-dev/kawaii_face/lvgl_kawaii_face.{h,c}` 与对应源码形状测试；不改哑管道、MCP 工具、Telnet、OTA、GPIO、音频、运动或写字机协议。
+- 验证：定向 9/9、显式 x86_64 g++ 宿主 448/448；Freenove 串行真实构建成功，esptool 核镜像内版本为 `hutuji.1.0.54`，`xiaozhi.bin` 3,106,000B，SHA-256 `B2453D2D8944D50D66B918383C1511BE62D1B5C3AB4ABF6EB7CF6C7B81ACC19C`，app 余 25%。并行首跑曾在未改动的大板级文件上 OOM，版本增量首跑曾因 ccache 临时目录无权限失败；禁用 ccache 后 `-j1` 收口成功，两次均非产品编译错误。
+- **未做**：刷机、OTA、实体屏主页/字幕/二维码/预览/控制抽屉/禁用态/17 情绪目视；构建成功不替代 HIL。

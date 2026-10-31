@@ -1,4 +1,15 @@
 <view class="page create-page">
+  <view class="atelier-head">
+    <text class="atelier-kicker">XIAOPAI'S DOODLE CLUB</text>
+    <text class="atelier-title">小派陪你，把灵感画出来</text>
+    <text class="atelier-copy">画画、写字、照片变线稿，今天也要可可爱爱地创作。</text>
+    <view class="atelier-line"></view>
+    <view class="pai-mascot" aria-label="小派">
+      <view class="pai-ear pai-ear-left"></view><view class="pai-ear pai-ear-right"></view>
+      <view class="pai-face"><view class="pai-eye"></view><view class="pai-eye"></view><view class="pai-blush pai-blush-left"></view><view class="pai-blush pai-blush-right"></view><view class="pai-mouth"></view></view>
+      <text class="pai-star">✦</text>
+    </view>
+  </view>
   <view class="mode-segment">
     <view
       class="mode-tab {{mode === 'draw' ? 'active' : ''}}"

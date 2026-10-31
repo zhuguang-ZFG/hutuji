@@ -1,8 +1,14 @@
 <view class="page">
   <view class="hero">
-    <view class="hero-brand">动力巢科技 · 小派</view>
-    <view class="hero-title">我的<text class="accent">账号</text></view>
-    <view class="hero-sub">头像与手机号用于绑定设备、同步你的作品</view>
+    <view class="hero-brand">MY XIAOPAI STUDIO</view>
+    <view class="hero-title">我的<text class="accent">小派画画屋</text></view>
+    <view class="hero-sub">管理账号、丹青设备、纸张和你的可爱创作伙伴</view>
+    <view class="atelier-line"></view>
+    <view class="pai-mascot pai-mascot-wink" aria-label="小派">
+      <view class="pai-ear pai-ear-left"></view><view class="pai-ear pai-ear-right"></view>
+      <view class="pai-face"><view class="pai-eye"></view><view class="pai-eye"></view><view class="pai-blush pai-blush-left"></view><view class="pai-blush pai-blush-right"></view><view class="pai-mouth"></view></view>
+      <text class="pai-star">✦</text>
+    </view>
   </view>
 
   <block wx:if="{{loggedOut}}">
@@ -120,6 +126,13 @@
     <view class="support-email"><text selectable="{{true}}">客服邮箱：{{supportEmail}}</text></view>
     <button class="weui-btn weui-btn_default" bindtap="onCopySupportEmail">复制客服邮箱</button>
     <view class="weui-cells__tips">注销账号或删除云端数据：请发邮件至客服邮箱，注明注册手机号与诉求</view>
+  </view>
+  <view class="weui-cells__title">视觉致谢</view>
+  <view class="credit-panel handraw-credit">
+    <view class="credit-text">手绘视觉语言参考 HandRaw Style</view>
+    <view class="credit-change">原作者 yang0</view>
+    <text class="credit-link" selectable="{{true}}">{{handrawCreditUrl}}</text>
+    <button class="weui-btn weui-btn_default credit-copy" bindtap="onCopyHandrawCredit">复制项目地址</button>
   </view>
   <view class="page-foot muted">动力巢科技 · {{footVersion}}</view>
 </view>

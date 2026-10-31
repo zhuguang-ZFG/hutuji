@@ -1515,3 +1515,13 @@ api.request 默认超时 150s→20s + 固件三请求显式超时；phone_gate r
 2026-10-22 C22最终续作：Hub产品4ca1f0c及三个外仓已推送，CI四套均completed/success含Build Boards175项。本机tmp/c22-release新增USB完整备份/两段单次写入/回读/NVS、CI及事实汇总工具；results/local-only/2026-10-22-c22-release总索引verification.json含首次OTA504/下载失败、USB恢复1.0.46、七项控制及控制后48项不变、主备指针/小程序上传。失败/超时过程保留，当前无新增产品代码改动，文档收口/固件说明随后提交。用户已排除另一S3，普通镜像未刷量产板，实体Hold保持。
 
 2026-10-22 体验优化：接手Hub d8a15f7与外仓已跟踪无改动，新增Hub pipeline/EXIF、sketch_render两串链存储、小程序wifi/firmware/job_progress及三处对应回归；授权清单、协议与设计记录同步。本机临时工具tmp/optimization-20261022/和结果results/local-only/2026-10-22-optimization/不入Git，外仓固件/生产节点/旧资产未改。小程序363、照片/渲染相邻63及旧新版对照通过，独立全套/门禁结果见本批记录，未部署/上传/刷机。
+
+## HandRaw 奶油卖萌视觉候选（2026-10-30，本仓候选 + xiaozhi 已推送）
+
+| 仓 / 文件 | 当前状态 |
+|---|---|
+| hutuji 小程序 | `draw-portal/weapp/app.{json,wxss}`、`styles/handdraw-theme.wxss`、四个主路径 WXML、聊天欢迎语、页面背景配置、纸张/速度动态色、版本号 0.3.34、`tests/weapp/handdraw_theme.test.js`、profile 致谢与本文档；FH-031 + C-34/C-21/C-09/C-27，原生 CSS/WXML「小派」卖萌脸 |
+| hutuji 网页 | `draw-portal/draw_portal/static/index.html`、`draw-portal/draw_admin/static/index.html`、`kb-admin/kb_admin/static/index.html`、`draw-portal/tests/test_handraw_web_theme.py`；公开 Portal 默认 cream v2，运营后台与知识库后台同源改造，三页均保留 HandRaw / yang0 可见致谢 |
+| xiaozhi S3 | `CMakeLists.txt`、`main/display/lcd_display.cc`、`main/boards/lichuang-dev/kawaii_face/lvgl_kawaii_face.{h,c}`、`scripts/tests/test_kawaii_face.py`；产品提交 `bbc1ec9` 已推送 `origin/feat/hutuji-usb-pipe`，视觉候选唯一版本 `hutuji.1.0.54`，外仓受跟踪工作树已净 |
+| 验证 | 小程序定向 14/14、全套 371/371；Portal 638/638；知识库 28/28；静态视觉契约 3/3；三网页 Playwright 24/24，截图 `results/local-only/2026-10-30-handraw-web-final/` 已人工查看；S3 定向 9/9、显式 x86_64 g++ 宿主 448/448；Freenove 串行 IDF 构建成功，esptool 核镜像内版本 `hutuji.1.0.54`，bin 3,106,000B / SHA-256 `B2453D2D…ACC19C` / app 余 25%；hub 1696/1696 + e2e PASS；两仓 diff check 通过 |
+| 未完成 | 微信开发者工具与手机目视；小程序上传/提审/发布；三网页生产部署与公网目视；S3 刷机/OTA、实体屏全流程目视。未改后端行为、协议、GPIO、音频、Telnet、运动或实体 Hold |

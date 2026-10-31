@@ -1,0 +1,1202 @@
+/*
+ * 全站手绘主题覆盖层：handraw-style FH-031 小红书奶油手绘。
+ * 上游：https://github.com/yang0/handraw-style（作者 yang0）。
+ * 纸张与墨线保持克制，朱砂只用于关键动作；不使用会干扰可读性的纹理图片。
+ */
+
+page,
+.page,
+.market-page,
+.detail-page,
+.paper-settings,
+.studio {
+  background: #fff7ed !important;
+  color: #4d3a46 !important;
+}
+
+.page {
+  position: relative;
+}
+
+button,
+input,
+textarea,
+picker,
+slider {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button::after {
+  border: none !important;
+}
+
+.hero,
+.atelier-head {
+  position: relative;
+  overflow: hidden;
+  margin: 26rpx 26rpx 18rpx !important;
+  padding: 34rpx 32rpx 32rpx !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.56) !important;
+  border-radius: 20rpx 30rpx 22rpx 26rpx !important;
+  background: #fffaf0 !important;
+  box-shadow: 8rpx 10rpx 0 rgba(38, 56, 74, 0.08) !important;
+}
+
+.hero::after,
+.atelier-head::after {
+  content: "";
+  position: absolute;
+  right: -26rpx;
+  bottom: -32rpx;
+  width: 168rpx;
+  height: 92rpx;
+  border: 4rpx solid rgba(184, 76, 63, 0.24);
+  border-radius: 50%;
+  transform: rotate(-12deg);
+}
+
+.atelier-kicker,
+.hero-brand,
+.eyebrow,
+.weui-cells__title {
+  color: #a94439 !important;
+  font-size: 22rpx !important;
+  font-weight: 700 !important;
+  letter-spacing: 3rpx !important;
+}
+
+.atelier-title,
+.hero-title,
+.slim-title,
+.gallery-title,
+.heading,
+.empty-title,
+.section-title,
+.offline-title,
+.work-title,
+.settings-heading {
+  color: #26384a !important;
+  font-family: "STKaiti", "KaiTi", "PingFang SC", serif;
+}
+
+.atelier-title {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 50rpx;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 2rpx;
+}
+
+.atelier-copy,
+.hero-sub,
+.gallery-sub,
+.empty-sub,
+.section-desc,
+.work-sub {
+  color: #81786b !important;
+}
+
+.atelier-mark {
+  position: absolute;
+  right: 42rpx;
+  top: 34rpx;
+  width: 72rpx;
+  height: 72rpx;
+  border: 4rpx solid #b84c3f;
+  border-radius: 12rpx 18rpx 10rpx 16rpx;
+  color: #b84c3f;
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 72rpx;
+  text-align: center;
+  transform: rotate(6deg);
+  opacity: 0.88;
+}
+
+.atelier-line {
+  width: 132rpx;
+  height: 10rpx;
+  margin-top: 22rpx;
+  border-top: 4rpx solid #bf9148;
+  border-radius: 50%;
+  transform: rotate(-2deg);
+}
+
+.accent,
+.title-accent,
+.heading text {
+  color: #b84c3f !important;
+}
+
+.weui-cells,
+.input-panel,
+.preview-card,
+.status-card,
+.jog-block,
+.speed-block,
+.offline-card,
+.settings-panel,
+.paper-scene,
+.send-panel,
+.credit-panel,
+.section,
+.sk-panel,
+.work-cell,
+.gallery-card,
+.paper-frame,
+.draft-notice,
+.history-notice,
+.generation-note,
+.bind-banner {
+  background: #fffaf0 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.34) !important;
+  box-shadow: 6rpx 8rpx 0 rgba(38, 56, 74, 0.07) !important;
+}
+
+.weui-cells,
+.input-panel,
+.status-card,
+.jog-block,
+.speed-block,
+.offline-card,
+.settings-panel,
+.paper-scene,
+.send-panel,
+.credit-panel,
+.section,
+.sk-panel {
+  border-radius: 18rpx 24rpx 20rpx 26rpx !important;
+}
+
+.weui-cell + .weui-cell::before,
+.row-actions,
+.divider-line {
+  background: rgba(38, 56, 74, 0.14) !important;
+  border-color: rgba(38, 56, 74, 0.14) !important;
+}
+
+.weui-cell__bd,
+.nick-input,
+.name,
+.status-main,
+.status-state,
+.jog-label,
+.speed-label,
+.speed-axis-label,
+.paper-summary-title,
+.message-author,
+.card-caption,
+.draw-desc,
+.picked,
+.setting-row,
+.device-row,
+.credit-text,
+.notice-title {
+  color: #26384a !important;
+}
+
+.muted,
+.weui-cell__ft,
+.weui-cells__tips,
+.input-caption,
+.example-row,
+.result-count,
+.preview-meta,
+.timeline-hint,
+.timeline-lab,
+.eta-row,
+.ota-line,
+.page-bar-meta,
+.speed-hint,
+.offline-sub,
+.phone-text,
+.support-email,
+.preview-tip,
+.action-hint,
+.field-help,
+.mapping,
+.page-foot,
+.voice-hint,
+.ai-note {
+  color: #81786b !important;
+}
+
+.weui-btn,
+.empty-action,
+.send-btn,
+.send-button,
+.go-btn,
+.confirm-btn,
+.text-send,
+.btn-confirm,
+.draw-btn,
+.connection-refresh,
+.save-button {
+  border-radius: 14rpx 18rpx 13rpx 17rpx !important;
+  box-shadow: 4rpx 5rpx 0 rgba(38, 56, 74, 0.13);
+}
+
+.weui-btn_primary,
+.empty-action,
+.send-btn,
+.send-button,
+.go-btn,
+.confirm-btn,
+.text-send,
+.btn-confirm,
+.draw-btn,
+.save-button {
+  color: #fffaf0 !important;
+  background: #b84c3f !important;
+  border: 2rpx solid #7f342e !important;
+}
+
+.weui-btn_primary:not([disabled]):active,
+.empty-action:active,
+.send-button:active,
+.go-btn:active {
+  background: #9f3f36 !important;
+  transform: translate(2rpx, 2rpx);
+  box-shadow: 2rpx 3rpx 0 rgba(38, 56, 74, 0.12);
+}
+
+.weui-btn_default,
+.favorite-button,
+.retry-button,
+.btn-cancel,
+.job-btn,
+.pen-btn,
+.dpad-btn,
+.step-pill,
+.preset,
+.chip,
+.suggestion,
+.input-toggle,
+.mic-enable,
+.search-clear,
+.search-sort,
+.redraw-btn,
+.del-btn,
+.speed-retry,
+.connection-refresh {
+  color: #26384a !important;
+  background: #f5ead8 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.38) !important;
+}
+
+.weui-btn_warn,
+.danger,
+.logout-btn {
+  color: #a43e36 !important;
+  background: rgba(184, 76, 63, 0.06) !important;
+  border-color: rgba(164, 62, 54, 0.42) !important;
+}
+
+.weui-btn[disabled],
+button[disabled] {
+  opacity: 0.44 !important;
+  box-shadow: none !important;
+}
+
+.field,
+.work-search,
+.text-input,
+.cell-input,
+.compact-input,
+.dimension-inputs input,
+.font-picker-val,
+.group-picker,
+.weui-textarea,
+textarea,
+input {
+  color: #26384a !important;
+  background: #fffdf7 !important;
+  border-color: rgba(38, 56, 74, 0.28) !important;
+}
+
+.ph {
+  color: #aaa091 !important;
+}
+
+.mode-segment,
+.version-switch,
+.chips,
+.presets,
+.voice-grid {
+  background: transparent !important;
+}
+
+.mode-segment {
+  margin: 22rpx 26rpx 10rpx !important;
+  padding: 8rpx !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.34) !important;
+  border-radius: 18rpx !important;
+  background: #eaddca !important;
+}
+
+.mode-tab {
+  color: #756d61 !important;
+  border-radius: 12rpx 16rpx 11rpx 15rpx !important;
+}
+
+.mode-tab.active,
+.chip-on,
+.preset.selected,
+.model-on,
+.version-switch .selected {
+  color: #fffaf0 !important;
+  background: #26384a !important;
+  border-color: #26384a !important;
+  box-shadow: 3rpx 4rpx 0 rgba(184, 76, 63, 0.2) !important;
+}
+
+.paper-summary,
+.control-paper-link {
+  background: #efe3d2 !important;
+  border: 2rpx dashed rgba(38, 56, 74, 0.42) !important;
+  border-radius: 15rpx 20rpx 16rpx 22rpx !important;
+}
+
+.paper-summary-sheet {
+  border-color: #b84c3f !important;
+  background: #fffaf0;
+  box-shadow: 3rpx 3rpx 0 rgba(38, 56, 74, 0.12);
+}
+
+.paper-summary-sheet::after {
+  border-color: rgba(38, 56, 74, 0.44) !important;
+}
+
+.paper-summary-detail,
+.paper-summary-hint,
+.paper-summary-arrow,
+.control-paper-link {
+  color: #756d61 !important;
+}
+
+.action-grid {
+  gap: 18rpx !important;
+}
+
+.action-tile {
+  position: relative;
+  overflow: hidden;
+  background: #fffaf0 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.4) !important;
+  border-radius: 18rpx 24rpx 17rpx 22rpx !important;
+  box-shadow: 5rpx 7rpx 0 rgba(38, 56, 74, 0.08) !important;
+}
+
+.action-tile::before {
+  content: "";
+  position: absolute;
+  left: 14rpx;
+  top: 12rpx;
+  width: 24rpx;
+  height: 8rpx;
+  border-top: 3rpx solid rgba(191, 145, 72, 0.7);
+  transform: rotate(-8deg);
+}
+
+.tile-label,
+.bind-title,
+.result-title,
+.refine-waiting-title {
+  color: #26384a !important;
+}
+
+.tile-icon,
+.empty-glyph,
+.intro-art,
+.companion-face {
+  border-color: rgba(38, 56, 74, 0.5) !important;
+  box-shadow: none !important;
+}
+
+.bind-banner.market-banner {
+  background: #e9dcc6 !important;
+}
+
+.bind-go,
+.slim-quota,
+.result-badge,
+.phone-link,
+.speed-val,
+.thumb-retry,
+.search-clear,
+.search-sort,
+.advanced-arrow,
+.settings-entry,
+.suggestion-arrow,
+.work-title + .card-arrow {
+  color: #b84c3f !important;
+}
+
+.preview,
+.preview-img,
+.thumb,
+.card-paper,
+.work-preview,
+.sheet {
+  background: #fffef9 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.32) !important;
+  border-radius: 12rpx 18rpx 14rpx 20rpx !important;
+  box-shadow: 4rpx 6rpx 0 rgba(38, 56, 74, 0.08) !important;
+}
+
+.work-cell,
+.gallery-card {
+  border-radius: 16rpx 23rpx 18rpx 25rpx !important;
+}
+
+.gallery-card:nth-child(2n),
+.work-cell:nth-child(2n) {
+  transform: rotate(0.35deg);
+}
+
+.gallery-card:nth-child(3n),
+.work-cell:nth-child(3n) {
+  transform: rotate(-0.3deg);
+}
+
+.status-dot,
+.device-dot,
+.timeline-dot {
+  background: #aaa091 !important;
+  box-shadow: 0 0 0 5rpx rgba(129, 120, 107, 0.12) !important;
+}
+
+.status-dot.ok,
+.device-dot.connected,
+.timeline-step.done .timeline-dot {
+  background: #65785e !important;
+  box-shadow: 0 0 0 5rpx rgba(101, 120, 94, 0.16) !important;
+}
+
+.status-dot.bad {
+  background: #b84c3f !important;
+}
+
+.timeline-step.active .timeline-dot,
+.page-bar-fill,
+.progress-fill {
+  background: #b84c3f !important;
+}
+
+.page-bar-track,
+.progress-bar {
+  background: #dfd2bf !important;
+  border: 1rpx solid rgba(38, 56, 74, 0.2);
+}
+
+.dpad-btn.home {
+  color: #fffaf0 !important;
+  background: #26384a !important;
+}
+
+.job-btn.danger {
+  color: #fffaf0 !important;
+  background: #a43e36 !important;
+}
+
+.chat-header,
+.composer {
+  background: rgba(255, 250, 240, 0.96) !important;
+  border-color: rgba(38, 56, 74, 0.24) !important;
+  box-shadow: 0 8rpx 24rpx rgba(74, 54, 38, 0.08) !important;
+}
+
+.companion-face {
+  background: #e8d6b7 !important;
+}
+
+.companion-name,
+.welcome-title {
+  color: #26384a !important;
+  font-family: "STKaiti", "KaiTi", serif;
+}
+
+.companion-status,
+.welcome-copy,
+.welcome-kicker {
+  color: #81786b !important;
+}
+
+.bubble {
+  color: #26384a !important;
+  background: #fffaf0 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.28) !important;
+  border-radius: 18rpx 22rpx 18rpx 8rpx !important;
+  box-shadow: 4rpx 5rpx 0 rgba(38, 56, 74, 0.06) !important;
+}
+
+.msg-row.user .bubble {
+  color: #fffaf0 !important;
+  background: #26384a !important;
+  border-radius: 22rpx 18rpx 8rpx 18rpx !important;
+}
+
+.hold-btn {
+  color: #fffaf0 !important;
+  background: #b84c3f !important;
+  border-color: #7f342e !important;
+}
+
+.hold-btn.active {
+  background: #26384a !important;
+}
+
+.history-notice,
+.generation-note,
+.draft-notice,
+.device-note,
+.error-bar,
+.load-error,
+.control-error,
+.speed-error,
+.fit-error,
+.share-feedback,
+.preview-error,
+.draw-state.warn {
+  color: #8d3e35 !important;
+  background: #f5e1d4 !important;
+  border-color: rgba(141, 62, 53, 0.3) !important;
+}
+
+.skeleton-row,
+.sk-thumb,
+.sk-line,
+.preview-placeholder,
+.loading-line {
+  background: #eadfce !important;
+}
+
+.cat-chip {
+  color: #756d61 !important;
+  background: #eadfce !important;
+  border-color: rgba(38, 56, 74, 0.24) !important;
+}
+
+.cat-chip.active {
+  color: #fffaf0 !important;
+  background: #26384a !important;
+}
+
+.section-tip,
+.field-help {
+  color: #81786b !important;
+}
+
+slider {
+  --weui-BRAND: #b84c3f;
+}
+
+.btn-press,
+.tile-press,
+.row-press,
+.card-press,
+.button-press,
+.dpad-press {
+  opacity: 0.82;
+  transform: translate(2rpx, 2rpx);
+}
+
+/* 独立全屏画板：沿用纸本色，但保留原有紧凑工具布局。 */
+.studio-head,
+.paper-meta,
+.creative-head,
+.tool-bottom,
+.selection-tools {
+  border-color: rgba(38, 56, 74, 0.18) !important;
+}
+
+.studio-title,
+.studio-sub,
+.draft-state,
+.stroke-count,
+.tool-hint,
+.foot-note,
+.paper-link,
+.paper-link text,
+.creative-toggle,
+.replay-btn {
+  color: #756d61 !important;
+}
+
+.studio-title {
+  color: #26384a !important;
+  font-family: "STKaiti", "KaiTi", serif;
+}
+
+.draft-dot {
+  background: #65785e !important;
+}
+
+.paper-option,
+.toolbox,
+.symmetry-group,
+.symmetry-btn,
+.draw-tool,
+.selection-tools button,
+.history-btn,
+.clear-btn {
+  color: #756d61 !important;
+  background: #efe3d2 !important;
+  border-color: rgba(38, 56, 74, 0.28) !important;
+}
+
+.paper-option.selected,
+.creative-toggle.selected,
+.symmetry-btn.active,
+.draw-tool.active {
+  color: #fffaf0 !important;
+  background: #26384a !important;
+  border-color: #26384a !important;
+}
+
+.toolbox {
+  border: 2rpx solid rgba(38, 56, 74, 0.38) !important;
+  border-radius: 18rpx 24rpx 17rpx 23rpx !important;
+  box-shadow: 5rpx 6rpx 0 rgba(38, 56, 74, 0.07);
+}
+
+.paper {
+  box-shadow: 7rpx 9rpx 0 rgba(38, 56, 74, 0.13) !important;
+}
+
+.paper-notice {
+  color: #5f7259 !important;
+  background: #e4eadc !important;
+  border: 1rpx solid rgba(95, 114, 89, 0.28);
+}
+
+.paper-notice.warn,
+.canvas-error {
+  color: #8d3e35 !important;
+  background: #f5e1d4 !important;
+}
+
+.converting {
+  color: #26384a !important;
+  background: rgba(255, 250, 240, 0.93) !important;
+}
+
+.preview-btn {
+  color: #fffaf0 !important;
+  background: #b84c3f !important;
+  border: 2rpx solid #7f342e !important;
+  box-shadow: 4rpx 5rpx 0 rgba(38, 56, 74, 0.13);
+}
+
+.preview-btn[disabled] {
+  color: #aaa091 !important;
+  background: #dfd2bf !important;
+  border-color: #c7b9a5 !important;
+}
+
+/* 绑定、配网、升级与分享页也使用同一套纸本语义，避免流程中途退回深色旧主题。 */
+.code-input,
+.model-item {
+  color: #26384a !important;
+  background: #fffdf7 !important;
+  border-color: rgba(38, 56, 74, 0.28) !important;
+}
+
+.divider-text,
+.work-date,
+.failed-sub,
+.loading-label,
+.progress-meta,
+.status-tip,
+.model-desc,
+.credit-change,
+.credit-link,
+.tips {
+  color: #81786b !important;
+}
+
+.failed-title,
+.progress-label,
+.model-name {
+  color: #26384a !important;
+}
+
+.log {
+  color: #26384a !important;
+  background: #efe3d2 !important;
+  border: 2rpx dashed rgba(38, 56, 74, 0.34) !important;
+}
+
+.progress-wrap,
+.model-item {
+  background: #fffaf0 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.3) !important;
+  box-shadow: 4rpx 5rpx 0 rgba(38, 56, 74, 0.06) !important;
+}
+
+.badge,
+.highlight .weui-cell__ft,
+.status-tip.ok,
+.bound-ok,
+.bind-help,
+.password-toggle {
+  color: #5f7259 !important;
+}
+
+.badge {
+  background: #e4eadc !important;
+  border: 1rpx solid rgba(95, 114, 89, 0.3) !important;
+}
+
+.bind-btn,
+.save-btn.save-on,
+.retry-btn {
+  color: #fffaf0 !important;
+  background: #b84c3f !important;
+  border: 2rpx solid #7f342e !important;
+}
+
+.save-btn:not(.save-on) {
+  color: #81786b !important;
+  background: #dfd2bf !important;
+}
+
+/* 对话页保留角色区分，但把所有承载面收回纸张、墨蓝和朱砂三色。 */
+.chat-page .suggestion,
+.preview-card,
+.draw-card,
+.chat-page .input-toggle,
+.chat-page .mic-enable,
+.chat-page .msg-restore,
+.chat-page .load-error button {
+  color: #26384a !important;
+  background: #f5ead8 !important;
+  border-color: rgba(38, 56, 74, 0.32) !important;
+}
+
+.text-input {
+  color: #26384a !important;
+  background: #fffdf7 !important;
+  border-color: rgba(38, 56, 74, 0.34) !important;
+}
+
+.tool-traces,
+.draw-state,
+.reply-pending,
+.voice-status {
+  color: #756d61 !important;
+}
+
+.eye,
+.thinking-dots view {
+  background: #b84c3f !important;
+}
+
+.smile {
+  border-color: #b84c3f !important;
+}
+
+.hold-btn.cancel {
+  color: #fffaf0 !important;
+  background: #a43e36 !important;
+}
+
+/* 许可要求在产品中可见地保留作者与仓库地址。 */
+.handraw-credit {
+  background: #fffaf0 !important;
+  border: 2rpx solid rgba(38, 56, 74, 0.34) !important;
+  border-radius: 18rpx 24rpx 20rpx 26rpx !important;
+  box-shadow: 6rpx 8rpx 0 rgba(38, 56, 74, 0.07) !important;
+}
+
+.credit-link {
+  color: #b84c3f !important;
+}
+
+/*
+ * FH-031 奶油卖萌层：让“小派”成为贯穿页面的记忆点。
+ * 这里集中覆盖旧纸本候选，避免触碰任何页面状态机或设备动作逻辑。
+ */
+.hero,
+.atelier-head {
+  min-height: 176rpx;
+  padding-right: 150rpx !important;
+  border-color: rgba(77, 58, 70, 0.26) !important;
+  background: linear-gradient(145deg, #fffdf8 0%, #fff0f4 56%, #eef9f4 100%) !important;
+  box-shadow: 8rpx 10rpx 0 rgba(216, 95, 123, 0.10) !important;
+}
+
+.hero::after,
+.atelier-head::after {
+  right: -12rpx;
+  bottom: -24rpx;
+  width: 190rpx;
+  height: 100rpx;
+  border-color: rgba(243, 163, 181, 0.34);
+}
+
+.atelier-kicker,
+.hero-brand,
+.eyebrow,
+.weui-cells__title {
+  color: #d85f7b !important;
+}
+
+.atelier-title,
+.hero-title,
+.slim-title,
+.gallery-title,
+.heading,
+.empty-title,
+.section-title,
+.offline-title,
+.work-title,
+.settings-heading,
+.companion-name,
+.welcome-title {
+  color: #4d3a46 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-weight: 800 !important;
+}
+
+.atelier-copy,
+.hero-sub,
+.gallery-sub,
+.empty-sub,
+.section-desc,
+.work-sub,
+.companion-status,
+.welcome-copy,
+.welcome-kicker {
+  color: #8f7a84 !important;
+}
+
+.atelier-line {
+  border-color: #e2b75d;
+}
+
+.pai-mascot {
+  position: absolute;
+  right: 30rpx;
+  top: 28rpx;
+  width: 104rpx;
+  height: 104rpx;
+  transform: rotate(4deg);
+  animation: pai-float 3.2s ease-in-out infinite;
+}
+
+.pai-ear {
+  position: absolute;
+  top: 2rpx;
+  width: 34rpx;
+  height: 38rpx;
+  border: 3rpx solid #6b4e5e;
+  border-bottom: 0;
+  background: #f3a3b5;
+  transform: rotate(-22deg);
+}
+
+.pai-ear-left {
+  left: 12rpx;
+  border-radius: 28rpx 8rpx 16rpx 8rpx;
+}
+
+.pai-ear-right {
+  right: 12rpx;
+  border-radius: 8rpx 28rpx 8rpx 16rpx;
+  transform: rotate(22deg);
+}
+
+.pai-face {
+  position: absolute;
+  left: 8rpx;
+  top: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+  width: 88rpx;
+  height: 76rpx;
+  border: 3rpx solid #6b4e5e;
+  border-radius: 42rpx 46rpx 38rpx 44rpx;
+  background: #fffdf8;
+  box-shadow: 4rpx 6rpx 0 rgba(216, 95, 123, 0.16);
+}
+
+.pai-eye {
+  width: 12rpx;
+  height: 21rpx;
+  margin-top: -9rpx;
+  border-radius: 50%;
+  background: #6b4e5e;
+  animation: pai-blink 5.6s infinite;
+}
+
+.pai-blush {
+  position: absolute;
+  top: 46rpx;
+  width: 17rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: rgba(243, 163, 181, 0.72);
+}
+
+.pai-blush-left { left: 12rpx; }
+.pai-blush-right { right: 12rpx; }
+
+.pai-mouth {
+  position: absolute;
+  left: 37rpx;
+  top: 48rpx;
+  width: 14rpx;
+  height: 7rpx;
+  border: 3rpx solid #d85f7b;
+  border-top: 0;
+  border-radius: 0 0 14rpx 14rpx;
+}
+
+.pai-star {
+  position: absolute;
+  right: -8rpx;
+  top: 5rpx;
+  color: #e2b75d;
+  font-size: 26rpx;
+  font-weight: 800;
+  transform: rotate(12deg);
+}
+
+.pai-mascot-thinking .pai-mouth {
+  width: 9rpx;
+  height: 9rpx;
+  border: 3rpx solid #d85f7b;
+  border-radius: 50%;
+}
+
+.pai-mascot-happy .pai-eye {
+  height: 9rpx;
+  border-radius: 50% 50% 0 0;
+}
+
+.pai-mascot-wink .pai-eye:first-child {
+  height: 4rpx;
+  border-radius: 6rpx;
+}
+
+.weui-cells,
+.input-panel,
+.preview-card,
+.status-card,
+.jog-block,
+.speed-block,
+.offline-card,
+.settings-panel,
+.paper-scene,
+.send-panel,
+.credit-panel,
+.section,
+.sk-panel,
+.work-cell,
+.gallery-card,
+.paper-frame,
+.draft-notice,
+.history-notice,
+.generation-note,
+.bind-banner,
+.progress-wrap,
+.model-item {
+  background: #fffdf8 !important;
+  border-color: rgba(77, 58, 70, 0.23) !important;
+  box-shadow: 6rpx 8rpx 0 rgba(168, 213, 198, 0.18) !important;
+}
+
+.accent,
+.title-accent,
+.heading text,
+.bind-go,
+.slim-quota,
+.result-badge,
+.phone-link,
+.speed-val,
+.thumb-retry,
+.search-clear,
+.search-sort,
+.advanced-arrow,
+.settings-entry,
+.suggestion-arrow,
+.credit-link {
+  color: #d85f7b !important;
+}
+
+.weui-btn_primary,
+.empty-action,
+.send-btn,
+.send-button,
+.go-btn,
+.confirm-btn,
+.text-send,
+.btn-confirm,
+.draw-btn,
+.save-button,
+.preview-btn,
+.bind-btn,
+.save-btn.save-on,
+.retry-btn,
+.hold-btn {
+  color: #4d2938 !important;
+  background: #f3a3b5 !important;
+  border-color: #d85f7b !important;
+  box-shadow: 4rpx 5rpx 0 rgba(216, 95, 123, 0.18) !important;
+}
+
+.weui-btn_default,
+.favorite-button,
+.retry-button,
+.btn-cancel,
+.job-btn,
+.pen-btn,
+.dpad-btn,
+.step-pill,
+.preset,
+.chip,
+.suggestion,
+.input-toggle,
+.mic-enable,
+.search-clear,
+.search-sort,
+.redraw-btn,
+.del-btn,
+.speed-retry,
+.connection-refresh,
+.paper-option,
+.toolbox,
+.symmetry-group,
+.symmetry-btn,
+.draw-tool,
+.selection-tools button,
+.history-btn,
+.clear-btn {
+  color: #4d3a46 !important;
+  background: #fdefe4 !important;
+  border-color: rgba(77, 58, 70, 0.25) !important;
+}
+
+.mode-segment {
+  background: #f8e7d9 !important;
+  border-color: rgba(77, 58, 70, 0.20) !important;
+}
+
+.mode-tab.active,
+.chip-on,
+.preset.selected,
+.model-on,
+.version-switch .selected,
+.cat-chip.active,
+.paper-option.selected,
+.creative-toggle.selected,
+.symmetry-btn.active,
+.draw-tool.active,
+.dpad-btn.home,
+.msg-row.user .bubble {
+  color: #fffdf8 !important;
+  background: #6b4e5e !important;
+  border-color: #6b4e5e !important;
+}
+
+.action-tile:nth-child(3n + 1) .tile-icon { background: #ffe0e8 !important; }
+.action-tile:nth-child(3n + 2) .tile-icon { background: #bfe4d7 !important; }
+.action-tile:nth-child(3n) .tile-icon { background: #fff0bd !important; }
+
+.paper-summary,
+.control-paper-link {
+  background: #fdefe4 !important;
+  border-color: rgba(216, 95, 123, 0.38) !important;
+}
+
+.status-dot.ok,
+.device-dot.connected,
+.timeline-step.done .timeline-dot,
+.draft-dot {
+  background: #6ea998 !important;
+}
+
+.timeline-step.active .timeline-dot,
+.page-bar-fill,
+.progress-fill,
+.thinking-dots view,
+.eye {
+  background: #d85f7b !important;
+}
+
+.chat-header,
+.composer {
+  background: rgba(255, 253, 248, 0.97) !important;
+  border-color: rgba(77, 58, 70, 0.15) !important;
+}
+
+.companion-face {
+  overflow: visible;
+  border: 3rpx solid #6b4e5e !important;
+  border-radius: 36rpx 42rpx 34rpx 40rpx !important;
+  background: linear-gradient(145deg, #fffdf8, #ffe4eb) !important;
+  box-shadow: 4rpx 6rpx 0 rgba(168, 213, 198, 0.30) !important;
+}
+
+.companion-face::before,
+.companion-face::after {
+  content: "";
+  position: absolute;
+  top: -11rpx;
+  width: 25rpx;
+  height: 29rpx;
+  border: 3rpx solid #6b4e5e;
+  border-bottom: 0;
+  background: #f3a3b5;
+  z-index: -1;
+}
+
+.companion-face::before {
+  left: 7rpx;
+  border-radius: 20rpx 6rpx 10rpx 6rpx;
+  transform: rotate(-24deg);
+}
+
+.companion-face::after {
+  right: 7rpx;
+  border-radius: 6rpx 20rpx 6rpx 10rpx;
+  transform: rotate(24deg);
+}
+
+.companion-face .eye {
+  background: #6b4e5e !important;
+}
+
+.companion-face .smile {
+  border-color: #d85f7b !important;
+}
+
+.bubble,
+.preview-card,
+.draw-card {
+  color: #4d3a46 !important;
+  background: #fffdf8 !important;
+  border-color: rgba(77, 58, 70, 0.20) !important;
+}
+
+.welcome {
+  margin: 18rpx 26rpx 0;
+  border: 2rpx dashed rgba(216, 95, 123, 0.28);
+  border-radius: 30rpx 38rpx 28rpx 36rpx;
+  background: linear-gradient(150deg, #fffdf8, #fff0f4 58%, #eef9f4);
+}
+
+@keyframes pai-float {
+  0%, 100% { transform: translateY(0) rotate(4deg); }
+  50% { transform: translateY(-5rpx) rotate(-2deg); }
+}
+
+@keyframes pai-blink {
+  0%, 44%, 48%, 100% { transform: scaleY(1); }
+  46% { transform: scaleY(0.12); }
+}

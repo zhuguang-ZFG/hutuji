@@ -80,3 +80,12 @@ test("隐私迟到的错误不打扰其他页面，邮箱复制失败不报成�
   assert.match(h.toasts.at(-1).title, /复制失败/);
   assert.equal(h.toasts.at(-1).icon, "none");
 });
+
+test("视觉致谢可复制 handraw-style 原仓库地址", () => {
+  const h = createWeapp();
+  h.load("pages/profile/profile.js");
+  const clipboard = [];
+  h.wx.setClipboardData = (options) => clipboard.push(options);
+  h.page.onCopyHandrawCredit();
+  assert.equal(clipboard[0].data, "https://github.com/yang0/handraw-style");
+});

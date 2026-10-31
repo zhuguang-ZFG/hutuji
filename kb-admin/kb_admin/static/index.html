@@ -3,31 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>小派知识库管理</title>
+  <meta name="theme-color" content="#fff7ed">
+  <title>小派知识画册</title>
   <style>
+    /* HandRaw FH-031 奶油手绘：与小程序、Portal、运营台和量产 S3 同源。 */
     :root {
-      --bg: #f0f4f8;
-      --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --border: #e2e8f0;
-      --border-strong: #cbd5e1;
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --text-soft: #64748b;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --primary-soft: #eff6ff;
-      --success: #059669;
-      --success-soft: #ecfdf5;
-      --danger: #dc2626;
-      --danger-soft: #fef2f2;
-      --warning: #d97706;
-      --warning-soft: #fffbeb;
-      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-      --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
-      --shadow-lg: 0 20px 50px rgba(15, 23, 42, 0.12);
-      --radius: 12px;
-      --radius-sm: 8px;
+      --bg: #fff7ed;
+      --surface: #fffdf8;
+      --surface-2: #fbeee4;
+      --border: #ead7dc;
+      --border-strong: #e4c8d1;
+      --text: #4d3a46;
+      --text-muted: #8f7a84;
+      --text-soft: #75626d;
+      --primary: #f3a3b5;
+      --primary-hover: #e7849d;
+      --primary-soft: #ffe5ec;
+      --success: #5f927f;
+      --success-soft: #e1f1ea;
+      --danger: #c85668;
+      --danger-soft: #fbe6e9;
+      --warning: #a97919;
+      --warning-soft: #fff1c9;
+      --shadow-sm: 0 2px 0 rgba(168, 213, 198, 0.22);
+      --shadow: 6px 8px 0 rgba(168, 213, 198, 0.20);
+      --shadow-lg: 10px 12px 0 rgba(216, 95, 123, 0.11);
+      --radius: 20px;
+      --radius-sm: 13px;
       --font: "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
       --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
     }
@@ -40,7 +42,8 @@
       font-family: var(--font);
       color: var(--text);
       background:
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(37, 99, 235, 0.12), transparent),
+        radial-gradient(ellipse 80% 50% at 18% -20%, rgba(243, 163, 181, 0.24), transparent),
+        radial-gradient(ellipse 70% 42% at 92% 0%, rgba(168, 213, 198, 0.18), transparent),
         var(--bg);
       line-height: 1.5;
       padding:
@@ -95,21 +98,42 @@
     .brand-icon {
       width: 44px;
       height: 44px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-      color: #fff;
-      display: grid;
-      place-items: center;
-      font-weight: 700;
-      font-size: 1.125rem;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+      position: relative;
+      z-index: 0;
+      flex-shrink: 0;
+      border: 2px solid #6b4e5e;
+      border-radius: 18px 21px 17px 20px;
+      background: linear-gradient(145deg, #fffdf8, #ffe4eb);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: 4px 5px 0 rgba(168, 213, 198, 0.42);
+      transform: rotate(-2deg);
+    }
+
+    .pai-logo .pai-ear {
+      position: absolute; top: -7px; width: 14px; height: 16px;
+      border: 2px solid #6b4e5e; border-bottom: 0; background: #f3a3b5;
+      z-index: -1;
+    }
+    .pai-logo .pai-ear.left { left: 5px; border-radius: 11px 3px 6px 3px; transform: rotate(-24deg); }
+    .pai-logo .pai-ear.right { right: 5px; border-radius: 3px 11px 3px 6px; transform: rotate(24deg); }
+    .pai-logo .pai-eye { width: 5px; height: 11px; margin-top: -5px; border-radius: 999px; background: #6b4e5e; }
+    .pai-logo .pai-mouth {
+      position: absolute; left: 18px; top: 28px; width: 7px; height: 5px;
+      border: 2px solid #d85f7b; border-top: 0; border-radius: 0 0 8px 8px;
+    }
+    .pai-logo::after {
+      content: "✦"; position: absolute; right: -7px; top: -8px;
+      color: #e2b75d; font-size: .75rem; transform: rotate(12deg);
     }
 
     .brand h1 {
       margin: 0;
       font-size: 1.25rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
+      font-weight: 800;
+      letter-spacing: 0.01em;
     }
 
     .brand p {
@@ -173,8 +197,8 @@
 
     .btn-primary {
       background: var(--primary);
-      border-color: var(--primary);
-      color: #fff;
+      border-color: var(--primary-hover);
+      color: #4d2938;
     }
 
     .btn-primary:hover:not(:disabled) {
@@ -772,16 +796,32 @@
       font-size: 0.875rem;
       color: var(--text-muted);
     }
+
+    .visual-credit {
+      margin: 1rem 0 .15rem;
+      padding: .7rem .9rem;
+      border: 1px dashed var(--border-strong);
+      border-radius: 16px 20px 15px 19px;
+      color: var(--text-muted);
+      background: color-mix(in srgb, var(--surface) 72%, transparent);
+      font-size: .76rem;
+      line-height: 1.55;
+      text-align: center;
+    }
+    .visual-credit a { color: var(--primary-hover); font-weight: 700; }
   </style>
 </head>
 <body>
   <div id="login-view" class="login-wrap">
     <div class="login-card">
       <div class="brand">
-        <div class="brand-icon">派</div>
+        <div class="brand-icon pai-logo" aria-hidden="true">
+          <span class="pai-ear left"></span><span class="pai-ear right"></span>
+          <span class="pai-eye"></span><span class="pai-eye"></span><span class="pai-mouth"></span>
+        </div>
         <div>
-          <h1>小派知识库</h1>
-          <p>售后 FAQ 编辑与发布</p>
+          <h1>小派知识画册</h1>
+          <p>把售后 FAQ 整理成好找、好用的小画册</p>
         </div>
       </div>
       <form id="login-form">
@@ -798,9 +838,12 @@
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
-          <div class="brand-icon">派</div>
+          <div class="brand-icon pai-logo" aria-hidden="true">
+            <span class="pai-ear left"></span><span class="pai-ear right"></span>
+            <span class="pai-eye"></span><span class="pai-eye"></span><span class="pai-mouth"></span>
+          </div>
           <div>
-            <h1>小派知识库</h1>
+            <h1>小派知识画册</h1>
             <p>编辑 FAQ · 发布到小智云</p>
           </div>
         </div>
@@ -902,6 +945,10 @@
           </div>
         </div>
       </section>
+      <footer class="visual-credit">
+        视觉语言参考 <strong>HandRaw Style · yang0</strong> ·
+        <a href="https://github.com/yang0/handraw-style" target="_blank" rel="noopener noreferrer">原项目</a>
+      </footer>
     </div>
   </div>
 

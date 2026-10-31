@@ -1,5 +1,7 @@
 # draw-portal（买家绑机 + 网页传图）
 
+2026-10-30 HandRaw Style 全端本地视觉候选：按用户「印象深刻、美观、可爱卖萌」要求，参考 [HandRaw Style](https://github.com/yang0/handraw-style) 的 FH-031 奶油手绘，使用奶油白、珊瑚粉、薄荷绿与柔黄。小程序 0.3.34 以原生 WXML/WXSS 绘制可眨眼、漂浮的「小派」软萌脸；公开 Portal 与运营后台共享同一品牌头像、奶油卡片和可见致谢。视觉二次开发保留原作者 yang0 与原仓库地址；未上传、未提审、未发布或部署，状态只看 readiness。
+
 2026-10-22 照片启发式与归一化共用 `_imread_oriented`（Pillow `rotate=True`），避免竖拍 EXIF 未转置被横着判类。Portal pytest 610 项；主备已部署该文件，烟测定向形状 `[80,48,3]`。纸面状态只看 readiness。
 
 2026-10-08 小程序0.3.24候选：创作/AI写文/排版/笔顺请求统一300s，发送150s覆盖设备确认窗口，普通读取仍20s；共用`utils/operation_feedback.js`，不自动重发生成或运动。AI原稿撤回和迟到新稿主动采用、照片草图/精修对比与选中版本分享、历史搜索/照片手绘分类/排序、纸张未保存编辑恢复、配网密码显隐/空热点错误提示、升级结果只读核对均已加入。原生多卡片预览须`observeAll:true`；账号/设备/页面边界仍走page_session和纸张marker。实现与回归见[本批设计](../docs/design/weapp-improvements-20261008.md)，上传/发布状态只看readiness。

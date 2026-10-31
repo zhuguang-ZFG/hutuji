@@ -1,5 +1,6 @@
 {
   "navigationBarTitleText": "丹青",
-  "backgroundColor": "#0B0C13",
+  "backgroundColor": "#FFF7ED",
+  "backgroundTextStyle": "dark",
   "usingComponents": {}
 }

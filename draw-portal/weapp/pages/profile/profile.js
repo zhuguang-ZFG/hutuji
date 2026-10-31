@@ -17,6 +17,7 @@ Page({
     loggingIn: false,
     selectingDevice: false,
     supportEmail: "17150303974@163.com",
+    handrawCreditUrl: "https://github.com/yang0/handraw-style",
   },
 
   onShow() {
@@ -261,6 +262,16 @@ Page({
       data: this.data.supportEmail,
       fail: () => {
         if (current()) wx.showToast({ title: "复制失败，请长按邮箱复制", icon: "none" });
+      },
+    });
+  },
+
+  onCopyHandrawCredit() {
+    const current = pageSession.capture(this);
+    wx.setClipboardData({
+      data: this.data.handrawCreditUrl,
+      fail: () => {
+        if (current()) wx.showToast({ title: "复制失败，请长按项目地址复制", icon: "none" });
       },
     });
   },

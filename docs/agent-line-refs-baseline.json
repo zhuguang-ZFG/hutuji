@@ -1,5 +1,5 @@
 {
-  "git_head": "c552ef980697e670a6d09892f537a928b6cd24b5",
+  "git_head": "3e08e96f9d0c34b825a27c8b7e45cdf6c35dbde2",
   "refs": {
     "CLAUDE.md -> Protocol.cpp:81": {
       "sha8": "9b1d68b6",
@@ -787,8 +787,8 @@
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
     "docs/kxnx/findings/29-touch-hit-geometry-review.md -> main/display/lcd_display.cc:956-963": {
-      "sha8": "cf334518",
-      "source": "// 24px 区分点按与拖动：FT5x06 灵敏化调参（threshold 70→40）后，静止按压的单轴\n// 抖动可达数 px，6px 曼哈顿阈值在 2026-08-20 HIL 实测中把正常点按误判成拖动、\n// 抽屉几乎打不开；24px 远高于抖动、仍远低于有意拖动的起步位移，且触发钮不参与\n// LVGL 滚动判定（SCROLLABLE/CHAIN 均关），放宽不与任何手势歧义。\n// 位置从首个采样起跟手，越过阈值时不会丢掉起步位移。\nconstexpr lv_coord_t kTriggerDragThresholdPx = 24;\n}  // namespace\n",
+      "sha8": "5a3c90df",
+      "source": "}\n\nnamespace {\n// 24px 区分点按与拖动：FT5x06 灵敏化调参（threshold 70→40）后，静止按压的单轴\n// 抖动可达数 px，6px 曼哈顿阈值在 2026-08-20 HIL 实测中把正常点按误判成拖动、\n// 抽屉几乎打不开；24px 远高于抖动、仍远低于有意拖动的起步位移，且触发钮不参与\n// LVGL 滚动判定（SCROLLABLE/CHAIN 均关），放宽不与任何手势歧义。\n// 位置从首个采样起跟手，越过阈值时不会丢掉起步位移。",
       "target": "D:/Users/xiaozhi-esp32/main/display/lcd_display.cc"
     },
     "docs/kxnx/findings/30-firmware-dual-repo-review-0831.md -> ProcessSettings.cpp:492-562": {
@@ -1457,6 +1457,6 @@
       "target": "docs/release-readiness.md"
     }
   },
-  "updated": "2026-10-30T15:07:17Z",
+  "updated": "2026-10-30T18:03:04Z",
   "version": 1
 }

@@ -16,13 +16,13 @@
         <label><text>纸宽 / 毫米</text><input type="digit" value="{{form.width_mm}}" data-field="width_mm" bindinput="onInput" disabled="{{!capable || !online || saving}}" /></label>
         <label><text>纸高 / 毫米</text><input type="digit" value="{{form.height_mm}}" data-field="height_mm" bindinput="onInput" disabled="{{!capable || !online || saving}}" /></label>
       </view>
-      <view class="setting-row"><text>横向创作</text><switch checked="{{form.landscape}}" data-field="landscape" bindchange="onToggle" disabled="{{!capable || !online || saving}}" color="#00d1e5" /></view>
+      <view class="setting-row"><text>横向创作</text><switch checked="{{form.landscape}}" data-field="landscape" bindchange="onToggle" disabled="{{!capable || !online || saving}}" color="#D85F7B" /></view>
       <view class="setting-row"><text>四周留边 / 毫米</text><input class="compact-input" type="digit" value="{{form.margin_mm}}" data-field="margin_mm" bindinput="onInput" disabled="{{!capable || !online || saving}}" /></view>
     </view>
     <view class="settings-panel">
       <view class="advanced-heading" bindtap="onAdvanced"><text>机器范围与轴向</text><text class="advanced-arrow">{{advanced ? '收起' : '展开'}}</text></view>
       <block wx:if="{{advanced}}">
-        <view class="setting-row"><text>交换 X / Y 轴</text><switch checked="{{form.swap_xy}}" data-field="swap_xy" bindchange="onToggle" disabled="{{!capable || !online || saving}}" color="#00d1e5" /></view>
+        <view class="setting-row"><text>交换 X / Y 轴</text><switch checked="{{form.swap_xy}}" data-field="swap_xy" bindchange="onToggle" disabled="{{!capable || !online || saving}}" color="#D85F7B" /></view>
         <view class="field-help">按机器安装方向设置。纸张大小与机器行程分别保存，选择大纸不会自动扩大机器范围。</view>
         <view class="dimension-inputs">
           <label><text>X 可绘制 / 毫米</text><input type="digit" value="{{form.max_x_mm}}" data-field="max_x_mm" bindinput="onInput" disabled="{{!capable || !online || saving}}" /></label>

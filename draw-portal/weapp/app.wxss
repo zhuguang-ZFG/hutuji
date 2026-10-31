@@ -1,27 +1,43 @@
-/** LiMa 官网同源：深空底 + 青光主色（www.donglicao.com） */
+@import "./styles/handdraw-theme.wxss";
+
+/**
+ * 丹青 × 小派奶油手绘主题。
+ * 视觉母体：handraw-style FH-031；配色：C-34 奶油白、C-21 珊瑚粉、
+ * C-09 薄荷绿、C-27 那不勒斯黄。
+ * 只改视觉令牌，不改变页面状态机和设备操作语义。
+ */
 page {
-  background: #0b0c13;
-  color: #f2f4f8;
+  background: #fff7ed;
+  color: #4d3a46;
   font-size: 28rpx;
-  --bg: #0b0c13;
-  --panel: #14151f;
-  --panel-2: #1a1b28;
-  --line: rgba(255, 255, 255, 0.08);
-  --text: #f2f4f8;
-  --muted: #9aa3b5;
-  --cyan: #00d1e5;
-  --cyan-dim: rgba(0, 209, 229, 0.16);
-  --danger: #ff5c6a;
-  --ok: #00d1e5;
+  --bg: #fff7ed;
+  --paper: #fffdf8;
+  --panel: #fffdf8;
+  --panel-2: #fdebdc;
+  --line: rgba(77, 58, 70, 0.16);
+  --line-strong: rgba(77, 58, 70, 0.34);
+  --text: #4d3a46;
+  --muted: #8f7a84;
+  --cyan: #d85f7b;
+  --cyan-dim: rgba(216, 95, 123, 0.12);
+  --danger: #c85668;
+  --ok: #6ea998;
+  --ochre: #e2b75d;
+  --sage: #a8d5c6;
+  --pink: #f3a3b5;
+  --mint: #bfe4d7;
+  --yellow: #f5d77f;
+  --lavender: #d9cced;
+  --shadow: rgba(107, 76, 91, 0.12);
 }
 
 .card {
   background: var(--panel);
-  border-radius: 28rpx;
+  border-radius: 22rpx 28rpx 20rpx 26rpx;
   padding: 32rpx;
   margin: 24rpx;
-  border: 1rpx solid var(--line);
-  box-shadow: 0 12rpx 48rpx rgba(0, 209, 229, 0.08);
+  border: 2rpx solid var(--line-strong);
+  box-shadow: 8rpx 10rpx 0 rgba(216, 95, 123, 0.08);
 }
 
 

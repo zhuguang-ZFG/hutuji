@@ -1,5 +1,7 @@
 # kb-admin — 小派售后知识库编辑后台（一期）
 
+2026-10-30 HandRaw Style 本地视觉候选：参考 [HandRaw Style](https://github.com/yang0/handraw-style) 的 FH-031 奶油手绘，把蓝白工具界面改为「小派知识画册」，与小程序、公开 Portal、运营后台和量产 S3 共用奶油白、珊瑚粉、薄荷绿、柔黄与小派头像。pytest 28 项、跨三网页 Playwright 24 项通过；未部署。
+
 2026-09-25 网页候选：断网/异常响应不再卡住loading；提交/删除/启用与批量操作共用忙状态，草稿关闭确认和弹窗焦点管理；分类复用完整列表。pytest28项、跨三网页浏览器24项通过，尚未部署。共享回归见 [网页测试](../draw-portal/tests/web/README.md)，结果边界见 [网页复审](../docs/design/web-production-review-20260925.md)。
 
 Loopback FastAPI 服务：SQLite 编辑 FAQ → 拼装 Markdown → 调用 `scripts/xiaozhi_console.py` 的 `update-kb` 推小智官方云知识库。规格见 `docs/superpowers/specs/2026-08-29-xiaopai-support-kb-admin-design.md`。

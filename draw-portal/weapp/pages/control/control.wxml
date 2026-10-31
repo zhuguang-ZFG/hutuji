@@ -1,4 +1,15 @@
 <view class="page control-page">
+  <view class="atelier-head control-head">
+    <text class="atelier-kicker">XIAOPAI'S CONTROL DESK</text>
+    <text class="atelier-title">小派绘画控制台</text>
+    <text class="atelier-copy">状态、试笔、点动和速度，小派陪你一步步确认。</text>
+    <view class="atelier-line"></view>
+    <view class="pai-mascot pai-mascot-thinking" aria-label="小派">
+      <view class="pai-ear pai-ear-left"></view><view class="pai-ear pai-ear-right"></view>
+      <view class="pai-face"><view class="pai-eye"></view><view class="pai-eye"></view><view class="pai-blush pai-blush-left"></view><view class="pai-blush pai-blush-right"></view><view class="pai-mouth"></view></view>
+      <text class="pai-star">?</text>
+    </view>
+  </view>
   <view class="control-error" wx:if="{{statusError}}">
     <text>{{statusError}}</text>
     <button size="mini" bindtap="onRetrySpeed">刷新</button>
@@ -115,8 +126,8 @@
           max="{{item.max}}"
           step="{{item.step}}"
           value="{{speedRates[item.key]}}"
-          activeColor="#00d1e5"
-          backgroundColor="rgba(255,255,255,0.08)"
+          activeColor="#D85F7B"
+          backgroundColor="#F3DFC8"
           block-size="22"
           disabled="{{speedSaving || speedLoading || !speedLoaded || !!busyAction || !canSetSpeed}}"
           data-axis="{{item.key}}"

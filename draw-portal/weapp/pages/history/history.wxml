@@ -1,4 +1,15 @@
 <view class="page">
+  <view class="atelier-head history-head">
+    <text class="atelier-kicker">XIAOPAI'S LITTLE GALLERY</text>
+    <text class="atelier-title">小派帮你收好每一张画</text>
+    <text class="atelier-copy">翻一翻旧灵感，也许下一张可爱作品就在这里。</text>
+    <view class="atelier-line"></view>
+    <view class="pai-mascot pai-mascot-happy" aria-label="小派">
+      <view class="pai-ear pai-ear-left"></view><view class="pai-ear pai-ear-right"></view>
+      <view class="pai-face"><view class="pai-eye"></view><view class="pai-eye"></view><view class="pai-blush pai-blush-left"></view><view class="pai-blush pai-blush-right"></view><view class="pai-mouth"></view></view>
+      <text class="pai-star">♥</text>
+    </view>
+  </view>
   <view wx:if="{{loadError}}" class="history-notice"><view><text class="notice-title">作品暂时无法读取</text><text>{{loadError}}</text></view>
     <button size="mini" bindtap="onRetry" loading="{{loading}}" disabled="{{loading}}">重试</button>
   </view>

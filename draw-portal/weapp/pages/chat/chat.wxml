@@ -15,9 +15,9 @@
 
   <scroll-view class="msg-scroll" scroll-y scroll-into-view="{{scrollAnchor}}" scroll-with-animation enhanced show-scrollbar="{{false}}">
     <view class="welcome" wx:if="{{!messages.length}}">
-      <view class="welcome-kicker">很高兴见到你</view>
-      <view class="welcome-title">今天，一起做点什么？</view>
-      <view class="welcome-copy">按住说话，或切换到文字。<view>画画、写字、教笔顺，也可以聊聊天。</view></view>
+      <view class="welcome-kicker">小派已经准备好啦</view>
+      <view class="welcome-title">今天想和小派画什么？</view>
+      <view class="welcome-copy">按住说话，或切换到文字。<view>画画、写字、教笔顺，也可以讲故事和聊灵感。</view></view>
       <view class="suggestions">
         <button class="suggestion" hover-class="btn-press" disabled="{{!enabled}}" data-text="画一只抱着星星的小猫" bindtap="onSuggestion"><text>画一只小猫</text><text class="suggestion-arrow">↗</text></button>
         <button class="suggestion" hover-class="btn-press" disabled="{{!enabled}}" data-text="给我讲一个有趣的小故事" bindtap="onSuggestion"><text>听一个故事</text><text class="suggestion-arrow">↗</text></button>

@@ -82,3 +82,29 @@
 .logout-btn::after {
   border: none;
 }
+
+.handraw-credit {
+  margin: 0 24rpx 28rpx;
+  padding: 26rpx 28rpx;
+}
+
+.credit-text {
+  display: block;
+  font-size: 27rpx;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.credit-change,
+.credit-link {
+  display: block;
+  margin-top: 8rpx;
+  color: #81786b;
+  font-size: 23rpx;
+  line-height: 1.55;
+  word-break: break-all;
+}
+
+.credit-copy {
+  margin: 20rpx 0 0;
+}

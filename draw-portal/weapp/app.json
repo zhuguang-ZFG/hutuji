@@ -16,17 +16,17 @@
     "pages/paper/paper"
   ],
   "window": {
-    "navigationBarTitleText": "动力巢科技",
-    "navigationBarBackgroundColor": "#0B0C13",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#0B0C13",
-    "backgroundTextStyle": "light"
+    "navigationBarTitleText": "丹青 · 小派",
+    "navigationBarBackgroundColor": "#FFF7ED",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#FFF7ED",
+    "backgroundTextStyle": "dark"
   },
   "tabBar": {
-    "color": "#6B7385",
-    "selectedColor": "#00D1E5",
-    "backgroundColor": "#0B0C13",
-    "borderStyle": "black",
+    "color": "#8F7A84",
+    "selectedColor": "#D85F7B",
+    "backgroundColor": "#FFFDF8",
+    "borderStyle": "white",
     "list": [
       {
         "pagePath": "pages/index/index",
