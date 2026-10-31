@@ -1,6 +1,6 @@
 # draw-portal（买家绑机 + 网页传图）
 
-2026-10-30 HandRaw Style 全端本地视觉候选：按用户「印象深刻、美观、可爱卖萌」要求，参考 [HandRaw Style](https://github.com/yang0/handraw-style) 的 FH-031 奶油手绘，使用奶油白、珊瑚粉、薄荷绿与柔黄。小程序 0.3.34 以原生 WXML/WXSS 绘制可眨眼、漂浮的「小派」软萌脸；公开 Portal 与运营后台共享同一品牌头像、奶油卡片和可见致谢。视觉二次开发保留原作者 yang0 与原仓库地址；未上传、未提审、未发布或部署，状态只看 readiness。
+2026-10-30 HandRaw Style 全端本地视觉候选：按用户「印象深刻、美观、可爱卖萌」要求，参考 [HandRaw Style](https://github.com/yang0/handraw-style) 的 FH-031 奶油手绘，使用奶油白、珊瑚粉、薄荷绿与柔黄。小程序 0.3.34 以原生 WXML/WXSS 绘制可眨眼、漂浮的「小派」软萌脸；公开 Portal 与运营后台共享同一品牌头像、奶油卡片和可见致谢。视觉二次开发保留原作者 yang0 与原仓库地址（上游 `572dff8`，v1.9.8，许可为 MIT 加署名要求，条款与复核见 `docs/design/weapp-handraw-style-20261030.md`「上游依据」）；未上传、未提审、未发布或部署，状态只看 readiness。
 
 2026-10-22 照片启发式与归一化共用 `_imread_oriented`（Pillow `rotate=True`），避免竖拍 EXIF 未转置被横着判类。Portal pytest 610 项；主备已部署该文件，烟测定向形状 `[80,48,3]`。纸面状态只看 readiness。
 

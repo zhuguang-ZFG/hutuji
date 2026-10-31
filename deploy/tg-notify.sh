@@ -33,6 +33,8 @@ FULLTEXT="[$(hostname -s)] ${TAG}: ${TEXT}"
 if [[ -n "${TG_RELAY_URL:-}" ]]; then
   # 中继路径：正文进 body（≤4096 由接收端把关），不撞 argv/引号面。
   # jd HIDS 疑似 SSH 节流的教训：偶发失败重试 3 次、间隔 2s，全败仍静默。
+  # 总预算最坏 3×20s + 2×2s = 64s；Python 调用方（portal tg_notify / mcp activation_relay）
+  # 的子进程超时必须大于它，否则重试未完即被 SIGKILL、curl 成孤儿，幂等重试形同虚设。
   tries=0
   notify_id="$(hostname -s)-$$-$(date +%s%N)"
   until curl -fsS --max-time 20 -s -o /dev/null \

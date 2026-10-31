@@ -15,16 +15,16 @@
       --card2: #fbe2e8;
       --line: #e4c8d1;
       --text: #4d3a46;
-      --muted: #8f7a84;
-      --soft: #75626d;
+      --muted: #75626d;
+      --soft: #66535e;
       --accent: #f3a3b5;
-      --accent-dark: #d85f7b;
+      --accent-dark: #b03f5a;
       --accent-soft: rgba(243, 163, 181, 0.20);
-      --ok: #5f927f;
+      --ok: #3f6a5e;
       --ok-soft: rgba(168, 213, 198, 0.28);
-      --err: #c85668;
+      --err: #ac384a;
       --err-soft: rgba(200, 86, 104, 0.12);
-      --warn: #a97919;
+      --warn: #815c13;
       --shadow: 7px 9px 0 rgba(168, 213, 198, 0.20);
       --radius: 20px;
       --tap: 48px;
@@ -123,7 +123,7 @@
     }
     input:focus, textarea:focus {
       outline: none;
-      border-color: var(--accent);
+      border-color: var(--accent-dark);
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
@@ -140,7 +140,7 @@
     button:active { transform: scale(0.98); }
     button:disabled { opacity: 0.55; cursor: wait; }
     button:focus-visible, select:focus-visible {
-      outline: 3px solid var(--accent);
+      outline: 3px solid var(--accent-dark);
       outline-offset: 3px;
     }
     .provider-meta, .user-card-meta, .usage-chip { overflow-wrap: anywhere; }
@@ -407,7 +407,7 @@
       border-radius: 999px;
       font-size: 0.72rem;
       background: var(--accent-soft);
-      color: var(--accent);
+      color: var(--accent-dark);
     }
     .badge.off {
       background: var(--err-soft);

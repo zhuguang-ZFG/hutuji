@@ -22,7 +22,8 @@ import threading
 logger = logging.getLogger(__name__)
 
 _NOTIFY_SH = "/opt/hutuji/deploy/tg-notify.sh"
-_TIMEOUT_S = 15.0
+# 须大于 tg-notify.sh 中继路径最坏 64s（3×20s + 2×2s）；daemon 线程里等，不阻塞主链。
+_TIMEOUT_S = 75.0
 # 去重集合上限：注册量到万级前不会被撞满；满后自然回落「可能重复推送」。
 _DEDUPE_CAP = 10_000
 

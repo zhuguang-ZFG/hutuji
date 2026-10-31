@@ -8,6 +8,14 @@
 
 项目许可要求二次开发保留原作者与原仓库地址，因此小程序「我的」页及三套网页均保留可见致谢与原项目入口，README 同步登记来源。
 
+### 上游依据（2026-10-31 补登）
+
+- 仓库：`yang0/handraw-style`，钉在 `572dff8f8cc1dc16ff9bef1422e90b3dfc42284d`（v1.9.8，2026-10-28 20:50 UTC 推送）。2026-10-31 访问时它仍是 `master` HEAD，10-29 以后没有新提交，所以就是 10-30 设计时看到的版本。
+- 许可：`LICENSE` 标题为「MIT License (with Attribution Requirement)」，GitHub 识别为 `NOASSERTION`。条款允许使用、修改、分发和商用；条件一是副本或实质部分保留版权与许可声明，条件二是基于它二次开发的产品要在文档、仓库、产品说明或界面里可见地署名 yang0 和原仓库链接。该版本 `LICENSE` 1,606 字节，SHA-256 `862952d06929d716be7a62733550eaa11ac4765c2567657e0e75b7a0fde48897`。
+- 我们用到的：`STYLES.md` 的 FH-031「Creamy Social-Media Doodle / 小红书奶油手绘」，`COLORS.md` 的 C-34 奶油白、C-21 珊瑚粉、C-09 薄荷绿、C-27 那不勒斯黄。上游只给色名和提示词，不给色值；本仓的十六进制色值都是自己选的。没有复制上游图片、画廊、提示词或代码，条件一无副本可附；条件二由三套网页、小程序「我的」页和两份 README 的致谢满足。
+- 复核：`gh api repos/yang0/handraw-style/commits/HEAD`；`gh api "repos/yang0/handraw-style/contents/<文件>?ref=572dff8…"` 取 `LICENSE`、`STYLES.md`、`COLORS.md` 解码后检索 `FH-031`、`C-34`、`C-21`、`C-09`、`C-27`，五项都在。
+- 没做的：本地没存许可原文副本，只记了哈希。上游以后改许可或删库，不改变这个钉住版本的条款。
+
 ## 小程序实现范围
 
 - `weapp/styles/handdraw-theme.wxss`：集中维护奶油纸面、珊瑚粉主动作、薄荷绿成功态、那不勒斯黄点缀和暖莓文字；不引入纹理位图，避免增加包体和降低文字对比度。

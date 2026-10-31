@@ -35,7 +35,7 @@
 
 ## F50-02 / P2：远端断开后第一次唤醒被"退休回合"吞掉
 
-位置：S3 `main/protocols/websocket_protocol.cc:230-273`（OpenAudioChannel previous 存在即返回 false；行号随 F50/F51 批次顺移）+ `application.cc` 失败分支静默回 Idle。
+位置：S3 `main/protocols/websocket_protocol.cc:255-298`（OpenAudioChannel previous 存在即返回 false；行号随 F50/F51 批次顺移）+ `application.cc` 失败分支静默回 Idle。
 
 远端断开时 OnDisconnected 只 RetireLocked 不清 `channel_`;120s 空闲超时同样留下未清通道。下一次唤醒/按键触发 OpenAudioChannel 时,只要 previous 存在就"只退休+返回 false",唤醒词被静默丢弃,**第二次触发才真正重连**。代码注释仅论证了"关闭通知未消费（previous_closed 非空）时排队 Idle 可能覆盖新会话"的情形;对"已退休且通知已消费"（previous_closed 为空）的通路不存在该风险,却同样失败。官方语音 WebSocket 使用此路径,属 1.0.51 相对 1.0.49 的用户可见回归（旧码同场景第一枪即新建连接成功）。
 
@@ -97,7 +97,7 @@ d58a671 之后每个 PNG 上传固定付出"normalize 全量解码+PNG 重编码
 
 ## F50-11 / P3：FailChannel 在调用线程上同步销毁 WebSocket（阻塞点前移）
 
-位置：S3 `main/protocols/websocket_protocol.cc:197`（审查时为锁外 `websocket.reset()`，F50/F11 批次已改异步回收任务）。
+位置：S3 `main/protocols/websocket_protocol.cc:222`（审查时为锁外 `websocket.reset()`，F50/F11 批次已改异步回收任务）。
 
 ~WebSocket→Shutdown→EspSsl::Disconnect 3×10s 有限等待;接收任务卡死时音频编码任务或主循环被拖住最长 ~30s 后才收到 on_error/on_closed。旧码发送失败只 SetError、销毁推迟到下次 Open。有界（符合 F48 纪律）,但停滞点从"下次打开"前移到"失败当场"。建议失败路径延迟销毁,留待下次 OpenAudioChannel 替换时回收。
 

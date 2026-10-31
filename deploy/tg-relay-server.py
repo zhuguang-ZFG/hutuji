@@ -22,30 +22,68 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 NOTIFY_SH = "/opt/hutuji/deploy/tg-notify.sh"
 MAX_BODY = 4096
 REQUEST_TTL_SECONDS = 300.0
+# 重复请求等首个请求出结果的上限：须小于发送端 curl --max-time 20，
+# 且覆盖本端 tg-notify.sh --stdin 的 15s 子进程超时。
+PENDING_WAIT_SECONDS = 17.0
 _request_lock = threading.Lock()
-_request_expiry: dict[str, float] = {}
+_requests: dict[str, "_Claim"] = {}
 
 
-def _claim_request(request_id: str | None, *, now: float | None = None) -> bool:
-    """同一通知重试只执行一次；无/旧版 request id 保持兼容并直接放行。"""
+class _Claim:
+    """一个 request id 的认领：pending → 送达（保留到 TTL）或失败（立即释放）。"""
+
+    __slots__ = ("deadline", "delivered", "done")
+
+    def __init__(self, deadline: float) -> None:
+        self.deadline = deadline
+        self.delivered = False
+        self.done = threading.Event()
+
+
+def _claim_request(request_id: str | None, *, now: float | None = None) -> tuple[bool, _Claim | None]:
+    """返回 (是否由本请求发送, 认领)。无/旧版 request id 保持兼容：直接发送、无认领。"""
     if not request_id or re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", request_id) is None:
-        return True
+        return True, None
     current = time.monotonic() if now is None else now
     with _request_lock:
-        expired = [key for key, deadline in _request_expiry.items() if deadline <= current]
+        expired = [key for key, claim in _requests.items() if claim.deadline <= current]
         for key in expired:
-            _request_expiry.pop(key, None)
-        if request_id in _request_expiry:
-            return False
-        _request_expiry[request_id] = current + REQUEST_TTL_SECONDS
-        return True
+            _requests.pop(key, None)
+        existing = _requests.get(request_id)
+        if existing is not None:
+            return False, existing
+        claim = _Claim(current + REQUEST_TTL_SECONDS)
+        _requests[request_id] = claim
+        return True, claim
 
 
-def _release_request(request_id: str | None) -> None:
-    if not request_id:
+def _finish_request(request_id: str | None, claim: _Claim | None, delivered: bool) -> None:
+    """送达则保留认领挡住后续重试；失败则释放 id，让等待者或发送端重试接手。"""
+    if claim is None:
         return
     with _request_lock:
-        _request_expiry.pop(request_id, None)
+        claim.delivered = delivered
+        if not delivered and _requests.get(request_id or "") is claim:
+            _requests.pop(request_id or "", None)
+    claim.done.set()
+
+
+def _acquire(request_id: str | None) -> tuple[_Claim | None, int | None]:
+    """返回 (本请求持有的认领, None) 或 (None, 直接应答码)。
+
+    「处理中」不等于「已送达」：撞上 pending 的重复请求必须等首个请求出结果，
+    送达才回 202；首个失败释放后由本请求接手发送；等不到结果回 503 交还发送端重试。
+    """
+    for _ in range(2):
+        owner, claim = _claim_request(request_id)
+        if owner:
+            return claim, None
+        assert claim is not None
+        if not claim.done.wait(PENDING_WAIT_SECONDS):
+            return None, 503
+        if claim.delivered:
+            return None, 202
+    return None, 503
 
 
 class Relay(BaseHTTPRequestHandler):
@@ -57,10 +95,12 @@ class Relay(BaseHTTPRequestHandler):
             return
         body = self.rfile.read(length)
         request_id = self.headers.get("X-Hutuji-Notify-Id")
-        if not _claim_request(request_id):
-            self.send_response(202)
+        claim, status = _acquire(request_id)
+        if status is not None:
+            self.send_response(status)
             self.end_headers()
             return
+        delivered = False
         try:
             result = subprocess.run(
                 [NOTIFY_SH, "--stdin"],
@@ -70,11 +110,13 @@ class Relay(BaseHTTPRequestHandler):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            delivered = result.returncode == 0
         except Exception:
-            result = None
-        if result is None or result.returncode != 0:
+            delivered = False
+        finally:
+            _finish_request(request_id, claim, delivered)
+        if not delivered:
             # 释放幂等键并让发送端重试；响应仍不携带内部错误细节。
-            _release_request(request_id)
             self.send_response(503)
             self.end_headers()
             return

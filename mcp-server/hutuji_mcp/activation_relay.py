@@ -24,7 +24,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_TG_TIMEOUT_S = 15.0
+# 须大于 tg-notify.sh 中继路径最坏 64s（3×20s + 2×2s）；daemon 线程里等，不阻塞主链。
+_TG_TIMEOUT_S = 75.0
 # 出口收敛到 tg-notify.sh：直连（lima 经 TG_PROXY）/jd 经 lima HTTPS 中继，只在
 # 该脚本一处维护；2026-09-12 实测 urllib/httpx 无 happy-eyeballs，Telegram AAAA
 # 在无 IPv6 路由节点不可达（Errno 101），curl 可达。

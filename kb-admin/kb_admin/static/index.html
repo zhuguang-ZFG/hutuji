@@ -14,16 +14,18 @@
       --border: #ead7dc;
       --border-strong: #e4c8d1;
       --text: #4d3a46;
-      --text-muted: #8f7a84;
-      --text-soft: #75626d;
+      --text-muted: #75626d;
+      --text-soft: #66535e;
       --primary: #f3a3b5;
       --primary-hover: #e7849d;
       --primary-soft: #ffe5ec;
-      --success: #5f927f;
+      /* 珊瑚粉只作填充；文字、焦点环与细描边用深珊瑚，奶油底上 ≥4.5:1。 */
+      --primary-ink: #b03f5a;
+      --success: #3f6a5e;
       --success-soft: #e1f1ea;
-      --danger: #c85668;
+      --danger: #ac384a;
       --danger-soft: #fbe6e9;
-      --warning: #a97919;
+      --warning: #815c13;
       --warning-soft: #fff1c9;
       --shadow-sm: 0 2px 0 rgba(168, 213, 198, 0.22);
       --shadow: 6px 8px 0 rgba(168, 213, 198, 0.20);
@@ -59,10 +61,10 @@
 
     .hidden { display: none !important; }
     button:focus-visible, select:focus-visible, .table-wrap:focus-visible {
-      outline: 3px solid var(--primary);
+      outline: 3px solid var(--primary-ink);
       outline-offset: 3px;
     }
-    .toggle-switch input:focus-visible + .toggle-track { outline: 3px solid var(--primary); outline-offset: 3px; }
+    .toggle-switch input:focus-visible + .toggle-track { outline: 3px solid var(--primary-ink); outline-offset: 3px; }
     @media (max-width: 520px) {
       input, textarea, select { font-size: 16px !important; }
     }
@@ -161,8 +163,8 @@
 
     .field-input:focus {
       outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+      border-color: var(--primary-ink);
+      box-shadow: 0 0 0 3px rgba(216, 95, 123, 0.18);
     }
 
     /* —— Buttons —— */
@@ -371,8 +373,8 @@
 
     .search-input:focus {
       outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+      border-color: var(--primary-ink);
+      box-shadow: 0 0 0 3px rgba(216, 95, 123, 0.15);
     }
 
     .filter-select {
@@ -673,14 +675,14 @@
       padding: 0.625rem 1rem;
       margin: 0 1rem 0.75rem;
       background: var(--primary-soft);
-      border: 1px solid rgba(37, 99, 235, 0.2);
+      border: 1px solid rgba(216, 95, 123, 0.28);
       border-radius: var(--radius-sm);
     }
 
     .batch-count {
       font-size: 0.875rem;
       font-weight: 600;
-      color: var(--primary);
+      color: var(--primary-ink);
       margin-right: 0.25rem;
     }
 
@@ -769,8 +771,8 @@
     }
 
     .spinner-dark {
-      border-color: rgba(37, 99, 235, 0.2);
-      border-top-color: var(--primary);
+      border-color: rgba(216, 95, 123, 0.22);
+      border-top-color: var(--primary-ink);
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -808,7 +810,7 @@
       line-height: 1.55;
       text-align: center;
     }
-    .visual-credit a { color: var(--primary-hover); font-weight: 700; }
+    .visual-credit a { color: var(--primary-ink); font-weight: 700; }
   </style>
 </head>
 <body>

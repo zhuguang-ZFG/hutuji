@@ -73,7 +73,7 @@
 .status-bottom {
   margin-top: 10rpx;
   font-size: 22rpx;
-  color: #9aa3b5;
+  color: #735f69;
 }
 
 .confirm-row {
@@ -252,7 +252,7 @@
 }
 
 .tile-press {
-  background: #1a1b28 !important;
+  background: #fdefe4 !important;
 }
 
 .page-foot {
@@ -389,8 +389,8 @@
 .offline-card { margin: 24rpx 28rpx; padding: 32rpx; border-radius: 22rpx; background: #14151f; border: 1rpx solid rgba(255,255,255,.08); }
 .offline-title { font-size: 32rpx; font-weight: 600; color: #f2f4f8; }
 .offline-sub { margin: 12rpx 0 28rpx; font-size: 25rpx; line-height: 1.6; color: #9aa3b5; }
-.connection-step { display: flex; align-items: center; gap: 18rpx; margin-top: 20rpx; color: #cbd3e0; font-size: 26rpx; }
-.step-number { display: flex; align-items: center; justify-content: center; width: 42rpx; height: 42rpx; border-radius: 50%; background: #202431; color: #9ae6e9; flex-shrink: 0; }
+.connection-step { display: flex; align-items: center; gap: 18rpx; margin-top: 20rpx; color: #4d3a46; font-size: 26rpx; }
+.step-number { display: flex; align-items: center; justify-content: center; width: 42rpx; height: 42rpx; border-radius: 50%; background: #ffe5ec; color: #b03f5a; flex-shrink: 0; }
 .connection-refresh { margin: 32rpx 0 0; min-height: 88rpx; background: rgba(0,209,229,.12); color: #9ae6e9; border-radius: 16rpx; font-size: 28rpx; }
 .connection-refresh::after { border-color: rgba(0,209,229,.25); }
-.operation-note { margin: 20rpx 28rpx; color: #9ae6e9; font-size: 26rpx; line-height: 1.6; }
+.operation-note { margin: 20rpx 28rpx; color: #735f69; font-size: 26rpx; line-height: 1.6; }

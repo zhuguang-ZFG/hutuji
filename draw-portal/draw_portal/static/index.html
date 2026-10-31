@@ -14,13 +14,13 @@
       --card: #fffdf8;
       --line: #e4c8d1;
       --text: #4d3a46;
-      --muted: #8f7a84;
+      --muted: #75626d;
       --accent: #f3a3b5;
-      --accent-dark: #d85f7b;
+      --accent-dark: #b03f5a;
       --accent-soft: #ffe5ec;
-      --ok: #6ea998;
-      --err: #c85668;
-      --warn: #a97919;
+      --ok: #3f6a5e;
+      --err: #ac384a;
+      --warn: #815c13;
       --shadow: 7px 9px 0 rgba(168, 213, 198, .22);
       --fab-glow: rgba(216, 95, 123, .25);
       --grain: rgba(77, 58, 70, .025);
@@ -240,7 +240,7 @@
       color: var(--text);
     }
     input:focus {
-      outline: none; border-color: var(--accent);
+      outline: none; border-color: var(--accent-dark);
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
     }
     .btn-row { display: grid; gap: .55rem; }
@@ -476,7 +476,7 @@
       background: #f3a3b5;
     }
     [data-theme="cream"] .tabs { background: #f8e7d9; }
-    [data-theme="cream"] .tab.active { color: #d85f7b; }
+    [data-theme="cream"] .tab.active { color: var(--accent-dark); }
     [data-theme="cream"] .upload-zone { border-radius: 19px 25px 18px 23px; }
     .handraw-credit {
       margin: 1.2rem 0 .2rem; padding: .72rem .9rem;
@@ -581,7 +581,7 @@
         控制抽屉 → 切到<strong>维护</strong>页 →「绑定呼图账号」，输入屏上 6 位码。
       </p>
       <details style="margin:.5rem 0 0">
-        <summary style="cursor:pointer;color:var(--accent);font-size:.85rem">逐步说明</summary>
+        <summary style="cursor:pointer;color:var(--accent-dark);font-size:.85rem">逐步说明</summary>
         <ol class="hint-list">
           <li>主屏打开<strong>机器控制</strong>抽屉</li>
           <li>切页：主页 → 点动·手动 → <em>维护</em></li>
@@ -590,7 +590,7 @@
       </details>
       <p class="privacy-note" style="margin:.75rem 0 0;padding:.65rem .75rem;border-radius:10px;background:var(--surface-2);font-size:.8rem;line-height:1.55;color:var(--muted)">
         <strong style="color:var(--text)">隐私说明：</strong>绑定后，设备与小派的语音对话文本（不含原始录音）会经加密链路上传至呼图云，用于售后排查与产品改进，保留约 90 天。您可在账户设置中解绑以停止新对话采集；解绑不自动删除已入库历史。详见
-        <a href="https://hutuji.donglicao.com/draw-upload/" style="color:var(--accent)">呼图云</a> 服务说明。
+        <a href="https://hutuji.donglicao.com/draw-upload/" style="color:var(--accent-dark)">呼图云</a> 服务说明。
       </p>
       <label class="field consent" style="margin-top:.65rem;display:flex;gap:.5rem;align-items:flex-start;font-size:.82rem;line-height:1.45">
         <input id="bind-consent" type="checkbox" style="width:auto;margin-top:.2rem">

@@ -17,8 +17,9 @@ page {
   --line: rgba(77, 58, 70, 0.16);
   --line-strong: rgba(77, 58, 70, 0.34);
   --text: #4d3a46;
-  --muted: #8f7a84;
+  --muted: #735f69;
   --cyan: #d85f7b;
+  --accent-text: #b03f5a;
   --cyan-dim: rgba(216, 95, 123, 0.12);
   --danger: #c85668;
   --ok: #6ea998;

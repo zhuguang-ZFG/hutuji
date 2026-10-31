@@ -2,6 +2,7 @@
 # VPS 巡检（cron 每小时异常即报 / 每日 08:00 全量 digest）：
 #   - hutuji-* unit 进入 failed 态
 #   - 关键服务不再 active（mcp/bridge/portal/admin；京东无 bridge/admin）
+#   - 宿主依赖不再 active（nginx、ssh/sshd；本机已启用的 redis/postgresql/sing-box）
 #   - 磁盘占用 ≥85%（无 swap 机器，磁盘满与内存尖峰同样致命）
 #   - 可用内存 <200MB（本机 3.9G 无 swap，见 hutuji-mcp.service 注释）
 # 无异常静默退出；--digest 无条件发一条现状，否则长时间静默分不清「健康」和「脚本死了」。
@@ -42,6 +43,13 @@ systemctl is-active --quiet nginx 2>/dev/null || msg+="not active dependency: ng
 if ! systemctl is-active --quiet ssh 2>/dev/null && ! systemctl is-active --quiet sshd 2>/dev/null; then
   msg+="not active dependency: ssh/sshd"$'\n'
 fi
+# 非 hutuji- 前缀的业务依赖：Redis（生成队列/breaker）、PostgreSQL（PG shadow）、
+# sing-box（TG 出网）。按本机是否启用判定角色——主节点三者均启用；京东热备未安装即跳过。
+# worker 只 After=redis，Redis 挂掉时 worker 循环 auto-restart 而不进 failed，必须直查依赖本身。
+for dep in redis postgresql sing-box; do
+  systemctl is-enabled --quiet "$dep" 2>/dev/null || continue
+  systemctl is-active --quiet "$dep" 2>/dev/null || msg+="not active dependency: $dep"$'\n'
+done
 
 # worker 模板实例逐个点名（任一 failed 即报，八实例分推费）
 wfail=$(LC_ALL=C systemctl list-units 'hutuji-draw-worker@*' --plain --no-legend --no-pager 2>/dev/null \

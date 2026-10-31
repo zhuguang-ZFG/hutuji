@@ -116,15 +116,11 @@
   padding: 0 28rpx;
   font-size: 26rpx;
   border-radius: 32rpx;
-  background: rgba(0, 209, 229, 0.12) !important;
-  color: #00d1e5 !important;
 }
 
 .go-btn {
   margin-top: 48rpx;
   width: 80%;
-  background: #00d1e5 !important;
-  color: #061016 !important;
   border-radius: 48rpx;
   font-weight: 600;
 }

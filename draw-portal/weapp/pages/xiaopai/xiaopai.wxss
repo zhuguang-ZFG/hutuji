@@ -7,7 +7,7 @@
 .loading,
 .error-bar {
   text-align: center;
-  color: #888;
+  color: #735f69;
   padding: 60rpx 0;
 }
 .error-bar {
@@ -77,7 +77,7 @@
 }
 .model-desc {
   font-size: 22rpx;
-  color: #888;
+  color: #735f69;
   margin-top: 4rpx;
 }
 .bound-ok {
