@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+2026-11-01 F53 遗留收口：灌库 unit 的 `StartLimitIntervalSec/Burst` 必须让「区间内可拉起次数 > burst」才会真进 failed（旧 `600s/20` 配 `RestartSec=90` 永远触不到，静默循环 343 次）；巡检除 failed 外还要查 `auto-restart` 与「重启 ≥3 次且最近启动 <1h」，并按 `ActiveState` 排除手动 stop 的残留 `NRestarts`。小程序 `styles/weui-page.wxss` 由页面 `@import`、排在主题之后，只许放排版，颜色一律交 `handdraw-theme.wxss`；生产候选用 `git cat-file blob` 导出，`git show` 受 `core.autocrlf=true` 影响。`hutuji-curated-prep` 保持 stopped，生图后端修好前别 start。详见 `docs/design/three-repo-f53-fixes-20261031.md`。
+
 2026-10-31 F53 复审修复：S3 1.0.55 旧 WebSocket 由单回收任务加 8 格队列析构（不要再设任务数上限，会把 30s 同步析构推回调用方）；运维巡检对已启用的 redis/postgresql/sing-box 逐个查 active；中继重复请求等首个结果再回 202；HandRaw 珊瑚粉 `#f3a3b5`/`#d85f7b` 只作填充，文字用 `#b03f5a` 等深色令牌，网页与小程序测试按 WCAG 4.5:1 钉住。详见 `docs/design/three-repo-f53-fixes-20261031.md`。
 
 2026-10-24 F50/F51 修复批次：出图闸只对在途 OTA 会话推送对账、starting+目标版本收口、ota.state 归一化、无方向 PNG 免重编码（Hub）；旧 WebSocket 改一次性任务析构（S3 1.0.52，F50-02 评估后维持保守并留档）；WebCommand 空输出丢弃流与 CLIENT_ALL 失配回退广播（量产 Grbl）。portal 634 / S3 448 / massprod host 86 过；F50-02 应用层修法与 patch 层 P3、F50-14/16 延后。修复与延后边界见 `docs/design/f50-f51-fixes-20261024.md`，部署状态只看 readiness。

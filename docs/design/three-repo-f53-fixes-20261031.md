@@ -82,7 +82,54 @@ HandRaw Style 钉在 `572dff8`（v1.9.8），许可是 MIT 加署名要求，记
 - Hub 提交消息第 10 行有两个乱码字节，原文应为「钉住」。为了不强推 main，没有改写。
 
 仍未关闭：
-- `tg-ops-check.sh` 只看 failed 状态和显式列出的服务，`hutuji-curated-prep` 这种 auto-restart 循环它发现不了。
 - 1.0.55 还没上屏，也没 OTA。
 - 小程序没在手机上看过。
 - 网页没有用生产账号逐页目视。
+
+## 遗留项收口（2026-11-01）
+
+提交 `c28793d029881f52c6ffa87ee56771f82473ca47`。
+
+### 灌库服务的循环
+
+两处都改了：`curated_prep.py` 在生图层抛任何异常时按 `UpstreamUnavailable` 中止本轮，不再把剩下的类目逐个送去把各后端打一遍；unit 的自动拉起上限从 `600s/20 次` 改为 `86400s/3 次`。旧值配 `RestartSec=90` 永远触不到上限——600 秒里最多拉起 6 次，门槛是 20 次，所以它只会一直循环而永不进 failed。新值一天最多 3 次，之后停在 failed 等巡检报警。
+
+属主也修了：`/opt/hutuji/curated` 与 `/opt/hutuji/curated-audit` 下原有 12409 项不属 hutuji，`chown -R` 后为 0 项。以 hutuji 身份实跑 `--only cat` 成功写出 manifest（11-01 00:00），没有 Permission denied；该类目已满 52 项，所以没有调用生图接口。
+
+服务保持 stopped + enabled。298 个类目里 60 个未满，启动就会真去请求生图后端，而后端仍是坏的（商汤 `sensenova-u1-fast` 退役、Agnes 403、魔搭 429、混元 success=false），切模型要用户定。恢复命令 `systemctl start hutuji-curated-prep`。
+
+### 巡检盲区
+
+`tg-ops-check.sh` 原来只看 failed 态与显式列出的服务名。`Restart=` 下崩溃的服务会被一直拉起，永远进不了 failed，所以那 343 次循环没有任何告警。新增两条判据：`SubState=auto-restart`（正在等下一次拉起），或累计重启 ≥3 次且最近一次启动在 1 小时内。手动 stop 后 `NRestarts` 不清零，所以按 `ActiveState` 排除 inactive/failed。
+
+在两台机上用桩 `systemctl` 喂已部署脚本的这段逻辑，6 条真值表全对：auto-restart 命中、重启 6 次且刚起命中、已 stop 不命中、已 failed 不命中、健康常驻不命中、重启 2 次不命中。生产机上没有装崩溃循环单元。
+
+### 小程序残留的深空青光
+
+根因是 `styles/weui-page.wxss`：它被 8 个页面 `@import`，加载在 `app.wxss` 的主题之后，同优先级时后者胜出，所以首页和个人页仍是深底青字，按钮还带 `!important`。现在该文件只留间距与排版，颜色、底色、边框、阴影和 hero 外框全部交还主题。
+
+页面层 14 份 wxss 加 `paper-summary.wxss` 的暗色时代取值改为奶油令牌：灰蓝次要字统一 `#735f69`、青色强调改 `#b03f5a`、青绿改 `#3b7564`、深底改 `#fffdf8`/`#fdebdc`、白色半透明细线改 `rgba(77, 58, 70, …)`。被主题 `!important` 盖住的死声明直接删掉，留着会在主题改动时冒出来。顺带把控制页的错误横幅排成一行（文字在左、刷新钮在右）。
+
+`handdraw_theme.test.js` 的层叠解析器补上页面 `@import` 展开（weui-page、paper-summary 按出现位置排在主题之后），新增一项扫描全部页面：页面层不得出现深色底、浅色字、青蓝色相（色相 175–250° 且饱和度 >0.2，薄荷 160° 与薰衣草 263° 不在内）或白色半透明线，自定字色在奶油底上须 ≥4.5:1。主题自身的选中态暗莓底配奶油字是设计真值，不在判定范围内。旧样式报 564 处，新样式 0 处。
+
+微信开发者工具自动化逐页截图复核：首页、个人页、控制页、聊天页、手绘页、历史、商城、纸张、分享、固件、配网、小派设置都是奶油底，暗色卡片和青色头像框都没了；控制页错误横幅已排成一行。
+
+### 提交消息乱码
+
+`c1e9305` 第 10 行的两个坏字节已推送。不改写历史，改用 git note 记正文：`git notes show c1e9305`。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| MCP pytest | 1706 passed |
+| 小程序 node | 377/377 |
+| 枢纽门禁 | overall=pass（测试计数行指纹随计数更新，已 `--accept-line-refs` 重登；readiness 顶部插入导致的 2 处纯行号下移用 `--fix-line-refs` 重定位） |
+| 运维巡检实跑 | 两机 `msg` 为空、exit 0；循环判定 6/6 |
+| 灌库实跑 | 阿里以 hutuji 身份 `--only cat` 成功，无 Permission denied |
+
+部署：两机 `tg-ops-check.sh` 远端 SHA-256 `8c9a798d…a667`，阿里另装 `curated_prep.py`（`83a46efe…346e`）与 unit（`b8841a30…cef1`），`daemon-reload` 后 `StartLimitIntervalUSec=1d`、`StartLimitBurst=3`、`NeedDaemonReload=no`。备份在两机 `/root/hutuji-bak-20261101-f53fu/`。京东没有 curated-prep 服务，只换了巡检脚本。
+
+小程序 0.3.36 上传开发版，321,479B；仍未设体验版、未提审、未发布。
+
+这批没碰：1.0.55 仍未 OTA、未上屏（目标 `b8:1f:3f:c3:70:bc` 探活 404、本机无可用串口）；小程序没在手机上看；网页没有用生产账号登录后逐页目视。
