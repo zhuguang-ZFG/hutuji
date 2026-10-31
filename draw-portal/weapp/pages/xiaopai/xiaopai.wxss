@@ -11,7 +11,7 @@
   padding: 60rpx 0;
 }
 .error-bar {
-  color: #c0392b;
+  color: #ac384a;
 }
 .section {
   background: #fff;
@@ -22,16 +22,16 @@
 .section-title {
   font-size: 32rpx;
   font-weight: 600;
-  color: #222;
+  color: #4d3a46;
 }
 .section-desc {
   font-size: 24rpx;
-  color: #999;
+  color: #735f69;
   margin: 8rpx 0 16rpx;
 }
 .group-picker {
   font-size: 26rpx;
-  color: #4a6cf7;
+  color: #b03f5a;
   padding: 8rpx 0 16rpx;
 }
 .voice-grid {
@@ -42,20 +42,18 @@
 .chip {
   padding: 10rpx 20rpx;
   border-radius: 28rpx;
-  background: #f2f3f7;
-  color: #333;
+  color: #4d3a46;
   font-size: 26rpx;
   border: 2rpx solid transparent;
 }
 .chip-on {
-  background: #eef1ff;
-  color: #4a6cf7;
-  border-color: #4a6cf7;
+  color: #b03f5a;
+  border-color: #d85f7b;
 }
 .picked {
   margin-top: 16rpx;
   font-size: 24rpx;
-  color: #666;
+  color: #735f69;
 }
 .model-list {
   display: flex;
@@ -63,17 +61,16 @@
   gap: 12rpx;
 }
 .model-item {
-  border: 2rpx solid #eee;
+  border: 2rpx solid rgba(77, 58, 70, 0.16);
   border-radius: 12rpx;
   padding: 16rpx 20rpx;
 }
 .model-on {
-  border-color: #4a6cf7;
-  background: #eef1ff;
+  border-color: #d85f7b;
 }
 .model-name {
   font-size: 28rpx;
-  color: #222;
+  color: #4d3a46;
 }
 .model-desc {
   font-size: 22rpx;
@@ -81,12 +78,12 @@
   margin-top: 4rpx;
 }
 .bound-ok {
-  color: #1a9c5c;
+  color: #3f6a5e;
   font-size: 26rpx;
 }
 .bind-help {
   font-size: 24rpx;
-  color: #4a6cf7;
+  color: #b03f5a;
   margin: 12rpx 0;
 }
 .bind-row {
@@ -103,15 +100,15 @@
   font-size: 28rpx;
 }
 .bind-btn {
-  background: #4a6cf7;
-  color: #fff;
+  background: #f3a3b5;
+  color: #4d3a46;
 }
 .save-btn {
   margin-top: 40rpx;
-  background: #e5e6eb;
-  color: #999;
+  background: #f3dfc8;
+  color: #735f69;
 }
 .save-on {
-  background: #4a6cf7;
-  color: #fff;
+  background: #f3a3b5;
+  color: #4d3a46;
 }

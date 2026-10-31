@@ -5,7 +5,7 @@
 }
 
 .notes-text {
-  color: #9aa3b5;
+  color: #735f69;
   font-size: 26rpx;
   line-height: 1.5;
   text-align: right;
@@ -13,7 +13,7 @@
 }
 
 .highlight .weui-cell__ft {
-  color: #00d1e5;
+  color: #b03f5a;
   font-weight: 600;
 }
 
@@ -23,8 +23,8 @@
   padding: 2rpx 12rpx;
   border-radius: 8rpx;
   font-size: 22rpx;
-  color: #0b0c13;
-  background: #00d1e5;
+  color: #4d3a46;
+  background: #f3a3b5;
   vertical-align: middle;
 }
 
@@ -32,26 +32,26 @@
   margin: 24rpx 24rpx 0;
   padding: 24rpx 28rpx;
   border-radius: 24rpx;
-  background: #14151f;
-  border: 1rpx solid rgba(0, 209, 229, 0.25);
+  background: #fffdf8;
+  border: 1rpx solid rgba(216, 95, 123, 0.25);
 }
 
 .progress-label {
   font-size: 26rpx;
-  color: #f2f4f8;
+  color: #4d3a46;
   margin-bottom: 16rpx;
 }
 
 .progress-bar {
   height: 12rpx;
   border-radius: 8rpx;
-  background: #1a1b28;
+  background: #fffdf8;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #00d1e5, #58a6ff);
+  background: linear-gradient(90deg, #f3a3b5, #f5d77f);
   border-radius: 8rpx;
   transition: width 0.3s ease;
 }
@@ -59,20 +59,20 @@
 .progress-meta {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #9aa3b5;
+  color: #735f69;
 }
 
 .status-tip {
   margin: 16rpx 32rpx 0;
   font-size: 26rpx;
-  color: #9aa3b5;
+  color: #735f69;
   line-height: 1.5;
 }
 
 .status-tip.warn {
-  color: #fa5151;
+  color: #ac384a;
 }
 
 .status-tip.ok {
-  color: #00d1e5;
+  color: #b03f5a;
 }

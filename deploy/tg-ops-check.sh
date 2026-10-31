@@ -1,6 +1,6 @@
 #!/bin/bash
 # VPS 巡检（cron 每小时异常即报 / 每日 08:00 全量 digest）：
-#   - hutuji-* unit 进入 failed 态
+#   - hutuji-* unit 进入 failed 态，或在 Restart= 下反复崩溃重启
 #   - 关键服务不再 active（mcp/bridge/portal/admin；京东无 bridge/admin）
 #   - 宿主依赖不再 active（nginx、ssh/sshd；本机已启用的 redis/postgresql/sing-box）
 #   - 磁盘占用 ≥85%（无 swap 机器，磁盘满与内存尖峰同样致命）
@@ -30,6 +30,26 @@ while read -r unit _; do
   failed+="$unit "
 done < <(LC_ALL=C systemctl list-units 'hutuji-*' --state=failed --plain --no-legend --no-pager 2>/dev/null)
 [[ -n "$failed" ]] && msg+="failed: ${failed% }"$'\n'
+
+# Restart= 会一直把崩溃的服务拉起来，它永远进不了 failed（10-31 curated-prep 循环 343 次无告警）。
+# 正在 auto-restart 等待，或累计重启 ≥3 且最近一次启动在 1 小时内，都算崩溃循环。
+now_us=$(awk '{printf "%d", $1 * 1000000}' /proc/uptime)
+looping=""
+while read -r unit _; do
+  [[ -n "$unit" ]] || continue
+  is_expected_inactive "$unit" && continue
+  restarts=$(systemctl show -p NRestarts --value "$unit" 2>/dev/null)
+  state=$(systemctl show -p ActiveState --value "$unit" 2>/dev/null)
+  sub=$(systemctl show -p SubState --value "$unit" 2>/dev/null)
+  started=$(systemctl show -p InactiveExitTimestampMonotonic --value "$unit" 2>/dev/null)
+  # 手动 stop 后 NRestarts 不清零，已停的服务不算。
+  [[ "$state" == "inactive" || "$state" == "failed" ]] && continue
+  if [[ "$sub" == "auto-restart" ]] \
+    || [[ "${restarts:-0}" -ge 3 && "${started:-0}" -gt 0 && $((now_us - started)) -lt 3600000000 ]]; then
+    looping+="$unit(${restarts:-?}) "
+  fi
+done < <(LC_ALL=C systemctl list-units 'hutuji-*' --all --type=service --plain --no-legend --no-pager 2>/dev/null)
+[[ -n "$looping" ]] && msg+="restart loop: ${looping% }"$'\n'
 
 for u in hutuji-mcp hutuji-cloud-bridge hutuji-draw-portal hutuji-draw-admin; do
   is_expected_inactive "$u" && continue

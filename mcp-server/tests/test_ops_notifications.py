@@ -166,6 +166,30 @@ def test_ops_check_covers_enabled_non_hutuji_business_dependencies() -> None:
     assert 'systemctl is-active --quiet "$dep" 2>/dev/null || msg+="not active dependency: $dep"' in script
 
 
+def test_ops_check_reports_running_units_stuck_in_restart_loop() -> None:
+    script = (ROOT / "deploy" / "tg-ops-check.sh").read_text(encoding="utf-8")
+    loop = script.split("looping=\"\"", 1)[1].split('msg+="restart loop:', 1)[0]
+
+    # 10-31 curated-prep 在 Restart=on-failure 下重启 343 次，从未进 failed，巡检全程静默。
+    assert "list-units 'hutuji-*' --all --type=service" in loop
+    assert 'is_expected_inactive "$unit" && continue' in loop
+    assert '[[ "$sub" == "auto-restart" ]]' in loop
+    assert '"${restarts:-0}" -ge 3' in loop and "3600000000" in loop
+    # 手动 stop 后 NRestarts 不清零；跳过已停服务，否则停机处置后会每小时误报。
+    assert '[[ "$state" == "inactive" || "$state" == "failed" ]] && continue' in loop
+
+
+def test_curated_prep_unit_gives_up_into_failed_instead_of_looping() -> None:
+    unit = (ROOT / "deploy" / "hutuji-curated-prep.service").read_text(encoding="utf-8")
+    interval = int(re.search(r"^StartLimitIntervalSec=(\d+)$", unit, re.M).group(1))
+    burst = int(re.search(r"^StartLimitBurst=(\d+)$", unit, re.M).group(1))
+    restart_sec = int(re.search(r"^RestartSec=(\d+)$", unit, re.M).group(1))
+
+    # 间隔内能自动拉起的次数必须超过上限，否则永远进不了 failed（旧值 600s 内最多 7 次 < 20）。
+    assert interval // restart_sec > burst
+    assert burst <= 3
+
+
 def test_python_callers_outlive_relay_retry_budget() -> None:
     notify = (ROOT / "deploy" / "tg-notify.sh").read_text(encoding="utf-8")
     relay_block = notify.split('if [[ -n "${TG_RELAY_URL:-}" ]]; then', 1)[1].split("\nfi\n", 1)[0]

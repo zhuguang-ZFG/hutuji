@@ -39,3 +39,42 @@ def test_prep_fixture_fills_category_and_manifest(tmp_path: Path):
     assert manifest["categories"]["cat"]["count"] >= 3
     assert manifest["ready"] is False
     assert (audit_dir / "cat.txt").read_text(encoding="utf-8").count("\n") == 3
+
+
+def test_prep_stops_whole_run_when_image_backends_fail(tmp_path: Path, monkeypatch):
+    prep = _load_prep()
+    calls: list[str] = []
+
+    def failing_candidate(category: str, fixture, *, attempt: int, slot: int) -> str:
+        calls.append(category)
+        raise RuntimeError("商汤生图 API 返回 404")
+
+    monkeypatch.setattr(prep, "_candidate_svg", failing_candidate)
+    monkeypatch.setattr(prep, "unique_categories", lambda: ["cat", "dog", "crab"])
+
+    code = prep.main([
+        "--out", str(tmp_path / "out"),
+        "--audit-dir", str(tmp_path / "audit"),
+        "--per-category", "1",
+        "--max-attempts-per-slot", "5",
+    ])
+
+    # 10-31 生产循环：每个未满类目都把四个后端打一遍，每 90s 一轮。
+    assert code == 1
+    assert calls == ["cat"]
+    assert (tmp_path / "out" / "manifest.json").exists()
+
+
+def test_prep_audit_write_failure_does_not_stop_other_categories(tmp_path: Path, monkeypatch):
+    prep = _load_prep()
+    seen: list[str] = []
+
+    def fill(category: str, **_kwargs) -> None:
+        seen.append(category)
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(prep, "fill_category", fill)
+    monkeypatch.setattr(prep, "unique_categories", lambda: ["cat", "dog"])
+
+    assert prep.main(["--out", str(tmp_path / "out"), "--audit-dir", str(tmp_path / "audit")]) == 1
+    assert seen == ["cat", "dog"]

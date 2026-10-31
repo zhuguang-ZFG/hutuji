@@ -75,6 +75,10 @@ def _candidate_svg(category: str, fixture: Path | None, *, attempt: int, slot: i
     return asyncio.run(_gen(_prompt_for(category, attempt=attempt, slot=slot)))
 
 
+class UpstreamUnavailable(RuntimeError):
+    """生图后端整体失败；本轮剩余类目不再请求，免得每个类目都把各后端打一遍。"""
+
+
 def _write_audit_list(category: str, cat_dir: Path, audit_dir: Path) -> None:
     paths = sorted(cat_dir.glob("*.svg"))
     audit_dir.mkdir(parents=True, exist_ok=True)
@@ -110,7 +114,10 @@ def fill_category(
         slot = have + 1
         last_reason = ""
         for attempt in range(1, max_attempts + 1):
-            svg = _candidate_svg(cat, fixture, attempt=attempt, slot=slot)
+            try:
+                svg = _candidate_svg(cat, fixture, attempt=attempt, slot=slot)
+            except Exception as exc:  # noqa: BLE001 - 生图层的失败形态很多，一律按上游不可用处理
+                raise UpstreamUnavailable(f"{cat}: {exc}") from exc
             try:
                 with tempfile.TemporaryDirectory(prefix="curated-gate-") as work:
                     gate_svg(svg, work_dir=Path(work))
@@ -164,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
                 max_attempts=args.max_attempts_per_slot,
                 audit_dir=args.audit_dir,
             )
+        except UpstreamUnavailable as exc:
+            print(f"{category}: FAIL {exc}", file=sys.stderr)
+            print("生图后端不可用，本轮停止，剩余类目不再请求", file=sys.stderr)
+            failures.append(category)
+            break
         except Exception as exc:  # noqa: BLE001 - retain other categories and write manifest
             print(f"{category}: FAIL {exc}", file=sys.stderr)
             failures.append(category)

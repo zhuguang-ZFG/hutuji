@@ -1,11 +1,11 @@
-.paper-summary { display: flex; align-items: center; gap: 20rpx; margin: 0 30rpx 22rpx; padding: 22rpx 24rpx; min-height: 68rpx; border: 1rpx solid #243b40; border-radius: 22rpx; background: linear-gradient(110deg, #122329, #151d25); box-sizing: border-box; }
-.paper-summary-sheet { flex-shrink: 0; position: relative; width: 28rpx; height: 38rpx; border: 2rpx solid #7ecac5; border-radius: 4rpx; transform: rotate(-7deg); }
+.paper-summary { display: flex; align-items: center; gap: 20rpx; margin: 0 30rpx 22rpx; padding: 22rpx 24rpx; min-height: 68rpx; border: 1rpx solid rgba(77, 58, 70, 0.2); border-radius: 22rpx; background: linear-gradient(110deg, #fffdf8, #fff0f4); box-sizing: border-box; }
+.paper-summary-sheet { flex-shrink: 0; position: relative; width: 28rpx; height: 38rpx; border: 2rpx solid #3b7564; border-radius: 4rpx; transform: rotate(-7deg); }
 .paper-summary-sheet.landscape { width: 38rpx; height: 28rpx; transform: rotate(5deg); }
-.paper-summary-sheet::after { content: ''; position: absolute; left: 6rpx; right: 6rpx; top: 10rpx; height: 9rpx; border-top: 1rpx solid #567d7c; border-bottom: 1rpx solid #567d7c; }
+.paper-summary-sheet::after { content: ''; position: absolute; left: 6rpx; right: 6rpx; top: 10rpx; height: 9rpx; border-top: 1rpx solid rgba(59, 117, 100, 0.5); border-bottom: 1rpx solid rgba(59, 117, 100, 0.5); }
 .paper-summary-copy { flex: 1; min-width: 0; }
-.paper-summary-title { color: #e3eee9; font-size: 26rpx; font-weight: 500; line-height: 1.5; word-break: break-word; }
-.paper-summary-detail { color: #9cb1b5; font-size: 22rpx; line-height: 1.5; margin-top: 4rpx; word-break: break-word; }
-.paper-summary-hint { color: #a9b8c1; font-size: 20rpx; line-height: 1.5; }
-.paper-summary-arrow { color: #80bab6; font-size: 36rpx; flex-shrink: 0; }
-.paper-summary.unavailable, .paper-summary.unbound { border-color: #2b333e; background: #171d25; }
-.paper-summary.offline .paper-summary-detail { color: #c9b184; }
+.paper-summary-title { color: #4d3a46; font-size: 26rpx; font-weight: 500; line-height: 1.5; word-break: break-word; }
+.paper-summary-detail { color: #735f69; font-size: 22rpx; line-height: 1.5; margin-top: 4rpx; word-break: break-word; }
+.paper-summary-hint { color: #735f69; font-size: 20rpx; line-height: 1.5; }
+.paper-summary-arrow { color: #3b7564; font-size: 36rpx; flex-shrink: 0; }
+.paper-summary.unavailable, .paper-summary.unbound { border-color: rgba(77, 58, 70, 0.2); background: #fffdf8; }
+.paper-summary.offline .paper-summary-detail { color: #815c13; }

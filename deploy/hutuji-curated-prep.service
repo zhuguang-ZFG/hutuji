@@ -3,8 +3,10 @@ Description=hutuji curated SVG library offline fill
 Documentation=file:///opt/hutuji/mcp-server/hutuji_mcp/CURATED-ATTRIBUTION.md
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=600
-StartLimitBurst=20
+# 一天最多自动拉起 3 次，再失败就停在 failed 让巡检报警；10-31 旧值（600s/20 次、
+# RestartSec=90）永远触不到上限，静默循环 343 次，每轮都去请求生图接口。
+StartLimitIntervalSec=86400
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -14,9 +16,10 @@ WorkingDirectory=/opt/hutuji/mcp-server
 EnvironmentFile=/etc/hutuji/mcp.env
 Environment=PYTHONUNBUFFERED=1
 # 离线灌库：断点续跑；类失败非 0 退出时 on-failure 便于 API 抖动后自动续填。
+# 生图后端整体失败时 curated_prep 本轮立即停止，不再逐类目请求。
 ExecStart=/opt/hutuji/mcp-server/.venv/bin/python scripts/curated_prep.py --out /opt/hutuji/curated --audit-dir /opt/hutuji/curated-audit --per-category 50 --n-min 30 --max-attempts-per-slot 5
 Restart=on-failure
-RestartSec=90
+RestartSec=1800
 Nice=10
 CPUQuota=50%
 MemoryMax=1536M

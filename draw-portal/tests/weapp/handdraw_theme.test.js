@@ -152,16 +152,23 @@ function selectorMatches(selector, element, ancestors) {
   return true;
 }
 
-function loadCascade(page) {
-  const sources = [
-    ["theme", "weapp/styles/handdraw-theme.wxss"],
-    ["app", "weapp/app.wxss"],
-    ["page", `weapp/pages/${page}.wxss`],
-  ];
-  const rules = [];
-  for (const [origin, rel] of sources) {
-    if (fs.existsSync(path.join(ROOT, rel))) rules.push(...parseRules(read(rel), origin));
+// 页面 wxss 的 @import 按出现位置展开：被引入的样式表排在主题之后，同优先级时会盖过主题。
+function pageSources(rel) {
+  if (!fs.existsSync(path.join(ROOT, rel))) return [];
+  const text = read(rel);
+  const out = [];
+  for (const m of text.matchAll(/@import\s+["']([^"']+)["']\s*;/g)) {
+    out.push(...pageSources(path.posix.join(path.posix.dirname(rel), m[1])));
   }
+  out.push([rel, text]);
+  return out;
+}
+
+function loadCascade(page) {
+  const rules = [];
+  rules.push(...parseRules(read("weapp/styles/handdraw-theme.wxss"), "weapp/styles/handdraw-theme.wxss"));
+  rules.push(...parseRules(read("weapp/app.wxss"), "weapp/app.wxss"));
+  for (const [rel, text] of pageSources(`weapp/pages/${page}.wxss`)) rules.push(...parseRules(text, rel));
   const vars = {};
   for (const rule of rules) {
     if (rule.selector !== "page") continue;
@@ -325,6 +332,99 @@ test("关键正文/状态文字最终生效色在奶油底上 ≥4.5:1", () => {
     if (ratio < 4.5) failures.push(`${page} ${chain.map((c) => c[1] || c[0]).join(" > ")}: ${color} (${selector}) ${ratio.toFixed(2)}`);
   }
   assert.deepEqual(failures, []);
+});
+
+// 深空青光时代的色值按性质判：深色底、浅色字、青蓝色相、白色半透明细线。
+// 奶油主题的薄荷（色相约 160°）和薰衣草（约 263°）不在青蓝区间内。
+function colorsIn(value, vars) {
+  let v = value;
+  for (let n = 0; n < 3; n += 1) v = v.replace(/var\((--[\w-]+)\)/g, (_, name) => vars[name] || "");
+  const out = [];
+  for (const m of v.matchAll(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/g)) {
+    const h = m[1].length === 3 ? m[1].replace(/./g, (c) => c + c) : m[1];
+    out.push([0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).concat(1));
+  }
+  for (const m of v.matchAll(/rgba?\(([^)]*)\)/g)) {
+    const p = m[1].split(",").map((x) => parseFloat(x));
+    out.push([p[0], p[1], p[2], p.length > 3 ? p[3] : 1]);
+  }
+  return out;
+}
+
+function hueSat(rgb) {
+  const [r, g, b] = rgb.slice(0, 3).map((c) => c / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return [0, 0];
+  const d = max - min;
+  const l = (max + min) / 2;
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  return [h, s];
+}
+
+function darkEraReason(prop, value, vars) {
+  for (const c of colorsIn(value, vars)) {
+    if (c[3] === 0) continue;
+    const [h, s] = hueSat(c);
+    if (s > 0.2 && h >= 175 && h <= 250) return "青蓝色相";
+    if (c[0] === 255 && c[1] === 255 && c[2] === 255 && c[3] < 1) return "白色半透明线";
+    if (prop.startsWith("background") && c[3] > 0.3 && luminance(c) < 0.2) return "深色底";
+    if (prop === "color" && luminance(c) > 0.6) return "浅色字";
+  }
+  return null;
+}
+
+const PAINT_PROPS = ["color", "background", "background-color", "border", "border-color", "border-top",
+  "border-bottom", "border-left", "border-right", "box-shadow"];
+
+function pagesWithStyles() {
+  const app = JSON.parse(read("weapp/app.json"));
+  const pages = [...app.pages];
+  for (const sub of app.subpackages || app.subPackages || []) {
+    for (const p of sub.pages) pages.push(`${sub.root.replace(/\/$/, "")}/${p}`.replace(/^pages\//, "pages/"));
+  }
+  return pages.map((p) => p.replace(/^pages\//, "")).filter((p) => fs.existsSync(path.join(ROOT, `weapp/pages/${p}.wxss`)));
+}
+
+test("页面与其 @import 样式表在完整层叠下不再生效深空青光色", () => {
+  const leftovers = new Set();
+  for (const page of pagesWithStyles()) {
+    const cascade = loadCascade(page);
+    for (const rule of cascade.rules) {
+      // 主题和 app.wxss 是设计真值（选中态的暗莓底配奶油字是有意的），只追究页面层。
+      if (rule.origin.endsWith("handdraw-theme.wxss") || rule.origin === "weapp/app.wxss") continue;
+      for (const d of rule.decls) {
+        if (!PAINT_PROPS.includes(d.prop)) continue;
+        // 原始声明就不许是暗色时代取值：被主题 !important 盖住的也算，主题一改它就会冒出来；
+        // [disabled]、:active 这类解析器不模拟的选择器也只能靠这一条兜住。
+        const reason = darkEraReason(d.prop, d.value, cascade.vars);
+        if (reason) leftovers.add(`${rule.origin} ${rule.selector} { ${d.prop}: ${d.value} } ${reason}`);
+        // 页面层写下的不透明字色，至少要在奶油底上达标；暗色时代的灰蓝次要字多数卡在 2–3:1。
+        const fg = d.prop === "color" && colorsIn(d.value, cascade.vars)[0];
+        if (fg && fg[3] === 1 && contrast(fg, CREAM) < 4.5) {
+          leftovers.add(`${rule.origin} ${rule.selector} { color: ${d.value} } 奶油底对比度 ${contrast(fg, CREAM).toFixed(2)}`);
+        }
+      }
+      const compounds = rule.selector.split(/\s*[>+~]\s*|\s+/).filter(Boolean);
+      const tokens = compounds.map(compoundTokens);
+      if (tokens.some((t) => !t) || !rule.decls.some((d) => d.prop === "color")) continue;
+      const element = tokens.pop();
+      const ancestors = tokens.reverse();
+      const best = winner(cascade, element, ancestors, ["color"]);
+      if (!best || best.origin.endsWith("handdraw-theme.wxss") || best.origin === "weapp/app.wxss") continue;
+      // 页面层自定的字色：对着同一元素的生效底色（没有就是奶油底）也要 ≥4.5:1。
+      const fg = colorsIn(best.value, cascade.vars)[0];
+      if (!fg) continue;
+      const bgRule = winner(cascade, element, ancestors, ["background", "background-color"]);
+      const bg = bgRule && colorsIn(bgRule.value, cascade.vars)[0];
+      const base = bg && bg[3] > 0 ? over(bg, CREAM) : CREAM;
+      const ratio = contrast(over(fg, base), base);
+      if (ratio < 4.5) leftovers.add(`${best.origin} ${best.selector} { color: ${best.value} } 对比度 ${ratio.toFixed(2)}`);
+    }
+  }
+  assert.deepEqual([...leftovers].sort(), []);
 });
 
 test("录音取消提示不被 .voice-status 主题色吞掉", () => {

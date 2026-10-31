@@ -5,10 +5,10 @@
   font-size: 44rpx;
   letter-spacing: 16rpx;
   text-align: center;
-  color: #f2f4f8;
+  color: #4d3a46;
 }
 
 .ph {
-  color: #6b7385;
+  color: #735f69;
   letter-spacing: 4rpx;
 }

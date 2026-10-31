@@ -3,12 +3,12 @@
 .cell-input {
   width: 100%;
   font-size: 30rpx;
-  color: #f2f4f8;
+  color: #4d3a46;
 }
 
 .log {
-  background: #0b0c13;
-  color: #00d1e5;
+  background: #fff7ed;
+  color: #b03f5a;
   padding: 24rpx 32rpx;
   font-size: 24rpx;
   font-family: monospace;
@@ -23,8 +23,8 @@
 }
 
 .link-cell:active {
-  background: rgba(0, 209, 229, 0.08);
+  background: rgba(216, 95, 123, 0.08);
 }
 
-.password-toggle { flex-shrink: 0; margin: 0 0 0 16rpx; background: transparent; color: #00d1e5; font-size: 25rpx; }
+.password-toggle { flex-shrink: 0; margin: 0 0 0 16rpx; background: transparent; color: #b03f5a; font-size: 25rpx; }
 .password-toggle::after { border: none; }

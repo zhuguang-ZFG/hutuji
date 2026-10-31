@@ -2,7 +2,7 @@
   min-height: 100vh;
   padding: 32rpx 32rpx 48rpx;
   box-sizing: border-box;
-  background: #0b0c13;
+  background: #fff7ed;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -20,7 +20,7 @@
   width: 560rpx;
   height: 560rpx;
   border-radius: 24rpx;
-  background: #14161f;
+  background: #fdebdc;
 }
 
 .sk-pulse {
@@ -41,7 +41,6 @@
   margin-top: 24rpx;
   height: 24rpx;
   border-radius: 8rpx;
-  background: #14161f;
 }
 
 .w50 {
@@ -50,27 +49,25 @@
 
 .failed-title {
   margin-top: 6vh;
-  color: #e6e9f2;
   font-size: 34rpx;
   font-weight: 600;
 }
 
 .failed-sub {
   margin-top: 16rpx;
-  color: #6b7385;
+  color: #735f69;
   font-size: 26rpx;
 }
 
 .card {
   width: 100%;
-  background: #14161f;
+  background: #fffdf8;
   border-radius: 24rpx;
   padding: 32rpx;
   box-sizing: border-box;
 }
 
 .work-title {
-  color: #e6e9f2;
   font-size: 32rpx;
   font-weight: 600;
   word-break: break-all;
@@ -78,7 +75,7 @@
 
 .work-date {
   margin-top: 8rpx;
-  color: #6b7385;
+  color: #735f69;
   font-size: 24rpx;
 }
 
@@ -86,7 +83,7 @@
   margin-top: 24rpx;
   width: 100%;
   border-radius: 16rpx;
-  background: #0b0c13;
+  background: #fff7ed;
 }
 
 .preview-loading {
@@ -97,7 +94,7 @@
 }
 
 .loading-label, .preview-error {
-  color: #9aa3b5;
+  color: #735f69;
   font-size: 26rpx;
 }
 
@@ -127,6 +124,6 @@
 
 .tips {
   margin-top: 20rpx;
-  color: #6b7385;
+  color: #735f69;
   font-size: 24rpx;
 }

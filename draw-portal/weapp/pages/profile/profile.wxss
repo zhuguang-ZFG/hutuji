@@ -22,13 +22,13 @@
   height: 120rpx;
   border-radius: 50%;
   margin-right: 24rpx;
-  border: 3rpx solid rgba(0, 209, 229, 0.55);
-  box-shadow: 0 0 24rpx rgba(0, 209, 229, 0.25);
+  border: 3rpx solid rgba(216, 95, 123, 0.55);
+  box-shadow: 0 0 24rpx rgba(216, 95, 123, 0.25);
 }
 
 .avatar.placeholder {
-  background: #1a1b28;
-  color: #00d1e5;
+  background: #fffdf8;
+  color: #b03f5a;
   font-size: 56rpx;
   display: flex;
   align-items: center;
@@ -38,7 +38,7 @@
 
 .nick-input {
   font-size: 34rpx;
-  color: #f2f4f8;
+  color: #4d3a46;
   padding: 4rpx 0 12rpx;
 }
 
@@ -47,7 +47,7 @@
   margin: 0;
   padding: 0;
   background: transparent;
-  color: #00d1e5;
+  color: #b03f5a;
   font-size: 26rpx;
   line-height: 1.4;
   text-align: left;
@@ -59,12 +59,11 @@
 
 .phone-text {
   font-size: 26rpx;
-  color: #9aa3b5;
+  color: #735f69;
 }
 
 .support-email {
   margin: 24rpx 0 16rpx;
-  color: #b8c1d1;
   font-size: 26rpx;
   text-align: center;
   word-break: break-all;
@@ -73,9 +72,9 @@
 /* 退出登录：弱化警示文本按钮，避免与主按钮同级重量（量产惯例：退出入口要可见但不抢眼） */
 .logout-btn {
   background: transparent;
-  color: #e57373;
+  color: #a3354d;
   font-size: 28rpx;
-  border: 2rpx solid rgba(229, 115, 115, 0.45);
+  border: 2rpx solid rgba(200, 86, 104, 0.42);
   border-radius: 12rpx;
 }
 
@@ -99,7 +98,7 @@
 .credit-link {
   display: block;
   margin-top: 8rpx;
-  color: #81786b;
+  color: #735f69;
   font-size: 23rpx;
   line-height: 1.55;
   word-break: break-all;

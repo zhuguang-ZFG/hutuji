@@ -1,65 +1,38 @@
-/* 全站布局层：对齐 LiMa 官网深空青光；useExtendedLib 下不 @import weui.wxss */
+/* 全站布局层：只放间距、排版和 flex；useExtendedLib 下不 @import weui.wxss。
+ * 颜色、底色、边框、阴影和 hero 外框一律由 handdraw-theme.wxss 决定。本文件由页面 @import，
+ * 在主题之后加载，同优先级时会盖过主题；10-31 前这里留着深空青光配色，首页和个人页因此还是暗色。 */
 
 .page {
-  background: #0b0c13;
   min-height: 100vh;
   padding-bottom: 56rpx;
-  color: #f2f4f8;
   box-sizing: border-box;
 }
 
-.hero {
-  margin: 28rpx 28rpx 8rpx;
-  padding: 36rpx 32rpx 32rpx;
-  border-radius: 28rpx;
-  background:
-    radial-gradient(120% 90% at 100% 0%, rgba(0, 209, 229, 0.22), transparent 55%),
-    radial-gradient(90% 80% at 0% 100%, rgba(88, 70, 180, 0.18), transparent 50%),
-    #14151f;
-  border: 1rpx solid rgba(0, 209, 229, 0.18);
-  box-shadow: 0 16rpx 48rpx rgba(0, 209, 229, 0.1);
-}
-
 .hero-brand {
-  font-size: 22rpx;
-  letter-spacing: 4rpx;
-  color: #00d1e5;
   margin-bottom: 12rpx;
 }
 
 .hero-title {
   font-size: 44rpx;
   font-weight: 700;
-  color: #fff;
   line-height: 1.25;
   margin-bottom: 12rpx;
 }
 
-.hero-title .accent {
-  color: #00d1e5;
-}
-
 .hero-sub {
   font-size: 26rpx;
-  color: #9aa3b5;
   line-height: 1.5;
 }
 
 .weui-cells__title {
   margin: 0;
   padding: 36rpx 32rpx 16rpx;
-  color: #00d1e5;
-  font-size: 24rpx;
-  letter-spacing: 2rpx;
 }
 
 .weui-cells {
-  background: #14151f;
   margin: 0 24rpx;
-  border-radius: 24rpx;
   position: relative;
   overflow: hidden;
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
 }
 
 .weui-cells::before,
@@ -81,7 +54,6 @@
   right: 0;
   top: 0;
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
   transform: scaleY(0.5);
 }
 
@@ -92,19 +64,16 @@
 .weui-cell__bd {
   flex: 1;
   font-size: 32rpx;
-  color: #f2f4f8;
 }
 
 .weui-cell__ft {
   font-size: 26rpx;
-  color: #9aa3b5;
   text-align: right;
   padding-left: 16rpx;
 }
 
 .weui-cells__tips {
   margin: 12rpx 36rpx 8rpx;
-  color: #9aa3b5;
   font-size: 24rpx;
   line-height: 1.45;
   word-break: break-all;
@@ -130,47 +99,17 @@
   line-height: 2.4;
   border-radius: 999rpx;
   overflow: hidden;
-  border: none;
 }
 
 .weui-btn::after {
   border: none;
 }
 
-.weui-btn_primary {
-  background: #00d1e5 !important;
-  color: #061016 !important;
-}
-.weui-btn_primary:not([disabled]):active {
-  background: #00b8ca !important;
-}
-
-.weui-btn_default {
-  background: transparent !important;
-  color: #00d1e5 !important;
-  border: 2rpx solid rgba(0, 209, 229, 0.45) !important;
-}
-.weui-btn_default:not([disabled]):active {
-  background: rgba(0, 209, 229, 0.1) !important;
-}
-
-.weui-btn_warn {
-  background: #ff5c6a !important;
-  color: #fff !important;
-}
-
-.weui-btn[disabled] {
-  opacity: 0.45;
-}
-
 .field {
-  background: #1a1b28;
   border-radius: 16rpx;
   padding: 22rpx;
   font-size: 30rpx;
-  color: #f2f4f8;
   margin: 0 32rpx 16rpx;
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
 }
 
 .divider {
@@ -182,24 +121,20 @@
 .divider-line {
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .divider-text {
   padding: 0 20rpx;
   font-size: 24rpx;
-  color: #9aa3b5;
 }
 
 .page-foot {
   text-align: center;
   padding: 48rpx 0 24rpx;
-  color: #6b7385;
   font-size: 22rpx;
 }
 
 .muted {
-  color: #9aa3b5;
   font-size: 24rpx;
 }
 
@@ -207,21 +142,10 @@
   width: 16rpx;
   height: 16rpx;
   border-radius: 50%;
-  background: #6b7385;
   margin-right: 16rpx;
-  box-shadow: 0 0 0 6rpx rgba(107, 115, 133, 0.2);
-}
-.status-dot.ok {
-  background: #00d1e5;
-  box-shadow: 0 0 0 6rpx rgba(0, 209, 229, 0.22);
-}
-.status-dot.bad {
-  background: #ff5c6a;
-  box-shadow: 0 0 0 6rpx rgba(255, 92, 106, 0.22);
 }
 
 .section-tip {
-  color: #9aa3b5;
   font-size: 24rpx;
   margin-bottom: 16rpx;
   padding: 0 8rpx;
