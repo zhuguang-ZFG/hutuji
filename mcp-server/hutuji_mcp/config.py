@@ -117,7 +117,7 @@ class Settings:
     # 文生图备用端点（历史 imagefree 公共服务；2026-09-09 生产实测持续 403，
     # 默认改为空=禁用，避免对冲池固定噪音。需自建/替换端点时再设 https URL）。
     image_fallback_url: str = ""
-    # 可选商汤 U1 Fast PNG 主后端；三项全空=保持 Agnes，任一配置则必须三项齐全。
+    # 可选商汤 PNG 主后端（当前 sensenova-u1.5-lite）；三项全空=保持 Agnes，任一配置则必须三项齐全。
     sensenova_base_url: str = ""
     sensenova_api_key: str = ""
     sensenova_image_model: str = ""

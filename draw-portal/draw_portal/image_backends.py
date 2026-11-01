@@ -17,7 +17,7 @@ IMAGE_BACKEND_DB_KEYS: dict[str, str] = {
 }
 
 IMAGE_BACKEND_LABELS: dict[str, str] = {
-    "sensenova": "商汤 U1 Fast",
+    "sensenova": "商汤 u1.5-lite",
     "agnes": "Agnes 主链",
     "siliconflow": "硅流（Schnell + 可图）",
     "fallback": "imagefree 备用端点",
